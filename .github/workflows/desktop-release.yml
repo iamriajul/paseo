@@ -163,6 +163,8 @@ jobs:
           if [[ -z "${CSC_LINK:-}" || -z "${CSC_KEY_PASSWORD:-}" || -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
             echo "Apple signing/notarization secrets are incomplete; building unsigned, unnotarized macOS artifacts."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            build_args+=("-c.mac.identity=null")
             build_args+=("-c.mac.notarize=false")
           fi
           npm run build:desktop "${build_args[@]}"

@@ -11,6 +11,7 @@ on:
 
 jobs:
   deploy:
+    if: ${{ github.repository_owner == 'getpaseo' || startsWith(github.ref_name, 'app-v') }}
     runs-on: ubuntu-latest
 
     steps:

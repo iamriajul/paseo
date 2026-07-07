@@ -348,7 +348,7 @@ async function stopRelayProcess(relayProcess: ChildProcess): Promise<void> {
           clientReceivedReady.byteOffset + clientReceivedReady.byteLength,
         ),
       );
-      expect(JSON.parse(new TextDecoder().decode(decryptedReady))).toEqual({ type: "ready" });
+      expect(JSON.parse(decryptedReady as string)).toEqual({ type: "ready" });
 
       // Client sends encrypted message
       const clientMessage = "Hello from client!";
@@ -366,7 +366,7 @@ async function stopRelayProcess(relayProcess: ChildProcess): Promise<void> {
           daemonReceivedMsg.byteOffset + daemonReceivedMsg.byteLength,
         ),
       );
-      expect(new TextDecoder().decode(decryptedClientMsg)).toBe(clientMessage);
+      expect(decryptedClientMsg).toBe(clientMessage);
 
       // Daemon sends encrypted response
       const daemonMessage = "Hello from daemon!";
@@ -384,7 +384,7 @@ async function stopRelayProcess(relayProcess: ChildProcess): Promise<void> {
           clientReceivedMsg.byteOffset + clientReceivedMsg.byteLength,
         ),
       );
-      expect(new TextDecoder().decode(decryptedDaemonMsg)).toBe(daemonMessage);
+      expect(decryptedDaemonMsg).toBe(daemonMessage);
 
       // Cleanup
       daemonWs.close();
@@ -478,7 +478,7 @@ async function stopRelayProcess(relayProcess: ChildProcess): Promise<void> {
       daemonSharedKey,
       received.buffer.slice(received.byteOffset, received.byteOffset + received.byteLength),
     );
-    expect(new TextDecoder().decode(decrypted)).toBe(secret);
+    expect(decrypted).toBe(secret);
 
     daemonControlWs.close();
     daemonWs.close();

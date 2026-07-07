@@ -146,21 +146,24 @@ function createMcpRecordingAgentClients(recorder: LaunchRecorder) {
   };
 }
 
-async function assertAgentNotRunning(options: {
+async function waitForAgentCompletion(options: {
   client: McpClient;
   agentId: string;
 }): Promise<void> {
-  const statusResult = await options.client.callTool({
-    name: "get_agent_status",
+  const waitResult = await options.client.callTool({
+    name: "wait_for_agent",
     args: { agentId: options.agentId },
   });
-  const payload = getStructuredContent(statusResult);
+  const payload = getStructuredContent(waitResult);
   if (!payload) {
-    throw new Error("get_agent_status returned no structured payload");
+    throw new Error("wait_for_agent returned no structured payload");
+  }
+  if (payload.permission) {
+    throw new Error(`Unexpected permission while waiting: ${JSON.stringify(payload.permission)}`);
   }
   const status = payload.status;
   if (status === "running" || status === "initializing") {
-    throw new Error(`Agent still running after blocking create_agent (status=${status})`);
+    throw new Error(`Agent still running after wait_for_agent (status=${status})`);
   }
 }
 
@@ -215,7 +218,7 @@ describe("agent MCP end-to-end (offline)", () => {
       agentId = typeof payload?.agentId === "string" ? payload.agentId : null;
       expect(agentId).toBeTruthy();
 
-      await assertAgentNotRunning({ client, agentId: agentId! });
+      await waitForAgentCompletion({ client, agentId: agentId! });
 
       if (existsSync(filePath)) {
         const contents = await readFile(filePath, "utf8");
@@ -700,7 +703,7 @@ describe("agent MCP end-to-end (offline)", () => {
       agentId = typeof payload?.agentId === "string" ? payload.agentId : null;
       expect(agentId).toBeTruthy();
 
-      await assertAgentNotRunning({ client, agentId: agentId! });
+      await waitForAgentCompletion({ client, agentId: agentId! });
       const statusResult = await client.callTool({
         name: "get_agent_status",
         args: { agentId },

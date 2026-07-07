@@ -1,8 +1,4 @@
-import {
-  compareMatchScores,
-  type MatchScore,
-  scoreTextFields,
-} from "@getpaseo/protocol/search/text-match";
+import { compareMatchScores, type MatchScore, scoreTextFields } from "../../utils/score-match";
 
 export type ComboboxOptionKind = "directory" | "file";
 

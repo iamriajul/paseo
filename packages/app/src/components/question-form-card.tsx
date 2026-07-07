@@ -1,6 +1,12 @@
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useState, useCallback, useMemo } from "react";
-import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  ActivityIndicator,
+  type PressableStateCallbackType,
+} from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { Check, X } from "lucide-react-native";
@@ -8,7 +14,6 @@ import { useTranslation } from "react-i18next";
 import type { PendingPermission } from "@/types/shared";
 import type { AgentPermissionResponse } from "@getpaseo/protocol/agent-types";
 import { isWeb } from "@/constants/platform";
-import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 import {
   areQuestionsAnswered,
   buildQuestionFormAnswers,
@@ -305,7 +310,7 @@ function QuestionOtherInput({
       accessibilityLabel={accessibilityLabel}
       placeholder={placeholder}
       placeholderTextColor={theme.colors.foregroundMuted}
-      initialValue={value}
+      value={value}
       onChangeText={handleChange}
       onSubmitEditing={onSubmit}
       editable={!isResponding}
@@ -576,7 +581,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
           testID="question-form-dismiss"
         >
           {respondingAction === "dismiss" ? (
-            <LoadingSpinner size="small" color={theme.colors.foregroundMuted} />
+            <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
           ) : (
             <View style={styles.actionContent}>
               <X size={14} color={theme.colors.foregroundMuted} />
@@ -594,7 +599,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
           testID="question-form-primary-action"
         >
           {respondingAction === "submit" ? (
-            <LoadingSpinner size="small" color={theme.colors.accentForeground} />
+            <ActivityIndicator size="small" color={theme.colors.accentForeground} />
           ) : (
             <View style={styles.actionContent}>
               <Check size={14} color={submitActionTextColor} />
@@ -652,7 +657,7 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: theme.borderWidth[1],
   },
   questionNavText: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
   },
   optionItem: {
@@ -681,7 +686,7 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 22,
   },
   optionDescription: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
   selectionControl: {
@@ -708,7 +713,7 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.lg,
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[3],
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
   actionsContainer: {
     gap: theme.spacing[2],
@@ -731,6 +736,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   actionText: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
 }));

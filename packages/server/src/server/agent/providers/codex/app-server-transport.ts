@@ -19,7 +19,7 @@ interface JsonRpcRequest {
 interface JsonRpcResponse {
   id: number;
   result?: unknown;
-  error?: { message?: string; code?: string | number; data?: unknown };
+  error?: { message?: string };
 }
 
 interface JsonRpcNotification {
@@ -33,20 +33,8 @@ interface PendingRequest {
   timer: NodeJS.Timeout;
 }
 
-export class CodexAppServerRpcError extends Error {
-  constructor(
-    message: string,
-    readonly code: string | number | undefined,
-    readonly data: unknown,
-  ) {
-    super(message);
-    this.name = "CodexAppServerRpcError";
-  }
-}
-
-type RequestHandler = (params: unknown, requestId: number) => unknown;
+type RequestHandler = (params: unknown) => unknown;
 type NotificationHandler = (method: string, params: unknown) => void;
-type UnexpectedTerminationHandler = (error: Error) => void;
 
 export interface CodexThreadForkParams {
   threadId: string;
@@ -171,7 +159,6 @@ export class CodexAppServerClient {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly requestHandlers = new Map<string, RequestHandler>();
   private notificationHandler: NotificationHandler | null = null;
-  private unexpectedTerminationHandler: UnexpectedTerminationHandler | null = null;
   private nextId = 1;
   private disposed = false;
   private stderrBuffer = "";
@@ -197,7 +184,12 @@ export class CodexAppServerClient {
 
     child.on("error", (err) => {
       this.logger.error({ err }, "Codex app-server child process error");
-      this.handleUnexpectedTermination(err);
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(err);
+      }
+      this.pending.clear();
+      this.disposed = true;
     });
 
     child.on("exit", (code, signal) => {
@@ -206,12 +198,13 @@ export class CodexAppServerClient {
           ? "Codex app-server exited"
           : `Codex app-server exited with code ${code ?? "null"} and signal ${signal ?? "null"}`;
       const error = new Error(`${message}\n${this.stderrBuffer}`.trim());
-      this.handleUnexpectedTermination(error);
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(error);
+      }
+      this.pending.clear();
+      this.disposed = true;
     });
-  }
-
-  setUnexpectedTerminationHandler(handler: UnexpectedTerminationHandler): void {
-    this.unexpectedTerminationHandler = handler;
   }
 
   setNotificationHandler(handler: NotificationHandler): void {
@@ -258,7 +251,6 @@ export class CodexAppServerClient {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    this.unexpectedTerminationHandler = null;
     this.rl.close();
     try {
       this.child.stdin.end();
@@ -280,29 +272,6 @@ export class CodexAppServerClient {
         { timeoutMs: APP_SERVER_FORCE_SHUTDOWN_TIMEOUT_MS },
         "Codex app-server did not report exit after SIGKILL",
       );
-    }
-  }
-
-  private handleUnexpectedTermination(error: Error): void {
-    if (this.disposed) {
-      return;
-    }
-    this.disposed = true;
-    this.rl.close();
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(error);
-    }
-    this.pending.clear();
-    const handler = this.unexpectedTerminationHandler;
-    this.unexpectedTerminationHandler = null;
-    if (!handler) {
-      return;
-    }
-    try {
-      handler(error);
-    } catch (handlerError) {
-      this.logger.warn({ err: handlerError }, "Codex app-server termination handler threw");
     }
   }
 
@@ -340,13 +309,7 @@ export class CodexAppServerClient {
         clearTimeout(pending.timer);
         this.pending.delete(id);
         if (raw.error) {
-          pending.reject(
-            new CodexAppServerRpcError(
-              raw.error.message ?? "Unknown error",
-              raw.error.code,
-              raw.error.data,
-            ),
-          );
+          pending.reject(new Error(raw.error.message ?? "Unknown error"));
         } else {
           pending.resolve(raw.result);
         }
@@ -358,7 +321,7 @@ export class CodexAppServerClient {
         this.traceRawEvent(request);
         const handler = this.requestHandlers.get(request.method);
         try {
-          const result = handler ? await handler(request.params, request.id) : {};
+          const result = handler ? await handler(request.params) : {};
           this.writeJsonRpcResponse({ id: request.id, result });
         } catch (error) {
           this.writeJsonRpcResponse({

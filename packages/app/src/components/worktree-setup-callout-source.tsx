@@ -14,12 +14,11 @@ import {
 
 export function WorktreeSetupCalloutSource() {
   const selection = useActiveWorkspaceSelection();
-  const selectedWorkspaceProject = useWorkspaceFields(
+  const activeProject = useWorkspaceFields(
     selection?.serverId ?? null,
     selection?.workspaceId ?? null,
     (workspace) => selectActiveGitWorkspaceProject(selection?.serverId ?? "", workspace),
   );
-  const activeProject = selectedWorkspaceProject;
   const client = useHostRuntimeClient(activeProject?.serverId ?? "");
   const callouts = useSidebarCallouts();
   const router = useRouter();

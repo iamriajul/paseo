@@ -23,7 +23,6 @@ function makeAgent(input: {
     id: input.id,
     provider: "codex",
     status: "idle",
-    activeTurn: null,
     createdAt,
     updatedAt: createdAt,
     lastUserMessageAt: null,
@@ -130,32 +129,6 @@ describe("workspace agent visibility", () => {
     expect(result.activeAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
     expect(result.autoOpenAgentIds).toEqual(new Set(["parent-agent"]));
     expect(result.knownAgentIds).toEqual(new Set(["child-agent", "parent-agent"]));
-  });
-
-  it("auto-opens a subagent whose parent belongs to another workspace", () => {
-    const parent = makeAgent({
-      id: "parent-agent",
-      cwd: "/repo",
-      workspaceId: "ws-parent",
-    });
-    const child = makeAgent({
-      id: "child-agent",
-      cwd: "/repo/worktree",
-      workspaceId: WORKSPACE_ID,
-      parentAgentId: parent.id,
-    });
-
-    const result = deriveWorkspaceAgentVisibility({
-      sessionAgents: new Map<string, Agent>([
-        [parent.id, parent],
-        [child.id, child],
-      ]),
-      workspaceId: WORKSPACE_ID,
-    });
-
-    expect(result.activeAgentIds).toEqual(new Set(["child-agent"]));
-    expect(result.autoOpenAgentIds).toEqual(new Set(["child-agent"]));
-    expect(result.knownAgentIds).toEqual(new Set(["child-agent"]));
   });
 
   it("keeps archived agents out of activeAgentIds but present in knownAgentIds", () => {
@@ -333,7 +306,6 @@ describe("workspace agent visibility", () => {
         terminalsHydrated: true,
         knownTerminalIds: ["terminal-1", "script-terminal"],
         standaloneTerminalIds: ["terminal-1"],
-        hasActivePendingTerminalCreate: false,
         hasActivePendingDraftCreate: false,
       }),
     ).toEqual({
@@ -344,7 +316,6 @@ describe("workspace agent visibility", () => {
       knownAgentIds: agentVisibility.knownAgentIds,
       knownTerminalIds: ["terminal-1", "script-terminal"],
       standaloneTerminalIds: ["terminal-1"],
-      hasActivePendingTerminalCreate: false,
       hasActivePendingDraftCreate: false,
     });
   });

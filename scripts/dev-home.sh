@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 default_dev_paseo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd

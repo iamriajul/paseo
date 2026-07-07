@@ -5,32 +5,23 @@ import {
   type AutocompleteOptionsPosition,
 } from "@/components/ui/autocomplete-utils";
 
-interface AutocompleteKeyPressEvent {
-  key: string;
-  preventDefault: () => void;
-}
-
-interface UseAutocompleteInput<
-  TOption,
-  TKeyPressEvent extends AutocompleteKeyPressEvent = AutocompleteKeyPressEvent,
-> {
+interface UseAutocompleteInput<TOption> {
   isVisible: boolean;
   options: readonly TOption[];
   query: string;
-  onSelectOption: (option: TOption, event?: TKeyPressEvent) => void;
+  onSelectOption: (option: TOption) => void;
   onEscape?: () => void;
   optionsPosition?: AutocompleteOptionsPosition;
 }
 
-interface UseAutocompleteResult<TKeyPressEvent extends AutocompleteKeyPressEvent> {
+interface UseAutocompleteResult {
   selectedIndex: number;
-  onKeyPress: (event: TKeyPressEvent) => boolean;
+  onKeyPress: (event: { key: string; preventDefault: () => void }) => boolean;
 }
 
-export function useAutocomplete<
-  TOption,
-  TKeyPressEvent extends AutocompleteKeyPressEvent = AutocompleteKeyPressEvent,
->(input: UseAutocompleteInput<TOption, TKeyPressEvent>): UseAutocompleteResult<TKeyPressEvent> {
+export function useAutocomplete<TOption>(
+  input: UseAutocompleteInput<TOption>,
+): UseAutocompleteResult {
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const previousQueryRef = useRef("");
 
@@ -65,7 +56,7 @@ export function useAutocomplete<
   }, [input.isVisible, input.options.length, input.query, input.optionsPosition]);
 
   const onKeyPress = useCallback(
-    (event: TKeyPressEvent) => {
+    (event: { key: string; preventDefault: () => void }) => {
       if (!input.isVisible || input.options.length === 0) {
         return false;
       }
@@ -106,7 +97,7 @@ export function useAutocomplete<
             : fallbackIndex;
         const selectedOption = input.options[resolvedIndex];
         if (selectedOption) {
-          input.onSelectOption(selectedOption, event);
+          input.onSelectOption(selectedOption);
         }
         return true;
       }

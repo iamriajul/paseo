@@ -1,7 +1,6 @@
 export interface DictationAudioSourceConfig {
   onPcmSegment: (pcm16Base64: string) => void;
   onError?: (error: Error) => void;
-  onInterruption?: () => void;
 }
 
 export interface DictationAudioSource {

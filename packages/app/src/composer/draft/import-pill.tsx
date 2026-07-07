@@ -3,7 +3,6 @@ import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Import as ImportIcon } from "lucide-react-native";
-import { composerPillStyles } from "@/composer/pill-styles";
 import type { Theme } from "@/styles/theme";
 
 const ThemedImportIcon = withUnistyles(ImportIcon);
@@ -19,14 +18,7 @@ export function ComposerImportPill({ onPress, disabled = false }: ComposerImport
   const [isHovered, setIsHovered] = useState(false);
   const handleHoverIn = useCallback(() => setIsHovered(true), []);
   const handleHoverOut = useCallback(() => setIsHovered(false), []);
-  const bodyStyle = useMemo(
-    () => [composerPillStyles.body, isHovered && composerPillStyles.bodyActive],
-    [isHovered],
-  );
-  const labelStyle = useMemo(
-    () => [composerPillStyles.label, isHovered && composerPillStyles.labelActive],
-    [isHovered],
-  );
+  const bodyStyle = useMemo(() => [styles.body, isHovered && styles.bodyHovered], [isHovered]);
   return (
     <View style={styles.row}>
       <Pressable
@@ -40,7 +32,7 @@ export function ComposerImportPill({ onPress, disabled = false }: ComposerImport
         style={bodyStyle}
       >
         <ThemedImportIcon size={14} uniProps={iconColorMapping} />
-        <Text style={labelStyle} numberOfLines={1}>
+        <Text style={styles.label} numberOfLines={1}>
           {t("importSession.title")}
         </Text>
       </Pressable>
@@ -48,8 +40,26 @@ export function ComposerImportPill({ onPress, disabled = false }: ComposerImport
   );
 }
 
-const styles = StyleSheet.create(() => ({
+const styles = StyleSheet.create((theme) => ({
   row: {
     flexDirection: "row",
+  },
+  body: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    borderRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.borderAccent,
+    backgroundColor: theme.colors.surface1,
+  },
+  bodyHovered: {
+    backgroundColor: theme.colors.surface2,
+  },
+  label: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
   },
 }));

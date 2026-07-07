@@ -32,7 +32,7 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surfaceSidebar,
   },
   message: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     color: theme.colors.foregroundMuted,
     textAlign: "center",
   },

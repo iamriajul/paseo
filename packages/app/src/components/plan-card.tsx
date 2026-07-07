@@ -9,16 +9,22 @@ import { getMarkdownListMarker } from "@/utils/markdown-list";
 type MarkdownRuleStyles = Record<string, TextStyle & ViewStyle & { [key: string]: unknown }>;
 
 function MarkdownInlineText({
+  textKey,
   inheritedStyle,
   ruleStyle,
   children,
 }: {
+  textKey: string;
   inheritedStyle: StyleProp<TextStyle>;
   ruleStyle: StyleProp<TextStyle>;
   children: ReactNode;
 }) {
   const style = useMemo(() => [inheritedStyle, ruleStyle], [inheritedStyle, ruleStyle]);
-  return <Text style={style}>{children}</Text>;
+  return (
+    <Text key={textKey} style={style}>
+      {children}
+    </Text>
+  );
 }
 
 function MarkdownListItemContent({
@@ -33,10 +39,12 @@ function MarkdownListItemContent({
 }
 
 function MarkdownParagraph({
+  textKey,
   paragraphStyle,
   isLastChild,
   children,
 }: {
+  textKey: string;
   paragraphStyle: StyleProp<ViewStyle>;
   isLastChild: boolean;
   children: ReactNode;
@@ -45,7 +53,11 @@ function MarkdownParagraph({
     () => [paragraphStyle, isLastChild ? PARAGRAPH_LAST_CHILD : null],
     [paragraphStyle, isLastChild],
   );
-  return <View style={style}>{children}</View>;
+  return (
+    <View key={textKey} style={style}>
+      {children}
+    </View>
+  );
 }
 
 function createPlanMarkdownRules() {
@@ -57,7 +69,11 @@ function createPlanMarkdownRules() {
       styles: MarkdownRuleStyles,
       inheritedStyles: TextStyle = {},
     ) => (
-      <MarkdownInlineText key={node.key} inheritedStyle={inheritedStyles} ruleStyle={styles.text}>
+      <MarkdownInlineText
+        textKey={node.key}
+        inheritedStyle={inheritedStyles}
+        ruleStyle={styles.text}
+      >
         {node.content}
       </MarkdownInlineText>
     ),
@@ -69,7 +85,7 @@ function createPlanMarkdownRules() {
       inheritedStyles: TextStyle = {},
     ) => (
       <MarkdownInlineText
-        key={node.key}
+        textKey={node.key}
         inheritedStyle={inheritedStyles}
         ruleStyle={styles.textgroup}
       >
@@ -84,7 +100,7 @@ function createPlanMarkdownRules() {
       inheritedStyles: TextStyle = {},
     ) => (
       <MarkdownInlineText
-        key={node.key}
+        textKey={node.key}
         inheritedStyle={inheritedStyles}
         ruleStyle={styles.code_block}
       >
@@ -98,7 +114,11 @@ function createPlanMarkdownRules() {
       styles: MarkdownRuleStyles,
       inheritedStyles: TextStyle = {},
     ) => (
-      <MarkdownInlineText key={node.key} inheritedStyle={inheritedStyles} ruleStyle={styles.fence}>
+      <MarkdownInlineText
+        textKey={node.key}
+        inheritedStyle={inheritedStyles}
+        ruleStyle={styles.fence}
+      >
         {node.content}
       </MarkdownInlineText>
     ),
@@ -110,7 +130,7 @@ function createPlanMarkdownRules() {
       inheritedStyles: TextStyle = {},
     ) => (
       <MarkdownInlineText
-        key={node.key}
+        textKey={node.key}
         inheritedStyle={inheritedStyles}
         ruleStyle={styles.code_inline}
       >
@@ -163,7 +183,7 @@ function createPlanMarkdownRules() {
       const isLastChild = parent[0]?.children?.at(-1)?.key === node.key;
       return (
         <MarkdownParagraph
-          key={node.key}
+          textKey={node.key}
           paragraphStyle={styles.paragraph}
           isLastChild={isLastChild}
         >
@@ -243,7 +263,7 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 22,
   },
   description: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
   footer: {

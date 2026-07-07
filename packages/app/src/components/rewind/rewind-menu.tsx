@@ -161,7 +161,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   tooltipText: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   warningHeader: {
     paddingHorizontal: theme.spacing[3],
@@ -170,6 +170,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   warningText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
 }));

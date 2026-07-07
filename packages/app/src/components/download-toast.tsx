@@ -1,8 +1,7 @@
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Check, X, XCircle } from "lucide-react-native";
@@ -70,7 +69,7 @@ export function DownloadToast() {
     <View style={containerStyle} pointerEvents="box-none">
       <View style={styles.toast}>
         {activeDownload.status === "downloading" ? (
-          <LoadingSpinner size="small" color={theme.colors.foreground} />
+          <ActivityIndicator size="small" color={theme.colors.foreground} />
         ) : null}
         {activeDownload.status === "complete" ? (
           <Check size={18} color={theme.colors.primary} />
@@ -130,12 +129,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   fileName: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.semibold,
   },
   status: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   progressBar: {
     height: 3,

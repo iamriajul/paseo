@@ -1,9 +1,6 @@
-export const GITHUB_CACHE_TTL_MS = 5 * 60 * 1000;
+import { env, waitUntil } from "cloudflare:workers";
 
-export interface WebsiteCacheContext {
-  cache: KVNamespace | null;
-  waitUntil: (promise: Promise<unknown>) => void;
-}
+export const GITHUB_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CachedValue<T> {
   fetchedAt: number;
@@ -12,6 +9,10 @@ interface CachedValue<T> {
 
 type Validator<T> = (value: unknown) => value is T;
 
+function getWebsiteCache(): KVNamespace | null {
+  return (env as { WEBSITE_CACHE?: KVNamespace }).WEBSITE_CACHE ?? null;
+}
+
 function isCachedValue<T>(value: unknown, isValue: Validator<T>): value is CachedValue<T> {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
@@ -19,20 +20,17 @@ function isCachedValue<T>(value: unknown, isValue: Validator<T>): value is Cache
 }
 
 async function readCachedValue<T>(
-  cache: KVNamespace | null,
   key: string,
   isValue: Validator<T>,
 ): Promise<CachedValue<T> | null> {
+  const cache = getWebsiteCache();
   if (!cache) return null;
   const cached = await cache.get(key, { cacheTtl: 60, type: "json" });
   return isCachedValue(cached, isValue) ? cached : null;
 }
 
-async function writeCachedValue<T>(
-  cache: KVNamespace | null,
-  key: string,
-  value: T,
-): Promise<void> {
+async function writeCachedValue<T>(key: string, value: T): Promise<void> {
+  const cache = getWebsiteCache();
   if (!cache) return;
   await cache.put(
     key,
@@ -44,22 +42,20 @@ async function writeCachedValue<T>(
 }
 
 export async function getBlockingColdCache<T>({
-  context,
   key,
   isValue,
   fetchFresh,
 }: {
-  context: WebsiteCacheContext;
   key: string;
   isValue: Validator<T>;
   fetchFresh: () => Promise<T>;
 }): Promise<T> {
-  const cached = await readCachedValue(context.cache, key, isValue);
+  const cached = await readCachedValue(key, isValue);
   if (cached) {
     if (Date.now() - cached.fetchedAt > GITHUB_CACHE_TTL_MS) {
-      context.waitUntil(
+      waitUntil(
         fetchFresh()
-          .then((fresh) => writeCachedValue(context.cache, key, fresh))
+          .then((fresh) => writeCachedValue(key, fresh))
           .catch(() => undefined),
       );
     }
@@ -67,6 +63,6 @@ export async function getBlockingColdCache<T>({
   }
 
   const fresh = await fetchFresh();
-  await writeCachedValue(context.cache, key, fresh);
+  await writeCachedValue(key, fresh);
   return fresh;
 }

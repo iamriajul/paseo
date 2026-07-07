@@ -59,7 +59,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
-  const isRecordingActive = useCallback(() => isRecordingRef.current, []);
 
   const isProcessingRef = useRef(isProcessing);
   useEffect(() => {
@@ -185,6 +184,19 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     });
   }, [client]);
 
+  const audio = useDictationAudioSource({
+    onPcmSegment: (audioData) => {
+      senderRef.current?.enqueueSegment(audioData);
+    },
+    onError: (err) => {
+      onErrorRef.current?.(err);
+    },
+  });
+  const audioStopRef = useRef(audio.stop);
+  useEffect(() => {
+    audioStopRef.current = audio.stop;
+  }, [audio.stop]);
+
   const handleStreamingTranscriptionSuccess = useCallback(
     (text: string, requestId: string) => {
       setIsProcessing(false);
@@ -208,7 +220,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     (failure: unknown) => {
       const normalized = toError(failure);
       const failureId = generateMessageId();
-      stopDurationTracking();
       setIsProcessing(false);
       isProcessingRef.current = false;
       isRecordingRef.current = false;
@@ -223,29 +234,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
       reportError(normalized, "Failed to complete dictation");
     },
-    [reportError, stopDurationTracking],
+    [reportError],
   );
-
-  const audio = useDictationAudioSource({
-    onPcmSegment: (audioData) => {
-      senderRef.current?.enqueueSegment(audioData);
-    },
-    onError: (err) => {
-      onErrorRef.current?.(err);
-    },
-    onInterruption: () => {
-      try {
-        senderRef.current?.cancel();
-      } catch {
-        // no-op
-      }
-      handleDictationFailure(new Error("Dictation was interrupted by another audio source."));
-    },
-  });
-  const audioStopRef = useRef(audio.stop);
-  useEffect(() => {
-    audioStopRef.current = audio.stop;
-  }, [audio.stop]);
 
   const startDictation = useCallback(async () => {
     if (
@@ -449,13 +439,11 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       attemptGuard.cancel();
       stopDurationTracking();
       void audioStop.current().catch(() => undefined);
-      senderRef.current?.dispose();
     };
   }, [stopDurationTracking]);
 
   return {
     isRecording,
-    isRecordingActive,
     isProcessing,
     partialTranscript,
     volume: audio.volume,

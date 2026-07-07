@@ -47,13 +47,6 @@ export class TerminalActivityTracker {
     return true;
   }
 
-  interrupt(): void {
-    if (this.resolvedState !== "working") {
-      return;
-    }
-    this.setState(null, null);
-  }
-
   private setState(
     state: TerminalActivityState | null,
     attentionReason: TerminalActivityAttentionReason | null,

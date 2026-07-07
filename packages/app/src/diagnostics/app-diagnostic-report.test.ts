@@ -1,18 +1,12 @@
 import { describe, expect, test } from "vitest";
-import {
-  formatHostRuntimeSection,
-  formatServerInfoSection,
-  redactAppDiagnosticReport,
-} from "./app-diagnostic-report";
+import { formatHostRuntimeSection, redactAppDiagnosticReport } from "./app-diagnostic-report";
 import type { HostRuntimeSnapshot } from "@/runtime/host-runtime";
 import type { HostProfile } from "@/types/host-connection";
-import { defaultHostAppearance } from "@/hosts/appearance";
 
 function makeHost(): HostProfile {
   return {
     serverId: "srv-secret",
     label: "Secret host",
-    appearance: defaultHostAppearance(),
     lifecycle: {},
     preferredConnectionId: "direct:secret.example.test:6767",
     createdAt: "2026-06-25T00:00:00.000Z",
@@ -47,18 +41,6 @@ function makeHost(): HostProfile {
 }
 
 describe("app diagnostics report", () => {
-  test("reports whether the connected daemon is managed by Paseo Desktop", () => {
-    const report = formatServerInfoSection({
-      status: "server_info",
-      serverId: "srv-desktop-managed",
-      hostname: "desktop-host.local",
-      version: "0.1.108",
-      desktopManaged: true,
-    });
-
-    expect(report).toContain("Desktop managed: yes");
-  });
-
   test("formats connection rows without raw connection details", () => {
     const host = makeHost();
     const snapshot: HostRuntimeSnapshot = {
@@ -81,7 +63,6 @@ describe("app diagnostics report", () => {
         ["relay:relay.secret.test:443", { status: "available", latencyMs: 8 }],
       ]),
       clientGeneration: 1,
-      connectionEpoch: 1,
     };
 
     const report = formatHostRuntimeSection({ host, snapshot });

@@ -1,7 +1,5 @@
 import {
   canCreateWorkspaceForHostProject,
-  filterWorkspaceProjectsForHost,
-  resolveHostProjectCandidate,
   type HostProjectListItem,
 } from "@/projects/host-projects";
 import type { HostRuntimeConnectionStatus } from "@/runtime/host-runtime";
@@ -27,31 +25,35 @@ function supportsAllProjects(
   return workspaceMultiplicityByServerId.get(serverId) === true;
 }
 
+function getProjectForServer(input: {
+  candidate: HostProjectListItem;
+  projects: readonly HostProjectListItem[];
+  serverId: string;
+}) {
+  return (
+    input.projects.find(
+      (project) =>
+        project.projectKey === input.candidate.projectKey &&
+        project.hosts.some((host) => host.serverId === input.serverId),
+    ) ?? input.candidate
+  );
+}
+
 function canUseProjectForServer(input: {
   project: HostProjectListItem;
   projects: readonly HostProjectListItem[];
   serverId: string;
   workspaceMultiplicityByServerId: ReadonlyMap<string, boolean>;
 }) {
-  const allowAllProjects = supportsAllProjects(
-    input.workspaceMultiplicityByServerId,
-    input.serverId,
-  );
-  const selectableProjects = filterWorkspaceProjectsForHost({
+  const project = getProjectForServer({
+    candidate: input.project,
     projects: input.projects,
     serverId: input.serverId,
-    allowAllProjects,
   });
-  const project =
-    resolveHostProjectCandidate({
-      candidate: input.project,
-      projects: selectableProjects,
-      serverId: input.serverId,
-    }) ?? input.project;
   return canCreateWorkspaceForHostProject({
     project,
     serverId: input.serverId,
-    allowAllProjects,
+    allowAllProjects: supportsAllProjects(input.workspaceMultiplicityByServerId, input.serverId),
   });
 }
 

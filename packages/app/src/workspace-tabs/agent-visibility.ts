@@ -1,6 +1,6 @@
 import type { Agent } from "@/stores/session-store";
 import type { WorkspaceTabSnapshot } from "@/stores/workspace-layout-actions";
-import { isWorkspaceRootAgent } from "@/subagents/policies";
+import { shouldAutoOpenAgentTab } from "@/subagents/policies";
 import { normalizeWorkspaceOpaqueId } from "@/utils/workspace-identity";
 
 export interface WorkspaceAgentVisibility {
@@ -31,10 +31,6 @@ export function deriveWorkspaceAgentVisibility(input: {
   const activeAgentIds = new Set<string>();
   const autoOpenAgentIds = new Set<string>();
   const knownAgentIds = new Set<string>();
-  const agentsById = new Map<string, Agent>([
-    ...(agentDetails?.entries() ?? []),
-    ...(sessionAgents?.entries() ?? []),
-  ]);
   for (const agent of sessionAgents?.values() ?? []) {
     if (!agentBelongsToWorkspace(agent, workspaceId)) {
       continue;
@@ -42,8 +38,7 @@ export function deriveWorkspaceAgentVisibility(input: {
     knownAgentIds.add(agent.id);
     if (!agent.archivedAt) {
       activeAgentIds.add(agent.id);
-      const parentAgent = agent.parentAgentId ? agentsById.get(agent.parentAgentId) : undefined;
-      if (isWorkspaceRootAgent(agent, parentAgent)) {
+      if (shouldAutoOpenAgentTab(agent)) {
         autoOpenAgentIds.add(agent.id);
       }
     }
@@ -64,7 +59,6 @@ export function buildWorkspaceTabSnapshot(input: {
   terminalsHydrated: boolean;
   knownTerminalIds: Iterable<string>;
   standaloneTerminalIds: Iterable<string>;
-  hasActivePendingTerminalCreate: boolean;
   hasActivePendingDraftCreate: boolean;
 }): WorkspaceTabSnapshot {
   return {
@@ -75,7 +69,6 @@ export function buildWorkspaceTabSnapshot(input: {
     knownAgentIds: input.agentVisibility.knownAgentIds,
     knownTerminalIds: input.knownTerminalIds,
     standaloneTerminalIds: input.standaloneTerminalIds,
-    hasActivePendingTerminalCreate: input.hasActivePendingTerminalCreate,
     hasActivePendingDraftCreate: input.hasActivePendingDraftCreate,
   };
 }

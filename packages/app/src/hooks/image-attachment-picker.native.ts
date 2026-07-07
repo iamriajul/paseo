@@ -34,8 +34,6 @@ export async function normalizePickedImageAssets(
   return normalizePickedImageAssetsWith(assets, exportPickedImageAsPng);
 }
 
-export async function pickImagesWithDesktopDialog(
-  _dialog?: unknown,
-): Promise<PickedImageAttachmentInput[]> {
+export async function openImagePathsWithDesktopDialog(_dialog?: unknown): Promise<string[]> {
   throw new Error("Desktop dialog API is not available on native.");
 }

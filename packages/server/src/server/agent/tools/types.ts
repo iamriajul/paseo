@@ -2,7 +2,6 @@ import type { z } from "zod";
 
 export interface PaseoToolExecutionContext {
   signal?: AbortSignal;
-  sendUpdate?: (update: PaseoToolResult) => void;
 }
 
 export interface PaseoToolResult {

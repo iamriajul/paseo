@@ -66,12 +66,11 @@ export function buildConfigOverrides(record: StoredAgentRecord): Partial<AgentSe
   return stripInternalPaseoMcpServer({
     provider: record.provider,
     cwd: record.cwd,
-    modeId: record.config?.modeId ?? undefined,
+    modeId: record.lastModeId ?? record.config?.modeId ?? undefined,
     model: record.config?.model ?? undefined,
     thinkingOptionId: record.config?.thinkingOptionId ?? undefined,
     featureValues: record.config?.featureValues ?? undefined,
-    providerOptions: record.config?.providerOptions ?? undefined,
-    toolPolicy: record.config?.toolPolicy ?? undefined,
+    extra: record.config?.extra ?? undefined,
     systemPrompt: record.config?.systemPrompt ?? undefined,
     mcpServers: record.config?.mcpServers ?? undefined,
   });
@@ -92,8 +91,7 @@ export function buildSessionConfig(
     model: overrides.model,
     thinkingOptionId: overrides.thinkingOptionId,
     featureValues: overrides.featureValues,
-    providerOptions: overrides.providerOptions,
-    toolPolicy: overrides.toolPolicy,
+    extra: overrides.extra,
     systemPrompt: overrides.systemPrompt,
     mcpServers: overrides.mcpServers,
   });
@@ -112,7 +110,6 @@ export function extractTimestamps(record: StoredAgentRecord): {
   lastUserMessageAt: Date | null;
   labels?: Record<string, string>;
   workspaceId?: string;
-  owner?: StoredAgentRecord["owner"];
 } {
   return {
     createdAt: new Date(record.createdAt),
@@ -120,7 +117,6 @@ export function extractTimestamps(record: StoredAgentRecord): {
     lastUserMessageAt: record.lastUserMessageAt ? new Date(record.lastUserMessageAt) : null,
     labels: record.labels,
     workspaceId: record.workspaceId,
-    owner: record.owner,
   };
 }
 

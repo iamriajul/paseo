@@ -1,11 +1,7 @@
-import { normalizeForge, type Forge } from "@/git/forge";
-
 export interface PrHint {
   url: string;
   number: number;
   state: "open" | "merged" | "closed";
-  /** Forge backing this change request, so badges render the right brand mark. */
-  forge: Forge;
   checks?: Array<{ name: string; status: string; url: string | null }>;
   checksStatus?: "none" | "pending" | "success" | "failure";
   reviewDecision?: "approved" | "changes_requested" | "pending" | null;
@@ -18,15 +14,12 @@ interface PrStatusLike {
   checks?: Array<{ name: string; status: string; url: string | null }>;
   checksStatus?: string;
   reviewDecision?: string | null;
-  forge?: string;
 }
 
 function parsePullRequestNumber(url: string): number | null {
   try {
     const pathname = new URL(url).pathname;
-    // GitHub uses /pull/N, Gitea/Forgejo /pulls/N, GitLab /-/merge_requests/N.
-    // Match any so a non-GitHub change-request summary yields a hint (and brand mark).
-    const match = pathname.match(/\/(?:pull|pulls|merge_requests)\/(\d+)(?:\/|$)/);
+    const match = pathname.match(/\/pull\/(\d+)(?:\/|$)/);
     if (!match) {
       return null;
     }
@@ -38,10 +31,7 @@ function parsePullRequestNumber(url: string): number | null {
   }
 }
 
-export function selectPrHintFromStatus(
-  status: PrStatusLike | null | undefined,
-  forge?: string | null,
-): PrHint | null {
+export function selectPrHintFromStatus(status: PrStatusLike | null | undefined): PrHint | null {
   if (!status?.url) {
     return null;
   }
@@ -60,7 +50,6 @@ export function selectPrHintFromStatus(
     url: status.url,
     number,
     state,
-    forge: normalizeForge(forge ?? status.forge),
     checks: status.checks,
     checksStatus: status.checksStatus as PrHint["checksStatus"],
     reviewDecision: status.reviewDecision as PrHint["reviewDecision"],

@@ -21,19 +21,15 @@ export {
 
 export {
   getInlineReviewThreadState,
-  getSplitInlineReviewThreadState,
-  isInlineReviewEditorForTarget,
-  type InlineReviewActions,
-  type InlineReviewEditorState,
-} from "./geometry";
-
-export {
   getInlineReviewThreadViewportStyle,
+  getSplitInlineReviewThreadState,
   groupInlineReviewCommentsByTarget,
-  InlineReviewAddButton,
   InlineReviewEditor,
   InlineReviewGutterCell,
   InlineReviewThread,
+  isInlineReviewEditorForTarget,
   SMALL_ACTION_HIT_SLOP,
   useInlineReviewController,
+  type InlineReviewActions,
+  type InlineReviewEditorState,
 } from "./surface";

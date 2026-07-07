@@ -116,21 +116,6 @@ export function createAudioEngine(
       callbacks.onVolumeLevel(level);
     },
   );
-  const interruptionSubscription = native.addExpoTwoWayAudioEventListener(
-    "onAudioInterruption",
-    (event: { data: string }) => {
-      if (event.data !== "blocked") {
-        return;
-      }
-      const wasCaptureActive = refs.captureActive;
-      refs.captureActive = false;
-      refs.muted = false;
-      callbacks.onVolumeLevel(0);
-      if (wasCaptureActive) {
-        callbacks.onInterruption?.();
-      }
-    },
-  );
 
   async function ensureInitialized(): Promise<void> {
     if (refs.initialized) {
@@ -141,23 +126,6 @@ export function createAudioEngine(
       throw new Error("expo-two-way-audio: native initialize() returned false");
     }
     refs.initialized = true;
-  }
-
-  /**
-   * Release the OS audio session as soon as we are neither capturing nor playing.
-   * Holding it keeps the user's background music paused — on iOS the non-mixing
-   * `.playAndRecord` category survives backgrounding and is re-asserted on every
-   * foreground, so an unreleased session means their music never comes back.
-   */
-  function releaseSessionIfIdle(): void {
-    if (!refs.initialized || refs.destroyed) {
-      return;
-    }
-    if (refs.captureActive || refs.activePlayback || refs.queue.length > 0) {
-      return;
-    }
-    // The wrapper no-ops on binaries whose native module predates this function.
-    native.releaseAudioSession();
   }
 
   async function ensureMicrophonePermission(): Promise<void> {
@@ -239,7 +207,6 @@ export function createAudioEngine(
       }
     }
     refs.processingQueue = false;
-    releaseSessionIfIdle();
   }
 
   return {
@@ -267,7 +234,6 @@ export function createAudioEngine(
       }
       microphoneSubscription.remove();
       volumeSubscription.remove();
-      interruptionSubscription.remove();
     },
 
     async startCapture() {
@@ -278,12 +244,7 @@ export function createAudioEngine(
       try {
         await ensureMicrophonePermission();
         await ensureInitialized();
-        const isRecording = native.toggleRecording(true);
-        if (!isRecording) {
-          throw new Error(
-            "Microphone capture could not start because Android audio focus is unavailable.",
-          );
-        }
+        native.toggleRecording(true);
         refs.captureActive = true;
       } catch (error) {
         const wrapped = error instanceof Error ? error : new Error(String(error));
@@ -299,7 +260,6 @@ export function createAudioEngine(
       refs.captureActive = false;
       refs.muted = false;
       callbacks.onVolumeLevel(0);
-      releaseSessionIfIdle();
     },
 
     toggleMute() {
@@ -332,7 +292,6 @@ export function createAudioEngine(
         active.settled = true;
         active.reject(new Error("Playback stopped"));
       }
-      releaseSessionIfIdle();
     },
 
     clearQueue() {
@@ -340,7 +299,6 @@ export function createAudioEngine(
         refs.queue.shift()!.reject(new Error("Playback stopped"));
       }
       refs.processingQueue = false;
-      releaseSessionIfIdle();
     },
 
     isPlaying() {

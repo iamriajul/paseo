@@ -6,28 +6,11 @@ import type {
 } from "@getpaseo/protocol/agent-types";
 import type { AgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 import type { DraftCommandConfig } from "@/hooks/use-agent-commands-query";
+import { buildFavoriteModelKey, type FavoriteModelRow } from "@/hooks/use-form-preferences";
 import { i18n } from "@/i18n/i18next";
-import { compareMatchScores, scoreTextFields } from "@getpaseo/protocol/search/text-match";
-import { filterSelectableModels } from "./model-catalog";
+import { compareMatchScores, scoreTextFields } from "@/utils/score-match";
 
-export interface ProviderSelectionModelRow {
-  /**
-   * Row identity — `provider:modelId`. Used as the React key and as the row's
-   * stable handle across list rebuilds. The name is historical; it has nothing
-   * to do with the removed favourites feature.
-   */
-  favoriteKey: string;
-  provider: string;
-  providerLabel: string;
-  modelId: string;
-  modelLabel: string;
-  description?: string;
-  isDefault?: boolean;
-}
-
-function buildModelRowKey(provider: string, modelId: string): string {
-  return `${provider}:${modelId}`;
-}
+export type ProviderSelectionModelRow = FavoriteModelRow & { isDefault?: boolean };
 
 export type ProviderModelSelection =
   | { kind: "models"; rows: ProviderSelectionModelRow[] }
@@ -60,7 +43,7 @@ function buildModelRows(
   models: AgentModelDefinition[],
 ): ProviderSelectionModelRow[] {
   return models.map((model) => ({
-    favoriteKey: buildModelRowKey(provider, model.id),
+    favoriteKey: buildFavoriteModelKey({ provider, modelId: model.id }),
     provider,
     providerLabel,
     modelId: model.id,
@@ -75,7 +58,7 @@ function buildSyntheticDefaultRow(
   providerLabel: string,
 ): ProviderSelectionModelRow {
   return {
-    favoriteKey: buildModelRowKey(provider, ""),
+    favoriteKey: buildFavoriteModelKey({ provider, modelId: "" }),
     provider,
     providerLabel,
     modelId: "",
@@ -93,11 +76,10 @@ function buildModelSelection(
   if (models === null) {
     return { kind: "loading" };
   }
-  const selectableModels = filterSelectableModels(models) ?? [];
-  if (selectableModels.length === 0) {
+  if (models.length === 0) {
     return { kind: "models", rows: [buildSyntheticDefaultRow(provider, providerLabel)] };
   }
-  return { kind: "models", rows: buildModelRows(provider, providerLabel, selectableModels) };
+  return { kind: "models", rows: buildModelRows(provider, providerLabel, models) };
 }
 
 function buildEntryModelSelection(
@@ -175,9 +157,7 @@ export function resolveSelectedModelLabel(input: {
 }): string {
   const selectedProvider = input.selectedProvider.trim();
   if (!selectedProvider) {
-    return input.isLoading
-      ? i18n.t("providerSelection.loading")
-      : i18n.t("providerSelection.selectModel");
+    return i18n.t("providerSelection.selectModel");
   }
 
   const provider = input.providers.find((entry) => entry.id === selectedProvider);
@@ -212,14 +192,6 @@ export function resolveSelectedModelLabel(input: {
 
 export function buildSelectedTriggerLabel(modelLabel: string): string {
   return modelLabel;
-}
-
-/**
- * Cross-provider result rows need the provider named up front: the same model
- * label ships on several providers at once.
- */
-export function buildProviderQualifiedDescription(row: ProviderSelectionModelRow): string {
-  return row.description ? `${row.providerLabel} · ${row.description}` : row.providerLabel;
 }
 
 export function matchesModelSearch(

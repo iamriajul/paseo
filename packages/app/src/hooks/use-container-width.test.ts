@@ -3,7 +3,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { LayoutChangeEvent } from "react-native";
 import { describe, expect, it } from "vitest";
-import { readMeasuredWidth, useContainerWidthBelow } from "./use-container-width";
+import { useContainerWidthBelow } from "./use-container-width";
 
 function layoutEvent(width: number): LayoutChangeEvent {
   return {
@@ -17,16 +17,6 @@ function layoutEvent(width: number): LayoutChangeEvent {
     },
   } as LayoutChangeEvent;
 }
-
-describe("readMeasuredWidth", () => {
-  it("returns the width of a rendered container", () => {
-    expect(readMeasuredWidth(layoutEvent(650))).toBe(650);
-  });
-
-  it("returns null for the zero width a hidden retained panel reports", () => {
-    expect(readMeasuredWidth(layoutEvent(0))).toBeNull();
-  });
-});
 
 describe("useContainerWidthBelow", () => {
   it("does not re-render for width changes that stay in the same threshold bucket", () => {

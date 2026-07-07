@@ -12,7 +12,6 @@ import type {
 export function useDictationAudioSource(config: DictationAudioSourceConfig): DictationAudioSource {
   const onPcmSegmentRef = useRef(config.onPcmSegment);
   const onErrorRef = useRef(config.onError);
-  const onInterruptionRef = useRef(config.onInterruption);
   const [volume, setVolume] = useState(0);
   const engineRef = useRef<ReturnType<typeof createAudioEngine> | null>(null);
 
@@ -31,9 +30,6 @@ export function useDictationAudioSource(config: DictationAudioSourceConfig): Dic
       onError: (error) => {
         onErrorRef.current?.(error);
       },
-      onInterruption: () => {
-        onInterruptionRef.current?.();
-      },
     });
     return engineRef.current;
   }, []);
@@ -41,8 +37,7 @@ export function useDictationAudioSource(config: DictationAudioSourceConfig): Dic
   useEffect(() => {
     onPcmSegmentRef.current = config.onPcmSegment;
     onErrorRef.current = config.onError;
-    onInterruptionRef.current = config.onInterruption;
-  }, [config.onPcmSegment, config.onError, config.onInterruption]);
+  }, [config.onPcmSegment, config.onError]);
 
   const start = useCallback(async () => {
     const engine = getOrCreateEngine();

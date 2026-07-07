@@ -1,6 +1,6 @@
 import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import { create } from "zustand";
-import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+import { buildWorkspaceTabPersistenceKey } from "@/stores/workspace-tabs-store";
 
 export type WorkspaceCreationMethod = "open_project" | "create_worktree";
 
@@ -37,19 +37,13 @@ export function shouldShowWorkspaceSetup(snapshot: WorkspaceSetupSnapshot | null
   return snapshot.error !== null || snapshot.detail.commands.length > 0;
 }
 
-export function shouldSeedWorkspaceSetupTab(snapshot: WorkspaceSetupSnapshot | null): boolean {
-  return snapshot?.status === "failed";
-}
-
 interface WorkspaceSetupStoreState {
   pendingWorkspaceSetup: PendingWorkspaceSetup | null;
   snapshots: Record<string, WorkspaceSetupSnapshot>;
   requestedKeys: Set<string>;
-  surfacedFailedSetupKeys: Set<string>;
   beginWorkspaceSetup: (value: PendingWorkspaceSetup) => void;
   clearWorkspaceSetup: () => void;
   upsertProgress: (input: { serverId: string; payload: WorkspaceSetupProgressPayload }) => void;
-  claimFailedSetupSurface: (input: { serverId: string; workspaceId: string }) => boolean;
   ensureSetupStatus: (input: {
     serverId: string;
     workspaceId: string;
@@ -67,7 +61,6 @@ export const useWorkspaceSetupStore = create<WorkspaceSetupStoreState>()((set, g
   pendingWorkspaceSetup: null,
   snapshots: {},
   requestedKeys: new Set(),
-  surfacedFailedSetupKeys: new Set(),
   beginWorkspaceSetup: (value) => {
     set({ pendingWorkspaceSetup: value });
   },
@@ -80,38 +73,15 @@ export const useWorkspaceSetupStore = create<WorkspaceSetupStoreState>()((set, g
       return;
     }
 
-    set((state) => {
-      const surfacedFailedSetupKeys = new Set(state.surfacedFailedSetupKeys);
-      if (payload.status !== "failed") {
-        surfacedFailedSetupKeys.delete(key);
-      }
-      return {
-        snapshots: {
-          ...state.snapshots,
-          [key]: {
-            ...payload,
-            updatedAt: Date.now(),
-          },
+    set((state) => ({
+      snapshots: {
+        ...state.snapshots,
+        [key]: {
+          ...payload,
+          updatedAt: Date.now(),
         },
-        surfacedFailedSetupKeys,
-      };
-    });
-  },
-  claimFailedSetupSurface: ({ serverId, workspaceId }) => {
-    const key = buildWorkspaceSetupKey({ serverId, workspaceId });
-    if (!key) {
-      return false;
-    }
-
-    let claimed = false;
-    set((state) => {
-      if (state.snapshots[key]?.status !== "failed" || state.surfacedFailedSetupKeys.has(key)) {
-        return state;
-      }
-      claimed = true;
-      return { surfacedFailedSetupKeys: new Set(state.surfacedFailedSetupKeys).add(key) };
-    });
-    return claimed;
+      },
+    }));
   },
   ensureSetupStatus: async ({ serverId, workspaceId, client }) => {
     const key = buildWorkspaceSetupKey({ serverId, workspaceId });
@@ -154,14 +124,12 @@ export const useWorkspaceSetupStore = create<WorkspaceSetupStoreState>()((set, g
     }
 
     set((state) => {
-      if (!(key in state.snapshots) && !state.surfacedFailedSetupKeys.has(key)) {
+      if (!(key in state.snapshots)) {
         return state;
       }
       const next = { ...state.snapshots };
       delete next[key];
-      const surfacedFailedSetupKeys = new Set(state.surfacedFailedSetupKeys);
-      surfacedFailedSetupKeys.delete(key);
-      return { snapshots: next, surfacedFailedSetupKeys };
+      return { snapshots: next };
     });
   },
   clearServer: (serverId) => {
@@ -169,16 +137,10 @@ export const useWorkspaceSetupStore = create<WorkspaceSetupStoreState>()((set, g
       const nextEntries = Object.entries(state.snapshots).filter(
         ([key]) => !key.startsWith(`${serverId}:`),
       );
-      const surfacedFailedSetupKeys = new Set(
-        [...state.surfacedFailedSetupKeys].filter((key) => !key.startsWith(`${serverId}:`)),
-      );
-      if (
-        nextEntries.length === Object.keys(state.snapshots).length &&
-        surfacedFailedSetupKeys.size === state.surfacedFailedSetupKeys.size
-      ) {
+      if (nextEntries.length === Object.keys(state.snapshots).length) {
         return state;
       }
-      return { snapshots: Object.fromEntries(nextEntries), surfacedFailedSetupKeys };
+      return { snapshots: Object.fromEntries(nextEntries) };
     });
   },
 }));

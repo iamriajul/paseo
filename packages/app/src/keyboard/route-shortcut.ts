@@ -20,7 +20,11 @@ export interface ShortcutRoutingInput {
   payload: KeyboardShortcutPayload;
 }
 
-export type ShortcutCallbackName = "toggle-agent-list" | "toggle-both-sidebars" | "cycle-theme";
+export type ShortcutCallbackName =
+  | "toggle-agent-list"
+  | "toggle-both-sidebars"
+  | "toggle-focus-mode"
+  | "cycle-theme";
 
 export type ShortcutAction =
   | { kind: "none" }
@@ -32,7 +36,7 @@ export type ShortcutAction =
   | { kind: "router-push"; route: string }
   | { kind: "open-project-picker" }
   | { kind: "callback"; name: ShortcutCallbackName }
-  | { kind: "command-center-toggle"; nextOpen: boolean; scope?: "files" }
+  | { kind: "command-center-toggle"; nextOpen: boolean }
   | { kind: "shortcuts-dialog-toggle"; nextOpen: boolean };
 
 const NONE: ShortcutAction = { kind: "none" };
@@ -40,15 +44,9 @@ const NONE: ShortcutAction = { kind: "none" };
 // Action ids whose routing is a no-payload pass-through to the dispatcher.
 const PASSTHROUGH_DISPATCH: Record<string, KeyboardActionDefinition> = {
   "agent.interrupt": { id: "agent.interrupt", scope: "global" },
-  "workspace.tab.menu.open": { id: "workspace.tab.menu.open", scope: "workspace" },
-  "workspace.tab.target.agent": { id: "workspace.tab.target.agent", scope: "workspace" },
-  "workspace.tab.target.browser": { id: "workspace.tab.target.browser", scope: "workspace" },
-  "workspace.tab.target.changes": { id: "workspace.tab.target.changes", scope: "workspace" },
-  "workspace.tab.target.files": { id: "workspace.tab.target.files", scope: "workspace" },
+  "workspace.tab.new": { id: "workspace.tab.new", scope: "workspace" },
   "workspace.new": { id: "workspace.new", scope: "sidebar" },
-  "workspace.project.pick": { id: "workspace.project.pick", scope: "workspace" },
-  "workspace.archive": { id: "workspace.archive", scope: "sidebar" },
-  "workspace.pin": { id: "workspace.pin", scope: "sidebar" },
+  "worktree.archive": { id: "worktree.archive", scope: "sidebar" },
   "worktree.new": { id: "worktree.new", scope: "sidebar" },
   "workspace.terminal.new": { id: "workspace.terminal.new", scope: "workspace" },
   "workspace.tab.close.current": { id: "workspace.tab.close-current", scope: "workspace" },
@@ -64,12 +62,12 @@ const PASSTHROUGH_DISPATCH: Record<string, KeyboardActionDefinition> = {
   "workspace.pane.move-tab.up": { id: "workspace.pane.move-tab.up", scope: "workspace" },
   "workspace.pane.move-tab.down": { id: "workspace.pane.move-tab.down", scope: "workspace" },
   "workspace.pane.close": { id: "workspace.pane.close", scope: "workspace" },
-  "view.toggle.focus": { id: "workspace.focus.toggle", scope: "workspace" },
 };
 
 const SIMPLE_CALLBACKS: Record<string, ShortcutCallbackName> = {
   "sidebar.toggle.left": "toggle-agent-list",
   "sidebar.toggle.both": "toggle-both-sidebars",
+  "view.toggle.focus": "toggle-focus-mode",
   "theme.cycle": "cycle-theme",
 };
 
@@ -177,13 +175,6 @@ export function routeKeyboardShortcut(
 ): ShortcutAction {
   const passthrough = PASSTHROUGH_DISPATCH[input.action];
   if (passthrough) {
-    if (
-      input.action === "agent.interrupt" &&
-      ctx.pathname.startsWith("/settings") &&
-      !ctx.isMobile
-    ) {
-      return { kind: "navigate-last-workspace" };
-    }
     return dispatch(passthrough);
   }
 
@@ -209,11 +200,6 @@ export function routeKeyboardShortcut(
       return routeSettingsToggle(ctx);
     case "command-center.toggle":
       return { kind: "command-center-toggle", nextOpen: !ctx.commandCenterOpen };
-    case "command-center.files":
-      if (parseHostWorkspaceRouteFromPathname(ctx.pathname)) {
-        return { kind: "command-center-toggle", nextOpen: true, scope: "files" };
-      }
-      return dispatch({ id: "workspace.project.pick", scope: "workspace" });
     case "shortcuts.dialog.toggle":
       return { kind: "shortcuts-dialog-toggle", nextOpen: !ctx.shortcutsDialogOpen };
     default:

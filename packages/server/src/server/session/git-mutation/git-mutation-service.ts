@@ -1,18 +1,19 @@
 import type pino from "pino";
 import { getErrorMessage } from "@getpaseo/protocol/error-utils";
+import type { GitHubService } from "../../../services/github-service.js";
 import {
   checkoutResolvedBranch,
   type CheckoutExistingBranchResult,
   type GitMutationRefreshReason,
 } from "../../../utils/checkout-git.js";
-import { runGitCommand } from "../../../utils/run-git-command.js";
+import { execCommand } from "../../../utils/spawn.js";
 import type { WorkspaceGitService } from "../../workspace-git-service.js";
 import { assertSafeGitRef as assertWorktreeSafeGitRef } from "../../worktree-session.js";
 
 /**
  * The git branch / working-tree mutation primitives a client session performs on a
  * workspace: switch to an existing branch, create a branch from a base, and force a
- * snapshot refresh (plus optional forge cache invalidation) after any mutation.
+ * snapshot refresh (plus optional GitHub cache invalidation) after any mutation.
  *
  * CheckoutSession (the branch/commit/merge commands), the worktree session-config
  * builder, and the auto-naming + worktree-creation paths all funnel their git
@@ -30,20 +31,21 @@ export interface GitMutationService {
   notifyGitMutation(
     cwd: string,
     reason: GitMutationRefreshReason,
-    options?: { invalidateForge?: boolean },
+    options?: { invalidateGithub?: boolean },
   ): Promise<void>;
 }
 
 type GitMutationGitSource = Pick<
   WorkspaceGitService,
-  "validateBranchRef" | "getSnapshot" | "hasLocalBranch" | "invalidateForge"
+  "validateBranchRef" | "getSnapshot" | "hasLocalBranch"
 >;
 
 export function createGitMutationService(deps: {
   workspaceGitService: GitMutationGitSource;
+  github: Pick<GitHubService, "invalidate">;
   logger: pino.Logger;
 }): GitMutationService {
-  const { workspaceGitService, logger } = deps;
+  const { workspaceGitService, github, logger } = deps;
 
   function assertSafeGitRef(ref: string, label: string): void {
     if (!/^[A-Za-z0-9._/-]+$/.test(ref)) {
@@ -75,10 +77,10 @@ export function createGitMutationService(deps: {
   async function notifyGitMutation(
     cwd: string,
     reason: GitMutationRefreshReason,
-    options?: { invalidateForge?: boolean },
+    options?: { invalidateGithub?: boolean },
   ): Promise<void> {
-    if (options?.invalidateForge) {
-      workspaceGitService.invalidateForge(cwd);
+    if (options?.invalidateGithub) {
+      github.invalidate({ cwd });
     }
     try {
       await workspaceGitService.getSnapshot(cwd, { force: true, reason });
@@ -99,7 +101,7 @@ export function createGitMutationService(deps: {
       }
       await ensureCleanWorkingTree(cwd);
       const result = await checkoutResolvedBranch({ cwd, resolution });
-      await notifyGitMutation(cwd, "switch-branch", { invalidateForge: true });
+      await notifyGitMutation(cwd, "switch-branch", { invalidateGithub: true });
       return result;
     },
 
@@ -118,10 +120,7 @@ export function createGitMutationService(deps: {
       }
 
       await ensureCleanWorkingTree(cwd);
-      await runGitCommand(["checkout", "-b", newBranchName, baseBranch], {
-        cwd,
-        timeout: 120_000,
-      });
+      await execCommand("git", ["checkout", "-b", newBranchName, baseBranch], { cwd });
       await notifyGitMutation(cwd, "create-branch");
     },
 

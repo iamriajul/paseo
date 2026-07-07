@@ -1,5 +1,4 @@
 import type { StreamItem } from "@/types/stream";
-import { startsNewTurn } from "@/agent-stream/turn-membership";
 
 export interface TurnTiming {
   startedAt: Date;
@@ -13,8 +12,7 @@ export interface StreamTurnTiming {
 }
 
 export function deriveStreamTurnTiming(params: {
-  isTurnActive: boolean;
-  activeTurnStartedAt: Date | null;
+  agentStatus: string;
   tail: StreamItem[];
   head: StreamItem[];
 }): StreamTurnTiming {
@@ -22,7 +20,6 @@ export function deriveStreamTurnTiming(params: {
   let currentUserAt: Date | null = null;
   let currentLastItemAt: Date | null = null;
   let currentAssistantIds: string[] = [];
-  let previousItem: StreamItem | null = null;
 
   const flushCompletedTurn = () => {
     if (!currentUserAt || !currentLastItemAt || currentAssistantIds.length === 0) {
@@ -39,21 +36,20 @@ export function deriveStreamTurnTiming(params: {
   };
 
   const visitItem = (item: StreamItem) => {
-    if (startsNewTurn(item, previousItem)) {
+    if (item.kind === "user_message") {
       flushCompletedTurn();
-      currentUserAt = item.kind === "user_message" ? item.timestamp : null;
+      currentUserAt = item.timestamp;
       currentLastItemAt = null;
       currentAssistantIds = [];
+      return;
     }
     if (!currentUserAt) {
-      previousItem = item;
       return;
     }
     currentLastItemAt = item.timestamp;
     if (item.kind === "assistant_message") {
       currentAssistantIds.push(item.id);
     }
-    previousItem = item;
   };
 
   for (const item of params.tail) {
@@ -63,8 +59,11 @@ export function deriveStreamTurnTiming(params: {
     visitItem(item);
   }
 
-  const runningStartedAt = params.isTurnActive ? params.activeTurnStartedAt : null;
-  if (!params.isTurnActive) {
+  const runningStartedAt =
+    params.agentStatus === "running"
+      ? (findLastUserMessageTimestamp(params.head) ?? currentUserAt)
+      : null;
+  if (params.agentStatus !== "running") {
     flushCompletedTurn();
   }
 
@@ -72,4 +71,14 @@ export function deriveStreamTurnTiming(params: {
     byAssistantId,
     runningStartedAt,
   };
+}
+
+function findLastUserMessageTimestamp(items: StreamItem[]): Date | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (item?.kind === "user_message") {
+      return item.timestamp;
+    }
+  }
+  return null;
 }

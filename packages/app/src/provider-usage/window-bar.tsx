@@ -72,11 +72,11 @@ const styles = StyleSheet.create((theme) => ({
   label: {
     flexShrink: 1,
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   value: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.medium,
   },
   reset: {

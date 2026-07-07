@@ -1,7 +1,6 @@
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Mic, MicOff, Square } from "lucide-react-native";
 import { FOOTER_HEIGHT } from "@/constants/layout";
@@ -76,7 +75,7 @@ export function RealtimeVoiceOverlay({
           style={stopButtonStyle}
         >
           {isSwitching ? (
-            <LoadingSpinner size="small" color={theme.colors.palette.white} />
+            <ActivityIndicator size="small" color={theme.colors.palette.white} />
           ) : (
             <Square
               size={theme.iconSize.lg}

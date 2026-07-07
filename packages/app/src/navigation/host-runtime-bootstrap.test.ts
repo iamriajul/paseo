@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   resolveStartupBlocker,
   resolveStartupNavigationReady,
@@ -7,86 +7,115 @@ import {
   shouldRunStartupGiveUpTimer,
   startHostRuntimeBootstrap,
 } from "./host-runtime-bootstrap";
-import type { DaemonStartResult, StartDaemonIfEnabledInput } from "@/runtime/daemon-start-service";
+
+function createFakeStore() {
+  return { boot: vi.fn() };
+}
+
+function createFakeDaemonStartService() {
+  return {
+    start: vi.fn(async () => ({ ok: true as const })),
+  };
+}
 
 describe("startHostRuntimeBootstrap", () => {
-  it("boots the host registry and starts the managed-daemon decision as one operation", async () => {
+  it("fires boot and daemon-start without awaiting the daemon-start promise", () => {
     const events: string[] = [];
-    const shouldStartDaemon = async () => true;
     const store = {
-      boot: async () => {
+      boot: vi.fn(() => {
         events.push("boot");
-      },
+      }),
     };
-    const receivedDecisions: Array<Promise<boolean>> = [];
     const daemonStartService = {
-      startIfEnabled: async (input: StartDaemonIfEnabledInput) => {
-        receivedDecisions.push(
-          Promise.resolve(
-            typeof input.shouldStart === "boolean" ? input.shouldStart : input.shouldStart(),
-          ),
-        );
-        events.push("daemon-start-decision");
+      start: vi.fn(async () => {
+        events.push("daemon-start");
         return { ok: true as const };
-      },
+      }),
     };
 
     startHostRuntimeBootstrap({
       store,
       daemonStartService,
-      shouldStartDaemon,
+      shouldStartDaemon: true,
     });
 
-    expect(events).toEqual(["boot", "daemon-start-decision"]);
-    expect(await receivedDecisions[0]).toBe(true);
+    expect(store.boot).toHaveBeenCalledTimes(1);
+    expect(daemonStartService.start).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(["boot", "daemon-start"]);
   });
 
-  it("waits for the host registry to load before evaluating managed-daemon startup", async () => {
-    const events: string[] = [];
-    let resolveBoot!: () => void;
-    const booted = new Promise<void>((resolve) => {
-      resolveBoot = resolve;
+  it("skips daemon-start when shouldStartDaemon is false", () => {
+    const store = createFakeStore();
+    const daemonStartService = createFakeDaemonStartService();
+
+    startHostRuntimeBootstrap({
+      store,
+      daemonStartService,
+      shouldStartDaemon: false,
     });
-    const store = {
-      boot: () => {
-        events.push("boot");
-        return booted;
+
+    expect(store.boot).toHaveBeenCalledTimes(1);
+    expect(daemonStartService.start).not.toHaveBeenCalled();
+  });
+
+  it("skips daemon-start when the startup gate resolves false", async () => {
+    const store = createFakeStore();
+    const daemonStartService = createFakeDaemonStartService();
+
+    startHostRuntimeBootstrap({
+      store,
+      daemonStartService,
+      shouldStartDaemon: async () => false,
+    });
+    await Promise.resolve();
+
+    expect(store.boot).toHaveBeenCalledTimes(1);
+    expect(daemonStartService.start).not.toHaveBeenCalled();
+  });
+
+  it("surfaces gate rejection to onGateError without starting the daemon", async () => {
+    const store = createFakeStore();
+    const daemonStartService = createFakeDaemonStartService();
+    const onGateError = vi.fn();
+
+    startHostRuntimeBootstrap({
+      store,
+      daemonStartService,
+      shouldStartDaemon: async () => {
+        throw new Error("settings file unreadable");
       },
-    };
-    let startFinished!: Promise<DaemonStartResult>;
+      onGateError,
+    });
+    await vi.waitFor(() => {
+      expect(onGateError).toHaveBeenCalledTimes(1);
+    });
+
+    expect(daemonStartService.start).not.toHaveBeenCalled();
+    expect(onGateError).toHaveBeenCalledWith(expect.stringContaining("settings file unreadable"));
+  });
+
+  it("does not await the daemon-start promise", () => {
+    const store = createFakeStore();
+    let resolveStart: ((value: { ok: true }) => void) | undefined;
     const daemonStartService = {
-      startIfEnabled: (input: StartDaemonIfEnabledInput) => {
-        events.push("daemon-start-service");
-        startFinished = (async () => {
-          const shouldStart =
-            typeof input.shouldStart === "boolean" ? input.shouldStart : await input.shouldStart();
-          events.push(`decision:${shouldStart}`);
-          return { ok: true as const };
-        })();
-        return startFinished;
-      },
+      start: vi.fn(
+        () =>
+          new Promise<{ ok: true }>((resolve) => {
+            resolveStart = resolve;
+          }),
+      ),
     };
 
     startHostRuntimeBootstrap({
       store,
       daemonStartService,
-      shouldStartDaemon: () => {
-        events.push("evaluate-daemon-setting");
-        return true;
-      },
+      shouldStartDaemon: true,
     });
 
-    await Promise.resolve();
-    expect(events).toEqual(["boot", "daemon-start-service"]);
+    expect(store.boot).toHaveBeenCalledTimes(1);
+    expect(daemonStartService.start).toHaveBeenCalledTimes(1);
 
-    resolveBoot();
-    await startFinished;
-    expect(events).toEqual([
-      "boot",
-      "daemon-start-service",
-      "evaluate-daemon-setting",
-      "decision:true",
-    ]);
+    resolveStart?.({ ok: true });
   });
 });
 

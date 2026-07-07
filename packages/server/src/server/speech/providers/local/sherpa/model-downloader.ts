@@ -12,7 +12,6 @@ export interface EnsureSherpaOnnxModelOptions {
   modelsDir: string;
   modelId: SherpaOnnxModelId;
   logger: pino.Logger;
-  signal?: AbortSignal;
 }
 
 export function getSherpaOnnxModelDir(modelsDir: string, modelId: SherpaOnnxModelId): string {
@@ -41,12 +40,11 @@ async function hasRequiredFiles(modelDir: string, requiredFiles: string[]): Prom
 interface DownloadToFileOptions {
   url: string;
   outputPath: string;
-  signal?: AbortSignal;
 }
 
 async function downloadToFile(options: DownloadToFileOptions): Promise<void> {
   const { url, outputPath } = options;
-  const res = await fetch(url, { signal: options.signal });
+  const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
   }
@@ -62,7 +60,7 @@ async function downloadToFile(options: DownloadToFileOptions): Promise<void> {
   const nodeStream = Readable.fromWeb(res.body as any);
 
   try {
-    await pipeline(nodeStream, createWriteStream(tmpPath), { signal: options.signal });
+    await pipeline(nodeStream, createWriteStream(tmpPath));
     await rename(tmpPath, outputPath);
   } catch (error) {
     await rm(tmpPath, { force: true }).catch(() => undefined);
@@ -70,17 +68,12 @@ async function downloadToFile(options: DownloadToFileOptions): Promise<void> {
   }
 }
 
-async function extractTarArchive(
-  archivePath: string,
-  destDir: string,
-  signal?: AbortSignal,
-): Promise<void> {
+async function extractTarArchive(archivePath: string, destDir: string): Promise<void> {
   await mkdir(destDir, { recursive: true });
 
   await new Promise<void>((resolve, reject) => {
     const child = spawnProcess("tar", ["xf", archivePath, "-C", destDir], {
       stdio: "inherit",
-      signal,
     });
     child.on("error", reject);
     child.on("exit", (code) => {
@@ -126,7 +119,6 @@ export async function ensureSherpaOnnxModel(
       await downloadToFile({
         url: spec.archiveUrl,
         outputPath: archivePath,
-        signal: options.signal,
       });
     }
 
@@ -138,7 +130,7 @@ export async function ensureSherpaOnnxModel(
       },
       "Extracting model archive",
     );
-    await extractTarArchive(archivePath, options.modelsDir, options.signal);
+    await extractTarArchive(archivePath, options.modelsDir);
 
     logger.info(
       {
@@ -178,7 +170,6 @@ export async function ensureSherpaOnnxModels(options: {
   modelsDir: string;
   modelIds: SherpaOnnxModelId[];
   logger: pino.Logger;
-  signal?: AbortSignal;
 }): Promise<Record<SherpaOnnxModelId, string>> {
   const uniq = Array.from(new Set(options.modelIds));
   const entries: Array<[SherpaOnnxModelId, string]> = await Promise.all(
@@ -187,7 +178,6 @@ export async function ensureSherpaOnnxModels(options: {
         modelsDir: options.modelsDir,
         modelId: id,
         logger: options.logger,
-        signal: options.signal,
       });
       return [id, modelPath] as [SherpaOnnxModelId, string];
     }),

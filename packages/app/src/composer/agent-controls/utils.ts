@@ -1,7 +1,5 @@
 import type { AgentFeature, AgentModelDefinition } from "@getpaseo/protocol/agent-types";
 import { i18n } from "@/i18n/i18next";
-import { formatThinkingOptionLabel } from "@/agent-controls/labels";
-import { FAST_MODE_FEATURE_ID, PLAN_MODE_FEATURE_ID } from "@/agent-controls/policy";
 
 export type ExplainedAgentControl = "mode" | "model" | "thinking";
 export type FeatureHighlightColor = "blue" | "default" | "green" | "yellow";
@@ -37,15 +35,59 @@ export function getFeatureTooltip(feature: Pick<AgentFeature, "label" | "tooltip
 
 export function getFeatureHighlightColor(featureId: string): FeatureHighlightColor {
   switch (featureId) {
-    case FAST_MODE_FEATURE_ID:
+    case "fast_mode":
       return "yellow";
     case "auto_accept":
       return "green";
-    case PLAN_MODE_FEATURE_ID:
+    case "plan_mode":
       return "blue";
     default:
       return "default";
   }
+}
+
+interface ControlLabelInput {
+  id: string;
+  label?: string | null;
+}
+
+function sentenceCase(value: string): string {
+  if (!value) {
+    return value;
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+function splitCompactLabel(value: string, splitHyphen: boolean): string {
+  const separatorPattern = splitHyphen ? /[_-]+/g : /_+/g;
+
+  return value
+    .replace(separatorPattern, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatControlLabel(option: ControlLabelInput, splitHyphen: boolean): string {
+  const rawLabel = (option.label ?? option.id).trim();
+  return sentenceCase(splitCompactLabel(rawLabel, splitHyphen));
+}
+
+export function formatAgentModeLabel(mode: ControlLabelInput): string {
+  return formatControlLabel(mode, mode.label == null);
+}
+
+export function formatThinkingOptionLabel(option: ControlLabelInput): string {
+  const rawLabel = (option.label ?? option.id).trim();
+  const compactId = option.id.replace(/[\s_-]+/g, "").toLowerCase();
+  const compactLabel = rawLabel.replace(/[\s_-]+/g, "").toLowerCase();
+
+  if (compactId === "xhigh" || compactLabel === "xhigh") {
+    return i18n.t("agentControls.thinking.extraHigh");
+  }
+
+  return formatControlLabel(option, true);
 }
 
 function findModelById(
@@ -55,11 +97,7 @@ function findModelById(
   if (!models || !modelId) {
     return null;
   }
-  return (
-    models.find((model) => model.id === modelId) ??
-    models.find((model) => model.aliases?.includes(modelId)) ??
-    null
-  );
+  return models.find((model) => model.id === modelId) ?? null;
 }
 
 function getFallbackModel(models: AgentModelDefinition[] | null): AgentModelDefinition | null {

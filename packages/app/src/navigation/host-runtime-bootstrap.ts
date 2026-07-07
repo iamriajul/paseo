@@ -1,9 +1,5 @@
 import type { ActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
-import type {
-  DaemonStartCondition,
-  DaemonStartResult,
-  StartDaemonIfEnabledInput,
-} from "@/runtime/daemon-start-service";
+import type { DaemonStartResult } from "@/runtime/daemon-start-service";
 import type { Href } from "expo-router";
 import {
   buildHostRootRoute,
@@ -12,29 +8,56 @@ import {
 } from "@/utils/host-routes";
 
 export interface HostRuntimeBootstrapStore {
-  boot: () => Promise<void>;
+  boot: () => void;
 }
 
 export interface HostRuntimeBootstrapDaemonStartService {
-  startIfEnabled: (input: StartDaemonIfEnabledInput) => Promise<DaemonStartResult>;
+  start: () => Promise<DaemonStartResult>;
 }
+
+type HostRuntimeBootstrapStartGate = boolean | (() => boolean | Promise<boolean>);
 
 export interface StartHostRuntimeBootstrapInput {
   store: HostRuntimeBootstrapStore;
   daemonStartService: HostRuntimeBootstrapDaemonStartService;
-  shouldStartDaemon: DaemonStartCondition;
+  shouldStartDaemon: HostRuntimeBootstrapStartGate;
+  onGateError?: (message: string) => void;
 }
 
 export function startHostRuntimeBootstrap(input: StartHostRuntimeBootstrapInput): void {
-  const registryReady = input.store.boot();
-  void input.daemonStartService.startIfEnabled({
-    shouldStart: async () => {
-      await registryReady;
-      return typeof input.shouldStartDaemon === "boolean"
-        ? input.shouldStartDaemon
-        : input.shouldStartDaemon();
-    },
+  input.store.boot();
+  startDaemonIfGateAllows({
+    daemonStartService: input.daemonStartService,
+    shouldStartDaemon: input.shouldStartDaemon,
+    onGateError: input.onGateError,
   });
+}
+
+export function startDaemonIfGateAllows(input: {
+  daemonStartService: HostRuntimeBootstrapDaemonStartService;
+  shouldStartDaemon: HostRuntimeBootstrapStartGate;
+  onGateError?: (message: string) => void;
+}): void {
+  const gate = input.shouldStartDaemon;
+  if (typeof gate === "boolean") {
+    if (gate) {
+      void input.daemonStartService.start();
+    }
+    return;
+  }
+
+  void Promise.resolve()
+    .then(() => gate())
+    .then((shouldStartDaemon) => {
+      if (shouldStartDaemon) {
+        void input.daemonStartService.start();
+      }
+      return null;
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      input.onGateError?.(`Failed to evaluate desktop daemon settings: ${message}`);
+    });
 }
 
 const WELCOME_ROUTE: Href = "/welcome";

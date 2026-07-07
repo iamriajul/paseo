@@ -20,6 +20,7 @@ export interface UseFileLinkResult {
   target: InlinePathTarget | null;
   onHoverIn: () => void;
   onPress: () => void;
+  onAuxPress: () => void;
   open: (source: AssistantFileLinkSource, disposition: OpenFileDisposition) => void;
 }
 
@@ -117,7 +118,10 @@ export function useFileLink(source: AssistantFileLinkSource): UseFileLinkResult 
   });
 
   const onPress = useStableEvent(() => {
-    open(stableSource, "preferred");
+    open(stableSource, "main");
+  });
+  const onAuxPress = useStableEvent(() => {
+    open(stableSource, "side");
   });
 
   const target = useMemo(() => {
@@ -127,7 +131,10 @@ export function useFileLink(source: AssistantFileLinkSource): UseFileLinkResult 
     return query.data ?? null;
   }, [query.data, resolution]);
 
-  return useMemo(() => ({ target, onHoverIn, onPress, open }), [target, onHoverIn, onPress, open]);
+  return useMemo(
+    () => ({ target, onHoverIn, onPress, onAuxPress, open }),
+    [target, onHoverIn, onPress, onAuxPress, open],
+  );
 }
 
 export function useAssistantFileLinkActions(): AssistantFileLinkActions {
@@ -235,10 +242,10 @@ function canResolveAssistantFileLinkToFile(
 }
 
 function useStableSource(source: AssistantFileLinkSource): AssistantFileLinkSource {
-  const { href, text, title, markup, sourceInfo, sourceType } = source;
+  const { href, text, markup, sourceInfo, sourceType } = source;
   return useMemo(
-    () => ({ href, text, title, markup, sourceInfo, sourceType }),
-    [href, text, title, markup, sourceInfo, sourceType],
+    () => ({ href, text, markup, sourceInfo, sourceType }),
+    [href, text, markup, sourceInfo, sourceType],
   );
 }
 

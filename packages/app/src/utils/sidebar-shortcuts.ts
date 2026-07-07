@@ -1,8 +1,9 @@
 import type {
   SidebarProjectEntry,
+  SidebarStatusWorkspacePlacement,
   SidebarWorkspacePlacement,
 } from "@/hooks/use-sidebar-workspaces-list";
-import type { StatusGroup } from "@/hooks/sidebar-status-view-model";
+import { buildStatusGroups } from "@/hooks/sidebar-status-view-model";
 
 export interface SidebarShortcutWorkspaceTarget {
   serverId: string;
@@ -12,11 +13,6 @@ export interface SidebarShortcutWorkspaceTarget {
 export interface SidebarShortcutModel {
   shortcutTargets: SidebarShortcutWorkspaceTarget[];
   shortcutIndexByWorkspaceKey: Map<string, number>;
-}
-
-export interface SidebarShortcutSection {
-  workspaces: readonly SidebarWorkspacePlacement[];
-  collapsed?: boolean;
 }
 
 function createShortcutTarget(
@@ -33,43 +29,46 @@ export function buildSidebarShortcutModel(input: {
   collapsedProjectKeys: ReadonlySet<string>;
   shortcutLimit?: number;
 }): SidebarShortcutModel {
-  return buildSidebarShortcutSections({
-    sections: input.projects.map((project) => ({
-      workspaces: project.workspaces,
-      collapsed: input.collapsedProjectKeys.has(project.viewKey),
-    })),
-    shortcutLimit: input.shortcutLimit,
-  });
-}
-
-export function buildStatusSidebarShortcutModel(input: {
-  groups: readonly StatusGroup[];
-  collapsedStatusGroupKeys?: ReadonlySet<string>;
-  shortcutLimit?: number;
-}): SidebarShortcutModel {
-  return buildSidebarShortcutSections({
-    sections: input.groups.map((group) => ({
-      workspaces: group.rows,
-      collapsed: input.collapsedStatusGroupKeys?.has(group.bucket),
-    })),
-    shortcutLimit: input.shortcutLimit,
-  });
-}
-
-export function buildSidebarShortcutSections(input: {
-  sections: readonly SidebarShortcutSection[];
-  shortcutLimit?: number;
-}): SidebarShortcutModel {
   const maxShortcuts = Math.max(0, Math.floor(input.shortcutLimit ?? 9));
   const shortcutTargets: SidebarShortcutWorkspaceTarget[] = [];
   const shortcutIndexByWorkspaceKey = new Map<string, number>();
 
-  for (const section of input.sections) {
-    if (section.collapsed) {
+  for (const project of input.projects) {
+    if (input.collapsedProjectKeys.has(project.projectKey)) {
       continue;
     }
 
-    for (const workspace of section.workspaces) {
+    for (const workspace of project.workspaces) {
+      if (shortcutTargets.length >= maxShortcuts) {
+        break;
+      }
+
+      const shortcutNumber = shortcutTargets.length + 1;
+      shortcutTargets.push(createShortcutTarget(workspace));
+      shortcutIndexByWorkspaceKey.set(workspace.workspaceKey, shortcutNumber);
+    }
+  }
+
+  return { shortcutTargets, shortcutIndexByWorkspaceKey };
+}
+
+export function buildStatusSidebarShortcutModel(input: {
+  workspaces: SidebarStatusWorkspacePlacement[];
+  projectNamesByKey: Map<string, string>;
+  collapsedStatusGroupKeys?: ReadonlySet<string>;
+  shortcutLimit?: number;
+}): SidebarShortcutModel {
+  const maxShortcuts = Math.max(0, Math.floor(input.shortcutLimit ?? 9));
+  const groups = buildStatusGroups(input.workspaces, input.projectNamesByKey);
+  const shortcutTargets: SidebarShortcutWorkspaceTarget[] = [];
+  const shortcutIndexByWorkspaceKey = new Map<string, number>();
+
+  for (const group of groups) {
+    if (input.collapsedStatusGroupKeys?.has(group.bucket)) {
+      continue;
+    }
+
+    for (const workspace of group.rows) {
       if (shortcutTargets.length >= maxShortcuts) {
         break;
       }

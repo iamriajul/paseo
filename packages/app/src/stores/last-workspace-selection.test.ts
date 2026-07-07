@@ -20,19 +20,12 @@ class DelayedWorkspaceSelectionStorage implements LastWorkspaceSelectionStorage 
     this.saved = value;
   }
 
-  async clear(): Promise<void> {
-    this.saved = null;
-  }
-
   finishHydrationWith(selection: ActiveWorkspaceSelection | null) {
     this.finishRead(selection ? JSON.stringify(selection) : null);
   }
 
   getSavedSelection(): ActiveWorkspaceSelection | null {
-    if (!this.saved) return null;
-    const parsed: unknown = JSON.parse(this.saved);
-    if (!parsed || typeof parsed !== "object") return null;
-    return this.saved ? JSON.parse(this.saved) : null;
+    return this.saved ? (JSON.parse(this.saved) as ActiveWorkspaceSelection) : null;
   }
 }
 

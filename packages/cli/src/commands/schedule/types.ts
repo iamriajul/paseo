@@ -29,7 +29,10 @@ export type ScheduleTarget =
         model?: string;
         thinkingOptionId?: string;
         title?: string | null;
-        providerOptions?: Record<string, unknown>;
+        approvalPolicy?: string;
+        sandboxMode?: string;
+        networkAccess?: boolean;
+        webSearch?: boolean;
       };
     };
 

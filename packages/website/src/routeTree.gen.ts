@@ -26,7 +26,6 @@ import { Route as MinionCodeRouteImport } from "./routes/minion-code";
 import { Route as KimiRouteImport } from "./routes/kimi";
 import { Route as KiloRouteImport } from "./routes/kilo";
 import { Route as JunieRouteImport } from "./routes/junie";
-import { Route as HubRouteImport } from "./routes/hub";
 import { Route as HermesRouteImport } from "./routes/hermes";
 import { Route as GrokRouteImport } from "./routes/grok";
 import { Route as GooseRouteImport } from "./routes/goose";
@@ -47,6 +46,7 @@ import { Route as CortexCodeRouteImport } from "./routes/cortex-code";
 import { Route as CopilotRouteImport } from "./routes/copilot";
 import { Route as CodexRouteImport } from "./routes/codex";
 import { Route as CodebuddyRouteImport } from "./routes/codebuddy";
+import { Route as CloudRouteImport } from "./routes/cloud";
 import { Route as ClineRouteImport } from "./routes/cline";
 import { Route as ClaudeCodeRouteImport } from "./routes/claude-code";
 import { Route as ChangelogRouteImport } from "./routes/changelog";
@@ -154,11 +154,6 @@ const JunieRoute = JunieRouteImport.update({
   path: "/junie",
   getParentRoute: () => rootRouteImport,
 } as any);
-const HubRoute = HubRouteImport.update({
-  id: "/hub",
-  path: "/hub",
-  getParentRoute: () => rootRouteImport,
-} as any);
 const HermesRoute = HermesRouteImport.update({
   id: "/hermes",
   path: "/hermes",
@@ -257,6 +252,11 @@ const CodexRoute = CodexRouteImport.update({
 const CodebuddyRoute = CodebuddyRouteImport.update({
   id: "/codebuddy",
   path: "/codebuddy",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const CloudRoute = CloudRouteImport.update({
+  id: "/cloud",
+  path: "/cloud",
   getParentRoute: () => rootRouteImport,
 } as any);
 const ClineRoute = ClineRouteImport.update({
@@ -378,6 +378,7 @@ export interface FileRoutesByFullPath {
   "/changelog": typeof ChangelogRoute;
   "/claude-code": typeof ClaudeCodeRoute;
   "/cline": typeof ClineRoute;
+  "/cloud": typeof CloudRoute;
   "/codebuddy": typeof CodebuddyRoute;
   "/codex": typeof CodexRoute;
   "/copilot": typeof CopilotRoute;
@@ -398,7 +399,6 @@ export interface FileRoutesByFullPath {
   "/goose": typeof GooseRoute;
   "/grok": typeof GrokRoute;
   "/hermes": typeof HermesRoute;
-  "/hub": typeof HubRoute;
   "/junie": typeof JunieRoute;
   "/kilo": typeof KiloRoute;
   "/kimi": typeof KimiRoute;
@@ -438,6 +438,7 @@ export interface FileRoutesByTo {
   "/changelog": typeof ChangelogRoute;
   "/claude-code": typeof ClaudeCodeRoute;
   "/cline": typeof ClineRoute;
+  "/cloud": typeof CloudRoute;
   "/codebuddy": typeof CodebuddyRoute;
   "/codex": typeof CodexRoute;
   "/copilot": typeof CopilotRoute;
@@ -457,7 +458,6 @@ export interface FileRoutesByTo {
   "/goose": typeof GooseRoute;
   "/grok": typeof GrokRoute;
   "/hermes": typeof HermesRoute;
-  "/hub": typeof HubRoute;
   "/junie": typeof JunieRoute;
   "/kilo": typeof KiloRoute;
   "/kimi": typeof KimiRoute;
@@ -499,6 +499,7 @@ export interface FileRoutesById {
   "/changelog": typeof ChangelogRoute;
   "/claude-code": typeof ClaudeCodeRoute;
   "/cline": typeof ClineRoute;
+  "/cloud": typeof CloudRoute;
   "/codebuddy": typeof CodebuddyRoute;
   "/codex": typeof CodexRoute;
   "/copilot": typeof CopilotRoute;
@@ -519,7 +520,6 @@ export interface FileRoutesById {
   "/goose": typeof GooseRoute;
   "/grok": typeof GrokRoute;
   "/hermes": typeof HermesRoute;
-  "/hub": typeof HubRoute;
   "/junie": typeof JunieRoute;
   "/kilo": typeof KiloRoute;
   "/kimi": typeof KimiRoute;
@@ -562,6 +562,7 @@ export interface FileRouteTypes {
     | "/changelog"
     | "/claude-code"
     | "/cline"
+    | "/cloud"
     | "/codebuddy"
     | "/codex"
     | "/copilot"
@@ -582,7 +583,6 @@ export interface FileRouteTypes {
     | "/goose"
     | "/grok"
     | "/hermes"
-    | "/hub"
     | "/junie"
     | "/kilo"
     | "/kimi"
@@ -622,6 +622,7 @@ export interface FileRouteTypes {
     | "/changelog"
     | "/claude-code"
     | "/cline"
+    | "/cloud"
     | "/codebuddy"
     | "/codex"
     | "/copilot"
@@ -641,7 +642,6 @@ export interface FileRouteTypes {
     | "/goose"
     | "/grok"
     | "/hermes"
-    | "/hub"
     | "/junie"
     | "/kilo"
     | "/kimi"
@@ -682,6 +682,7 @@ export interface FileRouteTypes {
     | "/changelog"
     | "/claude-code"
     | "/cline"
+    | "/cloud"
     | "/codebuddy"
     | "/codex"
     | "/copilot"
@@ -702,7 +703,6 @@ export interface FileRouteTypes {
     | "/goose"
     | "/grok"
     | "/hermes"
-    | "/hub"
     | "/junie"
     | "/kilo"
     | "/kimi"
@@ -744,6 +744,7 @@ export interface RootRouteChildren {
   ChangelogRoute: typeof ChangelogRoute;
   ClaudeCodeRoute: typeof ClaudeCodeRoute;
   ClineRoute: typeof ClineRoute;
+  CloudRoute: typeof CloudRoute;
   CodebuddyRoute: typeof CodebuddyRoute;
   CodexRoute: typeof CodexRoute;
   CopilotRoute: typeof CopilotRoute;
@@ -764,7 +765,6 @@ export interface RootRouteChildren {
   GooseRoute: typeof GooseRoute;
   GrokRoute: typeof GrokRoute;
   HermesRoute: typeof HermesRoute;
-  HubRoute: typeof HubRoute;
   JunieRoute: typeof JunieRoute;
   KiloRoute: typeof KiloRoute;
   KimiRoute: typeof KimiRoute;
@@ -912,13 +912,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof JunieRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/hub": {
-      id: "/hub";
-      path: "/hub";
-      fullPath: "/hub";
-      preLoaderRoute: typeof HubRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
     "/hermes": {
       id: "/hermes";
       path: "/hermes";
@@ -1057,6 +1050,13 @@ declare module "@tanstack/react-router" {
       path: "/codebuddy";
       fullPath: "/codebuddy";
       preLoaderRoute: typeof CodebuddyRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/cloud": {
+      id: "/cloud";
+      path: "/cloud";
+      fullPath: "/cloud";
+      preLoaderRoute: typeof CloudRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/cline": {
@@ -1244,6 +1244,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChangelogRoute: ChangelogRoute,
   ClaudeCodeRoute: ClaudeCodeRoute,
   ClineRoute: ClineRoute,
+  CloudRoute: CloudRoute,
   CodebuddyRoute: CodebuddyRoute,
   CodexRoute: CodexRoute,
   CopilotRoute: CopilotRoute,
@@ -1264,7 +1265,6 @@ const rootRouteChildren: RootRouteChildren = {
   GooseRoute: GooseRoute,
   GrokRoute: GrokRoute,
   HermesRoute: HermesRoute,
-  HubRoute: HubRoute,
   JunieRoute: JunieRoute,
   KiloRoute: KiloRoute,
   KimiRoute: KimiRoute,

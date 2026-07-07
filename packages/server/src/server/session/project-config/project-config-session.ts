@@ -8,7 +8,6 @@ import {
   writePaseoConfigForEdit,
   type ProjectConfigRpcError,
 } from "../../../utils/paseo-config-file.js";
-import { hasUncommittedWorktreeSetupChanges } from "./worktree-setup-commit-status.js";
 
 export interface ProjectConfigSessionHost {
   emit(msg: SessionOutboundMessage): void;
@@ -64,8 +63,6 @@ export class ProjectConfigSession {
       );
     }
 
-    const setupCommitStatus = await this.readSetupCommitStatus(repoRoot, result.config);
-
     this.host.emit({
       type: "read_project_config_response",
       payload: {
@@ -74,9 +71,6 @@ export class ProjectConfigSession {
         ok: true,
         config: result.config,
         revision: result.revision,
-        ...(setupCommitStatus === null
-          ? {}
-          : { hasUncommittedWorktreeSetupChanges: setupCommitStatus }),
       },
     });
   }
@@ -112,7 +106,6 @@ export class ProjectConfigSession {
       { repoRoot, requestId: msg.requestId, outcome: "written" },
       "Project config written",
     );
-    const setupCommitStatus = await this.readSetupCommitStatus(repoRoot, result.config);
     this.host.emit({
       type: "write_project_config_response",
       payload: {
@@ -121,23 +114,8 @@ export class ProjectConfigSession {
         ok: true,
         config: result.config,
         revision: result.revision,
-        ...(setupCommitStatus === null
-          ? {}
-          : { hasUncommittedWorktreeSetupChanges: setupCommitStatus }),
       },
     });
-  }
-
-  private async readSetupCommitStatus(
-    repoRoot: string,
-    config: Parameters<typeof hasUncommittedWorktreeSetupChanges>[0]["currentConfig"],
-  ): Promise<boolean | null> {
-    try {
-      return await hasUncommittedWorktreeSetupChanges({ repoRoot, currentConfig: config });
-    } catch (error) {
-      this.logger.debug({ repoRoot, error }, "Could not inspect committed worktree setup");
-      return null;
-    }
   }
 
   private emitProjectConfigReadFailure(

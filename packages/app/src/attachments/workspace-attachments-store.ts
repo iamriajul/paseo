@@ -81,15 +81,12 @@ function areWorkspaceAttachmentsEqual(
 }
 
 function getContextAttachmentKey(attachment: WorkspaceComposerAttachment): string | null {
-  if (
-    attachment.kind !== "chat_history" &&
-    attachment.kind !== "forge.change_request_comment" &&
-    attachment.kind !== "forge.change_request_review" &&
-    attachment.kind !== "forge.change_request_check" &&
-    attachment.kind !== "github.pull_request_comment" &&
-    attachment.kind !== "github.pull_request_review" &&
-    attachment.kind !== "github.pull_request_check"
-  ) {
+  const isContextAttachment =
+    attachment.kind === "chat_history" ||
+    attachment.kind === "github.pull_request_comment" ||
+    attachment.kind === "github.pull_request_review" ||
+    attachment.kind === "github.pull_request_check";
+  if (!isContextAttachment) {
     return null;
   }
   return JSON.stringify({

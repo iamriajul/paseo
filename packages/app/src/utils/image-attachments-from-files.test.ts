@@ -92,7 +92,7 @@ describe("collectImageFilesFromClipboardData", () => {
       ],
     });
 
-    expect(files).toEqual([{ file: imagePng, mimeType: "image/png" }]);
+    expect(files).toEqual([imagePng]);
   });
 
   it("ignores SVG clipboard files", () => {
@@ -127,10 +127,7 @@ describe("filesToImageAttachments", () => {
       type: "",
     });
 
-    const attachments = await filesToImageAttachments([
-      { file: pngFile, mimeType: "image/png" },
-      { file: typeLessFile, mimeType: "image/png" },
-    ]);
+    const attachments = await filesToImageAttachments([pngFile, typeLessFile]);
 
     expect(attachments).toEqual([
       {
@@ -144,7 +141,7 @@ describe("filesToImageAttachments", () => {
       },
       {
         id: "att-2",
-        mimeType: "image/png",
+        mimeType: "image/jpeg",
         storageType: "web-indexeddb",
         storageKey: "att-2",
         fileName: "second",
@@ -159,7 +156,7 @@ describe("filesToImageAttachments", () => {
       type: "image/png",
     });
 
-    const [attachment] = await filesToImageAttachments([{ file: large, mimeType: "image/png" }]);
+    const [attachment] = await filesToImageAttachments([large]);
 
     expect(attachment?.storageType).toBe("web-indexeddb");
     expect(attachment?.byteSize).toBe(4 * 1024 * 1024);

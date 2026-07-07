@@ -1,10 +1,6 @@
 import type { Logger } from "pino";
 
-import {
-  AgentRunCancellationError,
-  type AgentRunCancellationResult,
-  type ManagedAgent,
-} from "./agent-manager.js";
+import type { ManagedAgent } from "./agent-manager.js";
 import type { StoredAgentRecord } from "./agent-storage.js";
 import type { AgentProviderNotice } from "./agent-sdk-types.js";
 
@@ -13,7 +9,7 @@ export type LifecycleAgentSnapshot = Pick<ManagedAgent, "id" | "cwd" | "lifecycl
 export interface LifecycleAgentManager {
   getAgent(agentId: string): LifecycleAgentSnapshot | null;
   hasInFlightRun(agentId: string): boolean;
-  cancelAgentRun(agentId: string): Promise<AgentRunCancellationResult>;
+  cancelAgentRun(agentId: string): Promise<boolean>;
   clearAgentAttention(agentId: string): Promise<void>;
   archiveAgent(agentId: string): Promise<{ archivedAt: string }>;
   archiveSnapshot(agentId: string, archivedAt: string): Promise<StoredAgentRecord>;
@@ -51,14 +47,10 @@ export interface CancelAgentRunResult {
   cancelled: boolean;
 }
 
-interface RequestedAgentRunCancellation extends CancelAgentRunResult {
-  cancellation: AgentRunCancellationResult;
-}
-
-async function requestAgentRunCancellation(
+export async function cancelAgentRunCommand(
   dependencies: Pick<AgentLifecycleCommandDependencies, "agentManager" | "logger">,
   agentId: string,
-): Promise<RequestedAgentRunCancellation> {
+): Promise<CancelAgentRunResult> {
   const { agentManager, logger } = dependencies;
   const agent = agentManager.getAgent(agentId);
   if (!agent) {
@@ -72,7 +64,7 @@ async function requestAgentRunCancellation(
       { agentId, lifecycle: agent.lifecycle, hasInFlightRun },
       "cancelAgentRunCommand: skipping because agent is not running",
     );
-    return { agent, cancelled: false, cancellation: { status: "not_running" } };
+    return { agent, cancelled: false };
   }
 
   logger.debug(
@@ -80,33 +72,23 @@ async function requestAgentRunCancellation(
     "cancelAgentRunCommand: interrupting",
   );
   const startedAt = Date.now();
-  const cancellation = await agentManager.cancelAgentRun(agentId);
+  const cancelled = await agentManager.cancelAgentRun(agentId);
   logger.debug(
-    { agentId, cancellation: cancellation.status, durationMs: Date.now() - startedAt },
+    { agentId, cancelled, durationMs: Date.now() - startedAt },
     "cancelAgentRunCommand: cancelAgentRun completed",
   );
 
-  return {
-    agent,
-    cancelled: cancellation.status === "settled",
-    cancellation,
-  };
-}
-
-export async function cancelAgentRunCommand(
-  dependencies: Pick<AgentLifecycleCommandDependencies, "agentManager" | "logger">,
-  agentId: string,
-): Promise<CancelAgentRunResult> {
-  const result = await requestAgentRunCancellation(dependencies, agentId);
-  if (result.cancellation.status === "refused") {
-    dependencies.logger.warn(
+  if (!cancelled) {
+    logger.warn(
       { agentId },
       "cancelAgentRunCommand: reported running but no active run was cancelled",
     );
-    throw new AgentRunCancellationError(agentId, "stop");
   }
 
-  return { agent: result.agent, cancelled: result.cancelled };
+  return {
+    agent,
+    cancelled,
+  };
 }
 
 export interface ArchiveAgentResult {
@@ -122,7 +104,7 @@ export async function archiveAgentCommand(
   const liveAgent = dependencies.agentManager.getAgent(agentId);
   let record: StoredAgentRecord | null;
   if (liveAgent) {
-    await requestAgentRunCancellation(dependencies, agentId);
+    await cancelAgentRunCommand(dependencies, agentId);
     await dependencies.agentManager.clearAgentAttention(agentId).catch(() => undefined);
     await dependencies.agentManager.archiveAgent(agentId);
     record = await dependencies.agentStorage.get(agentId);

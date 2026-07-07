@@ -17,11 +17,10 @@ function workspace(projectKey: string, workspaceId: string): SidebarWorkspaceEnt
     workspaceKey: `srv:${workspaceId}`,
     serverId: "srv",
     workspaceId,
-    projectViewKey: projectKey,
+    projectKey,
     projectName: projectKey,
     projectRootPath: `/repo/${projectKey}`,
     workspaceDirectory: `/repo/${projectKey}/${workspaceId}`,
-    workspaceDirectoryLabel: `/repo/${projectKey}/${workspaceId}`,
     projectKind: "git",
     workspaceKind: "worktree",
     name: workspaceId,
@@ -41,7 +40,7 @@ function workspace(projectKey: string, workspaceId: string): SidebarWorkspaceEnt
 
 function project(projectKey: string): SidebarProjectEntry {
   return {
-    viewKey: projectKey,
+    projectKey,
     projectName: projectKey,
     projectKind: "git",
     iconWorkingDir: `/repo/${projectKey}`,
@@ -69,7 +68,7 @@ describe("useSidebarShortcutModel", () => {
     root = createRoot(container);
     useSidebarCollapsedSectionsStore.setState({
       collapsedProjectKeys: new Set(),
-      collapsedWorkspaceGroupKeys: new Set(),
+      collapsedStatusGroupKeys: new Set(),
     });
   });
 

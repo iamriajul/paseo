@@ -27,20 +27,13 @@ function createRecord(overrides?: Partial<StoredAgentRecord>): StoredAgentRecord
 }
 
 describe("persistence hooks", () => {
-  test("buildConfigOverrides preserves the complete private launch config", () => {
+  test("buildConfigOverrides carries systemPrompt and mcpServers", () => {
     const record = createRecord({
       title: "Voice agent (current)",
       config: {
         modeId: "default",
         model: "gpt-5.4-mini",
         thinkingOptionId: "minimal",
-        providerOptions: {
-          sandbox_mode: "workspace-write",
-          sandbox_workspace_write: { writable_roots: ["/tmp/shared"] },
-        },
-        toolPolicy: {
-          preapproved: [{ kind: "mcp", server: "paseo", tool: "report_status" }],
-        },
         systemPrompt: "Use speak first.",
         mcpServers: {
           paseo: {
@@ -54,16 +47,9 @@ describe("persistence hooks", () => {
 
     expect(buildConfigOverrides(record)).toMatchObject({
       cwd: "/tmp/project",
-      modeId: "default",
+      modeId: "plan",
       model: "gpt-5.4-mini",
       thinkingOptionId: "minimal",
-      providerOptions: {
-        sandbox_mode: "workspace-write",
-        sandbox_workspace_write: { writable_roots: ["/tmp/shared"] },
-      },
-      toolPolicy: {
-        preapproved: [{ kind: "mcp", server: "paseo", tool: "report_status" }],
-      },
       systemPrompt: "Use speak first.",
       mcpServers: {
         paseo: {
@@ -75,11 +61,12 @@ describe("persistence hooks", () => {
     });
   });
 
-  test("buildSessionConfig keeps an omitted mode omitted on resume", () => {
+  test("buildSessionConfig includes persisted systemPrompt and mcpServers", () => {
     const record = createRecord({
       provider: "codex",
       title: "Renamed title",
       config: {
+        modeId: "default",
         model: "gpt-5.4-mini",
         systemPrompt: "Confirm and speak first.",
         mcpServers: {
@@ -95,7 +82,7 @@ describe("persistence hooks", () => {
     expect(buildSessionConfig(record)).toMatchObject({
       provider: "codex",
       cwd: "/tmp/project",
-      modeId: undefined,
+      modeId: "plan",
       model: "gpt-5.4-mini",
       systemPrompt: "Confirm and speak first.",
       mcpServers: {

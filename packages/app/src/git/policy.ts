@@ -2,9 +2,11 @@ import type { ReactElement } from "react";
 
 import type { ActionStatus } from "@/components/ui/dropdown-menu";
 import { i18n } from "@/i18n/i18next";
-import type { CheckoutPrMergeMethod, PullRequestMergeable } from "@getpaseo/protocol/messages";
-
-import type { MergeCapability } from "./merge-capability";
+import type {
+  CheckoutPrMergeMethod,
+  CheckoutPrStatusResponse,
+  PullRequestMergeable,
+} from "@getpaseo/protocol/messages";
 
 export type GitActionId =
   | "commit"
@@ -21,7 +23,7 @@ export type GitActionId =
   | "disable-pr-auto-merge"
   | "merge-branch"
   | "merge-from-base"
-  | "archive-workspace";
+  | "archive-worktree";
 
 export interface GitAction {
   id: GitActionId;
@@ -53,10 +55,6 @@ interface GitActionRuntimeState {
 export interface BuildGitActionsInput {
   isGit: boolean;
   githubFeaturesEnabled: boolean;
-  /** Forge brand label (e.g. "GitHub", "GitLab") for forge-neutral unavailable copy. */
-  forgeBrandLabel: string;
-  /** Short change-request noun label (e.g. "PR", "MR") for forge-neutral unavailable copy. */
-  forgeChangeRequestNoun: string;
   githubAutoMergeActionsEnabled: boolean;
   hasPullRequest: boolean;
   pullRequestUrl: string | null;
@@ -64,7 +62,7 @@ export interface BuildGitActionsInput {
   pullRequestIsDraft: boolean;
   pullRequestIsMerged: boolean;
   pullRequestMergeable: PullRequestMergeable;
-  mergeCapability: MergeCapability | null;
+  pullRequestGithub: PullRequestGithubStatus | null;
   hasRemote: boolean;
   isPaseoOwnedWorktree: boolean;
   isOnBaseBranch: boolean;
@@ -100,6 +98,7 @@ type PullRequestAutoMergeEnableActionId = Extract<
   "enable-pr-auto-merge-squash" | "enable-pr-auto-merge-merge" | "enable-pr-auto-merge-rebase"
 >;
 type PullRequestActionRole = "status" | "direct" | "auto";
+type PullRequestGithubStatus = NonNullable<CheckoutPrStatusResponse["payload"]["status"]>["github"];
 
 interface PullRequestActionModel {
   readonly id: PullRequestActionId;
@@ -181,6 +180,7 @@ const PULL_REQUEST_ACTION_MODELS: readonly PullRequestActionModel[] = [
 ];
 
 const REMOTE_ACTION_IDS: GitActionId[] = ["pull", "push", "pull-and-push"];
+const GITHUB_DIRECT_MERGE_STATE_ALLOWLIST = new Set(["CLEAN", "HAS_HOOKS"]);
 
 export function narrowPullRequestState(state: string | null | undefined): "open" | "closed" | null {
   if (state === "open") return "open";
@@ -282,16 +282,20 @@ export function buildGitActions(input: BuildGitActionsInput): GitActions {
     handler: input.runtime["merge-from-base"].handler,
   });
 
-  allActions.set("archive-workspace", {
-    id: "archive-workspace",
+  allActions.set("archive-worktree", {
+    id: "archive-worktree",
     label: i18n.t("workspace.git.actions.archive.label"),
     pendingLabel: i18n.t("workspace.git.actions.archive.pending"),
     successLabel: i18n.t("workspace.git.actions.archive.success"),
-    disabled: input.runtime["archive-workspace"].disabled,
-    status: input.runtime["archive-workspace"].status,
-    icon: input.runtime["archive-workspace"].icon,
+    disabled: input.runtime["archive-worktree"].disabled,
+    status: input.runtime["archive-worktree"].status,
+    unavailableMessage:
+      input.runtime["archive-worktree"].disabled || input.isPaseoOwnedWorktree
+        ? undefined
+        : i18n.t("workspace.git.actions.unavailable.archiveNotWorktree"),
+    icon: input.runtime["archive-worktree"].icon,
     startsGroup: true,
-    handler: input.runtime["archive-workspace"].handler,
+    handler: input.runtime["archive-worktree"].handler,
   });
 
   const primaryActionId = getPrimaryActionId(input);
@@ -301,20 +305,20 @@ export function buildGitActions(input: BuildGitActionsInput): GitActions {
   if (!input.isOnBaseBranch) {
     secondaryIds.push(...getFeatureActionIds(input));
   }
-  secondaryIds.push("archive-workspace");
+  if (input.isPaseoOwnedWorktree) {
+    secondaryIds.push("archive-worktree");
+  }
 
   return {
     primary,
-    secondary: secondaryIds
-      .filter((id) => id !== "archive-workspace" || primaryActionId !== "archive-workspace")
-      .map((id) => allActions.get(id)!),
+    secondary: secondaryIds.map((id) => allActions.get(id)!),
     menu: [],
   };
 }
 
 function getPrimaryActionId(input: BuildGitActionsInput): GitActionId | null {
-  if (input.shouldPromoteArchive) {
-    return "archive-workspace";
+  if (input.shouldPromoteArchive && input.isPaseoOwnedWorktree) {
+    return "archive-worktree";
   }
   if (input.hasUncommittedChanges) {
     return "commit";
@@ -346,13 +350,6 @@ function getPrimaryActionId(input: BuildGitActionsInput): GitActionId | null {
   if (input.githubFeaturesEnabled && input.hasPullRequest && input.pullRequestUrl) {
     return "pr";
   }
-
-  // Only Paseo-owned worktrees get Archive as a fallback primary action.
-  // Regular Git checkouts should not show the destructive archive CTA by default.
-  if (input.isPaseoOwnedWorktree) {
-    return "archive-workspace";
-  }
-
   return null;
 }
 
@@ -403,10 +400,7 @@ function buildPrAction(input: BuildGitActionsInput): GitAction {
       unavailableMessage:
         input.runtime.pr.disabled || input.githubFeaturesEnabled
           ? undefined
-          : i18n.t("workspace.git.actions.unavailable.viewPrNoForge", {
-              brand: input.forgeBrandLabel,
-              noun: input.forgeChangeRequestNoun,
-            }),
+          : i18n.t("workspace.git.actions.unavailable.viewPrNoGithub"),
       icon: input.runtime.pr.icon,
       startsGroup: false,
       handler: input.runtime.pr.handler,
@@ -470,7 +464,7 @@ function buildEnablePullRequestAutoMergeAction(
 function buildDisablePullRequestAutoMergeAction(input: BuildGitActionsInput): GitAction {
   const runtime = input.runtime["disable-pr-auto-merge"];
   const unavailableMessage =
-    input.mergeCapability?.canDisableAutoMerge === true
+    input.pullRequestGithub?.viewerCanDisableAutoMerge === true
       ? undefined
       : i18n.t("workspace.git.actions.unavailable.autoMergeCannotDisable");
   return {
@@ -478,7 +472,7 @@ function buildDisablePullRequestAutoMergeAction(input: BuildGitActionsInput): Gi
     label: i18n.t("workspace.git.actions.autoMerge.enabled"),
     pendingLabel: i18n.t("workspace.git.actions.autoMerge.disabling"),
     successLabel: i18n.t("workspace.git.actions.autoMerge.disabled"),
-    disabled: runtime.disabled || input.mergeCapability?.canDisableAutoMerge !== true,
+    disabled: runtime.disabled || input.pullRequestGithub?.viewerCanDisableAutoMerge !== true,
     status: runtime.status,
     unavailableMessage: runtime.disabled ? undefined : unavailableMessage,
     icon: runtime.icon,
@@ -546,7 +540,7 @@ function canUsePullRequestActionAsShipDefault(input: BuildGitActionsInput): bool
 }
 
 function canMergePr(input: BuildGitActionsInput): boolean {
-  const capability = input.mergeCapability;
+  const github = input.pullRequestGithub;
   const canMergeFromPullRequestStatus =
     input.githubFeaturesEnabled &&
     input.hasPullRequest &&
@@ -561,7 +555,7 @@ function canMergePr(input: BuildGitActionsInput): boolean {
     return false;
   }
 
-  if (capability === null) {
+  if (!hasPullRequestGithubFacts(github)) {
     return (
       input.pullRequestMergeable === "MERGEABLE" &&
       input.behindOfOrigin === 0 &&
@@ -571,15 +565,16 @@ function canMergePr(input: BuildGitActionsInput): boolean {
   }
 
   return (
-    capability.directMergeReady &&
-    !capability.autoMergeEnabled &&
-    !capability.mergeBlockedByQueue &&
+    GITHUB_DIRECT_MERGE_STATE_ALLOWLIST.has(github.mergeStateStatus ?? "") &&
+    github.autoMergeRequest === null &&
+    !github.isMergeQueueEnabled &&
+    !github.isInMergeQueue &&
     getAllowedDirectPullRequestMergeActionModels(input).length > 0
   );
 }
 
 function canEnablePrAutoMerge(input: BuildGitActionsInput): boolean {
-  const capability = input.mergeCapability;
+  const github = input.pullRequestGithub;
   return (
     input.githubFeaturesEnabled &&
     input.githubAutoMergeActionsEnabled &&
@@ -588,10 +583,13 @@ function canEnablePrAutoMerge(input: BuildGitActionsInput): boolean {
     !input.pullRequestIsDraft &&
     !input.pullRequestIsMerged &&
     input.pullRequestMergeable !== "CONFLICTING" &&
-    capability !== null &&
-    !capability.autoMergeEnabled &&
-    capability.canEnableAutoMerge &&
-    !capability.mergeBlockedByQueue &&
+    hasPullRequestGithubFacts(github) &&
+    github.autoMergeRequest === null &&
+    github.mergeStateStatus === "BLOCKED" &&
+    github.repository.autoMergeAllowed &&
+    github.viewerCanEnableAutoMerge &&
+    !github.isMergeQueueEnabled &&
+    !github.isInMergeQueue &&
     getAllowedAutoMergeEnableActionModels(input).length > 0
   );
 }
@@ -601,7 +599,8 @@ function hasEnabledPrAutoMerge(input: BuildGitActionsInput): boolean {
     input.githubFeaturesEnabled &&
     input.hasPullRequest &&
     input.pullRequestUrl !== null &&
-    input.mergeCapability?.autoMergeEnabled === true
+    hasPullRequestGithubFacts(input.pullRequestGithub) &&
+    input.pullRequestGithub.autoMergeRequest !== null
   );
 }
 
@@ -613,7 +612,7 @@ function getPullUnavailableMessage(input: BuildGitActionsInput): string | undefi
     return i18n.t("workspace.git.actions.unavailable.pullDirty");
   }
   if (input.behindOfOrigin === null) {
-    return i18n.t("workspace.git.actions.unavailable.pullNoRemote");
+    return "Pull isn't available here because this branch is not connected to a remote yet";
   }
   if (input.behindOfOrigin === 0) {
     return i18n.t("workspace.git.actions.unavailable.pullUpToDate");
@@ -642,26 +641,23 @@ function getPullAndPushUnavailableMessage(input: BuildGitActionsInput): string |
     return i18n.t("workspace.git.actions.unavailable.pullAndPushDirty");
   }
   if (input.behindOfOrigin === null) {
-    return i18n.t("workspace.git.actions.unavailable.pullAndPushNoIncoming");
+    return "Pull and push isn't available because there are no incoming changes to pull first";
   }
   if (input.behindOfOrigin === 0 && input.aheadOfOrigin === 0) {
     return i18n.t("workspace.git.actions.unavailable.pullAndPushInSync");
   }
   if (input.behindOfOrigin === 0) {
-    return i18n.t("workspace.git.actions.unavailable.pullAndPushNoIncoming");
+    return "Pull and push isn't available because there are no incoming changes to pull first";
   }
   if ((input.aheadOfOrigin ?? 0) === 0) {
-    return i18n.t("workspace.git.actions.unavailable.pullAndPushNothingToPush");
+    return "Pull and push isn't available because there is nothing new to send after pulling";
   }
   return undefined;
 }
 
 function getCreatePrUnavailableMessage(input: BuildGitActionsInput): string | undefined {
   if (!input.githubFeaturesEnabled) {
-    return i18n.t("workspace.git.actions.unavailable.createPrNoForge", {
-      brand: input.forgeBrandLabel,
-      noun: input.forgeChangeRequestNoun,
-    });
+    return i18n.t("workspace.git.actions.unavailable.createPrNoGithub");
   }
   if (input.aheadCount === 0) {
     return i18n.t("workspace.git.actions.unavailable.createPrNoCommits");
@@ -699,10 +695,7 @@ function getMergeFromBaseUnavailableMessage(input: BuildGitActionsInput): string
 
 function getMergePrUnavailableMessage(input: BuildGitActionsInput): string | undefined {
   if (!input.githubFeaturesEnabled) {
-    return i18n.t("workspace.git.actions.unavailable.mergePrNoForge", {
-      brand: input.forgeBrandLabel,
-      noun: input.forgeChangeRequestNoun,
-    });
+    return i18n.t("workspace.git.actions.unavailable.mergePrNoGithub");
   }
   if (!input.hasPullRequest) {
     return i18n.t("workspace.git.actions.unavailable.mergePrMissing");
@@ -719,17 +712,14 @@ function getMergePrUnavailableMessage(input: BuildGitActionsInput): string | und
   if (input.pullRequestMergeable === "CONFLICTING") {
     return i18n.t("workspace.git.actions.unavailable.mergePrConflicts");
   }
-  if (input.mergeCapability === null) {
+  if (!hasPullRequestGithubFacts(input.pullRequestGithub)) {
     return undefined;
   }
-  if (input.mergeCapability.mergeBlockedByQueue) {
+  if (input.pullRequestGithub?.isMergeQueueEnabled || input.pullRequestGithub?.isInMergeQueue) {
     return i18n.t("workspace.git.actions.unavailable.mergePrQueue");
   }
-  if (!input.mergeCapability.directMergeReady) {
-    return i18n.t("workspace.git.actions.unavailable.mergePrNotReady", {
-      brand: input.forgeBrandLabel,
-      noun: input.forgeChangeRequestNoun,
-    });
+  if (!GITHUB_DIRECT_MERGE_STATE_ALLOWLIST.has(input.pullRequestGithub?.mergeStateStatus ?? "")) {
+    return i18n.t("workspace.git.actions.unavailable.mergePrNotReady");
   }
   return undefined;
 }
@@ -746,7 +736,11 @@ function shouldShowPullRequestAction(
     return true;
   }
   if (id === "disable-pr-auto-merge") {
-    return input.githubAutoMergeActionsEnabled && input.mergeCapability?.autoMergeEnabled === true;
+    return (
+      input.githubAutoMergeActionsEnabled &&
+      hasPullRequestGithubFacts(input.pullRequestGithub) &&
+      input.pullRequestGithub.autoMergeRequest !== null
+    );
   }
   if (isDirectPullRequestMergeActionId(id)) {
     return canMergePr(input) && getAllowedDirectPullRequestMergeActionIds(input).includes(id);
@@ -801,7 +795,9 @@ function getPreferredDirectPullRequestMergeActionModel(
   input: BuildGitActionsInput,
 ): PullRequestDirectMergeActionModel | null {
   const allowed = getAllowedDirectPullRequestMergeActionModels(input);
-  const preferred = input.mergeCapability?.preferredMethod ?? null;
+  const preferred = normalizeGithubMergeMethod(
+    input.pullRequestGithub?.repository.viewerDefaultMergeMethod ?? null,
+  );
   return allowed.find((model) => model.method === preferred) ?? allowed[0] ?? null;
 }
 
@@ -809,7 +805,9 @@ function getPreferredEnablePullRequestAutoMergeActionModel(
   input: BuildGitActionsInput,
 ): PullRequestAutoMergeEnableActionModel | null {
   const allowed = getAllowedAutoMergeEnableActionModels(input);
-  const preferred = input.mergeCapability?.preferredMethod ?? null;
+  const preferred = normalizeGithubMergeMethod(
+    input.pullRequestGithub?.repository.viewerDefaultMergeMethod ?? null,
+  );
   return allowed.find((model) => model.method === preferred) ?? allowed[0] ?? null;
 }
 
@@ -817,9 +815,28 @@ function isPullRequestMergeMethodAllowed(
   input: BuildGitActionsInput,
   method: CheckoutPrMergeMethod,
 ): boolean {
-  const capability = input.mergeCapability;
-  if (capability === null) {
+  const repository = input.pullRequestGithub?.repository;
+  if (!repository) {
     return true;
   }
-  return capability.allowedMethods.includes(method);
+  if (method === "squash") {
+    return repository.squashMergeAllowed;
+  }
+  if (method === "merge") {
+    return repository.mergeCommitAllowed;
+  }
+  return repository.rebaseMergeAllowed;
+}
+
+function hasPullRequestGithubFacts(
+  github: PullRequestGithubStatus | null,
+): github is NonNullable<PullRequestGithubStatus> {
+  return github !== null && github !== undefined;
+}
+
+function normalizeGithubMergeMethod(value: string | null): CheckoutPrMergeMethod | null {
+  if (value === "SQUASH") return "squash";
+  if (value === "MERGE") return "merge";
+  if (value === "REBASE") return "rebase";
+  return null;
 }

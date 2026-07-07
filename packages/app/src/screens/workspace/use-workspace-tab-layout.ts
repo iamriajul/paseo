@@ -2,14 +2,23 @@ import { useMemo } from "react";
 import { useWindowDimensions } from "react-native";
 import {
   computeWorkspaceTabLayout,
-  type WorkspaceTabLayoutMetrics,
   type WorkspaceTabLayoutResult,
 } from "@/screens/workspace/workspace-tab-layout";
 
 interface UseWorkspaceTabLayoutInput {
-  tabLabelWidths: number[];
+  tabLabelLengths: number[];
   viewportWidthOverride?: number | null;
-  metrics: WorkspaceTabLayoutMetrics;
+  metrics: {
+    rowHorizontalInset: number;
+    actionsReservedWidth: number;
+    rowPaddingHorizontal: number;
+    tabGap: number;
+    maxTabWidth: number;
+    tabIconWidth: number;
+    tabHorizontalPadding: number;
+    estimatedCharWidth: number;
+    closeButtonWidth: number;
+  };
 }
 
 interface UseWorkspaceTabLayoutResult {
@@ -29,10 +38,10 @@ export function useWorkspaceTabLayout(
     () =>
       computeWorkspaceTabLayout({
         viewportWidth: resolvedViewportWidth,
-        tabLabelWidths: input.tabLabelWidths,
+        tabLabelLengths: input.tabLabelLengths,
         metrics: input.metrics,
       }),
-    [input.metrics, input.tabLabelWidths, resolvedViewportWidth],
+    [input.metrics, input.tabLabelLengths, resolvedViewportWidth],
   );
 
   return {

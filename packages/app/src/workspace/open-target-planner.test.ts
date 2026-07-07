@@ -2,18 +2,8 @@ import { describe, expect, it } from "vitest";
 import { planWorkspaceOpenTargets } from "./open-target-planner";
 
 const desktopTargets = [
-  {
-    id: "vscode",
-    label: "VS Code",
-    kind: "editor" as const,
-    icon: { kind: "symbol" as const, name: "terminal" as const },
-  },
-  {
-    id: "finder",
-    label: "Finder",
-    kind: "file-manager" as const,
-    icon: { kind: "symbol" as const, name: "folder" as const },
-  },
+  { id: "vscode", label: "VS Code", kind: "editor" as const },
+  { id: "finder", label: "Finder", kind: "file-manager" as const },
 ];
 
 const checkoutStatus = {
@@ -35,12 +25,7 @@ describe("planWorkspaceOpenTargets", () => {
     expect(targets[0]).toMatchObject({
       source: "desktop",
       id: "vscode",
-      openInput: {
-        editorId: "vscode",
-        workspacePath: "/repo",
-        filePath: "/repo/src/app.ts",
-        line: 3,
-      },
+      openInput: { editorId: "vscode", path: "/repo/src/app.ts", cwd: "/repo" },
     });
   });
 
@@ -56,11 +41,7 @@ describe("planWorkspaceOpenTargets", () => {
     expect(targets[1]).toMatchObject({
       source: "desktop",
       id: "finder",
-      openInput: {
-        editorId: "finder",
-        workspacePath: "/repo",
-        filePath: "/repo/src/app.ts",
-      },
+      openInput: { editorId: "finder", path: "/repo/src/app.ts", mode: "reveal" },
     });
   });
 
@@ -75,12 +56,12 @@ describe("planWorkspaceOpenTargets", () => {
     expect(targets[0]).toMatchObject({
       source: "desktop",
       id: "vscode",
-      openInput: { editorId: "vscode", workspacePath: "/repo" },
+      openInput: { editorId: "vscode", path: "/repo" },
     });
     expect(targets[1]).toMatchObject({
       source: "desktop",
       id: "finder",
-      openInput: { editorId: "finder", workspacePath: "/repo" },
+      openInput: { editorId: "finder", path: "/repo" },
     });
   });
 
@@ -88,14 +69,7 @@ describe("planWorkspaceOpenTargets", () => {
     const targets = planWorkspaceOpenTargets({
       workspaceDirectory: "/repo",
       activeFile: { path: "src/app.ts" },
-      desktopTargets: [
-        {
-          id: "script:open-in-nvim",
-          label: "Open in Neovim",
-          kind: "editor",
-          icon: { kind: "symbol", name: "terminal" },
-        },
-      ],
+      desktopTargets: [{ id: "script:open-in-nvim", label: "Open in Neovim", kind: "editor" }],
       canUseDesktopBridge: true,
       isLocalExecution: true,
     });
@@ -106,11 +80,10 @@ describe("planWorkspaceOpenTargets", () => {
         id: "script:open-in-nvim",
         label: "Open in Neovim",
         editorId: "script:open-in-nvim",
-        icon: { kind: "symbol", name: "terminal" },
         openInput: {
           editorId: "script:open-in-nvim",
-          workspacePath: "/repo",
-          filePath: "/repo/src/app.ts",
+          path: "/repo/src/app.ts",
+          cwd: "/repo",
         },
       },
     ]);
@@ -135,8 +108,7 @@ describe("planWorkspaceOpenTargets", () => {
 
     expect(blobTargets).toEqual([
       {
-        source: "forge",
-        forge: "github",
+        source: "github",
         id: "github",
         label: "GitHub",
         url: "https://github.com/getpaseo/paseo/blob/main/src/app.ts#L3-L5",
@@ -144,37 +116,10 @@ describe("planWorkspaceOpenTargets", () => {
     ]);
     expect(treeTargets).toEqual([
       {
-        source: "forge",
-        forge: "github",
+        source: "github",
         id: "github",
         label: "GitHub",
         url: "https://github.com/getpaseo/paseo/tree/main",
-      },
-    ]);
-  });
-
-  it("infers the forge from the remote URL when the forge input is null", () => {
-    const targets = planWorkspaceOpenTargets({
-      workspaceDirectory: "/repo",
-      activeFile: { path: "src/app.ts", lineStart: 3, lineEnd: 5 },
-      desktopTargets: [],
-      canUseDesktopBridge: false,
-      isLocalExecution: false,
-      checkoutStatus: {
-        isGit: true,
-        remoteUrl: "git@gitlab.com:group/project.git",
-        currentBranch: "main",
-      },
-      forge: null,
-    });
-
-    expect(targets).toEqual([
-      {
-        source: "forge",
-        forge: "gitlab",
-        id: "gitlab",
-        label: "GitLab",
-        url: "https://gitlab.com/group/project/-/blob/main/src/app.ts#L3-5",
       },
     ]);
   });

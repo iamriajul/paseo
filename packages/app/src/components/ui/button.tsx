@@ -1,4 +1,3 @@
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import {
   default as React,
   useCallback,
@@ -9,7 +8,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type {
   PressableProps,
   PressableStateCallbackType,
@@ -45,7 +44,7 @@ function ButtonIcon({ loading, leftIcon, iconSize, iconColor }: ButtonIconProps)
   if (loading) {
     return (
       <View>
-        <LoadingSpinner size="small" color={iconColor} />
+        <ActivityIndicator size="small" color={iconColor} />
       </View>
     );
   }

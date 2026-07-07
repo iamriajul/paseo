@@ -60,8 +60,6 @@ export interface TerminalManager {
     env?: Record<string, string>;
     command?: string;
     args?: string[];
-    rows?: number;
-    cols?: number;
     activityToken?: string;
     activityUrl?: string | null;
   }): Promise<TerminalSession>;
@@ -317,8 +315,6 @@ export function createTerminalManager(
       env?: Record<string, string>;
       command?: string;
       args?: string[];
-      rows?: number;
-      cols?: number;
       activityToken?: string;
       activityUrl?: string | null;
     }): Promise<TerminalSession> {
@@ -352,8 +348,6 @@ export function createTerminalManager(
             ...(options.title ? { title: options.title } : {}),
             ...(options.command ? { command: options.command } : {}),
             ...(options.args ? { args: options.args } : {}),
-            ...(options.rows !== undefined ? { rows: options.rows } : {}),
-            ...(options.cols !== undefined ? { cols: options.cols } : {}),
             ...(mergedEnv ? { env: mergedEnv } : {}),
             activityEnv,
           }),

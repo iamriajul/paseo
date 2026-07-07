@@ -60,7 +60,7 @@ paseo send <agent-id> "add tests"
 paseo schedule create --cron "0 9 * * 1" "audit the codebase"
 ```
 
-`paseo run --host` connects to a remote daemon. `paseo schedule` runs an agent on a cron.
+`paseo run --host` connects to a remote daemon. `paseo schedule` runs an agent on a cron. `paseo loop` retries an agent until a verification command passes.
 
 OpenChamber does not have a CLI.
 

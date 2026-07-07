@@ -1,0 +1,164 @@
+name: NPM Global Install Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, e.g. v0.1.900."
+        required: true
+        type: string
+      checkout_ref:
+        description: "Optional branch/ref to checkout while using tag for release metadata."
+        required: false
+        default: ""
+        type: string
+      publish:
+        description: "Upload built tarballs to the GitHub Release."
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+concurrency:
+  group: npm-global-install-release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.checkout_ref || github.ref_name) || github.ref_name }}
+  SHOULD_PUBLISH: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish != 'false' }}
+
+jobs:
+  package-npm-global-install:
+    permissions:
+      contents: write
+      packages: read
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Resolve release metadata
+        shell: bash
+        run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
+
+      - name: Ensure GitHub release exists
+        if: env.SHOULD_PUBLISH == 'true' && env.IS_SMOKE_TAG != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          release_args=(
+            release create "$RELEASE_TAG"
+            --repo "${{ github.repository }}"
+            --title "Paseo $RELEASE_TAG"
+            --notes ""
+          )
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            release_args+=(--target "$CHECKOUT_REF")
+          fi
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          if ! gh "${release_args[@]}"; then
+            echo "Release creation raced with another workflow; continuing."
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@boudra"
+
+      - name: Install JS dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stamp package versions from tag
+        shell: bash
+        run: node scripts/stamp-package-version.mjs --version "$RELEASE_VERSION"
+
+      - name: Link internal dependencies to release assets
+        shell: bash
+        run: |
+          node scripts/link-release-package-assets.mjs \
+            --version "$RELEASE_VERSION" \
+            --tag "$RELEASE_TAG" \
+            --repo "${{ github.repository }}"
+
+      - name: Pack npm global-install tarballs
+        shell: bash
+        run: |
+          set -euo pipefail
+          pack_dir="$RUNNER_TEMP/npm-release-assets"
+          mkdir -p "$pack_dir"
+
+          workspaces=(
+            @getpaseo/highlight
+            @getpaseo/relay
+            @getpaseo/protocol
+            @getpaseo/client
+            @getpaseo/server
+            @getpaseo/cli
+          )
+
+          for workspace in "${workspaces[@]}"; do
+            npm pack --workspace="$workspace" --pack-destination "$pack_dir"
+          done
+
+          expected_files=(
+            "getpaseo-highlight-${RELEASE_VERSION}.tgz"
+            "getpaseo-relay-${RELEASE_VERSION}.tgz"
+            "getpaseo-protocol-${RELEASE_VERSION}.tgz"
+            "getpaseo-client-${RELEASE_VERSION}.tgz"
+            "getpaseo-server-${RELEASE_VERSION}.tgz"
+            "getpaseo-cli-${RELEASE_VERSION}.tgz"
+          )
+
+          for file in "${expected_files[@]}"; do
+            if [[ ! -f "$pack_dir/$file" ]]; then
+              echo "::error::Expected npm package tarball missing: $file"
+              find "$pack_dir" -maxdepth 1 -type f -print
+              exit 1
+            fi
+          done
+
+          echo "NPM_RELEASE_ASSETS=$pack_dir" >> "$GITHUB_ENV"
+
+      - name: Upload npm tarballs to release
+        if: env.SHOULD_PUBLISH == 'true' && env.IS_SMOKE_TAG != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" "$NPM_RELEASE_ASSETS"/*.tgz --clobber --repo "${{ github.repository }}"
+
+      - name: Upload npm tarballs to workflow
+        if: env.SHOULD_PUBLISH != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-global-install-tarballs
+          path: ${{ env.NPM_RELEASE_ASSETS }}/*.tgz
+          retention-days: 7

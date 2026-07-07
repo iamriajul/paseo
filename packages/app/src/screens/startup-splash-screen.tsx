@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { getDesktopDaemonLogs, type DesktopDaemonLogs } from "@/desktop/daemon/desktop-daemon";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { isNative, isWeb } from "@/constants/platform";
+import { useWebScrollbarStyle } from "@/hooks/use-web-scrollbar-style";
 import { CODE_SURFACE_DATASET } from "@/styles/code-surface";
 
 interface StartupSplashScreenProps {
@@ -223,7 +224,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   title: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize["3xl"],
     fontWeight: theme.fontWeight.semibold,
     textAlign: "left",
   },
@@ -240,7 +241,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   logsMeta: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
   logsContainer: {
     height: 200,
@@ -299,6 +300,15 @@ const styles = StyleSheet.create((theme) => ({
 export function StartupSplashScreen({ bootstrapState }: StartupSplashScreenProps) {
   const { t } = useTranslation();
   const { theme } = useUnistyles();
+  const webScrollbarStyle = useWebScrollbarStyle();
+  const errorScrollViewStyle = useMemo(
+    () => [styles.errorScrollView, webScrollbarStyle],
+    [webScrollbarStyle],
+  );
+  const logsScrollStyle = useMemo(
+    () => [styles.logsScroll, webScrollbarStyle],
+    [webScrollbarStyle],
+  );
   const [daemonLogs, setDaemonLogs] = useState<DesktopDaemonLogs | null>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
@@ -394,7 +404,7 @@ export function StartupSplashScreen({ bootstrapState }: StartupSplashScreenProps
     <View style={styles.errorScreen}>
       <TitlebarDragRegion />
       <ScrollView
-        style={styles.errorScrollView}
+        style={errorScrollViewStyle}
         contentContainerStyle={styles.errorScrollContent}
         showsVerticalScrollIndicator
       >
@@ -414,7 +424,7 @@ export function StartupSplashScreen({ bootstrapState }: StartupSplashScreenProps
 
           <View style={styles.logsContainer}>
             <ScrollView
-              style={styles.logsScroll}
+              style={logsScrollStyle}
               contentContainerStyle={styles.logsContent}
               showsVerticalScrollIndicator
             >

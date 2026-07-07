@@ -1,3 +1,4 @@
+import type { PushTokenStore } from "./token-store.js";
 import type pino from "pino";
 
 export interface PushPayload {
@@ -30,11 +31,11 @@ const MAX_BATCH_SIZE = 100;
  */
 export class PushService {
   private readonly logger: pino.Logger;
-  private readonly revokeToken: (token: string) => void;
+  private readonly tokenStore: PushTokenStore;
 
-  constructor(logger: pino.Logger, revokeToken: (token: string) => void) {
+  constructor(logger: pino.Logger, tokenStore: PushTokenStore) {
     this.logger = logger.child({ component: "push-service" });
-    this.revokeToken = revokeToken;
+    this.tokenStore = tokenStore;
   }
 
   async sendPush(tokens: string[], payload: PushPayload): Promise<void> {
@@ -101,7 +102,7 @@ export class PushService {
           ticket.details?.error === "DeviceNotRegistered" ||
           ticket.details?.error === "InvalidCredentials"
         ) {
-          this.revokeToken(message.to);
+          this.tokenStore.removeToken(message.to);
         }
       }
     }

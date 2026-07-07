@@ -1,89 +1,107 @@
 import { describe, expect, it } from "vitest";
 import {
-  intersectWindowChromeCorners,
-  resolveHasOwnedWindowChromeObstruction,
-  resolveWindowChromeObstruction,
-  resolveWindowChromeSafeArea,
+  resolveRawWindowControlsPadding,
+  resolveWindowControlsPadding,
 } from "@/utils/desktop-window";
 
-describe("window chrome", () => {
-  it("has no corner obstruction outside Electron or in fullscreen", () => {
-    expect(resolveWindowChromeObstruction({ mode: null, isFullscreen: false })).toEqual({
-      topLeft: null,
-      topRight: null,
-    });
-    expect(resolveWindowChromeObstruction({ mode: "native-mac", isFullscreen: true })).toEqual({
-      topLeft: null,
-      topRight: null,
-    });
-  });
+const rawPadding = {
+  left: 80,
+  right: 48,
+  top: 28,
+};
 
-  it("places native controls in their physical top corner", () => {
-    expect(resolveWindowChromeObstruction({ mode: "native-mac", isFullscreen: false })).toEqual({
-      topLeft: { width: 78, height: 45 },
-      topRight: null,
-    });
-    expect(resolveWindowChromeObstruction({ mode: "custom-windows", isFullscreen: false })).toEqual(
-      { topLeft: null, topRight: { width: 138, height: 36 } },
-    );
-    expect(resolveWindowChromeObstruction({ mode: "custom-linux", isFullscreen: false })).toEqual({
-      topLeft: null,
-      topRight: { width: 108, height: 36 },
+describe("resolveWindowControlsPadding", () => {
+  it("keeps mac traffic-light padding available when the app window is not fullscreen", () => {
+    expect(
+      resolveRawWindowControlsPadding({ isElectron: true, isMac: true, isFullscreen: false }),
+    ).toEqual({
+      left: 78,
+      right: 0,
+      top: 45,
     });
   });
 
-  it("insets and reserves only claimed corners", () => {
-    const obstruction = { topLeft: { width: 80, height: 28 }, topRight: { width: 48, height: 32 } };
+  it("keeps Windows and Linux window-control padding available when the app window is not fullscreen", () => {
     expect(
-      resolveWindowChromeSafeArea({ obstruction, corners: "top-left", placement: "inline" }),
-    ).toEqual({ paddingLeft: 80, paddingRight: 0 });
-    expect(
-      resolveWindowChromeSafeArea({ obstruction, corners: "top-right", placement: "below" }),
-    ).toEqual({ height: 32 });
-    expect(
-      resolveWindowChromeSafeArea({ obstruction, corners: "both", placement: "below" }),
-    ).toEqual({ height: 32 });
-    expect(
-      resolveWindowChromeSafeArea({ obstruction, corners: "top-right", placement: "inline" }),
-    ).toEqual({ paddingLeft: 0, paddingRight: 48 });
+      resolveRawWindowControlsPadding({ isElectron: true, isMac: false, isFullscreen: false }),
+    ).toEqual({
+      left: 0,
+      right: 140,
+      top: 48,
+    });
   });
 
-  it("intersects identical and empty corner claims", () => {
-    expect(intersectWindowChromeCorners("both", "both")).toBe("both");
-    expect(intersectWindowChromeCorners("top-left", "top-left")).toBe("top-left");
-    expect(intersectWindowChromeCorners("none", "both")).toBe("none");
-    expect(intersectWindowChromeCorners("both", "none")).toBe("none");
-    expect(intersectWindowChromeCorners("both", "top-left")).toBe("top-left");
-    expect(intersectWindowChromeCorners("top-right", "both")).toBe("top-right");
-    expect(intersectWindowChromeCorners("top-left", "top-right")).toBe("none");
+  it("does not reserve window-control padding when the app window is fullscreen", () => {
+    expect(
+      resolveRawWindowControlsPadding({ isElectron: true, isMac: true, isFullscreen: true }),
+    ).toEqual({
+      left: 0,
+      right: 0,
+      top: 0,
+    });
   });
 
-  it("reports an obstruction only when the surface owns its corner", () => {
-    const obstruction = {
-      topLeft: { width: 78, height: 45 },
-      topRight: { width: 140, height: 48 },
-    };
-
+  it("pads the main header for window controls when the app sidebar is closed", () => {
     expect(
-      resolveHasOwnedWindowChromeObstruction({
-        obstruction,
-        corners: "top-left",
-        corner: "top-left",
+      resolveWindowControlsPadding({
+        role: "header",
+        rawPadding,
+        sidebarClosed: true,
+        explorerOpen: false,
+        focusModeEnabled: false,
       }),
-    ).toBe(true);
+    ).toEqual({
+      left: 80,
+      right: 48,
+      top: 0,
+    });
+  });
+
+  it("does not add left padding to detail headers with their own sidebar", () => {
     expect(
-      resolveHasOwnedWindowChromeObstruction({
-        obstruction,
-        corners: "top-left",
-        corner: "top-right",
+      resolveWindowControlsPadding({
+        role: "detailHeader",
+        rawPadding,
+        sidebarClosed: true,
+        explorerOpen: false,
+        focusModeEnabled: false,
       }),
-    ).toBe(false);
+    ).toEqual({
+      left: 0,
+      right: 48,
+      top: 0,
+    });
+  });
+
+  it("pads a focus-mode tab row away from mac traffic lights even when the sidebar is logically open", () => {
     expect(
-      resolveHasOwnedWindowChromeObstruction({
-        obstruction: { topLeft: null, topRight: null },
-        corners: "both",
-        corner: "top-right",
+      resolveWindowControlsPadding({
+        role: "tabRow",
+        rawPadding,
+        sidebarClosed: false,
+        explorerOpen: false,
+        focusModeEnabled: true,
       }),
-    ).toBe(false);
+    ).toEqual({
+      left: 80,
+      right: 48,
+      top: 0,
+    });
+  });
+
+  it("pads a focus-mode tab row away from right-side window controls even when the explorer is logically open", () => {
+    expect(
+      resolveWindowControlsPadding({
+        role: "tabRow",
+        rawPadding: { left: 0, right: 140, top: 48 },
+        sidebarClosed: true,
+        explorerOpen: true,
+        focusModeEnabled: true,
+      }),
+    ).toEqual({
+      left: 0,
+      right: 140,
+      top: 0,
+    });
   });
 });

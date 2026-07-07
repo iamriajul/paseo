@@ -4,7 +4,6 @@ import type {
   AgentFeature,
   AgentProvider,
 } from "@getpaseo/protocol/agent-types";
-import type { ViewedTimelineStatus } from "@/timeline/viewed-timeline-sync";
 
 export interface AgentScreenAgent {
   serverId: string;
@@ -42,13 +41,11 @@ export type AgentScreenMissingState =
 
 export interface AgentScreenMachineInput {
   agent: AgentScreenAgent | null;
-  isArchived: boolean;
   missingAgentState: AgentScreenMissingState;
   isConnected: boolean;
   isArchivingCurrentAgent: boolean;
   isHistorySyncing: boolean;
   needsAuthoritativeSync: boolean;
-  visibilityCatchUpStatus: ViewedTimelineStatus;
   continuity: AgentScreenContinuity;
   hasHydratedHistoryBefore: boolean;
 }
@@ -63,7 +60,6 @@ function hasOptimisticCreateContinuity(input: AgentScreenMachineInput): boolean 
 
 function shouldBlockInitialAuthoritativeReadyState(input: AgentScreenMachineInput): boolean {
   return (
-    !input.isArchived &&
     !hasOptimisticCreateContinuity(input) &&
     !input.hasHydratedHistoryBefore &&
     (input.needsAuthoritativeSync || input.isHistorySyncing)
@@ -83,7 +79,7 @@ export type AgentScreenReadySyncState =
       status: "catching_up";
       ui: "overlay" | "silent";
     }
-  | { status: "sync_error"; isRetrying: boolean };
+  | { status: "sync_error" };
 
 export type AgentScreenViewState =
   | {
@@ -151,13 +147,11 @@ function resolveAgentScreenSource(args: {
 
 function resolveCatchingUpUi(args: {
   hasOptimisticCreateContinuity: boolean;
-  isVisibilityCatchUpPending: boolean;
   hasHydratedHistoryBefore: boolean;
   hadInitialSyncFailure: boolean;
 }): "overlay" | "silent" {
   if (args.hasOptimisticCreateContinuity) return "silent";
   if (args.hasHydratedHistoryBefore) return "silent";
-  if (args.isVisibilityCatchUpPending) return "overlay";
   if (args.hadInitialSyncFailure) return "silent";
   return "overlay";
 }
@@ -167,28 +161,17 @@ function resolveAgentScreenSync(args: {
   hadInitialSyncFailure: boolean;
 }): AgentScreenReadySyncState {
   const { input, hadInitialSyncFailure } = args;
-  if (input.isArchived) {
-    return { status: "idle" };
-  }
   if (!input.isConnected) {
     return { status: "reconnecting" };
   }
   if (input.missingAgentState.kind === "error") {
-    return { status: "sync_error", isRetrying: input.visibilityCatchUpStatus === "retrying" };
+    return { status: "sync_error" };
   }
-  if (input.visibilityCatchUpStatus === "error" || input.visibilityCatchUpStatus === "retrying") {
-    return { status: "sync_error", isRetrying: input.visibilityCatchUpStatus === "retrying" };
-  }
-  if (
-    input.visibilityCatchUpStatus === "pending" ||
-    input.needsAuthoritativeSync ||
-    input.isHistorySyncing
-  ) {
+  if (input.needsAuthoritativeSync || input.isHistorySyncing) {
     return {
       status: "catching_up",
       ui: resolveCatchingUpUi({
         hasOptimisticCreateContinuity: hasOptimisticCreateContinuity(input),
-        isVisibilityCatchUpPending: input.visibilityCatchUpStatus === "pending",
         hasHydratedHistoryBefore: input.hasHydratedHistoryBefore,
         hadInitialSyncFailure,
       }),

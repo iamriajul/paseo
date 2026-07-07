@@ -1,7 +1,6 @@
 export interface AudioEngineCallbacks {
   onCaptureData(pcm: Uint8Array): void;
   onVolumeLevel(level: number): void;
-  onInterruption?(): void;
   onError?(error: Error): void;
 }
 

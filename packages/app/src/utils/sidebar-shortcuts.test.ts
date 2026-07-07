@@ -3,7 +3,6 @@ import type {
   SidebarProjectEntry,
   SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
-import { buildStatusGroups } from "@/hooks/sidebar-status-view-model";
 
 import {
   buildSidebarShortcutModel,
@@ -24,10 +23,9 @@ function workspace(input: {
     workspaceKey: `${input.serverId}:${input.workspaceId}`,
     serverId: input.serverId,
     workspaceId: input.workspaceId,
-    projectViewKey: input.projectKey ?? "project-default",
+    projectKey: input.projectKey ?? "project-default",
     projectName: input.projectKey ?? "Project",
     workspaceDirectory: input.workspaceDirectory,
-    workspaceDirectoryLabel: input.workspaceDirectory,
     projectKind: "git",
     workspaceKind: "checkout",
     name: input.name,
@@ -47,16 +45,15 @@ function workspace(input: {
 
 function project(projectKey: string, workspaces: SidebarWorkspaceEntry[]): SidebarProjectEntry {
   return {
-    viewKey: projectKey,
+    projectKey,
     projectName: projectKey,
     projectKind: "git",
     iconWorkingDir: workspaces[0]?.workspaceDirectory ?? "",
     hosts: [
       {
         serverId: workspaces[0]?.serverId ?? "s1",
-        projectId: projectKey,
         iconWorkingDir: workspaces[0]?.workspaceDirectory ?? "",
-        worktreeSupport: "supported" as const,
+        canCreateWorktree: true,
       },
     ],
     workspaces,
@@ -151,7 +148,7 @@ describe("buildSidebarShortcutModel", () => {
     directoryProject.projectKind = "directory";
     directoryProject.hosts = directoryProject.hosts.map((host) => ({
       ...host,
-      worktreeSupport: "unsupported" as const,
+      canCreateWorktree: false,
     }));
 
     const model = buildSidebarShortcutModel({
@@ -205,13 +202,11 @@ describe("buildStatusSidebarShortcutModel", () => {
     ];
 
     const model = buildStatusSidebarShortcutModel({
-      groups: buildStatusGroups(
-        workspaces,
-        new Map([
-          ["p1", "Project 1"],
-          ["p2", "Project 2"],
-        ]),
-      ),
+      workspaces,
+      projectNamesByKey: new Map([
+        ["p1", "Project 1"],
+        ["p2", "Project 2"],
+      ]),
     });
 
     expect(model.shortcutTargets).toEqual([
@@ -247,7 +242,8 @@ describe("buildStatusSidebarShortcutModel", () => {
     ];
 
     const model = buildStatusSidebarShortcutModel({
-      groups: buildStatusGroups(workspaces, new Map([["p1", "Project 1"]])),
+      workspaces,
+      projectNamesByKey: new Map([["p1", "Project 1"]]),
       collapsedStatusGroupKeys: new Set(["needs_input"]),
     });
 

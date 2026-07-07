@@ -1,29 +1,34 @@
-import React, { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import { View, Text } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 
-export type StatusBadgeVariant = "success" | "warning" | "error" | "muted";
+type StatusBadgeVariant = "success" | "error" | "muted";
 
 interface StatusBadgeProps {
   label: string;
   variant?: StatusBadgeVariant;
-  leading?: ReactNode;
 }
 
-export function StatusBadge({ label, variant = "muted", leading }: StatusBadgeProps) {
+export function StatusBadge({ label, variant = "muted" }: StatusBadgeProps) {
+  const pillStyle = useMemo(
+    () => [
+      styles.pill,
+      variant === "success" && styles.pillSuccess,
+      variant === "error" && styles.pillError,
+    ],
+    [variant],
+  );
   const textStyle = useMemo(
     () => [
       styles.pillText,
       variant === "success" && styles.pillTextSuccess,
-      variant === "warning" && styles.pillTextWarning,
       variant === "error" && styles.pillTextError,
     ],
     [variant],
   );
 
   return (
-    <View style={styles.pill}>
-      {leading}
+    <View style={pillStyle}>
       <Text style={textStyle}>{label}</Text>
     </View>
   );
@@ -33,7 +38,6 @@ const styles = StyleSheet.create((theme) => ({
   pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
     borderRadius: theme.borderRadius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -41,18 +45,23 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[2],
     paddingVertical: 3,
   },
+  pillSuccess: {
+    backgroundColor: theme.colors.palette.green[900],
+    borderColor: theme.colors.palette.green[800],
+  },
+  pillError: {
+    backgroundColor: theme.colors.palette.red[900],
+    borderColor: theme.colors.palette.red[800],
+  },
   pillText: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foregroundMuted,
   },
   pillTextSuccess: {
-    color: theme.colors.statusSuccess,
-  },
-  pillTextWarning: {
-    color: theme.colors.statusWarning,
+    color: theme.colors.palette.green[400],
   },
   pillTextError: {
-    color: theme.colors.statusDanger,
+    color: theme.colors.palette.red[500],
   },
 }));

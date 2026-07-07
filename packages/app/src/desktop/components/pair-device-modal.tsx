@@ -4,15 +4,14 @@ import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-moda
 import { PairDeviceSection } from "@/desktop/components/pair-device-section";
 
 export interface PairDeviceModalProps {
-  serverId: string;
   visible: boolean;
   onClose: () => void;
   testID?: string;
 }
 
-const SNAP_POINTS: string[] = ["72%", "92%"];
+const SNAP_POINTS: string[] = ["82%", "94%"];
 
-export function PairDeviceModal({ serverId, visible, onClose, testID }: PairDeviceModalProps) {
+export function PairDeviceModal({ visible, onClose, testID }: PairDeviceModalProps) {
   const { t } = useTranslation();
   const header = useMemo<SheetHeader>(
     () => ({ title: t("settings.host.pairDevices.rowTitle") }),
@@ -25,10 +24,10 @@ export function PairDeviceModal({ serverId, visible, onClose, testID }: PairDevi
       visible={visible}
       onClose={onClose}
       snapPoints={SNAP_POINTS}
-      desktopMaxWidth={480}
+      desktopMaxWidth={640}
       testID={testID}
     >
-      <PairDeviceSection serverId={serverId} onClose={onClose} />
+      <PairDeviceSection />
     </AdaptiveModalSheet>
   );
 }

@@ -1,55 +1,45 @@
 import { useCallback, useMemo } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import { router } from "expo-router";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { ChevronRight } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { ProjectIconView } from "@/components/project-icon-view";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useProjects, type ProjectHostError } from "@/hooks/use-projects";
-import { useProjectIcons } from "@/projects/icons";
-import { createProjectIconTarget } from "@/projects/icon-target";
+import { useProjectIconDataByProjectKey } from "@/projects/project-icons";
 import { settingsStyles } from "@/styles/settings";
-import { openProjectSettings } from "@/navigation/settings-navigation";
-import type { ProjectHostEntry, ProjectSummary } from "@/utils/projects";
+import { buildProjectSettingsRoute } from "@/utils/host-routes";
+import type { ProjectSummary } from "@/utils/projects";
 
 interface ProjectsScreenProps {
-  serverId: string;
+  view: { kind: "projects" } | { kind: "project"; projectKey: string };
 }
 
-interface HostProject {
-  project: ProjectSummary;
-  host: ProjectHostEntry;
-}
-
-export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
+export default function ProjectsScreen({ view }: ProjectsScreenProps) {
   const { t } = useTranslation();
   const { projects, hostErrors, isLoading } = useProjects();
-  const hostProjects = useMemo<HostProject[]>(
-    () =>
-      projects.flatMap((project) =>
-        project.hosts
-          .filter((host) => host.serverId === serverId)
-          .map((host) => ({ project, host })),
-      ),
-    [projects, serverId],
-  );
-  const scopedErrors = hostErrors.filter((error) => error.serverId === serverId);
+  const selectedProjectKey = view.kind === "project" ? view.projectKey : null;
   const iconTargets = useMemo(
     () =>
-      hostProjects.flatMap(({ project, host }) => {
-        const target = createProjectIconTarget({
-          projectViewKey: project.viewKey,
-          placement: { ...host, iconWorkingDir: host.repoRoot },
-        });
-        return target ? [target] : [];
+      projects.flatMap((project) => {
+        const host = project.hosts[0];
+        if (!host) return [];
+        return [
+          {
+            serverId: host.serverId,
+            projectKey: project.projectKey,
+            iconWorkingDir: host.repoRoot,
+          },
+        ];
       }),
-    [hostProjects],
+    [projects],
   );
-  const iconDataByProjectViewKey = useProjectIcons({
+  const iconDataByProjectKey = useProjectIconDataByProjectKey({
     projects: iconTargets,
   });
 
-  if (isLoading && hostProjects.length === 0) {
+  if (isLoading && projects.length === 0) {
     return (
       <View style={styles.centered} testID="projects-list">
         <LoadingSpinner size="large" color={styles.spinnerColor.color} />
@@ -57,7 +47,7 @@ export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
     );
   }
 
-  if (hostProjects.length === 0) {
+  if (projects.length === 0) {
     return (
       <View style={styles.centered} testID="projects-list">
         <Text style={styles.emptyText}>{t("sidebar.project.empty.title")}</Text>
@@ -67,15 +57,15 @@ export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
 
   return (
     <View testID="projects-list">
-      {scopedErrors.length > 0 ? <HostErrorsBanner errors={scopedErrors} /> : null}
+      {hostErrors.length > 0 ? <HostErrorsBanner errors={hostErrors} /> : null}
       <View style={settingsStyles.card}>
-        {hostProjects.map(({ project, host }, index) => (
+        {projects.map((project, index) => (
           <ProjectRow
-            key={host.projectId}
+            key={project.projectKey}
             project={project}
-            host={host}
             isFirst={index === 0}
-            iconDataUri={iconDataByProjectViewKey.get(project.viewKey) ?? null}
+            isSelected={selectedProjectKey === project.projectKey}
+            iconDataUri={iconDataByProjectKey.get(project.projectKey) ?? null}
           />
         ))}
       </View>
@@ -101,29 +91,30 @@ function HostErrorsBanner({ errors }: { errors: ProjectHostError[] }) {
 
 interface ProjectRowProps {
   project: ProjectSummary;
-  host: ProjectHostEntry;
   isFirst: boolean;
+  isSelected: boolean;
   iconDataUri: string | null;
 }
 
-function ProjectRow({ project, host, isFirst, iconDataUri }: ProjectRowProps) {
+function ProjectRow({ project, isFirst, isSelected, iconDataUri }: ProjectRowProps) {
   const { t } = useTranslation();
   const { theme } = useUnistyles();
-  const { viewKey } = project;
-  const { projectName } = host;
+  const { projectKey, projectName } = project;
+
   const handleNavigate = useCallback(() => {
-    openProjectSettings(host.serverId, host.projectId);
-  }, [host.projectId, host.serverId]);
+    router.navigate(buildProjectSettingsRoute(projectKey));
+  }, [projectKey]);
 
   const rowStyle = useCallback(
     ({ pressed, hovered }: PressableStateCallbackType & { hovered?: boolean }) => [
       settingsStyles.row,
       !isFirst && settingsStyles.rowBorder,
       styles.row,
-      hovered && styles.rowHovered,
+      isSelected && styles.rowSelected,
+      hovered && !isSelected && styles.rowHovered,
       pressed && styles.rowPressed,
     ],
-    [isFirst],
+    [isFirst, isSelected],
   );
 
   return (
@@ -132,14 +123,15 @@ function ProjectRow({ project, host, isFirst, iconDataUri }: ProjectRowProps) {
       onPress={handleNavigate}
       accessibilityRole="button"
       accessibilityLabel={t("settings.projectList.editProject", { projectName })}
-      testID={`project-row-${viewKey}`}
+      testID={`project-row-${projectKey}`}
+      data-selected={isSelected ? "true" : "false"}
     >
       <View style={styles.rowMain}>
         <View style={styles.leading}>
           <ProjectRowIcon
             iconDataUri={iconDataUri}
             projectName={projectName}
-            projectViewKey={viewKey}
+            projectKey={projectKey}
           />
         </View>
         <Text style={settingsStyles.rowTitle} numberOfLines={1}>
@@ -154,19 +146,20 @@ function ProjectRow({ project, host, isFirst, iconDataUri }: ProjectRowProps) {
 function ProjectRowIcon({
   iconDataUri,
   projectName,
-  projectViewKey,
+  projectKey,
 }: {
   iconDataUri: string | null;
   projectName: string;
-  projectViewKey: string;
+  projectKey: string;
 }) {
   const initial = projectName.trim().charAt(0).toUpperCase() || "?";
   return (
     <ProjectIconView
       iconDataUri={iconDataUri}
       initial={initial}
-      projectViewKey={projectViewKey}
-      size={16}
+      projectKey={projectKey}
+      imageStyle={styles.iconImage}
+      fallbackStyle={styles.iconFallback}
       textStyle={styles.iconFallbackText}
     />
   );
@@ -181,7 +174,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   emptyText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
   errorsBanner: {
     borderWidth: 1,
@@ -193,7 +186,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   errorsBannerText: {
     color: theme.colors.palette.red[300],
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   row: {
     gap: theme.spacing[3],
@@ -211,14 +204,29 @@ const styles = StyleSheet.create((theme) => ({
   rowPressed: {
     backgroundColor: theme.colors.surface3,
   },
+  rowSelected: {
+    backgroundColor: theme.colors.surfaceSidebarHover,
+  },
   leading: {
     width: 16,
     height: 16,
     alignItems: "center",
     justifyContent: "center",
   },
+  iconImage: {
+    width: 16,
+    height: 16,
+    borderRadius: theme.borderRadius.sm,
+  },
+  iconFallback: {
+    width: 16,
+    height: 16,
+    borderRadius: theme.borderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   iconFallbackText: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   spinnerColor: {
     color: theme.colors.foregroundMuted,

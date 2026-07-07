@@ -7,14 +7,14 @@ export interface ScheduleProjectTarget {
   optionId: string;
   serverId: string;
   serverName: string;
-  projectViewKey: string;
+  projectKey: string;
   projectName: string;
   cwd: string;
   isGit: boolean;
 }
 
-export function buildProjectOptionId(serverId: string, projectViewKey: string): string {
-  return `${PROJECT_OPTION_PREFIX}${serverId}:${projectViewKey}`;
+export function buildProjectOptionId(serverId: string, projectKey: string): string {
+  return `${PROJECT_OPTION_PREFIX}${serverId}:${projectKey}`;
 }
 
 /**
@@ -33,11 +33,11 @@ export function buildScheduleProjectTargets(
         continue;
       }
       targets.push({
-        optionId: buildProjectOptionId(host.serverId, project.viewKey),
+        optionId: buildProjectOptionId(host.serverId, project.projectKey),
         serverId: host.serverId,
         serverName: host.serverName,
-        projectViewKey: project.viewKey,
-        projectName: host.projectName,
+        projectKey: project.projectKey,
+        projectName: project.projectName,
         cwd,
         isGit: Boolean(host.gitRuntime),
       });

@@ -6,12 +6,6 @@ import {
   DirectTcpHostConnectionSchema,
   type DirectTcpHostConnection,
 } from "@getpaseo/protocol/host-connection-schema";
-import {
-  type HostAppearance,
-  defaultHostAppearance,
-  HostAppearanceSchema,
-} from "@/hosts/appearance";
-import { z } from "zod";
 
 export { DirectTcpHostConnectionSchema, type DirectTcpHostConnection };
 
@@ -46,7 +40,6 @@ export type HostLifecycle = Record<string, never>;
 export interface HostProfile {
   serverId: string;
   label: string;
-  appearance: HostAppearance;
   lifecycle: HostLifecycle;
   connections: HostConnection[];
   preferredConnectionId: string | null;
@@ -82,29 +75,6 @@ export function orderHostsLocalFirst<T extends { serverId: string }>(
   return ordered;
 }
 
-/**
- * Resolves which host a settings host section should target: the picker
- * selection, else the local daemon, else the first connected host.
- *
- * Only a serverId that names a currently connected host is used. Both the
- * selection and the local daemon can name a host that isn't connected (a stale
- * selection, or a local daemon whose id persists in storage while it's stopped);
- * using one would resolve the section to an unknown id and render "host not found".
- */
-export function resolveActiveHostServerId(params: {
-  selectedServerId: string | null;
-  localServerId: string | null;
-  hosts: readonly { serverId: string }[];
-  orderedHosts: readonly { serverId: string }[];
-}): string | null {
-  const { selectedServerId, localServerId, hosts, orderedHosts } = params;
-  const connected = (serverId: string | null): string | null =>
-    serverId && hosts.some((host) => host.serverId === serverId) ? serverId : null;
-  return (
-    connected(selectedServerId) ?? connected(localServerId) ?? orderedHosts[0]?.serverId ?? null
-  );
-}
-
 function hostConnectionEquals(left: HostConnection, right: HostConnection): boolean {
   if (left.type !== right.type || left.id !== right.id) {
     return false;
@@ -138,23 +108,14 @@ function hostLifecycleEquals(left: HostLifecycle, right: HostLifecycle): boolean
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function upsertHostConnectionById(
-  connections: HostConnection[],
-  connection: HostConnection,
-): HostConnection[] {
+function dedupeHostConnections(connections: HostConnection[]): HostConnection[] {
   const next: HostConnection[] = [];
-  let replaced = false;
-  for (const existing of connections) {
-    if (existing.id !== connection.id) {
-      next.push(existing);
+  for (const connection of connections) {
+    if (next.some((existing) => hostConnectionEquals(existing, connection))) {
       continue;
     }
-
-    if (replaced) continue;
     next.push(connection);
-    replaced = true;
   }
-  if (!replaced) next.push(connection);
   return next;
 }
 
@@ -188,7 +149,6 @@ export function upsertHostConnectionInProfiles(input: {
     const profile: HostProfile = {
       serverId,
       label: derivedLabel,
-      appearance: defaultHostAppearance(),
       lifecycle: defaultLifecycle(),
       connections: [input.connection],
       preferredConnectionId: input.connection.id,
@@ -200,12 +160,12 @@ export function upsertHostConnectionInProfiles(input: {
 
   const matchedProfiles = matchingIndexes.map((index) => existing[index]);
   const prev = matchedProfiles.find((daemon) => daemon.serverId === serverId) ?? matchedProfiles[0];
-  const nextConnections = upsertHostConnectionById(
-    matchedProfiles.flatMap((daemon) => daemon.connections),
+  const nextConnections = dedupeHostConnections([
+    ...matchedProfiles.flatMap((daemon) => daemon.connections),
     input.connection,
-  );
+  ]);
   const nextLifecycle = prev.lifecycle;
-  const nextLabel = prev.label === prev.serverId ? derivedLabel : prev.label;
+  const nextLabel = labelTrimmed || (prev.label === prev.serverId ? derivedLabel : prev.label);
   const nextPreferredConnectionId =
     prev.preferredConnectionId &&
     nextConnections.some((connection) => connection.id === prev.preferredConnectionId)
@@ -294,74 +254,54 @@ export function connectionFromListen(listen: string): HostConnection | null {
   }
 }
 
-const StoredHostConnectionSchema = z.discriminatedUnion("type", [
-  z.strictObject({
-    id: z.string().optional(),
-    type: z.literal("directTcp"),
-    endpoint: z.string(),
-    useTls: z.boolean().optional(),
-    password: z.string().optional(),
-  }),
-  z.strictObject({
-    id: z.string().optional(),
-    type: z.literal("directSocket"),
-    path: z.string(),
-  }),
-  z.strictObject({
-    id: z.string().optional(),
-    type: z.literal("directPipe"),
-    path: z.string(),
-  }),
-  z.strictObject({
-    id: z.string().optional(),
-    type: z.literal("relay"),
-    relayEndpoint: z.string(),
-    useTls: z.boolean().optional(),
-    daemonPublicKeyB64: z.string(),
-  }),
-]);
-const StoredHostProfileSchema = z.strictObject({
-  serverId: z.string().trim().min(1),
-  label: z.string().optional(),
-  appearance: HostAppearanceSchema.optional(),
-  lifecycle: z.strictObject({}).optional(),
-  connections: z.array(StoredHostConnectionSchema).min(1),
-  preferredConnectionId: z.string().nullable().optional(),
-  createdAt: z.string().datetime({ offset: true }).optional(),
-  updatedAt: z.string().datetime({ offset: true }).optional(),
-});
-export const StoredHostRegistrySchema = z.array(StoredHostProfileSchema);
-type StoredHostConnection = z.infer<typeof StoredHostConnectionSchema>;
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 
-function normalizeStoredConnection(connection: StoredHostConnection): HostConnection | null {
-  if (connection.type === "directTcp") {
+function toObjectRecord(value: unknown): Record<string, unknown> | undefined {
+  return isPlainRecord(value) ? value : undefined;
+}
+
+function normalizeStoredConnection(connection: unknown): HostConnection | null {
+  const record = toObjectRecord(connection);
+  if (!record) {
+    return null;
+  }
+  const type = record.type;
+  if (type === "directTcp") {
     try {
-      const endpoint = normalizeLoopbackToLocalhost(normalizeHostPort(connection.endpoint));
+      const endpoint = normalizeLoopbackToLocalhost(
+        normalizeHostPort(typeof record.endpoint === "string" ? record.endpoint : ""),
+      );
       return DirectTcpHostConnectionSchema.parse({
         id: `direct:${endpoint}`,
         type: "directTcp",
         endpoint,
-        useTls: connection.useTls,
-        ...(connection.password !== undefined ? { password: connection.password } : {}),
+        useTls: record.useTls,
+        ...(typeof record.password === "string" ? { password: record.password } : {}),
       });
     } catch {
       return null;
     }
   }
-  if (connection.type === "directSocket") {
-    const path = connection.path.trim();
+  if (type === "directSocket") {
+    const path = (typeof record.path === "string" ? record.path : "").trim();
     return path ? { id: `socket:${path}`, type: "directSocket", path } : null;
   }
-  if (connection.type === "directPipe") {
-    const path = connection.path.trim();
+  if (type === "directPipe") {
+    const path = (typeof record.path === "string" ? record.path : "").trim();
     return path ? { id: `pipe:${path}`, type: "directPipe", path } : null;
   }
-  if (connection.type === "relay") {
+  if (type === "relay") {
     try {
-      const relayEndpoint = normalizeHostPort(connection.relayEndpoint);
-      const daemonPublicKeyB64 = connection.daemonPublicKeyB64.trim();
+      const relayEndpoint = normalizeHostPort(
+        typeof record.relayEndpoint === "string" ? record.relayEndpoint : "",
+      );
+      const daemonPublicKeyB64 = (
+        typeof record.daemonPublicKeyB64 === "string" ? record.daemonPublicKeyB64 : ""
+      ).trim();
       if (!daemonPublicKeyB64) return null;
-      const useTls = connection.useTls;
+      const useTls = typeof record.useTls === "boolean" ? record.useTls : undefined;
       return {
         id: useTls === true ? `relay:wss:${relayEndpoint}` : `relay:${relayEndpoint}`,
         type: "relay",
@@ -378,14 +318,17 @@ function normalizeStoredConnection(connection: StoredHostConnection): HostConnec
 }
 
 export function normalizeStoredHostProfile(entry: unknown): HostProfile | null {
-  const result = StoredHostProfileSchema.safeParse(entry);
-  if (!result.success) {
+  const record = toObjectRecord(entry);
+  if (!record) {
     return null;
   }
-  const record = result.data;
-  const serverId = record.serverId;
+  const serverId = typeof record.serverId === "string" ? record.serverId.trim() : "";
+  if (!serverId) {
+    return null;
+  }
 
-  const connections = record.connections
+  const rawConnections = Array.isArray(record.connections) ? record.connections : [];
+  const connections = rawConnections
     .map((connection) => normalizeStoredConnection(connection))
     .filter((connection): connection is HostConnection => connection !== null);
   if (connections.length === 0) {
@@ -393,10 +336,12 @@ export function normalizeStoredHostProfile(entry: unknown): HostProfile | null {
   }
 
   const now = new Date().toISOString();
-  const label = normalizeHostLabel(record.label, serverId);
+  const label = normalizeHostLabel(
+    typeof record.label === "string" ? record.label : null,
+    serverId,
+  );
   const preferredConnectionId =
-    record.preferredConnectionId !== null &&
-    record.preferredConnectionId !== undefined &&
+    typeof record.preferredConnectionId === "string" &&
     connections.some((connection) => connection.id === record.preferredConnectionId)
       ? record.preferredConnectionId
       : (connections[0]?.id ?? null);
@@ -404,12 +349,11 @@ export function normalizeStoredHostProfile(entry: unknown): HostProfile | null {
   return {
     serverId,
     label,
-    appearance: record.appearance ?? defaultHostAppearance(),
     lifecycle: defaultLifecycle(),
     connections,
     preferredConnectionId,
-    createdAt: record.createdAt ?? now,
-    updatedAt: record.updatedAt ?? now,
+    createdAt: typeof record.createdAt === "string" ? record.createdAt : now,
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : now,
   };
 }
 

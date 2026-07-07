@@ -1,11 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import type { ForgeService } from "../services/forge-service.js";
+import type { GitHubService } from "../services/github-service.js";
 import {
-  CheckoutSourceForgeMismatchError,
   MissingCheckoutTargetError,
   resolveWorktreeCreationIntent,
-  UnsupportedForgeCheckoutTargetError,
 } from "./resolve-worktree-creation-intent.js";
 
 interface GitHubHeadRefLookup {
@@ -14,43 +12,17 @@ interface GitHubHeadRefLookup {
 }
 
 interface ResolverHarness {
-  forge: string;
-  forgeService: ForgeService;
+  github: GitHubService;
   headRefLookups: GitHubHeadRefLookup[];
   resolveDefaultBranch: (repoRoot: string) => Promise<string>;
 }
 
-function createResolverHarness(overrides?: {
-  forge?: string;
-  forgeService?: Partial<ForgeService>;
-}): ResolverHarness {
-  const forge = overrides?.forge ?? "github";
+function createResolverHarness(): ResolverHarness {
   const headRefLookups: GitHubHeadRefLookup[] = [];
-  const githubCapabilities: Partial<ForgeService> =
-    forge === "github"
-      ? {
-          defaultCheckoutRefs: ({ changeRequestNumber }) => [
-            { remoteName: "origin", remoteRef: `refs/pull/${changeRequestNumber}/head` },
-          ],
-          buildPrLocalBranchName: ({ headRef, checkoutTarget }) => {
-            const normalized = checkoutTarget.headOwnerLogin?.trim().toLowerCase() ?? "";
-            const owner =
-              checkoutTarget.isCrossRepository && /^[a-z0-9-]+$/.test(normalized)
-                ? normalized
-                : null;
-            return owner ? `${owner}/${headRef}` : headRef;
-          },
-          supportsCrossRepoCheckoutWithoutRefs: true,
-        }
-      : {};
-  const forgeService: ForgeService = {
+  const github: GitHubService = {
     listPullRequests: async () => [],
     listIssues: async () => [],
-    searchIssuesAndPrs: async () => ({
-      items: [],
-      featuresEnabled: true,
-      githubFeaturesEnabled: true,
-    }),
+    searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),
     getPullRequest: async ({ number }) => ({
       number,
       title: `PR ${number}`,
@@ -65,15 +37,6 @@ function createResolverHarness(overrides?: {
       headRefLookups.push({ cwd, number });
       return `pr-${number}`;
     },
-    getPullRequestCheckoutTarget: async ({ number }) => ({
-      number,
-      baseRefName: "main",
-      headRefName: `pr-${number}`,
-      headOwnerLogin: null,
-      headRepositorySshUrl: null,
-      headRepositoryUrl: null,
-      isCrossRepository: false,
-    }),
     getCurrentPullRequestStatus: async () => null,
     createPullRequest: async () => ({
       number: 1,
@@ -82,13 +45,10 @@ function createResolverHarness(overrides?: {
     mergePullRequest: async () => ({ success: true }),
     isAuthenticated: async () => true,
     invalidate: () => {},
-    ...githubCapabilities,
-    ...overrides?.forgeService,
   };
 
   return {
-    forge,
-    forgeService,
+    github,
     headRefLookups,
     resolveDefaultBranch: async () => "main",
   };
@@ -145,20 +105,17 @@ describe("resolveWorktreeCreationIntent", () => {
     await expect(
       resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 42 }, repoRoot, deps),
     ).resolves.toEqual({
-      kind: "checkout-change-request",
-      forge: "github",
-      changeRequestNumber: 42,
+      kind: "checkout-github-pr",
+      githubPrNumber: 42,
       headRef: "pr-42",
       baseRefName: "main",
-      checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/42/head" }],
-      trackOriginHead: true,
     });
-    expect(deps.headRefLookups).toEqual([]);
+    expect(deps.headRefLookups).toEqual([{ cwd: repoRoot, number: 42 }]);
   });
 
   test("does not configure a synthetic push remote for same-repo PR targets", async () => {
     const deps = createResolverHarness();
-    deps.forgeService.getPullRequestCheckoutTarget = async () => ({
+    deps.github.getPullRequestCheckoutTarget = async () => ({
       number: 1790,
       baseRefName: "main",
       headRefName: "daemon-shutdown-diagnostics",
@@ -171,12 +128,10 @@ describe("resolveWorktreeCreationIntent", () => {
     await expect(
       resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 1790 }, repoRoot, deps),
     ).resolves.toEqual({
-      kind: "checkout-change-request",
-      forge: "github",
-      changeRequestNumber: 1790,
+      kind: "checkout-github-pr",
+      githubPrNumber: 1790,
       headRef: "daemon-shutdown-diagnostics",
       baseRefName: "main",
-      checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/1790/head" }],
       trackOriginHead: true,
     });
     expect(deps.headRefLookups).toEqual([]);
@@ -184,7 +139,7 @@ describe("resolveWorktreeCreationIntent", () => {
 
   test("configures the contributor remote for fork PR targets", async () => {
     const deps = createResolverHarness();
-    deps.forgeService.getPullRequestCheckoutTarget = async () => ({
+    deps.github.getPullRequestCheckoutTarget = async () => ({
       number: 526,
       baseRefName: "main",
       headRefName: "main",
@@ -197,13 +152,10 @@ describe("resolveWorktreeCreationIntent", () => {
     await expect(
       resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 526 }, repoRoot, deps),
     ).resolves.toEqual({
-      kind: "checkout-change-request",
-      forge: "github",
-      changeRequestNumber: 526,
+      kind: "checkout-github-pr",
+      githubPrNumber: 526,
       headRef: "main",
       baseRefName: "main",
-      checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/526/head" }],
-      headRepositoryOwner: "therainisme",
       localBranchName: "therainisme/main",
       pushRemoteUrl: "git@github.com:therainisme/paseo.git",
     });
@@ -220,111 +172,12 @@ describe("resolveWorktreeCreationIntent", () => {
         deps,
       ),
     ).resolves.toEqual({
-      kind: "checkout-change-request",
-      forge: "github",
-      changeRequestNumber: 42,
+      kind: "checkout-github-pr",
+      githubPrNumber: 42,
       headRef: "head-ref",
       baseRefName: "main",
-      checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/42/head" }],
-      trackOriginHead: true,
     });
     expect(deps.headRefLookups).toEqual([]);
-  });
-
-  test("checks out a GitLab MR source branch from the checkout target", async () => {
-    const deps = createResolverHarness({
-      forge: "gitlab",
-      forgeService: {
-        getPullRequestCheckoutTarget: async ({ number }) => ({
-          number,
-          baseRefName: "main",
-          headRefName: "feature/mr-source",
-          headOwnerLogin: null,
-          headRepositorySshUrl: null,
-          headRepositoryUrl: null,
-          isCrossRepository: false,
-        }),
-      },
-    });
-
-    await expect(
-      resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 7 }, repoRoot, deps),
-    ).resolves.toEqual({
-      kind: "checkout-change-request",
-      forge: "gitlab",
-      changeRequestNumber: 7,
-      headRef: "feature/mr-source",
-      baseRefName: "main",
-      checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/heads/feature/mr-source" }],
-      trackOriginHead: true,
-    });
-    expect(deps.headRefLookups).toEqual([]);
-  });
-
-  test("checks out a cross-repository GitLab MR when the adapter provides a checkout ref", async () => {
-    const deps = createResolverHarness({
-      forge: "gitlab",
-      forgeService: {
-        getPullRequestCheckoutTarget: async ({ number }) => ({
-          number,
-          baseRefName: "main",
-          headRefName: "feature/mr-source",
-          headOwnerLogin: null,
-          headRepositorySshUrl: null,
-          headRepositoryUrl: null,
-          checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/merge-requests/7/head" }],
-          isCrossRepository: true,
-        }),
-      },
-    });
-
-    await expect(
-      resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 7 }, repoRoot, deps),
-    ).resolves.toEqual({
-      kind: "checkout-change-request",
-      forge: "gitlab",
-      changeRequestNumber: 7,
-      headRef: "feature/mr-source",
-      baseRefName: "main",
-      checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/merge-requests/7/head" }],
-    });
-    expect(deps.headRefLookups).toEqual([]);
-  });
-
-  test("reports unsupported cross-repository checkout targets without a checkout ref", async () => {
-    const deps = createResolverHarness({
-      forge: "gitea",
-      forgeService: {
-        getPullRequestCheckoutTarget: async ({ number }) => ({
-          number,
-          baseRefName: "main",
-          headRefName: "feature/fork",
-          headOwnerLogin: null,
-          headRepositorySshUrl: null,
-          headRepositoryUrl: null,
-          isCrossRepository: true,
-        }),
-      },
-    });
-
-    await expect(
-      resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 7 }, repoRoot, deps),
-    ).rejects.toThrow(UnsupportedForgeCheckoutTargetError);
-  });
-
-  test("rejects change request checkout when the source forge differs from the workspace forge", async () => {
-    const deps = createResolverHarness({ forge: "github" });
-
-    await expect(
-      resolveWorktreeCreationIntent(
-        {
-          action: "checkout",
-          checkoutSource: { kind: "change_request", forge: "gitlab", number: 7 },
-        },
-        repoRoot,
-        deps,
-      ),
-    ).rejects.toThrow(CheckoutSourceForgeMismatchError);
   });
 
   test("rejects checkout without a target", async () => {

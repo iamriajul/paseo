@@ -64,6 +64,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   detail: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
 }));

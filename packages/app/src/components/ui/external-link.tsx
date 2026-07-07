@@ -66,12 +66,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   label: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   tooltipText: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     maxWidth: 280,
-    lineHeight: theme.fontSize.base * 1.4,
+    lineHeight: theme.fontSize.sm * 1.4,
   },
 }));

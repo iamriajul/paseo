@@ -1,16 +1,35 @@
 #!/usr/bin/env npx tsx
 
 import assert from "node:assert";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { createTestPaseoDaemon } from "../../server/src/server/test-utils/paseo-daemon.ts";
 import { runLocalPaseo } from "./helpers/local-cli.ts";
-import { startTestDaemon } from "./helpers/test-daemon.ts";
 
 console.log("=== Daemon Status Auth ===\n");
 
-const daemon = await startTestDaemon({
-  env: { PASEO_PASSWORD: "shared-secret" },
+const CORRECT_PASSWORD_HASH = "$2b$12$GMhF7pN4QnMlHOQXOqjd1OitKWPSmAO3FwB0PHzKtcZR/sAMryz76";
+
+const daemon = await createTestPaseoDaemon({
+  auth: { password: CORRECT_PASSWORD_HASH },
 });
 
 try {
+  await writeFile(
+    join(daemon.paseoHome, "paseo.pid"),
+    `${JSON.stringify(
+      {
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        hostname: "status-auth-test",
+        uid: process.getuid?.(),
+        listen: `0.0.0.0:${daemon.port}`,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
   {
     console.log("Test 1: status reports password requirement without marking daemon unreachable");
     const result = await runLocalPaseo(["daemon", "status", "--json"], {
@@ -67,7 +86,7 @@ try {
     console.log("✓ password-authenticated status remains reachable\n");
   }
 } finally {
-  await daemon.stop();
+  await daemon.close();
 }
 
 console.log("=== Daemon Status Auth Tests Passed ===");

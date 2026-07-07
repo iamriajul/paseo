@@ -122,14 +122,15 @@ export async function archiveCommand(
   dependencies: ArchiveCommandDependencies,
   input: ArchiveCommandInput,
 ): Promise<ArchiveCommandResult> {
-  const targetPath = await resolveArchiveTarget(dependencies, input);
+  const resolvedTarget = await resolveArchiveTarget(dependencies, input);
   const scope = input.scope ?? "workspace";
-  const ownership = await isPaseoOwnedWorktreeCwd(targetPath, {
-    paseoHome: dependencies.paseoHome,
-    worktreesRoot: dependencies.paseoWorktreesBaseRoot,
-  });
 
   if (scope === "worktree") {
+    const ownership = await isPaseoOwnedWorktreeCwd(resolvedTarget.targetPath, {
+      paseoHome: dependencies.paseoHome,
+      worktreesRoot: dependencies.paseoWorktreesBaseRoot,
+    });
+
     if (!ownership.allowed) {
       return {
         ok: false,
@@ -140,7 +141,10 @@ export async function archiveCommand(
     }
 
     const result = await archiveByScope(dependencies, {
-      scope: { kind: "worktree", targetPath },
+      scope: { kind: "worktree", targetPath: resolvedTarget.targetPath },
+      repoRoot: ownership.repoRoot ?? resolvedTarget.repoRoot ?? null,
+      repoWorktreesRoot: ownership.worktreeRoot,
+      paseoWorktreesBaseRoot: dependencies.paseoWorktreesBaseRoot,
       requestId: input.requestId,
     });
 
@@ -151,11 +155,11 @@ export async function archiveCommand(
   }
 
   const workspaceId =
-    input.workspaceId ?? (await resolveWorkspaceIdAtPath(dependencies, targetPath));
+    input.workspaceId ?? (await resolveWorkspaceIdAtPath(dependencies, resolvedTarget.targetPath));
 
   if (!workspaceId) {
     dependencies.sessionLogger?.warn(
-      { targetPath },
+      { targetPath: resolvedTarget.targetPath },
       "Could not resolve workspace for archive; skipping",
     );
     return {
@@ -166,6 +170,8 @@ export async function archiveCommand(
 
   const result = await archiveByScope(dependencies, {
     scope: { kind: "workspace", workspaceId },
+    repoRoot: resolvedTarget.repoRoot,
+    paseoWorktreesBaseRoot: dependencies.paseoWorktreesBaseRoot,
     requestId: input.requestId,
   });
 
@@ -175,20 +181,28 @@ export async function archiveCommand(
   };
 }
 
+interface ResolvedArchiveTarget {
+  targetPath: string;
+  repoRoot: string | null;
+}
+
 async function resolveArchiveTarget(
   dependencies: ArchiveCommandDependencies,
   input: ArchiveCommandInput,
-): Promise<string> {
+): Promise<ResolvedArchiveTarget> {
   const repoRoot = input.repoRoot ?? null;
   if (input.worktreePath) {
-    return input.worktreePath;
+    return { targetPath: input.worktreePath, repoRoot };
   }
 
   if (input.worktreeSlug) {
     if (!repoRoot) {
       throw new Error("repoRoot is required when worktreeSlug is supplied");
     }
-    return resolveWorktreeSlugPath(dependencies, repoRoot, input.worktreeSlug);
+    return {
+      targetPath: await resolveWorktreeSlugPath(dependencies, repoRoot, input.worktreeSlug),
+      repoRoot,
+    };
   }
 
   if (repoRoot && input.branchName) {
@@ -197,7 +211,7 @@ async function resolveArchiveTarget(
     if (!match) {
       throw new Error(`Paseo worktree not found for branch ${input.branchName}`);
     }
-    return match.path;
+    return { targetPath: match.path, repoRoot };
   }
 
   throw new Error("worktreePath, worktreeSlug, or repoRoot+branchName is required");

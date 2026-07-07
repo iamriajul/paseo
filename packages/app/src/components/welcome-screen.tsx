@@ -15,7 +15,6 @@ import { formatVersionWithPrefix } from "@/desktop/updates/desktop-updates";
 import { buildOpenProjectRoute } from "@/utils/host-routes";
 import { PaseoLogo } from "@/components/icons/paseo-logo";
 import { openExternalUrl } from "@/utils/open-external-url";
-import { isFdroidBuild } from "@/constants/build-profile";
 import { isWeb, isNative } from "@/constants/platform";
 
 interface WelcomeAction {
@@ -49,13 +48,13 @@ const styles = StyleSheet.create((theme) => ({
   },
   title: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.xl,
     fontWeight: theme.fontWeight.medium,
     textAlign: "center",
   },
   subtitle: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     textAlign: "center",
   },
   copyBlock: {
@@ -99,12 +98,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   setupLinkText: {
     color: theme.colors.accent,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
   },
   versionLabel: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     textAlign: "center",
     marginTop: theme.spacing[6],
   },
@@ -202,52 +201,51 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
     [onHostAdded, finishOnboarding],
   );
 
-  const actions: WelcomeAction[] =
-    isWeb || isFdroidBuild
-      ? [
-          {
-            key: "direct-connection",
-            label: t("pairing.connectionMethods.direct.title"),
-            testID: "welcome-direct-connection",
-            primary: true,
-            icon: Link2,
-            onPress: handleOpenDirect,
-          },
-          {
-            key: "paste-pairing-link",
-            label: t("pairing.connectionMethods.pasteLink.title"),
-            testID: "welcome-paste-pairing-link",
-            primary: false,
-            icon: ClipboardPaste,
-            onPress: handleOpenPasteLink,
-          },
-        ]
-      : [
-          {
-            key: "scan-qr",
-            label: t("pairing.connectionMethods.scanQr.title"),
-            testID: "welcome-scan-qr",
-            primary: true,
-            icon: QrCode,
-            onPress: handleScanQr,
-          },
-          {
-            key: "direct-connection",
-            label: t("pairing.connectionMethods.direct.title"),
-            testID: "welcome-direct-connection",
-            primary: false,
-            icon: Link2,
-            onPress: handleOpenDirect,
-          },
-          {
-            key: "paste-pairing-link",
-            label: t("pairing.connectionMethods.pasteLink.title"),
-            testID: "welcome-paste-pairing-link",
-            primary: false,
-            icon: ClipboardPaste,
-            onPress: handleOpenPasteLink,
-          },
-        ];
+  const actions: WelcomeAction[] = isWeb
+    ? [
+        {
+          key: "direct-connection",
+          label: t("pairing.connectionMethods.direct.title"),
+          testID: "welcome-direct-connection",
+          primary: true,
+          icon: Link2,
+          onPress: handleOpenDirect,
+        },
+        {
+          key: "paste-pairing-link",
+          label: t("pairing.connectionMethods.pasteLink.title"),
+          testID: "welcome-paste-pairing-link",
+          primary: false,
+          icon: ClipboardPaste,
+          onPress: handleOpenPasteLink,
+        },
+      ]
+    : [
+        {
+          key: "scan-qr",
+          label: t("pairing.connectionMethods.scanQr.title"),
+          testID: "welcome-scan-qr",
+          primary: true,
+          icon: QrCode,
+          onPress: handleScanQr,
+        },
+        {
+          key: "direct-connection",
+          label: t("pairing.connectionMethods.direct.title"),
+          testID: "welcome-direct-connection",
+          primary: false,
+          icon: Link2,
+          onPress: handleOpenDirect,
+        },
+        {
+          key: "paste-pairing-link",
+          label: t("pairing.connectionMethods.pasteLink.title"),
+          testID: "welcome-paste-pairing-link",
+          primary: false,
+          icon: ClipboardPaste,
+          onPress: handleOpenPasteLink,
+        },
+      ];
 
   const scrollContentContainerStyle = useMemo(
     () => [styles.container, { paddingBottom: theme.spacing[6] + insets.bottom }],

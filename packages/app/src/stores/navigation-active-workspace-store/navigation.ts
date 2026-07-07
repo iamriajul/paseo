@@ -1,7 +1,6 @@
 import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import { pickAttentionAgent } from "@/utils/agent-attention";
 import {
-  buildHostWorkspaceOpenRoute,
   buildHostWorkspaceRoute,
   decodeWorkspaceIdFromPathSegment,
   parseHostWorkspaceRouteFromPathname,
@@ -11,9 +10,6 @@ import {
   resolveWorkspaceMapKeyByIdentity,
 } from "@/utils/workspace-identity";
 import type { ActiveWorkspaceSelection } from "@/stores/last-workspace-selection";
-import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
-import { prepareWorkspaceTab, type PrepareWorkspaceTabDeps } from "@/utils/prepare-workspace-tab";
-import type { WorkspaceTabPlacement } from "@/stores/workspace-layout-actions";
 
 export interface RouteSelectionInput {
   pathname: string;
@@ -23,17 +19,10 @@ export interface RouteSelectionInput {
   };
 }
 
-export interface NavigateToWorkspaceInput {
-  serverId: string;
-  workspaceId: string;
-  target?: WorkspaceTabTarget;
-  pin?: boolean;
-  placement?: WorkspaceTabPlacement;
-}
-
-export interface NavigateToWorkspaceDeps extends PrepareWorkspaceTabDeps {
+export interface NavigateToWorkspaceDeps {
   getSessionWorkspaces: (serverId: string) => Map<string, WorkspaceDescriptor> | null | undefined;
   getSessionAgents: (serverId: string) => Iterable<Agent>;
+  openWorkspaceAgentTab: (workspaceKey: string, agentId: string) => void;
   rememberLastWorkspace: (selection: ActiveWorkspaceSelection) => void;
   navigateToRoute: (route: string) => void;
 }
@@ -82,45 +71,27 @@ export function parseActiveWorkspaceSelection(
 }
 
 export function navigateToWorkspace(
-  input: NavigateToWorkspaceInput,
+  serverId: string,
+  workspaceId: string,
   deps: NavigateToWorkspaceDeps,
-): string {
-  const workspaces = deps.getSessionWorkspaces(input.serverId);
+): void {
+  const workspaces = deps.getSessionWorkspaces(serverId);
   const resolvedWorkspaceId = resolveWorkspaceMapKeyByIdentity({
     workspaces,
-    workspaceId: input.workspaceId,
+    workspaceId,
   });
-  if (input.target) {
-    if (resolvedWorkspaceId || input.target.kind !== "agent") {
-      prepareWorkspaceTab({ ...input, target: input.target }, deps);
-    }
-  } else {
-    const workspaceAgents = resolvedWorkspaceId
-      ? Array.from(deps.getSessionAgents(input.serverId)).filter(
-          (agent) => normalizeWorkspaceOpaqueId(agent.workspaceId) === resolvedWorkspaceId,
-        )
-      : [];
-    const attentionAgentId = pickAttentionAgent(workspaceAgents);
-    if (attentionAgentId && resolvedWorkspaceId) {
-      deps.openTab({
-        workspaceKey: `${input.serverId}:${resolvedWorkspaceId}`,
-        target: { kind: "agent", agentId: attentionAgentId },
-        intent: "reveal",
-      });
-    }
+  const workspaceAgents = resolvedWorkspaceId
+    ? Array.from(deps.getSessionAgents(serverId)).filter(
+        (agent) => normalizeWorkspaceOpaqueId(agent.workspaceId) === resolvedWorkspaceId,
+      )
+    : [];
+  const attentionAgentId = pickAttentionAgent(workspaceAgents);
+  if (attentionAgentId && resolvedWorkspaceId) {
+    deps.openWorkspaceAgentTab(`${serverId}:${resolvedWorkspaceId}`, attentionAgentId);
   }
 
-  const route =
-    input.target?.kind === "agent" && !resolvedWorkspaceId
-      ? buildHostWorkspaceOpenRoute(
-          input.serverId,
-          input.workspaceId,
-          `agent:${input.target.agentId}`,
-        )
-      : buildHostWorkspaceRoute(input.serverId, input.workspaceId);
-  deps.rememberLastWorkspace({ serverId: input.serverId, workspaceId: input.workspaceId });
-  deps.navigateToRoute(route);
-  return route;
+  deps.rememberLastWorkspace({ serverId, workspaceId });
+  deps.navigateToRoute(buildHostWorkspaceRoute(serverId, workspaceId));
 }
 
 export function navigateToLastWorkspace(deps: NavigateToLastWorkspaceDeps): boolean {
@@ -128,6 +99,6 @@ export function navigateToLastWorkspace(deps: NavigateToLastWorkspaceDeps): bool
   if (!selection) {
     return false;
   }
-  navigateToWorkspace(selection, deps);
+  navigateToWorkspace(selection.serverId, selection.workspaceId, deps);
   return true;
 }

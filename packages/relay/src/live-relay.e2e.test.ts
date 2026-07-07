@@ -12,7 +12,7 @@ import {
 // This live test uses the hosted relay's real TLS endpoint. Self-hosted relay TLS
 // opt-in is covered at URL-building/integration level so the local E2E does not
 // need to provision trusted certificates.
-const RELAY_BASE_URL = process.env.PASEO_LIVE_RELAY_URL ?? "wss://relay.paseo.sh";
+const RELAY_BASE_URL = "wss://relay.paseo.sh";
 
 async function withRetry<T>(
   fn: () => Promise<T>,
@@ -119,7 +119,6 @@ describe("Live relay (relay.paseo.sh) E2E", () => {
         // === Connect ===
         const daemonControlWs = new WebSocket(serverControlUrl);
         const clientWs = new WebSocket(clientUrl);
-        const connected = waitForConnected(daemonControlWs, connectionId);
         let daemonWs: WebSocket | null = null;
 
         try {
@@ -128,7 +127,7 @@ describe("Live relay (relay.paseo.sh) E2E", () => {
             waitOpen(clientWs, "client"),
           ]);
 
-          await connected;
+          await waitForConnected(daemonControlWs, connectionId);
 
           daemonWs = new WebSocket(serverDataUrl);
           await waitOpen(daemonWs, "server-data");
@@ -171,7 +170,7 @@ describe("Live relay (relay.paseo.sh) E2E", () => {
               daemonReceivedCiphertext.byteOffset + daemonReceivedCiphertext.byteLength,
             ),
           );
-          expect(new TextDecoder().decode(decryptedOnDaemon)).toBe(plaintextFromClient);
+          expect(decryptedOnDaemon).toBe(plaintextFromClient);
 
           const plaintextFromDaemon = "hello-from-daemon";
           const ciphertextFromDaemon = encrypt(daemonSharedKey, plaintextFromDaemon);
@@ -190,7 +189,7 @@ describe("Live relay (relay.paseo.sh) E2E", () => {
               clientReceivedCiphertext.byteOffset + clientReceivedCiphertext.byteLength,
             ),
           );
-          expect(new TextDecoder().decode(decryptedOnClient)).toBe(plaintextFromDaemon);
+          expect(decryptedOnClient).toBe(plaintextFromDaemon);
         } finally {
           daemonControlWs.close();
           daemonWs?.close();

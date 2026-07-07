@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import React from "react";
 import type { ReactElement } from "react";
-import { createProjectViewKey } from "@/projects/workspace-structure";
 
 vi.hoisted(() => {
   (globalThis as unknown as { __DEV__: boolean }).__DEV__ = false;
@@ -39,11 +38,9 @@ import {
 } from "@/runtime/host-runtime";
 import type { HostProfile } from "@/types/host-connection";
 import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
-import { seedSessionWorkspaces } from "@/test/seed-session";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
-import { defaultHostAppearance } from "@/hosts/appearance";
 
 vi.mock("@react-native-async-storage/async-storage", () => ({
   default: {
@@ -147,7 +144,6 @@ function makeHost(): HostProfile {
   return {
     serverId: SERVER_ID,
     label: "Render Count Host",
-    appearance: defaultHostAppearance(),
     lifecycle: {},
     connections: [],
     preferredConnectionId: null,
@@ -168,7 +164,9 @@ function initializeSidebarState(workspaces: WorkspaceDescriptor[]): void {
   act(() => {
     setHostProfiles([makeHost()]);
     useSessionStore.getState().initializeSession(SERVER_ID, null as unknown as DaemonClient);
-    seedSessionWorkspaces(SERVER_ID, new Map(workspaces.map((entry) => [entry.id, entry])));
+    useSessionStore
+      .getState()
+      .setWorkspaces(SERVER_ID, new Map(workspaces.map((entry) => [entry.id, entry])));
     useSessionStore.getState().setHasHydratedWorkspaces(SERVER_ID, true);
     useSidebarOrderStore.setState({
       projectOrder: ["project-a", "project-b"],
@@ -199,7 +197,7 @@ function ProjectHeaderProbe({
   project: SidebarProjectEntry;
   counts: RenderCounts;
 }): null {
-  incrementRecord(counts.headers, project.viewKey);
+  incrementRecord(counts.headers, project.projectKey);
   return null;
 }
 
@@ -235,7 +233,7 @@ function ProjectActiveProbe({
     activeSelection?.serverId === serverId &&
     project.workspaces.some((entry) => entry.workspaceId === activeSelection.workspaceId);
   void isActive;
-  incrementRecord(counts.projectSelection, project.viewKey);
+  incrementRecord(counts.projectSelection, project.projectKey);
   return null;
 }
 
@@ -263,7 +261,7 @@ function SidebarFrameProbe({ counts }: { counts: RenderCounts }): ReactElement {
   return (
     <>
       {projects.map((project) => (
-        <div key={project.viewKey}>
+        <div key={project.projectKey}>
           <ProjectHeaderProbe project={project} counts={counts} />
           <ProjectActiveProbe serverId={SERVER_ID} project={project} counts={counts} />
           {project.workspaces.map((entry) => (
@@ -456,8 +454,8 @@ describe("sidebar workspace render isolation", () => {
 
     expect(counts.frame).toBe(1);
     expect(counts.projectSelection).toEqual({
-      [createProjectViewKey({ kind: "equivalence", projectKey: "project-a" })]: 1,
-      [createProjectViewKey({ kind: "equivalence", projectKey: "project-b" })]: 1,
+      "project-a": 1,
+      "project-b": 1,
     });
     expect(counts.rowSelection).toEqual({
       "a-main": 1,

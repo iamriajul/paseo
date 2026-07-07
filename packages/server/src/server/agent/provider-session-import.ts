@@ -33,14 +33,13 @@ export async function importSessionFromPersistence(input: {
   const persistence =
     input.persistence ?? buildImportPersistenceHandle(input.provider, input.request, storedConfig);
   const session = await input.resumeSession(persistence, config, input.context.launchContext);
-  const history = await collectImportedHistory(session.streamHistory());
+  const timeline = await collectImportedTimeline(session.streamHistory());
 
   return {
     session,
     config: storedConfig,
     persistence,
-    timeline: history.timeline,
-    providerSubagentEvents: history.providerSubagentEvents,
+    timeline,
   };
 }
 
@@ -61,17 +60,11 @@ function buildImportPersistenceHandle(
   };
 }
 
-async function collectImportedHistory(events: AsyncGenerator<AgentStreamEvent>): Promise<{
-  timeline: ImportedTimelineEntry[];
-  providerSubagentEvents: Extract<AgentStreamEvent, { type: "provider_subagent" }>[];
-}> {
+async function collectImportedTimeline(
+  events: AsyncGenerator<AgentStreamEvent>,
+): Promise<ImportedTimelineEntry[]> {
   const timeline: ImportedTimelineEntry[] = [];
-  const providerSubagentEvents: Extract<AgentStreamEvent, { type: "provider_subagent" }>[] = [];
   for await (const event of events) {
-    if (event.type === "provider_subagent") {
-      providerSubagentEvents.push(event);
-      continue;
-    }
     if (event.type !== "timeline") {
       continue;
     }
@@ -80,5 +73,5 @@ async function collectImportedHistory(events: AsyncGenerator<AgentStreamEvent>):
       ...(event.timestamp ? { timestamp: event.timestamp } : {}),
     });
   }
-  return { timeline, providerSubagentEvents };
+  return timeline;
 }

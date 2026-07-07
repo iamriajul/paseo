@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import type { TerminalProfile } from "@getpaseo/protocol/messages";
-import { resolveTerminalProfileLaunch } from "@getpaseo/protocol/terminal-profiles";
 import type { WorkspaceDescriptor } from "@/stores/session-store";
 import { useTranslation } from "react-i18next";
 import { useReplicaQuery } from "@/data/query";
@@ -19,14 +17,18 @@ import {
   upsertCreatedTerminalPayload,
 } from "@/screens/workspace/terminals/state";
 
-export type TerminalTabDestination =
-  | { kind: "open"; paneId?: string }
-  | { kind: "replace"; tabId: string };
+interface TerminalProfileInput {
+  name: string;
+  command: string;
+  args?: string[];
+}
 
 interface PendingTerminalCreateInput {
-  destination: TerminalTabDestination;
-  profile?: TerminalProfile;
+  paneId?: string;
+  profile?: TerminalProfileInput;
 }
+
+export type { TerminalProfileInput };
 
 interface UseWorkspaceTerminalsInput {
   client: DaemonClient | null;
@@ -38,7 +40,7 @@ interface UseWorkspaceTerminalsInput {
   workspaceScripts: WorkspaceDescriptor["scripts"];
   hasHydratedWorkspaces: boolean;
   isMissingWorkspaceDirectory: boolean;
-  onTerminalCreated: (input: { terminalId: string; destination: TerminalTabDestination }) => void;
+  onTerminalCreated: (input: { terminalId: string; paneId?: string }) => void;
   onScriptTerminalSelected: (terminalId: string) => void;
   onWorkspacePathUnavailable: () => void;
   onTerminalCreateQueued: () => void;
@@ -129,15 +131,14 @@ export function useWorkspaceTerminals(input: UseWorkspaceTerminalsInput) {
   );
 
   const createMutation = useMutation({
-    mutationFn: async (_input: PendingTerminalCreateInput) => {
+    mutationFn: async (_input?: PendingTerminalCreateInput) => {
       if (!client || !workspaceDirectory) {
         throw new Error(t("workspace.terminal.hostDisconnected"));
       }
-      const profile = _input.profile ? resolveTerminalProfileLaunch(_input.profile, "") : undefined;
-      const payload = profile
-        ? await client.createTerminal(workspaceDirectory, profile.name, undefined, {
-            command: profile.command,
-            args: profile.args,
+      const payload = _input?.profile
+        ? await client.createTerminal(workspaceDirectory, _input.profile.name, undefined, {
+            command: _input.profile.command,
+            args: _input.profile.args,
             workspaceId: normalizedWorkspaceId || undefined,
           })
         : await client.createTerminal(workspaceDirectory, undefined, undefined, {
@@ -167,7 +168,7 @@ export function useWorkspaceTerminals(input: UseWorkspaceTerminalsInput) {
       if (createdTerminal) {
         onTerminalCreated({
           terminalId: createdTerminal.id,
-          destination: createInput.destination,
+          paneId: createInput?.paneId,
         });
       }
     },
@@ -214,7 +215,7 @@ export function useWorkspaceTerminals(input: UseWorkspaceTerminalsInput) {
   ]);
 
   const createTerminal = useCallback(
-    (createInput: PendingTerminalCreateInput) => {
+    (createInput?: PendingTerminalCreateInput) => {
       if (createMutation.isPending || pendingCreateInput) {
         return;
       }
@@ -229,7 +230,7 @@ export function useWorkspaceTerminals(input: UseWorkspaceTerminalsInput) {
         return;
       }
 
-      setPendingCreateInput(createInput);
+      setPendingCreateInput(createInput ?? {});
       onTerminalCreateQueued();
     },
     [

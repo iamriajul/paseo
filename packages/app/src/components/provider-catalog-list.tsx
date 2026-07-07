@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { SvgXml } from "react-native-svg";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ExternalLink, PackagePlus, Search } from "lucide-react-native";
@@ -13,7 +13,6 @@ import {
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import type { Theme } from "@/styles/theme";
 import { openExternalUrl } from "@/utils/open-external-url";
-import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 
 interface ProviderCatalogListProps {
   serverId: string;
@@ -151,12 +150,12 @@ export function ProviderCatalogList({
         </View>
         <ThemedTextInput
           testID="provider-catalog-search"
-          initialValue={search}
+          value={search}
           onChangeText={setSearch}
           accessibilityLabel={t("providerCatalog.search")}
           placeholder={t("providerCatalog.search")}
           // @ts-expect-error - outlineStyle is web-only
-          style={[styles.searchInput, isWeb && { outlineStyle: "none" }]}
+          style={SEARCH_INPUT_STYLE}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -203,7 +202,7 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     paddingVertical: theme.spacing[3],
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
   list: {
     borderRadius: theme.borderRadius.lg,
@@ -241,18 +240,18 @@ const styles = StyleSheet.create((theme) => ({
   },
   name: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
     flexShrink: 1,
   },
   version: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     flexShrink: 0,
   },
   description: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   installLink: {
     alignSelf: "flex-start",
@@ -263,7 +262,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   installLinkText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   actionButton: {
     width: 92,
@@ -282,6 +281,8 @@ const styles = StyleSheet.create((theme) => ({
   },
   stateText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
 }));
+
+const SEARCH_INPUT_STYLE = [styles.searchInput, isWeb && { outlineStyle: "none" }];

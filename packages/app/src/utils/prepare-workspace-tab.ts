@@ -1,23 +1,26 @@
 import { generateDraftId } from "@/stores/draft-keys";
-import { buildWorkspaceTabPersistenceKey, type WorkspaceTabTarget } from "@/workspace-tabs/model";
-import type { WorkspaceTabPlacement } from "@/stores/workspace-layout-actions";
+import {
+  buildWorkspaceTabPersistenceKey,
+  type WorkspaceTabTarget,
+} from "@/stores/workspace-tabs-store";
+import { buildHostWorkspaceRoute } from "@/utils/host-routes";
 
 export interface PrepareWorkspaceTabInput {
   serverId: string;
   workspaceId: string;
   target: WorkspaceTabTarget;
   pin?: boolean;
-  placement?: WorkspaceTabPlacement;
 }
 
+export type NavigateToPreparedWorkspaceTabInput = PrepareWorkspaceTabInput;
+
 export interface PrepareWorkspaceTabDeps {
-  openTab: (input: {
-    workspaceKey: string;
-    target: WorkspaceTabTarget;
-    intent: "reveal";
-    placement?: WorkspaceTabPlacement;
-  }) => string | null;
+  openTabFocused: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
   pinAgent: (workspaceKey: string, agentId: string) => void;
+}
+
+export interface NavigateToPreparedWorkspaceTabDeps extends PrepareWorkspaceTabDeps {
+  navigateToWorkspace: (serverId: string, workspaceId: string) => void;
 }
 
 function getPreparedTarget(target: WorkspaceTabTarget): WorkspaceTabTarget {
@@ -30,7 +33,7 @@ function getPreparedTarget(target: WorkspaceTabTarget): WorkspaceTabTarget {
 export function prepareWorkspaceTab(
   input: PrepareWorkspaceTabInput,
   deps: PrepareWorkspaceTabDeps,
-): void {
+): string {
   const target = getPreparedTarget(input.target);
   const key =
     buildWorkspaceTabPersistenceKey({
@@ -38,9 +41,20 @@ export function prepareWorkspaceTab(
       workspaceId: input.workspaceId,
     }) ?? "";
 
-  deps.openTab({ workspaceKey: key, target, intent: "reveal", placement: input.placement });
+  deps.openTabFocused(key, target);
 
   if (input.pin && target.kind === "agent") {
     deps.pinAgent(key, target.agentId);
   }
+
+  return buildHostWorkspaceRoute(input.serverId, input.workspaceId);
+}
+
+export function navigateToPreparedWorkspaceTab(
+  input: NavigateToPreparedWorkspaceTabInput,
+  deps: NavigateToPreparedWorkspaceTabDeps,
+): string {
+  const route = prepareWorkspaceTab(input, deps);
+  deps.navigateToWorkspace(input.serverId, input.workspaceId);
+  return route;
 }

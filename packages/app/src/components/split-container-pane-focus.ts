@@ -4,6 +4,7 @@ const INTERACTIVE_TARGET_SELECTOR = [
   "select",
   "[role='button']",
   "[role='link']",
+  "[contenteditable='true']",
   "[data-paseo-pane-focus-exempt='true']",
 ].join(", ");
 

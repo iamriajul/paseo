@@ -149,7 +149,7 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surfaceSidebarHover,
   },
   label: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foregroundMuted,
   },

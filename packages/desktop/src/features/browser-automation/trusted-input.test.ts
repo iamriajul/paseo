@@ -1,42 +1,38 @@
 import { describe, expect, test } from "vitest";
-import type { IsolatedKeyboardInputEvent } from "./trusted-input.js";
 import { dispatchTrustedKey } from "./trusted-input.js";
 
 describe("trusted browser input", () => {
-  test.each([
-    ["a", "a", ["keyDown", "char", "keyUp"]],
-    ["Z", "Z", ["keyDown", "char", "keyUp"]],
-    ["ArrowDown", "Down", ["keyDown", "keyUp"]],
-  ])(
-    "sends %s as Electron key code %s with unhandled redispatch disabled",
-    (key, keyCode, types) => {
-      const events: IsolatedKeyboardInputEvent[] = [];
+  test("Space dispatches a real space key event", async () => {
+    const commands: Array<{ command: string; params?: Record<string, unknown> }> = [];
 
-      dispatchTrustedKey((event) => {
-        events.push(event);
-      }, key);
-
-      expect(events).toEqual(
-        types.map((type) => ({
-          type,
-          keyCode,
-          skipIfUnhandled: true,
-        })),
-      );
-    },
-  );
-
-  test("inserts a named Space keypress", () => {
-    const events: IsolatedKeyboardInputEvent[] = [];
-
-    dispatchTrustedKey((event) => {
-      events.push(event);
+    await dispatchTrustedKey(async (command, params) => {
+      commands.push({ command, ...(params ? { params } : {}) });
+      return {};
     }, "Space");
 
-    expect(events).toEqual([
-      { type: "keyDown", keyCode: "Space", skipIfUnhandled: true },
-      { type: "char", keyCode: " ", skipIfUnhandled: true },
-      { type: "keyUp", keyCode: "Space", skipIfUnhandled: true },
+    expect(commands).toEqual([
+      {
+        command: "Input.dispatchKeyEvent",
+        params: {
+          type: "keyDown",
+          key: " ",
+          code: "Space",
+          windowsVirtualKeyCode: 32,
+          nativeVirtualKeyCode: 32,
+          text: " ",
+          unmodifiedText: " ",
+        },
+      },
+      {
+        command: "Input.dispatchKeyEvent",
+        params: {
+          type: "keyUp",
+          key: " ",
+          code: "Space",
+          windowsVirtualKeyCode: 32,
+          nativeVirtualKeyCode: 32,
+        },
+      },
     ]);
   });
 });

@@ -37,38 +37,38 @@ export interface AgentProviderDefinition {
 
 const CLAUDE_MODES: AgentProviderModeDefinition[] = [
   {
-    id: "plan",
-    label: "Plan Mode",
-    description: "Analyze the codebase without executing tools or edits",
-    icon: "ShieldEllipsis",
-    colorTier: "planning",
-  },
-  {
     id: "default",
     label: "Always Ask",
     description: "Prompts for permission the first time a tool is used",
-    icon: "Shield",
+    icon: "ShieldCheck",
     colorTier: "safe",
-  },
-  {
-    id: "acceptEdits",
-    label: "Accept File Edits",
-    description: "Automatically approves edit-focused tools without prompting",
-    icon: "ShieldPlus",
-    colorTier: "moderate",
   },
   {
     id: "auto",
     label: "Auto mode",
     description: "Uses a model classifier to review permission prompts automatically",
-    icon: "ShieldCheck",
+    icon: "ShieldQuestionMark",
     colorTier: "moderate",
+  },
+  {
+    id: "acceptEdits",
+    label: "Accept File Edits",
+    description: "Automatically approves edit-focused tools without prompting",
+    icon: "ShieldAlert",
+    colorTier: "moderate",
+  },
+  {
+    id: "plan",
+    label: "Plan Mode",
+    description: "Analyze the codebase without executing tools or edits",
+    icon: "ShieldCheck",
+    colorTier: "planning",
   },
   {
     id: "bypassPermissions",
     label: "Bypass",
     description: "Skip all permission prompts (use with caution)",
-    icon: "ShieldOff",
+    icon: "ShieldAlert",
     colorTier: "dangerous",
     isUnattended: true,
   },
@@ -79,7 +79,7 @@ const CODEX_MODES: AgentProviderModeDefinition[] = [
     id: "auto",
     label: "Default Permissions",
     description: "Edit files and run commands with Codex's default approval flow.",
-    icon: "Shield",
+    icon: "ShieldAlert",
     colorTier: "moderate",
   },
   {
@@ -87,14 +87,14 @@ const CODEX_MODES: AgentProviderModeDefinition[] = [
     label: "Auto-review",
     description:
       "Same workspace-write permissions as Default, but eligible `on-request` approvals are routed through the auto-reviewer subagent.",
-    icon: "ShieldCheck",
+    icon: "ShieldQuestionMark",
     colorTier: "moderate",
   },
   {
     id: "full-access",
     label: "Full Access",
     description: "Edit files, run commands, and access the network without additional prompts.",
-    icon: "ShieldOff",
+    icon: "ShieldAlert",
     colorTier: "dangerous",
     isUnattended: true,
   },
@@ -105,14 +105,14 @@ const COPILOT_MODES: AgentProviderModeDefinition[] = [
     id: "https://agentclientprotocol.com/protocol/session-modes#agent",
     label: "Agent",
     description: "Default agent mode for conversational interactions",
-    icon: "Shield",
+    icon: "ShieldAlert",
     colorTier: "moderate",
   },
   {
     id: "https://agentclientprotocol.com/protocol/session-modes#plan",
     label: "Plan",
     description: "Plan mode for creating and executing multi-step plans",
-    icon: "ShieldEllipsis",
+    icon: "ShieldCheck",
     colorTier: "planning",
   },
   {
@@ -130,40 +130,15 @@ const OPENCODE_MODES: AgentProviderModeDefinition[] = [
     id: "build",
     label: "Build",
     description: "Allows edits and tool execution for implementation work",
-    icon: "Shield",
+    icon: "Bot",
     colorTier: "moderate",
   },
   {
     id: "plan",
     label: "Plan",
     description: "Read-only planning mode that avoids file edits",
-    icon: "ShieldEllipsis",
+    icon: "Bot",
     colorTier: "planning",
-  },
-];
-
-export const OMP_MODES: AgentProviderModeDefinition[] = [
-  {
-    id: "full",
-    label: "Full Access",
-    description: "Launches OMP with yolo approval mode so tools run without prompts.",
-    icon: "ShieldOff",
-    colorTier: "dangerous",
-    isUnattended: true,
-  },
-  {
-    id: "write",
-    label: "Write Approval",
-    description: "Launches OMP with write approval mode — reads are free, writes require approval.",
-    icon: "ShieldAlert",
-    colorTier: "moderate",
-  },
-  {
-    id: "ask",
-    label: "Always Ask",
-    description: "Launches OMP with always-ask approval mode for write and exec tools.",
-    icon: "ShieldCheck",
-    colorTier: "safe",
   },
 ];
 
@@ -174,13 +149,6 @@ const MOCK_LOAD_TEST_MODES: AgentProviderModeDefinition[] = [
     description: "Streams repeated markdown, reasoning, and tool calls for app stress testing",
     icon: "ShieldOff",
     colorTier: "dangerous",
-  },
-  {
-    id: "approval-test",
-    label: "Approval Test",
-    description: "Alternate development-only permission mode for preference tests",
-    icon: "ShieldCheck",
-    colorTier: "safe",
   },
 ];
 
@@ -199,7 +167,7 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
     id: "claude",
     label: "Claude",
     description: "Anthropic's multi-tool assistant with MCP support, streaming, and deep reasoning",
-    defaultModeId: "auto",
+    defaultModeId: "default",
     modes: CLAUDE_MODES,
     voice: {
       enabled: true,
@@ -211,7 +179,7 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
     id: "codex",
     label: "Codex",
     description: "OpenAI's Codex workspace agent with sandbox controls and optional network access",
-    defaultModeId: "auto-review",
+    defaultModeId: "auto",
     modes: CODEX_MODES,
     voice: {
       enabled: true,
@@ -230,10 +198,7 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
     id: "opencode",
     label: "OpenCode",
     description: "Open-source coding assistant with multi-provider model support",
-    // No static default: OpenCode users can rename or delete any agent,
-    // including "build". Leaving this unset means the daemon and OpenCode
-    // itself decide (see normalizeOpenCodeModeId in opencode-agent.ts).
-    defaultModeId: null,
+    defaultModeId: "build",
     modes: OPENCODE_MODES,
     voice: {
       enabled: true,
@@ -249,11 +214,11 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
   },
   {
     id: "omp",
-    label: "Oh My Pi",
-    description: "Multi-provider coding agent with native approvals, host tools, and subagents",
+    label: "OMP",
+    description: "Pi-compatible coding agent distributed as Oh My Pi",
     enabledByDefault: false,
-    defaultModeId: "full",
-    modes: OMP_MODES,
+    defaultModeId: null,
+    modes: [],
   },
 ];
 

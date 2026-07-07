@@ -16,8 +16,5 @@ export function createInMemoryKeyValueStorage(
     async setItem(key, value) {
       entries.set(key, value);
     },
-    async removeItem(key) {
-      entries.delete(key);
-    },
   };
 }

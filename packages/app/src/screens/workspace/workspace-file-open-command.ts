@@ -2,29 +2,18 @@ import {
   createWorkspaceFileTabTarget,
   normalizeWorkspaceFileLocation,
 } from "@/workspace/file-open";
-import {
-  FOCUSED_PANE_PLACEMENT,
-  type WorkspaceTabPlacement,
-} from "@/stores/workspace-layout-store";
-import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
+import type { WorkspaceTabTarget } from "@/stores/workspace-tabs-store";
 
 interface OpenWorkspaceFileFromExplorerInput {
   filePath: string;
   persistenceKey: string | null;
-  closeExplorerAfterOpen: boolean;
   showMobileAgent: () => void;
-  openWorkspaceTabInFocusedPane: (
-    workspaceKey: string,
-    target: WorkspaceTabTarget,
-    placement?: WorkspaceTabPlacement,
-  ) => string | null;
+  openWorkspaceTabFocused: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
   focusWorkspaceTab: (workspaceKey: string, tabId: string) => void;
 }
 
 export function openWorkspaceFileFromExplorer(input: OpenWorkspaceFileFromExplorerInput): void {
-  if (input.closeExplorerAfterOpen) {
-    input.showMobileAgent();
-  }
+  input.showMobileAgent();
   if (!input.persistenceKey) {
     return;
   }
@@ -32,10 +21,9 @@ export function openWorkspaceFileFromExplorer(input: OpenWorkspaceFileFromExplor
   if (!location) {
     return;
   }
-  const tabId = input.openWorkspaceTabInFocusedPane(
+  const tabId = input.openWorkspaceTabFocused(
     input.persistenceKey,
     createWorkspaceFileTabTarget(location),
-    FOCUSED_PANE_PLACEMENT,
   );
   if (tabId) {
     input.focusWorkspaceTab(input.persistenceKey, tabId);

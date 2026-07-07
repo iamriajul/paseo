@@ -100,11 +100,8 @@ function buildActionabilityScript(input: {
     const deadline = performance.now() + ${JSON.stringify(input.timeoutMs)};
     const requiresEditable = ${JSON.stringify(input.editable)};
 
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    // Electron can suspend requestAnimationFrame while a guest is parked after
-    // workspace LRU eviction even though the guest remains CDP-controllable.
-    // Timed layout samples keep background browser automation live.
-    const waitForLayout = () => sleep(16);
     const nearlyEqual = (a, b) => Math.abs(a - b) < 0.25;
     const sameRect = (a, b) =>
       nearlyEqual(a.x, b.x) &&
@@ -177,9 +174,9 @@ function buildActionabilityScript(input: {
       }
 
       element.scrollIntoView?.({ block: 'center', inline: 'center' });
-      await waitForLayout();
+      await nextFrame();
       const firstRect = element.getBoundingClientRect();
-      await waitForLayout();
+      await nextFrame();
       const secondRect = element.getBoundingClientRect();
       if (!sameRect(firstRect, secondRect)) {
         detail = 'moving';

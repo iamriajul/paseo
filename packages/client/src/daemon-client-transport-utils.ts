@@ -14,25 +14,17 @@ export function normalizeTransportPayload(
   return copyArrayBufferViewToBuffer(data);
 }
 
-export interface RelayTransportMessage {
-  data: string | ArrayBuffer;
-  isBinary: boolean;
-}
-
-export function extractRelayMessage(event: unknown, nodeIsBinary?: boolean): RelayTransportMessage {
+export function extractRelayMessageData(event: unknown): string | ArrayBuffer {
   const raw =
     event && typeof event === "object" && "data" in event
       ? (event as { data: unknown }).data
       : event;
-  const isBinary = nodeIsBinary ?? typeof raw !== "string";
-  if (!isBinary) {
-    return { data: decodeMessageData(raw) ?? String(raw ?? ""), isBinary: false };
-  }
-  if (raw instanceof ArrayBuffer) return { data: raw, isBinary: true };
+  if (typeof raw === "string") return raw;
+  if (raw instanceof ArrayBuffer) return raw;
   if (ArrayBuffer.isView(raw)) {
-    return { data: copyArrayBufferViewToBuffer(raw), isBinary: true };
+    return copyArrayBufferViewToBuffer(raw);
   }
-  return { data: String(raw ?? ""), isBinary: true };
+  return String(raw ?? "");
 }
 
 export function describeTransportClose(event?: unknown): string {

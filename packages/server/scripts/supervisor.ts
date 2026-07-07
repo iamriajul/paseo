@@ -2,10 +2,6 @@ import { fork, spawn, type ChildProcess } from "child_process";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { createStream as createRotatingFileStream } from "rotating-file-stream";
-import { signalProcessTree } from "../src/utils/tree-kill.js";
-
-const WORKER_HEARTBEAT_INTERVAL_MS = 1_000;
-const WORKER_TERMINATION_GRACE_MS = 10_000;
 
 interface SupervisorLogFileOptions {
   path: string;
@@ -49,10 +45,6 @@ interface SupervisorOptions {
   restartOnCrash?: boolean;
   onSupervisorExit?: () => Promise<void> | void;
   logFile?: SupervisorLogFileOptions;
-}
-
-export interface SupervisorController {
-  requestShutdown(reason: string): void;
 }
 
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
@@ -113,7 +105,7 @@ function createSupervisorLogStream(options: SupervisorLogFileOptions | undefined
   });
 }
 
-export function runSupervisor(options: SupervisorOptions): SupervisorController {
+export function runSupervisor(options: SupervisorOptions): void {
   const restartOnCrash = options.restartOnCrash ?? false;
   const workerArgs = options.workerArgs ?? process.argv.slice(2);
   const workerEnv = options.workerEnv ?? process.env;
@@ -124,7 +116,6 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
   let restarting = false;
   let shuttingDown = false;
   let exiting = false;
-  let forceKillTimer: NodeJS.Timeout | null = null;
   const logStream = createSupervisorLogStream(options.logFile);
 
   const writeDurableChunk = (chunk: string | Buffer): void => {
@@ -174,40 +165,6 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
       });
   };
 
-  const clearForceKillTimer = (): void => {
-    if (forceKillTimer) {
-      clearTimeout(forceKillTimer);
-      forceKillTimer = null;
-    }
-  };
-
-  const scheduleForceKill = (reason: string): void => {
-    if (!child) {
-      return;
-    }
-    const currentChild = child;
-    clearForceKillTimer();
-    forceKillTimer = setTimeout(() => {
-      forceKillTimer = null;
-      if (child !== currentChild) {
-        return;
-      }
-      writeLifecycleLog("Worker did not exit after SIGTERM; forcing SIGKILL", {
-        reason,
-        supervisorPid: process.pid,
-        workerPid: currentChild.pid ?? null,
-      });
-      void signalProcessTree(currentChild, "SIGKILL").catch((error) => {
-        writeLifecycleLog("Failed to force-kill worker process tree", {
-          error: error instanceof Error ? error.message : String(error),
-          supervisorPid: process.pid,
-          workerPid: currentChild.pid ?? null,
-        });
-      });
-    }, WORKER_TERMINATION_GRACE_MS);
-    forceKillTimer.unref();
-  };
-
   const spawnWorker = () => {
     let workerEntry: string;
     try {
@@ -249,7 +206,7 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
       } else {
         writeLifecycleLog("Worker heartbeat skipped because IPC channel is disconnected");
       }
-    }, WORKER_HEARTBEAT_INTERVAL_MS);
+    }, 1000);
     heartbeat.unref();
 
     child.on("disconnect", () => {
@@ -295,9 +252,8 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
       requestRestart(reason);
     });
 
-    child.on("exit", (code, signal) => {
+    child.on("close", (code, signal) => {
       clearInterval(heartbeat);
-      clearForceKillTimer();
       const exitDescriptor = describeExit(code, signal);
       writeLifecycleLog("Worker exited", { code, signal, exit: exitDescriptor });
 
@@ -348,7 +304,6 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
     writeLifecycleLog("Restart requested", { reason });
     log(`${reason}. Stopping worker for restart...`);
     signalWorker("SIGTERM", reason);
-    scheduleForceKill(reason);
   };
 
   const requestShutdown = (reason: string) => {
@@ -364,7 +319,6 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
       return;
     }
     signalWorker("SIGTERM", reason);
-    scheduleForceKill(reason);
   };
 
   const forwardSignal = (signal: NodeJS.Signals) => {
@@ -377,6 +331,4 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
   process.stdout.write(`[${options.name}] ${options.startupMessage}\n`);
   writeLifecycleLog(options.startupMessage);
   spawnWorker();
-
-  return { requestShutdown };
 }

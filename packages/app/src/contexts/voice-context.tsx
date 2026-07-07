@@ -125,11 +125,6 @@ export function VoiceProvider({ children }: VoiceProviderProps) {
       onVolumeLevel: (level) => {
         runtime?.handleCaptureVolume(level);
       },
-      onInterruption: () => {
-        void runtime?.stopVoice().catch((error) => {
-          console.error("[VoiceEngine] Failed to stop after audio interruption:", error);
-        });
-      },
       onError: (error) => {
         console.error("[VoiceEngine] Capture error:", error);
       },

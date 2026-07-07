@@ -2,23 +2,19 @@ import { useQuery } from "@tanstack/react-query";
 import { getDesktopHost, type DesktopEditorBridge } from "@/desktop/host";
 
 export type DesktopOpenTargetKind = "editor" | "file-manager";
-export type DesktopOpenTargetIcon =
-  | { kind: "image"; dataUrl: string }
-  | { kind: "symbol"; name: "folder" | "terminal" };
+export type DesktopOpenMode = "open" | "reveal";
 
 export interface DesktopOpenTarget {
   id: string;
   label: string;
   kind: DesktopOpenTargetKind;
-  icon: DesktopOpenTargetIcon;
 }
 
 export interface OpenDesktopTargetInput {
   editorId: string;
-  workspacePath: string;
-  filePath?: string;
-  line?: number;
-  column?: number;
+  path: string;
+  cwd?: string;
+  mode?: DesktopOpenMode;
 }
 
 interface AvailableDesktopEditorBridge {

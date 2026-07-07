@@ -7,11 +7,6 @@ interface DiagnosticEntry {
   value: string;
 }
 
-function formatDiagnosticBoolean(value: boolean | undefined): string {
-  if (value === undefined) return "unknown";
-  return value ? "yes" : "no";
-}
-
 export function formatDiagnosticSection(title: string, entries: DiagnosticEntry[]): string {
   return [title, ...entries.map((entry) => `  ${entry.label}: ${entry.value}`)].join("\n");
 }
@@ -82,10 +77,6 @@ export function formatServerInfoSection(serverInfo: ServerInfoStatusPayload | nu
     { label: "Server ID", value: serverInfo.serverId },
     { label: "Hostname", value: serverInfo.hostname ?? "unknown" },
     { label: "Version", value: serverInfo.version ?? "unknown" },
-    {
-      label: "Desktop managed",
-      value: formatDiagnosticBoolean(serverInfo.desktopManaged),
-    },
     { label: "Features", value: features.length > 0 ? features.join(", ") : "none" },
   ]);
 }

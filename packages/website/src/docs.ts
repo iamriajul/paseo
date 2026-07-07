@@ -36,8 +36,6 @@ export type DocsNavNode =
       label: string;
       children: DocsNavNode[];
       order: number;
-      /** Set when the directory has an `index.md`, which makes the group landable. */
-      href?: string;
     }
   | {
       type: "page";
@@ -161,18 +159,13 @@ function formatLabel(segment: string): string {
   return segment.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function insertDocByPath(nodes: DocsNavNode[], doc: Doc, stripTopDirectory = false): void {
+function insertDocByPath(nodes: DocsNavNode[], doc: Doc): void {
   const relative = doc.sourcePath.replace(/^public-docs\//, "");
   const segments = relative.replace(/\.md$/, "").split("/");
   const fileName = segments.pop() ?? "";
   const directories = segments;
 
-  // A section's top-level directory and its category name the same thing, so
-  // only directories below it become collapsible groups.
-  if (stripTopDirectory) directories.shift();
-
   let current = nodes;
-  let parent: Extract<DocsNavNode, { type: "group" }> | undefined;
   for (const segment of directories) {
     let group = current.find(
       (node): node is Extract<DocsNavNode, { type: "group" }> =>
@@ -190,22 +183,13 @@ function insertDocByPath(nodes: DocsNavNode[], doc: Doc, stripTopDirectory = fal
       current.push(group);
     }
 
-    parent = group;
     current = group.children;
   }
 
-  // A directory's index.md describes its own group: it supplies the label and
-  // order the directory name can't, and makes the group itself navigable.
-  if (fileName === "index" && parent !== undefined) {
-    parent.label = doc.frontmatter.nav;
-    parent.order = doc.frontmatter.order;
-    parent.href = doc.href;
-    return;
-  }
-
+  const pageSegment = fileName === "index" ? (directories.at(-1) ?? "") : fileName;
   current.push({
     type: "page",
-    segment: fileName,
+    segment: pageSegment,
     label: doc.frontmatter.nav,
     href: doc.href,
     order: doc.frontmatter.order,
@@ -214,7 +198,6 @@ function insertDocByPath(nodes: DocsNavNode[], doc: Doc, stripTopDirectory = fal
 
 function nodeOrder(node: DocsNavNode): number {
   if (node.type === "page") return node.order;
-  if (node.type === "group" && node.href !== undefined) return node.order;
   if (node.children.length === 0) return Infinity;
   let min = Infinity;
   for (const child of node.children) {
@@ -257,7 +240,7 @@ export function buildDocsNavTree(docs: Doc[]): DocsNavNode[] {
   for (const [label, docsInCategory] of byCategory) {
     const children: DocsNavNode[] = [];
     for (const doc of docsInCategory) {
-      insertDocByPath(children, doc, true);
+      insertDocByPath(children, doc);
     }
     root.push({
       type: "category",
@@ -281,9 +264,6 @@ function findNodePath(
       return [...path, node];
     }
     if (node.type !== "page") {
-      if (node.type === "group" && node.href === href) {
-        return [...path, node];
-      }
       const found = findNodePath(node.children, href, [...path, node]);
       if (found) return found;
     }

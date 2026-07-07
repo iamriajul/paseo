@@ -3,7 +3,6 @@ export type KeyboardFocusScope =
   | "message-input"
   | "command-center"
   | "editable"
-  | "browser"
   | "other";
 
 export type MessageInputKeyboardActionKind =
@@ -19,11 +18,7 @@ export type MessageInputKeyboardActionKind =
 export type KeyboardActionId =
   | "agent.interrupt"
   | "agent.new"
-  | "workspace.tab.menu.open"
-  | "workspace.tab.target.agent"
-  | "workspace.tab.target.browser"
-  | "workspace.tab.target.changes"
-  | "workspace.tab.target.files"
+  | "workspace.tab.new"
   | "workspace.tab.close.current"
   | "workspace.tab.navigate.index"
   | "workspace.tab.navigate.relative"
@@ -45,14 +40,11 @@ export type KeyboardActionId =
   | "sidebar.toggle.both"
   | "settings.toggle"
   | "command-center.toggle"
-  | "command-center.files"
   | "shortcuts.dialog.toggle"
   | "workspace.terminal.new"
   | "workspace.new"
-  | "workspace.project.pick"
   | "worktree.new"
-  | "workspace.archive"
-  | "workspace.pin"
+  | "worktree.archive"
   | "view.toggle.focus"
   | "theme.cycle"
   | "message-input.action";

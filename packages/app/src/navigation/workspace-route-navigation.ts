@@ -2,7 +2,6 @@ import type { NavigationAction, NavigationContainerRefWithCurrent } from "@react
 import { router, type Href } from "expo-router";
 import {
   encodeWorkspaceIdForPathSegment,
-  getHostWorkspaceOpenParamFromPathname,
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
 
@@ -31,21 +30,12 @@ export function registerWorkspaceRouteNavigationRef(
   };
 }
 
-interface MountedRouteStack {
-  key: string;
-  focusedRouteName: string | null;
-}
-
-function findStackWithMountedRouteName(
-  state: unknown,
-  routeName: string,
-): MountedRouteStack | null {
+function findStackKeyWithMountedRouteName(state: unknown, routeName: string): string | null {
   if (!state || typeof state !== "object") {
     return null;
   }
 
   const candidate = state as {
-    index?: unknown;
     key?: unknown;
     routes?: unknown;
   };
@@ -61,34 +51,19 @@ function findStackWithMountedRouteName(
         !!route && typeof route === "object" && (route as { name?: unknown }).name === routeName,
     )
   ) {
-    const focusedIndex =
-      typeof candidate.index === "number" &&
-      Number.isInteger(candidate.index) &&
-      candidate.index >= 0 &&
-      candidate.index < candidate.routes.length
-        ? candidate.index
-        : candidate.routes.length - 1;
-    const focusedRoute = candidate.routes[focusedIndex];
-    const focusedRouteName =
-      focusedRoute && typeof focusedRoute === "object"
-        ? (focusedRoute as { name?: unknown }).name
-        : null;
-    return {
-      key: candidate.key,
-      focusedRouteName: typeof focusedRouteName === "string" ? focusedRouteName : null,
-    };
+    return candidate.key;
   }
 
   for (const route of candidate.routes) {
     if (!route || typeof route !== "object") {
       continue;
     }
-    const childStack = findStackWithMountedRouteName(
+    const childKey = findStackKeyWithMountedRouteName(
       (route as { state?: unknown }).state,
       routeName,
     );
-    if (childStack) {
-      return childStack;
+    if (childKey) {
+      return childKey;
     }
   }
 
@@ -103,15 +78,14 @@ function dispatchHostWorkspacePopTo(route: string): boolean {
   }
 
   const rootState = navigation.getRootState();
-  const hostStack = findStackWithMountedRouteName(rootState, ROOT_HOST_ROUTE_NAME);
-  if (!hostStack || hostStack.focusedRouteName === ROOT_HOST_ROUTE_NAME) {
+  const target = findStackKeyWithMountedRouteName(rootState, ROOT_HOST_ROUTE_NAME);
+  if (!target) {
     return false;
   }
-  const open = getHostWorkspaceOpenParamFromPathname(route);
 
   const action: NavigationAction = {
     type: "POP_TO",
-    target: hostStack.key,
+    target,
     payload: {
       name: ROOT_HOST_ROUTE_NAME,
       params: {
@@ -120,7 +94,6 @@ function dispatchHostWorkspacePopTo(route: string): boolean {
         params: {
           serverId: selection.serverId,
           workspaceId: encodeWorkspaceIdForPathSegment(selection.workspaceId),
-          ...(open ? { open } : {}),
         },
         // React Navigation consumes this nested hint when resolving the host child screen.
         // The browser-route canonicalizer strips the resulting ?pop=true URL artifact.

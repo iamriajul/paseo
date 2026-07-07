@@ -26,7 +26,6 @@ function assistantMessage(
   id: string,
   seed: number,
   block?: { groupId: string; index: number },
-  turnId?: string,
 ): Extract<StreamItem, { kind: "assistant_message" }> {
   return {
     kind: "assistant_message",
@@ -34,20 +33,14 @@ function assistantMessage(
     text: id,
     timestamp: timestamp(seed),
     ...(block ? { blockGroupId: block.groupId, blockIndex: block.index } : {}),
-    ...(turnId ? { turnId } : {}),
   };
 }
 
-function toolCall(
-  id: string,
-  seed: number,
-  turnId?: string,
-): Extract<StreamItem, { kind: "tool_call" }> {
+function toolCall(id: string, seed: number): Extract<StreamItem, { kind: "tool_call" }> {
   return {
     kind: "tool_call",
     id,
     timestamp: timestamp(seed),
-    ...(turnId ? { turnId } : {}),
     payload: {
       source: "orchestrator",
       data: {
@@ -89,7 +82,7 @@ function strategyFor(platform: "web" | "android"): StreamStrategy {
 
 function layoutFor(input: {
   platform: "web" | "android";
-  isTurnActive?: boolean;
+  agentStatus?: string;
   tail: StreamItem[];
   head?: StreamItem[];
   timingIds?: string[];
@@ -97,7 +90,7 @@ function layoutFor(input: {
   const strategy = strategyFor(input.platform);
   return layoutStream({
     strategy,
-    isTurnActive: input.isTurnActive ?? false,
+    agentStatus: input.agentStatus ?? "idle",
     history: orderTailForStreamRenderStrategy({
       strategy,
       streamItems: input.tail,
@@ -150,68 +143,6 @@ function findLayoutItem(layout: StreamLayout, id: string): StreamLayoutItem {
 }
 
 describe("layoutStream", () => {
-  it("places one response footer after an adjacent tagged tool-only turn", () => {
-    const priorAssistant = assistantMessage("prior", 1, undefined, "turn-1");
-    const nextTool = toolCall("next-tool", 2, "turn-2");
-    const layout = layoutFor({
-      platform: "web",
-      tail: [priorAssistant, nextTool],
-      timingIds: [priorAssistant.id],
-    });
-
-    expect(layout.auxiliaryTurnFooter?.itemId).toBe(priorAssistant.id);
-    expect(footerOwners(layout)).toEqual([priorAssistant.id]);
-  });
-
-  it("recomputes cached history layout when only the live boundary turn changes", () => {
-    const priorAssistant = assistantMessage("prior", 1, undefined, "turn-1");
-    const history = [priorAssistant];
-    const liveHead: StreamItem[] = [{ ...userMessage("live-user", 2), turnId: "turn-1" }];
-    const strategy = strategyFor("web");
-    const first = layoutStream({
-      strategy,
-      isTurnActive: true,
-      history,
-      liveHead,
-      timingByAssistantId: timingFor(priorAssistant.id),
-    });
-
-    liveHead[0] = { ...liveHead[0]!, turnId: "turn-2" };
-    const second = layoutStream({
-      strategy,
-      isTurnActive: true,
-      history,
-      liveHead,
-      timingByAssistantId: timingFor(priorAssistant.id),
-    });
-
-    expect(footerOwners(first)).toEqual([]);
-    expect(footerOwners(second)).toEqual([priorAssistant.id]);
-  });
-  it.each(["web", "android"] as const)(
-    "marks only the active live-head assistant block as streaming on %s",
-    (platform) => {
-      const completed = assistantMessage("turn:block:0", 2, { groupId: "turn", index: 0 });
-      const live = assistantMessage("turn:block:1", 3, { groupId: "turn", index: 1 });
-      const active = layoutFor({
-        platform,
-        isTurnActive: true,
-        tail: [userMessage("u1", 1), completed],
-        head: [live],
-      });
-      const complete = layoutFor({
-        platform,
-        isTurnActive: false,
-        tail: [userMessage("u1", 1), completed],
-        head: [live],
-      });
-
-      expect(findLayoutItem(active, completed.id).phase).toBe("complete");
-      expect(findLayoutItem(active, live.id).phase).toBe("streaming");
-      expect(findLayoutItem(complete, live.id).phase).toBe("complete");
-    },
-  );
-
   it.each(["web", "android"] as const)(
     "keeps split assistant block spacing identical to unsplit history on %s",
     (platform) => {
@@ -220,14 +151,14 @@ describe("layoutStream", () => {
       const thirdBlock = assistantMessage("turn:block:2", 4, { groupId: "turn", index: 2 });
       const splitLayout = layoutFor({
         platform,
-        isTurnActive: true,
+        agentStatus: "running",
         tail: [userMessage("u1", 1), firstBlock],
         head: [secondBlock, thirdBlock],
         timingIds: [firstBlock.id, secondBlock.id, thirdBlock.id],
       });
       const unsplitLayout = layoutFor({
         platform,
-        isTurnActive: true,
+        agentStatus: "running",
         tail: [userMessage("u1", 1), firstBlock, secondBlock, thirdBlock],
         timingIds: [firstBlock.id, secondBlock.id, thirdBlock.id],
       });
@@ -294,18 +225,6 @@ describe("layoutStream", () => {
     expect(assistantRow.frameOrder).toBe("footer-then-content");
   });
 
-  it("keeps an accepted steer inline while its canonical turn is active", () => {
-    const assistant = { ...assistantMessage("a1", 2), turnId: "turn-1" };
-    const steer = { ...userMessage("u2", 3), turnId: "turn-1" };
-    const layout = layoutFor({
-      platform: "web",
-      isTurnActive: true,
-      tail: [{ ...userMessage("u1", 1), turnId: "turn-1" }, assistant, steer],
-      timingIds: [assistant.id],
-    });
-    expect(footerOwners(layout)).toEqual([]);
-  });
-
   it("keeps forward stream content before its completed footer", () => {
     const assistant = assistantMessage("a1", 2);
     const layout = layoutFor({
@@ -330,7 +249,7 @@ describe("layoutStream", () => {
     });
 
     expect(findLayoutItem(layout, historyBlock.id).assistantSpacing).toBe("compactBottom");
-    expect(findLayoutItem(layout, headBlock.id).assistantSpacing).toBe("compactBoth");
+    expect(findLayoutItem(layout, headBlock.id).assistantSpacing).toBe("compactTop");
   });
 
   it.each(["web", "android"] as const)(
@@ -520,7 +439,7 @@ describe("layoutStream", () => {
       const tool = toolCall("tool-1", 3);
       const layout = layoutFor({
         platform,
-        isTurnActive: true,
+        agentStatus: "running",
         tail: [userMessage("u1", 1), assistant, tool],
         timingIds: [assistant.id],
       });

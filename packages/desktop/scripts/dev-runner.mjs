@@ -1,16 +1,9 @@
 #!/usr/bin/env node
 import net from "node:net";
 import path from "node:path";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import {
-  createElectronSpawnOptions,
-  registerDevRunnerShutdownSignals,
-  resolveChildKillTarget,
-} from "./dev-runner-config.mjs";
-
-import { resolveDevElectronArgs } from "./dev-runner-args.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(scriptDir, "..");
@@ -26,15 +19,10 @@ if (!Number.isInteger(expoPort) || expoPort <= 0) {
 }
 
 const expoDevUrl = process.env.EXPO_DEV_URL || `http://localhost:${expoPort}`;
-const electronArgs = resolveDevElectronArgs(process.platform, process.argv.slice(2));
 const colorEnv = {
   FORCE_COLOR: process.env.FORCE_COLOR || "1",
   npm_config_color: process.env.npm_config_color || "always",
 };
-const devBuildLabel = execFileSync("git", ["branch", "--show-current"], {
-  cwd: rootDir,
-  encoding: "utf8",
-}).trim();
 
 const children = new Map();
 let stopping = false;
@@ -69,11 +57,7 @@ function spawnChild(name, command, args, options = {}) {
     ...options,
   });
 
-  const managedChild = {
-    process: child,
-    detached: options.detached === true,
-  };
-  children.set(name, managedChild);
+  children.set(name, child);
   prefixStream(name, child.stdout, process.stdout);
   prefixStream(name, child.stderr, process.stderr);
 
@@ -97,13 +81,17 @@ function spawnChild(name, command, args, options = {}) {
   return child;
 }
 
-function killChild({ process: child, detached }, signal) {
+function killChild(child, signal) {
   if (!child.pid || child.killed) {
     return;
   }
 
   try {
-    process.kill(resolveChildKillTarget(child.pid, detached), signal);
+    if (child.detached) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
   } catch {
     // The child may have exited between the liveness check and the signal.
   }
@@ -163,7 +151,8 @@ function canConnect(port, host) {
   });
 }
 
-registerDevRunnerShutdownSignals({ signalSource: process, stop: stopAll });
+process.on("SIGINT", () => stopAll("SIGTERM"));
+process.on("SIGTERM", () => stopAll("SIGTERM"));
 
 spawnChild("metro", "npx", ["expo", "start", "--port", String(expoPort)], {
   cwd: appDir,
@@ -173,7 +162,6 @@ spawnChild("metro", "npx", ["expo", "start", "--port", String(expoPort)], {
     ...colorEnv,
     BROWSER: "none",
     APP_VARIANT: "development",
-    EXPO_PUBLIC_PASEO_DEV_BUILD_LABEL: devBuildLabel,
     PASEO_WEB_PLATFORM: "electron",
   },
 });
@@ -187,15 +175,12 @@ try {
 }
 
 if (!stopping) {
-  spawnChild(
-    "electron",
-    electron,
-    [...electronArgs, desktopDir],
-    createElectronSpawnOptions({
-      env: process.env,
-      colorEnv,
-      expoDevUrl,
-      devBuildLabel,
-    }),
-  );
+  spawnChild("electron", electron, [desktopDir], {
+    detached: true,
+    env: {
+      ...process.env,
+      ...colorEnv,
+      EXPO_DEV_URL: expoDevUrl,
+    },
+  });
 }

@@ -5,6 +5,8 @@ import type { AgentManager } from "./agent/agent-manager.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
 import type { DownloadTokenStore } from "./file-download/token-store.js";
 import type { DaemonConfigStore } from "./daemon-config-store.js";
+import type { FileBackedChatService } from "./chat/chat-service.js";
+import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
 import type { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import type {
@@ -15,7 +17,7 @@ import type {
 import type { PersistedWorkspaceRecord, WorkspaceRegistry } from "./workspace-registry.js";
 import { asInternals, createStub } from "./test-utils/class-mocks.js";
 import { createProviderSnapshotManagerStub } from "./test-utils/session-stubs.js";
-import type { PushNotificationSender, PushPayload } from "./push/index.js";
+import type { PushNotificationSender, PushPayload } from "./push/notifications.js";
 import type { WorkspaceAutoName } from "./workspace-auto-name.js";
 
 const wsModuleMock = vi.hoisted(() => {
@@ -131,7 +133,6 @@ function createServer(terminalManager: TerminalManager, workspaceRegistry?: Work
     })),
   };
   const daemonConfigStore = {
-    onApply: vi.fn(() => () => {}),
     onChange: vi.fn(() => () => {}),
   };
 
@@ -155,6 +156,8 @@ function createServer(terminalManager: TerminalManager, workspaceRegistry?: Work
     undefined,
     undefined,
     workspaceRegistry,
+    createStub<FileBackedChatService>({}),
+    createStub<LoopService>({}),
     createStub<ScheduleService>({}),
     createStub<CheckoutDiffManager>({
       subscribe: vi.fn(),
@@ -195,7 +198,6 @@ function createOpenSocket() {
 function connectClient(server: VoiceAssistantWebSocketServer) {
   const ws = createOpenSocket();
   asInternals<{ sessions: Map<unknown, unknown> }>(server).sessions.set(ws, {
-    kind: "trusted",
     session: {
       getClientActivity: vi.fn(() => null),
     },

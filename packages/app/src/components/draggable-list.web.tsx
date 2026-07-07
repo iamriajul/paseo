@@ -4,8 +4,7 @@ import {
   DndContext,
   closestCenter,
   KeyboardSensor,
-  MouseSensor,
-  TouchSensor,
+  PointerSensor,
   type Modifier,
   useSensor,
   useSensors,
@@ -18,7 +17,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { DraggableListProps, DraggableRenderItemInfo } from "./draggable-list.types";
-import { getDragActivationConstraints, useDragReorderState } from "./drag-reorder";
+import { useWebScrollViewScrollbar } from "./use-web-scrollbar";
+import { getPointerActivationConstraint, useDragReorderState } from "./drag-reorder";
 
 export type { DraggableListProps, DraggableRenderItemInfo };
 
@@ -28,66 +28,11 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
 });
 
 const DND_MODIFIERS = [restrictToVerticalAxis];
-const DRAG_ACTIVATION_CONFIG = {
-  movementDistance: 6,
-  touchHoldDelayMs: 180,
-  touchHoldTolerance: 8,
+const POINTER_ACTIVATION_CONFIG = {
+  defaultDistance: 6,
+  holdDelayMs: 250,
+  holdTolerance: 8,
 };
-
-function areRecordsEqual(
-  left: Record<string, unknown> | undefined,
-  right: Record<string, unknown> | undefined,
-): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  if (leftKeys.length !== rightKeys.length) return false;
-  return leftKeys.every((key) => Object.is(left[key], right[key]));
-}
-
-function useShallowStableRecord(
-  value: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  const stableRef = useRef(value);
-  if (!areRecordsEqual(stableRef.current, value)) {
-    stableRef.current = value;
-  }
-  return stableRef.current;
-}
-
-function useStableListenerRecord(
-  listeners: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  const latestListenersRef = useRef(listeners);
-  latestListenersRef.current = listeners;
-  const listenerKeys = Object.keys(listeners ?? {}).sort();
-  const listenerKeySignature = listenerKeys.join("\u0000");
-  const stableListenersRef = useRef<{
-    keySignature: string;
-    listeners: Record<string, unknown> | undefined;
-  }>(undefined);
-  if (stableListenersRef.current?.keySignature !== listenerKeySignature) {
-    stableListenersRef.current = {
-      keySignature: listenerKeySignature,
-      listeners:
-        listenerKeys.length === 0
-          ? undefined
-          : Object.fromEntries(
-              listenerKeys.map((key) => [
-                key,
-                (...args: unknown[]) => {
-                  const listener = latestListenersRef.current?.[key];
-                  if (typeof listener === "function") {
-                    return Reflect.apply(listener, undefined, args);
-                  }
-                },
-              ]),
-            ),
-    };
-  }
-  return stableListenersRef.current.listeners;
-}
 
 interface SortableItemProps<T> {
   id: string;
@@ -147,28 +92,19 @@ function SortableItemInner<T>({
     }),
     [combinedTransform, transition, isDragging],
   );
-  const stableAttributes = useShallowStableRecord(attributes as unknown as Record<string, unknown>);
-  const stableListeners = useStableListenerRecord(
-    listeners as unknown as Record<string, unknown> | undefined,
-  );
-  const dragHandleProps = useMemo(
-    () =>
-      useDragHandle
-        ? {
-            attributes: stableAttributes,
-            listeners: stableListeners,
-            setActivatorNodeRef: setActivatorNodeRef as unknown as (node: unknown) => void,
-          }
-        : undefined,
-    [setActivatorNodeRef, stableAttributes, stableListeners, useDragHandle],
-  );
 
   const info: DraggableRenderItemInfo<T> = {
     item,
     index,
     drag,
     isActive: activeId === id,
-    dragHandleProps,
+    dragHandleProps: useDragHandle
+      ? {
+          attributes: attributes as unknown as Record<string, unknown>,
+          listeners: listeners as unknown as Record<string, unknown>,
+          setActivatorNodeRef: setActivatorNodeRef as unknown as (node: unknown) => void,
+        }
+      : undefined,
   };
 
   const wrapperProps = useDragHandle
@@ -197,6 +133,7 @@ export function DraggableList<T>({
   ListHeaderComponent,
   ListEmptyComponent,
   showsVerticalScrollIndicator = true,
+  enableDesktopWebScrollbar = false,
   scrollEnabled = true,
   extraData: _extraData,
   useDragHandle = false,
@@ -210,14 +147,19 @@ export function DraggableList<T>({
     onDragEnd,
     onDragBegin,
   });
-  const activationConstraints = getDragActivationConstraints(useDragHandle, DRAG_ACTIVATION_CONFIG);
+  const showCustomScrollbar = enableDesktopWebScrollbar && scrollEnabled;
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollbar = useWebScrollViewScrollbar(scrollViewRef, {
+    enabled: showCustomScrollbar,
+  });
+  const pointerActivationConstraint = getPointerActivationConstraint(
+    useDragHandle,
+    POINTER_ACTIVATION_CONFIG,
+  );
 
   const sensors = useSensors(
-    useSensor(MouseSensor, {
-      activationConstraint: activationConstraints.mouse,
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: activationConstraints.touch,
+    useSensor(PointerSensor, {
+      activationConstraint: pointerActivationConstraint,
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
@@ -241,10 +183,15 @@ export function DraggableList<T>({
     <View style={wrapperStyle}>
       {scrollEnabled ? (
         <ScrollView
+          ref={scrollViewRef}
           testID={testID}
           style={style}
           contentContainerStyle={contentContainerStyle}
-          showsVerticalScrollIndicator={showsVerticalScrollIndicator}
+          showsVerticalScrollIndicator={showCustomScrollbar ? false : showsVerticalScrollIndicator}
+          onLayout={scrollbar.onLayout}
+          onContentSizeChange={scrollbar.onContentSizeChange}
+          onScroll={scrollbar.onScroll}
+          scrollEventThrottle={16}
         >
           {ListHeaderComponent}
           {items.length === 0 && ListEmptyComponent}
@@ -307,6 +254,7 @@ export function DraggableList<T>({
           {ListFooterComponent}
         </>
       )}
+      {scrollbar.overlay}
     </View>
   );
 }

@@ -9,7 +9,6 @@ import { i18n } from "@/i18n/i18next";
 export interface AssistantFileLinkSource {
   href: string;
   text?: string;
-  title?: string;
   markup?: string;
   sourceInfo?: string;
   sourceType?: "inline-code";

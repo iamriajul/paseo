@@ -5,7 +5,6 @@ export type AgentAttentionReason = "finished" | "error" | "permission";
 export interface AgentAttentionNotificationData {
   [key: string]: unknown;
   serverId: string;
-  workspaceId?: string;
   agentId: string;
   reason: AgentAttentionReason;
 }
@@ -19,7 +18,6 @@ export interface AgentAttentionNotificationPayload {
 interface BuildAgentAttentionNotificationPayloadInput {
   reason: AgentAttentionReason;
   serverId: string;
-  workspaceId: string;
   agentId: string;
   assistantMessage?: string | null;
   permissionRequest?: NotificationPermissionRequest | null;
@@ -205,7 +203,6 @@ export function buildAgentAttentionNotificationPayload(
     body,
     data: {
       serverId: input.serverId,
-      workspaceId: input.workspaceId,
       agentId: input.agentId,
       reason: input.reason,
     },

@@ -2,26 +2,20 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useToast } from "@/contexts/toast-context";
+import { useCheckoutGitActionsStore } from "@/git/actions-store";
 import {
   confirmRiskyWorktreeArchive,
   DEFAULT_WORKTREE_ARCHIVE_WARNING_LABELS,
   type WorktreeArchiveWarningLabels,
 } from "@/git/worktree-archive-warning";
 import type { WorkspaceDescriptor } from "@/stores/session-store";
-import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
-import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { archiveWorkspaceOptimistically } from "@/workspace/workspace-archive";
-
-function purgeArchivedWorkspaceState(input: { serverId: string; workspaceId: string }): void {
-  const workspaceKey = buildWorkspaceTabPersistenceKey(input);
-  if (workspaceKey) {
-    useWorkspaceLayoutStore.getState().purgeWorkspace(workspaceKey);
-  }
-}
+import { requireWorkspaceDirectory } from "@/utils/workspace-directory";
 
 export interface ArchiveWorkspaceInput {
   serverId: string;
   workspaceId: string;
+  workspaceDirectory: string | null | undefined;
   workspaceKind: WorkspaceDescriptor["workspaceKind"];
   name: string;
   isDirty?: boolean | null;
@@ -40,6 +34,7 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
   const {
     serverId,
     workspaceId,
+    workspaceDirectory,
     workspaceKind,
     name,
     isDirty,
@@ -51,8 +46,37 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
   } = input;
   const { t } = useTranslation();
   const toast = useToast();
+  const archiveWorktree = useCheckoutGitActionsStore((state) => state.archiveWorktree);
 
-  const archiveWorkspaceRecord = useCallback(async () => {
+  const archiveWorktreeRecord = useCallback(() => {
+    let archiveDirectory: string;
+    try {
+      archiveDirectory = requireWorkspaceDirectory({
+        workspaceId,
+        workspaceDirectory,
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("sidebar.workspace.toasts.workspacePathUnavailable"),
+      );
+      return;
+    }
+    onArchiveStarted();
+    void archiveWorktree({
+      serverId,
+      cwd: archiveDirectory,
+      worktreePath: archiveDirectory,
+      workspaceId,
+    }).catch((error) => {
+      toast.error(
+        error instanceof Error ? error.message : t("sidebar.workspace.toasts.archiveFailed"),
+      );
+    });
+  }, [archiveWorktree, onArchiveStarted, serverId, t, toast, workspaceDirectory, workspaceId]);
+
+  const archiveNonWorktreeRecord = useCallback(async () => {
     const client = getHostRuntimeStore().getClient(serverId);
     if (!client) {
       toast.error(t("sidebar.workspace.toasts.hostDisconnected"));
@@ -60,18 +84,17 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
     }
     onSetHiding?.(true);
     try {
-      onArchiveStarted();
       await archiveWorkspaceOptimistically({
         client,
         workspace: {
           serverId,
           workspaceId,
         },
+        afterHide: onArchiveStarted,
       });
-      purgeArchivedWorkspaceState({ serverId, workspaceId });
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t("sidebar.workspace.toasts.archiveFailed"),
+        error instanceof Error ? error.message : t("sidebar.workspace.toasts.hideFailed"),
       );
     } finally {
       onSetHiding?.(false);
@@ -83,7 +106,7 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
       if (workspaceKind === "worktree") {
         const confirmed = await confirmRiskyWorktreeArchive(
           {
-            workspaceName: name,
+            worktreeName: name,
             isDirty,
             aheadOfOrigin,
             diffStat,
@@ -93,12 +116,15 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
         if (!confirmed) {
           return;
         }
+        archiveWorktreeRecord();
+        return;
       }
-      await archiveWorkspaceRecord();
+      await archiveNonWorktreeRecord();
     })();
   }, [
     aheadOfOrigin,
-    archiveWorkspaceRecord,
+    archiveNonWorktreeRecord,
+    archiveWorktreeRecord,
     diffStat,
     isDirty,
     name,

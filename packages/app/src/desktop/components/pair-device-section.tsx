@@ -1,90 +1,71 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { ActivityIndicator, Image, Text, TextInput, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as QRCode from "qrcode";
-import { SvgXml } from "react-native-svg";
-import { useMutation } from "@tanstack/react-query";
-import { Check, Copy, Network, RotateCw, ShieldCheck } from "lucide-react-native";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { useTranslation } from "react-i18next";
-import { Alert } from "@/components/ui/alert";
+import { useQuery } from "@tanstack/react-query";
+import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { RotateCw, Copy, Check } from "lucide-react-native";
+import { settingsStyles } from "@/styles/settings";
 import { Button } from "@/components/ui/button";
-import { ExternalLink } from "@/components/ui/external-link";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useFetchQuery } from "@/data/query";
-import { daemonPairingOfferQueryKey } from "@/data/daemon-pairing";
-import { useDaemonConfig } from "@/hooks/use-daemon-config";
-import { useHostRuntimeClient, useHostRuntimeSnapshot } from "@/runtime/host-runtime";
-import type { Theme } from "@/styles/theme";
-import {
-  EditingTextInput as TextInput,
-  type EditingTextInputHandle,
-} from "@/components/ui/text-input";
+import { getDesktopDaemonPairing, shouldUseDesktopDaemon } from "@/desktop/daemon/desktop-daemon";
+import { useState } from "react";
 
-const RELAY_DOCS_URL = "https://paseo.sh/docs/security";
-const FLEX_ONE_STYLE = { flex: 1 } as const;
-const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
-const ThemedShieldCheck = withUnistyles(ShieldCheck);
-const ThemedNetwork = withUnistyles(Network);
-const foregroundMutedColorMapping = (theme: Theme) => ({
-  color: theme.colors.foregroundMuted,
-});
-const accentBrightColorMapping = (theme: Theme) => ({ color: theme.colors.accentBright });
+type PairingViewState =
+  | { tag: "loading" }
+  | { tag: "error"; message: string }
+  | { tag: "unavailable"; message: string }
+  | { tag: "ready"; url: string };
 
-export interface PairDeviceSectionProps {
-  serverId: string;
-  onClose: () => void;
+function resolvePairingViewState(args: {
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  data: { url?: string | null; relayEnabled?: boolean } | undefined;
+  labels: {
+    failedToLoadOffer: string;
+    relayDisabled: string;
+    unavailable: string;
+  };
+}): PairingViewState {
+  if (args.isPending) return { tag: "loading" };
+  if (args.isError) {
+    const message =
+      args.error instanceof Error ? args.error.message : args.labels.failedToLoadOffer;
+    return { tag: "error", message };
+  }
+  if (!args.data?.url) {
+    const message =
+      args.data?.relayEnabled === false ? args.labels.relayDisabled : args.labels.unavailable;
+    return { tag: "unavailable", message };
+  }
+  return { tag: "ready", url: args.data.url };
 }
 
-export function PairDeviceSection({ serverId, onClose }: PairDeviceSectionProps) {
+export function PairDeviceSection() {
+  const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const client = useHostRuntimeClient(serverId);
-  const runtimeSnapshot = useHostRuntimeSnapshot(serverId);
-  const isConnected = runtimeSnapshot?.connectionStatus === "online";
-  const isDisconnected =
-    runtimeSnapshot?.connectionStatus === "offline" ||
-    runtimeSnapshot?.connectionStatus === "error";
-  const { patchConfig } = useDaemonConfig(serverId);
+  const showSection = shouldUseDesktopDaemon();
   const [copied, setCopied] = useState(false);
-  const serverFeatures = client?.getLastServerInfoMessage()?.features;
-  const supportsPairingRpc = serverFeatures?.daemonStatusRpc === true;
-  const canConfigureRelay = supportsPairingRpc && serverFeatures?.relayConfig === true;
 
-  const pairingQuery = useFetchQuery({
-    queryKey: daemonPairingOfferQueryKey(serverId),
-    queryFn: async () => {
-      if (!client) throw new Error(t("workspace.terminal.hostDisconnected"));
-      return client.getDaemonPairingOffer();
-    },
-    enabled: supportsPairingRpc && Boolean(client && isConnected),
-    dataShape: "value",
-    staleTimeMs: 5 * 60 * 1000,
+  const pairingQuery = useQuery({
+    queryKey: ["desktop-daemon-pairing"],
+    queryFn: getDesktopDaemonPairing,
+    enabled: showSection,
+    staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 
-  const enableRelay = useMutation({
-    mutationFn: async () => {
-      if (client?.getLastServerInfoMessage()?.features?.relayConfig !== true) {
-        throw new Error(t("pairing.device.updateRequired"));
-      }
-      const config = await patchConfig({ relay: { enabled: true } });
-      if (!config) throw new Error(t("workspace.terminal.hostDisconnected"));
-      return pairingQuery.refetch();
-    },
-  });
-
-  const qrQuery = useFetchQuery({
-    queryKey: ["daemon-pairing-offer-qr", pairingQuery.data?.url],
+  const qrQuery = useQuery({
+    queryKey: ["desktop-daemon-pairing-qr", pairingQuery.data?.url],
     queryFn: () =>
-      QRCode.toString(pairingQuery.data?.url ?? "", {
-        type: "svg",
+      QRCode.toDataURL(pairingQuery.data!.url!, {
         errorCorrectionLevel: "M",
         margin: 1,
         width: 480,
       }),
-    enabled: Boolean(pairingQuery.data?.url),
-    dataShape: "value",
-    staleTimeMs: 5 * 60 * 1000,
+    enabled: !!pairingQuery.data?.url,
+    staleTime: Infinity,
   });
 
   const handleCopyLink = useCallback(async () => {
@@ -93,275 +74,203 @@ export function PairDeviceSection({ serverId, onClose }: PairDeviceSectionProps)
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [pairingQuery.data?.url]);
+
+  const handleRefetch = useCallback(() => {
+    void pairingQuery.refetch();
+  }, [pairingQuery]);
+
   const handleCopyPress = useCallback(() => {
     void handleCopyLink();
   }, [handleCopyLink]);
-  const handleRetry = useCallback(() => {
-    void pairingQuery.refetch();
-  }, [pairingQuery]);
-  const handleEnableRelay = useCallback(() => {
-    enableRelay.mutate();
-  }, [enableRelay]);
 
-  const qrSvg = useMemo(() => qrQuery.data ?? null, [qrQuery.data]);
+  const qrImageSource = useMemo(
+    () => (qrQuery.data ? { uri: qrQuery.data } : null),
+    [qrQuery.data],
+  );
+
+  const retryIcon = useMemo(
+    () => <RotateCw size={theme.iconSize.sm} color={theme.colors.foreground} />,
+    [theme.iconSize.sm, theme.colors.foreground],
+  );
+  const copyButtonIcon = useMemo(
+    () =>
+      copied ? (
+        <Check size={theme.iconSize.sm} color={theme.colors.accent} />
+      ) : (
+        <Copy size={theme.iconSize.sm} color={theme.colors.foreground} />
+      ),
+    [copied, theme.iconSize.sm, theme.colors.accent, theme.colors.foreground],
+  );
+  const bodyLabels = useMemo(
+    () => ({
+      loadingOffer: t("pairing.device.loadingOffer"),
+      hint: t("pairing.device.hint"),
+      qrUnavailable: t("pairing.device.qrUnavailable"),
+      retry: t("pairing.device.retry"),
+      copy: t("pairing.device.copy"),
+      copied: t("pairing.device.copied"),
+    }),
+    [t],
+  );
+
+  if (!showSection) return null;
+
+  const viewState = resolvePairingViewState({
+    isPending: pairingQuery.isPending,
+    isError: pairingQuery.isError,
+    error: pairingQuery.error,
+    data: pairingQuery.data,
+    labels: {
+      failedToLoadOffer: t("pairing.device.failedToLoadOffer"),
+      relayDisabled: t("pairing.device.relayDisabled"),
+      unavailable: t("pairing.device.unavailable"),
+    },
+  });
 
   return (
-    <View testID="pair-device-content">
-      <PairDeviceBody
-        isPending={supportsPairingRpc && pairingQuery.isPending}
-        isDisconnected={isDisconnected}
-        error={pairingQuery.error}
-        offer={pairingQuery.data}
-        canConfigureRelay={canConfigureRelay}
-        enablePending={enableRelay.isPending}
-        enableError={enableRelay.error}
-        qrSvg={qrSvg}
-        qrError={qrQuery.isError}
-        copied={copied}
-        onRetry={handleRetry}
-        onEnableRelay={handleEnableRelay}
-        onClose={onClose}
-        onCopy={handleCopyPress}
-      />
+    <View style={settingsStyles.section} testID="host-page-pair-device-card">
+      <View style={settingsStyles.card}>
+        <PairDeviceBody
+          viewState={viewState}
+          theme={theme}
+          retryIcon={retryIcon}
+          copyButtonIcon={copyButtonIcon}
+          qrImageSource={qrImageSource}
+          qrQuery={qrQuery}
+          copied={copied}
+          handleRefetch={handleRefetch}
+          handleCopyPress={handleCopyPress}
+          labels={bodyLabels}
+        />
+      </View>
     </View>
   );
 }
 
 interface PairDeviceBodyProps {
-  isPending: boolean;
-  isDisconnected: boolean;
-  error: Error | null;
-  offer: { relayEnabled: boolean; url: string } | undefined;
-  canConfigureRelay: boolean;
-  enablePending: boolean;
-  enableError: Error | null;
-  qrSvg: string | null;
-  qrError: boolean;
+  viewState: PairingViewState;
+  theme: { colors: { accent: string } };
+  retryIcon: React.ReactElement;
+  copyButtonIcon: React.ReactElement;
+  qrImageSource: { uri: string } | null;
+  qrQuery: { isError: boolean };
   copied: boolean;
-  onRetry: () => void;
-  onEnableRelay: () => void;
-  onClose: () => void;
-  onCopy: () => void;
+  handleRefetch: () => void;
+  handleCopyPress: () => void;
+  labels: {
+    loadingOffer: string;
+    hint: string;
+    qrUnavailable: string;
+    retry: string;
+    copy: string;
+    copied: string;
+  };
 }
 
 function PairDeviceBody(props: PairDeviceBodyProps) {
-  const { t } = useTranslation();
-  if (props.isDisconnected) {
+  const {
+    viewState,
+    theme,
+    retryIcon,
+    copyButtonIcon,
+    qrImageSource,
+    qrQuery,
+    copied,
+    handleRefetch,
+    handleCopyPress,
+    labels,
+  } = props;
+
+  if (viewState.tag === "loading") {
     return (
-      <OfferLoadError message={t("workspace.terminal.hostDisconnected")} onRetry={props.onRetry} />
+      <View style={styles.centered}>
+        <ActivityIndicator size="small" />
+        <Text style={styles.hint}>{labels.loadingOffer}</Text>
+      </View>
     );
   }
-  if (props.isPending) {
-    return <Text style={styles.stateLine}>{t("pairing.device.loadingOffer")}</Text>;
-  }
-  if (props.error) {
-    return <OfferLoadError message={props.error.message} onRetry={props.onRetry} />;
-  }
-  if (!props.offer?.relayEnabled) {
-    return <RelayConsent {...props} />;
-  }
-  if (!props.offer.url) {
-    return <Text style={styles.stateLine}>{t("pairing.device.unavailable")}</Text>;
-  }
-  return <PairingOffer {...props} offer={props.offer} />;
-}
 
-function OfferLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <Alert variant="error" description={message}>
-      <Button variant="outline" size="sm" leftIcon={RotateCw} onPress={onRetry}>
-        {t("pairing.device.retry")}
-      </Button>
-    </Alert>
-  );
-}
-
-function RelayConsent(props: PairDeviceBodyProps) {
-  const { t } = useTranslation();
-  let enableButtonLabel = t("pairing.device.enableRelay");
-  if (props.enablePending) {
-    enableButtonLabel = t("pairing.device.enablingRelay");
-  } else if (props.enableError) {
-    enableButtonLabel = t("pairing.device.retry");
-  }
-  return (
-    <View style={styles.consent}>
-      <View style={styles.hero}>
-        <RelayHeroBadge />
-        <Text style={styles.consentTitle}>{t("pairing.device.enableTitle")}</Text>
-        <Text style={styles.consentDescription}>{t("pairing.device.enableDescription")}</Text>
-        <ExternalLink
-          href={RELAY_DOCS_URL}
-          label={t("pairing.device.relayDocs")}
-          accessibilityLabel={t("pairing.device.relayDocsAccessibility")}
-        />
-      </View>
-      {props.enableError ? <Alert variant="error" description={props.enableError.message} /> : null}
-      {!props.canConfigureRelay ? (
-        <Alert variant="warning" description={t("pairing.device.updateRequired")} />
-      ) : null}
-      <View style={styles.actions}>
-        <Button variant="secondary" style={FLEX_ONE_STYLE} onPress={props.onClose}>
-          {t("pairing.device.notNow")}
+  if (viewState.tag === "error" || viewState.tag === "unavailable") {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.hint}>{viewState.message}</Text>
+        <Button variant="outline" size="sm" leftIcon={retryIcon} onPress={handleRefetch}>
+          {labels.retry}
         </Button>
-        {props.canConfigureRelay ? (
-          <Button
-            variant="default"
-            style={FLEX_ONE_STYLE}
-            loading={props.enablePending}
-            onPress={props.onEnableRelay}
-          >
-            {enableButtonLabel}
-          </Button>
-        ) : null}
       </View>
-      <View style={styles.directRow}>
-        <ThemedNetwork size={14} style={styles.directIcon} />
-        <Text style={styles.directHint}>{t("pairing.device.directConnectionHint")}</Text>
-      </View>
-    </View>
-  );
-}
+    );
+  }
 
-function RelayHeroBadge() {
   return (
-    <View style={styles.heroBadge}>
-      <ThemedShieldCheck size={20} uniProps={accentBrightColorMapping} />
-    </View>
-  );
-}
-
-function PairingOffer(props: PairDeviceBodyProps & { offer: { url: string } }) {
-  const { t } = useTranslation();
-  const inputRef = useRef<EditingTextInputHandle>(null);
-  useEffect(() => inputRef.current?.replaceText(props.offer.url), [props.offer.url]);
-  return (
-    <View style={styles.offer}>
-      <Text style={styles.offerHint}>{t("pairing.device.hint")}</Text>
-      <View style={styles.qrTile}>
-        <PairingQr svg={props.qrSvg} isError={props.qrError} />
+    <View style={styles.content}>
+      <Text style={styles.hint}>{labels.hint}</Text>
+      <View style={styles.qrContainer}>
+        <PairDeviceQrContent
+          qrImageSource={qrImageSource}
+          qrQuery={qrQuery}
+          unavailableLabel={labels.qrUnavailable}
+        />
       </View>
       <View style={styles.linkRow}>
         <View style={styles.inputWrapper}>
           <TextInput
-            ref={inputRef}
             style={styles.linkInput}
-            initialValue={props.offer.url}
+            value={viewState.url}
             readOnly
             selectTextOnFocus
-            accessibilityLabel={t("pairing.link.label")}
+            selectionColor={theme.colors.accent}
           />
         </View>
-        <Button
-          variant="outline"
-          size="sm"
-          leftIcon={props.copied ? Check : Copy}
-          onPress={props.onCopy}
-        >
-          {props.copied ? t("pairing.device.copied") : t("pairing.device.copy")}
+        <Button variant="outline" size="sm" leftIcon={copyButtonIcon} onPress={handleCopyPress}>
+          {copied ? labels.copied : labels.copy}
         </Button>
       </View>
-      <Alert variant="warning" description={t("pairing.device.securityWarning")} />
     </View>
   );
 }
 
-function PairingQr({ svg, isError }: { svg: string | null; isError: boolean }) {
-  const { t } = useTranslation();
-  if (svg) {
-    return (
-      <SvgXml
-        xml={svg}
-        style={styles.qrImage}
-        accessibilityRole="image"
-        accessibilityLabel={t("pairing.device.qrAccessibility")}
-      />
-    );
+function PairDeviceQrContent(props: {
+  qrImageSource: { uri: string } | null;
+  qrQuery: { isError: boolean };
+  unavailableLabel: string;
+}) {
+  if (props.qrImageSource) {
+    return <Image source={props.qrImageSource} style={styles.qrImage} resizeMode="contain" />;
   }
-  if (isError) {
-    return <Text style={styles.hint}>{t("pairing.device.qrUnavailable")}</Text>;
+  if (props.qrQuery.isError) {
+    return <Text style={styles.hint}>{props.unavailableLabel}</Text>;
   }
-  return <ThemedLoadingSpinner size="small" uniProps={foregroundMutedColorMapping} />;
+  return <ActivityIndicator size="small" />;
 }
 
 const styles = StyleSheet.create((theme) => ({
-  stateLine: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
-    textAlign: "center",
-    paddingVertical: theme.spacing[6],
-  },
-  consent: {
-    gap: theme.spacing[4],
-  },
-  hero: {
-    alignItems: "flex-start",
-    gap: theme.spacing[2],
-  },
-  heroBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.surface2,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+  centered: {
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: theme.spacing[1],
-  },
-  consentTitle: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
-    fontWeight: theme.fontWeight.medium,
-  },
-  consentDescription: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
-    lineHeight: theme.fontSize.base * 1.5,
-  },
-  actions: {
-    flexDirection: "row",
     gap: theme.spacing[3],
+    paddingVertical: theme.spacing[6],
+    paddingHorizontal: theme.spacing[4],
   },
-  directRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: theme.spacing[2],
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    paddingTop: theme.spacing[4],
+  content: {
+    gap: theme.spacing[3],
+    padding: theme.spacing[4],
   },
-  directIcon: {
+  hint: {
     color: theme.colors.foregroundMuted,
-    marginTop: 1, // optical: seats the glyph on the hint's first text line
-  },
-  directHint: {
-    flex: 1,
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    lineHeight: theme.fontSize.sm * 1.5,
-  },
-  offer: {
-    gap: theme.spacing[4],
-  },
-  offerHint: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.xs,
     textAlign: "center",
   },
-  qrTile: {
-    alignSelf: "center",
+  qrContainer: {
     alignItems: "center",
     justifyContent: "center",
-    width: 304,
-    maxWidth: "100%",
-    aspectRatio: 1,
-    padding: theme.spacing[3],
-    borderRadius: theme.borderRadius.xl,
+    alignSelf: "center",
+    width: 320,
+    height: 320,
+    borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.palette.white,
+    backgroundColor: theme.colors.surface0,
+    padding: theme.spacing[2],
   },
   qrImage: {
     width: "100%",
@@ -374,22 +283,17 @@ const styles = StyleSheet.create((theme) => ({
   },
   inputWrapper: {
     flex: 1,
-    borderRadius: theme.borderRadius.lg,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface0,
     overflow: "hidden",
   },
   linkInput: {
     color: theme.colors.foregroundMuted,
-    fontFamily: theme.fontFamily.mono,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
     outlineStyle: "none",
   } as object,
-  hint: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-  },
 }));

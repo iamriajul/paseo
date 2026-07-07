@@ -33,7 +33,6 @@ import {
 } from "./terminal-restore.js";
 import type { TerminalSession } from "./terminal.js";
 import type { TerminalManager, TerminalsChangedEvent } from "./terminal-manager.js";
-import { applyTerminalSize } from "./terminal-size-ownership.js";
 import type { TerminalActivity } from "@getpaseo/protocol/terminal-activity";
 import { terminalSubscriptionKey } from "@getpaseo/protocol/terminal-subscription-key";
 
@@ -131,7 +130,6 @@ export class TerminalSessionController {
   private readonly listTerminalWorkspaceRoots: () => Promise<readonly string[]>;
   private readonly clientSupportsWrapReflow: () => boolean;
   private readonly getClientBufferedAmount: () => number | null;
-  private readonly terminalSizeOwner = {};
 
   // A subscription is scoped to a (cwd, workspaceId) pair, keyed by
   // terminalSubscriptionKey: two workspaces sharing a cwd subscribe and unsub
@@ -241,7 +239,7 @@ export class TerminalSessionController {
         if (!resize) {
           return;
         }
-        applyTerminalSize(terminal, this.terminalSizeOwner, resize);
+        terminal.send({ type: "resize", rows: resize.rows, cols: resize.cols });
         return;
       }
 
@@ -551,8 +549,6 @@ export class TerminalSessionController {
         name: msg.name,
         command: msg.command,
         args: msg.args,
-        rows: msg.size?.rows,
-        cols: msg.size?.cols,
       });
       this.ensureExitSubscription(session);
       this.emit({
@@ -662,10 +658,17 @@ export class TerminalSessionController {
     this.ensureExitSubscription(session);
 
     if (msg.restore?.size) {
-      applyTerminalSize(session, this.terminalSizeOwner, {
-        ...msg.restore.size,
-        intent: "claim",
-      });
+      const currentSize = session.getSize();
+      if (
+        currentSize.rows !== msg.restore.size.rows ||
+        currentSize.cols !== msg.restore.size.cols
+      ) {
+        session.send({
+          type: "resize",
+          rows: msg.restore.size.rows,
+          cols: msg.restore.size.cols,
+        });
+      }
     }
 
     const slot = this.bindActiveStream(session, { restore: msg.restore });
@@ -720,8 +723,10 @@ export class TerminalSessionController {
     this.ensureExitSubscription(session);
 
     if (msg.message.type === "resize") {
-      applyTerminalSize(session, this.terminalSizeOwner, msg.message);
-      return;
+      const currentSize = session.getSize();
+      if (currentSize.rows === msg.message.rows && currentSize.cols === msg.message.cols) {
+        return;
+      }
     }
 
     session.send(msg.message);

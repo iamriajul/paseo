@@ -16,7 +16,6 @@ interface OpenOptions {
   title?: string;
   defaultPath?: string;
   directory?: boolean;
-  createDirectory?: boolean;
   multiple?: boolean;
   filters?: Array<{ name: string; extensions: string[] }>;
 }
@@ -66,7 +65,6 @@ export function registerDialogHandlers(): void {
     const win = BrowserWindow.fromWebContents(event.sender);
     const properties: Electron.OpenDialogOptions["properties"] = [];
     if (options?.directory) properties.push("openDirectory");
-    if (options?.createDirectory) properties.push("createDirectory");
     if (options?.multiple) properties.push("multiSelections");
     if (!options?.directory) properties.push("openFile");
 

@@ -34,7 +34,6 @@ interface UseBuiltInDaemonManagementInput {
 interface UseBuiltInDaemonManagementResult {
   isUpdating: boolean;
   toggle: () => void;
-  enable: () => Promise<DaemonManagementToggleResult | null>;
 }
 
 export function useBuiltInDaemonManagement(
@@ -43,16 +42,12 @@ export function useBuiltInDaemonManagement(
   const { t } = useTranslation();
   const { daemonStatus, settings, updateSettings, setStatus, refreshStatus } = input;
   const reportError = useDesktopIpcErrorReporter();
-  const {
-    mutate: toggleDaemonManagement,
-    mutateAsync: toggleDaemonManagementAsync,
-    isPending: isUpdating,
-  } = useMutation<DaemonManagementToggleResult, Error, { forceEnable: boolean }>({
-    mutationFn: async ({ forceEnable }) => {
-      // forceEnable takes the enable branch regardless of the persisted
-      // setting — the recovery affordance must never reach the stop/confirm
-      // path even if manageBuiltInDaemon was left true.
-      const wasManagingDaemon = forceEnable ? false : settings.manageBuiltInDaemon;
+  const { mutate: toggleDaemonManagement, isPending: isUpdating } = useMutation<
+    DaemonManagementToggleResult,
+    Error
+  >({
+    mutationFn: async () => {
+      const wasManagingDaemon = settings.manageBuiltInDaemon;
       try {
         const result = await executeDaemonManagementToggle(wasManagingDaemon, daemonStatus, {
           confirm: () =>
@@ -114,21 +109,8 @@ export function useBuiltInDaemonManagement(
       return;
     }
 
-    toggleDaemonManagement({ forceEnable: false });
+    toggleDaemonManagement();
   }, [isUpdating, toggleDaemonManagement]);
 
-  const enable = useCallback(async () => {
-    if (isUpdating) {
-      return null;
-    }
-
-    try {
-      return await toggleDaemonManagementAsync({ forceEnable: true });
-    } catch {
-      // onError has already surfaced the failure; callers only act on success.
-      return null;
-    }
-  }, [isUpdating, toggleDaemonManagementAsync]);
-
-  return { isUpdating, toggle, enable };
+  return { isUpdating, toggle };
 }

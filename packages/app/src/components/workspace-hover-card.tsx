@@ -19,13 +19,11 @@ import {
   CircleX,
   Copy,
   ExternalLink,
-  FileDiff,
   Folder,
   GitBranch,
   Server,
 } from "lucide-react-native";
-import { getForgePresentation, normalizeForge } from "@/git/forge";
-import { ForgeBrandIcon } from "@/git/forge-icon";
+import { GitHubIcon } from "@/components/icons/github-icon";
 import type { Theme } from "@/styles/theme";
 import { DiffStat } from "@/components/diff-stat";
 import { Pressable } from "react-native";
@@ -35,6 +33,7 @@ import { useBottomSheetModalInternal } from "@gorhom/bottom-sheet";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import type { PrHint } from "@/git/use-pr-status-query";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { shortenPath } from "@/utils/shorten-path";
 import { copyToClipboard } from "@/utils/copy-to-clipboard";
 import { PrBadge } from "@/components/sidebar-workspace-list";
 import { useHoverSafeZone } from "@/hooks/use-hover-safe-zone";
@@ -95,14 +94,12 @@ interface WorkspaceHoverCardProps {
   workspace: SidebarWorkspaceEntry;
   prHint: PrHint | null;
   isDragging: boolean;
-  disabled?: boolean;
 }
 
 export function WorkspaceHoverCard({
   workspace,
   prHint,
   isDragging,
-  disabled = false,
   children,
 }: PropsWithChildren<WorkspaceHoverCardProps>): ReactNode {
   const isCompact = useIsCompactFormFactor();
@@ -112,12 +109,7 @@ export function WorkspaceHoverCard({
   }
 
   return (
-    <WorkspaceHoverCardDesktop
-      workspace={workspace}
-      prHint={prHint}
-      isDragging={isDragging}
-      disabled={disabled}
-    >
+    <WorkspaceHoverCardDesktop workspace={workspace} prHint={prHint} isDragging={isDragging}>
       {children}
     </WorkspaceHoverCardDesktop>
   );
@@ -127,7 +119,6 @@ function WorkspaceHoverCardDesktop({
   workspace,
   prHint,
   isDragging,
-  disabled = false,
   children,
 }: PropsWithChildren<WorkspaceHoverCardProps>): ReactElement {
   const triggerRef = useRef<View>(null);
@@ -154,10 +145,10 @@ function WorkspaceHoverCardDesktop({
   const handleTriggerEnter = useCallback(() => {
     triggerHoveredRef.current = true;
     clearGraceTimer();
-    if (!isDragging && !disabled) {
+    if (!isDragging) {
       setOpen(true);
     }
-  }, [clearGraceTimer, disabled, isDragging]);
+  }, [clearGraceTimer, isDragging]);
 
   const handleTriggerLeave = useCallback(() => {
     triggerHoveredRef.current = false;
@@ -175,13 +166,13 @@ function WorkspaceHoverCardDesktop({
     onLeaveSafeZone: scheduleClose,
   });
 
-  // Close while another row interaction owns attention.
+  // Close when drag starts
   useEffect(() => {
-    if (isDragging || disabled) {
+    if (isDragging) {
       clearGraceTimer();
       setOpen(false);
     }
-  }, [clearGraceTimer, disabled, isDragging]);
+  }, [isDragging, clearGraceTimer]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -222,6 +213,7 @@ function WorkspaceHoverCardContent({
   contentRef: React.RefObject<View | null>;
 }): ReactElement | null {
   const { t } = useTranslation();
+  const cwdDisplay = shortenPath(workspace.workspaceDirectory);
   const bottomSheetInternal = useBottomSheetModalInternal(true);
   const [triggerRect, setTriggerRect] = useState<Rect | null>(null);
   const [contentSize, setContentSize] = useState<{ width: number; height: number } | null>(null);
@@ -294,16 +286,6 @@ function WorkspaceHoverCardContent({
               {workspace.name}
             </Text>
           </View>
-          {prHint ? <PrBadge hint={prHint} style={styles.cardInfoRow} /> : null}
-          {workspace.diffStat ? (
-            <View style={styles.cardInfoRow}>
-              <ThemedFileDiff size={12} uniProps={foregroundMutedColorMapping} />
-              <DiffStat
-                additions={workspace.diffStat.additions}
-                deletions={workspace.diffStat.deletions}
-              />
-            </View>
-          ) : null}
           <HostRow serverId={workspace.serverId} />
           {workspace.currentBranch ? (
             <CopyableInfoRow
@@ -314,23 +296,30 @@ function WorkspaceHoverCardContent({
               testID="hover-card-workspace-branch"
             />
           ) : null}
-          {workspace.workspaceDirectoryLabel ? (
+          {cwdDisplay ? (
             <CopyableInfoRow
               icon={ThemedFolder}
-              value={workspace.workspaceDirectoryLabel}
-              copyValue={workspace.workspaceDirectory}
+              value={cwdDisplay}
+              copyValue={workspace.workspaceDirectory ?? ""}
               copyLabel={t("workspace.hoverCard.copyPath")}
               testID="hover-card-workspace-cwd"
             />
           ) : null}
+          {prHint || workspace.diffStat ? (
+            <View style={styles.cardMetaRow}>
+              {workspace.diffStat ? (
+                <DiffStat
+                  additions={workspace.diffStat.additions}
+                  deletions={workspace.diffStat.deletions}
+                />
+              ) : null}
+              {prHint ? <PrBadge hint={prHint} /> : null}
+            </View>
+          ) : null}
           {prHint?.checks && prHint.checks.length > 0 ? (
             <>
               <View style={styles.separator} />
-              <ChecksSummaryPressable
-                checks={prHint.checks}
-                url={prHint.url}
-                forge={prHint.forge}
-              />
+              <ChecksSummaryPressable checks={prHint.checks} url={prHint.url} />
             </>
           ) : null}
         </FloatingSurface>
@@ -342,7 +331,6 @@ function WorkspaceHoverCardContent({
 const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedFolder = withUnistyles(Folder);
 const ThemedServer = withUnistyles(Server);
-const ThemedFileDiff = withUnistyles(FileDiff);
 
 type CardInfoIcon = React.ComponentType<React.ComponentProps<typeof ThemedGitBranch>>;
 
@@ -355,6 +343,7 @@ function HostRow({ serverId }: { serverId: string }): ReactElement | null {
 }
 
 const ThemedExternalLink = withUnistyles(ExternalLink);
+const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedCircleDot = withUnistyles(CircleDot);
 const ThemedCircleX = withUnistyles(CircleX);
@@ -384,10 +373,6 @@ function InfoRow({
       </Text>
     </View>
   );
-}
-
-function renderChecksSummaryForgeIcon(icon: string, iconUniProps: typeof foregroundColorMapping) {
-  return <ForgeBrandIcon iconKind={icon} size={12} uniProps={iconUniProps} />;
 }
 
 function CopyableInfoRow({
@@ -425,8 +410,7 @@ function CopyableInfoRow({
   if (copied || isHovered) {
     iconUniProps = foregroundColorMapping;
   }
-  const textStyle =
-    copied || isHovered ? [styles.cardInfoText, styles.cardInfoTextHovered] : styles.cardInfoText;
+  const textStyle = copied || isHovered ? cardInfoTextHoveredCombined : styles.cardInfoText;
 
   return (
     <Pressable
@@ -504,28 +488,23 @@ function ChecksSummaryPill({
 
 function ChecksSummaryContent({
   checks,
-  forge,
   hovered,
 }: {
   checks: NonNullable<PrHint["checks"]>;
-  forge: PrHint["forge"];
   hovered: boolean;
 }) {
   const { t } = useTranslation();
   const { passed, failed, pending } = getChecksSummaryCounts(checks);
 
-  const labelStyle = hovered
-    ? [styles.checksSummaryLabel, styles.checksSummaryLabelHovered]
-    : styles.checksSummaryLabel;
+  const labelStyle = hovered ? checksSummaryLabelHoveredCombined : styles.checksSummaryLabel;
   const iconUniProps = hovered ? foregroundColorMapping : foregroundMutedColorMapping;
-  const icon = getForgePresentation(normalizeForge(forge)).icon;
 
   return (
     <>
       {hovered ? (
         <ThemedExternalLink size={12} uniProps={iconUniProps} />
       ) : (
-        renderChecksSummaryForgeIcon(icon, iconUniProps)
+        <ThemedGitHubIcon size={12} uniProps={iconUniProps} />
       )}
       <Text style={labelStyle}>{t("workspace.git.pr.sections.checks")}</Text>
       <View style={styles.checksSummaryCounts}>
@@ -539,11 +518,9 @@ function ChecksSummaryContent({
 
 function ChecksSummaryPressable({
   checks,
-  forge,
   url,
 }: {
   checks: NonNullable<PrHint["checks"]>;
-  forge: PrHint["forge"];
   url: string;
 }) {
   const handlePress = useCallback(() => {
@@ -552,9 +529,9 @@ function ChecksSummaryPressable({
 
   const renderChildren = useCallback(
     ({ hovered }: { pressed: boolean; hovered?: boolean }) => (
-      <ChecksSummaryContent checks={checks} forge={forge} hovered={Boolean(hovered)} />
+      <ChecksSummaryContent checks={checks} hovered={Boolean(hovered)} />
     ),
-    [checks, forge],
+    [checks],
   );
 
   return (
@@ -600,10 +577,17 @@ const styles = StyleSheet.create((theme) => ({
   },
   cardTitle: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
     flex: 1,
     minWidth: 0,
+  },
+  cardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: theme.spacing[3],
+    paddingBottom: theme.spacing[2],
   },
   cardInfoRow: {
     flexDirection: "row",
@@ -616,7 +600,7 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minWidth: 0,
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
   },
   cardInfoTextHovered: {
@@ -638,7 +622,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 28,
   },
   checksSummaryLabel: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foregroundMuted,
   },
@@ -658,18 +642,25 @@ const styles = StyleSheet.create((theme) => ({
     gap: 3,
   },
   checksStatusTextFailed: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.statusDanger,
   },
   checksStatusTextPending: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.statusWarning,
   },
   checksStatusTextPassed: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.statusSuccess,
   },
 }));
+
+const checksSummaryLabelHoveredCombined = [
+  styles.checksSummaryLabel,
+  styles.checksSummaryLabelHovered,
+];
+
+const cardInfoTextHoveredCombined = [styles.cardInfoText, styles.cardInfoTextHovered];

@@ -5,7 +5,6 @@ import {
   acquirePidLock,
   PidLockError,
   releasePidLock,
-  startPidLockHeartbeat,
   updatePidLock,
 } from "../src/server/pid-lock.js";
 import { resolvePaseoHome } from "../src/server/paseo-home.js";
@@ -18,13 +17,11 @@ process.title = "Paseo Supervisor";
 
 interface DaemonRunnerConfig {
   devMode: boolean;
-  reclaimStalePidLock: boolean;
   workerArgs: string[];
 }
 
 function parseConfig(argv: string[]): DaemonRunnerConfig {
   let devMode = false;
-  let reclaimStalePidLock = false;
   const workerArgs: string[] = [];
 
   for (const arg of argv) {
@@ -32,14 +29,10 @@ function parseConfig(argv: string[]): DaemonRunnerConfig {
       devMode = true;
       continue;
     }
-    if (arg === "--reclaim-stale-pid-lock") {
-      reclaimStalePidLock = true;
-      continue;
-    }
     workerArgs.push(arg);
   }
 
-  return { devMode, reclaimStalePidLock, workerArgs };
+  return { devMode, workerArgs };
 }
 
 function resolveWorkerEntry(): string {
@@ -116,7 +109,6 @@ async function main(): Promise<void> {
   try {
     await acquirePidLock(paseoHome, null, {
       ownerPid: process.pid,
-      reclaimStaleDesktopLock: config.reclaimStalePidLock,
     });
   } catch (error) {
     if (error instanceof PidLockError) {
@@ -128,29 +120,17 @@ async function main(): Promise<void> {
   }
 
   let lockReleased = false;
-  let requestSupervisorShutdown: ((reason: string) => void) | null = null;
-  const stopLockHeartbeat = startPidLockHeartbeat(paseoHome, {
-    ownerPid: process.pid,
-    onError: (error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`PID lock heartbeat failed: ${message}\n`);
-      if (error instanceof PidLockError) {
-        requestSupervisorShutdown?.("pid_lock_ownership_lost");
-      }
-    },
-  });
   const releaseLock = async (): Promise<void> => {
     if (lockReleased) {
       return;
     }
     lockReleased = true;
-    stopLockHeartbeat();
     await releasePidLock(paseoHome, {
       ownerPid: process.pid,
     });
   };
 
-  const supervisor = runSupervisor({
+  runSupervisor({
     name: "DaemonRunner",
     startupMessage: "Starting daemon worker (IPC restart and crash restart enabled)",
     resolveWorkerEntry: () => workerEntry,
@@ -179,7 +159,6 @@ async function main(): Promise<void> {
     },
     onSupervisorExit: releaseLock,
   });
-  requestSupervisorShutdown = supervisor.requestShutdown;
 }
 
 void main().catch((error) => {

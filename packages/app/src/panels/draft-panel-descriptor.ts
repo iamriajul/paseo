@@ -14,7 +14,6 @@ export function buildDraftPanelDescriptor(input: {
     return {
       label: creatingLabel,
       subtitle: i18n.t("panels.draft.creatingAgent"),
-      tooltip: creatingLabel,
       titleState: "ready",
       icon,
       statusBucket: "running",
@@ -24,7 +23,6 @@ export function buildDraftPanelDescriptor(input: {
   return {
     label: newAgentLabel,
     subtitle: newAgentLabel,
-    tooltip: newAgentLabel,
     titleState: "ready",
     icon,
     statusBucket: null,

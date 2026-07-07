@@ -63,7 +63,7 @@ export function createDesktopLocalDaemonTransportFactory(
     const openHandlers = new Set<() => void>();
     const closeHandlers = new Set<(event?: unknown) => void>();
     const errorHandlers = new Set<(event?: unknown) => void>();
-    const messageHandlers = new Set<(data: unknown, isBinary: boolean) => void>();
+    const messageHandlers = new Set<(data: unknown) => void>();
 
     const emitOpen = () => {
       if (didEmitOpen || disposed) {
@@ -84,9 +84,9 @@ export function createDesktopLocalDaemonTransportFactory(
         handler(event);
       }
     };
-    const emitMessage = (data: unknown, isBinary: boolean) => {
+    const emitMessage = (data: unknown) => {
       for (const handler of messageHandlers) {
-        handler(data, isBinary);
+        handler(data);
       }
     };
 
@@ -101,11 +101,11 @@ export function createDesktopLocalDaemonTransportFactory(
         }
         if (payload.kind === "message") {
           if (payload.text) {
-            emitMessage(payload.text, false);
+            emitMessage({ data: payload.text });
             return;
           }
           if (payload.binaryBase64) {
-            emitMessage(decodeBase64ToBytes(payload.binaryBase64), true);
+            emitMessage({ data: decodeBase64ToBytes(payload.binaryBase64) });
           }
           return;
         }

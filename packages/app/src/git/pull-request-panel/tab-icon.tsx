@@ -1,15 +1,5 @@
-import { getForgeIconComponent } from "@/git/forge-icon";
-import { getForgePresentation, type Forge } from "@/git/forge";
+import { GitHubIcon } from "@/components/icons/github-icon";
 
-export function PullRequestTabIcon({
-  forge,
-  size,
-  color,
-}: {
-  forge: Forge;
-  size: number;
-  color: string;
-}) {
-  const Icon = getForgeIconComponent(getForgePresentation(forge).icon);
-  return <Icon size={size} color={color} />;
+export function PullRequestTabIcon({ size, color }: { size: number; color: string }) {
+  return <GitHubIcon size={size} color={color} />;
 }

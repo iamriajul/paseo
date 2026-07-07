@@ -22,34 +22,17 @@ function createRealAgentManager(storage: AgentStorage): AgentManager {
   });
 }
 
-async function removeRealAgentManagerWorkdir({
-  agentManager,
-  storage,
-  workdir,
-}: {
-  agentManager: AgentManager;
-  storage: AgentStorage;
-  workdir: string;
-}): Promise<void> {
-  agentManager.prepareForShutdown();
-  await Promise.all(agentManager.listAgents().map((agent) => agentManager.closeAgent(agent.id)));
-  await agentManager.flushForShutdown();
-  await storage.flush();
-  rmSync(workdir, { recursive: true, force: true });
-}
-
 // Creates a worktree directory under repoRoot and reports it back as a fresh
 // workspace so the command can stamp the agent with it (mirrors the production
 // worktree service).
 function fakeWorktreeCreator(args: { repoRoot: string; createdWorkspaceId: string }) {
   const worktreePath = join(args.repoRoot, "worktree");
-  const workspaceCwd = join(worktreePath, "packages", "app");
-  mkdirSync(workspaceCwd, { recursive: true });
+  mkdirSync(worktreePath, { recursive: true });
   return async (): Promise<CreatePaseoWorktreeWorkflowResult> =>
     ({
       worktree: { worktreePath },
       intent: {},
-      workspace: { workspaceId: args.createdWorkspaceId, cwd: workspaceCwd },
+      workspace: { workspaceId: args.createdWorkspaceId },
       repoRoot: args.repoRoot,
       created: true,
       setupContinuation: { kind: "agent" as const, startAfterAgentCreate: () => {} },
@@ -75,7 +58,9 @@ test("session create forwards clientMessageId to the initial prompt run options"
     } as unknown as Parameters<typeof createAgentCommand>[0]["agentManager"],
     agentStorage: {} as Parameters<typeof createAgentCommand>[0]["agentStorage"],
     logger: createTestLogger(),
-    providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+    providerSnapshotManager: {} as Parameters<
+      typeof createAgentCommand
+    >[0]["providerSnapshotManager"],
   };
 
   await createAgentCommand(dependencies, {
@@ -91,94 +76,8 @@ test("session create forwards clientMessageId to the initial prompt run options"
   });
 
   expect(streamAgent).toHaveBeenCalledWith("agent-1", "hello from create", {
-    clientMessageId: "msg-create-1",
+    messageId: "msg-create-1",
   });
-});
-
-test("session create validates the requested mode against the provider's modes", async () => {
-  const snapshot = {
-    id: "agent-1",
-    provider: "opencode",
-    cwd: "/tmp/paseo-create-test",
-    runtimeInfo: null,
-  } as ManagedAgent;
-  const createAgent = vi.fn(async () => snapshot);
-  const stub = createProviderSnapshotManagerStub();
-  stub.resolveCreateConfig.mockRejectedValue(
-    new Error("Invalid mode 'plan' for provider 'opencode'. Available modes: build, myplan"),
-  );
-  const dependencies: Parameters<typeof createAgentCommand>[0] = {
-    agentManager: {
-      createAgent,
-    } as unknown as Parameters<typeof createAgentCommand>[0]["agentManager"],
-    agentStorage: {} as Parameters<typeof createAgentCommand>[0]["agentStorage"],
-    logger: createTestLogger(),
-    providerSnapshotManager: stub.manager,
-  };
-
-  await expect(
-    createAgentCommand(dependencies, {
-      kind: "session",
-      config: { provider: "opencode", cwd: "/tmp/paseo-create-test", modeId: "plan" },
-      workspaceId: "ws-create-test",
-      labels: {},
-      provisionalTitle: null,
-      firstAgentContext: { attachments: [] },
-      buildSessionConfig: async (config) => ({ sessionConfig: config }),
-    }),
-  ).rejects.toThrow("Invalid mode 'plan'");
-
-  expect(stub.resolveCreateConfig).toHaveBeenCalledWith(
-    expect.objectContaining({
-      provider: "opencode",
-      cwd: "/tmp/paseo-create-test",
-      requestedMode: "plan",
-    }),
-  );
-  expect(createAgent).not.toHaveBeenCalled();
-});
-
-test("session create applies the resolved mode from the provider create config", async () => {
-  const snapshot = {
-    id: "agent-1",
-    provider: "opencode",
-    cwd: "/tmp/paseo-create-test",
-    runtimeInfo: null,
-  } as ManagedAgent;
-  const createAgent = vi.fn(async () => snapshot);
-  const stub = createProviderSnapshotManagerStub();
-  stub.resolveCreateConfig.mockResolvedValue({
-    modeId: "build",
-    featureValues: { auto_accept: true },
-  });
-  const dependencies: Parameters<typeof createAgentCommand>[0] = {
-    agentManager: {
-      createAgent,
-      getAgent: vi.fn(() => snapshot),
-    } as unknown as Parameters<typeof createAgentCommand>[0]["agentManager"],
-    agentStorage: {} as Parameters<typeof createAgentCommand>[0]["agentStorage"],
-    logger: createTestLogger(),
-    providerSnapshotManager: stub.manager,
-  };
-
-  await createAgentCommand(dependencies, {
-    kind: "session",
-    config: { provider: "opencode", cwd: "/tmp/paseo-create-test", modeId: "build" },
-    workspaceId: "ws-create-test",
-    labels: {},
-    provisionalTitle: null,
-    firstAgentContext: { attachments: [] },
-    buildSessionConfig: async (config) => ({ sessionConfig: config }),
-  });
-
-  expect(createAgent).toHaveBeenCalledWith(
-    expect.objectContaining({
-      modeId: "build",
-      featureValues: { auto_accept: true },
-    }),
-    undefined,
-    expect.anything(),
-  );
 });
 
 test("mcp create accepts provider-only internal input and leaves model undefined", async () => {
@@ -254,7 +153,7 @@ test("session create stamps the requested workspaceId when no worktree setup run
     const stored = await storage.get(snapshot.id);
     expect(stored?.workspaceId).toBe("ws-source");
   } finally {
-    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+    rmSync(workdir, { recursive: true, force: true });
   }
 });
 
@@ -289,7 +188,7 @@ test("session create stamps the new worktree's workspaceId when a setup continua
     const stored = await storage.get(snapshot.id);
     expect(stored?.workspaceId).toBe("ws-new-worktree");
   } finally {
-    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+    rmSync(workdir, { recursive: true, force: true });
   }
 });
 
@@ -338,61 +237,8 @@ test("mcp create stamps the new worktree's workspaceId, not the parent's", async
 
     const storedChild = await storage.get(child.id);
     expect(storedChild?.workspaceId).toBe("ws-new-worktree");
-    expect(child.cwd).toBe(join(workdir, "worktree", "packages", "app"));
   } finally {
-    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
-  }
-});
-
-test("mcp create exposes the created worktree before dispatching the initial prompt", async () => {
-  const workdir = mkdtempSync(join(tmpdir(), "create-agent-worktree-callback-test-"));
-  const storage = new AgentStorage(join(workdir, "agents"), logger);
-  const agentManager = createRealAgentManager(storage);
-  const createdWorktree = await fakeWorktreeCreator({
-    repoRoot: workdir,
-    createdWorkspaceId: "ws-created-worktree",
-  })();
-  let observed:
-    | {
-        createdWorktree: CreatePaseoWorktreeWorkflowResult | null;
-        lifecycle: ManagedAgent["lifecycle"] | null;
-      }
-    | undefined;
-
-  try {
-    await createAgentCommand(
-      {
-        agentManager,
-        agentStorage: storage,
-        logger,
-        providerSnapshotManager: {
-          async resolveCreateConfig() {
-            return {};
-          },
-        },
-        createPaseoWorktree: async () => createdWorktree,
-      },
-      {
-        kind: "mcp",
-        provider: "codex",
-        cwd: workdir,
-        title: "worktree callback",
-        initialPrompt: "Say done.",
-        background: true,
-        notifyOnFinish: false,
-        worktree: { worktreeName: "feature", baseBranch: "main" },
-        onCreated: ({ agentId, createdWorktree: callbackWorktree }) => {
-          observed = {
-            createdWorktree: callbackWorktree,
-            lifecycle: agentManager.getAgent(agentId)?.lifecycle ?? null,
-          };
-        },
-      },
-    );
-
-    expect(observed).toEqual({ createdWorktree, lifecycle: "idle" });
-  } finally {
-    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+    rmSync(workdir, { recursive: true, force: true });
   }
 });
 
@@ -430,7 +276,7 @@ test("session create keeps the prompt title after the initial prompt settles", a
     const settled = await storage.get(snapshot.id);
     expect(settled?.title).toBe(title);
   } finally {
-    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+    rmSync(workdir, { recursive: true, force: true });
   }
 });
 
@@ -468,6 +314,6 @@ test("session create keeps an explicit title after the initial prompt settles", 
     const settled = await storage.get(snapshot.id);
     expect(settled?.title).toBe(title);
   } finally {
-    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+    rmSync(workdir, { recursive: true, force: true });
   }
 });

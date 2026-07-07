@@ -14,11 +14,11 @@ export interface WorktreeArchiveRiskInput {
 }
 
 export interface WorktreeArchiveConfirmationInput extends WorktreeArchiveRisk {
-  workspaceName: string;
+  worktreeName: string;
 }
 
 export interface WorktreeArchiveWarningLabels {
-  title: (workspaceName: string) => string;
+  title: (worktreeName: string) => string;
   confirm: string;
   cancel: string;
   uncommittedChanges: string;
@@ -29,7 +29,7 @@ export interface WorktreeArchiveWarningLabels {
 }
 
 export const DEFAULT_WORKTREE_ARCHIVE_WARNING_LABELS: WorktreeArchiveWarningLabels = {
-  title: (workspaceName) => i18n.t("workspace.git.actions.archiveWarning.title", { workspaceName }),
+  title: (worktreeName) => i18n.t("workspace.git.actions.archiveWarning.title", { worktreeName }),
   confirm: i18n.t("workspace.git.actions.archiveWarning.confirm"),
   cancel: i18n.t("workspace.git.actions.archiveWarning.cancel"),
   uncommittedChanges: i18n.t("workspace.git.actions.archiveWarning.uncommittedChanges"),
@@ -123,7 +123,7 @@ export async function confirmRiskyWorktreeArchive(
   }
 
   return await confirmDialog({
-    title: labels.title(input.workspaceName),
+    title: labels.title(input.worktreeName),
     message,
     confirmLabel: labels.confirm,
     cancelLabel: labels.cancel,

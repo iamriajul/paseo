@@ -1,6 +1,6 @@
 import type { AttachmentMetadata } from "@/attachments/types";
 import { persistAttachmentFromBlob } from "@/attachments/service";
-import { resolveRasterImageMimeType } from "@/attachments/file-types";
+import { isRasterImageMimeType } from "@/attachments/file-types";
 
 export interface ClipboardItemLike {
   kind?: string;
@@ -14,46 +14,40 @@ export interface ClipboardDataLike {
 
 export type ImageAttachmentFromFile = AttachmentMetadata;
 
-export interface ClipboardImageFile {
-  file: File;
-  mimeType: string;
-}
-
 export function collectImageFilesFromClipboardData(
   clipboardData?: ClipboardDataLike | null,
-): ClipboardImageFile[] {
+): File[] {
   if (!clipboardData?.items) {
     return [];
   }
 
-  const files: ClipboardImageFile[] = [];
+  const files: File[] = [];
   for (const item of Array.from(clipboardData.items)) {
     if (item?.kind !== "file") {
       continue;
     }
-    const mimeType = resolveRasterImageMimeType({ mimeType: item.type });
-    if (!mimeType) {
+    if (!isRasterImageMimeType(item.type)) {
       continue;
     }
     const file = item.getAsFile?.();
     if (!file) {
       continue;
     }
-    files.push({ file, mimeType });
+    files.push(file);
   }
 
   return files;
 }
 
 export async function filesToImageAttachments(
-  files: readonly ClipboardImageFile[],
+  files: readonly File[],
 ): Promise<ImageAttachmentFromFile[]> {
   const attachments = await Promise.all(
-    files.map(async ({ file, mimeType }) => {
+    files.map(async (file) => {
       try {
         return await persistAttachmentFromBlob({
           blob: file,
-          mimeType,
+          mimeType: file.type || "image/jpeg",
           fileName: file.name,
         });
       } catch (error) {

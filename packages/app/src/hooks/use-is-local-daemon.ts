@@ -15,10 +15,10 @@ async function loadDesktopDaemonServerId(): Promise<DesktopDaemonServerIdResult>
   };
 }
 
-function useLocalDaemonServerIdQuery() {
+export function useLocalDaemonServerId(): string | null {
   const isDesktopApp = shouldUseDesktopDaemon();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: DESKTOP_DAEMON_SERVER_ID_QUERY_KEY,
     queryFn: loadDesktopDaemonServerId,
     enabled: isDesktopApp,
@@ -30,38 +30,12 @@ function useLocalDaemonServerIdQuery() {
     refetchOnWindowFocus: false,
     retry: false,
   });
-}
-
-export function useLocalDaemonServerId(): string | null {
-  const isDesktopApp = shouldUseDesktopDaemon();
-  const query = useLocalDaemonServerIdQuery();
 
   if (!isDesktopApp) {
     return null;
   }
 
   return query.data?.serverId ?? null;
-}
-
-export type LocalDaemonServerIdState =
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "resolved"; serverId: string | null };
-
-export function useLocalDaemonServerIdState(): LocalDaemonServerIdState {
-  const isDesktopApp = shouldUseDesktopDaemon();
-  const query = useLocalDaemonServerIdQuery();
-
-  if (!isDesktopApp) {
-    return { status: "resolved", serverId: null };
-  }
-  if (query.isError) {
-    return { status: "error" };
-  }
-  if (query.isSuccess) {
-    return { status: "resolved", serverId: query.data.serverId };
-  }
-  return { status: "loading" };
 }
 
 export function useIsLocalDaemon(serverId: string): boolean {

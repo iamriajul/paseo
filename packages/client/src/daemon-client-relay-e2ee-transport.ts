@@ -8,12 +8,15 @@ import type {
   DaemonTransportFactory,
   TransportLogger,
 } from "./daemon-client-transport-types.js";
-import { extractRelayMessage, normalizeTransportPayload } from "./daemon-client-transport-utils.js";
+import {
+  extractRelayMessageData,
+  normalizeTransportPayload,
+} from "./daemon-client-transport-utils.js";
 
 type OpenHandler = () => void;
 type CloseHandler = (event?: unknown) => void;
 type ErrorHandler = (event?: unknown) => void;
-type MessageHandler = (data: unknown, isBinary: boolean) => void;
+type MessageHandler = (data: unknown) => void;
 
 export function createRelayE2eeTransportFactory(args: {
   baseFactory: DaemonTransportFactory;
@@ -67,7 +70,7 @@ export function createEncryptedTransport(
     if (closed) {
       return;
     }
-    emitHandlers(messageHandlers, data, data instanceof ArrayBuffer);
+    emitHandlers(messageHandlers, data);
   };
 
   const relayTransport: RelayTransport = {
@@ -112,8 +115,8 @@ export function createEncryptedTransport(
   base.onOpen(() => {
     void startHandshake();
   });
-  base.onMessage((data, isBinary) => {
-    relayTransport.onmessage?.(extractRelayMessage(data, isBinary));
+  base.onMessage((event) => {
+    relayTransport.onmessage?.(extractRelayMessageData(event));
   });
   base.onClose((event) => {
     const record = event as { code?: number; reason?: string } | undefined;

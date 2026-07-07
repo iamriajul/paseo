@@ -14,7 +14,6 @@ export interface ResolveCreateAgentModeInput {
   unattended: boolean;
   // `undefined` = target provider's modes unknown: explicit modes pass through
   // unvalidated, but cross-provider inheritance is still refused.
-  // `[]` = target provider explicitly has no modes: use its default behavior.
   availableModes: string[] | undefined;
   // Target provider's own unattended mode id, if it has one. Used to bridge
   // unattended parents into unattended children across providers.
@@ -70,10 +69,6 @@ export function resolveAndValidateCreateAgentMode(
     input.targetUnattendedMode !== undefined
   ) {
     return input.targetUnattendedMode;
-  }
-
-  if (availableModes?.length === 0) {
-    return undefined;
   }
 
   throw new Error(

@@ -165,9 +165,6 @@ function curateProjectedActivityEntries(
       case "tool_call": {
         flushBuffers(entries, buffers, options);
         entries.push(formatToolCallEntry(item, options));
-        if (item.detail.type === "sub_agent" && item.detail.log.trim()) {
-          entries.push(activityEntry(item.detail.log.trim()));
-        }
         break;
       }
       case "todo":
@@ -216,55 +213,30 @@ export function curateAgentActivity(
     : "No activity to display.";
 }
 
-interface ForkCursorBoundary {
-  timelineEpoch: string;
-  cursor: { epoch: string; seq: number };
-}
-
 function selectForkContextRows(input: {
   rows: readonly AgentTimelineRow[];
-  cursorBoundary?: ForkCursorBoundary | null;
   boundaryMessageId?: string | null;
-}): {
-  items: AgentTimelineItem[];
-  boundaryCursor: { epoch: string; seq: number } | null;
-  boundaryMessageId: string | null;
-} {
-  const boundaryCursor = input.cursorBoundary?.cursor ?? null;
+}): { items: AgentTimelineItem[]; boundaryMessageId: string | null } {
   const boundaryMessageId = input.boundaryMessageId?.trim() || null;
-  if (!boundaryCursor && !boundaryMessageId) {
+  if (!boundaryMessageId) {
     const projected = projectTimelineRows({ rows: input.rows, mode: "projected" });
     return {
       items: projected.map((entry) => entry.item),
-      boundaryCursor: null,
       boundaryMessageId: null,
     };
   }
 
-  if (
-    input.cursorBoundary &&
-    input.cursorBoundary.cursor.epoch !== input.cursorBoundary.timelineEpoch
-  ) {
-    throw new Error("Selected timeline position is no longer available.");
-  }
-  const boundaryIndex = boundaryCursor
-    ? input.rows.findIndex((row) => row.seq === boundaryCursor.seq)
-    : input.rows.findLastIndex(
-        (row) => row.item.type === "assistant_message" && row.item.messageId === boundaryMessageId,
-      );
+  const boundaryIndex = input.rows.findLastIndex(
+    (row) => row.item.type === "assistant_message" && row.item.messageId === boundaryMessageId,
+  );
   if (boundaryIndex < 0) {
-    throw new Error(
-      boundaryCursor
-        ? "Selected timeline position is no longer available."
-        : "Selected assistant message is no longer available.",
-    );
+    throw new Error("Selected assistant message is no longer available.");
   }
   const selectedRows = input.rows.slice(0, boundaryIndex + 1);
   const projected = projectTimelineRows({ rows: selectedRows, mode: "projected" });
 
   return {
     items: projected.map((entry) => entry.item),
-    boundaryCursor,
     boundaryMessageId,
   };
 }
@@ -288,24 +260,17 @@ function buildForkContextText(input: {
   if (cwd) {
     header.push(`Source directory: ${cwd}`);
   }
-  return `<chat-history-summary>\n${header.join("\n")}\n\n${input.body}\n</chat-history-summary>`;
+  return `${header.join("\n")}\n\n${input.body}`;
 }
 
 export function buildAgentForkContextAttachment(input: {
   rows: readonly AgentTimelineRow[];
-  cursorBoundary?: ForkCursorBoundary | null;
   boundaryMessageId?: string | null;
   agentTitle?: string | null;
   cwd?: string | null;
-}): {
-  attachment: TextAgentAttachment;
-  itemCount: number;
-  boundaryCursor: { epoch: string; seq: number } | null;
-  boundaryMessageId: string | null;
-} {
+}): { attachment: TextAgentAttachment; itemCount: number; boundaryMessageId: string | null } {
   const selected = selectForkContextRows({
     rows: input.rows,
-    cursorBoundary: input.cursorBoundary,
     boundaryMessageId: input.boundaryMessageId,
   });
   const entries = curateProjectedActivityEntries(selected.items, {
@@ -331,7 +296,6 @@ export function buildAgentForkContextAttachment(input: {
       }),
     },
     itemCount: selected.items.length,
-    boundaryCursor: selected.boundaryCursor,
     boundaryMessageId: selected.boundaryMessageId,
   };
 }

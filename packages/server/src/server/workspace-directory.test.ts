@@ -5,7 +5,6 @@ import type { AgentSnapshotPayload, WorkspaceDescriptorPayload } from "./message
 import { WorkspaceDirectory } from "./workspace-directory.js";
 import type { PersistedProjectRecord, PersistedWorkspaceRecord } from "./workspace-registry.js";
 import type { TerminalActivity } from "@getpaseo/protocol/terminal-activity";
-import type { ProviderSubagentWorkspaceActivity } from "./workspace-directory.js";
 
 const NOW = "2026-03-01T12:00:00.000Z";
 
@@ -59,7 +58,6 @@ class WorkspaceStatus {
   private readonly workspaces = [this.workspace];
 
   private readonly agents: AgentSnapshotPayload[] = [];
-  private readonly providerSubagents: ProviderSubagentWorkspaceActivity[] = [];
   private readonly terminals: Array<{
     cwd: string;
     workspaceId?: string;
@@ -70,7 +68,6 @@ class WorkspaceStatus {
     projectRegistry: { list: async () => [this.project] },
     workspaceRegistry: { list: async () => this.workspaces },
     listAgentPayloads: async () => this.agents,
-    listProviderSubagentActivity: async () => this.providerSubagents,
     listTerminalActivityContributions: async () => this.terminals,
     isProviderVisibleToClient: () => true,
     buildWorkspaceDescriptor: async ({ workspace }) => ({
@@ -125,10 +122,6 @@ class WorkspaceStatus {
         labels: { [PARENT_AGENT_ID_LABEL]: "parent-agent" },
       }),
     );
-  }
-
-  hasProviderSubagent(input: ProviderSubagentWorkspaceActivity): void {
-    this.providerSubagents.push(input);
   }
 
   hasWorktreeWorkspace(): void {
@@ -382,50 +375,7 @@ describe("WorkspaceDirectory", () => {
     });
   });
 
-  test("running same-workspace subagent contributes running to its parent workspace", async () => {
-    const workspace = new WorkspaceStatus();
-
-    workspace.hasRootAgent({ id: "parent-agent", status: "idle" });
-    workspace.hasDelegatedAgent({ id: "child-agent", status: "running" });
-
-    await expect(workspace.workspaceStatus()).resolves.toBe("running");
-  });
-
-  test("provider subagent follows its cross-workspace parent", async () => {
-    const workspace = new WorkspaceStatus();
-
-    workspace.hasWorktreeWorkspace();
-    workspace.hasRootAgent({ id: "parent-agent", status: "idle" });
-    workspace.hasDelegatedAgentInWorktree({ id: "worktree-child", status: "idle" });
-    workspace.hasProviderSubagent({
-      parentAgentId: "worktree-child",
-      status: "running",
-      updatedAt: "2026-03-01T12:01:00.000Z",
-    });
-
-    await expect(workspace.workspaceStatuses()).resolves.toEqual({
-      "workspace-1": "done",
-      "workspace-worktree": "running",
-    });
-  });
-
-  test("running provider subagent contributes running to its parent workspace", async () => {
-    const workspace = new WorkspaceStatus();
-
-    workspace.hasRootAgent({ id: "parent-agent", status: "idle" });
-    workspace.hasProviderSubagent({
-      parentAgentId: "parent-agent",
-      status: "running",
-      updatedAt: "2026-03-01T12:01:00.000Z",
-    });
-
-    await expect(workspace.workspaceDescriptor()).resolves.toMatchObject({
-      status: "running",
-      statusEnteredAt: "2026-03-01T12:01:00.000Z",
-    });
-  });
-
-  test("running cross-workspace subagent contributes to its own workspace", async () => {
+  test("running delegated child contributes running to the parent workspace, not its worktree", async () => {
     const workspace = new WorkspaceStatus();
 
     workspace.hasWorktreeWorkspace();
@@ -433,25 +383,8 @@ describe("WorkspaceDirectory", () => {
     workspace.hasDelegatedAgentInWorktree({ id: "child-agent", status: "running" });
 
     await expect(workspace.workspaceStatuses()).resolves.toEqual({
-      "workspace-1": "done",
-      "workspace-worktree": "running",
-    });
-  });
-
-  test("cross-workspace subagent contributes its full status bucket to its own workspace", async () => {
-    const workspace = new WorkspaceStatus();
-
-    workspace.hasWorktreeWorkspace();
-    workspace.hasRootAgent({ id: "parent-agent", status: "idle" });
-    workspace.hasDelegatedAgentInWorktree({
-      id: "child-agent",
-      status: "idle",
-      pendingPermissionCount: 1,
-    });
-
-    await expect(workspace.workspaceStatuses()).resolves.toEqual({
-      "workspace-1": "done",
-      "workspace-worktree": "needs_input",
+      "workspace-1": "running",
+      "workspace-worktree": "done",
     });
   });
 
@@ -559,7 +492,6 @@ describe("WorkspaceDirectory empty projects", () => {
       projectRegistry: { list: async () => input.projects },
       workspaceRegistry: { list: async () => input.workspaces },
       listAgentPayloads: async () => [],
-      listProviderSubagentActivity: async () => [],
       listTerminalActivityContributions: async () => [],
       isProviderVisibleToClient: () => true,
       buildWorkspaceDescriptor: async ({ workspace }) => ({
@@ -591,7 +523,6 @@ describe("WorkspaceDirectory empty projects", () => {
       createdAt: NOW,
       updatedAt: NOW,
       archivedAt: null,
-      pinnedAt: null,
       ...input,
     } satisfies PersistedProjectRecord;
   }
@@ -613,7 +544,6 @@ describe("WorkspaceDirectory empty projects", () => {
         projectId: "empty",
         projectDisplayName: "Renamed",
         projectCustomName: "Renamed",
-        projectCustomIconRevision: null,
         projectRootPath: "/workspace/empty",
         projectKind: "non_git",
       },

@@ -1,5 +1,4 @@
 import type { ImageAttachment } from "@/composer/types";
-import type { WorkspaceFileDragPayload } from "@/attachments/workspace-file-drag";
 
 export interface DroppedFileItem {
   kind: "web-file";
@@ -19,5 +18,4 @@ export type DroppedItem = DroppedFileItem | DroppedPathItem;
 export interface FileDropSink {
   onFiles: (images: ImageAttachment[]) => void;
   onGenericFiles?: (items: DroppedItem[]) => void;
-  onWorkspaceFile?: (payload: WorkspaceFileDragPayload) => void;
 }

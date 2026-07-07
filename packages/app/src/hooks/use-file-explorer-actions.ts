@@ -1,12 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  useSessionStore,
-  type AgentFileExplorerState,
-  type ExplorerDirectory,
-} from "@/stores/session-store";
+import { useSessionStore, type AgentFileExplorerState } from "@/stores/session-store";
 import { explorerFileFromReadResult } from "@/file-explorer/read-result";
-import { parentExplorerPath } from "@/utils/explorer-paths";
 
 function createExplorerState(): AgentFileExplorerState {
   return {
@@ -93,9 +88,9 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
     async (
       path: string,
       options?: { recordHistory?: boolean; setCurrentPath?: boolean },
-    ): Promise<ExplorerDirectory | null> => {
+    ): Promise<boolean> => {
       if (!workspaceStateKey) {
-        return null;
+        return false;
       }
       const normalizedPath = path && path.length > 0 ? path : ".";
       const shouldSetCurrentPath = options?.setCurrentPath ?? true;
@@ -124,7 +119,7 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
           lastError: t("workspace.fileExplorer.states.unavailable"),
           pendingRequest: null,
         }));
-        return null;
+        return false;
       }
 
       if (!client) {
@@ -134,7 +129,7 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
           lastError: t("workspace.terminal.hostDisconnected"),
           pendingRequest: null,
         }));
-        return null;
+        return false;
       }
 
       try {
@@ -155,7 +150,7 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
 
           return nextState;
         });
-        return directory;
+        return true;
       } catch (error) {
         updateExplorerState((state) => ({
           ...state,
@@ -166,7 +161,7 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
               : t("workspace.fileExplorer.errors.failedToListDirectory"),
           pendingRequest: null,
         }));
-        return null;
+        return false;
       }
     },
     [client, normalizedWorkspaceRoot, t, updateExplorerState, workspaceStateKey],
@@ -253,80 +248,6 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
     [client, normalizedWorkspaceRoot, t],
   );
 
-  const createEntry = useCallback(
-    async (input: { parentPath: string; name: string; kind: "file" | "directory" }) => {
-      if (!client || !normalizedWorkspaceRoot) {
-        return null;
-      }
-      const payload = await client.createFileEntry({
-        cwd: normalizedWorkspaceRoot,
-        ...input,
-      });
-      if (payload.success) {
-        await requestDirectoryListing(input.parentPath, {
-          recordHistory: false,
-          setCurrentPath: false,
-        });
-      }
-      return payload;
-    },
-    [client, normalizedWorkspaceRoot, requestDirectoryListing],
-  );
-
-  const renameEntry = useCallback(
-    async (input: { path: string; name: string }) => {
-      if (!client || !normalizedWorkspaceRoot) {
-        return null;
-      }
-      const payload = await client.renameFileEntry({
-        cwd: normalizedWorkspaceRoot,
-        ...input,
-      });
-      if (payload.success) {
-        await requestDirectoryListing(parentExplorerPath(input.path), {
-          recordHistory: false,
-          setCurrentPath: false,
-        });
-      }
-      return payload;
-    },
-    [client, normalizedWorkspaceRoot, requestDirectoryListing],
-  );
-
-  const duplicateEntry = useCallback(
-    async (path: string) => {
-      if (!client || !normalizedWorkspaceRoot) {
-        return null;
-      }
-      const payload = await client.duplicateFileEntry({ cwd: normalizedWorkspaceRoot, path });
-      if (payload.success) {
-        await requestDirectoryListing(parentExplorerPath(path), {
-          recordHistory: false,
-          setCurrentPath: false,
-        });
-      }
-      return payload;
-    },
-    [client, normalizedWorkspaceRoot, requestDirectoryListing],
-  );
-
-  const deleteEntry = useCallback(
-    async (path: string) => {
-      if (!client || !normalizedWorkspaceRoot) {
-        return null;
-      }
-      const payload = await client.deleteFileEntry({ cwd: normalizedWorkspaceRoot, path });
-      if (payload.success) {
-        await requestDirectoryListing(parentExplorerPath(path), {
-          recordHistory: false,
-          setCurrentPath: false,
-        });
-      }
-      return payload;
-    },
-    [client, normalizedWorkspaceRoot, requestDirectoryListing],
-  );
-
   const selectExplorerEntry = useCallback(
     (path: string | null) => {
       updateExplorerState((state) => ({
@@ -342,10 +263,6 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
     requestDirectoryListing,
     requestFilePreview,
     requestFileDownloadToken,
-    createEntry,
-    renameEntry,
-    duplicateEntry,
-    deleteEntry,
     selectExplorerEntry,
   };
 }

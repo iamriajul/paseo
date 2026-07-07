@@ -230,6 +230,7 @@ in
       '';
 
       environment = {
+        NODE_ENV = "production";
         PASEO_HOME = cfg.dataDir;
         PASEO_LISTEN = "${cfg.listenAddress}:${toString cfg.port}";
       } // lib.optionalAttrs cfg.inheritUserEnvironment (

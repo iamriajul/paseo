@@ -11,11 +11,11 @@ WORKDIR /tmp/paseo-src
 COPY . .
 
 RUN set -eux; \
-    if [ -n "${PASEO_VERSION:-}" ]; then \
-      test "$(node -p "require('./package.json').version")" = "${PASEO_VERSION}"; \
-    fi; \
     node -e 'const fs=require("node:fs"); const pkg=JSON.parse(fs.readFileSync("package.json","utf8")); delete pkg.scripts.prepare; fs.writeFileSync("package.json", `${JSON.stringify(pkg)}\n`);'; \
-    npm ci
+    npm ci; \
+    if [ -n "${PASEO_VERSION:-}" ]; then \
+      node scripts/stamp-package-version.mjs --version "${PASEO_VERSION}"; \
+    fi
 
 RUN set -eux; \
     mkdir -p /tmp/paseo-packs; \
@@ -23,7 +23,6 @@ RUN set -eux; \
     npm pack --workspace=@getpaseo/relay --pack-destination /tmp/paseo-packs; \
     npm pack --workspace=@getpaseo/protocol --pack-destination /tmp/paseo-packs; \
     npm pack --workspace=@getpaseo/client --pack-destination /tmp/paseo-packs; \
-    npm pack --workspace=@getpaseo/plugin --pack-destination /tmp/paseo-packs; \
     npm pack --workspace=@getpaseo/server --pack-destination /tmp/paseo-packs; \
     npm pack --workspace=@getpaseo/cli --pack-destination /tmp/paseo-packs
 

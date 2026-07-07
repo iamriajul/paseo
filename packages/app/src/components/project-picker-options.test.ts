@@ -35,7 +35,7 @@ describe("buildProjectPickerOptions", () => {
   it("puts an absolute path row first", () => {
     const options = buildProjectPickerOptions({
       recommendedPaths: ["/repo/api"],
-      serverPaths: ["/repo/api"],
+      serverPaths: [],
       query: "/repo",
     });
 
@@ -48,7 +48,7 @@ describe("buildProjectPickerOptions", () => {
   it("puts a home-relative path row first", () => {
     const options = buildProjectPickerOptions({
       recommendedPaths: ["/Users/mo/src/api"],
-      serverPaths: ["/Users/mo/src/api"],
+      serverPaths: [],
       query: "~/src",
     });
 

@@ -3,7 +3,13 @@ import { AlertTriangle, Copy, FileText, Plus, RotateCw, Trash2 } from "lucide-re
 import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, type PressableStateCallbackType, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  type PressableStateCallbackType,
+  Text,
+  View,
+} from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import {
   AdaptiveModalSheet,
@@ -23,7 +29,7 @@ import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { settingsStyles } from "@/styles/settings";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
 import { formatTimeAgo } from "@/utils/time";
-import { compareMatchScores, scoreTextFields } from "@getpaseo/protocol/search/text-match";
+import { compareMatchScores, scoreTextFields } from "@/utils/score-match";
 import type { AgentModelDefinition, AgentProvider } from "@getpaseo/protocol/agent-types";
 import type { ProviderProfileModel } from "@getpaseo/protocol/provider-config";
 import {
@@ -210,6 +216,7 @@ function AddCustomModelSubSheet({
         <AdaptiveTextInput
           initialValue={input}
           resetKey={`add-custom-${visible}`}
+          value={input}
           onChangeText={setInput}
           onSubmitEditing={handleAdd}
           placeholder={t("settings.providers.models.modelIdPlaceholder")}
@@ -218,7 +225,7 @@ function AddCustomModelSubSheet({
           autoCorrect={false}
           returnKeyType="done"
           // @ts-expect-error - outlineStyle is web-only
-          style={[sheetStyles.formInput, isWeb && { outlineStyle: "none" }]}
+          style={FORM_INPUT_STYLE}
         />
         {error ? <Text style={sheetStyles.errorText}>{error}</Text> : null}
         <View style={sheetStyles.formActions}>
@@ -358,7 +365,7 @@ function DiagnosticSubSheet({
     body = (
       <SurfaceCard key={visible ? "visible" : "hidden"}>
         <View style={sheetStyles.codeBlockLoading}>
-          <LoadingSpinner size="small" color={theme.colors.foregroundMuted} />
+          <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
           <Text style={sheetStyles.mutedText}>{t("settings.providers.diagnostic.running")}</Text>
         </View>
       </SurfaceCard>
@@ -430,9 +437,7 @@ function renderProviderSheetFooter({
   const contentStyle = isCompact ? sheetStyles.compactFooterContent : sheetStyles.footerContent;
   const actionsStyle = isCompact ? sheetStyles.compactFooterActions : sheetStyles.footerActions;
   const buttonStyle = isCompact ? sheetStyles.compactFooterButton : null;
-  const metaStyle = isCompact
-    ? [sheetStyles.footerMeta, sheetStyles.compactFooterMeta]
-    : sheetStyles.footerMeta;
+  const metaStyle = isCompact ? COMPACT_FOOTER_META_STYLE : sheetStyles.footerMeta;
 
   return (
     <View style={contentStyle}>
@@ -497,7 +502,7 @@ function ProviderModalBody(props: ProviderModalBodyProps) {
   if (discoveredCount === 0 && additionalCount === 0 && providerSnapshotRefreshing) {
     return (
       <View style={sheetStyles.emptyState}>
-        <LoadingSpinner size="small" color={theme.colors.foregroundMuted} />
+        <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
         <Text style={sheetStyles.mutedText}>{t("settings.providers.models.loading")}</Text>
       </View>
     );
@@ -730,7 +735,7 @@ export function ProviderDiagnosticSheet({
 
 const sheetStyles = StyleSheet.create((theme) => ({
   mutedText: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
   },
   monoHint: {
@@ -741,11 +746,11 @@ const sheetStyles = StyleSheet.create((theme) => ({
   },
   descriptionInline: {
     flex: 1,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     color: theme.colors.foregroundMuted,
   },
   errorText: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     color: theme.colors.destructive,
   },
   formInput: {
@@ -756,7 +761,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
   iconButton: {
     width: 28,
@@ -803,7 +808,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
   },
   modelTitle: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     flexShrink: 0,
   },
   modelRowFiller: {
@@ -827,7 +832,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
   },
   footerMeta: {
     flex: 1,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     color: theme.colors.foregroundMuted,
   },
   compactFooterMeta: {
@@ -848,7 +853,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
     gap: theme.spacing[3],
   },
   formLabel: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
     color: theme.colors.foreground,
   },
@@ -865,6 +870,9 @@ const sheetStyles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
 }));
+
+const FORM_INPUT_STYLE = [sheetStyles.formInput, isWeb && { outlineStyle: "none" }];
+const COMPACT_FOOTER_META_STYLE = [sheetStyles.footerMeta, sheetStyles.compactFooterMeta];
 
 const MAIN_SNAP_POINTS = ["65%", "92%"];
 const ADD_SNAP_POINTS = ["40%"];

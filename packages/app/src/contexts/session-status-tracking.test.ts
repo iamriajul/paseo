@@ -8,7 +8,6 @@ function createAgent(status: Agent["status"]): Agent {
     id: "agent-1",
     provider: "codex",
     status,
-    activeTurn: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     lastUserMessageAt: null,

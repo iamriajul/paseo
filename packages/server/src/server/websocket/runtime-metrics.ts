@@ -46,7 +46,6 @@ export interface WebSocketRuntimeMetricsSnapshot {
 export interface WebSocketRuntimeDiagnosticSnapshot<
   TRuntime = unknown,
   TAgents = unknown,
-  TGit = unknown,
 > extends WebSocketRuntimeMetricsSnapshot {
   collectedAt: string;
   final: boolean;
@@ -68,7 +67,6 @@ export interface WebSocketRuntimeDiagnosticSnapshot<
   memory: ProcessMemoryDiagnostics;
   runtime: TRuntime;
   agents: TAgents;
-  git: TGit;
 }
 
 type Clock = () => number;

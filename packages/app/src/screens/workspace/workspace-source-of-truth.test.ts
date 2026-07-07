@@ -95,20 +95,13 @@ describe("workspace source of truth consumption", () => {
     ).toEqual({ kind: "skeleton" });
   });
 
-  it("keeps cached git workspace identity visible while checkout status refreshes", () => {
+  it("keeps git workspace headers skeletoned until checkout status resolves", () => {
     expect(
       resolveWorkspaceHeaderRenderState({
         workspace: createWorkspaceDescriptor({ projectKind: "git" }),
         checkoutState: { kind: "pending" },
       }),
-    ).toEqual({
-      kind: "ready",
-      title: "feat/workspace-sot",
-      subtitle: "getpaseo/paseo",
-      isSubtitleDistinct: true,
-      isGitCheckout: false,
-      currentBranchName: null,
-    });
+    ).toEqual({ kind: "skeleton" });
   });
 
   it("renders known non-git workspace identity while checkout status is pending", () => {
@@ -126,7 +119,7 @@ describe("workspace source of truth consumption", () => {
       kind: "ready",
       title: "notes",
       subtitle: "Local folders",
-      isSubtitleDistinct: true,
+      shouldShowSubtitle: true,
       isGitCheckout: false,
       currentBranchName: null,
     });
@@ -145,7 +138,7 @@ describe("workspace source of truth consumption", () => {
       kind: "ready",
       title: "feat/workspace-sot",
       subtitle: "getpaseo/paseo",
-      isSubtitleDistinct: true,
+      shouldShowSubtitle: true,
       isGitCheckout: true,
       currentBranchName: "feat/workspace-sot",
     });
@@ -169,7 +162,7 @@ describe("workspace source of truth consumption", () => {
       kind: "ready",
       title: "notes",
       subtitle: "notes",
-      isSubtitleDistinct: false,
+      shouldShowSubtitle: false,
       isGitCheckout: false,
       currentBranchName: null,
     });
@@ -185,7 +178,7 @@ describe("workspace source of truth consumption", () => {
       kind: "ready",
       title: "feat/workspace-sot",
       subtitle: "getpaseo/paseo",
-      isSubtitleDistinct: true,
+      shouldShowSubtitle: true,
       isGitCheckout: false,
       currentBranchName: null,
     });

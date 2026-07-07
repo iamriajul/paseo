@@ -31,7 +31,7 @@ describe("selectProjectWorkspacesToArchive", () => {
 
     expect(confirmWorktreeArchive).toHaveBeenCalledOnce();
     expect(confirmWorktreeArchive).toHaveBeenCalledWith({
-      workspaceName: "feature/risky",
+      worktreeName: "feature/risky",
       isDirty: true,
       aheadOfOrigin: 2,
       diffStat: { additions: 5, deletions: 1 },
@@ -73,7 +73,7 @@ describe("selectProjectWorkspacesToArchive", () => {
 
     expect(confirmWorktreeArchive).toHaveBeenCalledOnce();
     expect(confirmWorktreeArchive).toHaveBeenCalledWith({
-      workspaceName: "feature/risky",
+      worktreeName: "feature/risky",
       isDirty: true,
       aheadOfOrigin: 2,
       diffStat: { additions: 5, deletions: 1 },

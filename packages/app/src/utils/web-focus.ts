@@ -1,7 +1,6 @@
 interface FocusWithRetriesOptions {
   focus: () => void;
   isFocused: () => boolean;
-  deferInitialAttempt?: boolean;
   timeoutMs?: number;
   onSuccess?: () => void;
   onTimeout?: () => void;
@@ -10,7 +9,6 @@ interface FocusWithRetriesOptions {
 export function focusWithRetries({
   focus,
   isFocused,
-  deferInitialAttempt = false,
   timeoutMs = 1500,
   onSuccess,
   onTimeout,
@@ -42,11 +40,7 @@ export function focusWithRetries({
     });
   };
 
-  if (deferInitialAttempt) {
-    requestAnimationFrame(tick);
-  } else {
-    tick();
-  }
+  tick();
 
   return () => {
     cancelled = true;

@@ -135,8 +135,6 @@ describe("buildSplitDiffRows", () => {
     expect(rows[0]).toEqual({
       kind: "header",
       content: "@@ -10,1 +20,1 @@",
-      hunkIndex: 0,
-      lineIndex: 0,
     });
     expect(rows[1]).toMatchObject({
       kind: "pair",
@@ -181,8 +179,6 @@ describe("buildSplitDiffRows", () => {
     expect(rows[0]).toEqual({
       kind: "header",
       content: "@@ -10,1 +10,2 @@",
-      hunkIndex: 0,
-      lineIndex: 0,
     });
     expect(rows[1]).toMatchObject({
       kind: "pair",

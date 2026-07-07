@@ -1,10 +1,9 @@
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { TaskListRow } from "@/components/task-list-row";
 import {
   View,
   Text,
   Image,
   Pressable,
+  ActivityIndicator,
   type GestureResponderEvent,
   type LayoutChangeEvent,
   StyleProp,
@@ -13,7 +12,6 @@ import {
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { MarkdownParagraphView, MarkdownTextSpan } from "@/components/markdown-text";
-import { MarkdownTableCellText } from "@/components/markdown-text-selection";
 import * as React from "react";
 import {
   useState,
@@ -24,10 +22,13 @@ import {
   useCallback,
   createContext,
   useContext,
+  isValidElement,
+  Children,
+  cloneElement,
 } from "react";
 import type { ComponentType, ReactNode } from "react";
-import type MarkdownIt from "markdown-it";
-import { type ASTNode, type RenderRules } from "react-native-markdown-display";
+import { MarkdownIt, type ASTNode, type RenderRules } from "react-native-markdown-display";
+import { useQuery } from "@tanstack/react-query";
 import MaskedView from "@react-native-masked-view/masked-view";
 import {
   Circle,
@@ -39,17 +40,14 @@ import {
   ChevronDown,
   Check,
   CheckSquare,
-  CircleDot,
   Copy,
-  Plus,
-  RotateCcw,
   TriangleAlertIcon,
   Scissors,
   MicVocal,
   FileSymlink,
 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { ICON_SIZE, type Theme } from "@/styles/theme";
+import type { Theme } from "@/styles/theme";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import Animated, {
   Easing,
@@ -61,9 +59,8 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "react-native-svg";
 import { CODE_SURFACE_DATASET } from "@/styles/code-surface";
-import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MarkdownRenderer, type MarkdownStyles } from "@/components/markdown/renderer";
-import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
+import type { TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
 import { buildToolCallPresentation } from "@/tool-calls/presentation";
@@ -72,15 +69,23 @@ import { getMarkdownListMarker, getMarkdownListSpacing } from "@/utils/markdown-
 import { markdownNodeContainsType } from "@/utils/markdown-ast";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { HighlightedCodeBlock } from "@/components/highlighted-code-block";
-import { MarkdownFenceBlock } from "@/components/markdown/fence";
-import type { MarkdownPhase } from "@/components/markdown/fence/types";
 import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
-import { colorMarkdownLinkChildren } from "@/components/markdown/link-children";
-import { createAssistantMarkdownParser } from "@/utils/assistant-markdown-parser";
 import { formatDuration, formatMessageTimestamp } from "@/utils/time";
 import { writeMarkdownToRichClipboard } from "@/utils/rich-clipboard";
 import { getDefaultMarkdownClipboardEnvironment } from "@/utils/rich-clipboard-default-environment";
+import {
+  getAssistantImageLoadStateFromMetadata,
+  getAssistantImageMetadata,
+  setAssistantImageMetadata,
+  type AssistantImageLoadState,
+} from "@/utils/assistant-image-metadata";
 import { setAssistantMarkdownBlockHeight } from "@/utils/assistant-message-height-estimate";
+import { resolveAssistantImageSource } from "@/utils/assistant-image-source";
+import {
+  createPreviewAttachmentId,
+  getFileNameFromPath,
+  parseImageDataUrl,
+} from "@/attachments/utils";
 import { getAgentAttachmentPillContent } from "@/attachments/attachment-pill-content";
 import { PlanCard } from "./plan-card";
 import { useToolCallSheet } from "./tool-call-sheet";
@@ -95,7 +100,8 @@ import {
   useAssistantLinkPress,
 } from "@/assistant-file-links";
 import { getCompactionMarkerLabel } from "./message-compaction-label";
-import { useAssistantImage } from "@/assistant-image/use-assistant-image";
+import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-url";
+import { persistAttachmentFromBytes, persistAttachmentFromDataUrl } from "@/attachments/service";
 import {
   AttachmentFrame,
   AttachmentLabel,
@@ -108,13 +114,6 @@ import type { AgentCapabilityFlags } from "@getpaseo/protocol/agent-types";
 import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
 import { AssistantForkMenu, type AssistantForkTarget } from "@/components/assistant-fork-menu";
-import { useRetainedPanelActive } from "@/components/retained-panel";
-import {
-  markdownCopyDataSet,
-  markdownCopyOrderedListDataSet,
-  markdownCopyTableCellDataSet,
-  type MarkdownCopyInlineTag,
-} from "@/assistant-selection-copy/markup";
 export type { InlinePathTarget } from "@/assistant-file-links";
 export type { AssistantForkTarget };
 
@@ -130,7 +129,6 @@ interface UserMessageProps {
   client?: DaemonClient | null;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
-  isPending?: boolean;
   disableOuterSpacing?: boolean;
 }
 
@@ -167,10 +165,10 @@ const MARKDOWN_ALLOWED_IMAGE_HANDLERS = [
 const MARKDOWN_TOP_LEVEL_MAX_EXCEEDED_ITEM = <Text key="dotdotdot">...</Text>;
 
 const ThemedMicVocal = withUnistyles(MicVocal);
+const ThemedTodoCheckIcon = withUnistyles(Check);
 const ThemedFileSymlinkIcon = withUnistyles(FileSymlink);
 const ThemedTriangleAlertIcon = withUnistyles(TriangleAlertIcon);
 const ThemedChevronRightIcon = withUnistyles(ChevronRight);
-const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({
@@ -178,6 +176,9 @@ const foregroundMutedColorMapping = (theme: Theme) => ({
 });
 const mutedForegroundColorMapping = (theme: Theme) => ({
   color: theme.colors.mutedForeground,
+});
+const primaryForegroundColorMapping = (theme: Theme) => ({
+  color: theme.colors.primaryForeground,
 });
 const destructiveColorMapping = (theme: Theme) => ({ color: theme.colors.destructive });
 const WEB_TOOLCALL_SHIMMER_KEYFRAME_CSS = `
@@ -194,7 +195,7 @@ let webToolCallShimmerRegistered = false;
 const SCROLL_EDGE_EPSILON = 0.5;
 
 // Font size for stream metadata (timestamps, durations, live elapsed timer).
-// Lives between theme.fontSize.sm (12) and theme.fontSize.base (14); no token.
+// Lives between theme.fontSize.xs (12) and theme.fontSize.sm (14); no token.
 export const STREAM_METADATA_FONT_SIZE = 13;
 type ScrollAxis = "x" | "y";
 
@@ -354,13 +355,8 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
   },
   text: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.content,
-    ...(isWeb
-      ? {
-          lineHeight: Math.round(theme.fontSize.content * 1.4),
-          overflowWrap: "anywhere" as const,
-        }
-      : {}),
+    fontSize: theme.fontSize.base,
+    ...(isWeb ? { lineHeight: 22, overflowWrap: "anywhere" as const } : {}),
   },
   imagePreviewContainer: {
     flexDirection: "row",
@@ -386,7 +382,6 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     alignSelf: "flex-end",
     flexDirection: "row",
     alignItems: "center",
-    height: 24,
     gap: theme.spacing[2],
     marginTop: theme.spacing[2],
   },
@@ -431,7 +426,6 @@ export const UserMessage = memo(function UserMessage({
   client,
   isFirstInGroup = true,
   isLastInGroup = true,
-  isPending = false,
   disableOuterSpacing,
 }: UserMessageProps) {
   const isCompact = useIsCompactFormFactor();
@@ -443,7 +437,7 @@ export const UserMessage = memo(function UserMessage({
   const hasText = message.trim().length > 0;
   const hasImages = images.length > 0;
   const hasAttachments = attachments.length > 0;
-  const showTrailingRow = !isPending && hasText && (isCompact || isNative || isHovered);
+  const showTrailingRow = hasText && (isCompact || isNative || isHovered);
   const formattedTimestamp = useMemo(
     () => formatMessageTimestamp(new Date(timestamp)),
     [timestamp],
@@ -496,7 +490,7 @@ export const UserMessage = memo(function UserMessage({
   );
 
   return (
-    <View style={containerStyle} testID="user-message" aria-busy={isPending}>
+    <View style={containerStyle} testID="user-message">
       <View
         style={userMessageStylesheet.content}
         onPointerEnter={handlePointerEnter}
@@ -540,15 +534,9 @@ export const UserMessage = memo(function UserMessage({
           ) : null}
         </View>
         {hasText ? (
-          <View
-            style={trailingRowStyle}
-            pointerEvents={showTrailingRow ? "auto" : "none"}
-            testID="user-message-trailing-row"
-          >
-            <Text style={userMessageStylesheet.timestampText} testID="user-message-timestamp">
-              {formattedTimestamp}
-            </Text>
-            {capabilities && messageId ? (
+          <View style={trailingRowStyle} pointerEvents={showTrailingRow ? "auto" : "none"}>
+            <Text style={userMessageStylesheet.timestampText}>{formattedTimestamp}</Text>
+            {capabilities ? (
               <RewindMenu
                 capabilities={capabilities}
                 isPending={rewindMutation.isPending}
@@ -573,7 +561,11 @@ interface AssistantTurnFooterProps {
   getContent: () => string;
   completedAt?: Date;
   durationMs?: number;
-  onFork?: (target: AssistantForkTarget) => Promise<void> | void;
+  forkBoundaryMessageId?: string;
+  onFork?: (input: {
+    target: AssistantForkTarget;
+    boundaryMessageId?: string;
+  }) => Promise<void> | void;
 }
 
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
@@ -618,6 +610,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   getContent,
   completedAt,
   durationMs,
+  forkBoundaryMessageId,
   onFork,
 }: AssistantTurnFooterProps) {
   const [hovered, setHovered] = useState(false);
@@ -660,11 +653,11 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   }, [canSwap]);
   const handleFork = useCallback(
     (target: AssistantForkTarget) => {
-      return onFork?.(target);
+      return onFork?.({ target, boundaryMessageId: forkBoundaryMessageId });
     },
-    [onFork],
+    [forkBoundaryMessageId, onFork],
   );
-  const canFork = Boolean(onFork);
+  const canFork = Boolean(onFork && forkBoundaryMessageId);
 
   return (
     <View style={assistantTurnFooterStylesheet.container}>
@@ -699,52 +692,44 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
 
 interface LiveElapsedProps {
   startedAt: Date;
-  active?: boolean;
   style?: StyleProp<TextStyle>;
   testID?: string;
 }
 
 /**
- * Ticks every second to render an elapsed duration. Isolated from parents so
+ * Ticks every 100ms to render an elapsed duration. Isolated from parents so
  * only this component re-renders on each tick.
  */
 export const LiveElapsed = memo(function LiveElapsed({
   startedAt,
-  active = true,
   style,
   testID,
 }: LiveElapsedProps) {
   const startedAtMs = startedAt.getTime();
   const [elapsedMs, setElapsedMs] = useState(() => Math.max(0, Date.now() - startedAtMs));
-  const visibleElapsedMs = active ? Math.max(0, Date.now() - startedAtMs) : elapsedMs;
 
   useEffect(() => {
-    if (!active) {
-      return;
-    }
     setElapsedMs(Math.max(0, Date.now() - startedAtMs));
     const handle = setInterval(() => {
       setElapsedMs(Math.max(0, Date.now() - startedAtMs));
-    }, 1000);
+    }, 100);
     return () => clearInterval(handle);
-  }, [active, startedAtMs]);
+  }, [startedAtMs]);
 
   return (
     <Text style={style} testID={testID}>
-      {formatDuration(visibleElapsedMs)}
+      {formatDuration(elapsedMs)}
     </Text>
   );
 });
 
 interface AssistantMessageProps {
-  occurrenceKey: string;
   message: string;
   timestamp: number;
   workspaceRoot?: string;
   serverId?: string;
   client?: DaemonClient | null;
   spacing?: "default" | "compactTop" | "compactBottom" | "compactBoth";
-  phase: MarkdownPhase;
 }
 
 export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
@@ -766,20 +751,10 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
   imageSurface: {
     width: "100%",
     overflow: "hidden",
-    position: "relative",
   },
   image: {
     width: "100%",
     height: "100%",
-  },
-  imageLoadingOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    alignItems: "center",
-    justifyContent: "center",
   },
   imageState: {
     alignItems: "center",
@@ -790,16 +765,130 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
   },
   imageErrorText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     textAlign: "center",
   },
 }));
 
 const ASSISTANT_IMAGE_MIN_HEIGHT = 160;
 
+const AssistantMarkdownResolvedImage = memo(function AssistantMarkdownResolvedImage({
+  uri,
+  alt,
+  containerStyle,
+  source,
+  workspaceRoot,
+  serverId,
+}: {
+  uri: string;
+  alt?: string;
+  containerStyle?: StyleProp<ViewStyle>;
+  source: string;
+  workspaceRoot?: string;
+  serverId?: string;
+}) {
+  const cachedMetadata = useMemo(
+    () => getAssistantImageMetadata({ source, workspaceRoot, serverId }),
+    [serverId, source, workspaceRoot],
+  );
+  const [loadState, setLoadState] = useState<AssistantImageLoadState>(() =>
+    getAssistantImageLoadStateFromMetadata(cachedMetadata),
+  );
+
+  useEffect(() => {
+    if (cachedMetadata) {
+      setLoadState(getAssistantImageLoadStateFromMetadata(cachedMetadata));
+      return () => {};
+    }
+
+    setLoadState({ status: "loading" });
+    let cancelled = false;
+
+    Image.getSize(
+      uri,
+      (width, height) => {
+        if (cancelled) {
+          return;
+        }
+        if (width > 0 && height > 0) {
+          const metadata = setAssistantImageMetadata(
+            { source, workspaceRoot, serverId },
+            { width, height },
+          );
+          setLoadState({
+            status: "ready",
+            aspectRatio: metadata?.aspectRatio ?? width / height,
+          });
+        }
+      },
+      () => {
+        if (cancelled) {
+          return;
+        }
+        setLoadState({ status: "error" });
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cachedMetadata, serverId, source, uri, workspaceRoot]);
+
+  const handleImageError = useCallback(() => {
+    setLoadState({ status: "error" });
+  }, []);
+  const { t } = useTranslation();
+  const surfaceStyle = useMemo<StyleProp<ViewStyle>>(
+    () => [
+      assistantMessageStylesheet.imageSurface,
+      loadState.status === "ready"
+        ? { aspectRatio: loadState.aspectRatio }
+        : { height: ASSISTANT_IMAGE_MIN_HEIGHT },
+    ],
+    [loadState],
+  );
+  const frameStyle = useMemo<StyleProp<ViewStyle>>(
+    () => [assistantMessageStylesheet.imageFrame, containerStyle],
+    [containerStyle],
+  );
+  const stateSurfaceStyle = useMemo<StyleProp<ViewStyle>>(
+    () => [surfaceStyle, assistantMessageStylesheet.imageState],
+    [surfaceStyle],
+  );
+  const imageSource = useMemo(() => ({ uri }), [uri]);
+
+  if (loadState.status !== "ready") {
+    return (
+      <View style={frameStyle}>
+        <View style={stateSurfaceStyle}>
+          {loadState.status === "loading" ? <ActivityIndicator size="small" /> : null}
+          {loadState.status === "error" ? (
+            <Text style={assistantMessageStylesheet.imageErrorText}>
+              {t("message.attachments.imageUnavailable")}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={frameStyle}>
+      <View style={surfaceStyle}>
+        <Image
+          source={imageSource}
+          style={assistantMessageStylesheet.image}
+          resizeMode="contain"
+          accessibilityLabel={alt}
+          onError={handleImageError}
+        />
+      </View>
+    </View>
+  );
+});
+
 function AssistantMarkdownImage({
   source,
-  occurrenceKey,
   alt,
   hasLeadingContent,
   client,
@@ -807,13 +896,18 @@ function AssistantMarkdownImage({
   serverId,
 }: {
   source: string;
-  occurrenceKey: string;
   alt?: string;
   hasLeadingContent: boolean;
   client?: DaemonClient | null;
   workspaceRoot?: string;
   serverId?: string;
 }) {
+  const { t } = useTranslation();
+  const resolution = useMemo(
+    () => resolveAssistantImageSource({ source, workspaceRoot }),
+    [source, workspaceRoot],
+  );
+  const dataImage = useMemo(() => parseImageDataUrl(source), [source]);
   const containerStyle = useMemo<StyleProp<ViewStyle>>(
     () => ({
       marginTop: hasLeadingContent ? 16 : 0,
@@ -821,31 +915,64 @@ function AssistantMarkdownImage({
     }),
     [hasLeadingContent],
   );
-  const image = useAssistantImage({
-    source,
-    occurrenceKey,
-    client,
-    workspaceRoot,
-    serverId,
+
+  const query = useQuery({
+    queryKey: [
+      "assistantMarkdownImage",
+      serverId ?? "unknown-server",
+      resolution?.kind === "file_rpc" ? resolution.cwd : null,
+      resolution?.kind === "file_rpc" ? resolution.path : null,
+    ],
+    enabled: Boolean(client && resolution?.kind === "file_rpc"),
+    staleTime: 30_000,
+    queryFn: async () => {
+      if (!client || !resolution || resolution.kind !== "file_rpc") {
+        return null;
+      }
+
+      const file = await client.readFile(resolution.cwd, resolution.path);
+      if (file.kind !== "image") {
+        throw new Error(t("message.attachments.imagePreviewUnavailable"));
+      }
+
+      return await persistAttachmentFromBytes({
+        id: createPreviewAttachmentId({
+          mimeType: file.mime,
+          path: file.path || resolution.path,
+          size: file.size,
+          modifiedAt: file.modifiedAt,
+          contentLength: file.bytes.byteLength,
+        }),
+        bytes: file.bytes,
+        mimeType: file.mime,
+        fileName: getFileNameFromPath(file.path || resolution.path),
+      });
+    },
   });
-  const binding = image.status === "failed" ? null : image.binding;
-  const aspectRatio = image.status === "failed" ? null : image.aspectRatio;
-  const imageUri = binding?.uri ?? "";
-  const imageSource = useMemo(() => ({ uri: imageUri }), [imageUri]);
-  const frameStyle = useMemo<StyleProp<ViewStyle>>(
-    () => [assistantMessageStylesheet.imageFrame, containerStyle],
-    [containerStyle],
-  );
-  const imageSizeStyle = useMemo<ViewStyle>(() => {
-    if (aspectRatio) {
-      return { aspectRatio };
-    }
-    return { height: ASSISTANT_IMAGE_MIN_HEIGHT };
-  }, [aspectRatio]);
-  const surfaceStyle = useMemo<StyleProp<ViewStyle>>(
-    () => [assistantMessageStylesheet.imageSurface, imageSizeStyle],
-    [imageSizeStyle],
-  );
+  const dataImageQuery = useQuery({
+    queryKey: ["assistantMarkdownDataImage", dataImage?.cacheKey ?? null],
+    enabled: dataImage !== null,
+    staleTime: 30_000,
+    queryFn: async () => {
+      if (!dataImage) {
+        return null;
+      }
+
+      return await persistAttachmentFromDataUrl({
+        id: createPreviewAttachmentId({
+          mimeType: dataImage.mimeType,
+          contentLength: dataImage.base64.length,
+        }),
+        dataUrl: source,
+        mimeType: dataImage.mimeType,
+      });
+    },
+  });
+
+  const fileAssetUri = useAttachmentPreviewUrl(query.data);
+  const dataImageAssetUri = useAttachmentPreviewUrl(dataImageQuery.data);
+  const directUri = resolution?.kind === "direct" && !dataImage ? resolution.uri : null;
+  const resolvedUri = directUri ?? dataImageAssetUri ?? fileAssetUri ?? null;
 
   const stateFrameStyle = useMemo<StyleProp<ViewStyle>>(
     () => [
@@ -857,44 +984,54 @@ function AssistantMarkdownImage({
     [containerStyle],
   );
 
-  if (image.status === "failed") {
+  if (resolvedUri) {
+    return (
+      <AssistantMarkdownResolvedImage
+        uri={resolvedUri}
+        alt={alt}
+        containerStyle={containerStyle}
+        source={source}
+        workspaceRoot={workspaceRoot}
+        serverId={serverId}
+      />
+    );
+  }
+
+  if (query.isLoading || dataImageQuery.isLoading) {
     return (
       <View style={stateFrameStyle}>
-        <Text style={assistantMessageStylesheet.imageErrorText}>{image.message}</Text>
+        <ActivityIndicator size="small" />
       </View>
     );
   }
 
-  if (!binding) {
-    return (
-      <View style={stateFrameStyle}>
-        <ThemedLoadingSpinner size="small" uniProps={foregroundMutedColorMapping} />
-      </View>
-    );
-  }
+  const errorText = resolveAssistantImageErrorText(
+    query.error,
+    dataImageQuery.error,
+    t("message.attachments.imagePreviewLoadFailed"),
+  );
 
   return (
-    <View style={frameStyle}>
-      <View style={surfaceStyle} accessibilityRole="image" accessibilityLabel={alt}>
-        <Image
-          ref={binding.onRef}
-          source={imageSource}
-          style={assistantMessageStylesheet.image}
-          resizeMode="contain"
-          onLoad={binding.onLoad}
-          onError={binding.onError}
-        />
-        {image.status === "loading" ? (
-          <View pointerEvents="none" style={assistantMessageStylesheet.imageLoadingOverlay}>
-            <ThemedLoadingSpinner size="small" uniProps={foregroundMutedColorMapping} />
-          </View>
-        ) : null}
-      </View>
+    <View style={stateFrameStyle}>
+      <Text style={assistantMessageStylesheet.imageErrorText}>{errorText}</Text>
     </View>
   );
 }
 
-function getInlineCodeAutoLinkUrl(markdownParser: MarkdownIt, content: string): string | null {
+function resolveAssistantImageErrorText(
+  fileError: unknown,
+  dataError: unknown,
+  fallbackText: string,
+): string {
+  if (fileError instanceof Error) return fileError.message;
+  if (dataError instanceof Error) return dataError.message;
+  return fallbackText;
+}
+
+function getInlineCodeAutoLinkUrl(
+  markdownParser: ReturnType<typeof MarkdownIt>,
+  content: string,
+): string | null {
   const trimmed = content.trim();
   if (!trimmed) {
     return null;
@@ -939,7 +1076,6 @@ function getMarkdownLinkSource(node: AssistantMarkdownAstNode): AssistantFileLin
   return {
     href: typeof node.attributes?.href === "string" ? node.attributes.href : "",
     text: getMarkdownNodeText(node),
-    title: typeof node.attributes?.title === "string" ? node.attributes.title : undefined,
     markup: node.markup,
     sourceInfo: node.sourceInfo,
     sourceType: node.sourceType === "inline-code" ? "inline-code" : undefined,
@@ -1047,9 +1183,9 @@ export const TurnCopyButton = memo(function TurnCopyButton({
           ? turnCopyButtonStylesheet.iconHoveredColor.color
           : turnCopyButtonStylesheet.iconColor.color;
         return copied ? (
-          <Check size={ICON_SIZE.sm} color={iconColor} />
+          <Check size={16} color={iconColor} />
         ) : (
-          <Copy size={ICON_SIZE.sm} color={iconColor} />
+          <Copy size={16} color={iconColor} />
         );
       }}
     </Pressable>
@@ -1130,6 +1266,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   },
   chevron: {
     flexShrink: 0,
+    transform: [{ scale: 1.3 }],
   },
   openFileButton: {
     marginLeft: theme.spacing[1],
@@ -1140,6 +1277,9 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   openFileButtonPlaceholderIcon: {
     width: 14,
     height: 14,
+  },
+  chevronExpanded: {
+    transform: [{ scale: 1.3 }, { rotate: "90deg" }],
   },
   detailWrapper: {
     borderBottomLeftRadius: theme.borderRadius.lg,
@@ -1155,15 +1295,10 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     ...(isWeb ? { cursor: "auto" as const, userSelect: "text" as const } : {}),
   },
   pressableExpanded: {
-    backgroundColor: theme.colors.surface1,
-  },
-  pressableExpandedAttached: {
     borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
-  },
-  detailWrapperBorderless: {
-    borderWidth: 0,
   },
   shimmerOverlay: {
     position: "absolute",
@@ -1216,14 +1351,9 @@ const NativeExpandableBadgeShimmer = memo(function NativeExpandableBadgeShimmer(
   durationSeconds,
   gradientId,
 }: NativeExpandableBadgeShimmerProps) {
-  const isPanelActive = useRetainedPanelActive();
   const shimmerTranslateX = useSharedValue(0);
 
   useEffect(() => {
-    if (!isPanelActive) {
-      cancelAnimation(shimmerTranslateX);
-      return;
-    }
     const startPosition = -peakWidth;
     const endPosition = rowWidth + peakWidth;
     shimmerTranslateX.value = startPosition;
@@ -1238,7 +1368,7 @@ const NativeExpandableBadgeShimmer = memo(function NativeExpandableBadgeShimmer(
     return () => {
       cancelAnimation(shimmerTranslateX);
     };
-  }, [durationSeconds, isPanelActive, peakWidth, rowWidth, shimmerTranslateX]);
+  }, [durationSeconds, peakWidth, rowWidth, shimmerTranslateX]);
 
   const nativeShimmerPeakStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: shimmerTranslateX.value }],
@@ -1376,7 +1506,6 @@ interface MarkdownInheritedTextProps {
   textStyle: TextStyle;
   style?: StyleProp<TextStyle>;
   monoSurface?: boolean;
-  copyTag?: MarkdownCopyInlineTag;
   children: ReactNode;
 }
 
@@ -1385,7 +1514,6 @@ function MarkdownInheritedText({
   textStyle,
   style: overrideStyle,
   monoSurface,
-  copyTag,
   children,
 }: MarkdownInheritedTextProps) {
   const style = useMemo(
@@ -1401,7 +1529,6 @@ function MarkdownInheritedText({
   return (
     <MarkdownTextSpan
       monoSurface={monoSurface}
-      copyTag={copyTag}
       style={style}
       onPress={linkPress?.onPress}
       accessibilityRole={linkPress?.accessibilityRole}
@@ -1425,44 +1552,39 @@ function MarkdownListItemContent({ contentStyle, children }: MarkdownListItemCon
 
 interface MarkdownListViewProps {
   baseStyle: ViewStyle;
-  copyTag: "ol" | "ul";
-  orderedStart?: unknown;
   spacing: { marginTop: number; marginBottom: number };
   children: ReactNode;
 }
 
-function MarkdownListView({
-  baseStyle,
-  copyTag,
-  orderedStart,
-  spacing,
-  children,
-}: MarkdownListViewProps) {
+function MarkdownListView({ baseStyle, spacing, children }: MarkdownListViewProps) {
   const style = useMemo(() => [baseStyle, spacing], [baseStyle, spacing]);
-  const copyDataSet =
-    copyTag === "ol" ? markdownCopyOrderedListDataSet(orderedStart) : markdownCopyDataSet.ul;
-  return (
-    <View style={style} dataSet={copyDataSet}>
-      {children}
-    </View>
-  );
+  return <View style={style}>{children}</View>;
 }
 
 export const AssistantMessage = memo(function AssistantMessage({
-  occurrenceKey,
   message,
   timestamp: _timestamp,
   workspaceRoot,
   serverId,
   client,
   spacing = "default",
-  phase,
 }: AssistantMessageProps) {
-  const markdownParser = useMemo(createAssistantMarkdownParser, []);
+  const markdownParser = useMemo(() => {
+    const parser = MarkdownIt({ typographer: true, linkify: true });
+    const defaultValidateLink = parser.validateLink.bind(parser);
+    parser.validateLink = (url: string) => {
+      if (url.trim().toLowerCase().startsWith("file://")) {
+        return true;
+      }
+
+      return defaultValidateLink(url);
+    };
+    return parser;
+  }, []);
 
   const fileLinkActions = useAssistantFileLinkActions();
   const handleMarkdownLinkPress = useStableEvent((url: string) => {
-    fileLinkActions.open({ href: url }, "preferred");
+    fileLinkActions.open({ href: url }, "main");
     // react-native-markdown-display opens the link itself when this returns true.
     // We already handled it above, so return false to avoid duplicate opens.
     return false;
@@ -1470,103 +1592,6 @@ export const AssistantMessage = memo(function AssistantMessage({
 
   const markdownRules = useMemo<RenderRules>(() => {
     return {
-      heading1: (
-        node: ASTNode,
-        children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <View key={node.key} style={styles._VIEW_SAFE_heading1} dataSet={markdownCopyDataSet.h1}>
-          {children}
-        </View>
-      ),
-      heading2: (
-        node: ASTNode,
-        children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <View key={node.key} style={styles._VIEW_SAFE_heading2} dataSet={markdownCopyDataSet.h2}>
-          {children}
-        </View>
-      ),
-      heading3: (
-        node: ASTNode,
-        children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <View key={node.key} style={styles._VIEW_SAFE_heading3} dataSet={markdownCopyDataSet.h3}>
-          {children}
-        </View>
-      ),
-      heading4: (
-        node: ASTNode,
-        children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <View key={node.key} style={styles._VIEW_SAFE_heading4} dataSet={markdownCopyDataSet.h4}>
-          {children}
-        </View>
-      ),
-      heading5: (
-        node: ASTNode,
-        children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <View key={node.key} style={styles._VIEW_SAFE_heading5} dataSet={markdownCopyDataSet.h5}>
-          {children}
-        </View>
-      ),
-      heading6: (
-        node: ASTNode,
-        children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <View key={node.key} style={styles._VIEW_SAFE_heading6} dataSet={markdownCopyDataSet.h6}>
-          {children}
-        </View>
-      ),
-      blockquote: (
-        node: ASTNode,
-        children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <View
-          key={node.key}
-          style={styles._VIEW_SAFE_blockquote}
-          dataSet={markdownCopyDataSet.blockquote}
-        >
-          {children}
-        </View>
-      ),
-      hr: (node: ASTNode, _children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-        <View key={node.key} style={styles._VIEW_SAFE_hr} dataSet={markdownCopyDataSet.hr} />
-      ),
-      table: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-        <View key={node.key} style={styles._VIEW_SAFE_table} dataSet={markdownCopyDataSet.table}>
-          {children}
-        </View>
-      ),
-      thead: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-        <View key={node.key} style={styles._VIEW_SAFE_thead} dataSet={markdownCopyDataSet.thead}>
-          {children}
-        </View>
-      ),
-      tbody: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-        <View key={node.key} style={styles._VIEW_SAFE_tbody} dataSet={markdownCopyDataSet.tbody}>
-          {children}
-        </View>
-      ),
-      tr: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-        <View key={node.key} style={styles._VIEW_SAFE_tr} dataSet={markdownCopyDataSet.tr}>
-          {children}
-        </View>
-      ),
       text: (
         node: ASTNode,
         _children: ReactNode[],
@@ -1613,7 +1638,6 @@ export const AssistantMessage = memo(function AssistantMessage({
       ) => (
         <MarkdownInheritedText
           key={node.key}
-          copyTag="strong"
           inheritedStyles={inheritedStyles}
           textStyle={styles.strong}
         >
@@ -1629,7 +1653,6 @@ export const AssistantMessage = memo(function AssistantMessage({
       ) => (
         <MarkdownInheritedText
           key={node.key}
-          copyTag="em"
           inheritedStyles={inheritedStyles}
           textStyle={styles.em}
         >
@@ -1645,7 +1668,6 @@ export const AssistantMessage = memo(function AssistantMessage({
       ) => (
         <MarkdownInheritedText
           key={node.key}
-          copyTag="s"
           inheritedStyles={inheritedStyles}
           textStyle={styles.s}
         >
@@ -1657,29 +1679,10 @@ export const AssistantMessage = memo(function AssistantMessage({
       // plain <Text> is not hoisted into a UITextViewChild and is dropped (same
       // root cause as strong/em/s) — so on iOS a hard line break vanished, and
       // a softbreak between words jammed them together ("one\ntwo" -> "onetwo").
-      // Emit the break through MarkdownTextSpan so it composes on iOS. Keep
-      // the resolved break styles: hardbreak is a full-width flex-row child on
-      // Android, and dropping that width joins the surrounding text spans.
-      hardbreak: (
-        node: ASTNode,
-        _children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <MarkdownTextSpan key={node.key} style={styles.hardbreak} copyTag="br">
-          {"\n"}
-        </MarkdownTextSpan>
-      ),
-      softbreak: (
-        node: ASTNode,
-        _children: ReactNode[],
-        _parent: ASTNode[],
-        styles: MarkdownStyles,
-      ) => (
-        <MarkdownTextSpan key={node.key} style={styles.softbreak}>
-          {"\n"}
-        </MarkdownTextSpan>
-      ),
+      // Emit the break through MarkdownTextSpan so it composes on iOS; web and
+      // Android keep the same "\n" they rendered before.
+      hardbreak: (node: ASTNode) => <MarkdownTextSpan key={node.key}>{"\n"}</MarkdownTextSpan>,
+      softbreak: (node: ASTNode) => <MarkdownTextSpan key={node.key}>{"\n"}</MarkdownTextSpan>,
       code_block: (
         node: ASTNode,
         _children: ReactNode[],
@@ -1702,11 +1705,10 @@ export const AssistantMessage = memo(function AssistantMessage({
         styles: MarkdownStyles,
         inheritedStyles: TextStyle = {},
       ) => (
-        <MarkdownFenceBlock
+        <HighlightedCodeBlock
           key={node.key}
           code={node.content}
-          info={node.sourceInfo}
-          phase={phase}
+          language={node.sourceInfo}
           inheritedStyles={inheritedStyles}
           textStyle={styles.fence}
         />
@@ -1762,7 +1764,6 @@ export const AssistantMessage = memo(function AssistantMessage({
         return (
           <MarkdownInheritedText
             key={node.key}
-            copyTag="code"
             inheritedStyles={inheritedStyles}
             textStyle={styles.code_inline}
             monoSurface
@@ -1780,7 +1781,6 @@ export const AssistantMessage = memo(function AssistantMessage({
         <MarkdownListView
           key={node.key}
           baseStyle={styles.bullet_list}
-          copyTag="ul"
           spacing={getMarkdownListSpacing(node, parent)}
         >
           {children}
@@ -1795,8 +1795,6 @@ export const AssistantMessage = memo(function AssistantMessage({
         <MarkdownListView
           key={node.key}
           baseStyle={styles.ordered_list}
-          copyTag="ol"
-          orderedStart={node.attributes?.start}
           spacing={getMarkdownListSpacing(node, parent)}
         >
           {children}
@@ -1813,36 +1811,14 @@ export const AssistantMessage = memo(function AssistantMessage({
         const contentStyle = isOrdered ? styles.ordered_list_content : styles.bullet_list_content;
 
         return (
-          <View key={node.key} style={styles.list_item} dataSet={markdownCopyDataSet.li}>
-            <Text style={iconStyle} dataSet={markdownCopyDataSet.listMarker}>
-              {marker}
-            </Text>
+          <View key={node.key} style={styles.list_item}>
+            <Text style={iconStyle}>{marker}</Text>
             <MarkdownListItemContent contentStyle={contentStyle}>
               {children}
             </MarkdownListItemContent>
           </View>
         );
       },
-      th: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-        <MarkdownTableCellText key={node.key}>
-          <View
-            style={styles._VIEW_SAFE_th}
-            dataSet={markdownCopyTableCellDataSet("th", node.attributes?.style)}
-          >
-            {children}
-          </View>
-        </MarkdownTableCellText>
-      ),
-      td: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-        <MarkdownTableCellText key={node.key}>
-          <View
-            style={styles._VIEW_SAFE_td}
-            dataSet={markdownCopyTableCellDataSet("td", node.attributes?.style)}
-          >
-            {children}
-          </View>
-        </MarkdownTableCellText>
-      ),
       paragraph: (
         node: ASTNode,
         children: ReactNode[],
@@ -1863,7 +1839,13 @@ export const AssistantMessage = memo(function AssistantMessage({
           source={getMarkdownLinkSource(node)}
           style={styles.link}
         >
-          {colorMarkdownLinkChildren(children, styles.link.color)}
+          {Children.map(children, (child) => {
+            if (!isValidElement(child)) return child;
+            const childProps = child.props as { style?: StyleProp<TextStyle> };
+            return cloneElement(child, {
+              style: [childProps.style, { color: styles.link.color }],
+            } as Partial<{ style: StyleProp<TextStyle> }>);
+          })}
         </AssistantMarkdownLink>
       ),
       image: (
@@ -1885,7 +1867,6 @@ export const AssistantMessage = memo(function AssistantMessage({
           <AssistantMarkdownImage
             key={node.key}
             source={String(node.attributes?.src ?? "")}
-            occurrenceKey={`${occurrenceKey}:${node.key}`}
             alt={typeof node.attributes?.alt === "string" ? node.attributes.alt : undefined}
             hasLeadingContent={hasLeadingContent}
             client={client}
@@ -1895,11 +1876,11 @@ export const AssistantMessage = memo(function AssistantMessage({
         );
       },
     };
-  }, [client, fileLinkActions, markdownParser, occurrenceKey, phase, serverId, workspaceRoot]);
+  }, [client, fileLinkActions, markdownParser, serverId, workspaceRoot]);
 
   const blocks = useMemo(() => splitMarkdownBlocks(message), [message]);
   const keyedBlocks = useMemo(
-    () => blocks.map((block, index) => ({ key: `block:${index}`, block })),
+    () => blocks.map((block, index) => ({ key: `${index}:${block.slice(0, 32)}`, block })),
     [blocks],
   );
 
@@ -1961,8 +1942,8 @@ const speakMessageStylesheet = StyleSheet.create((theme) => ({
   },
   text: {
     fontFamily: theme.fontFamily.ui,
-    fontSize: theme.fontSize.content,
-    lineHeight: Math.round(theme.fontSize.content * 1.4),
+    fontSize: theme.fontSize.base,
+    lineHeight: 22,
     color: theme.colors.foreground,
   },
 }));
@@ -2047,7 +2028,7 @@ const activityLogStylesheet = StyleSheet.create((theme) => ({
     flex: 1,
   },
   messageText: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
   detailsRow: {
@@ -2057,7 +2038,7 @@ const activityLogStylesheet = StyleSheet.create((theme) => ({
   },
   detailsText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     marginRight: theme.spacing[1],
   },
   metadataContainer: {
@@ -2224,7 +2205,7 @@ export const CompactionMarker = memo(function CompactionMarker({
       <View style={compactionStylesheet.line} />
       <View style={compactionStylesheet.label}>
         {status === "loading" ? (
-          <LoadingSpinner size="small" color="#a1a1aa" />
+          <ActivityIndicator size="small" color="#a1a1aa" />
         ) : (
           <Scissors size={12} color="#a1a1aa" />
         )}
@@ -2237,23 +2218,38 @@ export const CompactionMarker = memo(function CompactionMarker({
 
 interface TodoListCardProps {
   items: TodoEntry[];
-  activity: TaskActivity;
   disableOuterSpacing?: boolean;
 }
 
-function taskActivityIcon(activity: TaskActivity) {
-  switch (activity.type) {
-    case "added":
-      return Plus;
-    case "started":
-      return CircleDot;
-    case "completed":
-      return Check;
-    case "reopened":
-      return RotateCcw;
-    default:
-      return CheckSquare;
-  }
+interface TodoListItemRowProps {
+  text: string;
+  completed: boolean;
+}
+
+function TodoListItemRow({ text, completed }: TodoListItemRowProps) {
+  const badgeStyle = useMemo(
+    () => [
+      todoListCardStylesheet.radioBadge,
+      completed
+        ? todoListCardStylesheet.radioBadgeComplete
+        : todoListCardStylesheet.radioBadgeIncomplete,
+    ],
+    [completed],
+  );
+  const textStyle = useMemo(
+    () => [todoListCardStylesheet.itemText, completed && todoListCardStylesheet.itemTextCompleted],
+    [completed],
+  );
+  return (
+    <View style={todoListCardStylesheet.itemRow}>
+      <View style={badgeStyle}>
+        {completed ? (
+          <ThemedTodoCheckIcon size={12} uniProps={primaryForegroundColorMapping} />
+        ) : null}
+      </View>
+      <Text style={textStyle}>{text}</Text>
+    </View>
+  );
 }
 
 const todoListCardStylesheet = StyleSheet.create((theme) => ({
@@ -2263,6 +2259,34 @@ const todoListCardStylesheet = StyleSheet.create((theme) => ({
   list: {
     gap: theme.spacing[1],
   },
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  radioBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: theme.colors.foregroundMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioBadgeIncomplete: {
+    opacity: 0.55,
+  },
+  radioBadgeComplete: {
+    opacity: 0.95,
+  },
+  itemText: {
+    flex: 1,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.base,
+  },
+  itemTextCompleted: {
+    color: theme.colors.foregroundMuted,
+    textDecorationLine: "line-through",
+  },
   emptyText: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
@@ -2271,23 +2295,12 @@ const todoListCardStylesheet = StyleSheet.create((theme) => ({
 
 export const TodoListCard = memo(function TodoListCard({
   items,
-  activity,
   disableOuterSpacing,
 }: TodoListCardProps) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
-  const activityDisplay = useMemo(() => {
-    if (activity.type === "created") {
-      return {
-        label: t("message.todo.activity.created", { count: activity.count }),
-        secondaryLabel: undefined,
-      };
-    }
-    return {
-      label: t(`message.todo.activity.${activity.type}`),
-      secondaryLabel: activity.task,
-    };
-  }, [activity, t]);
+
+  const nextTask = useMemo(() => items.find((item) => !item.completed)?.text, [items]);
 
   const handleToggle = useCallback(() => {
     setIsExpanded((prev) => !prev);
@@ -2300,7 +2313,9 @@ export const TodoListCard = memo(function TodoListCard({
           {items.length === 0 ? (
             <Text style={todoListCardStylesheet.emptyText}>{t("message.todo.empty")}</Text>
           ) : (
-            items.map((item) => <TaskListRow key={item.id ?? item.text} task={item} />)
+            items.map((item) => (
+              <TodoListItemRow key={item.text} text={item.text} completed={item.completed} />
+            ))
           )}
         </View>
       </View>
@@ -2309,9 +2324,9 @@ export const TodoListCard = memo(function TodoListCard({
 
   return (
     <ExpandableBadge
-      label={activityDisplay.label}
-      secondaryLabel={activityDisplay.secondaryLabel}
-      icon={taskActivityIcon(activity)}
+      label={t("message.todo.title")}
+      secondaryLabel={nextTask}
+      icon={CheckSquare}
       isExpanded={isExpanded}
       onToggle={handleToggle}
       renderDetails={renderDetails}
@@ -2334,7 +2349,6 @@ interface ExpandableBadgeProps {
   isError?: boolean;
   isLastInSequence?: boolean;
   disableOuterSpacing?: boolean;
-  borderlessWhenExpanded?: boolean;
   testID?: string;
 }
 
@@ -2573,9 +2587,7 @@ function renderExpandableBadgeIconSlot({
 }): ReactNode {
   if (showChevron) {
     return (
-      <View style={chevronStyle}>
-        <ThemedChevronRightIcon size={12} uniProps={foregroundColorMapping} />
-      </View>
+      <ThemedChevronRightIcon size={12} style={chevronStyle} uniProps={foregroundColorMapping} />
     );
   }
   return iconNode;
@@ -2603,9 +2615,7 @@ function computeShimmerMetrics(input: {
     Math.min(120, input.labelRowWidth > 0 ? input.labelRowWidth * 0.28 : 0),
   );
   const isWebShimmer = input.isLoading && isWeb;
-  // React Native Web only observes a node when onLayout exists at mount. Keep
-  // measuring while idle so a retained badge has dimensions when it starts loading.
-  const shouldMeasureWebShimmer = isWeb;
+  const shouldMeasureWebShimmer = isWebShimmer;
   const shouldMeasureNativeShimmer = input.isLoading && isNative;
   const isNativeShimmer =
     shouldMeasureNativeShimmer && input.labelRowWidth > 0 && input.labelRowHeight > 0;
@@ -2668,7 +2678,7 @@ function buildShimmerTextStyle(input: {
   offsetX: number;
 }): object | null {
   if (!input.isWebShimmer) return null;
-  return inlineUnistylesStyle({
+  return {
     opacity: 1,
     color: "transparent",
     backgroundImage: SHIMMER_GRADIENT,
@@ -2680,10 +2690,10 @@ function buildShimmerTextStyle(input: {
     animation: `${WEB_TOOLCALL_SHIMMER_ANIMATION_NAME} ${input.shimmerDuration}s linear infinite`,
     "--paseo-shimmer-start": `${input.webShimmerTrackStart - input.offsetX}px`,
     "--paseo-shimmer-end": `${input.webShimmerTrackEnd - input.offsetX}px`,
-  });
+  };
 }
 
-export const ExpandableBadge = memo(function ExpandableBadge({
+const ExpandableBadge = memo(function ExpandableBadge({
   label,
   style,
   secondaryLabel,
@@ -2697,7 +2707,6 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   isError = false,
   isLastInSequence = false,
   disableOuterSpacing,
-  borderlessWhenExpanded = false,
   testID,
 }: ExpandableBadgeProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -2868,17 +2877,8 @@ export const ExpandableBadge = memo(function ExpandableBadge({
       expandableBadgeStylesheet.pressable,
       isPressed && isInteractive ? expandableBadgeStylesheet.pressablePressed : null,
       isExpanded && expandableBadgeStylesheet.pressableExpanded,
-      isExpanded && !borderlessWhenExpanded && expandableBadgeStylesheet.pressableExpandedAttached,
     ],
-    [borderlessWhenExpanded, isExpanded, isInteractive, isPressed],
-  );
-
-  const detailWrapperStyle = useMemo(
-    () => [
-      expandableBadgeStylesheet.detailWrapper,
-      borderlessWhenExpanded && expandableBadgeStylesheet.detailWrapperBorderless,
-    ],
-    [borderlessWhenExpanded],
+    [isExpanded, isInteractive, isPressed],
   );
 
   const accessibilityState = useMemo(
@@ -2927,10 +2927,8 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   const chevronStyle = useMemo(
     () => [
       expandableBadgeStylesheet.chevron,
+      isExpanded && expandableBadgeStylesheet.chevronExpanded,
       LUCIDE_CHEVRON_NUDGE_LEFT,
-      inlineUnistylesStyle({
-        transform: isExpanded ? [{ scale: 1.3 }, { rotate: "90deg" }] : [{ scale: 1.3 }],
-      }),
     ],
     [isExpanded],
   );
@@ -2938,7 +2936,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   const ThemedIcon = useMemo(() => (icon ? withUnistyles(icon) : null), [icon]);
   const iconNode = renderExpandableBadgeIcon({ isError, isActive, ThemedIcon });
   const iconSlotNode = renderExpandableBadgeIconSlot({
-    showChevron: isInteractive && (isHovered || isExpanded),
+    showChevron: isInteractive && isHovered,
     chevronStyle,
     iconNode,
   });
@@ -2997,7 +2995,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
       {detailContent ? (
         <Pressable
           ref={detailWrapperRef}
-          style={detailWrapperStyle}
+          style={expandableBadgeStylesheet.detailWrapper}
           onHoverIn={handleDetailHoverIn}
           onHoverOut={handleDetailHoverOut}
         >
@@ -3018,7 +3016,6 @@ function areExpandableBadgePropsEqual(previous: ExpandableBadgeProps, next: Expa
   if (previous.isError !== next.isError) return false;
   if (previous.isLastInSequence !== next.isLastInSequence) return false;
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
-  if (previous.borderlessWhenExpanded !== next.borderlessWhenExpanded) return false;
   if (previous.testID !== next.testID) return false;
   if (previous.onToggle !== next.onToggle) return false;
   if (previous.onOpenFile !== next.onOpenFile) return false;
@@ -3041,9 +3038,6 @@ interface ToolCallProps {
   onInlineDetailsHoverChange?: (hovered: boolean) => void;
   onInlineDetailsExpandedChange?: (expanded: boolean) => void;
   onOpenFilePath?: (filePath: string) => void;
-  defaultExpanded?: boolean;
-  forceInline?: boolean;
-  maxDetailHeight?: number;
 }
 
 export const ToolCall = memo(function ToolCall({
@@ -3060,15 +3054,11 @@ export const ToolCall = memo(function ToolCall({
   onInlineDetailsHoverChange,
   onInlineDetailsExpandedChange,
   onOpenFilePath,
-  defaultExpanded,
-  forceInline = false,
-  maxDetailHeight = 400,
 }: ToolCallProps) {
   const { openToolCall } = useToolCallSheet();
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const isMobile = useIsCompactFormFactor();
-  const shouldRenderInline = !isMobile || forceInline;
 
   const effectiveDetail = useMemo<ToolCallDetail | undefined>(() => {
     if (detail) {
@@ -3106,7 +3096,7 @@ export const ToolCall = memo(function ToolCall({
   }, [presentation.openFilePath, onOpenFilePath]);
 
   const handleToggle = useCallback(() => {
-    if (!shouldRenderInline) {
+    if (isMobile) {
       openToolCall({
         displayName: presentation.displayName,
         summary: presentation.summary,
@@ -3119,7 +3109,7 @@ export const ToolCall = memo(function ToolCall({
       setIsExpanded((prev) => !prev);
     }
   }, [
-    shouldRenderInline,
+    isMobile,
     openToolCall,
     presentation.displayName,
     presentation.summary,
@@ -3130,22 +3120,22 @@ export const ToolCall = memo(function ToolCall({
   ]);
 
   useEffect(() => {
-    if (!onInlineDetailsHoverChange || !shouldRenderInline || isExpanded) {
+    if (!onInlineDetailsHoverChange || isMobile || isExpanded) {
       return;
     }
     onInlineDetailsHoverChange(false);
-  }, [isExpanded, shouldRenderInline, onInlineDetailsHoverChange]);
+  }, [isExpanded, isMobile, onInlineDetailsHoverChange]);
 
   useEffect(() => {
     if (!onInlineDetailsExpandedChange) {
       return;
     }
-    if (!shouldRenderInline) {
+    if (isMobile) {
       onInlineDetailsExpandedChange(false);
       return;
     }
     onInlineDetailsExpandedChange(isExpanded);
-  }, [isExpanded, shouldRenderInline, onInlineDetailsExpandedChange]);
+  }, [isExpanded, isMobile, onInlineDetailsExpandedChange]);
 
   useEffect(() => {
     if (!onInlineDetailsExpandedChange) {
@@ -3158,22 +3148,16 @@ export const ToolCall = memo(function ToolCall({
 
   // Render inline details for desktop
   const renderDetails = useCallback(() => {
-    if (!shouldRenderInline) return null;
+    if (isMobile) return null;
     return (
       <ToolCallDetailsContent
         detail={effectiveDetail}
         errorText={presentation.errorText}
-        maxHeight={maxDetailHeight}
+        maxHeight={400}
         showLoadingSkeleton={presentation.isLoadingDetails}
       />
     );
-  }, [
-    shouldRenderInline,
-    effectiveDetail,
-    presentation.errorText,
-    presentation.isLoadingDetails,
-    maxDetailHeight,
-  ]);
+  }, [isMobile, effectiveDetail, presentation.errorText, presentation.isLoadingDetails]);
 
   if (presentation.isPlan && effectiveDetail?.type === "plan") {
     return (
@@ -3191,10 +3175,10 @@ export const ToolCall = memo(function ToolCall({
       label={presentation.displayName}
       secondaryLabel={presentation.summary}
       icon={presentation.icon}
-      isExpanded={shouldRenderInline && isExpanded}
+      isExpanded={!isMobile && isExpanded}
       onToggle={presentation.canOpenDetails ? handleToggle : undefined}
       onOpenFile={handleOpenFile}
-      renderDetails={presentation.canOpenDetails && shouldRenderInline ? renderDetails : undefined}
+      renderDetails={presentation.canOpenDetails && !isMobile ? renderDetails : undefined}
       isLoading={status === "running" || status === "executing"}
       isError={status === "failed"}
       isLastInSequence={isLastInSequence}
@@ -3216,8 +3200,5 @@ function areToolCallPropsEqual(previous: ToolCallProps, next: ToolCallProps) {
   if (previous.isLastInSequence !== next.isLastInSequence) return false;
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
   if (previous.onOpenFilePath !== next.onOpenFilePath) return false;
-  if (previous.defaultExpanded !== next.defaultExpanded) return false;
-  if (previous.forceInline !== next.forceInline) return false;
-  if (previous.maxDetailHeight !== next.maxDetailHeight) return false;
   return true;
 }

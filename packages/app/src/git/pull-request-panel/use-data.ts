@@ -8,7 +8,6 @@ import type {
 } from "@getpaseo/protocol/messages";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useCheckoutPrStatusQuery } from "@/git/use-pr-status-query";
-import type { Forge } from "@/git/forge";
 import { i18n } from "@/i18n/i18next";
 import { mapPrPaneData, type PrPaneData } from "./data";
 import { prPaneTimelineQueryKey } from "./query-keys";
@@ -26,7 +25,6 @@ export interface UsePrPaneDataOptions {
 
 export interface UsePrPaneDataResult {
   data: PrPaneData | null;
-  forge: Forge;
   prNumber: number | null;
   isLoading: boolean;
   activityLoading: boolean;
@@ -152,7 +150,6 @@ export interface SelectPrPaneStateInput {
   statusIsLoading: boolean;
   statusIsFetching: boolean;
   githubFeaturesEnabled: boolean;
-  forge?: Forge;
   timelineEnabled: boolean;
   shouldFetchTimeline: boolean;
   timelinePayload: PullRequestTimeline | undefined;
@@ -168,7 +165,7 @@ export function selectPrPaneState(input: SelectPrPaneStateInput): UsePrPaneDataR
   const data =
     identity.prNumber === null || !input.timelineEnabled
       ? null
-      : mapPrPaneData(input.status, input.timelinePayload, undefined, input.forge ?? "github");
+      : mapPrPaneData(input.status, input.timelinePayload);
   const statusRefreshing = input.statusIsFetching && !input.statusIsLoading;
   const timelineRefreshing = input.timelineIsFetching && !input.timelineIsLoading;
   const timelinePending =
@@ -176,7 +173,6 @@ export function selectPrPaneState(input: SelectPrPaneStateInput): UsePrPaneDataR
 
   return {
     data,
-    forge: input.forge ?? "github",
     prNumber: identity.prNumber,
     isLoading: input.statusIsLoading || timelinePending,
     activityLoading: timelinePending,
@@ -266,7 +262,6 @@ export function usePrPaneData({
     statusIsLoading: checkoutPrStatus.isLoading,
     statusIsFetching: checkoutPrStatus.isFetching,
     githubFeaturesEnabled,
-    forge: checkoutPrStatus.forge,
     timelineEnabled,
     shouldFetchTimeline,
     timelinePayload: timelineQuery.data,

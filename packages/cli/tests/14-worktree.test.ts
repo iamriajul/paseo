@@ -153,13 +153,13 @@ try {
     console.log("✓ --json flag is accepted with worktree ls\n");
   }
 
-  // Test 11: paseo --help keeps the compatibility command hidden
+  // Test 11: paseo --help shows worktree subcommand
   {
-    console.log("Test 11: paseo --help hides worktree compatibility command");
+    console.log("Test 11: paseo --help shows worktree subcommand");
     const result = await $`npx paseo --help`.nothrow();
     assert.strictEqual(result.exitCode, 0, "paseo --help should exit 0");
-    assert(!result.stdout.includes("worktree"), "help should not advertise worktree subcommand");
-    console.log("✓ paseo --help hides worktree compatibility command\n");
+    assert(result.stdout.includes("worktree"), "help should mention worktree subcommand");
+    console.log("✓ paseo --help shows worktree subcommand\n");
   }
 } finally {
   // Clean up temp directory

@@ -339,7 +339,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   mutedText: {
     flex: 1,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
   },
   headerActions: {

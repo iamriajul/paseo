@@ -7,7 +7,6 @@ describe("terminal restore options", () => {
     expect(
       resolveTerminalRestoreOptions({
         supportsTerminalRestoreModes: false,
-        canClaimSize: true,
         size: { rows: 24, cols: 80 },
       }),
     ).toBeUndefined();
@@ -17,7 +16,6 @@ describe("terminal restore options", () => {
     expect(
       resolveTerminalRestoreOptions({
         supportsTerminalRestoreModes: true,
-        canClaimSize: true,
         size: { rows: 24, cols: 80 },
       }),
     ).toEqual({
@@ -31,21 +29,7 @@ describe("terminal restore options", () => {
     expect(
       resolveTerminalRestoreOptions({
         supportsTerminalRestoreModes: true,
-        canClaimSize: true,
         size: null,
-      }),
-    ).toEqual({
-      mode: "visible-snapshot",
-      scrollbackLines: 200,
-    });
-  });
-
-  it("does not let a background attach resize the PTY", () => {
-    expect(
-      resolveTerminalRestoreOptions({
-        supportsTerminalRestoreModes: true,
-        canClaimSize: false,
-        size: { rows: 24, cols: 80 },
       }),
     ).toEqual({
       mode: "visible-snapshot",

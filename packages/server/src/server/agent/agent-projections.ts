@@ -93,7 +93,6 @@ export function toStoredAgentRecord(
       ? agent.attention.attentionTimestamp.toISOString()
       : null,
     internal: options?.internal,
-    owner: agent.owner,
   } satisfies StoredAgentRecord;
 }
 
@@ -121,18 +120,12 @@ export function toAgentPayload(
     updatedAt: agent.updatedAt.toISOString(),
     lastUserMessageAt: agent.lastUserMessageAt ? agent.lastUserMessageAt.toISOString() : null,
     status: agent.lifecycle,
-    activeTurn: agent.activeTurnId
-      ? {
-          turnId: agent.activeTurnId,
-          startedAt: agent.activeTurnStartedAt?.toISOString() ?? null,
-        }
-      : null,
     capabilities: cloneCapabilities(agent.capabilities),
     currentModeId: agent.currentModeId,
     availableModes: cloneAvailableModes(agent.availableModes),
     features: normalizeFeatures(agent.features),
     pendingPermissions: sanitizePendingPermissions(agent.pendingPermissions),
-    persistence: projectPersistenceHandleForWire(agent.persistence),
+    persistence: sanitizePersistenceHandle(agent.persistence),
     title: options?.title ?? null,
     labels: agent.labels,
   };
@@ -213,9 +206,7 @@ export function buildStoredAgentPayload(
 
   const runtimeInfo = buildStoredRuntimeInfo(record);
   const providerAvailable = isStoredAgentProviderAvailable(record, validProviders);
-  const persistence = projectPersistenceHandleForWire(
-    buildStoredPersistenceHandle(record, validProviders),
-  );
+  const persistence = buildStoredPersistenceHandle(record, validProviders);
 
   return {
     id: record.id,
@@ -321,16 +312,9 @@ function buildSerializableConfig(config: AgentSessionConfig): SerializableAgentC
       serializable.featureValues = featureValues;
     }
   }
-  if (config.providerOptions !== undefined) {
-    const providerOptions = sanitizeOptionalJson(config.providerOptions);
-    if (providerOptions && isJsonObject(providerOptions)) {
-      serializable.providerOptions = providerOptions;
-    }
-  }
-  if (config.toolPolicy) {
-    serializable.toolPolicy = {
-      preapproved: config.toolPolicy.preapproved.map((grant) => ({ ...grant })),
-    };
+  const extra = sanitizeMetadata(config.extra);
+  if (extra !== undefined) {
+    serializable.extra = extra;
   }
   if (config.systemPrompt) {
     serializable.systemPrompt = config.systemPrompt;
@@ -372,20 +356,6 @@ function sanitizePersistenceHandle(
     sanitized.metadata = metadata;
   }
   return sanitized;
-}
-
-function projectPersistenceHandleForWire(
-  handle: AgentPersistenceHandle | null,
-): AgentPersistenceHandle | null {
-  const projected = sanitizePersistenceHandle(handle);
-  if (!projected?.metadata) {
-    return projected;
-  }
-  delete projected.metadata.mcpServers;
-  if (Object.keys(projected.metadata).length === 0) {
-    delete projected.metadata;
-  }
-  return projected;
 }
 
 function cloneCapabilities(capabilities: AgentCapabilityFlags): AgentCapabilityFlags {

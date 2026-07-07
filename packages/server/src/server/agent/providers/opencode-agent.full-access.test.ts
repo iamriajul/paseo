@@ -90,7 +90,7 @@ describe("OpenCode auto_accept feature", () => {
     expect(modes.map((mode) => mode.id)).toEqual(["build", "paseo-custom"]);
   });
 
-  test("returns no modes when discovery finds none, rather than fabricating defaults", async () => {
+  test("falls back to default OpenCode modes when discovery returns no modes", async () => {
     const { runtime } = mockOpenCodeClient({ agents: [] });
 
     const client = new OpenCodeAgentClient(createTestLogger(), undefined, {
@@ -103,9 +103,7 @@ describe("OpenCode auto_accept feature", () => {
       force: false,
     });
 
-    // OpenCode users can rename/delete any agent, so a hardcoded fallback could
-    // validate a mode that doesn't exist. Empty is the honest answer.
-    expect(modes).toEqual([]);
+    expect(modes.map((mode) => mode.id)).toEqual(["build", "plan"]);
   });
 
   test("lists auto accept as a provider feature", async () => {
@@ -181,12 +179,9 @@ describe("OpenCode auto_accept feature", () => {
     ).toEqual({ modeId: "build", featureValues: { auto_accept: true } });
   });
 
-  test("inherits unattended callers as auto accept with OpenCode's default agent", () => {
+  test("inherits unattended callers as build plus auto accept", () => {
     const client = new OpenCodeAgentClient(createTestLogger());
 
-    // Unattendedness is carried by auto_accept, not by a specific agent. The
-    // mode stays unset so OpenCode picks its own default agent — `build` may
-    // not exist in the user's OpenCode config.
     expect(
       client.resolveCreateConfig({
         provider: "opencode",
@@ -203,10 +198,10 @@ describe("OpenCode auto_accept feature", () => {
           { id: "plan", label: "Plan" },
         ],
       }),
-    ).toEqual({ modeId: undefined, featureValues: { auto_accept: true } });
+    ).toEqual({ modeId: "build", featureValues: { auto_accept: true } });
   });
 
-  test("defaults unattended creation without a parent to auto accept with OpenCode's default agent", () => {
+  test("defaults unattended creation without a parent to build plus auto accept", () => {
     const client = new OpenCodeAgentClient(createTestLogger());
 
     expect(
@@ -221,7 +216,7 @@ describe("OpenCode auto_accept feature", () => {
           { id: "plan", label: "Plan" },
         ],
       }),
-    ).toEqual({ modeId: undefined, featureValues: { auto_accept: true } });
+    ).toEqual({ modeId: "build", featureValues: { auto_accept: true } });
   });
 
   test("preserves the selected OpenCode agent when inheriting auto accept from an OpenCode parent", () => {

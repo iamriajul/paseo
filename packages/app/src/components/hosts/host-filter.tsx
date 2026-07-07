@@ -19,13 +19,7 @@ export interface HostFilterProps {
   hosts: HostProfile[];
   selectedHost: string;
   onSelectHost: (serverId: string) => void;
-  /**
-   * Offer "All hosts". Off for a surface that acts on exactly one host's data — the label
-   * manager edits a single host's catalog, so "all" is not an answer it could carry out.
-   */
-  includeAllHost?: boolean;
   triggerTestID?: string;
-  hostOptionTestID?: (serverId: string) => string;
 }
 
 /**
@@ -37,16 +31,14 @@ export function HostFilter({
   hosts,
   selectedHost,
   onSelectHost,
-  includeAllHost = true,
   triggerTestID,
-  hostOptionTestID,
 }: HostFilterProps): ReactElement {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterAnchorRef = useRef<View>(null);
 
   const selectedHostLabel = useMemo(
-    () => getHostPickerLabel(hosts, selectedHost, { includeAllHost }),
-    [hosts, includeAllHost, selectedHost],
+    () => getHostPickerLabel(hosts, selectedHost, { includeAllHost: true }),
+    [hosts, selectedHost],
   );
 
   const handleFilterOpen = useCallback(() => setIsFilterOpen(true), []);
@@ -68,11 +60,10 @@ export function HostFilter({
       open={isFilterOpen}
       onOpenChange={setIsFilterOpen}
       anchorRef={filterAnchorRef}
-      includeAllHost={includeAllHost}
+      includeAllHost
       searchable={false}
       title="Filter by host"
       desktopPlacement="bottom-start"
-      hostOptionTestID={hostOptionTestID}
     >
       <View ref={filterAnchorRef} collapsable={false} style={styles.filterTriggerWrap}>
         <Pressable
@@ -121,7 +112,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   filterTriggerText: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
   },
 }));

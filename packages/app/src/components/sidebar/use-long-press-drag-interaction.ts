@@ -9,7 +9,6 @@ export function useLongPressDragInteraction(input: {
   drag: () => void;
   menuController: ReturnType<typeof useContextMenu> | null;
 }) {
-  const { drag, menuController } = input;
   const didLongPressRef = useRef(false);
   const dragArmedRef = useRef(false);
   const dragActivatedRef = useRef(false);
@@ -33,20 +32,20 @@ export function useLongPressDragInteraction(input: {
   }, []);
 
   const openContextMenuAtStartPoint = useCallback(() => {
-    if (!menuController || !touchStartRef.current) {
+    if (!input.menuController || !touchStartRef.current) {
       return;
     }
     const statusBarHeight = Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
-    menuController.setAnchorRect({
+    input.menuController.setAnchorRect({
       x: touchStartRef.current.x,
       y: touchStartRef.current.y + statusBarHeight,
       width: 0,
       height: 0,
     });
-    menuController.setOpen(true);
+    input.menuController.setOpen(true);
     menuOpenedRef.current = true;
     didLongPressRef.current = true;
-  }, [menuController]);
+  }, [input.menuController]);
 
   const handleLongPress = useCallback(() => {
     // Manual timers own long-press behavior on mobile.
@@ -60,9 +59,6 @@ export function useLongPressDragInteraction(input: {
 
   const armTimers = useCallback(() => {
     clearTimers();
-    if (platformIsWeb) {
-      return;
-    }
 
     const DRAG_ARM_DELAY_MS = 180;
     const DRAG_ARM_STATIONARY_SLOP_PX = 4;
@@ -88,10 +84,10 @@ export function useLongPressDragInteraction(input: {
       dragActivatedRef.current = true;
       didLongPressRef.current = true;
       void Haptics.selectionAsync().catch(() => {});
-      drag();
+      input.drag();
     }, DRAG_ARM_DELAY_MS);
 
-    if (!menuController) {
+    if (!input.menuController || platformIsWeb) {
       return;
     }
 
@@ -113,7 +109,7 @@ export function useLongPressDragInteraction(input: {
       void Haptics.selectionAsync().catch(() => {});
       openContextMenuAtStartPoint();
     }, CONTEXT_MENU_DELAY_MS);
-  }, [clearTimers, drag, menuController, openContextMenuAtStartPoint]);
+  }, [clearTimers, input, openContextMenuAtStartPoint]);
 
   const handleDragIntent = useCallback(
     (_details: { dx: number; dy: number; distance: number }) => {

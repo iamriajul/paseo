@@ -1,4 +1,5 @@
 import React, {
+  Fragment,
   type CSSProperties,
   useCallback,
   useEffect,
@@ -7,88 +8,32 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { ActivityIndicator } from "react-native";
 import { measureElement as measureVirtualElement, useVirtualizer } from "@tanstack/react-virtual";
-import { withUnistyles } from "react-native-unistyles";
-import { useRetainedPanelActive } from "@/components/retained-panel";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useStableEvent } from "@/hooks/use-stable-event";
-import type { Theme } from "@/styles/theme";
-import { WEB_SCROLLBAR_SIZE_PX } from "@/styles/web-scrollbar";
-import { DomOverlayScrollbar } from "@/components/ui/overlay-scrollbar/dom-overlay-scrollbar";
-import {
-  estimateStreamItemHeight,
-  shouldAdjustScrollForVirtualRowResize,
-} from "./web-virtualization";
+import { estimateStreamItemHeight } from "./web-virtualization";
 import type { StreamRenderInput, StreamStrategy, StreamViewportHandle } from "./strategy";
 import { createStreamStrategy } from "./strategy";
-import {
-  abandonHistoryStartPaginationRequest,
-  createHistoryStartPaginationState,
-  evaluateHistoryStartPagination,
-  isHistoryStartLoadingOperation,
-  rearmHistoryStartPagination,
-  settleHistoryStartPagination,
-  type HistoryStartPaginationInput,
-  type HistoryStartPaginationTransition,
-} from "./history-start-pagination";
-import {
-  createHistoryStartSettleScheduler,
-  type HistoryStartSettleScheduler,
-} from "./history-start-settle-scheduler";
-import { useScrollToMessage } from "./use-scroll-to-message.web";
 
 interface CreateWebStreamStrategyInput {
   isMobileBreakpoint: boolean;
-}
-
-interface HistoryStartPrependAnchor {
-  progressKey: string;
-  rowId: string;
-  viewportOffset: number;
 }
 
 type ScrollBehaviorLike = "auto" | "smooth";
 
 const WEB_BOTTOM_SETTLE_TIMEOUT_MS = 200;
 const USER_SCROLL_DELTA_EPSILON = 1;
-const BOTTOM_OVERSCROLL_TOLERANCE_PX = 2;
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
 const AUTO_SCROLL_RESUME_THRESHOLD_PX = 1;
-const HISTORY_START_SETTLE_FRAMES = 2;
-const HISTORY_START_SLOT_HEIGHT_PX = 32;
-const CONTENT_PADDING_TOP_PX = 16;
-const UPWARD_INPUT_EVIDENCE_TIMEOUT_MS = 100;
-const VIRTUALIZER_SCROLL_MARGIN_PX = HISTORY_START_SLOT_HEIGHT_PX + CONTENT_PADDING_TOP_PX;
-// A row has to clear this much of the viewport top before the next one takes over as the
-// reading position, so a row resting exactly on the edge does not flip back and forth.
-const READING_POSITION_OFFSET_PX = 8;
-
-const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
-const foregroundMutedColorMapping = (theme: Theme) => ({
-  color: theme.colors.foregroundMuted,
-});
-
-function findHistoryRowElement(contentNode: HTMLElement, rowId: string): HTMLElement | null {
-  for (const element of contentNode.querySelectorAll<HTMLElement>("[data-history-row-id]")) {
-    if (element.dataset.historyRowId === rowId) {
-      return element;
-    }
-  }
-  return null;
-}
+const HISTORY_START_THRESHOLD_PX = 96;
+import { useWebElementScrollbar } from "@/components/use-web-scrollbar";
 
 const historyStartSlotStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  height: HISTORY_START_SLOT_HEIGHT_PX,
-  flexShrink: 0,
-};
-
-const streamRowStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  width: "100%",
+  minHeight: 32,
+  paddingTop: 4,
+  paddingBottom: 8,
 };
 
 function isScrollContainerNearBottom(
@@ -110,77 +55,6 @@ function isScrollContainerAtBottom(
   scrollContainer: Pick<HTMLElement, "scrollTop" | "clientHeight" | "scrollHeight">,
 ): boolean {
   return isScrollContainerNearBottom(scrollContainer, AUTO_SCROLL_RESUME_THRESHOLD_PX);
-}
-
-function isScrollContainerMeasurable(
-  scrollContainer: Pick<HTMLElement, "clientHeight" | "scrollHeight">,
-): boolean {
-  return scrollContainer.clientHeight > 0 && scrollContainer.scrollHeight > 0;
-}
-
-function isEditableEventTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-  const editableRoot = target.closest("input, textarea, [contenteditable]");
-  if (!editableRoot) {
-    return false;
-  }
-  const tagName = editableRoot.tagName.toLowerCase();
-  if (tagName === "input" || tagName === "textarea") {
-    return true;
-  }
-  return editableRoot.getAttribute("contenteditable")?.toLowerCase() !== "false";
-}
-
-function isUpwardViewportScrollKey(event: KeyboardEvent): boolean {
-  if (isEditableEventTarget(event.target)) {
-    return false;
-  }
-  return (
-    event.key === "ArrowUp" ||
-    event.key === "PageUp" ||
-    event.key === "Home" ||
-    (event.key === " " && event.shiftKey)
-  );
-}
-
-function canNestedScrollerConsumeUpwardInput(
-  target: EventTarget | null,
-  scrollContainer: HTMLElement,
-): boolean {
-  let element = target instanceof Element ? target : null;
-  while (element && element !== scrollContainer) {
-    if (element instanceof HTMLElement) {
-      const overflowY = window.getComputedStyle(element).overflowY;
-      const canScroll = overflowY === "auto" || overflowY === "scroll";
-      if (canScroll && element.scrollHeight > element.clientHeight && element.scrollTop > 0) {
-        return true;
-      }
-    }
-    element = element.parentElement;
-  }
-  return false;
-}
-
-function isVerticalScrollbarGutterPress(
-  event: PointerEvent,
-  scrollContainer: HTMLElement,
-): boolean {
-  if (event.target !== scrollContainer) {
-    return false;
-  }
-  if (scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
-    return false;
-  }
-  const scrollbarWidth = Math.max(
-    scrollContainer.offsetWidth - scrollContainer.clientWidth,
-    WEB_SCROLLBAR_SIZE_PX,
-  );
-  const bounds = scrollContainer.getBoundingClientRect();
-  return window.getComputedStyle(scrollContainer).direction === "rtl"
-    ? event.clientX <= bounds.left + scrollbarWidth
-    : event.clientX >= bounds.right - scrollbarWidth;
 }
 
 function scrollElementToBottom(
@@ -206,65 +80,6 @@ function syncNearBottom(
   return nextValue;
 }
 
-interface ActiveFollowOutputLayout {
-  scrollContainer: HTMLElement | null;
-  viewportWidth: number;
-  viewportHeight: number;
-  activationKey: string;
-  isActivationReady: boolean;
-  renderLiveAuxiliary: StreamRenderInput["renderers"]["renderLiveAuxiliary"];
-  historyMounted: StreamRenderInput["segments"]["historyMounted"];
-  historyVirtualized: StreamRenderInput["segments"]["historyVirtualized"];
-  liveHead: StreamRenderInput["segments"]["liveHead"];
-  virtualTotalSize: number;
-}
-
-function activeFollowOutputLayoutsEqual(
-  previous: ActiveFollowOutputLayout,
-  next: ActiveFollowOutputLayout,
-): boolean {
-  return (
-    previous.scrollContainer === next.scrollContainer &&
-    previous.viewportWidth === next.viewportWidth &&
-    previous.viewportHeight === next.viewportHeight &&
-    previous.activationKey === next.activationKey &&
-    previous.isActivationReady === next.isActivationReady &&
-    previous.renderLiveAuxiliary === next.renderLiveAuxiliary &&
-    previous.historyMounted === next.historyMounted &&
-    previous.historyVirtualized === next.historyVirtualized &&
-    previous.liveHead === next.liveHead &&
-    previous.virtualTotalSize === next.virtualTotalSize
-  );
-}
-
-interface ObservedViewportGeometry {
-  clientWidth: number;
-  clientHeight: number;
-  scrollWidth: number;
-  scrollHeight: number;
-}
-
-function getObservedViewportGeometry(scrollContainer: HTMLElement): ObservedViewportGeometry {
-  return {
-    clientWidth: scrollContainer.clientWidth,
-    clientHeight: scrollContainer.clientHeight,
-    scrollWidth: scrollContainer.scrollWidth,
-    scrollHeight: scrollContainer.scrollHeight,
-  };
-}
-
-function observedViewportGeometriesEqual(
-  previous: ObservedViewportGeometry,
-  next: ObservedViewportGeometry,
-): boolean {
-  return (
-    previous.clientWidth === next.clientWidth &&
-    previous.clientHeight === next.clientHeight &&
-    previous.scrollWidth === next.scrollWidth &&
-    previous.scrollHeight === next.scrollHeight
-  );
-}
-
 function getScrollContainerDistanceFromBottom(
   scrollContainer: Pick<HTMLElement, "scrollTop" | "clientHeight" | "scrollHeight">,
 ): number {
@@ -274,13 +89,12 @@ function getScrollContainerDistanceFromBottom(
 function isScrollContainerOverscrolledPastBottom(
   scrollContainer: Pick<HTMLElement, "scrollTop" | "clientHeight" | "scrollHeight">,
 ): boolean {
-  return getScrollContainerDistanceFromBottom(scrollContainer) < -BOTTOM_OVERSCROLL_TOLERANCE_PX;
+  return getScrollContainerDistanceFromBottom(scrollContainer) < 0;
 }
 
 function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: boolean }) {
   const {
     segments,
-    liveHeadRowRevision,
     boundary,
     renderers,
     listEmptyComponent,
@@ -288,16 +102,12 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     routeBottomAnchorRequest,
     isAuthoritativeHistoryReady,
     onNearBottomChange,
-    onReadingPositionChange,
     onNearHistoryStart,
     isLoadingOlderHistory,
     hasOlderHistory,
-    olderHistoryProgressKey,
     scrollEnabled,
     isMobileBreakpoint,
   } = props;
-  const isActive = useRetainedPanelActive();
-  const isActiveRef = useRef(isActive);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
   const handleScrollContainerRef = useCallback((node: HTMLElement | null) => {
@@ -314,35 +124,18 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     return value;
   };
   const lastKnownScrollTopRef = useRef(0);
-  const mouseScrollGestureRef = useRef<
-    | { kind: "scrollbar"; pointerId: number }
-    | {
-        kind: "autoscroll";
-        pointerId: number;
-        lastClientY: number;
-        hasUpwardEvidence: boolean;
-        evidenceExpiryFrame: number | null;
-      }
-    | null
-  >(null);
-  const upwardInputEvidenceUntilRef = useRef(0);
+  const pendingUserScrollUpIntentRef = useRef(false);
+  const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
   const historyStartReadyRef = useRef(false);
-  const [historyStartPaginationState, setHistoryStartPaginationState] = useState(
-    createHistoryStartPaginationState,
-  );
-  const historyStartPaginationStateRef = useRef(historyStartPaginationState);
-  const historyStartPrependAnchorRef = useRef<HistoryStartPrependAnchor | null>(null);
-  const historyStartPrependAnchorActiveRef = useRef(false);
-  const historyStartSettleSchedulerRef = useRef<HistoryStartSettleScheduler | null>(null);
-  const lastActiveFollowOutputLayoutRef = useRef<ActiveFollowOutputLayout | null>(null);
-  const lastObservedViewportGeometryRef = useRef<ObservedViewportGeometry | null>(null);
-  const wasFollowOutputLayoutActiveRef = useRef(false);
-  const resumedUnchangedLayoutRef = useRef(false);
-  const pendingResumeGeometryCheckRef = useRef(false);
+  const showDesktopWebScrollbar = !isMobileBreakpoint;
+  const scrollbarOverlay = useWebElementScrollbar(scrollContainerRef, {
+    enabled: showDesktopWebScrollbar,
+    contentRef,
+  });
   const shouldUseVirtualizer = segments.historyVirtualized.length > 0;
   const {
     renderHistoryVirtualizedRow,
@@ -351,7 +144,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     renderLiveAuxiliary,
   } = renderers;
 
-  isActiveRef.current = isActive;
   followOutputRef.current = followOutput;
 
   const hasRouteBottomAnchorRequest = routeBottomAnchorRequest !== null;
@@ -360,7 +152,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
 
   const rowVirtualizer = useVirtualizer({
     count: segments.historyVirtualized.length,
-    enabled: shouldUseVirtualizer,
     getScrollElement: () => scrollContainerRef.current,
     getItemKey: (index: number) => segments.historyVirtualized[index]?.id ?? index,
     estimateSize: (index: number) => {
@@ -368,22 +159,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       return row ? estimateStreamItemHeight(row) : 120;
     },
     measureElement: measureVirtualElement,
-    scrollMargin: VIRTUALIZER_SCROLL_MARGIN_PX,
     useAnimationFrameWithResizeObserver: true,
     overscan: 8,
   });
   useEffect(() => {
-    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta, instance) => {
       const viewportHeight = instance.scrollRect?.height ?? 0;
       const scrollOffset = instance.scrollOffset ?? 0;
       const remainingDistance = instance.getTotalSize() - (scrollOffset + viewportHeight);
-      return shouldAdjustScrollForVirtualRowResize({
-        isHistoryStartPrependActive: historyStartPrependAnchorActiveRef.current,
-        rowStart: item.start,
-        scrollOffset,
-        remainingDistanceFromBottom: remainingDistance,
-        bottomThreshold: AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-      });
+      return remainingDistance > AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
     };
     return () => {
       rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
@@ -391,165 +175,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   }, [rowVirtualizer]);
   const virtualRows = rowVirtualizer.getVirtualItems();
   const virtualTotalSize = rowVirtualizer.getTotalSize();
-  const getHistoryStartPaginationInput = useStableEvent((): HistoryStartPaginationInput | null => {
-    const scrollContainer = scrollContainerRef.current;
-    if (!isActiveRef.current || !scrollContainer || !isScrollContainerMeasurable(scrollContainer)) {
-      return null;
-    }
-    const bottomAnchorSettled =
-      !followOutputRef.current || isScrollContainerNearBottom(scrollContainer);
-    return {
-      distanceFromHistoryStart: scrollContainer.scrollTop,
-      hasOlderHistory,
-      isLoadingOlderHistory,
-      isReady: historyStartReadyRef.current && bottomAnchorSettled,
-      progressKey: olderHistoryProgressKey,
-    };
-  });
-  const applyHistoryStartPaginationTransition = useStableEvent(
-    (transition: HistoryStartPaginationTransition) => {
-      const previousState = historyStartPaginationStateRef.current;
-      historyStartPaginationStateRef.current = transition.state;
-      if (transition.state !== previousState) {
-        setHistoryStartPaginationState(transition.state);
-      }
-      if (!isHistoryStartLoadingOperation(transition.state)) {
-        historyStartPrependAnchorRef.current = null;
-        historyStartPrependAnchorActiveRef.current = false;
-      }
-      if (!transition.shouldLoad || olderHistoryProgressKey === null) {
-        return;
-      }
-      const scrollContainer = scrollContainerRef.current;
-      const contentNode = contentRef.current;
-      const anchorRow = segments.historyMounted.at(-1) ?? segments.historyVirtualized.at(-1);
-      const anchorElement =
-        contentNode && anchorRow ? findHistoryRowElement(contentNode, anchorRow.id) : null;
-      if (scrollContainer && anchorRow && anchorElement) {
-        historyStartPrependAnchorRef.current = {
-          progressKey: olderHistoryProgressKey,
-          rowId: anchorRow.id,
-          viewportOffset:
-            anchorElement.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top,
-        };
-      } else {
-        historyStartPrependAnchorRef.current = null;
-      }
-      historyStartPrependAnchorActiveRef.current = false;
-      const requestedProgressKey = olderHistoryProgressKey;
-      void (async () => {
-        const started = await onNearHistoryStart();
-        if (started === true) {
-          return;
-        }
-        applyHistoryStartPaginationTransition({
-          state: abandonHistoryStartPaginationRequest(
-            historyStartPaginationStateRef.current,
-            requestedProgressKey,
-          ),
-          shouldLoad: false,
-        });
-      })();
-    },
-  );
-  const evaluateHistoryStart = useStableEvent(() => {
-    const input = getHistoryStartPaginationInput();
-    if (!input) {
-      return;
-    }
-    const transition = evaluateHistoryStartPagination(
-      historyStartPaginationStateRef.current,
-      input,
-    );
-    applyHistoryStartPaginationTransition(transition);
-  });
-  const rearmHistoryStartFromUserIntent = useStableEvent(() => {
-    const rearmed = rearmHistoryStartPagination(historyStartPaginationStateRef.current);
-    if (rearmed === historyStartPaginationStateRef.current) {
-      return;
-    }
-    historyStartPaginationStateRef.current = rearmed;
-    setHistoryStartPaginationState(rearmed);
-    evaluateHistoryStart();
-  });
-  const applyHistoryStartPrependAnchor = useStableEvent(() => {
-    const scrollContainer = scrollContainerRef.current;
-    const contentNode = contentRef.current;
-    const anchor = historyStartPrependAnchorRef.current;
-    if (
-      !scrollContainer ||
-      !contentNode ||
-      !anchor ||
-      !historyStartPrependAnchorActiveRef.current
-    ) {
-      return;
-    }
-    const anchorElement = findHistoryRowElement(contentNode, anchor.rowId);
-    if (!anchorElement) {
-      return;
-    }
-    const viewportOffset =
-      anchorElement.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top;
-    scrollContainer.scrollTop += viewportOffset - anchor.viewportOffset;
-    lastKnownScrollTopRef.current = scrollContainer.scrollTop;
-  });
-  const scheduleHistoryStartPrependSettle = useStableEvent(() => {
-    let scheduler = historyStartSettleSchedulerRef.current;
-    if (!scheduler) {
-      scheduler = createHistoryStartSettleScheduler({
-        settleFrames: HISTORY_START_SETTLE_FRAMES,
-        requestFrame: (callback) => window.requestAnimationFrame(callback),
-        cancelFrame: (frame) => window.cancelAnimationFrame(frame),
-        isSettling: () => historyStartPaginationStateRef.current.status === "settling",
-        isLoading: () => {
-          const input = getHistoryStartPaginationInput();
-          return (
-            !input ||
-            input.isLoadingOlderHistory ||
-            pendingVirtualRowMeasureFramesRef.current.size > 0
-          );
-        },
-        onFrame: applyHistoryStartPrependAnchor,
-        onSettle: () => {
-          const input = getHistoryStartPaginationInput();
-          if (!input) {
-            return;
-          }
-          historyStartPrependAnchorActiveRef.current = false;
-          const transition = settleHistoryStartPagination(
-            historyStartPaginationStateRef.current,
-            input,
-          );
-          historyStartPrependAnchorRef.current = null;
-          applyHistoryStartPaginationTransition(transition);
-        },
-      });
-      historyStartSettleSchedulerRef.current = scheduler;
-    }
-    scheduler.schedule();
-  });
-
-  useLayoutEffect(() => {
-    if (!isActiveRef.current) {
-      return;
-    }
-    const anchor = historyStartPrependAnchorRef.current;
-    if (!anchor || anchor.progressKey === olderHistoryProgressKey) {
-      return;
-    }
-    historyStartPrependAnchorActiveRef.current = true;
-    evaluateHistoryStart();
-    applyHistoryStartPrependAnchor();
-    scheduleHistoryStartPrependSettle();
-  }, [
-    applyHistoryStartPrependAnchor,
-    evaluateHistoryStart,
-    olderHistoryProgressKey,
-    scheduleHistoryStartPrependSettle,
-    segments.historyMounted,
-    segments.historyVirtualized,
-    virtualTotalSize,
-  ]);
 
   const measureVirtualizedRowElement = useCallback(
     (node: HTMLDivElement | null) => {
@@ -564,7 +189,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       }
       const frame = window.requestAnimationFrame(() => {
         pendingFrames.delete(node);
-        if (isActiveRef.current && node.isConnected) {
+        if (node.isConnected) {
           rowVirtualizer.measureElement(node);
         }
       });
@@ -596,47 +221,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
   }, []);
 
-  const clearMouseScrollGesture = useCallback(() => {
-    const gesture = mouseScrollGestureRef.current;
-    const evidenceExpiryFrame = gesture?.kind === "autoscroll" ? gesture.evidenceExpiryFrame : null;
-    if (evidenceExpiryFrame !== null && evidenceExpiryFrame !== undefined) {
-      window.cancelAnimationFrame(evidenceExpiryFrame);
-    }
-    mouseScrollGestureRef.current = null;
-  }, []);
-
-  const clearUpwardInputEvidence = useCallback(() => {
-    upwardInputEvidenceUntilRef.current = 0;
-  }, []);
-
-  const markUpwardInputEvidence = useCallback(() => {
-    upwardInputEvidenceUntilRef.current =
-      window.performance.now() + UPWARD_INPUT_EVIDENCE_TIMEOUT_MS;
-  }, []);
-
-  useLayoutEffect(() => {
-    if (isActive) {
-      return;
-    }
-    cancelPendingStickToBottom();
-    historyStartSettleSchedulerRef.current?.cancel();
-    for (const frame of pendingVirtualRowMeasureFramesRef.current.values()) {
-      window.cancelAnimationFrame(frame);
-    }
-    pendingVirtualRowMeasureFramesRef.current.clear();
-    clearMouseScrollGesture();
-    clearUpwardInputEvidence();
-    lastTouchClientYRef.current = null;
-  }, [cancelPendingStickToBottom, clearMouseScrollGesture, clearUpwardInputEvidence, isActive]);
-
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehaviorLike = "auto") => {
       const scrollContainer = scrollContainerRef.current;
-      if (
-        !isActiveRef.current ||
-        !scrollContainer ||
-        !isScrollContainerMeasurable(scrollContainer)
-      ) {
+      if (!scrollContainer) {
         return;
       }
       if (isScrollContainerOverscrolledPastBottom(scrollContainer)) {
@@ -645,15 +233,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       scrollElementToBottom(scrollContainer, behavior);
       lastKnownScrollTopRef.current = scrollContainer.scrollTop;
       syncNearBottom(scrollContainer, onNearBottomChange);
-      evaluateHistoryStart();
     },
-    [evaluateHistoryStart, onNearBottomChange],
+    [onNearBottomChange],
   );
 
   const scheduleStickToBottom = useCallback(() => {
-    if (!isActiveRef.current) {
-      return;
-    }
     const scrollContainer = scrollContainerRef.current;
     if (scrollContainer && isScrollContainerOverscrolledPastBottom(scrollContainer)) {
       return;
@@ -663,7 +247,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
     pendingAutoScrollFrameRef.current = window.requestAnimationFrame(() => {
       pendingAutoScrollFrameRef.current = null;
-      if (!isActiveRef.current || !followOutputRef.current) {
+      if (!followOutputRef.current) {
         return;
       }
       scrollMessagesToBottom("auto");
@@ -676,70 +260,18 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     scheduleStickToBottom();
   }, [cancelPendingStickToBottom, scheduleStickToBottom, scrollMessagesToBottom]);
 
-  // Rows are laid out in DOM order, virtualized block first, so the first row whose bottom
-  // clears the reading line is the one the reader is looking at.
-  const reportReadingPosition = useStableEvent(() => {
-    if (!isActiveRef.current) {
-      return;
-    }
-    if (!onReadingPositionChange) {
-      return;
-    }
-    const scrollContainer = scrollContainerRef.current;
-    const contentNode = contentRef.current;
-    if (!scrollContainer || !contentNode) {
-      onReadingPositionChange(null);
-      return;
-    }
-    const readingLine = scrollContainer.getBoundingClientRect().top + READING_POSITION_OFFSET_PX;
-    let readingRowId: string | null = null;
-    for (const element of contentNode.querySelectorAll<HTMLElement>("[data-history-row-id]")) {
-      const rowId = element.dataset.historyRowId;
-      if (!rowId) {
-        continue;
-      }
-      readingRowId = rowId;
-      if (element.getBoundingClientRect().bottom > readingLine) {
-        break;
-      }
-    }
-    onReadingPositionChange(readingRowId);
-  });
-
   const updateScrollMetrics = useCallback(() => {
-    if (!isActiveRef.current) {
-      return;
-    }
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
       onNearBottomChange(true);
       return;
     }
     syncNearBottom(scrollContainer, onNearBottomChange);
-    reportReadingPosition();
-  }, [onNearBottomChange, reportReadingPosition]);
-
-  const { isJumpSettling, scrollToMessage } = useScrollToMessage({
-    active: isActive,
-    scrollContainerRef,
-    rowVirtualizer,
-    historyVirtualized: segments.historyVirtualized,
-    cancelPendingStickToBottom,
-    setFollowOutput,
-    onNearBottomChange,
-  });
-
-  const stopFollowingOutputFromUserIntent = useStableEvent(() => {
-    cancelPendingStickToBottom();
-    if (followOutputRef.current) {
-      setFollowOutput(false);
-    }
-    rearmHistoryStartFromUserIntent();
-  });
+  }, [onNearBottomChange]);
 
   const handleDomScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
-    if (!isActiveRef.current || !scrollContainer || !isScrollContainerMeasurable(scrollContainer)) {
+    if (!scrollContainer) {
       return;
     }
 
@@ -748,48 +280,46 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     const scrolledUp = currentScrollTop < lastKnownScrollTopRef.current - USER_SCROLL_DELTA_EPSILON;
     const scrolledDown =
       currentScrollTop > lastKnownScrollTopRef.current + USER_SCROLL_DELTA_EPSILON;
-    const mouseGesture = mouseScrollGestureRef.current;
-    const hasUpwardInputEvidence =
-      mouseGesture?.kind === "scrollbar" ||
-      (mouseGesture?.kind === "autoscroll" && mouseGesture.hasUpwardEvidence) ||
-      window.performance.now() < upwardInputEvidenceUntilRef.current;
 
-    if (!followOutputRef.current && isAtBottom && scrolledDown && !isJumpSettling()) {
+    if (!followOutputRef.current && isAtBottom && scrolledDown) {
       setFollowOutput(true);
-    } else if (followOutputRef.current && scrolledUp && hasUpwardInputEvidence) {
-      stopFollowingOutputFromUserIntent();
+      pendingUserScrollUpIntentRef.current = false;
+    } else if (followOutputRef.current && pendingUserScrollUpIntentRef.current) {
+      if (scrolledUp || !isAtBottom) {
+        cancelPendingStickToBottom();
+        setFollowOutput(false);
+      }
+      pendingUserScrollUpIntentRef.current = false;
+    } else if (followOutputRef.current && isPointerScrollActiveRef.current) {
+      if (scrolledUp) {
+        cancelPendingStickToBottom();
+        setFollowOutput(false);
+      }
     }
 
     lastKnownScrollTopRef.current = currentScrollTop;
     updateScrollMetrics();
-    evaluateHistoryStart();
-  }, [
-    evaluateHistoryStart,
-    isJumpSettling,
-    stopFollowingOutputFromUserIntent,
-    updateScrollMetrics,
-  ]);
+    if (
+      historyStartReadyRef.current &&
+      hasOlderHistory &&
+      currentScrollTop <= HISTORY_START_THRESHOLD_PX
+    ) {
+      onNearHistoryStart();
+    }
+  }, [cancelPendingStickToBottom, hasOlderHistory, onNearHistoryStart, updateScrollMetrics]);
 
   useEffect(() => {
-    const initialHistoryStartState = createHistoryStartPaginationState();
-    historyStartPaginationStateRef.current = initialHistoryStartState;
-    setHistoryStartPaginationState(initialHistoryStartState);
-    historyStartPrependAnchorRef.current = null;
-    historyStartPrependAnchorActiveRef.current = false;
     const frame = window.requestAnimationFrame(() => {
       historyStartReadyRef.current = true;
-      evaluateHistoryStart();
     });
     return () => {
       window.cancelAnimationFrame(frame);
       historyStartReadyRef.current = false;
-      historyStartSettleSchedulerRef.current?.cancel();
-      historyStartSettleSchedulerRef.current = null;
     };
-  }, [evaluateHistoryStart, props.agentId]);
+  }, [props.agentId]);
 
   useLayoutEffect(() => {
-    if (!isActiveRef.current || !isActivationReady) {
+    if (!isActivationReady) {
       return;
     }
     if (hasRouteBottomAnchorRequest && !followOutputRef.current) {
@@ -821,70 +351,28 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     scheduleStickToBottom,
   ]);
 
-  // Following output is a layout invariant: rows, footer, and bottom offset must
-  // reach the browser in the same paint.
-  useLayoutEffect(() => {
-    const layout: ActiveFollowOutputLayout = {
-      scrollContainer: scrollContainerRef.current,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-      activationKey,
-      isActivationReady,
-      renderLiveAuxiliary,
-      historyMounted: segments.historyMounted,
-      historyVirtualized: segments.historyVirtualized,
-      liveHead: segments.liveHead,
-      virtualTotalSize,
-    };
-    const resumedUnchangedLayout = Boolean(
-      isActive &&
-      !wasFollowOutputLayoutActiveRef.current &&
-      lastActiveFollowOutputLayoutRef.current &&
-      activeFollowOutputLayoutsEqual(lastActiveFollowOutputLayoutRef.current, layout),
-    );
-    resumedUnchangedLayoutRef.current = resumedUnchangedLayout;
-    pendingResumeGeometryCheckRef.current = resumedUnchangedLayout;
-    wasFollowOutputLayoutActiveRef.current = isActive;
-    if (!isActive) {
+  useEffect(() => {
+    if (!followOutputRef.current) {
       return;
     }
-    lastActiveFollowOutputLayoutRef.current = layout;
-    if (!followOutputRef.current || resumedUnchangedLayout) return;
-    cancelPendingStickToBottom();
-    scrollMessagesToBottom("auto");
+    scheduleStickToBottom();
   }, [
-    activationKey,
-    cancelPendingStickToBottom,
-    isActive,
-    isActivationReady,
-    renderLiveAuxiliary,
-    scrollMessagesToBottom,
+    scheduleStickToBottom,
     segments.historyMounted,
     segments.historyVirtualized,
     segments.liveHead,
-    virtualTotalSize,
   ]);
 
   useEffect(() => {
-    if (!isActive) {
+    if (!followOutputRef.current || !shouldUseVirtualizer) {
       return;
     }
-    const resumedUnchangedLayout = resumedUnchangedLayoutRef.current;
-    resumedUnchangedLayoutRef.current = false;
-    if (!resumedUnchangedLayout) {
-      updateScrollMetrics();
-    }
-    evaluateHistoryStart();
-    if (historyStartPaginationStateRef.current.status === "settling") {
-      scheduleHistoryStartPrependSettle();
-    }
+    scheduleStickToBottom();
+  }, [scheduleStickToBottom, shouldUseVirtualizer, virtualTotalSize]);
+
+  useEffect(() => {
+    updateScrollMetrics();
   }, [
-    evaluateHistoryStart,
-    hasOlderHistory,
-    isActive,
-    isLoadingOlderHistory,
-    olderHistoryProgressKey,
-    scheduleHistoryStartPrependSettle,
     segments.historyMounted.length,
     segments.historyVirtualized.length,
     segments.liveHead.length,
@@ -892,41 +380,16 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     virtualTotalSize,
   ]);
 
-  useLayoutEffect(() => {
-    if (!isActive) {
-      return;
-    }
+  useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     const contentNode = contentRef.current;
     if (!scrollContainer || typeof ResizeObserver === "undefined") {
       return;
     }
 
-    if (!pendingResumeGeometryCheckRef.current) {
-      updateScrollMetrics();
-      evaluateHistoryStart();
-    }
+    updateScrollMetrics();
     const observer = new ResizeObserver(() => {
-      const nextGeometry = getObservedViewportGeometry(scrollContainer);
-      if (pendingResumeGeometryCheckRef.current) {
-        pendingResumeGeometryCheckRef.current = false;
-        reportReadingPosition();
-        const previousGeometry = lastObservedViewportGeometryRef.current;
-        lastObservedViewportGeometryRef.current = nextGeometry;
-        if (previousGeometry && observedViewportGeometriesEqual(previousGeometry, nextGeometry)) {
-          return;
-        }
-      } else {
-        lastObservedViewportGeometryRef.current = nextGeometry;
-      }
-      if (historyStartPrependAnchorActiveRef.current) {
-        applyHistoryStartPrependAnchor();
-      }
-      if (historyStartPaginationStateRef.current.status === "settling") {
-        scheduleHistoryStartPrependSettle();
-      }
       updateScrollMetrics();
-      evaluateHistoryStart();
       if (!followOutputRef.current) {
         return;
       }
@@ -939,101 +402,25 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     return () => {
       observer.disconnect();
     };
-  }, [
-    applyHistoryStartPrependAnchor,
-    evaluateHistoryStart,
-    isActive,
-    reportReadingPosition,
-    scheduleHistoryStartPrependSettle,
-    scheduleStickToBottom,
-    updateScrollMetrics,
-  ]);
+  }, [scheduleStickToBottom, updateScrollMetrics]);
 
-  useLayoutEffect(() => {
-    if (!isActive) {
-      return;
-    }
+  useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
       return;
     }
 
-    const markUpwardViewportInput = () => {
-      markUpwardInputEvidence();
-      if (scrollContainer.scrollTop <= USER_SCROLL_DELTA_EPSILON) {
-        rearmHistoryStartFromUserIntent();
-      }
-    };
     const handleWheel = (event: WheelEvent) => {
-      if (
-        !event.ctrlKey &&
-        event.deltaY < 0 &&
-        !canNestedScrollerConsumeUpwardInput(event.target, scrollContainer)
-      ) {
-        markUpwardViewportInput();
+      if (event.deltaY < 0) {
+        pendingUserScrollUpIntentRef.current = true;
+        cancelPendingStickToBottom();
       }
     };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!isUpwardViewportScrollKey(event)) {
-        return;
-      }
-      if (canNestedScrollerConsumeUpwardInput(event.target, scrollContainer)) {
-        return;
-      }
-      markUpwardViewportInput();
+    const handlePointerDown = () => {
+      isPointerScrollActiveRef.current = true;
     };
-    const handlePointerDown = (event: PointerEvent) => {
-      clearMouseScrollGesture();
-      if (
-        event.pointerType !== "mouse" ||
-        !event.isPrimary ||
-        (event.button !== 0 && event.button !== 1) ||
-        isEditableEventTarget(event.target)
-      ) {
-        return;
-      }
-      if (event.button === 0) {
-        if (isVerticalScrollbarGutterPress(event, scrollContainer)) {
-          mouseScrollGestureRef.current = { kind: "scrollbar", pointerId: event.pointerId };
-        }
-        return;
-      }
-      mouseScrollGestureRef.current = {
-        kind: "autoscroll",
-        pointerId: event.pointerId,
-        lastClientY: event.clientY,
-        hasUpwardEvidence: false,
-        evidenceExpiryFrame: null,
-      };
-    };
-    const handlePointerMove = (event: PointerEvent) => {
-      const gesture = mouseScrollGestureRef.current;
-      if (!gesture || gesture.kind !== "autoscroll" || gesture.pointerId !== event.pointerId) {
-        return;
-      }
-      if (event.clientY < gesture.lastClientY - USER_SCROLL_DELTA_EPSILON) {
-        gesture.hasUpwardEvidence = true;
-        if (gesture.evidenceExpiryFrame !== null) {
-          window.cancelAnimationFrame(gesture.evidenceExpiryFrame);
-        }
-        gesture.evidenceExpiryFrame = window.requestAnimationFrame(() => {
-          if (mouseScrollGestureRef.current === gesture) {
-            mouseScrollGestureRef.current = null;
-          }
-        });
-      }
-      gesture.lastClientY = event.clientY;
-    };
-    const handlePointerEnd = (event: PointerEvent) => {
-      const gesture = mouseScrollGestureRef.current;
-      if (gesture?.pointerId === event.pointerId && gesture.kind === "scrollbar") {
-        clearMouseScrollGesture();
-      }
-    };
-    const handlePointerCancel = (event: PointerEvent) => {
-      if (mouseScrollGestureRef.current?.pointerId === event.pointerId) {
-        clearMouseScrollGesture();
-      }
+    const handlePointerUp = () => {
+      isPointerScrollActiveRef.current = false;
     };
     const handleTouchStart = (event: TouchEvent) => {
       const touch = event.touches[0];
@@ -1048,12 +435,9 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         return;
       }
       const previousTouchY = lastTouchClientYRef.current;
-      if (
-        previousTouchY !== null &&
-        touch.clientY > previousTouchY + 1 &&
-        !canNestedScrollerConsumeUpwardInput(event.target, scrollContainer)
-      ) {
-        markUpwardViewportInput();
+      if (previousTouchY !== null && touch.clientY > previousTouchY + 1) {
+        pendingUserScrollUpIntentRef.current = true;
+        cancelPendingStickToBottom();
       }
       lastTouchClientYRef.current = touch.clientY;
     };
@@ -1063,12 +447,9 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
 
     scrollContainer.addEventListener("scroll", handleDomScroll, { passive: true });
     scrollContainer.addEventListener("wheel", handleWheel, { passive: true });
-    scrollContainer.addEventListener("keydown", handleKeyDown, { passive: true });
     scrollContainer.addEventListener("pointerdown", handlePointerDown, { passive: true });
-    window.addEventListener("pointermove", handlePointerMove, { passive: true });
-    window.addEventListener("pointerup", handlePointerEnd, { passive: true });
-    window.addEventListener("pointercancel", handlePointerCancel, { passive: true });
-    window.addEventListener("blur", clearMouseScrollGesture);
+    scrollContainer.addEventListener("pointerup", handlePointerUp, { passive: true });
+    scrollContainer.addEventListener("pointercancel", handlePointerUp, { passive: true });
     scrollContainer.addEventListener("touchstart", handleTouchStart, { passive: true });
     scrollContainer.addEventListener("touchmove", handleTouchMove, { passive: true });
     scrollContainer.addEventListener("touchend", handleTouchEnd, { passive: true });
@@ -1077,26 +458,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     return () => {
       scrollContainer.removeEventListener("scroll", handleDomScroll);
       scrollContainer.removeEventListener("wheel", handleWheel);
-      scrollContainer.removeEventListener("keydown", handleKeyDown);
       scrollContainer.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerEnd);
-      window.removeEventListener("pointercancel", handlePointerCancel);
-      window.removeEventListener("blur", clearMouseScrollGesture);
+      scrollContainer.removeEventListener("pointerup", handlePointerUp);
+      scrollContainer.removeEventListener("pointercancel", handlePointerUp);
       scrollContainer.removeEventListener("touchstart", handleTouchStart);
       scrollContainer.removeEventListener("touchmove", handleTouchMove);
       scrollContainer.removeEventListener("touchend", handleTouchEnd);
       scrollContainer.removeEventListener("touchcancel", handleTouchEnd);
-      clearUpwardInputEvidence();
     };
-  }, [
-    clearMouseScrollGesture,
-    clearUpwardInputEvidence,
-    handleDomScroll,
-    isActive,
-    markUpwardInputEvidence,
-    rearmHistoryStartFromUserIntent,
-  ]);
+  }, [cancelPendingStickToBottom, handleDomScroll]);
 
   useEffect(() => {
     const handle: StreamViewportHandle = {
@@ -1111,7 +481,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         }
         scheduleStickToBottom();
       },
-      scrollToMessage,
     };
     viewportRef.current = handle;
     return () => {
@@ -1120,20 +489,14 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       }
       cancelPendingStickToBottom();
     };
-  }, [
-    cancelPendingStickToBottom,
-    forceStickToBottom,
-    scheduleStickToBottom,
-    scrollToMessage,
-    viewportRef,
-  ]);
+  }, [cancelPendingStickToBottom, forceStickToBottom, scheduleStickToBottom, viewportRef]);
 
   const contentContainerStyle = useMemo((): CSSProperties => {
     return {
       display: "flex",
       flexDirection: "column",
       minHeight: "100%",
-      paddingTop: CONTENT_PADDING_TOP_PX,
+      paddingTop: 16,
       paddingBottom: 16,
       paddingLeft: isMobileBreakpoint ? 8 : 16,
       paddingRight: isMobileBreakpoint ? 8 : 16,
@@ -1141,25 +504,14 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     };
   }, [isMobileBreakpoint]);
   const scrollContainerStyle = useMemo((): CSSProperties => {
-    const overlayScrollbarEnabled = scrollEnabled && !isMobileBreakpoint;
     return {
-      width: "100%",
-      height: "100%",
+      flex: 1,
+      minHeight: 0,
       overflowX: "hidden",
       overflowY: scrollEnabled ? "auto" : "hidden",
       overscrollBehaviorY: "contain",
-      scrollbarWidth: overlayScrollbarEnabled ? "none" : undefined,
     };
-  }, [isMobileBreakpoint, scrollEnabled]);
-  const viewportStyle = useMemo(
-    (): CSSProperties => ({
-      position: "relative",
-      flex: 1,
-      minWidth: 0,
-      minHeight: 0,
-    }),
-    [],
-  );
+  }, [scrollEnabled]);
   const virtualRowsContainerStyle = useMemo((): CSSProperties => {
     return {
       position: "relative",
@@ -1175,44 +527,35 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       display: "flex",
       flexDirection: "column",
       width: "100%",
-      transform: `translateY(${start - VIRTUALIZER_SCROLL_MARGIN_PX}px)`,
+      transform: `translateY(${start}px)`,
     }),
     [],
   );
   const mountedHistoryRows = useMemo(() => {
     return segments.historyMounted.map((item, index) => (
-      <div key={item.id} data-history-row-id={item.id} style={streamRowStyle}>
+      <Fragment key={item.id}>
         {renderHistoryMountedRow(item, index, segments.historyMounted)}
-      </div>
+      </Fragment>
     ));
   }, [renderHistoryMountedRow, segments.historyMounted]);
   const liveHeadRows = useMemo(() => {
-    void liveHeadRowRevision;
     return segments.liveHead.map((item, index) => (
-      <div key={item.id} data-history-row-id={item.id} style={streamRowStyle}>
-        {renderLiveHeadRow(item, index, segments.liveHead)}
-      </div>
+      <Fragment key={item.id}>{renderLiveHeadRow(item, index, segments.liveHead)}</Fragment>
     ));
-  }, [liveHeadRowRevision, renderLiveHeadRow, segments.liveHead]);
-  const mountedRows = useMemo(
-    () => [...mountedHistoryRows, ...liveHeadRows],
-    [liveHeadRows, mountedHistoryRows],
-  );
+  }, [renderLiveHeadRow, segments.liveHead]);
   const liveAuxiliary = useMemo(() => {
     return renderLiveAuxiliary();
   }, [renderLiveAuxiliary]);
   const historyStartSlot = useMemo(() => {
-    const isLoadingOperation = isHistoryStartLoadingOperation(historyStartPaginationState);
+    if (!isLoadingOlderHistory) {
+      return null;
+    }
     return (
-      <div style={historyStartSlotStyle} data-testid="older-history-slot">
-        {isLoadingOperation ? (
-          <div data-testid="load-older-history-spinner">
-            <ThemedLoadingSpinner size="small" uniProps={foregroundMutedColorMapping} />
-          </div>
-        ) : null}
+      <div style={historyStartSlotStyle} data-testid="load-older-history-spinner">
+        <ActivityIndicator size="small" />
       </div>
     );
-  }, [historyStartPaginationState]);
+  }, [isLoadingOlderHistory]);
   const shouldRenderEmpty =
     !boundary.hasMountedHistory &&
     !boundary.hasVirtualizedHistory &&
@@ -1220,11 +563,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     !liveAuxiliary;
 
   return (
-    <div style={viewportStyle}>
+    <>
       <div
         ref={handleScrollContainerRef}
         data-testid="agent-chat-scroll"
-        data-overlay-scrollbar={scrollEnabled && !isMobileBreakpoint ? "true" : undefined}
         id={`agent-chat-scroll-${shouldUseVirtualizer ? "web-dom-virtualized" : "web-dom-scroll"}`}
         style={scrollContainerStyle}
       >
@@ -1241,7 +583,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
                   <div
                     key={virtualRow.key}
                     data-index={virtualRow.index}
-                    data-history-row-id={item.id}
                     ref={measureVirtualizedRowElement}
                     style={renderVirtualRowStyle(virtualRow.start)}
                   >
@@ -1255,18 +596,14 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
               })}
             </div>
           ) : null}
-          {mountedRows}
+          {mountedHistoryRows}
+          {liveHeadRows}
           {liveAuxiliary}
           {shouldRenderEmpty ? listEmptyComponent : null}
         </div>
       </div>
-      {scrollEnabled && !isMobileBreakpoint ? (
-        <DomOverlayScrollbar
-          scrollContainerRef={scrollContainerRef}
-          onUserScrollUp={stopFollowingOutputFromUserIntent}
-        />
-      ) : null}
-    </div>
+      {scrollbarOverlay}
+    </>
   );
 }
 

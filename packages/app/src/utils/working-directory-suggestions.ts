@@ -1,5 +1,3 @@
-import { scorePathMatch } from "@getpaseo/protocol/search/text-match";
-
 export interface BuildWorkingDirectorySuggestionsInput {
   recommendedPaths: string[];
   serverPaths: string[];
@@ -9,26 +7,40 @@ export interface BuildWorkingDirectorySuggestionsInput {
 export function buildWorkingDirectorySuggestions(
   input: BuildWorkingDirectorySuggestionsInput,
 ): string[] {
-  const query = input.query.trim();
+  const rawQuery = input.query.trim();
   const recommended = uniquePaths(input.recommendedPaths);
-  if (!query) {
+  if (!rawQuery) {
     return recommended;
   }
 
-  const matchingRecommended = recommended.filter((path) =>
-    recommendedPathMatchesQuery(path, query),
-  );
+  const normalizedQuery = normalizeQuery(rawQuery);
+  const shouldFilterByQuery = normalizedQuery.length > 0;
 
-  // Server paths are already ranked by the daemon. Recommended paths use the
-  // same shared matcher, then keep their existing recommendation order.
-  return uniquePaths([...matchingRecommended, ...input.serverPaths]);
+  const recommendedMatches = shouldFilterByQuery
+    ? recommended.filter((entry) => pathMatchesQuery(entry, normalizedQuery))
+    : recommended;
+  const seen = new Set(recommendedMatches);
+  const ordered = [...recommendedMatches];
+
+  for (const entry of uniquePaths(input.serverPaths)) {
+    if (shouldFilterByQuery && !pathMatchesQuery(entry, normalizedQuery)) {
+      continue;
+    }
+    if (seen.has(entry)) {
+      continue;
+    }
+    ordered.push(entry);
+    seen.add(entry);
+  }
+
+  return ordered;
 }
 
 function uniquePaths(paths: string[]): string[] {
   const seen = new Set<string>();
   const ordered: string[] = [];
-  for (const path of paths) {
-    const trimmed = path.trim();
+  for (const pathEntry of paths) {
+    const trimmed = pathEntry.trim();
     if (!trimmed || seen.has(trimmed)) {
       continue;
     }
@@ -38,16 +50,23 @@ function uniquePaths(paths: string[]): string[] {
   return ordered;
 }
 
-function recommendedPathMatchesQuery(path: string, query: string): boolean {
-  const candidate = normalizePath(path);
-  const normalizedQuery = normalizePath(query);
-  if (["~", "~/"].includes(normalizedQuery)) {
-    return true;
+function normalizeQuery(query: string): string {
+  let normalized = query.trim();
+  if (!normalized) {
+    return "";
   }
-
-  return scorePathMatch(normalizedQuery, candidate) !== null;
+  if (normalized.startsWith("~")) {
+    normalized = normalized.slice(1);
+  }
+  normalized = normalized.replace(/^\/+/, "").toLowerCase();
+  return normalized;
 }
 
-function normalizePath(value: string): string {
-  return value.trim().replace(/\\/g, "/").toLowerCase();
+function pathMatchesQuery(candidatePath: string, query: string): boolean {
+  const lowerPath = candidatePath.toLowerCase();
+  if (lowerPath.includes(query)) {
+    return true;
+  }
+  const segments = lowerPath.split("/");
+  return (segments[segments.length - 1] ?? "").includes(query);
 }

@@ -13,6 +13,7 @@ import {
   Text,
   Pressable,
   Modal,
+  TextInput,
   ScrollView,
   Platform,
   StatusBar,
@@ -22,10 +23,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { EditingTextInputHandle } from "@/components/ui/text-input";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import {
@@ -63,12 +61,6 @@ import {
 } from "@/components/adaptive-modal-sheet";
 import { FloatingSurface } from "@/components/ui/floating";
 import { useDismissKeyboardOnOpen } from "@/components/ui/keyboard-dismiss";
-import {
-  getOverlayRoot,
-  OverlayLayerProvider,
-  useOverlayLayer,
-  useWebOverlayRegistration,
-} from "@/lib/overlay-root";
 import { buildDesktopFrameStyle } from "./combobox-frame-style";
 
 export { buildDesktopFrameStyle } from "./combobox-frame-style";
@@ -108,10 +100,6 @@ export interface ComboboxProps {
    */
   header?: SheetHeader;
   mobileChildrenScrollEnabled?: boolean;
-  /** Let custom desktop children own scrolling, for example a virtualized list. */
-  desktopChildrenScrollEnabled?: boolean;
-  /** Overrides the mobile scroll container spacing for custom child content. */
-  mobileChildrenContentContainerStyle?: StyleProp<ViewStyle>;
   presentation?: "push" | "replace";
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -124,14 +112,10 @@ export interface ComboboxProps {
   desktopPreventInitialFlash?: boolean;
   /** Minimum width for the desktop popover (overrides trigger-based width). */
   desktopMinWidth?: number;
-  /** Keep the desktop popover at its opening width as its content changes. */
-  desktopLockWidth?: boolean;
   /** Fixed height for the desktop popover (overrides default 400px max). */
   desktopFixedHeight?: number;
   /** Content rendered above the scroll area on desktop (sticky header). */
   stickyHeader?: ReactNode;
-  /** Content rendered below the scroll area. */
-  footer?: ReactNode;
   /** When true, selecting an option does not close the picker (multi-select mode). */
   keepOpenOnSelect?: boolean;
   anchorRef: React.RefObject<View | null>;
@@ -191,11 +175,11 @@ export function SearchInput({
   onChangeText,
   onSubmitEditing,
   autoFocus = false,
-  useBottomSheetInput: _useBottomSheetInput = false,
+  useBottomSheetInput = false,
   resetKey,
 }: SearchInputProps): ReactElement {
   const { theme } = useUnistyles();
-  const inputRef = useRef<EditingTextInputHandle>(null);
+  const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (autoFocus && IS_WEB && inputRef.current) {
@@ -209,18 +193,32 @@ export function SearchInput({
   return (
     <View style={styles.searchInputContainer}>
       <Search size={16} color={theme.colors.foregroundMuted} />
-      <AdaptiveTextInput
-        ref={inputRef}
-        // @ts-expect-error - outlineStyle is web-only
-        style={[styles.searchInput, IS_WEB && { outlineStyle: "none" }]}
-        placeholder={placeholder}
-        placeholderTextColor={theme.colors.foregroundMuted}
-        resetKey={resetKey}
-        onChangeText={onChangeText}
-        autoCapitalize="none"
-        autoCorrect={false}
-        onSubmitEditing={onSubmitEditing}
-      />
+      {useBottomSheetInput ? (
+        <AdaptiveTextInput
+          ref={inputRef}
+          // @ts-expect-error - outlineStyle is web-only
+          style={SEARCH_INPUT_STYLE}
+          placeholder={placeholder}
+          resetKey={resetKey}
+          onChangeText={onChangeText}
+          autoCapitalize="none"
+          autoCorrect={false}
+          onSubmitEditing={onSubmitEditing}
+        />
+      ) : (
+        <TextInput
+          key={resetKey}
+          ref={inputRef}
+          // @ts-expect-error - outlineStyle is web-only
+          style={SEARCH_INPUT_STYLE}
+          placeholder={placeholder}
+          placeholderTextColor={theme.colors.foregroundMuted}
+          onChangeText={onChangeText}
+          autoCapitalize="none"
+          autoCorrect={false}
+          onSubmitEditing={onSubmitEditing}
+        />
+      )}
     </View>
   );
 }
@@ -234,7 +232,6 @@ export interface ComboboxItemProps {
   selected?: boolean;
   active?: boolean;
   disabled?: boolean;
-  accessibilityLabel?: string;
   /** When true, bumps hover/pressed colors up one surface level (for items on elevated backgrounds). */
   elevated?: boolean;
   onPress: () => void;
@@ -250,7 +247,6 @@ export function ComboboxItem({
   selected,
   active,
   disabled,
-  accessibilityLabel,
   elevated,
   onPress,
   testID,
@@ -291,14 +287,7 @@ export function ComboboxItem({
   );
 
   return (
-    <Pressable
-      testID={testID}
-      disabled={disabled}
-      onPress={onPress}
-      style={itemPressableStyle}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? label}
-    >
+    <Pressable testID={testID} disabled={disabled} onPress={onPress} style={itemPressableStyle}>
       {leadingContent}
       <View style={itemContentStyle}>
         <Text numberOfLines={1} style={styles.comboboxItemLabel}>
@@ -869,31 +858,45 @@ function isDesktopKey(key: string): key is DesktopKey {
   return key === "ArrowDown" || key === "ArrowUp" || key === "Enter" || key === "Escape";
 }
 
-function dispatchDesktopKey(
-  input: DesktopKeyHandlerInput,
-  key: DesktopKey,
-  event?: KeyboardEvent,
-): boolean {
-  if (!input.isOpen) return false;
-  if (!IS_WEB && input.isMobile) return false;
+function useWebKeyboardListener(
+  isOpen: boolean,
+  handleDesktopKey: (key: DesktopKey, event?: KeyboardEvent) => void,
+) {
+  useEffect(() => {
+    if (!IS_WEB || !isOpen) return;
+
+    const handler = (event: KeyboardEvent) => {
+      if (!isDesktopKey(event.key)) return;
+      handleDesktopKey(event.key, event);
+    };
+
+    // react-native-web's TextInput can stop propagation on key events, so listen in capture phase.
+    window.addEventListener("keydown", handler, true);
+    return () => {
+      window.removeEventListener("keydown", handler, true);
+    };
+  }, [handleDesktopKey, isOpen]);
+}
+
+function dispatchDesktopKey(input: DesktopKeyHandlerInput, key: DesktopKey, event?: KeyboardEvent) {
+  if (!input.isOpen) return;
+  if (!IS_WEB && input.isMobile) return;
 
   if (key === "ArrowDown" || key === "ArrowUp") {
     event?.preventDefault();
     handleDesktopArrowKey(input, key);
-    return true;
+    return;
   }
   if (key === "Enter") {
-    if (input.orderedVisibleOptions.length === 0) return false;
+    if (input.orderedVisibleOptions.length === 0) return;
     event?.preventDefault();
     handleDesktopEnterKey(input);
-    return true;
+    return;
   }
   if (key === "Escape") {
     event?.preventDefault();
     input.handleClose();
-    return true;
   }
-  return false;
 }
 
 function resolveInitialActiveIndex(
@@ -925,11 +928,9 @@ interface MobileBodyProps {
   header: SheetHeader | undefined;
   onClose: () => void;
   stickyHeader: ReactNode;
-  footer: ReactNode;
   searchable: boolean;
   hasChildren: boolean;
   mobileChildrenScrollEnabled: boolean;
-  mobileChildrenContentContainerStyle: StyleProp<ViewStyle>;
   presentation?: "push" | "replace";
   searchResetKey: number;
   searchPlaceholder: string;
@@ -943,7 +944,6 @@ interface MobileBodyProps {
   handleSelect: (id: string) => void;
   renderOption: RenderOptionFn | undefined;
   children: ReactNode;
-  safeAreaBottom: number;
 }
 
 function MobileComboboxBody(props: MobileBodyProps): ReactElement {
@@ -963,10 +963,6 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
     () => [styles.comboboxTitle, { color: props.titleColor }],
     [props.titleColor],
   );
-  const frameStyle = useMemo(
-    () => [styles.mobileSheetFrame, { paddingBottom: props.safeAreaBottom }],
-    [props.safeAreaBottom],
-  );
 
   const body = props.hasChildren ? (
     props.children
@@ -984,7 +980,6 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
   return (
     <IsolatedBottomSheetModal
       ref={props.bottomSheetRef}
-      contextBridge={null}
       snapPoints={props.snapPoints}
       index={0}
       enableDynamicSizing={false}
@@ -998,62 +993,52 @@ function MobileComboboxBody(props: MobileBodyProps): ReactElement {
       keyboardBlurBehavior="none"
       presentation={props.presentation}
     >
-      <View style={frameStyle}>
-        {props.header ? (
-          <SheetHeaderView header={props.header} onClose={props.onClose} />
-        ) : (
-          <>
-            <View style={styles.bottomSheetHeader}>
-              <Text key={props.titleColor} style={comboboxTitleStyle}>
-                {props.title}
-              </Text>
-            </View>
-            {props.stickyHeader}
-            {!props.hasChildren && props.searchable ? (
-              <SearchInput
-                placeholder={props.searchPlaceholder}
-                onChangeText={props.setSearchQueryWithCallback}
-                onSubmitEditing={props.handleSubmitSearch}
-                autoFocus={false}
-                useBottomSheetInput
-                resetKey={props.searchResetKey}
-              />
-            ) : null}
-          </>
-        )}
-        {props.hasChildren && !props.mobileChildrenScrollEnabled ? (
-          body
-        ) : (
-          <BottomSheetScrollView
-            style={styles.mobileSheetBody}
-            contentContainerStyle={[
-              styles.comboboxScrollContent,
-              props.mobileChildrenContentContainerStyle,
-            ]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {body}
-          </BottomSheetScrollView>
-        )}
-        {props.footer ? <View style={styles.footer}>{props.footer}</View> : null}
-      </View>
+      {props.header ? (
+        <SheetHeaderView header={props.header} onClose={props.onClose} />
+      ) : (
+        <>
+          <View style={styles.bottomSheetHeader}>
+            <Text key={props.titleColor} style={comboboxTitleStyle}>
+              {props.title}
+            </Text>
+          </View>
+          {props.stickyHeader}
+          {!props.hasChildren && props.searchable ? (
+            <SearchInput
+              placeholder={props.searchPlaceholder}
+              onChangeText={props.setSearchQueryWithCallback}
+              onSubmitEditing={props.handleSubmitSearch}
+              autoFocus={false}
+              useBottomSheetInput
+              resetKey={props.searchResetKey}
+            />
+          ) : null}
+        </>
+      )}
+      {props.hasChildren && !props.mobileChildrenScrollEnabled ? (
+        body
+      ) : (
+        <BottomSheetScrollView
+          contentContainerStyle={styles.comboboxScrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {body}
+        </BottomSheetScrollView>
+      )}
     </IsolatedBottomSheetModal>
   );
 }
 
 interface DesktopBodyProps {
-  overlayLayer: number;
   isOpen: boolean;
   handleClose: () => void;
-  handleDesktopKey: (key: DesktopKey, event?: KeyboardEvent) => boolean;
   refs: ReturnType<typeof useFloating>["refs"];
   shouldUseDesktopFade: boolean;
   desktopFrameStyle: StyleProp<ViewStyle>;
   handleDesktopContentLayout: (event: LayoutChangeEvent) => void;
   header: SheetHeader | undefined;
   stickyHeader: ReactNode;
-  footer: ReactNode;
   searchable: boolean;
   searchPlaceholder: string;
   searchQuery: string;
@@ -1070,28 +1055,17 @@ interface DesktopBodyProps {
   handleSelect: (id: string) => void;
   renderOption: RenderOptionFn | undefined;
   hasChildren: boolean;
-  childrenScrollEnabled: boolean;
   children: ReactNode;
 }
 
 function DesktopComboboxChildrenBody(props: {
   header: SheetHeader | undefined;
   stickyHeader: ReactNode;
-  scrollEnabled: boolean;
   children: ReactNode;
 }): ReactElement {
-  const header = props.header ? <InlineHeaderView header={props.header} /> : props.stickyHeader;
-  if (!props.scrollEnabled) {
-    return (
-      <>
-        {header}
-        <View style={styles.desktopChildrenBody}>{props.children}</View>
-      </>
-    );
-  }
   return (
     <>
-      {header}
+      {props.header ? <InlineHeaderView header={props.header} /> : props.stickyHeader}
       <ScrollView
         contentContainerStyle={styles.desktopChildrenScrollContent}
         keyboardShouldPersistTaps="handled"
@@ -1172,38 +1146,14 @@ function DesktopComboboxOptionsBody(props: {
 }
 
 function DesktopComboboxBody(props: DesktopBodyProps): ReactElement {
-  const handleDesktopKey = props.handleDesktopKey;
-  const handleWebOverlayKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (!isDesktopKey(event.key)) return false;
-      return handleDesktopKey(event.key, event);
-    },
-    [handleDesktopKey],
-  );
-  const setWebOverlayScope = useWebOverlayRegistration({
-    active: isWeb && props.isOpen,
-    layer: props.overlayLayer,
-    onKeyDown: handleWebOverlayKeyDown,
-  });
-  const setFloatingRef = useCallback(
-    (node: View | null) => {
-      props.refs.setFloating(node);
-      setWebOverlayScope(node);
-    },
-    [props.refs, setWebOverlayScope],
-  );
-
-  const overlay = (
-    <OverlayLayerProvider layer={props.overlayLayer}>
-      <View
-        ref={props.refs.setOffsetParent}
-        collapsable={false}
-        style={[
-          styles.desktopOverlay,
-          isWeb ? styles.desktopOverlayWeb : null,
-          isWeb ? { zIndex: props.overlayLayer } : null,
-        ]}
-      >
+  return (
+    <Modal
+      transparent
+      animationType="none"
+      visible={props.isOpen}
+      onRequestClose={props.handleClose}
+    >
+      <View ref={props.refs.setOffsetParent} collapsable={false} style={styles.desktopOverlay}>
         <Pressable style={styles.desktopBackdrop} onPress={props.handleClose} />
         <FloatingSurface
           testID="combobox-desktop-container"
@@ -1211,19 +1161,12 @@ function DesktopComboboxBody(props: DesktopBodyProps): ReactElement {
           exiting={props.shouldUseDesktopFade ? FadeOut.duration(100) : undefined}
           style={styles.desktopContainer}
           frameStyle={props.desktopFrameStyle}
-          ref={setFloatingRef}
+          ref={props.refs.setFloating}
           collapsable={false}
-          role="dialog"
-          aria-modal
-          tabIndex={-1}
           onLayout={props.handleDesktopContentLayout}
         >
           {props.hasChildren ? (
-            <DesktopComboboxChildrenBody
-              header={props.header}
-              stickyHeader={props.stickyHeader}
-              scrollEnabled={props.childrenScrollEnabled}
-            >
+            <DesktopComboboxChildrenBody header={props.header} stickyHeader={props.stickyHeader}>
               {props.children}
             </DesktopComboboxChildrenBody>
           ) : (
@@ -1249,24 +1192,8 @@ function DesktopComboboxBody(props: DesktopBodyProps): ReactElement {
               renderOption={props.renderOption}
             />
           )}
-          {props.footer ? <View style={styles.footer}>{props.footer}</View> : null}
         </FloatingSurface>
       </View>
-    </OverlayLayerProvider>
-  );
-
-  if (isWeb && typeof document !== "undefined") {
-    return createPortal(overlay, getOverlayRoot());
-  }
-
-  return (
-    <Modal
-      transparent
-      animationType="none"
-      visible={props.isOpen}
-      onRequestClose={props.handleClose}
-    >
-      {overlay}
     </Modal>
   );
 }
@@ -1289,18 +1216,14 @@ export function Combobox({
   title,
   header,
   mobileChildrenScrollEnabled = true,
-  desktopChildrenScrollEnabled = true,
-  mobileChildrenContentContainerStyle,
   presentation,
   open,
   onOpenChange,
   desktopPlacement = "bottom-start",
   desktopPreventInitialFlash = true,
   desktopMinWidth,
-  desktopLockWidth,
   desktopFixedHeight,
   stickyHeader,
-  footer,
   keepOpenOnSelect = false,
   anchorRef,
   children,
@@ -1311,8 +1234,6 @@ export function Combobox({
   const resolvedEmptyText = emptyText ?? t("common.empty.noOptionsMatchSearch");
   const resolvedTitle = title ?? t("common.actions.select");
   const isMobile = useIsCompactFormFactor();
-  const floatingLayer = useOverlayLayer("floating");
-  const safeAreaInsets = useSafeAreaInsets();
   const titleColor = theme.colors.foreground;
   const effectiveOptionsPosition = resolveEffectiveOptionsPosition(isMobile, optionsPosition);
   const isDesktopAboveSearch = resolveIsDesktopAboveSearch(isMobile, effectiveOptionsPosition);
@@ -1517,7 +1438,7 @@ export function Combobox({
 
   const handleDesktopKey = useCallback(
     (key: DesktopKey, event?: KeyboardEvent) => {
-      return dispatchDesktopKey(
+      dispatchDesktopKey(
         {
           isOpen,
           isMobile,
@@ -1534,6 +1455,7 @@ export function Combobox({
     [activeIndex, handleClose, handleSelect, isMobile, isOpen, orderedVisibleOptions],
   );
 
+  useWebKeyboardListener(isOpen, handleDesktopKey);
   useDismissKeyboardOnOpen(isOpen, isMobile);
 
   const handleIndicatorStyle = useMemo(
@@ -1545,7 +1467,6 @@ export function Combobox({
     () =>
       buildDesktopFrameStyle({
         desktopMinWidth,
-        desktopLockWidth: Boolean(desktopLockWidth),
         referenceWidth,
         desktopFixedHeight,
         desktopPositionStyle,
@@ -1554,7 +1475,6 @@ export function Combobox({
       }),
     [
       desktopMinWidth,
-      desktopLockWidth,
       referenceWidth,
       desktopFixedHeight,
       desktopPositionStyle,
@@ -1584,11 +1504,9 @@ export function Combobox({
         header={header}
         onClose={handleClose}
         stickyHeader={stickyHeader}
-        footer={footer}
         searchable={searchable}
         hasChildren={hasChildren}
         mobileChildrenScrollEnabled={mobileChildrenScrollEnabled}
-        mobileChildrenContentContainerStyle={mobileChildrenContentContainerStyle}
         presentation={presentation}
         searchResetKey={searchResetKey}
         searchPlaceholder={effectiveSearchPlaceholder}
@@ -1601,7 +1519,6 @@ export function Combobox({
         emptyText={resolvedEmptyText}
         handleSelect={handleSelect}
         renderOption={renderOption}
-        safeAreaBottom={safeAreaInsets.bottom}
       >
         {children}
       </MobileComboboxBody>
@@ -1612,17 +1529,14 @@ export function Combobox({
 
   return (
     <DesktopComboboxBody
-      overlayLayer={floatingLayer}
       isOpen={isOpen}
       handleClose={handleClose}
-      handleDesktopKey={handleDesktopKey}
       refs={refs}
       shouldUseDesktopFade={shouldUseDesktopFade}
       desktopFrameStyle={desktopFrameStyle}
       handleDesktopContentLayout={handleDesktopContentLayout}
       header={header}
       stickyHeader={stickyHeader}
-      footer={footer}
       searchable={searchable}
       searchPlaceholder={effectiveSearchPlaceholder}
       searchQuery={searchQuery}
@@ -1639,7 +1553,6 @@ export function Combobox({
       handleSelect={handleSelect}
       renderOption={renderOption}
       hasChildren={hasChildren}
-      childrenScrollEnabled={desktopChildrenScrollEnabled}
     >
       {children}
     </DesktopComboboxBody>
@@ -1647,14 +1560,6 @@ export function Combobox({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  mobileSheetFrame: {
-    flex: 1,
-    minHeight: 0,
-  },
-  mobileSheetBody: {
-    flex: 1,
-    minHeight: 0,
-  },
   searchInputContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1669,7 +1574,7 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     paddingVertical: theme.spacing[3],
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
   comboboxItem: {
     flexDirection: "row",
@@ -1730,12 +1635,12 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
   },
   comboboxItemLabel: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.foreground,
     flexShrink: 0,
   },
   comboboxItemDescription: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
     color: theme.colors.foregroundMuted,
     flexShrink: 1,
   },
@@ -1743,18 +1648,14 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
-  },
-  footer: {
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    fontSize: theme.fontSize.sm,
   },
   bottomSheetHeader: {
     paddingHorizontal: theme.spacing[6],
     paddingBottom: theme.spacing[2],
   },
   comboboxTitle: {
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.lg,
     fontWeight: theme.fontWeight.medium,
     textAlign: "left",
   },
@@ -1765,10 +1666,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   desktopOverlay: {
     flex: 1,
-  },
-  desktopOverlayWeb: {
-    ...StyleSheet.absoluteFillObject,
-    pointerEvents: "auto" as const,
   },
   desktopBackdrop: {
     position: "absolute",
@@ -1796,12 +1693,10 @@ const styles = StyleSheet.create((theme) => ({
   desktopChildrenScrollContent: {
     // No padding — custom children (e.g. model selector) control their own spacing
   },
-  desktopChildrenBody: {
-    flex: 1,
-    minHeight: 0,
-  },
   desktopScrollContentAboveSearch: {
     flexGrow: 1,
     justifyContent: "flex-end",
   },
 }));
+
+const SEARCH_INPUT_STYLE = [styles.searchInput, IS_WEB && { outlineStyle: "none" }];

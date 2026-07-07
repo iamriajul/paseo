@@ -13,9 +13,9 @@ import { useStableEvent } from "@/hooks/use-stable-event";
 import {
   clearSidebarCallouts,
   createSidebarCalloutState,
-  DismissedCalloutKeysSchema,
   dismissSidebarCallout,
   loadDismissedCalloutKeys,
+  parseDismissedCalloutKeys,
   selectActiveSidebarCallout,
   serializeDismissedCalloutKeys,
   showSidebarCallout,
@@ -24,7 +24,6 @@ import {
   type SidebarCalloutState,
   unregisterSidebarCallout,
 } from "./sidebar-callout-state";
-import { readValidatedJson } from "@/storage/validated-storage";
 
 export type { SidebarCalloutOptions } from "./sidebar-callout-state";
 
@@ -63,12 +62,8 @@ export function SidebarCalloutProvider({ children }: { children: ReactNode }) {
     async function loadDismissedKeys(): Promise<void> {
       let dismissedKeys: ReadonlySet<string>;
       try {
-        const value = await readValidatedJson(
-          AsyncStorage,
-          DISMISSED_CALLOUTS_STORAGE_KEY,
-          DismissedCalloutKeysSchema,
-        );
-        dismissedKeys = new Set(value ?? []);
+        const value = await AsyncStorage.getItem(DISMISSED_CALLOUTS_STORAGE_KEY);
+        dismissedKeys = parseDismissedCalloutKeys(value);
       } catch (error) {
         console.error("[SidebarCallouts] Failed to load dismissed callouts", error);
         dismissedKeys = stateRef.current.dismissedKeys;

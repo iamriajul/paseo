@@ -1,28 +1,33 @@
-import type { ForgeService, PullRequestCheckoutTarget } from "../services/forge-service.js";
+import type { GitHubPullRequestCheckoutTarget, GitHubService } from "../services/github-service.js";
 import type { WorktreeSource } from "../utils/worktree.js";
 
 export type WorktreeCreationIntent = WorktreeSource;
 
-export interface ResolveWorktreeCreationIntentInput {
-  worktreeSlug?: string;
-  branchName?: string;
-  refName?: string;
-  action?: "branch-off" | "checkout";
-  checkoutSource?: {
-    kind: "change_request";
-    forge?: string;
-    number: number;
-    projectPath?: string;
-  };
-  /**
-   * COMPAT(githubPrNumber): added in v0.1.106, remove after 2026-12-28.
-   */
-  githubPrNumber?: number;
-}
+export type ResolveWorktreeCreationIntentInput =
+  | {
+      worktreeSlug: string;
+      branchName?: string;
+      refName?: string;
+      action?: "branch-off";
+      githubPrNumber?: undefined;
+    }
+  | {
+      worktreeSlug?: string;
+      branchName?: string;
+      refName?: string;
+      action: "checkout";
+      githubPrNumber?: number;
+    }
+  | {
+      worktreeSlug?: string;
+      branchName?: string;
+      refName?: string;
+      action?: undefined;
+      githubPrNumber: number;
+    };
 
 export interface ResolveWorktreeCreationIntentDeps {
-  forge: string;
-  forgeService: ForgeService;
+  github: GitHubService;
   resolveDefaultBranch: (repoRoot: string) => Promise<string>;
 }
 
@@ -30,32 +35,8 @@ export class MissingCheckoutTargetError extends Error {
   readonly action = "checkout";
 
   constructor() {
-    super('action "checkout" requires refName or checkoutSource');
+    super('action "checkout" requires refName or githubPrNumber');
     this.name = "MissingCheckoutTargetError";
-  }
-}
-
-export class UnsupportedForgeCheckoutTargetError extends Error {
-  readonly forge: string;
-
-  constructor(forge: string) {
-    super(`Checkout from change request is not supported for ${forge} yet`);
-    this.name = "UnsupportedForgeCheckoutTargetError";
-    this.forge = forge;
-  }
-}
-
-export class CheckoutSourceForgeMismatchError extends Error {
-  readonly checkoutSourceForge: string;
-  readonly workspaceForge: string;
-
-  constructor(params: { checkoutSourceForge: string; workspaceForge: string }) {
-    super(
-      `Checkout source is for ${params.checkoutSourceForge}, but this workspace resolved to ${params.workspaceForge}`,
-    );
-    this.name = "CheckoutSourceForgeMismatchError";
-    this.checkoutSourceForge = params.checkoutSourceForge;
-    this.workspaceForge = params.workspaceForge;
   }
 }
 
@@ -68,17 +49,15 @@ export async function resolveWorktreeCreationIntent(
     return {
       kind: "branch-off",
       baseBranch: input.refName?.trim() || (await resolveDefaultBranch(repoRoot, deps)),
-      branchName: input.branchName ?? input.worktreeSlug ?? "worktree",
+      branchName: input.branchName ?? input.worktreeSlug,
     };
   }
 
   if (input.action === "checkout") {
-    const changeRequest = resolveInputChangeRequest(input);
-    if (changeRequest) {
-      assertCheckoutSourceMatchesResolvedForge(changeRequest, deps);
-      return resolvePrCheckoutIntent({
+    if (input.githubPrNumber !== undefined) {
+      return resolveGitHubPrCheckoutIntent({
         refName: input.refName,
-        changeRequestNumber: changeRequest.number,
+        githubPrNumber: input.githubPrNumber,
         repoRoot,
         deps,
       });
@@ -95,12 +74,10 @@ export async function resolveWorktreeCreationIntent(
     throw new MissingCheckoutTargetError();
   }
 
-  const changeRequest = resolveInputChangeRequest(input);
-  if (changeRequest) {
-    assertCheckoutSourceMatchesResolvedForge(changeRequest, deps);
-    return resolvePrCheckoutIntent({
+  if (input.githubPrNumber !== undefined) {
+    return resolveGitHubPrCheckoutIntent({
       refName: input.refName,
-      changeRequestNumber: changeRequest.number,
+      githubPrNumber: input.githubPrNumber,
       repoRoot,
       deps,
     });
@@ -110,115 +87,62 @@ export async function resolveWorktreeCreationIntent(
     return {
       kind: "branch-off",
       baseBranch: input.refName.trim(),
-      branchName: input.branchName ?? input.worktreeSlug ?? "worktree",
+      branchName: input.branchName ?? input.worktreeSlug,
     };
   }
 
   return {
     kind: "branch-off",
     baseBranch: await resolveDefaultBranch(repoRoot, deps),
-    branchName: input.branchName ?? input.worktreeSlug ?? "worktree",
+    branchName: input.branchName ?? input.worktreeSlug,
   };
 }
 
-interface PrCheckoutIntentParams {
+async function resolveGitHubPrCheckoutIntent(params: {
   refName?: string;
-  changeRequestNumber: number;
+  githubPrNumber: number;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
-}
-
-function resolveInputChangeRequest(
-  input: ResolveWorktreeCreationIntentInput,
-): { number: number; forge?: string; projectPath?: string } | null {
-  if (input.checkoutSource) {
-    return {
-      number: input.checkoutSource.number,
-      ...(input.checkoutSource.forge ? { forge: input.checkoutSource.forge } : {}),
-      ...(input.checkoutSource.projectPath
-        ? { projectPath: input.checkoutSource.projectPath }
-        : {}),
-    };
-  }
-  if (input.githubPrNumber !== undefined) {
-    return { number: input.githubPrNumber };
-  }
-  return null;
-}
-
-function assertCheckoutSourceMatchesResolvedForge(
-  source: { forge?: string },
-  deps: ResolveWorktreeCreationIntentDeps,
-): void {
-  if (source.forge && source.forge !== deps.forge) {
-    throw new CheckoutSourceForgeMismatchError({
-      checkoutSourceForge: source.forge,
-      workspaceForge: deps.forge,
-    });
-  }
-}
-
-async function resolvePrCheckoutIntent(
-  params: PrCheckoutIntentParams,
-): Promise<Extract<WorktreeCreationIntent, { kind: "checkout-change-request" }>> {
-  const { deps } = params;
-  const service = deps.forgeService;
-  const checkoutTarget = await resolvePrCheckoutTarget(params);
-  const headRef = await resolvePrHeadRef({
+}): Promise<Extract<WorktreeCreationIntent, { kind: "checkout-github-pr" }>> {
+  const checkoutTarget = await resolveGitHubPrCheckoutTarget(params);
+  const headRef = await resolveGitHubPrHeadRef({
     refName: params.refName,
-    changeRequestNumber: params.changeRequestNumber,
+    githubPrNumber: params.githubPrNumber,
     checkoutTarget,
     repoRoot: params.repoRoot,
-    deps,
+    deps: params.deps,
   });
-
-  const canCrossRepo =
-    hasCheckoutRefs(checkoutTarget) || service.supportsCrossRepoCheckoutWithoutRefs === true;
-  if (checkoutTarget.isCrossRepository && !canCrossRepo) {
-    throw new UnsupportedForgeCheckoutTargetError(deps.forge);
-  }
-
   const baseRefName =
-    checkoutTarget.baseRefName.trim() || (await resolveDefaultBranch(params.repoRoot, deps));
-  const defaultRefs = service.defaultCheckoutRefs?.({
-    changeRequestNumber: params.changeRequestNumber,
-    headRef,
-  }) ?? [{ remoteName: "origin", remoteRef: `refs/heads/${headRef}` }];
-  const localBranchName = service.buildPrLocalBranchName?.({ headRef, checkoutTarget });
-  const headRepositoryOwner = checkoutTarget.isCrossRepository
-    ? checkoutTarget.headOwnerLogin?.trim() || undefined
-    : undefined;
-  const pushRemoteUrl = checkoutTarget.isCrossRepository
+    checkoutTarget?.baseRefName?.trim() ||
+    (await resolveDefaultBranch(params.repoRoot, params.deps));
+  const localBranchName = buildGitHubPrLocalBranchName({ headRef, checkoutTarget });
+  const pushRemoteUrl = checkoutTarget?.isCrossRepository
     ? checkoutTarget.headRepositorySshUrl || checkoutTarget.headRepositoryUrl || undefined
     : undefined;
-  const trackOriginHead = !checkoutTarget.isCrossRepository;
+  const trackOriginHead = checkoutTarget ? !checkoutTarget.isCrossRepository : false;
 
   return {
-    kind: "checkout-change-request",
-    forge: deps.forge,
-    changeRequestNumber: params.changeRequestNumber,
+    kind: "checkout-github-pr",
+    githubPrNumber: params.githubPrNumber,
     headRef,
-    ...(headRepositoryOwner ? { headRepositoryOwner } : {}),
     baseRefName,
-    checkoutRefs: checkoutTarget.checkoutRefs ?? defaultRefs,
-    ...(localBranchName && localBranchName !== headRef ? { localBranchName } : {}),
+    ...(localBranchName !== headRef ? { localBranchName } : {}),
     ...(pushRemoteUrl ? { pushRemoteUrl } : {}),
     ...(trackOriginHead ? { trackOriginHead } : {}),
   };
 }
 
-function hasCheckoutRefs(target: PullRequestCheckoutTarget): boolean {
-  return Array.isArray(target.checkoutRefs) && target.checkoutRefs.length > 0;
-}
-
-async function resolvePrCheckoutTarget(params: {
-  changeRequestNumber: number;
+async function resolveGitHubPrCheckoutTarget(params: {
+  githubPrNumber: number;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
-}): Promise<PullRequestCheckoutTarget> {
-  return params.deps.forgeService.getPullRequestCheckoutTarget({
+}): Promise<GitHubPullRequestCheckoutTarget | null> {
+  if (!params.deps.github.getPullRequestCheckoutTarget) {
+    return null;
+  }
+  return params.deps.github.getPullRequestCheckoutTarget({
     cwd: params.repoRoot,
-    number: params.changeRequestNumber,
+    number: params.githubPrNumber,
   });
 }
 
@@ -233,10 +157,10 @@ async function resolveDefaultBranch(
   return baseBranch;
 }
 
-async function resolvePrHeadRef(params: {
+async function resolveGitHubPrHeadRef(params: {
   refName?: string;
-  changeRequestNumber: number;
-  checkoutTarget: PullRequestCheckoutTarget;
+  githubPrNumber: number;
+  checkoutTarget?: GitHubPullRequestCheckoutTarget | null;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
 }): Promise<string> {
@@ -244,12 +168,27 @@ async function resolvePrHeadRef(params: {
   if (trimmedRefName) {
     return trimmedRefName;
   }
-  const checkoutTargetHeadRef = params.checkoutTarget.headRefName.trim();
+  const checkoutTargetHeadRef = params.checkoutTarget?.headRefName.trim();
   if (checkoutTargetHeadRef) {
     return checkoutTargetHeadRef;
   }
-  return params.deps.forgeService.getPullRequestHeadRef({
+  return params.deps.github.getPullRequestHeadRef({
     cwd: params.repoRoot,
-    number: params.changeRequestNumber,
+    number: params.githubPrNumber,
   });
+}
+
+function buildGitHubPrLocalBranchName(params: {
+  headRef: string;
+  checkoutTarget: GitHubPullRequestCheckoutTarget | null;
+}): string {
+  const owner = params.checkoutTarget?.isCrossRepository
+    ? normalizeGitHubOwnerForBranch(params.checkoutTarget.headOwnerLogin)
+    : null;
+  return owner ? `${owner}/${params.headRef}` : params.headRef;
+}
+
+function normalizeGitHubOwnerForBranch(owner: string | null): string | null {
+  const normalized = owner?.trim().toLowerCase() ?? "";
+  return /^[a-z0-9-]+$/.test(normalized) ? normalized : null;
 }

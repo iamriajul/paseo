@@ -4,7 +4,6 @@ import { Pressable, Text, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { QrCode, Link2, ClipboardPaste } from "lucide-react-native";
 import { AdaptiveModalSheet, type SheetHeader } from "./adaptive-modal-sheet";
-import { isFdroidBuild } from "@/constants/build-profile";
 import { isNative } from "@/constants/platform";
 
 const styles = StyleSheet.create((theme) => ({
@@ -25,7 +24,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   optionSubtext: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     marginTop: theme.spacing[1],
   },
   optionBody: {
@@ -87,7 +86,7 @@ export function AddHostMethodModal({
         </View>
       </Pressable>
 
-      {isNative && !isFdroidBuild ? (
+      {isNative ? (
         <Pressable
           style={styles.option}
           onPress={handleScan}

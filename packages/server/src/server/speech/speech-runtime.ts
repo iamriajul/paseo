@@ -350,7 +350,7 @@ export interface SpeechService {
   getReadiness: () => SpeechReadinessSnapshot;
   onReadinessChange: (listener: (snapshot: SpeechReadinessSnapshot) => void) => () => void;
   start: () => void;
-  stop: () => Promise<void>;
+  stop: () => void;
   ready: Promise<void>;
 }
 
@@ -394,8 +394,6 @@ export function createSpeechService(params: {
 
   let missingLocalModelIds: LocalSpeechModelId[] = [];
   let backgroundDownloadInProgress = false;
-  let backgroundDownloadAbortController: AbortController | null = null;
-  let backgroundDownloadPromise: Promise<void> | null = null;
   let backgroundDownloadError: string | null = null;
   let stopped = false;
   let monitorTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -611,15 +609,12 @@ export function createSpeechService(params: {
       "Starting background download for missing local speech models",
     );
 
-    const abortController = new AbortController();
-    backgroundDownloadAbortController = abortController;
-    backgroundDownloadPromise = (async () => {
+    void (async () => {
       try {
         await ensureLocalSpeechModels({
           modelsDir,
           modelIds,
           logger,
-          signal: abortController.signal,
         });
         await runReconcile();
         backgroundDownloadError = null;
@@ -634,7 +629,6 @@ export function createSpeechService(params: {
           "Background local speech model download failed",
         );
       } finally {
-        backgroundDownloadAbortController = null;
         backgroundDownloadInProgress = false;
         await refreshMissingLocalModels().catch((error) => {
           logger.warn({ err: error }, "Failed to refresh local speech model status after download");
@@ -705,16 +699,13 @@ export function createSpeechService(params: {
     })();
   };
 
-  const stop = async (): Promise<void> => {
+  const stop = (): void => {
     stopped = true;
     if (monitorTimeout) {
       clearTimeout(monitorTimeout);
       monitorTimeout = null;
     }
     localCleanup();
-    backgroundDownloadAbortController?.abort();
-    await backgroundDownloadPromise?.catch(() => undefined);
-    backgroundDownloadPromise = null;
   };
 
   return {

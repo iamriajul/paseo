@@ -15,7 +15,6 @@ import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/com
 import { getProviderIcon } from "@/components/provider-icons";
 import { formatTimeAgo } from "@/utils/time";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
-import { useHostFeature } from "@/runtime/host-features";
 import { i18n } from "@/i18n/i18next";
 import {
   aggregateSessionEntries,
@@ -27,7 +26,6 @@ import {
   getSessionTitle,
   PER_PROVIDER_LIMIT,
   resolveProvidersToFetch,
-  requiresImportSessionsHostUpgrade,
   sumFilteredAlreadyImportedCount,
 } from "@/components/import-session-sheet-view-model";
 
@@ -46,7 +44,6 @@ interface ImportSessionSheetProps {
   client: RecentProviderSessionsClient | null;
   serverId: string | null;
   cwd?: string | null;
-  workspaceId?: string | null;
   onClose: () => void;
   onImportedAgent?: (agentId: string) => void;
   onImported?: (agent: ImportedAgent) => void;
@@ -263,7 +260,6 @@ export function ImportSessionSheet({
   client,
   serverId,
   cwd,
-  workspaceId,
   onClose,
   onImportedAgent,
   onImported,
@@ -276,16 +272,10 @@ export function ImportSessionSheet({
     cwd,
     enabled: visible,
   });
-  const supportsWorkspaceTarget = useHostFeature(serverId, "importSessionWorkspaceTarget");
-  const requiresHostUpgrade = requiresImportSessionsHostUpgrade({
-    supportsSnapshot,
-    workspaceId,
-    supportsWorkspaceTarget,
-  });
 
   const providersToFetch = useMemo(
-    () => (requiresHostUpgrade ? null : resolveProvidersToFetch(supportsSnapshot, snapshotEntries)),
-    [requiresHostUpgrade, supportsSnapshot, snapshotEntries],
+    () => resolveProvidersToFetch(supportsSnapshot, snapshotEntries),
+    [supportsSnapshot, snapshotEntries],
   );
 
   const providerLabelById = useMemo(
@@ -418,7 +408,6 @@ export function ImportSessionSheet({
         providerId: entry.providerId,
         providerHandleId: entry.providerHandleId,
         cwd: entry.cwd,
-        ...(workspaceId ? { workspaceId } : {}),
       });
       return agent;
     },
@@ -461,7 +450,7 @@ export function ImportSessionSheet({
     [isRefreshing, handleRefresh, t],
   );
 
-  const isSnapshotUnsupported = requiresHostUpgrade;
+  const isSnapshotUnsupported = !supportsSnapshot;
   const isWaitingForSnapshot = supportsSnapshot && snapshotEntries === undefined;
   const hasNoImportableProviders = providersToFetch !== null && providersToFetch.length === 0;
   const isQueryingProviders = queries.length > 0;
@@ -583,7 +572,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   filterTriggerText: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
   },
   list: {
@@ -629,16 +618,16 @@ const styles = StyleSheet.create((theme) => ({
   },
   rowMeta: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   rowPreview: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
   rowCwd: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   statusRow: {
     flexDirection: "row",
@@ -648,7 +637,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   statusText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
   emptyState: {
     alignItems: "center",

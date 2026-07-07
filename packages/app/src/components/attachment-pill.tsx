@@ -174,11 +174,11 @@ const styles = StyleSheet.create((theme) => ({
   },
   labelTitle: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.sm,
   },
   labelSubtitle: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.xs,
   },
   thumbnail: {
     width: ATTACHMENT_CONTENT_HEIGHT,

@@ -9,7 +9,6 @@ import {
   getPromptPreview,
   getSessionTitle,
   resolveProvidersToFetch,
-  requiresImportSessionsHostUpgrade,
   type SessionsQueryResult,
   sumFilteredAlreadyImportedCount,
 } from "@/components/import-session-sheet-view-model";
@@ -68,35 +67,6 @@ describe("resolveProvidersToFetch", () => {
       { provider: "z-ai", enabled: false },
     ]);
     expect(providers).toEqual([]);
-  });
-});
-
-describe("requiresImportSessionsHostUpgrade", () => {
-  it("allows home imports on hosts without workspace targeting", () => {
-    expect(
-      requiresImportSessionsHostUpgrade({
-        supportsSnapshot: true,
-        workspaceId: null,
-        supportsWorkspaceTarget: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("requires host support for imports opened from a workspace", () => {
-    expect(
-      requiresImportSessionsHostUpgrade({
-        supportsSnapshot: true,
-        workspaceId: "ws-current",
-        supportsWorkspaceTarget: false,
-      }),
-    ).toBe(true);
-    expect(
-      requiresImportSessionsHostUpgrade({
-        supportsSnapshot: true,
-        workspaceId: "ws-current",
-        supportsWorkspaceTarget: true,
-      }),
-    ).toBe(false);
   });
 });
 

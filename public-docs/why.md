@@ -37,8 +37,7 @@ Paseo is a self-hostable platform for running and orchestrating coding agents. I
 ## Automation
 
 - The CLI exposes the same surface as the app. Anything in the UI is scriptable.
-- [Paseo tools](/docs/orchestration). Agents can drive Paseo themselves: create isolated workspaces, spawn subagents, open terminals, and send prompts.
-- [Hub](/docs/hub). A service you host that starts agents on your daemon when someone mentions you on GitHub, Slack, or Discord.
+- MCP server. Agents can drive Paseo themselves: create worktrees, spawn other agents, open terminals, send prompts.
 
 ## What it isn't
 

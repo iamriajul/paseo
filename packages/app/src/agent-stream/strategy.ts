@@ -1,7 +1,6 @@
 import type { ComponentType, ReactElement, ReactNode, RefObject } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 import type { StreamItem } from "@/types/stream";
-import { continuesResponse } from "./turn-membership";
 import type { StreamHistoryBoundary, StreamRenderSegments } from "./model";
 import type {
   BottomAnchorLocalRequest,
@@ -43,7 +42,6 @@ export interface StreamEdgeSlotProps {
 export interface StreamViewportHandle {
   scrollToBottom: (reason?: BottomAnchorLocalRequest["reason"]) => void;
   prepareForViewportChange: () => void;
-  scrollToMessage?: (itemId: string) => void;
 }
 
 export interface StreamSegmentRenderers {
@@ -53,17 +51,9 @@ export interface StreamSegmentRenderers {
   renderLiveAuxiliary: () => ReactNode;
 }
 
-export interface StreamHistoryRowRevision {
-  contentById: { has(id: string): boolean };
-  displayStateById: { has(id: string): boolean };
-  globalDisplayState: boolean;
-}
-
 export interface StreamRenderInput {
   agentId: string;
   segments: StreamRenderSegments;
-  historyRowRevision?: StreamHistoryRowRevision;
-  liveHeadRowRevision?: unknown;
   boundary: StreamHistoryBoundary;
   renderers: StreamSegmentRenderers;
   listEmptyComponent: ReactNode;
@@ -71,13 +61,9 @@ export interface StreamRenderInput {
   routeBottomAnchorRequest: BottomAnchorRouteRequest | null;
   isAuthoritativeHistoryReady: boolean;
   onNearBottomChange: (value: boolean) => void;
-  // The history row under the top of the viewport, for surfaces that mark where the reader
-  // is in the transcript. Only the web viewport measures it today.
-  onReadingPositionChange?: (rowId: string | null) => void;
-  onNearHistoryStart: () => boolean | Promise<boolean>;
+  onNearHistoryStart: () => void;
   isLoadingOlderHistory: boolean;
   hasOlderHistory: boolean;
-  olderHistoryProgressKey: string | null;
   scrollEnabled: boolean;
   listStyle: StyleProp<ViewStyle>;
   baseListContentContainerStyle: StyleProp<ViewStyle>;
@@ -99,7 +85,7 @@ export interface StreamStrategy {
     index: number,
     relation: NeighborRelation,
   ) => StreamItem | undefined;
-  collectAssistantResponseContent: (items: StreamItem[], startIndex: number) => string;
+  collectAssistantTurnContent: (items: StreamItem[], startIndex: number) => string;
   isNearBottom: (input: StreamNearBottomInput) => boolean;
   getBottomOffset: (metrics: StreamViewportMetrics) => number;
   getEdgeSlotProps: (
@@ -164,22 +150,20 @@ export function createStreamStrategy(config: StreamStrategyConfig): StreamStrate
       }
       return items[neighborIndex];
     },
-    collectAssistantResponseContent: (items, startIndex) => {
+    collectAssistantTurnContent: (items, startIndex) => {
       const messages: string[] = [];
-      let laterItem: StreamItem | null = null;
       for (
         let index = startIndex;
         index >= 0 && index < items.length;
         index += config.assistantTurnTraversalStep
       ) {
         const currentItem = items[index];
-        if (!currentItem || (laterItem && !continuesResponse(currentItem, laterItem))) {
+        if (currentItem.kind === "user_message") {
           break;
         }
         if (currentItem.kind === "assistant_message") {
           messages.push(currentItem.text);
         }
-        laterItem = currentItem;
       }
       return messages.toReversed().join("\n\n");
     },
@@ -276,12 +260,12 @@ export function getStreamNeighborItem(params: {
   return params.strategy.getNeighborItem(params.items, params.index, params.relation);
 }
 
-export function collectAssistantResponseContentForStreamRenderStrategy(params: {
+export function collectAssistantTurnContentForStreamRenderStrategy(params: {
   strategy: StreamStrategy;
   items: StreamItem[];
   startIndex: number;
 }): string {
-  return params.strategy.collectAssistantResponseContent(params.items, params.startIndex);
+  return params.strategy.collectAssistantTurnContent(params.items, params.startIndex);
 }
 
 export function isNearBottomForStreamRenderStrategy(

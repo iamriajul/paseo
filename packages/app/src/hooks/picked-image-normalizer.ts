@@ -2,7 +2,7 @@ export type PickedImageSource = { kind: "file_uri"; uri: string } | { kind: "blo
 
 export interface PickedImageAttachmentInput {
   source: PickedImageSource;
-  mimeType: string;
+  mimeType?: string | null;
   fileName?: string | null;
 }
 
@@ -62,15 +62,13 @@ function pickedAssetSupportedFormat(
   asset: ExpoImagePickerAssetLike,
 ): SupportedPickedImageFormat | null {
   const uriExtension = extensionFromPath(asset.uri);
-  const uriFormat = supportedFormatForExtension(uriExtension);
-  if (uriExtension && !uriFormat) {
-    return null;
+  if (uriExtension) {
+    return supportedFormatForExtension(uriExtension);
   }
 
   return (
-    supportedFormatForMimeType(asset.mimeType) ??
     supportedFormatForExtension(extensionFromPath(asset.fileName)) ??
-    uriFormat
+    supportedFormatForMimeType(asset.mimeType)
   );
 }
 

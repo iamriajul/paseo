@@ -93,7 +93,7 @@ vi.mock("react-native-unistyles", () => ({
     create: (factory: unknown) => (typeof factory === "function" ? factory(theme) : factory),
   },
   withUnistyles: <T,>(component: T) => component,
-  useUnistyles: () => ({ theme, rt: { breakpoint: "md" } }),
+  useUnistyles: () => ({ theme }),
 }));
 
 vi.mock("@/constants/platform", () => ({
@@ -270,16 +270,7 @@ describe("git diff inline review helpers", () => {
 
     expect(rowState?.left).toBeNull();
     expect(rowState?.right?.comments).toEqual([rightComment]);
-    expect(rowState?.height).toBe(226);
-  });
-
-  it("includes thread padding in the inline editor height", () => {
-    const reviewTarget = target();
-    const actions = buildReviewActions({
-      editor: { target: reviewTarget, commentId: null, body: "" },
-    });
-
-    expect(getInlineReviewThreadState({ reviewTarget, reviewActions: actions })?.height).toBe(148);
+    expect(rowState?.height).toBe(210);
   });
 
   it("pins no-wrap review threads to the visible diff viewport", () => {
@@ -421,13 +412,13 @@ describe("InlineReviewEditor", () => {
     expect(onSave).toHaveBeenCalledWith("ready");
   });
 
-  it("does not show shortcut hints in the action buttons", () => {
+  it("shows shared shortcut hints while focused on a fine-pointer screen", () => {
     window.matchMedia = vi.fn().mockReturnValue({
       matches: true,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     });
-    const { getByTestId, queryByText } = render(
+    const { getByTestId, getByText, queryByText } = render(
       <InlineReviewEditor
         initialBody="ready"
         onCancel={vi.fn()}
@@ -437,9 +428,11 @@ describe("InlineReviewEditor", () => {
     );
     const input = getByTestId("editor-input");
 
-    fireEvent.focus(input);
+    expect(getByText("Esc")).toBeTruthy();
+    expect(getByText(/(?:⌘⏎|Ctrl\+⏎)/)).toBeTruthy();
+
+    fireEvent.blur(input);
     expect(queryByText("Esc")).toBeNull();
-    expect(queryByText(/(?:⌘⏎|Ctrl\+⏎)/)).toBeNull();
   });
 });
 

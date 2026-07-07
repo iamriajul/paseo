@@ -171,9 +171,6 @@ function collectPaneBounds(
   bounds: { left: number; top: number; right: number; bottom: number },
 ): PaneBounds[] {
   if (node.kind === "pane") {
-    if (node.pane.hidden === true) {
-      return [];
-    }
     return [
       {
         paneId: node.pane.id,

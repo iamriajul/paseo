@@ -21,6 +21,7 @@ env:
 
 jobs:
   publish-android-apk:
+    if: ${{ github.repository_owner == 'getpaseo' || startsWith(github.ref_name, 'android-v') }}
     permissions:
       contents: write
       packages: read

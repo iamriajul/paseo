@@ -74,8 +74,11 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
       ipcRenderer.invoke("paseo:menu:showContextMenu", input),
   },
   browser: {
-    registerWorkspaceBrowser: (input: { browserId: string; workspaceId: string }) =>
-      ipcRenderer.invoke("paseo:browser:register-workspace-browser", input),
+    registerWorkspaceBrowser: (input: {
+      browserId: string;
+      serverId: string;
+      workspaceId: string;
+    }) => ipcRenderer.invoke("paseo:browser:register-workspace-browser", input),
     unregisterWorkspaceBrowser: (browserId: string) =>
       ipcRenderer.invoke("paseo:browser:unregister-workspace-browser", browserId),
     setWorkspaceActiveBrowser: (input: { workspaceId: string; browserId: string | null }) =>
@@ -92,5 +95,14 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
     ) => ipcRenderer.invoke("paseo:browser:capture-element", browserId, rect),
     copyElement: (payload: { text?: string; imageDataUrl?: string }) =>
       ipcRenderer.invoke("paseo:browser:copy-element", payload),
+    sendLoopbackTunnelOpenResult: (payload: {
+      tunnelId: string;
+      ok: boolean;
+      reason?: string | null;
+    }) => ipcRenderer.send("paseo:browser:loopback-tunnel-open-result", payload),
+    sendLoopbackTunnelData: (payload: { tunnelId: string; binaryBase64: string }) =>
+      ipcRenderer.send("paseo:browser:loopback-tunnel-data", payload),
+    sendLoopbackTunnelClose: (payload: { tunnelId: string; reason?: string | null }) =>
+      ipcRenderer.send("paseo:browser:loopback-tunnel-close", payload),
   },
 });

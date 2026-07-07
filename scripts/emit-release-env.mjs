@@ -1,4 +1,7 @@
-import { getReleaseInfoFromSourceTag } from "./release-version-utils.mjs";
+import {
+  computeAndroidVersionCode,
+  getReleaseInfoFromSourceTag,
+} from "./release-version-utils.mjs";
 
 function usageAndExit(code = 1) {
   process.stderr.write(`Usage: node scripts/emit-release-env.mjs --source-tag <tag>\n`);
@@ -30,6 +33,7 @@ function parseArgs(argv) {
 
 const sourceTag = parseArgs(process.argv.slice(2));
 const info = getReleaseInfoFromSourceTag(sourceTag);
+const androidVersionCode = String(computeAndroidVersionCode(info.version));
 
 const entries = [
   ["SOURCE_TAG", info.sourceTag],
@@ -42,6 +46,8 @@ const entries = [
   ["RELEASE_TYPE", info.releaseType],
   ["RELEASE_CHANNEL", info.releaseChannel],
   ["DESKTOP_VERSION", info.version],
+  ["ANDROID_VERSION_CODE", androidVersionCode],
+  ["PASEO_ANDROID_VERSION_CODE", androidVersionCode],
   ["IS_SMOKE_TAG", info.isSmokeTag ? "true" : "false"],
 ];
 

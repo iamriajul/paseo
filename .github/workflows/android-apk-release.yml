@@ -244,19 +244,44 @@ jobs:
           chmod 600 "$keystore_path"
           echo "PASEO_ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
 
-      - name: Build signed fork APK locally
+      - name: Build app dependencies
+        timeout-minutes: 15
         shell: bash
         run: |
           set -euo pipefail
 
           npm run build:app-deps
+
+      - name: Build terminal webview
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+
           npm run build:terminal-webview --workspace=@getpaseo/app
+
+      - name: Generate Android project
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
 
           cd packages/app
           CI=1 APP_VARIANT=production npx expo prebuild --platform android --non-interactive
-          cd ../..
+
+      - name: Configure Android release signing
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
 
           node scripts/configure-android-release-signing.mjs
+
+      - name: Assemble signed fork APK locally
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          set -euo pipefail
 
           cd packages/app/android
           chmod +x ./gradlew

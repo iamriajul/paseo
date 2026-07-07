@@ -69,12 +69,16 @@ Beta tags like `v0.1.1-beta.1` only trigger the GitHub APK workflow. They publis
 
 `android-v*` tags also trigger only the GitHub APK workflow — useful when you want to ship an APK without going through stores. The GitHub APK workflow supports `workflow_dispatch` with an existing `tag` input so you can rebuild without cutting a new tag.
 
-In forks, `.github/workflows/android-apk-release.yml` does not use Expo Cloud. It runs `expo prebuild` in GitHub Actions, patches the generated Gradle project to use release signing, builds `:app:assembleRelease`, and uploads a signed APK. Required fork secrets:
+In forks, `.github/workflows/android-apk-release.yml` does not use Expo Cloud. It runs `expo prebuild` in GitHub Actions, patches the generated Gradle project to use release signing, builds `:app:assembleRelease`, and uploads a signed APK. Configure these fork secrets for secure signing:
 
 - `ANDROID_KEYSTORE_BASE64`
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
+
+If none of those secrets are configured, fork builds use the committed public insecure fallback key at `scripts/android-insecure-fallback-upload-keystore.jks.base64`. The fallback key uses alias/password `paseo-insecure-fallback`, and its SHA-256 certificate fingerprint is `E9:41:27:CD:30:09:3A:47:53:C9:30:0A:C8:CB:B5:5D:84:88:30:14:1B:8B:F5:EC:A0:52:ED:42:8E:89:7B:BE`. Fallback APK release assets include `INSECURE-PUBLIC-FALLBACK-KEY` in the APK filename and upload a warning text file beside the APK. Use this path only for easy fork testing; anyone with the repo can sign an APK with the same fallback key.
+
+If only some Android signing secrets are configured, the workflow fails so a partially configured secure signing setup is not silently downgraded.
 
 Fork APKs derive `PASEO_ANDROID_VERSION_CODE` from the release tag so future APKs with the same package ID can update in place.
 

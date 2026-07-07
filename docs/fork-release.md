@@ -97,7 +97,7 @@ The CLI tarball keeps the package name `@getpaseo/cli`, but its internal `@getpa
 
 ## Android APKs
 
-Fork Android APKs are built locally in GitHub Actions, not on Expo Cloud. The workflow runs `expo prebuild`, applies the fork app identity, signs the generated Gradle release build with your keystore, and uploads:
+Fork Android APKs are built locally in GitHub Actions, not on Expo Cloud. The workflow runs `expo prebuild`, applies the fork app identity, signs the generated Gradle release build, and uploads:
 
 ```text
 paseo-vX.Y.Z-android-<fork-suffix>.apk
@@ -112,7 +112,7 @@ For `iamriajul/paseo`, the APK defaults to:
 | URL scheme | `paseo-iamriajul`     |
 | Updates    | Upstream EAS disabled |
 
-Configure these repository secrets once:
+Configure these repository secrets once for a secure, stable signing key:
 
 | Secret                      | Value                                  |
 | --------------------------- | -------------------------------------- |
@@ -121,7 +121,16 @@ Configure these repository secrets once:
 | `ANDROID_KEY_ALIAS`         | Keystore alias, usually `paseo-upload` |
 | `ANDROID_KEY_PASSWORD`      | Key password                           |
 
-Generic `vX.Y.Z` fork tags now publish the Android APK when those secrets are present. You can also dispatch `.github/workflows/android-apk-release.yml` with `tag` plus optional `checkout_ref` to rebuild a release from a branch without moving the tag.
+If all four secrets are missing, the workflow still publishes an APK using the committed public insecure fallback key at `scripts/android-insecure-fallback-upload-keystore.jks.base64`. This is only a convenience path for fork smoke testing. Anyone with the repository can sign an APK with that public fallback key, so do not distribute fallback-signed APKs as trusted production builds.
+
+Fallback-signed releases make the warning visible in two places:
+
+- the APK asset name contains `INSECURE-PUBLIC-FALLBACK-KEY`
+- a warning text asset is uploaded beside the APK
+
+If only some Android signing secrets are configured, the workflow fails instead of falling back. Partial signing configuration usually means a fork owner intended to use secure signing but missed a secret.
+
+Generic `vX.Y.Z` fork tags now publish the Android APK whether secure signing secrets are present or the fallback path is used. You can also dispatch `.github/workflows/android-apk-release.yml` with `tag` plus optional `checkout_ref` to rebuild a release from a branch without moving the tag.
 
 ## Web App Deploys
 

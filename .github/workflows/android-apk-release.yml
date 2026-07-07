@@ -164,7 +164,7 @@ jobs:
         shell: bash
         run: node scripts/emit-fork-identity-env.mjs --owner "${{ github.repository_owner }}" >> "$GITHUB_ENV"
 
-      - name: Validate Android signing secrets
+      - name: Resolve Android signing mode
         shell: bash
         run: |
           set -euo pipefail
@@ -176,8 +176,14 @@ jobs:
             fi
           done
 
-          if (( ${#missing[@]} > 0 )); then
-            printf 'Missing required GitHub Actions secrets for fork Android signing:\n' >&2
+          if (( ${#missing[@]} == 0 )); then
+            echo "PASEO_ANDROID_SIGNING_MODE=secure" >> "$GITHUB_ENV"
+            echo "Using repository Android signing secrets."
+          elif (( ${#missing[@]} == 4 )); then
+            echo "PASEO_ANDROID_SIGNING_MODE=insecure-fallback" >> "$GITHUB_ENV"
+            echo "::warning title=Insecure Android signing fallback::No Android signing secrets are configured. This APK will be signed with the public insecure fallback key. Configure secure signing secrets using docs/fork-release.md#android-apks."
+          else
+            printf 'Android signing secrets are partially configured. Configure all of them, or remove all of them to use the insecure fallback key:\n' >&2
             printf '  - %s\n' "${missing[@]}" >&2
             exit 1
           fi
@@ -234,13 +240,31 @@ jobs:
         shell: bash
         run: node scripts/stamp-package-version.mjs --version "$RELEASE_VERSION"
 
-      - name: Decode Android keystore
+      - name: Prepare Android keystore
         shell: bash
         run: |
           set -euo pipefail
 
-          keystore_path="$RUNNER_TEMP/paseo-release.jks"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          if [[ "$PASEO_ANDROID_SIGNING_MODE" == "secure" ]]; then
+            keystore_path="$RUNNER_TEMP/paseo-release.jks"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+            echo "PASEO_ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "PASEO_ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "PASEO_ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+          else
+            keystore_path="$RUNNER_TEMP/paseo-insecure-fallback-upload.jks"
+            base64 --decode scripts/android-insecure-fallback-upload-keystore.jks.base64 > "$keystore_path"
+            echo "PASEO_ANDROID_KEYSTORE_PASSWORD=paseo-insecure-fallback" >> "$GITHUB_ENV"
+            echo "PASEO_ANDROID_KEY_ALIAS=paseo-insecure-fallback" >> "$GITHUB_ENV"
+            echo "PASEO_ANDROID_KEY_PASSWORD=paseo-insecure-fallback" >> "$GITHUB_ENV"
+            {
+              echo "### Insecure Android Signing Fallback"
+              echo
+              echo "This APK is being signed with Paseo's public insecure fallback key because no Android signing secrets are configured."
+              echo "Configure secure signing secrets using docs/fork-release.md#android-apks."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           chmod 600 "$keystore_path"
           echo "PASEO_ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
 
@@ -292,9 +316,9 @@ jobs:
             -x generateReleaseLintModel \
             -x generateReleaseLintVitalModel \
             -PPASEO_ANDROID_KEYSTORE_FILE="$PASEO_ANDROID_KEYSTORE_FILE" \
-            -PPASEO_ANDROID_KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD" \
-            -PPASEO_ANDROID_KEY_ALIAS="$ANDROID_KEY_ALIAS" \
-            -PPASEO_ANDROID_KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
+            -PPASEO_ANDROID_KEYSTORE_PASSWORD="$PASEO_ANDROID_KEYSTORE_PASSWORD" \
+            -PPASEO_ANDROID_KEY_ALIAS="$PASEO_ANDROID_KEY_ALIAS" \
+            -PPASEO_ANDROID_KEY_PASSWORD="$PASEO_ANDROID_KEY_PASSWORD"
 
       - name: Upload APK to GitHub Release
         env:
@@ -310,7 +334,21 @@ jobs:
             exit 1
           fi
 
-          asset_name="paseo-${RELEASE_TAG}-android-${PASEO_FORK_ID_SUFFIX}.apk"
+          if [[ "$PASEO_ANDROID_SIGNING_MODE" == "insecure-fallback" ]]; then
+            asset_name="paseo-${RELEASE_TAG}-android-${PASEO_FORK_ID_SUFFIX}-INSECURE-PUBLIC-FALLBACK-KEY.apk"
+          else
+            asset_name="paseo-${RELEASE_TAG}-android-${PASEO_FORK_ID_SUFFIX}.apk"
+          fi
+
           asset_path="$RUNNER_TEMP/$asset_name"
           cp "$apk_path" "$asset_path"
-          gh release upload "$RELEASE_TAG" "$asset_path" --clobber --repo "${{ github.repository }}"
+
+          if [[ "$PASEO_ANDROID_SIGNING_MODE" == "insecure-fallback" ]]; then
+            warning_name="paseo-${RELEASE_TAG}-android-${PASEO_FORK_ID_SUFFIX}-WARNING-INSECURE-PUBLIC-FALLBACK-KEY-see-docs-fork-release.txt"
+            warning_path="$RUNNER_TEMP/$warning_name"
+            warning_text="WARNING: This APK was signed with Paseo's public insecure fallback Android key because ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD were not configured. Do not distribute it as a trusted production build. Configure secure Android signing secrets using docs/fork-release.md#android-apks."
+            printf '%s\n' "$warning_text" > "$warning_path"
+            gh release upload "$RELEASE_TAG" "$asset_path" "$warning_path" --clobber --repo "${{ github.repository }}"
+          else
+            gh release upload "$RELEASE_TAG" "$asset_path" --clobber --repo "${{ github.repository }}"
+          fi

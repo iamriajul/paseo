@@ -97,6 +97,10 @@ The CLI tarball keeps the package name `@getpaseo/cli`, but its internal `@getpa
 
 Generic `vX.Y.Z` fork tags skip the Android APK workflow. That avoids failing personal fork releases that do not have Expo/EAS credentials configured. If you want an Android APK from the fork, push an `android-vX.Y.Z` tag or dispatch `.github/workflows/android-apk-release.yml` with the required Expo secrets available.
 
+## Web App Deploys
+
+Generic `vX.Y.Z` fork tags skip the hosted web app deploy workflow. That avoids failing personal fork releases that do not have Cloudflare credentials configured. If you want to deploy the fork's hosted web app, push an `app-vX.Y.Z` tag or dispatch `.github/workflows/deploy-app.yml` with the required Cloudflare secrets available.
+
 ## Keeping Up With Upstream
 
 Keep a long-lived branch for your fork changes, then regularly merge or rebase upstream `main` into it. After resolving conflicts and pushing the branch, run the desktop and Docker workflows again with a higher version.

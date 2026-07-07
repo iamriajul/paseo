@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       paseo_version:
-        description: "Expected source version to build. Required when publish is true."
+        description: "Version to stamp into the built packages. Required when publish is true."
         required: false
         default: ""
       publish:

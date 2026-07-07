@@ -1,11 +1,13 @@
 export interface BrowserWorkspaceRegistration {
   browserId: string;
+  serverId: string;
   workspaceId: string;
 }
 
 export class PaseoBrowserWebviewRegistry {
   private readonly browserIdsByWebContentsId = new Map<number, string>();
   private readonly webContentsIdsByBrowserId = new Map<string, number>();
+  private readonly serverIdsByBrowserId = new Map<string, string>();
   private readonly workspaceIdsByBrowserId = new Map<string, string>();
   private readonly activeBrowserIdsByWorkspaceId = new Map<string, string>();
 
@@ -31,6 +33,7 @@ export class PaseoBrowserWebviewRegistry {
     }
 
     this.webContentsIdsByBrowserId.delete(browserId);
+    this.serverIdsByBrowserId.delete(browserId);
     this.workspaceIdsByBrowserId.delete(browserId);
     this.deleteActiveBrowserReferences(browserId);
   }
@@ -48,6 +51,7 @@ export class PaseoBrowserWebviewRegistry {
   }
 
   public registerWorkspace(input: BrowserWorkspaceRegistration): void {
+    this.serverIdsByBrowserId.set(input.browserId, input.serverId);
     this.workspaceIdsByBrowserId.set(input.browserId, input.workspaceId);
   }
 
@@ -57,8 +61,13 @@ export class PaseoBrowserWebviewRegistry {
       this.browserIdsByWebContentsId.delete(webContentsId);
       this.webContentsIdsByBrowserId.delete(browserId);
     }
+    this.serverIdsByBrowserId.delete(browserId);
     this.workspaceIdsByBrowserId.delete(browserId);
     this.deleteActiveBrowserReferences(browserId);
+  }
+
+  public getServerId(browserId: string): string | null {
+    return this.serverIdsByBrowserId.get(browserId) ?? null;
   }
 
   public getWorkspaceId(browserId: string): string | null {

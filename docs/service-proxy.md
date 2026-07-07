@@ -2,6 +2,8 @@
 
 Paseo proxies HTTP traffic to services running inside your workspaces. Localhost service URLs are always enabled; optional public aliases and a separate service-only listener can be layered on through config.
 
+This service proxy is hostname/script-link based. It does not rewrite arbitrary `localhost:<port>` URLs entered into the in-app Browser. Electron desktop Browser panes have a separate per-Browser localhost routing path for that behavior; see [Browser Localhost Routing](browser-localhost-routing.md).
+
 ## How it works
 
 When a `paseo.json` script of `"type": "service"` starts, Paseo assigns it a local port and registers a route in the service proxy. Incoming requests whose `Host` header matches the script's generated hostname are forwarded to that port.

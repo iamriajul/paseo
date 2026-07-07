@@ -56,6 +56,7 @@ import {
   createWorkspaceScriptsService,
   type WorkspaceScriptsService,
 } from "./session/workspace-scripts/workspace-scripts-service.js";
+import { TcpTunnelForwarder } from "./tcp-tunnel-forwarder.js";
 import type { DaemonConfigStore } from "./daemon-config-store.js";
 import { getErrorMessage, getErrorMessageOr } from "@getpaseo/protocol/error-utils";
 import { getAgentStatusPriority } from "@getpaseo/protocol/agent-state-bucket";
@@ -580,6 +581,7 @@ export class Session {
   private readonly chatScheduleLoopSession: ChatScheduleLoopSession;
   private readonly providerCatalogSession: ProviderCatalogSession;
   private readonly workspaceFilesSession: WorkspaceFilesSession;
+  private readonly tcpTunnelForwarder: TcpTunnelForwarder;
   private readonly agentConfigSession: AgentConfigSession;
   private readonly projectConfigSession: ProjectConfigSession;
   private readonly daemonSession: DaemonSession;
@@ -660,6 +662,10 @@ export class Session {
       },
       downloadTokenStore,
       paseoHome,
+      logger: this.sessionLogger,
+    });
+    this.tcpTunnelForwarder = new TcpTunnelForwarder({
+      emitBinary: (frame) => this.emitBinary(frame),
       logger: this.sessionLogger,
     });
     this.agentManager = agentManager;
@@ -1740,6 +1746,10 @@ export class Session {
   public async handleBinaryFrame(binaryFrame: BinaryFrame): Promise<void> {
     if (binaryFrame.kind === "file_transfer") {
       await this.workspaceFilesSession.handleFileTransferFrame(binaryFrame.frame);
+      return;
+    }
+    if (binaryFrame.kind === "tcp_tunnel") {
+      this.tcpTunnelForwarder.handleFrame(binaryFrame.frame);
       return;
     }
     this.terminalController.handleBinaryFrame(binaryFrame.frame);
@@ -5518,6 +5528,7 @@ export class Session {
    */
   public async cleanup(): Promise<void> {
     this.sessionLogger.trace({}, "agent.session.lifecycle.cleanup");
+    this.tcpTunnelForwarder.dispose();
 
     if (this.unsubscribeAgentEvents) {
       this.unsubscribeAgentEvents();

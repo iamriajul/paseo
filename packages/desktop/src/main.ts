@@ -59,6 +59,14 @@ import {
   registerPaseoBrowserWebContents,
   setWorkspaceActivePaseoBrowserId,
 } from "./features/browser-webviews/index.js";
+import {
+  handleLoopbackTunnelClose,
+  handleLoopbackTunnelData,
+  handleLoopbackTunnelOpenResult,
+  registerBrowserLoopbackProxy,
+  resolveBrowserLoopbackProxyCredentials,
+  unregisterBrowserLoopbackProxy,
+} from "./features/browser-loopback-proxy.js";
 import { parseOpenProjectPathFromArgv } from "./open-project-routing.js";
 import { PendingOpenProjectStore } from "./pending-open-project-store.js";
 import { getDesktopSettingsStore } from "./settings/desktop-settings-electron.js";
@@ -116,7 +124,7 @@ app.setName(APP_NAME);
 
 function readBrowserWorkspaceInput(
   input: unknown,
-): { browserId: string; workspaceId: string } | null {
+): { browserId: string; serverId: string; workspaceId: string } | null {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return null;
   }
@@ -124,10 +132,17 @@ function readBrowserWorkspaceInput(
   if (typeof record.browserId !== "string" || record.browserId.trim().length === 0) {
     return null;
   }
+  if (typeof record.serverId !== "string" || record.serverId.trim().length === 0) {
+    return null;
+  }
   if (typeof record.workspaceId !== "string" || record.workspaceId.trim().length === 0) {
     return null;
   }
-  return { browserId: record.browserId.trim(), workspaceId: record.workspaceId.trim() };
+  return {
+    browserId: record.browserId.trim(),
+    serverId: record.serverId.trim(),
+    workspaceId: record.workspaceId.trim(),
+  };
 }
 
 function readActiveBrowserInput(
@@ -322,17 +337,52 @@ function normalizeBrowserCaptureRect(
   };
 }
 
-ipcMain.handle("paseo:browser:register-workspace-browser", (_event, rawInput: unknown) => {
+ipcMain.handle("paseo:browser:register-workspace-browser", async (event, rawInput: unknown) => {
   const input = readBrowserWorkspaceInput(rawInput);
   if (input) {
     registerPaseoBrowserWorkspace(input);
+    await registerBrowserLoopbackProxy({
+      ...input,
+      rendererWebContentsId: event.sender.id,
+    });
   }
 });
 
-ipcMain.handle("paseo:browser:unregister-workspace-browser", (_event, browserId: unknown) => {
+ipcMain.handle("paseo:browser:unregister-workspace-browser", async (_event, browserId: unknown) => {
   if (typeof browserId === "string" && browserId.trim().length > 0) {
-    unregisterPaseoBrowser(browserId.trim());
+    const normalizedBrowserId = browserId.trim();
+    unregisterPaseoBrowser(normalizedBrowserId);
+    await unregisterBrowserLoopbackProxy(normalizedBrowserId);
   }
+});
+
+ipcMain.on("paseo:browser:loopback-tunnel-open-result", (_event, payload: unknown) => {
+  handleLoopbackTunnelOpenResult(payload);
+});
+
+ipcMain.on("paseo:browser:loopback-tunnel-data", (_event, payload: unknown) => {
+  handleLoopbackTunnelData(payload);
+});
+
+ipcMain.on("paseo:browser:loopback-tunnel-close", (_event, payload: unknown) => {
+  handleLoopbackTunnelClose(payload);
+});
+
+app.on("login", (event, contents, _details, authInfo, callback) => {
+  const browserId = getPaseoBrowserIdForWebContents(contents);
+  const credentials = browserId
+    ? resolveBrowserLoopbackProxyCredentials({
+        browserId,
+        isProxy: authInfo.isProxy,
+        host: authInfo.host,
+        port: authInfo.port,
+      })
+    : null;
+  if (!credentials) {
+    return;
+  }
+  event.preventDefault();
+  callback(credentials.username, credentials.password);
 });
 
 ipcMain.handle("paseo:browser:set-workspace-active-browser", (_event, rawInput: unknown) => {

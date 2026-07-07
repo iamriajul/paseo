@@ -1930,7 +1930,11 @@ function WorkspaceScreenContent({
         const { browserId } = input.target;
         useBrowserStore.getState().removeBrowser(browserId);
         removeResidentBrowserWebview(browserId);
-        void getDesktopHost()?.browser?.clearPartition?.(browserId);
+        const browserHost = getDesktopHost()?.browser;
+        void (async () => {
+          await browserHost?.unregisterWorkspaceBrowser?.(browserId);
+          await browserHost?.clearPartition?.(browserId);
+        })();
       }
       closeWorkspaceTab(persistenceKey, normalizedTabId);
     },

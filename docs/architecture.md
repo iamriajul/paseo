@@ -133,6 +133,7 @@ Electron wrapper for macOS, Linux, and Windows.
 - Can spawn the daemon as a managed subprocess
 - Native file access for workspace integration
 - Same WebSocket client as mobile app
+- Electron-only Browser panes use per-webview session proxying for workspace localhost routing. Each Browser registers `{ browserId, serverId, workspaceId }`; loopback requests inside that Browser are tunneled over the selected host's daemon WebSocket to `127.0.0.1:<port>` or `::1:<port>` on that host. See [browser-localhost-routing.md](browser-localhost-routing.md).
 
 **Multi-window (hybrid land-on model).** `createWindow()` in `main.ts` is reusable: `⌘⇧N`/File→New Window, relaunching the app (`second-instance`), and the sidebar "Open in new window" action each open a fresh `BrowserWindow`. Every window shows the full sidebar — there is no per-window project ownership or filtering. "Land on a project" is delivered by a per-`webContents` `PendingOpenProjectStore`: each window pulls its own pending project path on mount (`paseo:get-pending-open-project`) and runs the normal open-project flow, identical to a CLI `paseo <path>` launch.
 
@@ -146,7 +147,7 @@ TanStack Router + Cloudflare Workers. Serves paseo.sh.
 
 ## WebSocket protocol
 
-All clients speak the same WebSocket protocol over a single connection that mixes JSON text frames and a small binary framing for terminal streams. Schemas live in `packages/protocol/src/messages.ts`.
+All clients speak the same WebSocket protocol over a single connection that mixes JSON text frames and small binary frame families for terminal streams, file transfer, and daemon TCP tunnels. Schemas live in `packages/protocol/src/messages.ts`.
 
 **Handshake:**
 
@@ -185,9 +186,9 @@ New session RPCs use dotted names with `.request` and `.response` suffixes, such
 - Voice/dictation streaming events (`dictation_stream_*`, `assistant_chunk`, `audio_output`, `transcription_result`)
 - Request/response pairs for fetch, list, create, etc., correlated by `requestId`; failures use `rpc_error`
 
-**Binary frames (terminal stream protocol):**
+**Binary frames:**
 
-Terminal I/O is sent as binary WebSocket frames decoded by `decodeTerminalStreamFrame` in `shared/binary-frames/terminal.ts`. The layout is:
+Terminal I/O is sent as binary WebSocket frames decoded by `decodeTerminalStreamFrame` in `packages/protocol/src/binary-frames/terminal.ts`. The layout is:
 
 - 1-byte opcode: `Output (0x01)`, `Input (0x02)`, `Resize (0x03)`, `Snapshot (0x04)`
 - 1-byte slot: terminal slot id
@@ -195,7 +196,7 @@ Terminal I/O is sent as binary WebSocket frames decoded by `decodeTerminalStream
 
 Terminal PTY size is last-interacting-client-wins. A client claims the PTY size only when its terminal viewport genuinely changes size or the user focuses/taps the terminal. Passive rendering work — attaching, restoring visibility, font settling, renderer refits, or just looking at a visible terminal — must not send a resize frame. The server does not broadcast resize ownership; the resized PTY redraws through normal output, and every attached client renders that output in its own local viewport.
 
-There is also a separate file-transfer binary frame format in the same directory, used for download/upload streams.
+There are also separate binary frame formats in the same directory for file-transfer streams and Browser localhost TCP tunnels. TCP tunnel support is advertised as `server_info.features.tcpTunnel`; new clients must check that feature before opening tunnel frames.
 
 ### Compatibility rules
 

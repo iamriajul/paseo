@@ -740,13 +740,43 @@ export function BrowserPane({
     const residentWebview = takeResidentBrowserWebview(browserId) as ElectronWebview | null;
     const webview = residentWebview ?? (document.createElement("webview") as ElectronWebview);
     webviewRef.current = webview;
-    void getDesktopHost()?.browser?.registerWorkspaceBrowser?.({ browserId, workspaceId });
+    const shouldLoadInitialUrl = !residentWebview && !initialUnsafeNavigationMessage;
     if (!residentWebview) {
       prepareBrowserWebview(webview, {
         browserId,
-        initialUrl: initialUnsafeNavigationMessage ? "about:blank" : initialUrlRef.current,
+        initialUrl: "about:blank",
       });
     }
+    const registrationPromise =
+      getDesktopHost()?.browser?.registerWorkspaceBrowser?.({ browserId, serverId, workspaceId }) ??
+      Promise.resolve();
+    void registrationPromise
+      .then(() => {
+        if (!shouldLoadInitialUrl || webviewRef.current !== webview) {
+          return undefined;
+        }
+        void webview.loadURL?.(initialUrlRef.current).catch((error: unknown) => {
+          const message = getLoadUrlRejectionMessage(
+            error,
+            browserErrorLabelsRef.current.failedToLoad,
+          );
+          if (!message) {
+            return;
+          }
+          updateBrowserRef.current(browserIdRef.current, {
+            isLoading: false,
+            lastError: message,
+          });
+        });
+        return undefined;
+      })
+      .catch(() => {
+        updateBrowserRef.current(browserIdRef.current, {
+          isLoading: false,
+          lastError: browserErrorLabelsRef.current.failedToLoad,
+        });
+        return undefined;
+      });
     webview.style.display = "flex";
     webview.style.flex = "1";
     webview.style.width = "100%";

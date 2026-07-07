@@ -1238,6 +1238,8 @@ export class VoiceAssistantWebSocketServer {
         daemonSelfUpdate: true,
         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
         agentForkContext: true,
+        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
+        tcpTunnel: true,
       },
     };
   }

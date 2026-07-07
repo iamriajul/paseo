@@ -11,6 +11,11 @@ on:
         description: "Existing tag to build (e.g. v0.1.0)"
         required: true
         type: string
+      checkout_ref:
+        description: "Optional branch/ref to checkout while using tag for release metadata."
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: android-apk-release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
@@ -18,10 +23,11 @@ concurrency:
 
 env:
   SOURCE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.checkout_ref || github.event.inputs.tag) || github.ref }}
 
 jobs:
-  publish-android-apk:
-    if: ${{ github.repository_owner == 'getpaseo' || startsWith(github.ref_name, 'android-v') }}
+  publish-android-apk-eas:
+    if: ${{ github.repository_owner == 'getpaseo' }}
     permissions:
       contents: write
       packages: read
@@ -31,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Resolve release tag
         shell: bash
@@ -131,3 +137,155 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "$RELEASE_TAG" "${{ steps.artifact.outputs.asset_path }}" --clobber --repo "${{ github.repository }}"
+
+  publish-fork-android-apk:
+    if: ${{ github.repository_owner != 'getpaseo' }}
+    permissions:
+      contents: write
+      packages: read
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Resolve release tag
+        shell: bash
+        run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
+
+      - name: Resolve fork app identity
+        shell: bash
+        run: node scripts/emit-fork-identity-env.mjs --owner "${{ github.repository_owner }}" >> "$GITHUB_ENV"
+
+      - name: Validate Android signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for key in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!key:-}" ]]; then
+              missing+=("$key")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required GitHub Actions secrets for fork Android signing:\n' >&2
+            printf '  - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
+      - name: Ensure GitHub release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          release_args=(
+            release create "$RELEASE_TAG"
+            --repo "${{ github.repository }}"
+            --title "Paseo $RELEASE_TAG"
+            --notes ""
+          )
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          if ! gh "${release_args[@]}"; then
+            echo "Release creation raced with another workflow; continuing."
+          fi
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@boudra"
+
+      - name: Install JS dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stamp package versions from tag
+        shell: bash
+        run: node scripts/stamp-package-version.mjs --version "$RELEASE_VERSION"
+
+      - name: Decode Android keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          keystore_path="$RUNNER_TEMP/paseo-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          chmod 600 "$keystore_path"
+          echo "PASEO_ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
+
+      - name: Build signed fork APK locally
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npm run build:app-deps
+          npm run build:terminal-webview --workspace=@getpaseo/app
+
+          cd packages/app
+          CI=1 APP_VARIANT=production npx expo prebuild --platform android --non-interactive
+          cd ../..
+
+          node scripts/configure-android-release-signing.mjs
+
+          cd packages/app/android
+          chmod +x ./gradlew
+          ./gradlew :app:assembleRelease \
+            -x lint \
+            -x lintVitalAnalyzeRelease \
+            -x lintVitalRelease \
+            -x generateReleaseLintModel \
+            -x generateReleaseLintVitalModel \
+            -PPASEO_ANDROID_KEYSTORE_FILE="$PASEO_ANDROID_KEYSTORE_FILE" \
+            -PPASEO_ANDROID_KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD" \
+            -PPASEO_ANDROID_KEY_ALIAS="$ANDROID_KEY_ALIAS" \
+            -PPASEO_ANDROID_KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
+
+      - name: Upload APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk_path="packages/app/android/app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -f "$apk_path" ]]; then
+            echo "::error::Signed APK not found at $apk_path"
+            find packages/app/android/app/build/outputs -type f -name '*.apk' -print
+            exit 1
+          fi
+
+          asset_name="paseo-${RELEASE_TAG}-android-${PASEO_FORK_ID_SUFFIX}.apk"
+          asset_path="$RUNNER_TEMP/$asset_name"
+          cp "$apk_path" "$asset_path"
+          gh release upload "$RELEASE_TAG" "$asset_path" --clobber --repo "${{ github.repository }}"

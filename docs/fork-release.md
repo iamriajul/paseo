@@ -11,6 +11,8 @@ This is the low-plumbing path for maintaining a personal fork that carries local
 
 The desktop app's updater metadata is generated from the repository running the workflow. A build produced in `your-user/paseo` checks `your-user/paseo` for updates, not `getpaseo/paseo`.
 
+Fork desktop builds also stamp a fork bundle ID from the GitHub owner. For example, `iamriajul/paseo` builds use `sh.paseo.desktop.iamriajul` instead of `sh.paseo.desktop`.
+
 ## Version Choice
 
 Use a monotonically increasing version in your fork.
@@ -95,7 +97,31 @@ The CLI tarball keeps the package name `@getpaseo/cli`, but its internal `@getpa
 
 ## Android APKs
 
-Generic `vX.Y.Z` fork tags skip the Android APK workflow. That avoids failing personal fork releases that do not have Expo/EAS credentials configured. If you want an Android APK from the fork, push an `android-vX.Y.Z` tag or dispatch `.github/workflows/android-apk-release.yml` with the required Expo secrets available.
+Fork Android APKs are built locally in GitHub Actions, not on Expo Cloud. The workflow runs `expo prebuild`, applies the fork app identity, signs the generated Gradle release build with your keystore, and uploads:
+
+```text
+paseo-vX.Y.Z-android-<fork-suffix>.apk
+```
+
+For `iamriajul/paseo`, the APK defaults to:
+
+| Setting    | Value                 |
+| ---------- | --------------------- |
+| App name   | `Paseo iamriajul`     |
+| Package ID | `sh.paseo.iamriajul`  |
+| URL scheme | `paseo-iamriajul`     |
+| Updates    | Upstream EAS disabled |
+
+Configure these repository secrets once:
+
+| Secret                      | Value                                  |
+| --------------------------- | -------------------------------------- |
+| `ANDROID_KEYSTORE_BASE64`   | Base64 encoded `.jks` keystore         |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password                      |
+| `ANDROID_KEY_ALIAS`         | Keystore alias, usually `paseo-upload` |
+| `ANDROID_KEY_PASSWORD`      | Key password                           |
+
+Generic `vX.Y.Z` fork tags now publish the Android APK when those secrets are present. You can also dispatch `.github/workflows/android-apk-release.yml` with `tag` plus optional `checkout_ref` to rebuild a release from a branch without moving the tag.
 
 ## Web App Deploys
 

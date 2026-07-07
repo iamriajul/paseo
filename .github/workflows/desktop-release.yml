@@ -124,6 +124,11 @@ jobs:
         shell: bash
         run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
 
+      - name: Resolve fork app identity
+        if: github.repository_owner != 'getpaseo'
+        shell: bash
+        run: node scripts/emit-fork-identity-env.mjs --owner "${{ github.repository_owner }}" >> "$GITHUB_ENV"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -160,6 +165,9 @@ jobs:
           build_args+=("-c.publish.channel=$RELEASE_CHANNEL")
           build_args+=("-c.publish.owner=$PASEO_UPDATE_GITHUB_OWNER")
           build_args+=("-c.publish.repo=$PASEO_UPDATE_GITHUB_REPO")
+          if [[ -n "${PASEO_DESKTOP_APP_ID:-}" ]]; then
+            build_args+=("-c.appId=$PASEO_DESKTOP_APP_ID")
+          fi
           if [[ -z "${CSC_LINK:-}" || -z "${CSC_KEY_PASSWORD:-}" || -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
             echo "Apple signing/notarization secrets are incomplete; building unsigned, unnotarized macOS artifacts."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
@@ -221,6 +229,11 @@ jobs:
         shell: bash
         run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
 
+      - name: Resolve fork app identity
+        if: github.repository_owner != 'getpaseo'
+        shell: bash
+        run: node scripts/emit-fork-identity-env.mjs --owner "${{ github.repository_owner }}" >> "$GITHUB_ENV"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -255,6 +268,9 @@ jobs:
           build_args+=("-c.publish.channel=$RELEASE_CHANNEL")
           build_args+=("-c.publish.owner=$PASEO_UPDATE_GITHUB_OWNER")
           build_args+=("-c.publish.repo=$PASEO_UPDATE_GITHUB_REPO")
+          if [[ -n "${PASEO_DESKTOP_APP_ID:-}" ]]; then
+            build_args+=("-c.appId=$PASEO_DESKTOP_APP_ID")
+          fi
           npm run build:desktop "${build_args[@]}"
 
       - name: Upload desktop artifacts to release
@@ -309,6 +325,11 @@ jobs:
         shell: bash
         run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
 
+      - name: Resolve fork app identity
+        if: github.repository_owner != 'getpaseo'
+        shell: bash
+        run: node scripts/emit-fork-identity-env.mjs --owner "${{ github.repository_owner }}" >> "$GITHUB_ENV"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -340,6 +361,9 @@ jobs:
           build_args+=("-c.publish.channel=$RELEASE_CHANNEL")
           build_args+=("-c.publish.owner=$PASEO_UPDATE_GITHUB_OWNER")
           build_args+=("-c.publish.repo=$PASEO_UPDATE_GITHUB_REPO")
+          if [[ -n "${PASEO_DESKTOP_APP_ID:-}" ]]; then
+            build_args+=("-c.appId=$PASEO_DESKTOP_APP_ID")
+          fi
           npm run build:desktop "${build_args[@]}"
 
       - name: Upload desktop artifacts to release

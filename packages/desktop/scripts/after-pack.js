@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 const { smokePackagedDesktopApp } = require("./smoke-packaged-desktop-app.js");
 
@@ -114,6 +115,7 @@ exports.default = async function afterPack(context) {
   const arch = ARCH_MAP[context.arch] || process.arch;
 
   pruneNativeModules(context.appOutDir, platform, arch);
+  adHocSignMacAppIfRequested(context.appOutDir, platform);
 
   if (platform === "linux" || platform === "win32") {
     if (arch !== process.arch) {
@@ -125,6 +127,37 @@ exports.default = async function afterPack(context) {
     }
   }
 };
+
+function adHocSignMacAppIfRequested(appOutDir, platform) {
+  if (platform !== "darwin" || process.env.PASEO_MAC_AD_HOC_SIGN !== "1") {
+    return;
+  }
+
+  const appPath = path.join(appOutDir, `${EXECUTABLE_NAME}.app`);
+  const entitlementsPath = path.join(__dirname, "..", "build", "entitlements.mac.plist");
+  runCodesign(
+    ["--force", "--deep", "--sign", "-", "--entitlements", entitlementsPath, appPath],
+    `Ad-hoc signing macOS app at ${appPath}`,
+  );
+  runCodesign(
+    ["--verify", "--deep", "--strict", "--verbose=4", appPath],
+    `Verifying ad-hoc macOS signature at ${appPath}`,
+  );
+}
+
+function runCodesign(args, label) {
+  console.log(label);
+  const result = spawnSync("codesign", args, { encoding: "utf8" });
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+  if (result.status !== 0) {
+    throw new Error(`codesign failed with status ${result.status}`);
+  }
+}
 
 async function smokeUnpackedAppIfRequested(appOutDir) {
   if (process.env.PASEO_DESKTOP_SMOKE !== "1") {

@@ -171,11 +171,29 @@ jobs:
           if [[ -z "${CSC_LINK:-}" || -z "${CSC_KEY_PASSWORD:-}" || -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
             echo "Apple signing/notarization secrets are incomplete; building unsigned, unnotarized macOS artifacts."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            export PASEO_MAC_AD_HOC_SIGN=1
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             build_args+=("-c.mac.identity=null")
             build_args+=("-c.mac.notarize=false")
           fi
           npm run build:desktop "${build_args[@]}"
+
+      - name: Verify macOS app signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+          apps=()
+          while IFS= read -r -d '' app; do
+            apps+=("$app")
+          done < <(find "$release_dir" -maxdepth 2 -type d -name "Paseo.app" -print0 | sort -z)
+          if (( ${#apps[@]} == 0 )); then
+            echo "::error::Expected packaged app not found under $release_dir"
+            exit 1
+          fi
+          for app in "${apps[@]}"; do
+            codesign --verify --deep --strict --verbose=4 "$app"
+          done
 
       - name: Upload desktop artifacts to release
         if: env.SHOULD_PUBLISH == 'true' && env.IS_SMOKE_TAG != 'true'

@@ -2334,6 +2334,11 @@ export const ServerInfoStatusPayloadSchema = z
     hostname: ServerInfoHostnameSchema.optional(),
     version: ServerInfoVersionSchema.optional(),
     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
+    urlOpeners: z
+      .object({
+        vscodeProxyUri: z.string().trim().min(1).optional(),
+      })
+      .optional(),
     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
     features: z
       .object({

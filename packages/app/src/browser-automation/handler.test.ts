@@ -73,8 +73,11 @@ class FakeDaemonClient {
 
 class FakeBrowserBridge {
   public readonly executedRequests: BrowserAutomationExecuteRequest[] = [];
-  public readonly registeredWorkspaceBrowsers: Array<{ browserId: string; workspaceId: string }> =
-    [];
+  public readonly registeredWorkspaceBrowsers: Array<{
+    browserId: string;
+    serverId: string;
+    workspaceId: string;
+  }> = [];
   public readonly unregisteredWorkspaceBrowsers: string[] = [];
   public readonly clearedPartitions: string[] = [];
   public readonly activeWorkspaceBrowsers: Array<{
@@ -96,6 +99,7 @@ class FakeBrowserBridge {
 
   public registerWorkspaceBrowser = async (input: {
     browserId: string;
+    serverId: string;
     workspaceId: string;
   }): Promise<void> => {
     this.registeredWorkspaceBrowsers.push(input);
@@ -322,7 +326,7 @@ describe("mountBrowserAutomationHandler", () => {
     );
     expect(openedTabs[0]?.tabId).not.toBe(previousFocusedTabId);
     expect(browser.browser.registeredWorkspaceBrowsers).toEqual([
-      { browserId: result.browserId, workspaceId: "wks_workspace_a" },
+      { browserId: result.browserId, serverId: "server-1", workspaceId: "wks_workspace_a" },
     ]);
     expect(browser.browser.activeWorkspaceBrowsers).toEqual([]);
     expect(browser.resident.ensuredWebviews).toEqual([

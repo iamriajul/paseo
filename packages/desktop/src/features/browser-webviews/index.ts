@@ -78,6 +78,10 @@ export function getPaseoBrowserWorkspaceId(browserId: string): string | null {
   return browserRegistry.getWorkspaceId(browserId);
 }
 
+export function getPaseoBrowserServerId(browserId: string): string | null {
+  return browserRegistry.getServerId(browserId);
+}
+
 export function listRegisteredPaseoBrowserIdsForWorkspace(workspaceId: string): string[] {
   return browserRegistry
     .listBrowserIdsForWorkspace(workspaceId)

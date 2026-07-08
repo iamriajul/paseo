@@ -127,7 +127,11 @@ export interface DesktopBrowserNewTabRequestEvent {
 }
 
 export interface DesktopBrowserBridge {
-  registerWorkspaceBrowser?: (input: { browserId: string; workspaceId: string }) => Promise<void>;
+  registerWorkspaceBrowser?: (input: {
+    browserId: string;
+    serverId: string;
+    workspaceId: string;
+  }) => Promise<void>;
   unregisterWorkspaceBrowser?: (browserId: string) => Promise<void>;
   setWorkspaceActiveBrowser?: (input: {
     workspaceId: string;
@@ -145,6 +149,13 @@ export interface DesktopBrowserBridge {
   ) => Promise<string | null>;
   /** Copy element text and/or an image to the system clipboard from main. */
   copyElement?: (payload: { text?: string; imageDataUrl?: string }) => Promise<boolean>;
+  sendLoopbackTunnelOpenResult?: (payload: {
+    tunnelId: string;
+    ok: boolean;
+    reason?: string | null;
+  }) => void;
+  sendLoopbackTunnelData?: (payload: { tunnelId: string; binaryBase64: string }) => void;
+  sendLoopbackTunnelClose?: (payload: { tunnelId: string; reason?: string | null }) => void;
 }
 
 export interface DesktopInvokeBridge {

@@ -486,6 +486,7 @@ export const ja: TranslationResources = {
           "スキル、MCP、ログイン状態を更新するためにエージェントを再読み込みします。",
         close: "閉じる",
         renameTerminal: "ターミナルの名前を変更",
+        renameCodeServer: "Rename Code Server",
         renameAgent: "エージェントの名前を変更",
       },
       actions: {
@@ -494,6 +495,7 @@ export const ja: TranslationResources = {
         preparingTerminal: "ターミナルタブを準備中",
         preparingTerminalTooltip: "ターミナルを準備中...",
         newBrowser: "新しいブラウザ",
+        newCodeServer: "New Code Server",
         splitRight: "右にペインを分割",
         splitDown: "下にペインを分割",
         terminalProfilesMenu: "ターミナルプロファイル",
@@ -551,6 +553,7 @@ export const ja: TranslationResources = {
         newAgent: "新しいエージェント",
         newTerminal: "新しいターミナル",
         newBrowser: "新しいブラウザタブ",
+        newCodeServer: "New Code Server",
         importSession: "セッションをインポート",
         copyPath: "ワークスペースパスをコピー",
         copyBranchName: "ブランチ名をコピー",

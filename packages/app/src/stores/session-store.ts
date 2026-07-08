@@ -303,6 +303,7 @@ export interface DaemonServerInfo {
   version: string | null;
   capabilities?: ServerCapabilities;
   features?: ServerInfoStatusPayload["features"];
+  urlOpeners?: ServerInfoStatusPayload["urlOpeners"];
 }
 
 export interface AgentTimelineCursorState {
@@ -584,15 +585,30 @@ function areServerInfoFeaturesEqual(
   return JSON.stringify(current ?? null) === JSON.stringify(next ?? null);
 }
 
+function areServerInfoUrlOpenersEqual(
+  current: ServerInfoStatusPayload["urlOpeners"] | undefined,
+  next: ServerInfoStatusPayload["urlOpeners"] | undefined,
+): boolean {
+  return JSON.stringify(current ?? null) === JSON.stringify(next ?? null);
+}
+
 function isSessionServerInfoUnchanged(input: {
   currentServerInfo: SessionState["serverInfo"] | undefined;
   nextHostname: string | null;
   nextVersion: string | null;
   nextCapabilities: ServerCapabilities | undefined;
   nextFeatures: ServerInfoStatusPayload["features"] | undefined;
+  nextUrlOpeners: ServerInfoStatusPayload["urlOpeners"] | undefined;
   nextServerId: string;
 }): boolean {
-  const { currentServerInfo, nextHostname, nextVersion, nextCapabilities, nextFeatures } = input;
+  const {
+    currentServerInfo,
+    nextHostname,
+    nextVersion,
+    nextCapabilities,
+    nextFeatures,
+    nextUrlOpeners,
+  } = input;
   const prevHostname = currentServerInfo?.hostname?.trim() || null;
   const prevVersion = currentServerInfo?.version?.trim() || null;
   return (
@@ -600,7 +616,8 @@ function isSessionServerInfoUnchanged(input: {
     prevHostname === nextHostname &&
     prevVersion === nextVersion &&
     areServerCapabilitiesEqual(currentServerInfo?.capabilities, nextCapabilities) &&
-    areServerInfoFeaturesEqual(currentServerInfo?.features, nextFeatures)
+    areServerInfoFeaturesEqual(currentServerInfo?.features, nextFeatures) &&
+    areServerInfoUrlOpenersEqual(currentServerInfo?.urlOpeners, nextUrlOpeners)
   );
 }
 
@@ -720,6 +737,7 @@ export const useSessionStore = create<SessionStore>()(
           const nextVersion = info.version?.trim() || null;
           const nextCapabilities = info.capabilities;
           const nextFeatures = info.features;
+          const nextUrlOpeners = info.urlOpeners;
 
           if (
             isSessionServerInfoUnchanged({
@@ -728,6 +746,7 @@ export const useSessionStore = create<SessionStore>()(
               nextVersion,
               nextCapabilities,
               nextFeatures,
+              nextUrlOpeners,
               nextServerId: info.serverId,
             })
           ) {
@@ -746,6 +765,7 @@ export const useSessionStore = create<SessionStore>()(
                   version: nextVersion,
                   ...(nextCapabilities ? { capabilities: nextCapabilities } : {}),
                   ...(nextFeatures ? { features: nextFeatures } : {}),
+                  ...(nextUrlOpeners ? { urlOpeners: nextUrlOpeners } : {}),
                 },
               },
             },

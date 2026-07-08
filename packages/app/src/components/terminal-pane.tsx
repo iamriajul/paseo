@@ -12,9 +12,12 @@ import { encodeTerminalKeyInput } from "@getpaseo/protocol/terminal-key-input";
 import type { TerminalInputModeState } from "@getpaseo/protocol/terminal-input-mode";
 import { useTranslation } from "react-i18next";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
+import { getIsElectron } from "@/constants/platform";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { useAppVisible } from "@/hooks/use-app-visible";
 import { useStableEvent } from "@/hooks/use-stable-event";
+import { openExternalUrl } from "@/utils/open-external-url";
+import { resolveWorkspaceUrlOpenAction } from "@/utils/workspace-url-open-action";
 import {
   hasPendingTerminalModifiers,
   normalizeTerminalTransportKey,
@@ -57,6 +60,7 @@ interface TerminalPaneProps {
   isPaneFocused: boolean;
   onOpenFileExplorer: () => void;
   onOpenWorkspaceFile: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab: (url: string) => void;
 }
 
 const TERMINAL_REFIT_DELAYS_MS = [0, 48, 144, 320];
@@ -169,6 +173,7 @@ export function TerminalPane({
   isPaneFocused,
   onOpenFileExplorer,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: TerminalPaneProps) {
   const { t } = useTranslation();
   const isAppVisible = useAppVisible();
@@ -192,6 +197,9 @@ export function TerminalPane({
   const isConnected = useHostRuntimeIsConnected(serverId);
   const supportsTerminalRestoreModes = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.["terminal-restore-modes"] === true,
+  );
+  const vscodeProxyUri = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.urlOpeners?.vscodeProxyUri,
   );
   const setFocusedTerminalId = useSessionStore((state) => state.setFocusedTerminalId);
 
@@ -752,6 +760,21 @@ export function TerminalPane({
     emulatorRef.current?.blur();
     onOpenFileExplorer();
   }, [swipeGesturesEnabled, onOpenFileExplorer]);
+  const handleOpenExternalUrl = useStableEvent((url: string) => {
+    const action = resolveWorkspaceUrlOpenAction({
+      url,
+      isElectron: getIsElectron(),
+      hasWorkspaceBrowser: true,
+      vscodeProxyUri,
+    });
+
+    if (action.kind === "browser") {
+      onOpenUrlInBrowserTab(action.url);
+      return;
+    }
+
+    void openExternalUrl(action.url);
+  });
   const showLoadingOverlay = shouldShowTerminalLoadingOverlay({
     isWorkspaceFocused,
     hasStreamError: Boolean(streamError),
@@ -794,6 +817,7 @@ export function TerminalPane({
               onInputModeChange={handleInputModeChange}
               onResolveLocalFileLink={handleResolveLocalFileLink}
               onOpenLocalFileLink={handleOpenLocalFileLink}
+              onOpenExternalUrl={handleOpenExternalUrl}
               onPendingModifiersConsumed={handlePendingModifiersConsumed}
               pendingModifiers={modifiers}
               focusRequestToken={focusRequestToken}

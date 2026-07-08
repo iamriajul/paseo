@@ -53,6 +53,8 @@ env:
   SHOULD_PUBLISH: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish != 'false' }}
   ROLLOUT_HOURS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollout_hours || '36' }}
   DESKTOP_PACKAGE_PATH: "packages/desktop"
+  PASEO_UPDATE_GITHUB_OWNER: ${{ github.repository_owner }}
+  PASEO_UPDATE_GITHUB_REPO: ${{ github.event.repository.name }}
 
 jobs:
   create-release:
@@ -82,11 +84,16 @@ jobs:
             if [[ "$IS_PRERELEASE" == "true" ]]; then
               prerelease_flag="--prerelease"
             fi
+            target_args=()
+            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              target_args=(--target "$CHECKOUT_REF")
+            fi
             gh release create "$RELEASE_TAG" \
               --repo "${{ github.repository }}" \
               --title "Paseo $RELEASE_TAG" \
               --notes "" \
-              $prerelease_flag || {
+              $prerelease_flag \
+              "${target_args[@]}" || {
                 echo "Release creation raced with another workflow; continuing."
               }
           fi
@@ -117,6 +124,11 @@ jobs:
         shell: bash
         run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
 
+      - name: Resolve fork app identity
+        if: github.repository_owner != 'getpaseo'
+        shell: bash
+        run: node scripts/emit-fork-identity-env.mjs --owner "${{ github.repository_owner }}" >> "$GITHUB_ENV"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -131,21 +143,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set desktop package version from tag
+      - name: Stamp package versions from tag
         shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-
-          const version = process.env.DESKTOP_VERSION;
-          if (!version) throw new Error('DESKTOP_VERSION env var is missing');
-
-          const packageJsonPath = path.join(process.env.DESKTOP_PACKAGE_PATH, 'package.json');
-          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-          packageJson.version = version;
-          fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
-          NODE
+        run: node scripts/stamp-package-version.mjs --version "$DESKTOP_VERSION"
 
       - name: Build desktop release
         shell: bash
@@ -163,7 +163,37 @@ jobs:
           build_args=(-- --publish never --mac --${{ matrix.electron_arch }})
           build_args+=("-c.publish.releaseType=$RELEASE_TYPE")
           build_args+=("-c.publish.channel=$RELEASE_CHANNEL")
+          build_args+=("-c.publish.owner=$PASEO_UPDATE_GITHUB_OWNER")
+          build_args+=("-c.publish.repo=$PASEO_UPDATE_GITHUB_REPO")
+          if [[ -n "${PASEO_DESKTOP_APP_ID:-}" ]]; then
+            build_args+=("-c.appId=$PASEO_DESKTOP_APP_ID")
+          fi
+          if [[ -z "${CSC_LINK:-}" || -z "${CSC_KEY_PASSWORD:-}" || -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
+            echo "Apple signing/notarization secrets are incomplete; building unsigned, unnotarized macOS artifacts."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            export PASEO_MAC_AD_HOC_SIGN=1
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            build_args+=("-c.mac.identity=null")
+            build_args+=("-c.mac.notarize=false")
+          fi
           npm run build:desktop "${build_args[@]}"
+
+      - name: Verify macOS app signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+          apps=()
+          while IFS= read -r -d '' app; do
+            apps+=("$app")
+          done < <(find "$release_dir" -maxdepth 2 -type d -name "Paseo.app" -print0 | sort -z)
+          if (( ${#apps[@]} == 0 )); then
+            echo "::error::Expected packaged app not found under $release_dir"
+            exit 1
+          fi
+          for app in "${apps[@]}"; do
+            codesign --verify --deep --strict --verbose=4 "$app"
+          done
 
       - name: Upload desktop artifacts to release
         if: env.SHOULD_PUBLISH == 'true' && env.IS_SMOKE_TAG != 'true'
@@ -217,6 +247,11 @@ jobs:
         shell: bash
         run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
 
+      - name: Resolve fork app identity
+        if: github.repository_owner != 'getpaseo'
+        shell: bash
+        run: node scripts/emit-fork-identity-env.mjs --owner "${{ github.repository_owner }}" >> "$GITHUB_ENV"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -231,21 +266,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set desktop package version from tag
+      - name: Stamp package versions from tag
         shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-
-          const version = process.env.DESKTOP_VERSION;
-          if (!version) throw new Error('DESKTOP_VERSION env var is missing');
-
-          const packageJsonPath = path.join(process.env.DESKTOP_PACKAGE_PATH, 'package.json');
-          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-          packageJson.version = version;
-          fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
-          NODE
+        run: node scripts/stamp-package-version.mjs --version "$DESKTOP_VERSION"
 
       - name: Install Linux smoke display
         run: sudo apt-get update && sudo apt-get install -y xvfb
@@ -261,6 +284,11 @@ jobs:
           build_args=(-- --publish never --linux --x64)
           build_args+=("-c.publish.releaseType=$RELEASE_TYPE")
           build_args+=("-c.publish.channel=$RELEASE_CHANNEL")
+          build_args+=("-c.publish.owner=$PASEO_UPDATE_GITHUB_OWNER")
+          build_args+=("-c.publish.repo=$PASEO_UPDATE_GITHUB_REPO")
+          if [[ -n "${PASEO_DESKTOP_APP_ID:-}" ]]; then
+            build_args+=("-c.appId=$PASEO_DESKTOP_APP_ID")
+          fi
           npm run build:desktop "${build_args[@]}"
 
       - name: Upload desktop artifacts to release
@@ -315,6 +343,11 @@ jobs:
         shell: bash
         run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
 
+      - name: Resolve fork app identity
+        if: github.repository_owner != 'getpaseo'
+        shell: bash
+        run: node scripts/emit-fork-identity-env.mjs --owner "${{ github.repository_owner }}" >> "$GITHUB_ENV"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -329,21 +362,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set desktop package version from tag
+      - name: Stamp package versions from tag
         shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-
-          const version = process.env.DESKTOP_VERSION;
-          if (!version) throw new Error('DESKTOP_VERSION env var is missing');
-
-          const packageJsonPath = path.join(process.env.DESKTOP_PACKAGE_PATH, 'package.json');
-          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-          packageJson.version = version;
-          fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
-          NODE
+        run: node scripts/stamp-package-version.mjs --version "$DESKTOP_VERSION"
 
       - name: Build desktop release
         shell: bash
@@ -356,6 +377,11 @@ jobs:
           build_args=(-- --publish never --win --x64 --arm64)
           build_args+=("-c.publish.releaseType=$RELEASE_TYPE")
           build_args+=("-c.publish.channel=$RELEASE_CHANNEL")
+          build_args+=("-c.publish.owner=$PASEO_UPDATE_GITHUB_OWNER")
+          build_args+=("-c.publish.repo=$PASEO_UPDATE_GITHUB_REPO")
+          if [[ -n "${PASEO_DESKTOP_APP_ID:-}" ]]; then
+            build_args+=("-c.appId=$PASEO_DESKTOP_APP_ID")
+          fi
           npm run build:desktop "${build_args[@]}"
 
       - name: Upload desktop artifacts to release

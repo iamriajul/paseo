@@ -17,6 +17,7 @@ import * as Clipboard from "expo-clipboard";
 import { useTranslation } from "react-i18next";
 import { DiffStat } from "@/components/diff-stat";
 import {
+  Code2,
   CopyX,
   ArrowLeftToLine,
   ArrowRightToLine,
@@ -107,7 +108,9 @@ import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { removeResidentBrowserWebview } from "@/components/browser-webview-resident";
 import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
+import { createWorkspaceCodeServer, useCodeServerStore } from "@/stores/code-server-store";
 import { getDesktopHost } from "@/desktop/host";
+import { openExternalUrl } from "@/utils/open-external-url";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
 import { resolveWorkspaceRouteId } from "@/utils/workspace-identity";
@@ -242,6 +245,7 @@ const ThemedArrowRightToLine = withUnistyles(ArrowRightToLine);
 const ThemedCopyX = withUnistyles(CopyX);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedX = withUnistyles(X);
+const ThemedCode2 = withUnistyles(Code2);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedGlobe = withUnistyles(Globe);
@@ -271,6 +275,7 @@ const sourceControlPanelStrokeWidth15 = { strokeWidth: 1.5 };
 const MENU_NEW_AGENT_ICON = <ThemedSquarePen size={16} uniProps={mutedColorMapping} />;
 const MENU_NEW_TERMINAL_ICON = <ThemedSquareTerminal size={16} uniProps={mutedColorMapping} />;
 const MENU_NEW_BROWSER_ICON = <ThemedGlobe size={16} uniProps={mutedColorMapping} />;
+const MENU_NEW_CODE_SERVER_ICON = <ThemedCode2 size={16} uniProps={mutedColorMapping} />;
 const MENU_IMPORT_ICON = <ThemedImport size={16} uniProps={mutedColorMapping} />;
 const MENU_COPY_ICON = <ThemedCopy size={16} uniProps={mutedColorMapping} />;
 const MENU_SETTINGS_ICON = <ThemedSettings size={16} uniProps={mutedColorMapping} />;
@@ -323,6 +328,84 @@ function useSyncWorkspaceActiveBrowser(input: {
   }, [focusedBrowserId, input.workspaceId]);
 }
 
+function cleanupBrowserBackedTab(browserId: string): void {
+  useBrowserStore.getState().removeBrowser(browserId);
+  removeResidentBrowserWebview(browserId);
+  const browserHost = getDesktopHost()?.browser;
+  void (async () => {
+    await browserHost?.unregisterWorkspaceBrowser?.(browserId);
+    await browserHost?.clearPartition?.(browserId);
+  })();
+}
+
+function resolveBrowserBackedTabIdForCleanup(target: WorkspaceTabTarget | null | undefined) {
+  if (target?.kind === "browser") {
+    return target.browserId;
+  }
+  if (target?.kind !== "codeServer") {
+    return null;
+  }
+  const codeServer = useCodeServerStore.getState().codeServersById[target.codeServerId];
+  useCodeServerStore.getState().removeCodeServer(target.codeServerId);
+  return codeServer?.browserId ?? null;
+}
+
+interface UseWorkspaceCodeServerActionInput {
+  normalizedServerId: string;
+  persistenceKey: string | null;
+  focusWorkspacePane: (workspaceKey: string, paneId: string) => void;
+  openWorkspaceTabFocused: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
+}
+
+function shouldShowCodeServerAction(
+  codeServerUrlOpeners:
+    | {
+        localhostUrl?: string;
+        externalUrl?: string;
+      }
+    | undefined,
+): boolean {
+  return getIsElectron()
+    ? Boolean(codeServerUrlOpeners?.localhostUrl)
+    : Boolean(codeServerUrlOpeners?.externalUrl);
+}
+
+function useWorkspaceCodeServerAction({
+  normalizedServerId,
+  persistenceKey,
+  focusWorkspacePane,
+  openWorkspaceTabFocused,
+}: UseWorkspaceCodeServerActionInput) {
+  const codeServerUrlOpeners = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.codeServer,
+  );
+  const showCreateCodeServerTab = shouldShowCodeServerAction(codeServerUrlOpeners);
+  const handleCreateCodeServerTab = useCallback(
+    (input?: { paneId?: string }) => {
+      if (getIsElectron()) {
+        const localhostUrl = codeServerUrlOpeners?.localhostUrl;
+        if (!persistenceKey || !localhostUrl) {
+          return;
+        }
+        if (input?.paneId) {
+          focusWorkspacePane(persistenceKey, input.paneId);
+        }
+        const { codeServerId } = createWorkspaceCodeServer({ initialUrl: localhostUrl });
+        openWorkspaceTabFocused(persistenceKey, { kind: "codeServer", codeServerId });
+        return;
+      }
+
+      const externalUrl = codeServerUrlOpeners?.externalUrl;
+      if (externalUrl) {
+        void openExternalUrl(externalUrl);
+      }
+    },
+    [codeServerUrlOpeners, focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+  );
+
+  return { handleCreateCodeServerTab, showCreateCodeServerTab };
+}
+
 function getFallbackTabOptionLabel(
   tab: WorkspaceTabDescriptor,
   labels: {
@@ -330,6 +413,7 @@ function getFallbackTabOptionLabel(
     setup: string;
     terminal: string;
     browser: string;
+    codeServer: string;
     agent: string;
   },
 ): string {
@@ -345,6 +429,9 @@ function getFallbackTabOptionLabel(
   if (tab.target.kind === "browser") {
     return labels.browser;
   }
+  if (tab.target.kind === "codeServer") {
+    return labels.codeServer;
+  }
   if (tab.target.kind === "file") {
     return tab.target.path.split("/").findLast(Boolean) ?? tab.target.path;
   }
@@ -359,6 +446,7 @@ function getFallbackTabOptionDescription(
     agent: string;
     terminal: string;
     browser: string;
+    codeServer: string;
   },
 ): string {
   if (tab.target.kind === "draft") {
@@ -375,6 +463,9 @@ function getFallbackTabOptionDescription(
   }
   if (tab.target.kind === "browser") {
     return labels.browser;
+  }
+  if (tab.target.kind === "codeServer") {
+    return labels.codeServer;
   }
   return tab.target.path;
 }
@@ -647,6 +738,7 @@ function MobileWorkspaceTabOption({
       setup: t("workspace.tabs.fallback.setup"),
       terminal: t("workspace.tabs.fallback.terminal"),
       browser: t("workspace.tabs.fallback.browser"),
+      codeServer: "Code Server",
       agent: t("workspace.tabs.fallback.agent"),
     }),
     [t],
@@ -939,6 +1031,7 @@ interface WorkspaceHeaderMenuProps {
   currentBranchName: string | null;
   showWorkspaceSetup: boolean;
   showCreateBrowserTab: boolean;
+  showCreateCodeServerTab: boolean;
   isMobile: boolean;
   createTerminalDisabled: boolean;
   importAgentDisabled: boolean;
@@ -946,6 +1039,7 @@ interface WorkspaceHeaderMenuProps {
   menuNewAgentIcon: ReactElement;
   menuNewTerminalIcon: ReactElement;
   menuNewBrowserIcon: ReactElement;
+  menuNewCodeServerIcon: ReactElement;
   menuImportIcon: ReactElement;
   menuCopyIcon: ReactElement;
   menuSettingsIcon: ReactElement;
@@ -953,6 +1047,7 @@ interface WorkspaceHeaderMenuProps {
   onCreateTerminal: () => void;
   onCreateTerminalWithProfile: (profile: TerminalProfileInput) => void;
   onCreateBrowser: () => void;
+  onCreateCodeServer: () => void;
   onOpenImportSheet: () => void;
   onCopyWorkspacePath: () => void;
   onCopyBranchName: () => void;
@@ -1020,6 +1115,7 @@ function WorkspaceHeaderMenu({
   currentBranchName,
   showWorkspaceSetup,
   showCreateBrowserTab,
+  showCreateCodeServerTab,
   isMobile,
   createTerminalDisabled,
   importAgentDisabled,
@@ -1027,6 +1123,7 @@ function WorkspaceHeaderMenu({
   menuNewAgentIcon,
   menuNewTerminalIcon,
   menuNewBrowserIcon,
+  menuNewCodeServerIcon,
   menuImportIcon,
   menuCopyIcon,
   menuSettingsIcon,
@@ -1034,6 +1131,7 @@ function WorkspaceHeaderMenu({
   onCreateTerminal,
   onCreateTerminalWithProfile,
   onCreateBrowser,
+  onCreateCodeServer,
   onOpenImportSheet,
   onCopyWorkspacePath,
   onCopyBranchName,
@@ -1083,6 +1181,15 @@ function WorkspaceHeaderMenu({
             onSelect={onCreateBrowser}
           >
             {t("workspace.header.actions.newBrowser")}
+          </DropdownMenuItem>
+        ) : null}
+        {showCreateCodeServerTab ? (
+          <DropdownMenuItem
+            testID="workspace-header-new-code-server"
+            leading={menuNewCodeServerIcon}
+            onSelect={onCreateCodeServer}
+          >
+            {t("workspace.header.actions.newCodeServer")}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem
@@ -1164,6 +1271,7 @@ interface WorkspaceHeaderTitleBarProps {
   liveTerminalIds: string[];
   showWorkspaceSetup: boolean;
   showCreateBrowserTab: boolean;
+  showCreateCodeServerTab: boolean;
   isMobile: boolean;
   createTerminalDisabled: boolean;
   importAgentDisabled: boolean;
@@ -1171,6 +1279,7 @@ interface WorkspaceHeaderTitleBarProps {
   menuNewAgentIcon: ReactElement;
   menuNewTerminalIcon: ReactElement;
   menuNewBrowserIcon: ReactElement;
+  menuNewCodeServerIcon: ReactElement;
   menuImportIcon: ReactElement;
   menuCopyIcon: ReactElement;
   menuSettingsIcon: ReactElement;
@@ -1178,6 +1287,7 @@ interface WorkspaceHeaderTitleBarProps {
   onCreateTerminal: () => void;
   onCreateTerminalWithProfile: (profile: TerminalProfileInput) => void;
   onCreateBrowser: () => void;
+  onCreateCodeServer: () => void;
   onOpenImportSheet: () => void;
   onCopyWorkspacePath: () => void;
   onCopyBranchName: () => void;
@@ -1199,6 +1309,7 @@ function WorkspaceHeaderTitleBar({
   liveTerminalIds,
   showWorkspaceSetup,
   showCreateBrowserTab,
+  showCreateCodeServerTab,
   isMobile,
   createTerminalDisabled,
   importAgentDisabled,
@@ -1206,6 +1317,7 @@ function WorkspaceHeaderTitleBar({
   menuNewAgentIcon,
   menuNewTerminalIcon,
   menuNewBrowserIcon,
+  menuNewCodeServerIcon,
   menuImportIcon,
   menuCopyIcon,
   menuSettingsIcon,
@@ -1213,6 +1325,7 @@ function WorkspaceHeaderTitleBar({
   onCreateTerminal,
   onCreateTerminalWithProfile,
   onCreateBrowser,
+  onCreateCodeServer,
   onOpenImportSheet,
   onCopyWorkspacePath,
   onCopyBranchName,
@@ -1247,6 +1360,7 @@ function WorkspaceHeaderTitleBar({
           currentBranchName={currentBranchName}
           showWorkspaceSetup={showWorkspaceSetup}
           showCreateBrowserTab={showCreateBrowserTab}
+          showCreateCodeServerTab={showCreateCodeServerTab}
           isMobile={isMobile}
           createTerminalDisabled={createTerminalDisabled}
           importAgentDisabled={importAgentDisabled}
@@ -1254,6 +1368,7 @@ function WorkspaceHeaderTitleBar({
           menuNewAgentIcon={menuNewAgentIcon}
           menuNewTerminalIcon={menuNewTerminalIcon}
           menuNewBrowserIcon={menuNewBrowserIcon}
+          menuNewCodeServerIcon={menuNewCodeServerIcon}
           menuImportIcon={menuImportIcon}
           menuCopyIcon={menuCopyIcon}
           menuSettingsIcon={menuSettingsIcon}
@@ -1261,6 +1376,7 @@ function WorkspaceHeaderTitleBar({
           onCreateTerminal={onCreateTerminal}
           onCreateTerminalWithProfile={onCreateTerminalWithProfile}
           onCreateBrowser={onCreateBrowser}
+          onCreateCodeServer={onCreateCodeServer}
           onOpenImportSheet={onOpenImportSheet}
           onCopyWorkspacePath={onCopyWorkspacePath}
           onCopyBranchName={onCopyBranchName}
@@ -1926,11 +2042,9 @@ function WorkspaceScreenContent({
         unpinWorkspaceAgent(persistenceKey, input.target.agentId);
         hideWorkspaceAgent(persistenceKey, input.target.agentId);
       }
-      if (input.target?.kind === "browser") {
-        const { browserId } = input.target;
-        useBrowserStore.getState().removeBrowser(browserId);
-        removeResidentBrowserWebview(browserId);
-        void getDesktopHost()?.browser?.clearPartition?.(browserId);
+      const browserId = resolveBrowserBackedTabIdForCleanup(input.target);
+      if (browserId) {
+        cleanupBrowserBackedTab(browserId);
       }
       closeWorkspaceTab(persistenceKey, normalizedTabId);
     },
@@ -2393,6 +2507,7 @@ function WorkspaceScreenContent({
       workspaceSetup: t("workspace.tabs.fallback.workspaceSetup"),
       terminal: t("workspace.tabs.fallback.terminal"),
       browser: t("workspace.tabs.fallback.browser"),
+      codeServer: "Code Server",
       agent: t("workspace.tabs.fallback.agent"),
     }),
     [t],
@@ -2440,6 +2555,13 @@ function WorkspaceScreenContent({
     },
     [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
   );
+
+  const { handleCreateCodeServerTab, showCreateCodeServerTab } = useWorkspaceCodeServerAction({
+    normalizedServerId,
+    persistenceKey,
+    focusWorkspacePane,
+    openWorkspaceTabFocused,
+  });
 
   const handleOpenUrlInBrowserTab = useCallback(
     (url: string) => {
@@ -3088,12 +3210,14 @@ function WorkspaceScreenContent({
             focusPaneBeforeOpen: input.focusPaneBeforeOpen,
           });
         },
+        onOpenUrlInBrowserTab: handleOpenUrlInBrowserTab,
         onOpenImportSheet: openImportSheet,
       }),
     [
       handleCloseTabById,
       focusWorkspacePane,
       handleOpenWorkspaceFileFromPane,
+      handleOpenUrlInBrowserTab,
       navigateToTabId,
       normalizedServerId,
       normalizedWorkspaceId,
@@ -3457,7 +3581,9 @@ function WorkspaceScreenContent({
         onCreateDraftTab={handleCreateDraftTab}
         onCreateTerminalTab={handleCreateTerminal}
         onCreateBrowserTab={handleCreateBrowserTab}
+        onCreateCodeServerTab={handleCreateCodeServerTab}
         showCreateBrowserTab={showCreateBrowserTab}
+        showCreateCodeServerTab={showCreateCodeServerTab}
         buildPaneContentModel={buildDesktopPaneContentModel}
         onFocusPane={handleFocusPane}
         onSplitPane={handleSplitPane}
@@ -3492,7 +3618,9 @@ function WorkspaceScreenContent({
     handleCreateDraftTab,
     handleCreateTerminal,
     handleCreateBrowserTab,
+    handleCreateCodeServerTab,
     showCreateBrowserTab,
+    showCreateCodeServerTab,
     buildDesktopPaneContentModel,
     handleFocusPane,
     handleSplitPane,
@@ -3524,6 +3652,7 @@ function WorkspaceScreenContent({
                 liveTerminalIds={liveTerminalIds}
                 showWorkspaceSetup={showWorkspaceSetup}
                 showCreateBrowserTab={showCreateBrowserTab}
+                showCreateCodeServerTab={showCreateCodeServerTab}
                 isMobile={isMobile}
                 createTerminalDisabled={createTerminalDisabled}
                 importAgentDisabled={!canOpenImportSheet}
@@ -3531,6 +3660,7 @@ function WorkspaceScreenContent({
                 menuNewAgentIcon={menuNewAgentIcon}
                 menuNewTerminalIcon={menuNewTerminalIcon}
                 menuNewBrowserIcon={MENU_NEW_BROWSER_ICON}
+                menuNewCodeServerIcon={MENU_NEW_CODE_SERVER_ICON}
                 menuImportIcon={MENU_IMPORT_ICON}
                 menuCopyIcon={menuCopyIcon}
                 menuSettingsIcon={menuSettingsIcon}
@@ -3538,6 +3668,7 @@ function WorkspaceScreenContent({
                 onCreateTerminal={handleCreateTerminal}
                 onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
                 onCreateBrowser={handleCreateBrowserTab}
+                onCreateCodeServer={handleCreateCodeServerTab}
                 onOpenImportSheet={openImportSheet}
                 onCopyWorkspacePath={handleCopyWorkspacePath}
                 onCopyBranchName={handleCopyBranchName}
@@ -3595,7 +3726,9 @@ function WorkspaceScreenContent({
           onCreateDraftTab={handleCreateDraftTab}
           onCreateTerminalTab={handleCreateTerminal}
           onCreateBrowserTab={handleCreateBrowserTab}
+          onCreateCodeServerTab={handleCreateCodeServerTab}
           showCreateBrowserTab={showCreateBrowserTab}
+          showCreateCodeServerTab={showCreateCodeServerTab}
           disableCreateTerminal={createTerminalMutation.isPending}
           isWaitingOnTerminalReadiness={pendingTerminalCreateInput !== null}
           onReorderTabs={handleReorderTabsInFocusedPane}

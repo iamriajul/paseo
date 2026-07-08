@@ -78,6 +78,25 @@ import {
 } from "@getpaseo/protocol/browser-automation/capabilities";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
 import { TaskStore } from "./tasks/task-store.js";
+import { buildCodeServerUrlOpeners } from "./code-server-detection.js";
+
+const VSCODE_PROXY_PORT_TOKEN = "{{port}}";
+
+function normalizeVscodeProxyUri(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed?.includes(VSCODE_PROXY_PORT_TOKEN)) {
+    return null;
+  }
+  try {
+    const parsed = new URL(trimmed.replaceAll(VSCODE_PROXY_PORT_TOKEN, "5173"));
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
 
 const WS_CLOSE_DAEMON_AUTH_FAILED = 4401;
 
@@ -1205,12 +1224,22 @@ export class VoiceAssistantWebSocketServer {
   }
 
   private buildServerInfoStatusPayload(): ServerInfoStatusPayload {
+    const vscodeProxyUri = normalizeVscodeProxyUri(process.env.VSCODE_PROXY_URI);
+    const codeServer = buildCodeServerUrlOpeners({ env: process.env });
+    const urlOpeners =
+      vscodeProxyUri || codeServer
+        ? {
+            ...(vscodeProxyUri ? { vscodeProxyUri } : {}),
+            ...(codeServer ? { codeServer } : {}),
+          }
+        : null;
     return {
       status: "server_info",
       serverId: this.serverId,
       hostname: getHostname(),
       version: this.daemonVersion,
       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
+      ...(urlOpeners ? { urlOpeners } : {}),
       features: {
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,
@@ -1247,6 +1276,8 @@ export class VoiceAssistantWebSocketServer {
         taskBacklog: true,
         // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
         taskBacklogListAll: true,
+        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
+        tcpTunnel: true,
       },
     };
   }

@@ -70,6 +70,7 @@ import { listenToDesktopEvent } from "@/desktop/electron/events";
 import { updateDesktopWindowControls } from "@/desktop/electron/window";
 import { getDesktopHost } from "@/desktop/host";
 import { loadDesktopSettings } from "@/desktop/settings/desktop-settings";
+import { BrowserLoopbackTunnelController } from "@/desktop/browser-loopback-tunnel-controller";
 import { RosettaCalloutSource } from "@/desktop/updates/rosetta-callout-source";
 import { UpdateCalloutSource } from "@/desktop/updates/update-callout-source";
 import { useActiveWorktreeNewAction } from "@/hooks/use-active-worktree-new-action";
@@ -84,7 +85,7 @@ import { useStableEvent } from "@/hooks/use-stable-event";
 import { I18nProvider } from "@/i18n/provider";
 import { keyboardActionDispatcher } from "@/keyboard/keyboard-action-dispatcher";
 import { polyfillCrypto } from "@/polyfills/crypto";
-import { queryClient } from "@/query/query-client";
+import { queryClient } from "@/data/query-client";
 import {
   getHostRuntimeStore,
   hasConfiguredLocalDaemonOverride,
@@ -978,6 +979,7 @@ function AppShell() {
     <SidebarAnimationProvider>
       <HorizontalScrollProvider>
         <OpenProjectListener />
+        <BrowserLoopbackTunnelController />
         <AppWithSidebar>
           <WorkspaceRouteNavigationBridge />
           <RootStack />

@@ -337,7 +337,7 @@ async function openBrowserTabForRequest(params: {
     browserId,
   });
 
-  await browserHost?.registerWorkspaceBrowser?.({ browserId, workspaceId });
+  await browserHost?.registerWorkspaceBrowser?.({ browserId, serverId, workspaceId });
 
   if (browserHost?.executeAutomationCommand) {
     ensureResidentBrowserWebview({ browserId, url: normalizedUrl });

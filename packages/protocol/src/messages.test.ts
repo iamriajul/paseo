@@ -293,6 +293,27 @@ describe("agent detach RPC", () => {
     }
     expect(parsed.features?.agentDetach).toBe(true);
   });
+
+  test("parses optional server URL opener metadata", () => {
+    const parsed = parseServerInfoStatusPayload({
+      status: "server_info",
+      serverId: "srv-test",
+      urlOpeners: {
+        vscodeProxyUri: "https://{{port}}--main--coder.example.test",
+        codeServer: {
+          localhostUrl: "http://127.0.0.1:13337",
+          externalUrl: "https://code-server.example.test/",
+        },
+      },
+    });
+
+    if (!parsed) {
+      throw new Error("Expected server info payload to parse");
+    }
+    expect(parsed.urlOpeners?.vscodeProxyUri).toBe("https://{{port}}--main--coder.example.test");
+    expect(parsed.urlOpeners?.codeServer?.localhostUrl).toBe("http://127.0.0.1:13337");
+    expect(parsed.urlOpeners?.codeServer?.externalUrl).toBe("https://code-server.example.test/");
+  });
 });
 
 describe("agent setting action responses", () => {

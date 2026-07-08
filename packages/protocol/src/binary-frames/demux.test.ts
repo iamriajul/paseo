@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   decodeBinaryFrame,
   encodeFileTransferFrame,
+  encodeTcpTunnelFrame,
   encodeTerminalStreamFrame,
   FileTransferOpcode,
+  TcpTunnelOpcode,
+  TcpTunnelTargetHost,
   TerminalStreamOpcode,
 } from "./index.js";
 
@@ -43,6 +46,26 @@ describe("binary frame demux", () => {
         opcode: FileTransferOpcode.FileChunk,
         requestId: "req-upload",
         payload: new TextEncoder().encode("hello"),
+      },
+    });
+  });
+
+  it("routes TCP tunnel frames by opcode", () => {
+    expect(
+      decodeBinaryFrame(
+        encodeTcpTunnelFrame({
+          opcode: TcpTunnelOpcode.Open,
+          streamId: 99,
+          port: 3000,
+        }),
+      ),
+    ).toEqual({
+      kind: "tcp_tunnel",
+      frame: {
+        opcode: TcpTunnelOpcode.Open,
+        streamId: 99,
+        port: 3000,
+        targetHost: TcpTunnelTargetHost.Ipv4Loopback,
       },
     });
   });

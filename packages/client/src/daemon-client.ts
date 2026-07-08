@@ -101,10 +101,15 @@ import {
   asUint8Array,
   decodeFileTransferFrame,
   encodeFileTransferFrame,
+  decodeTcpTunnelFrame,
+  encodeTcpTunnelFrame,
   decodeTerminalStreamFrame,
   FileTransferOpcode,
+  TcpTunnelOpcode,
+  TcpTunnelTargetHost,
   TerminalStreamOpcode,
   type FileTransferFrame,
+  type TcpTunnelFrame,
 } from "@getpaseo/protocol/binary-frames/index";
 import {
   createRelayE2eeTransportFactory,
@@ -702,6 +707,8 @@ export interface CreateScheduleOptions {
           modeId?: string;
           model?: string;
           thinkingOptionId?: string;
+          archiveOnFinish?: boolean;
+          isolation?: "local" | "worktree";
           title?: string | null;
           approvalPolicy?: string;
           sandboxMode?: string;
@@ -725,6 +732,9 @@ export interface UpdateScheduleNewAgentConfig {
   provider?: string;
   model?: string | null;
   modeId?: string | null;
+  thinkingOptionId?: string | null;
+  archiveOnFinish?: boolean;
+  isolation?: "local" | "worktree";
   cwd?: string;
 }
 export interface UpdateScheduleOptions {
@@ -1004,6 +1014,28 @@ interface PingProbe {
   drivesLivenessFailure: boolean;
 }
 
+export interface TcpTunnelStream {
+  readonly streamId: number;
+  write(data: Uint8Array | ArrayBuffer | string): void;
+  close(reason?: string): void;
+  onData(handler: (data: Uint8Array) => void): () => void;
+  onClose(handler: (reason: string) => void): () => void;
+}
+
+export type TcpTunnelHost = "ipv4" | "ipv6";
+
+interface TcpTunnelClientStreamState {
+  streamId: number;
+  status: "opening" | "open" | "closed";
+  dataHandlers: Set<(data: Uint8Array) => void>;
+  closeHandlers: Set<(reason: string) => void>;
+  timeoutHandle: ReturnType<typeof setTimeout>;
+  resolve: (stream: TcpTunnelStream) => void;
+  reject: (error: Error) => void;
+}
+
+const DEFAULT_TCP_TUNNEL_OPEN_TIMEOUT_MS = 10_000;
+
 export class DaemonClient {
   private transport: DaemonTransport | null = null;
   private transportCleanup: Array<() => void> = [];
@@ -1038,6 +1070,8 @@ export class DaemonClient {
   private pendingBinaryFileReads = new Map<string, PendingBinaryFileRead>();
   private activeBinaryFileTransfers = new Map<string, BinaryFileTransferState>();
   private completedBinaryFileReads = new Map<string, FileReadResult>();
+  private tcpTunnelStreams = new Map<number, TcpTunnelClientStreamState>();
+  private nextTcpTunnelStreamId = 1;
   private logger: Logger;
   private pendingSendQueue: PendingSend[] = [];
   private readonly logConnectionPath: "direct" | "relay";
@@ -1313,6 +1347,7 @@ export class DaemonClient {
     this.clearWaiters(new Error("Daemon client closed"));
     this.rejectPendingSendQueue(new Error("Daemon client closed"));
     this.rejectPingProbe(new Error("Daemon client closed"));
+    this.closeAllTcpTunnelStreams(new Error("Daemon client closed."));
     this.terminalStreams.clearSlots();
     this.lastServerInfoMessage = null;
     if (this.runtimeMetricsInterval) {
@@ -1369,6 +1404,53 @@ export class DaemonClient {
 
   getLastLivenessRttMs(): number | null {
     return this.lastLivenessRttMs;
+  }
+
+  openTcpTunnel(
+    port: number,
+    options?: { timeoutMs?: number; host?: TcpTunnelHost },
+  ): Promise<TcpTunnelStream> {
+    if (!this.isConnected) {
+      return Promise.reject(new Error("Daemon client is not connected."));
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return Promise.reject(new RangeError("TCP tunnel port must be between 1 and 65535."));
+    }
+
+    const streamId = this.allocateTcpTunnelStreamId();
+    const timeoutMs = Math.max(1, options?.timeoutMs ?? DEFAULT_TCP_TUNNEL_OPEN_TIMEOUT_MS);
+
+    return new Promise<TcpTunnelStream>((resolve, reject) => {
+      const state: TcpTunnelClientStreamState = {
+        streamId,
+        status: "opening",
+        dataHandlers: new Set(),
+        closeHandlers: new Set(),
+        timeoutHandle: setTimeout(() => {
+          this.closeTcpTunnelStream(streamId, "TCP tunnel open timed out.", {
+            notifyDaemon: true,
+            notifyHandlers: false,
+          });
+        }, timeoutMs),
+        resolve,
+        reject,
+      };
+      this.tcpTunnelStreams.set(streamId, state);
+      try {
+        this.sendBinaryFrame(
+          encodeTcpTunnelFrame({
+            opcode: TcpTunnelOpcode.Open,
+            streamId,
+            port,
+            targetHost: this.encodeTcpTunnelTargetHost(options?.host),
+          }),
+        );
+      } catch (error) {
+        this.tcpTunnelStreams.delete(streamId);
+        clearTimeout(state.timeoutHandle);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   // ============================================================================
@@ -4919,6 +5001,14 @@ export class DaemonClient {
       return true;
     }
 
+    const tunnelFrame = decodeTcpTunnelFrame(rawBytes);
+    if (tunnelFrame) {
+      this.consecutiveLivenessFailures = 0;
+      this.handleTcpTunnelFrame(tunnelFrame);
+      this.runtimeMetrics?.recordBinaryFrame("other", rawBytes.byteLength, 0);
+      return true;
+    }
+
     const frame = decodeTerminalStreamFrame(rawBytes);
     if (!frame) {
       return false;
@@ -4993,6 +5083,193 @@ export class DaemonClient {
     });
   }
 
+  private handleTcpTunnelFrame(frame: TcpTunnelFrame): void {
+    const state = this.tcpTunnelStreams.get(frame.streamId);
+    if (!state || state.status === "closed") {
+      return;
+    }
+
+    if (frame.opcode === TcpTunnelOpcode.OpenResult) {
+      if (state.status !== "opening") {
+        return;
+      }
+      clearTimeout(state.timeoutHandle);
+      if (!frame.ok) {
+        state.status = "closed";
+        this.tcpTunnelStreams.delete(frame.streamId);
+        state.reject(new Error(frame.message || "TCP tunnel open failed."));
+        return;
+      }
+      state.status = "open";
+      state.resolve(this.createTcpTunnelStreamHandle(state));
+      return;
+    }
+
+    if (frame.opcode === TcpTunnelOpcode.Data) {
+      if (state.status !== "open") {
+        return;
+      }
+      for (const handler of state.dataHandlers) {
+        try {
+          handler(frame.payload);
+        } catch {
+          // no-op
+        }
+      }
+      return;
+    }
+
+    if (frame.opcode === TcpTunnelOpcode.Close) {
+      this.finishTcpTunnelStream(frame.streamId, frame.reason || "TCP tunnel closed.");
+    }
+  }
+
+  private createTcpTunnelStreamHandle(state: TcpTunnelClientStreamState): TcpTunnelStream {
+    const streamId = state.streamId;
+    return {
+      streamId,
+      write: (data) => {
+        const current = this.tcpTunnelStreams.get(streamId);
+        if (!current || current.status !== "open") {
+          return;
+        }
+        this.sendBinaryFrame(
+          encodeTcpTunnelFrame({
+            opcode: TcpTunnelOpcode.Data,
+            streamId,
+            payload: data,
+          }),
+        );
+      },
+      close: (reason) => {
+        this.closeTcpTunnelStream(streamId, reason ?? "TCP tunnel closed by client.", {
+          notifyDaemon: true,
+          notifyHandlers: false,
+        });
+      },
+      onData: (handler) => {
+        const current = this.tcpTunnelStreams.get(streamId);
+        if (!current || current.status === "closed") {
+          return () => {};
+        }
+        current.dataHandlers.add(handler);
+        return () => {
+          current.dataHandlers.delete(handler);
+        };
+      },
+      onClose: (handler) => {
+        const current = this.tcpTunnelStreams.get(streamId);
+        if (!current || current.status === "closed") {
+          return () => {};
+        }
+        current.closeHandlers.add(handler);
+        return () => {
+          current.closeHandlers.delete(handler);
+        };
+      },
+    };
+  }
+
+  private closeTcpTunnelStream(
+    streamId: number,
+    reason: string,
+    options: { notifyDaemon: boolean; notifyHandlers: boolean },
+  ): void {
+    const state = this.tcpTunnelStreams.get(streamId);
+    if (!state || state.status === "closed") {
+      return;
+    }
+    const wasOpening = state.status === "opening";
+    state.status = "closed";
+    this.tcpTunnelStreams.delete(streamId);
+    clearTimeout(state.timeoutHandle);
+
+    if (options.notifyDaemon && this.isConnected) {
+      try {
+        this.sendBinaryFrame(
+          encodeTcpTunnelFrame({
+            opcode: TcpTunnelOpcode.Close,
+            streamId,
+            reason,
+          }),
+        );
+      } catch {
+        // The local stream is already closing; reconnect logic will handle transport state.
+      }
+    }
+
+    if (wasOpening) {
+      state.reject(new Error(reason));
+    }
+    if (options.notifyHandlers) {
+      for (const handler of state.closeHandlers) {
+        try {
+          handler(reason);
+        } catch {
+          // no-op
+        }
+      }
+    }
+  }
+
+  private finishTcpTunnelStream(streamId: number, reason: string): void {
+    const state = this.tcpTunnelStreams.get(streamId);
+    if (!state || state.status === "closed") {
+      return;
+    }
+    const wasOpening = state.status === "opening";
+    state.status = "closed";
+    this.tcpTunnelStreams.delete(streamId);
+    clearTimeout(state.timeoutHandle);
+    if (wasOpening) {
+      state.reject(new Error(reason));
+      return;
+    }
+    for (const handler of state.closeHandlers) {
+      try {
+        handler(reason);
+      } catch {
+        // no-op
+      }
+    }
+  }
+
+  private closeAllTcpTunnelStreams(error: Error): void {
+    for (const streamId of Array.from(this.tcpTunnelStreams.keys())) {
+      const state = this.tcpTunnelStreams.get(streamId);
+      if (!state) {
+        continue;
+      }
+      state.status = "closed";
+      this.tcpTunnelStreams.delete(streamId);
+      clearTimeout(state.timeoutHandle);
+      state.reject(error);
+      for (const handler of state.closeHandlers) {
+        try {
+          handler(error.message);
+        } catch {
+          // no-op
+        }
+      }
+    }
+  }
+
+  private allocateTcpTunnelStreamId(): number {
+    for (let attempts = 0; attempts < 0xffff; attempts += 1) {
+      const streamId = this.nextTcpTunnelStreamId;
+      this.nextTcpTunnelStreamId =
+        this.nextTcpTunnelStreamId >= 0xffffffff ? 1 : this.nextTcpTunnelStreamId + 1;
+      if (!this.tcpTunnelStreams.has(streamId)) {
+        return streamId;
+      }
+    }
+    throw new Error("No TCP tunnel stream ids are available.");
+  }
+
+  private encodeTcpTunnelTargetHost(host: TcpTunnelHost | undefined): TcpTunnelTargetHost {
+    return host === "ipv6" ? TcpTunnelTargetHost.Ipv6Loopback : TcpTunnelTargetHost.Ipv4Loopback;
+  }
+
   private updateConnectionState(
     next: ConnectionState,
     metadata?: { event: string; reason?: string; reasonCode?: string },
@@ -5051,6 +5328,7 @@ export class DaemonClient {
     this.clearWaiters(new Error(reason ?? "Connection lost"));
     this.rejectPendingSendQueue(new Error(reason ?? "Connection lost"));
     this.rejectPingProbe(new Error(reason ?? "Connection lost"));
+    this.closeAllTcpTunnelStreams(new Error(reason ?? "Connection lost"));
     this.terminalStreams.clearSlots();
     this.lastServerInfoMessage = null;
 

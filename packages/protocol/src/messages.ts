@@ -2348,6 +2348,17 @@ export const ServerInfoStatusPayloadSchema = z
     hostname: ServerInfoHostnameSchema.optional(),
     version: ServerInfoVersionSchema.optional(),
     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
+    urlOpeners: z
+      .object({
+        vscodeProxyUri: z.string().min(1).optional(),
+        codeServer: z
+          .object({
+            localhostUrl: z.string().min(1).optional(),
+            externalUrl: z.string().min(1).optional(),
+          })
+          .optional(),
+      })
+      .optional(),
     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
     features: z
       .object({
@@ -2385,6 +2396,8 @@ export const ServerInfoStatusPayloadSchema = z
         taskBacklog: z.boolean().optional(),
         // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
         taskBacklogListAll: z.boolean().optional(),
+        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
+        tcpTunnel: z.boolean().optional(),
       })
       .optional(),
   })

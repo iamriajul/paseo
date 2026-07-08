@@ -18,7 +18,7 @@ import type {
 } from "react-native";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { router, type Href } from "expo-router";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Bold,
   Check,
@@ -51,6 +51,7 @@ import { ScreenTitle } from "@/components/headers/screen-title";
 import { Button } from "@/components/ui/button";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import { SegmentedControl, type SegmentedControlOption } from "@/components/ui/segmented-control";
+import { useFetchQuery } from "@/data/query";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { TaskVideoPreview } from "@/components/tasks/task-video-preview";
 import { MAX_CONTENT_WIDTH } from "@/constants/layout";
@@ -177,7 +178,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
     () => [TASKS_QUERY_KEY, serverId, projectId] as const,
     [serverId, projectId],
   );
-  const tasksQuery = useQuery({
+  const tasksQuery = useFetchQuery({
     queryKey,
     enabled: Boolean(client && serverId && projectId && supportsBacklog),
     queryFn: async () => {
@@ -190,6 +191,8 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
       }
       return payload.tasks;
     },
+    dataShape: "list",
+    staleTimeMs: 0,
   });
 
   const tasks = tasksQuery.data ?? EMPTY_TASKS;
@@ -636,12 +639,12 @@ function MasterBacklogScreen() {
     [projects, supportsListAllByServerId],
   );
 
-  const tasksQuery = useQuery({
+  const tasksQuery = useFetchQuery({
     queryKey: [TASKS_QUERY_KEY, "master", supportedServerIds.join("|"), runtimeVersion] as const,
     enabled: supportedHosts.length > 0,
     queryFn: () => fetchMasterBacklogTasks({ hosts: supportedHosts, runtime }),
-    staleTime: 5_000,
-    placeholderData: keepPreviousData,
+    dataShape: "list",
+    staleTimeMs: 5_000,
   });
 
   const visibleTasks = useMemo(

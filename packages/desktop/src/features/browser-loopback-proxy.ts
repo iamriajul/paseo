@@ -21,14 +21,14 @@ interface BrowserProxyAuth {
   realm: string;
 }
 
-interface ProxyTarget {
+export interface ProxyTarget {
   host: string;
   port: number;
   path: string;
   isConnect: boolean;
 }
 
-interface ParsedProxyRequest {
+export interface ParsedProxyRequest {
   target: ProxyTarget;
   initialUpstreamBytes: Buffer;
   connectPreambleBytes: Buffer;
@@ -198,13 +198,17 @@ async function applyProxyToBrowserSession(browserId: string, port: number): Prom
   await ses.setProxy({
     mode: "fixed_servers",
     proxyRules: `${LOOPBACK_PROXY_HOST}:${port}`,
-    proxyBypassRules: "<-loopback>",
+    proxyBypassRules: browserLoopbackProxyBypassRules(),
   });
   await ses.closeAllConnections().catch(() => undefined);
 }
 
 function browserPartition(browserId: string): string {
   return `persist:paseo-browser-${browserId}`;
+}
+
+export function browserLoopbackProxyBypassRules(): string {
+  return "<-loopback>";
 }
 
 function handleProxyConnection(record: BrowserProxyRecord, socket: Socket): void {
@@ -432,6 +436,13 @@ function sendToRenderer(record: BrowserProxyRecord, eventName: string, payload: 
   return true;
 }
 
+export function parseBrowserLoopbackProxyRequestForTest(
+  buffer: Buffer,
+  headerEnd: number,
+): ParsedProxyRequest | null {
+  return parseProxyRequest(buffer, headerEnd);
+}
+
 function parseProxyRequest(buffer: Buffer, headerEnd: number): ParsedProxyRequest | null {
   const headerText = buffer.subarray(0, headerEnd).toString("latin1");
   const lines = headerText.split("\r\n");
@@ -444,7 +455,8 @@ function parseProxyRequest(buffer: Buffer, headerEnd: number): ParsedProxyReques
   const headers = lines.slice(1, -2);
   const hostHeader = findHeader(headers, "host");
   const proxyAuthorization = findHeader(headers, "proxy-authorization");
-  const upstreamHeaders = headers.filter((header) => !isProxyRequestHeader(header));
+  const isUpgrade = isUpgradeRequest(headers);
+  const upstreamHeaders = rewriteUpstreamHeaders(headers, { forceClose: !isUpgrade });
   const remainder = buffer.subarray(headerEnd);
 
   if (method.toUpperCase() === "CONNECT") {
@@ -591,6 +603,31 @@ function sendProxyAuthenticationRequired(socket: Socket, auth: BrowserProxyAuth)
 function isProxyRequestHeader(header: string): boolean {
   const lower = header.toLowerCase();
   return lower.startsWith("proxy-authorization:") || lower.startsWith("proxy-connection:");
+}
+
+function rewriteUpstreamHeaders(headers: string[], options: { forceClose: boolean }): string[] {
+  const result = headers.filter((header) => {
+    if (isProxyRequestHeader(header)) {
+      return false;
+    }
+    return !(options.forceClose && header.toLowerCase().startsWith("connection:"));
+  });
+  if (options.forceClose) {
+    result.push("Connection: close");
+  }
+  return result;
+}
+
+function isUpgradeRequest(headers: string[]): boolean {
+  const upgradeHeader = findHeader(headers, "upgrade");
+  const connectionHeader = findHeader(headers, "connection");
+  return Boolean(
+    upgradeHeader?.trim() &&
+    connectionHeader
+      ?.toLowerCase()
+      .split(",")
+      .some((token) => token.trim() === "upgrade"),
+  );
 }
 
 function readTunnelOpenResult(

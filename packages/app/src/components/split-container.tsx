@@ -101,7 +101,9 @@ interface SplitContainerProps {
   onCreateDraftTab: (input: { paneId?: string }) => void;
   onCreateTerminalTab: (input: { paneId?: string; profile?: TerminalProfileInput }) => void;
   onCreateBrowserTab: (input: { paneId?: string }) => void;
+  onCreateCodeServerTab: (input: { paneId?: string }) => void;
   showCreateBrowserTab?: boolean;
+  showCreateCodeServerTab?: boolean;
   buildPaneContentModel: (input: {
     paneId: string;
     tab: WorkspaceTabDescriptor;
@@ -382,7 +384,9 @@ export function SplitContainer({
   onCreateDraftTab,
   onCreateTerminalTab,
   onCreateBrowserTab,
+  onCreateCodeServerTab,
   showCreateBrowserTab,
+  showCreateCodeServerTab,
   buildPaneContentModel,
   onFocusPane,
   onSplitPane,
@@ -599,7 +603,9 @@ export function SplitContainer({
           onCreateDraftTab={onCreateDraftTab}
           onCreateTerminalTab={onCreateTerminalTab}
           onCreateBrowserTab={onCreateBrowserTab}
+          onCreateCodeServerTab={onCreateCodeServerTab}
           showCreateBrowserTab={showCreateBrowserTab}
+          showCreateCodeServerTab={showCreateCodeServerTab}
           buildPaneContentModel={buildPaneContentModel}
           onFocusPane={onFocusPane}
           onSplitPane={onSplitPane}
@@ -742,7 +748,9 @@ function SplitNodeView({
   onCreateDraftTab,
   onCreateTerminalTab,
   onCreateBrowserTab,
+  onCreateCodeServerTab,
   showCreateBrowserTab,
+  showCreateCodeServerTab,
   buildPaneContentModel,
   onFocusPane,
   onSplitPane,
@@ -795,7 +803,9 @@ function SplitNodeView({
         onCreateDraftTab={onCreateDraftTab}
         onCreateTerminalTab={onCreateTerminalTab}
         onCreateBrowserTab={onCreateBrowserTab}
+        onCreateCodeServerTab={onCreateCodeServerTab}
         showCreateBrowserTab={showCreateBrowserTab}
+        showCreateCodeServerTab={showCreateCodeServerTab}
         buildPaneContentModel={buildPaneContentModel}
         onFocusPane={onFocusPane}
         onSplitPane={onSplitPane}
@@ -841,7 +851,9 @@ function SplitNodeView({
               onCreateDraftTab={onCreateDraftTab}
               onCreateTerminalTab={onCreateTerminalTab}
               onCreateBrowserTab={onCreateBrowserTab}
+              onCreateCodeServerTab={onCreateCodeServerTab}
               showCreateBrowserTab={showCreateBrowserTab}
+              showCreateCodeServerTab={showCreateCodeServerTab}
               buildPaneContentModel={buildPaneContentModel}
               onFocusPane={onFocusPane}
               onSplitPane={onSplitPane}
@@ -893,7 +905,9 @@ function SplitPaneView({
   onCreateDraftTab,
   onCreateTerminalTab,
   onCreateBrowserTab,
+  onCreateCodeServerTab,
   showCreateBrowserTab,
+  showCreateCodeServerTab,
   buildPaneContentModel,
   onFocusPane,
   onSplitPane: _onSplitPane,
@@ -1035,7 +1049,9 @@ function SplitPaneView({
             onCreateDraftTab={onCreateDraftTab}
             onCreateTerminalTab={onCreateTerminalTab}
             onCreateBrowserTab={onCreateBrowserTab}
+            onCreateCodeServerTab={onCreateCodeServerTab}
             showCreateBrowserTab={showCreateBrowserTab}
+            showCreateCodeServerTab={showCreateCodeServerTab}
             onReorderTabs={handleReorderTabs}
             onSplitRight={handleSplitRight}
             onSplitDown={handleSplitDown}

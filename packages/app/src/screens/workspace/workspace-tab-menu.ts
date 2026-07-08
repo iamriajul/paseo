@@ -135,6 +135,9 @@ function getCloseButtonTestId(tab: WorkspaceTabDescriptor): string {
   if (tab.target.kind === "browser") {
     return `workspace-browser-close-${tab.target.browserId}`;
   }
+  if (tab.target.kind === "codeServer") {
+    return `workspace-code-server-close-${tab.target.codeServerId}`;
+  }
   if (tab.target.kind === "setup") {
     return `workspace-setup-close-${encodeWorkspaceIdForPathSegment(tab.target.workspaceId)}`;
   }
@@ -205,7 +208,11 @@ export function buildWorkspaceTabMenuEntries(
     });
   }
 
-  if (tab.target.kind === "agent" || tab.target.kind === "terminal") {
+  if (
+    tab.target.kind === "agent" ||
+    tab.target.kind === "terminal" ||
+    tab.target.kind === "codeServer"
+  ) {
     entries.push({
       kind: "item",
       key: "rename",

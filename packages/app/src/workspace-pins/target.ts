@@ -2,6 +2,7 @@ export type PinnedTabTarget =
   | { kind: "draft" }
   | { kind: "terminal" }
   | { kind: "browser" }
+  | { kind: "codeServer" }
   | { kind: "profile"; profileId: string };
 
 export function pinnedTargetKey(target: PinnedTabTarget): string {

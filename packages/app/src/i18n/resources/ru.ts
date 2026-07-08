@@ -485,6 +485,7 @@ export const ru: TranslationResources = {
         reloadAgentTooltip: "Перезагрузите агента, чтобы обновить навыки, MCP или статус входа.",
         close: "Закрывать",
         renameTerminal: "Переименование терминала",
+        renameCodeServer: "Rename Code Server",
         renameAgent: "Переименовать агента",
       },
       actions: {
@@ -493,6 +494,7 @@ export const ru: TranslationResources = {
         preparingTerminal: "Подготовка вкладки терминала",
         preparingTerminalTooltip: "Подготовка терминала...",
         newBrowser: "Новый браузер",
+        newCodeServer: "New Code Server",
         splitRight: "Разделить панель справа",
         splitDown: "Разделить панель вниз",
         terminalProfilesMenu: "Terminal profiles",
@@ -551,6 +553,7 @@ export const ru: TranslationResources = {
         workspaceActions: "Действия Workspace",
         newAgent: "Новый агент",
         newTerminal: "Новый терминал",
+        newCodeServer: "New Code Server",
         newBrowser: "Новая вкладка браузера",
         importSession: "Импортировать сеанс",
         copyPath: "Копировать путь к рабочей области",

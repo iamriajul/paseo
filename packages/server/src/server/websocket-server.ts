@@ -77,6 +77,7 @@ import {
   type BrowserAutomationHostCapability,
 } from "@getpaseo/protocol/browser-automation/capabilities";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
+import { buildCodeServerUrlOpeners } from "./code-server-detection.js";
 
 const VSCODE_PROXY_PORT_TOKEN = "{{port}}";
 
@@ -1219,13 +1220,21 @@ export class VoiceAssistantWebSocketServer {
 
   private buildServerInfoStatusPayload(): ServerInfoStatusPayload {
     const vscodeProxyUri = normalizeVscodeProxyUri(process.env.VSCODE_PROXY_URI);
+    const codeServer = buildCodeServerUrlOpeners({ env: process.env });
+    const urlOpeners =
+      vscodeProxyUri || codeServer
+        ? {
+            ...(vscodeProxyUri ? { vscodeProxyUri } : {}),
+            ...(codeServer ? { codeServer } : {}),
+          }
+        : null;
     return {
       status: "server_info",
       serverId: this.serverId,
       hostname: getHostname(),
       version: this.daemonVersion,
       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
-      ...(vscodeProxyUri ? { urlOpeners: { vscodeProxyUri } } : {}),
+      ...(urlOpeners ? { urlOpeners } : {}),
       features: {
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,

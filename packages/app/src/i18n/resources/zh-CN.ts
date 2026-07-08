@@ -481,6 +481,7 @@ export const zhCN: TranslationResources = {
         reloadAgentTooltip: "重新加载 Agent 以更新 skills、MCPs 或登录状态。",
         close: "关闭",
         renameTerminal: "重命名 Terminal",
+        renameCodeServer: "Rename Code Server",
         renameAgent: "重命名 Agent",
       },
       actions: {
@@ -489,6 +490,7 @@ export const zhCN: TranslationResources = {
         preparingTerminal: "正在准备 Terminal 标签",
         preparingTerminalTooltip: "正在准备 Terminal...",
         newBrowser: "新建浏览器",
+        newCodeServer: "New Code Server",
         splitRight: "向右拆分窗格",
         splitDown: "向下拆分窗格",
         terminalProfilesMenu: "Terminal profiles",
@@ -545,6 +547,7 @@ export const zhCN: TranslationResources = {
         newAgent: "新建 Agent",
         newTerminal: "新建 Terminal",
         newBrowser: "新建浏览器标签",
+        newCodeServer: "New Code Server",
         importSession: "导入会话",
         copyPath: "复制 workspace 路径",
         copyBranchName: "复制分支名称",

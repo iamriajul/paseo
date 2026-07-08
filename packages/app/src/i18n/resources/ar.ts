@@ -481,6 +481,7 @@ export const ar: TranslationResources = {
         reloadAgentTooltip: "قم بإعادة تحميل الوكيل لتحديث المهارات أو MCPs أو حالة تسجيل الدخول.",
         close: "يغلق",
         renameTerminal: "إعادة تسمية المحطة",
+        renameCodeServer: "Rename Code Server",
         renameAgent: "إعادة تسمية الوكيل",
       },
       actions: {
@@ -489,6 +490,7 @@ export const ar: TranslationResources = {
         preparingTerminal: "إعداد علامة التبويب المحطة الطرفية",
         preparingTerminalTooltip: "جارٍ تحضير المحطة...",
         newBrowser: "متصفح جديد",
+        newCodeServer: "New Code Server",
         splitRight: "تقسيم الجزء الأيمن",
         splitDown: "تقسيم الجزء لأسفل",
         terminalProfilesMenu: "Terminal profiles",
@@ -547,6 +549,7 @@ export const ar: TranslationResources = {
         newAgent: "وكيل جديد",
         newTerminal: "محطة جديدة",
         newBrowser: "علامة تبويب متصفح جديدة",
+        newCodeServer: "New Code Server",
         importSession: "جلسة الاستيراد",
         copyPath: "نسخ مسار مساحة العمل",
         copyBranchName: "انسخ اسم الفرع",

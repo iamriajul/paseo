@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import {
   CopyX,
+  Code2,
   ArrowLeftToLine,
   ArrowRightToLine,
   ChevronDown,
@@ -98,6 +99,7 @@ const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedX = withUnistyles(X);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedRotateCw = withUnistyles(RotateCw);
+const ThemedCode2 = withUnistyles(Code2);
 const ThemedArrowLeftToLine = withUnistyles(ArrowLeftToLine);
 const ThemedArrowRightToLine = withUnistyles(ArrowRightToLine);
 const ThemedCopyX = withUnistyles(CopyX);
@@ -115,10 +117,12 @@ const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMut
 const AGENT_ICON = <ThemedSquarePen size={14} uniProps={mutedColorMapping} />;
 const TERMINAL_ICON = <ThemedSquareTerminal size={14} uniProps={mutedColorMapping} />;
 const BROWSER_ICON = <ThemedGlobe size={14} uniProps={mutedColorMapping} />;
+const CODE_SERVER_ICON = <ThemedCode2 size={14} uniProps={mutedColorMapping} />;
 
 const DRAFT_TARGET: PinnedTabTarget = { kind: "draft" };
 const TERMINAL_TARGET: PinnedTabTarget = { kind: "terminal" };
 const BROWSER_TARGET: PinnedTabTarget = { kind: "browser" };
+const CODE_SERVER_TARGET: PinnedTabTarget = { kind: "codeServer" };
 
 function newTabActionButtonStyle({ hovered, pressed }: PressableStateCallbackType) {
   return [styles.newTabActionButton, (hovered || pressed) && styles.newTabActionButtonHovered];
@@ -212,10 +216,12 @@ interface WorkspaceTabRowExtrasProps {
   onCreateAgentTab: () => void;
   onCreateTerminal: () => void;
   onCreateBrowser: () => void;
+  onCreateCodeServer: () => void;
   onCreateTerminalWithProfile: (profile: TerminalProfileInput) => void;
   onEditProfiles: () => void;
   normalizedServerId: string;
   showCreateBrowserTab: boolean;
+  showCreateCodeServerTab: boolean;
   terminalDisabled: boolean;
 }
 
@@ -223,10 +229,12 @@ function WorkspaceTabRowExtras({
   onCreateAgentTab,
   onCreateTerminal,
   onCreateBrowser,
+  onCreateCodeServer,
   onCreateTerminalWithProfile,
   onEditProfiles,
   normalizedServerId,
   showCreateBrowserTab,
+  showCreateCodeServerTab,
   terminalDisabled,
 }: WorkspaceTabRowExtrasProps) {
   const { t } = useTranslation();
@@ -241,9 +249,16 @@ function WorkspaceTabRowExtras({
       createDraft: onCreateAgentTab,
       createTerminal: onCreateTerminal,
       createBrowser: onCreateBrowser,
+      createCodeServer: onCreateCodeServer,
       createTerminalWithProfile: onCreateTerminalWithProfile,
     }),
-    [onCreateAgentTab, onCreateBrowser, onCreateTerminal, onCreateTerminalWithProfile],
+    [
+      onCreateAgentTab,
+      onCreateBrowser,
+      onCreateCodeServer,
+      onCreateTerminal,
+      onCreateTerminalWithProfile,
+    ],
   );
 
   const onLaunch = useCallback(
@@ -296,6 +311,15 @@ function WorkspaceTabRowExtras({
               label={t("workspace.tabs.actions.newBrowser")}
               leading={BROWSER_ICON}
               onSelect={onCreateBrowser}
+            />
+          ) : null}
+          {showCreateCodeServerTab ? (
+            <PinnableMenuItem
+              testID="workspace-new-tab-menu-code-server"
+              target={CODE_SERVER_TARGET}
+              label={t("workspace.tabs.actions.newCodeServer")}
+              leading={CODE_SERVER_ICON}
+              onSelect={onCreateCodeServer}
             />
           ) : null}
           <DropdownMenuSeparator />
@@ -428,7 +452,9 @@ interface WorkspaceDesktopTabsRowProps {
   onCreateDraftTab: (input: { paneId?: string }) => void;
   onCreateTerminalTab: (input: { paneId?: string; profile?: TerminalProfileInput }) => void;
   onCreateBrowserTab: (input: { paneId?: string }) => void;
+  onCreateCodeServerTab: (input: { paneId?: string }) => void;
   showCreateBrowserTab?: boolean;
+  showCreateCodeServerTab?: boolean;
   disableCreateTerminal?: boolean;
   isWaitingOnTerminalReadiness?: boolean;
   onReorderTabs: (nextTabs: WorkspaceTabDescriptor[]) => void;
@@ -442,7 +468,7 @@ interface WorkspaceDesktopTabsRowProps {
 
 function getFallbackTabLabel(
   tab: WorkspaceTabDescriptor,
-  labels: { newAgent: string; setup: string; terminal: string; agent: string },
+  labels: { newAgent: string; setup: string; terminal: string; codeServer: string; agent: string },
 ): string {
   if (tab.target.kind === "draft") {
     return labels.newAgent;
@@ -452,6 +478,9 @@ function getFallbackTabLabel(
   }
   if (tab.target.kind === "terminal") {
     return labels.terminal;
+  }
+  if (tab.target.kind === "codeServer") {
+    return labels.codeServer;
   }
   if (tab.target.kind === "file") {
     return tab.target.path.split("/").findLast(Boolean) ?? tab.target.path;
@@ -748,7 +777,9 @@ export function WorkspaceDesktopTabsRow({
   onCreateDraftTab,
   onCreateTerminalTab,
   onCreateBrowserTab,
+  onCreateCodeServerTab,
   showCreateBrowserTab = false,
+  showCreateCodeServerTab = false,
   disableCreateTerminal = false,
   isWaitingOnTerminalReadiness = false,
   onReorderTabs,
@@ -803,6 +834,7 @@ export function WorkspaceDesktopTabsRow({
       newAgent: t("workspace.tabs.fallback.newAgent"),
       setup: t("workspace.tabs.fallback.setup"),
       terminal: t("workspace.tabs.fallback.terminal"),
+      codeServer: "Code Server",
       agent: t("workspace.tabs.fallback.agent"),
     }),
     [t],
@@ -877,6 +909,10 @@ export function WorkspaceDesktopTabsRow({
   const handleCreateBrowser = useCallback(() => {
     onCreateBrowserTab({ paneId });
   }, [onCreateBrowserTab, paneId]);
+
+  const handleCreateCodeServer = useCallback(() => {
+    onCreateCodeServerTab({ paneId });
+  }, [onCreateCodeServerTab, paneId]);
 
   const terminalDisabled = disableCreateTerminal || isWaitingOnTerminalReadiness;
 
@@ -998,10 +1034,12 @@ export function WorkspaceDesktopTabsRow({
           onCreateAgentTab={handleCreateAgentTab}
           onCreateTerminal={handleCreateTerminal}
           onCreateBrowser={handleCreateBrowser}
+          onCreateCodeServer={handleCreateCodeServer}
           onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
           onEditProfiles={handleEditProfiles}
           normalizedServerId={normalizedServerId}
           showCreateBrowserTab={showCreateBrowserTab}
+          showCreateCodeServerTab={showCreateCodeServerTab}
           terminalDisabled={terminalDisabled}
         />
         {showPaneSplitActions ? (

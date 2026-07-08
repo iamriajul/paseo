@@ -29,6 +29,10 @@ export function normalizeWorkspaceTabTarget(
     const browserId = trimNonEmpty(value.browserId);
     return browserId ? { kind: "browser", browserId } : null;
   }
+  if (value.kind === "codeServer") {
+    const codeServerId = trimNonEmpty(value.codeServerId);
+    return codeServerId ? { kind: "codeServer", codeServerId } : null;
+  }
   if (value.kind === "file") {
     return normalizeFileTabTarget(value);
   }
@@ -81,6 +85,9 @@ export function workspaceTabTargetsEqual(
   }
   if (left.kind === "browser" && right.kind === "browser") {
     return left.browserId === right.browserId;
+  }
+  if (left.kind === "codeServer" && right.kind === "codeServer") {
+    return left.codeServerId === right.codeServerId;
   }
   if (left.kind === "file" && right.kind === "file") {
     return workspaceFileLocationsEqual(left, right);
@@ -136,6 +143,9 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   }
   if (target.kind === "browser") {
     return `browser_${target.browserId}`;
+  }
+  if (target.kind === "codeServer") {
+    return `code-server_${target.codeServerId}`;
   }
   if (target.kind === "setup") {
     return `setup_${target.workspaceId}`;

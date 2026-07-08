@@ -486,6 +486,7 @@ export const es: TranslationResources = {
           "Vuelva a cargar el agente para actualizar habilidades, MCP o estado de inicio de sesión.",
         close: "Cerca",
         renameTerminal: "Cambiar nombre de terminal",
+        renameCodeServer: "Rename Code Server",
         renameAgent: "Cambiar nombre del agente",
       },
       actions: {
@@ -494,6 +495,7 @@ export const es: TranslationResources = {
         preparingTerminal: "Preparando la pestaña del terminal",
         preparingTerminalTooltip: "Preparando terminal...",
         newBrowser: "Nuevo navegador",
+        newCodeServer: "New Code Server",
         splitRight: "Panel dividido a la derecha",
         splitDown: "Dividir panel hacia abajo",
         terminalProfilesMenu: "Terminal profiles",
@@ -551,6 +553,7 @@ export const es: TranslationResources = {
         workspaceActions: "AccionesWorkspace",
         newAgent: "Nuevo agente",
         newTerminal: "Nueva terminal",
+        newCodeServer: "New Code Server",
         newBrowser: "Nueva pestaña del navegador",
         importSession: "Importar sesión",
         copyPath: "Copiar ruta del espacio de trabajo",

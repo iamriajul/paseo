@@ -70,6 +70,7 @@ interface TerminalEmulatorProps {
     target: TerminalLocalFileLinkTarget,
     disposition: "main" | "side",
   ) => Promise<void> | void;
+  onOpenExternalUrl?: (url: string) => Promise<void> | void;
   onRendererReadyChange?: (change: TerminalRendererReadyChange) => void;
   pendingModifiers?: PendingTerminalModifiers;
   focusRequestToken?: number;
@@ -207,6 +208,7 @@ export default function TerminalEmulator({
   onInputModeChange,
   onResolveLocalFileLink,
   onOpenLocalFileLink,
+  onOpenExternalUrl = openExternalUrl,
   onRendererReadyChange,
   pendingModifiers = { ctrl: false, shift: false, alt: false },
   focusRequestToken = 0,
@@ -254,6 +256,7 @@ export default function TerminalEmulator({
     onRendererReadyChange,
     onResolveLocalFileLink,
     onOpenLocalFileLink,
+    onOpenExternalUrl,
     onSwipeLeft,
     onSwipeRight,
   });
@@ -267,6 +270,7 @@ export default function TerminalEmulator({
     onRendererReadyChange,
     onResolveLocalFileLink,
     onOpenLocalFileLink,
+    onOpenExternalUrl,
     onSwipeLeft,
     onSwipeRight,
   };
@@ -514,6 +518,10 @@ export default function TerminalEmulator({
         callbacksRef.current.onOpenLocalFileLink?.(message.target, message.disposition);
         return;
       }
+      if (message.type === "openExternalUrl") {
+        void callbacksRef.current.onOpenExternalUrl?.(message.url);
+        return;
+      }
       switch (message.type) {
         case "input":
           callbacksRef.current.onInput?.(message.data);
@@ -540,16 +548,11 @@ export default function TerminalEmulator({
         case "inputModeChange":
           callbacksRef.current.onInputModeChange?.(message.state);
           break;
-        case "openExternalUrl":
-          void openExternalUrl(message.url);
-          break;
         case "swipeLeft":
           callbacksRef.current.onSwipeLeft?.();
           break;
         case "swipeRight":
           callbacksRef.current.onSwipeRight?.();
-          break;
-        case "debug":
           break;
       }
     },

@@ -6,6 +6,7 @@ describe("pinnedTargetKey", () => {
     expect(pinnedTargetKey({ kind: "draft" })).toBe("draft");
     expect(pinnedTargetKey({ kind: "terminal" })).toBe("terminal");
     expect(pinnedTargetKey({ kind: "browser" })).toBe("browser");
+    expect(pinnedTargetKey({ kind: "codeServer" })).toBe("codeServer");
   });
 
   it("namespaces a profile target by its profile id", () => {

@@ -1,14 +1,17 @@
 import { useMemo, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import { Globe, SquarePen, SquareTerminal } from "lucide-react-native";
+import { Code2, Globe, SquarePen, SquareTerminal } from "lucide-react-native";
 import { withUnistyles } from "react-native-unistyles";
 import {
   getTerminalProfileIcon,
   resolveTerminalProfiles,
 } from "@getpaseo/protocol/terminal-profiles";
 import { getProviderIcon } from "@/components/provider-icons";
+import { getIsElectron } from "@/constants/platform";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
+import { useSessionStore } from "@/stores/session-store";
 import type { Theme } from "@/styles/theme";
+import { shouldShowCodeServerLauncher } from "@/workspace-pins/code-server-availability";
 import { pinnedTargetKey, type PinnedTabTarget } from "@/workspace-pins/target";
 import { usePinnedTargetsStore } from "@/workspace-pins/store";
 
@@ -29,6 +32,7 @@ const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMut
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedGlobe = withUnistyles(Globe);
+const ThemedCode2 = withUnistyles(Code2);
 
 function ProviderPinIcon({
   iconKey,
@@ -60,6 +64,13 @@ export function usePinnedLaunchers({ serverId, onLaunch }: UsePinnedLaunchersInp
     () => resolveTerminalProfiles(config?.terminalProfiles),
     [config?.terminalProfiles],
   );
+  const codeServerUrlOpeners = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.urlOpeners?.codeServer,
+  );
+  const showCodeServerLauncher = shouldShowCodeServerLauncher({
+    isElectron: getIsElectron(),
+    codeServerUrlOpeners,
+  });
 
   return useMemo(() => {
     const resolved: ResolvedPin[] = [];
@@ -91,6 +102,18 @@ export function usePinnedLaunchers({ serverId, onLaunch }: UsePinnedLaunchersInp
         });
         continue;
       }
+      if (target.kind === "codeServer") {
+        if (!showCodeServerLauncher) {
+          continue;
+        }
+        resolved.push({
+          key: pinnedTargetKey(target),
+          label: t("workspace.tabs.actions.newCodeServer"),
+          icon: <ThemedCode2 size={14} uniProps={mutedColorMapping} />,
+          onPress: () => onLaunch(target),
+        });
+        continue;
+      }
       const profile = profiles.find((entry) => entry.id === target.profileId);
       if (!profile) {
         continue;
@@ -103,5 +126,5 @@ export function usePinnedLaunchers({ serverId, onLaunch }: UsePinnedLaunchersInp
       });
     }
     return resolved;
-  }, [onLaunch, pinned, profiles, t]);
+  }, [onLaunch, pinned, profiles, showCodeServerLauncher, t]);
 }

@@ -10,8 +10,9 @@ This is separate from the service proxy. The service proxy exposes `paseo.json` 
 - Applies per Browser instance. Each Browser uses its own Electron session partition, so multiple Browser panes can point `localhost:3000` at different workspace hosts at the same time.
 - Applies to loopback hosts: `localhost`, `*.localhost`, `127.*`, `::1`, `::`, and `0.0.0.0`. Explicit IPv6 loopback URLs are tunneled to `::1` on the host daemon; all other loopback forms use `127.0.0.1`.
 - Preserves the visible URL and page origin. The user still sees `localhost:<port>` in the Browser, and page code still observes the same origin it requested.
-- Does not affect the system browser, the web app running in a normal browser, terminals, or service proxy generated URLs.
-- Assistant chat links keep rendering the original `localhost` URL. On Electron desktop, clicking one opens that original URL in the workspace Browser so this routing layer can handle it.
+- Does not affect the system browser, the web app running in a normal browser, or service proxy generated URLs.
+- Assistant chat and terminal links keep rendering the original `localhost` URL. On Electron desktop, clicking one opens that original URL in the workspace Browser so this routing layer can handle it.
+- Code Server tabs on Electron desktop reuse the Browser webview and this same localhost routing layer, but hide Browser chrome so the tab feels like an embedded editor.
 
 ## How it works
 
@@ -23,6 +24,14 @@ This is separate from the service proxy. The service proxy exposes `paseo.json` 
 6. The daemon connects to `127.0.0.1:<port>` or `::1:<port>` on its own machine and relays bytes over the WebSocket tunnel.
 
 The tunnel protocol is a binary WebSocket frame family in `packages/protocol/src/binary-frames/tcp-tunnel.ts`. The daemon advertises support through `server_info.features.tcpTunnel`; old daemons do not get a fallback path. The UI-side tunnel controller checks this capability in one place and reports that the host must be updated.
+
+## Code Server
+
+Hosts may advertise optional Code Server openers in `server_info.urlOpeners.codeServer`.
+
+- `localhostUrl` is derived from a running daemon-local code-server process, such as `http://127.0.0.1:13337`. Electron desktop shows a Code Server action when this is present. Clicking it creates a dedicated Code Server workspace tab that internally uses a Browser webview with hidden chrome.
+- `externalUrl` comes from `CODE_SERVER_URL` when it is set to an absolute `http` or `https` URL. Web and native platforms show the Code Server action when this is present and open it in the external browser.
+- Code Server workspace tabs have their own local title records (`Code Server 1`, `Code Server 2`, etc.) and can be renamed from the tab menu. They are not generic Browser tabs, even though desktop uses Browser infrastructure internally.
 
 ## Invariants
 

@@ -2337,6 +2337,12 @@ export const ServerInfoStatusPayloadSchema = z
     urlOpeners: z
       .object({
         vscodeProxyUri: z.string().min(1).optional(),
+        codeServer: z
+          .object({
+            localhostUrl: z.string().min(1).optional(),
+            externalUrl: z.string().min(1).optional(),
+          })
+          .optional(),
       })
       .optional(),
     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot

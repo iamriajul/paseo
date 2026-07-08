@@ -211,6 +211,39 @@ describe("buildWorkspaceTabMenuEntries", () => {
     expect(onRenameTab).toHaveBeenCalledWith(terminalTab);
   });
 
+  it("includes rename for code server tabs", () => {
+    const onRenameTab = vi.fn();
+    const codeServerTab: WorkspaceTabDescriptor = {
+      key: "code-server_abc",
+      tabId: "code-server_abc",
+      kind: "codeServer",
+      target: { kind: "codeServer", codeServerId: "code-server-abc" },
+    };
+    const entries = buildWorkspaceTabMenuEntries({
+      surface: "desktop",
+      tab: codeServerTab,
+      index: 0,
+      tabCount: 1,
+      menuTestIDBase: "workspace-tab-context-code-server_abc",
+      onCopyResumeCommand: vi.fn(),
+      onCopyAgentId: vi.fn(),
+      onCopyFilePath: vi.fn(),
+      onReloadAgent: vi.fn(),
+      onRenameTab,
+      onCloseTab: vi.fn(),
+      onCloseTabsBefore: vi.fn(),
+      onCloseTabsAfter: vi.fn(),
+      onCloseOtherTabs: vi.fn(),
+    });
+
+    const renameEntry = entries.find((entry) => entry.kind === "item" && entry.key === "rename");
+    if (!renameEntry || renameEntry.kind !== "item") {
+      throw new Error("Rename entry missing");
+    }
+    renameEntry.onSelect();
+    expect(onRenameTab).toHaveBeenCalledWith(codeServerTab);
+  });
+
   it("includes copy file path for file tabs", () => {
     const onCopyFilePath = vi.fn();
     const fileTab: WorkspaceTabDescriptor = {

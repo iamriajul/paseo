@@ -481,6 +481,7 @@ export const en = {
         reloadAgentTooltip: "Reload agent to update skills, MCPs or login status.",
         close: "Close",
         renameTerminal: "Rename terminal",
+        renameCodeServer: "Rename Code Server",
         renameAgent: "Rename agent",
       },
       actions: {
@@ -489,6 +490,7 @@ export const en = {
         preparingTerminal: "Preparing terminal tab",
         preparingTerminalTooltip: "Preparing terminal...",
         newBrowser: "New browser",
+        newCodeServer: "New Code Server",
         splitRight: "Split pane right",
         splitDown: "Split pane down",
         terminalProfilesMenu: "Terminal profiles",
@@ -546,6 +548,7 @@ export const en = {
         newAgent: "New agent",
         newTerminal: "New terminal",
         newBrowser: "New browser tab",
+        newCodeServer: "New Code Server",
         importSession: "Import session",
         copyPath: "Copy workspace path",
         copyBranchName: "Copy branch name",

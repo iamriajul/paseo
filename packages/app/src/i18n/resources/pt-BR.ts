@@ -485,6 +485,7 @@ export const ptBR: TranslationResources = {
         reloadAgentTooltip: "Recarregue o agente para atualizar skills, MCPs ou status de login.",
         close: "Fechar",
         renameTerminal: "Renomear terminal",
+        renameCodeServer: "Rename Code Server",
         renameAgent: "Renomear agente",
       },
       actions: {
@@ -493,6 +494,7 @@ export const ptBR: TranslationResources = {
         preparingTerminal: "Preparando aba de terminal",
         preparingTerminalTooltip: "Preparando terminal...",
         newBrowser: "Novo navegador",
+        newCodeServer: "New Code Server",
         splitRight: "Dividir painel à direita",
         splitDown: "Dividir painel abaixo",
         terminalProfilesMenu: "Perfis de terminal",
@@ -551,6 +553,7 @@ export const ptBR: TranslationResources = {
         newAgent: "Novo agente",
         newTerminal: "Novo terminal",
         newBrowser: "Nova aba de navegador",
+        newCodeServer: "New Code Server",
         importSession: "Importar sessão",
         copyPath: "Copiar caminho do workspace",
         copyBranchName: "Copiar nome da branch",

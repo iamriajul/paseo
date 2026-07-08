@@ -10,6 +10,7 @@ interface BrowserPaneProps {
   cwd: string | null;
   isInteractive?: boolean;
   onFocusPane?: () => void;
+  chrome?: "visible" | "hidden";
 }
 
 export function BrowserPane({ browserId }: BrowserPaneProps) {

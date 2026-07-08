@@ -78,6 +78,24 @@ import {
 } from "@getpaseo/protocol/browser-automation/capabilities";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
 
+const VSCODE_PROXY_PORT_TOKEN = "{{port}}";
+
+function normalizeVscodeProxyUri(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed?.includes(VSCODE_PROXY_PORT_TOKEN)) {
+    return null;
+  }
+  try {
+    const parsed = new URL(trimmed.replaceAll(VSCODE_PROXY_PORT_TOKEN, "5173"));
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
 const WS_CLOSE_DAEMON_AUTH_FAILED = 4401;
 
 export interface ExternalSocketMetadata {
@@ -1200,12 +1218,14 @@ export class VoiceAssistantWebSocketServer {
   }
 
   private buildServerInfoStatusPayload(): ServerInfoStatusPayload {
+    const vscodeProxyUri = normalizeVscodeProxyUri(process.env.VSCODE_PROXY_URI);
     return {
       status: "server_info",
       serverId: this.serverId,
       hostname: getHostname(),
       version: this.daemonVersion,
       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
+      ...(vscodeProxyUri ? { urlOpeners: { vscodeProxyUri } } : {}),
       features: {
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,

@@ -11,6 +11,7 @@ This is separate from the service proxy. The service proxy exposes `paseo.json` 
 - Applies to loopback hosts: `localhost`, `*.localhost`, `127.*`, `::1`, `::`, and `0.0.0.0`. Explicit IPv6 loopback URLs are tunneled to `::1` on the host daemon; all other loopback forms use `127.0.0.1`.
 - Preserves the visible URL and page origin. The user still sees `localhost:<port>` in the Browser, and page code still observes the same origin it requested.
 - Does not affect the system browser, the web app running in a normal browser, terminals, or service proxy generated URLs.
+- Assistant chat links keep rendering the original `localhost` URL. On Electron desktop, clicking one opens that original URL in the workspace Browser so this routing layer can handle it.
 
 ## How it works
 
@@ -29,6 +30,7 @@ The tunnel protocol is a binary WebSocket frame family in `packages/protocol/src
 - Browser panes delay their first navigation until workspace Browser registration finishes, so the initial `localhost` load uses the correct session proxy.
 - Browser automation registers the Browser before creating its resident webview for the same reason.
 - Do not route Browser localhost through generated service-proxy hostnames. That would change the visible origin and break pages that expect `localhost`.
+- Normal HTTP proxy requests force `Connection: close` after the rewritten request. This makes Chromium open a fresh proxy connection for later Vite module requests, so every request is parsed and rewritten from proxy absolute-form to origin-form. WebSocket upgrade requests keep their upgrade connection for HMR.
 
 ## Testing
 

@@ -730,6 +730,7 @@ interface AssistantMessageProps {
   serverId?: string;
   client?: DaemonClient | null;
   spacing?: "default" | "compactTop" | "compactBottom" | "compactBoth";
+  onOpenLocalhostUrl?: (url: string) => boolean;
 }
 
 export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
@@ -1568,6 +1569,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   serverId,
   client,
   spacing = "default",
+  onOpenLocalhostUrl,
 }: AssistantMessageProps) {
   const markdownParser = useMemo(() => {
     const parser = MarkdownIt({ typographer: true, linkify: true });
@@ -1584,6 +1586,9 @@ export const AssistantMessage = memo(function AssistantMessage({
 
   const fileLinkActions = useAssistantFileLinkActions();
   const handleMarkdownLinkPress = useStableEvent((url: string) => {
+    if (onOpenLocalhostUrl?.(url)) {
+      return false;
+    }
     fileLinkActions.open({ href: url }, "main");
     // react-native-markdown-display opens the link itself when this returns true.
     // We already handled it above, so return false to avoid duplicate opens.

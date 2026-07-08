@@ -84,7 +84,7 @@ import {
 import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
 import { buildNewWorkspaceRoute } from "@/utils/host-routes";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import { isWeb } from "@/constants/platform";
+import { getIsElectron, isWeb } from "@/constants/platform";
 import type { Theme } from "@/styles/theme";
 import { recordRenderProfileReasons } from "@/utils/render-profiler";
 import { MountedTabActiveContext } from "@/components/split-container";
@@ -97,6 +97,8 @@ import type { WorkspaceComposerAttachment } from "@/attachments/types";
 import type { WorkspaceDraftTabSetup, WorkspaceTabTarget } from "@/stores/workspace-tabs-store";
 import { toErrorMessage } from "@/utils/error-messages";
 import { useWorkspaceDraftSubmissionStore } from "@/stores/workspace-draft-submission-store";
+import { isLoopbackHttpUrl, rewriteWithVscodeProxyUri } from "@/utils/localhost-url";
+import { openExternalUrl } from "@/utils/open-external-url";
 
 function renderLiveAuxiliaryNode(input: {
   pendingPermissions: ReactNode;
@@ -235,6 +237,7 @@ export interface AgentStreamViewProps {
   isAuthoritativeHistoryReady?: boolean;
   toast?: ToastApi | null;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => void;
 }
 
 const AGENT_CAPABILITY_FLAG_KEYS: (keyof AgentCapabilityFlags)[] = [
@@ -313,6 +316,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       isAuthoritativeHistoryReady = true,
       toast,
       onOpenWorkspaceFile,
+      onOpenUrlInBrowserTab,
     },
     ref,
   ) {
@@ -338,6 +342,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     // Get serverId (fallback to agent's serverId if not provided)
     const resolvedServerId = serverId ?? agent.serverId ?? "";
 
+    const vscodeProxyUri = useSessionStore((state) =>
+      resolvedServerId
+        ? state.sessions[resolvedServerId]?.serverInfo?.urlOpeners?.vscodeProxyUri
+        : undefined,
+    );
     const client = useSessionStore((state) => state.sessions[resolvedServerId]?.client ?? null);
     const streamHead = useSessionStore((state) =>
       state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
@@ -347,6 +356,22 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     );
 
     const workspaceRoot = agent.cwd?.trim() || "";
+    const handleLocalhostUrlPress = useStableEvent((url: string) => {
+      if (!isLoopbackHttpUrl(url)) {
+        return false;
+      }
+      if (getIsElectron() && onOpenUrlInBrowserTab) {
+        onOpenUrlInBrowserTab(url);
+        return true;
+      }
+
+      const rewritten = rewriteWithVscodeProxyUri({ url, vscodeProxyUri });
+      if (!rewritten) {
+        return false;
+      }
+      void openExternalUrl(rewritten);
+      return true;
+    });
     const { requestDirectoryListing } = useFileExplorerActions({
       serverId: resolvedServerId,
       workspaceId: agent.workspaceId,
@@ -607,6 +632,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             serverId={resolvedServerId}
             workspaceRoot={workspaceRoot}
             onOpenWorkspaceFile={handleInlinePathPress}
+            onOpenLocalhostUrl={handleLocalhostUrlPress}
             toast={toast}
           >
             <AssistantMessage
@@ -616,11 +642,19 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               serverId={resolvedServerId}
               client={client}
               spacing={layoutItem.assistantSpacing}
+              onOpenLocalhostUrl={handleLocalhostUrlPress}
             />
           </AssistantFileLinkResolverProvider>
         );
       },
-      [client, handleInlinePathPress, resolvedServerId, toast, workspaceRoot],
+      [
+        client,
+        handleLocalhostUrlPress,
+        handleInlinePathPress,
+        resolvedServerId,
+        toast,
+        workspaceRoot,
+      ],
     );
 
     const renderThoughtItem = useCallback(

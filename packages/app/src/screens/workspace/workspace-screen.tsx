@@ -3092,12 +3092,14 @@ function WorkspaceScreenContent({
             focusPaneBeforeOpen: input.focusPaneBeforeOpen,
           });
         },
+        onOpenUrlInBrowserTab: handleOpenUrlInBrowserTab,
         onOpenImportSheet: openImportSheet,
       }),
     [
       handleCloseTabById,
       focusWorkspacePane,
       handleOpenWorkspaceFileFromPane,
+      handleOpenUrlInBrowserTab,
       navigateToTabId,
       normalizedServerId,
       normalizedWorkspaceId,

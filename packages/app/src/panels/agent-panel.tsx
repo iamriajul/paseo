@@ -328,7 +328,7 @@ function useAgentPanelDescriptor(
 }
 
 function AgentPanel() {
-  const { serverId, target, openFileInWorkspace } = usePaneContext();
+  const { serverId, target, openFileInWorkspace, openUrlInBrowserTab } = usePaneContext();
   const { isInteractive } = usePaneFocus();
   invariant(target.kind === "agent", "AgentPanel requires agent target");
 
@@ -338,6 +338,7 @@ function AgentPanel() {
       agentId={target.agentId}
       isPaneFocused={isInteractive}
       onOpenWorkspaceFile={openFileInWorkspace}
+      onOpenUrlInBrowserTab={openUrlInBrowserTab}
     />
   );
 }
@@ -471,11 +472,13 @@ function AgentPanelContent({
   agentId,
   isPaneFocused,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   serverId: string;
   agentId: string;
   isPaneFocused: boolean;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => void;
 }) {
   const { t } = useTranslation();
   const resolvedAgentId = agentId.trim() || undefined;
@@ -521,6 +524,7 @@ function AgentPanelContent({
       isConnected={runtimeIsConnected}
       connectionStatus={connectionStatus}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
     />
   );
 }
@@ -533,6 +537,7 @@ function AgentPanelBody({
   isConnected,
   connectionStatus,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   serverId: string;
   agentId?: string;
@@ -541,6 +546,7 @@ function AgentPanelBody({
   isConnected: boolean;
   connectionStatus: HostRuntimeConnectionStatus;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => void;
 }) {
   const { t } = useTranslation();
   const { isArchivingAgent: _isArchivingAgent } = useArchiveAgent();
@@ -682,6 +688,7 @@ function AgentPanelBody({
       isConnected={isConnected}
       connectionStatus={connectionStatus}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
     />
   );
 }
@@ -694,6 +701,7 @@ function ChatAgentContent({
   isConnected,
   connectionStatus,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   serverId: string;
   agentId?: string;
@@ -702,6 +710,7 @@ function ChatAgentContent({
   isConnected: boolean;
   connectionStatus: HostRuntimeConnectionStatus;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => void;
 }) {
   const { t } = useTranslation();
   const { api: toastApi, toast: toastState, dismiss: dismissToast } = useToastHost();
@@ -1079,6 +1088,7 @@ function ChatAgentContent({
       onAttentionInputFocus={attentionController.clearOnInputFocus}
       onAttentionPromptSend={attentionController.clearOnPromptSend}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
     />
   );
 }
@@ -1104,6 +1114,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   onAttentionInputFocus,
   onAttentionPromptSend,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   serverId: string;
   agentId: string;
@@ -1125,6 +1136,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   onAttentionInputFocus: () => void;
   onAttentionPromptSend: () => void;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => void;
 }) {
   const { t } = useTranslation();
   const rawAgentInputDraft = useAgentInputDraft({
@@ -1160,6 +1172,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
         hasAppliedAuthoritativeHistory={hasAppliedAuthoritativeHistory}
         toast={toastApi}
         onOpenWorkspaceFile={onOpenWorkspaceFile}
+        onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
       />
     </RenderProfile>
   );
@@ -1224,6 +1237,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasAppliedAuthoritativeHistory,
   toast,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
   serverId: string;
@@ -1233,6 +1247,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasAppliedAuthoritativeHistory: boolean;
   toast: ReturnType<typeof useToastHost>["api"];
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => void;
 }) {
   const streamItemsRaw = useSessionStore((state) =>
     agentId ? state.sessions[serverId]?.agentStreamTail?.get(agentId) : undefined,
@@ -1277,6 +1292,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
       isAuthoritativeHistoryReady={hasAppliedAuthoritativeHistory}
       toast={toast}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
     />
   );
 });

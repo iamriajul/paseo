@@ -55,7 +55,7 @@ If these secrets are present, macOS artifacts are signed and notarized:
 - `APPLE_PASSWORD`
 - `APPLE_TEAM_ID`
 
-If they are missing, the workflow builds unsigned and unnotarized macOS artifacts. Those are usable for personal testing with the normal macOS Gatekeeper bypass, but they are not a smooth public distribution experience.
+If they are missing, the workflow builds unnotarized macOS artifacts and applies an ad-hoc signature to the generated `.app` before DMG/zip packaging. Those builds are usable for personal testing with the normal macOS Gatekeeper bypass, including on Apple Silicon, but they are not a smooth public distribution experience. Public distribution still requires a real Developer ID signature and notarization.
 
 ## Docker Daemon Image From GitHub UI
 

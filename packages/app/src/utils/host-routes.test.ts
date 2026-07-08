@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildBacklogRoute,
   buildHostAgentDetailRoute,
   buildHostRootRoute,
   buildHostWorkspaceOpenRoute,
@@ -247,6 +248,20 @@ describe("global routes", () => {
         draftId: "draft-1",
       }),
     ).toBe("/new?serverId=local&dir=%2Frepo%2Fproject&draftId=draft-1");
+  });
+
+  it("buildBacklogRoute returns the all-host Backlog route", () => {
+    expect(buildBacklogRoute()).toBe("/backlog");
+  });
+
+  it("buildBacklogRoute accepts project backlog context", () => {
+    expect(
+      buildBacklogRoute({
+        serverId: "local",
+        projectId: "project-1",
+        displayName: "Project",
+      }),
+    ).toBe("/backlog?serverId=local&projectId=project-1&name=Project");
   });
 });
 

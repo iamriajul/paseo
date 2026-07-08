@@ -802,6 +802,7 @@ export const ptBR: TranslationResources = {
     },
     sections: {
       sessions: "Histórico",
+      backlog: "Backlog",
       schedules: "Agendamentos",
     },
     worktreeSetup: {
@@ -816,6 +817,8 @@ export const ptBR: TranslationResources = {
         openSettings: "Abrir configurações do projeto",
         openNewWindow: "Abrir em nova janela",
         openNewWindowFailed: "Não foi possível abrir uma nova janela",
+        openBacklog: "Open backlog",
+        openBacklogFor: "Open backlog for {{projectName}}",
         remove: "Remover projeto",
         removing: "Removendo...",
       },

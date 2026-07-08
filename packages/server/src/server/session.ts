@@ -147,6 +147,8 @@ import {
 import { ChatScheduleLoopSession } from "./session/chat/chat-schedule-loop-session.js";
 import { ProviderCatalogSession } from "./session/provider/provider-catalog-session.js";
 import { WorkspaceFilesSession } from "./session/files/workspace-files-session.js";
+import { TaskSession } from "./tasks/task-session.js";
+import { TaskStore } from "./tasks/task-store.js";
 import { AgentConfigSession } from "./session/agent-config/agent-config-session.js";
 import { ProjectConfigSession } from "./session/project-config/project-config-session.js";
 import { DaemonSession, type DaemonRuntimeConfig } from "./session/daemon/daemon-session.js";
@@ -416,6 +418,7 @@ export interface SessionOptions {
   filesystem?: SessionFileSystem;
   chatService: FileBackedChatService;
   scheduleService: ScheduleService;
+  taskStore: TaskStore;
   loopService: LoopService;
   checkoutDiffManager: CheckoutDiffManager;
   github?: GitHubService;
@@ -578,6 +581,7 @@ export class Session {
   private readonly voiceSession: VoiceSession;
   private readonly checkoutSession: CheckoutSession;
   private readonly chatScheduleLoopSession: ChatScheduleLoopSession;
+  private readonly taskSession: TaskSession;
   private readonly providerCatalogSession: ProviderCatalogSession;
   private readonly workspaceFilesSession: WorkspaceFilesSession;
   private readonly agentConfigSession: AgentConfigSession;
@@ -607,6 +611,7 @@ export class Session {
       filesystem,
       chatService,
       scheduleService,
+      taskStore,
       loopService,
       checkoutDiffManager,
       github,
@@ -739,6 +744,14 @@ export class Session {
       loopService,
       clientId: this.clientId,
       logger: this.sessionLogger,
+    });
+    this.taskSession = new TaskSession({
+      host: {
+        emit: (msg) => this.emit(msg),
+      },
+      store: taskStore,
+      projectRegistry: this.projectRegistry,
+      downloadTokenStore,
     });
     this.providerCatalogSession = new ProviderCatalogSession({
       host: {
@@ -1594,6 +1607,11 @@ export class Session {
   private dispatchWorkspaceAndProjectMessage(
     msg: SessionInboundMessage,
   ): Promise<void> | undefined {
+    const taskDispatch = this.dispatchTaskMessage(msg);
+    if (taskDispatch) {
+      return taskDispatch;
+    }
+
     switch (msg.type) {
       case "fetch_workspaces_request":
         return this.handleFetchWorkspacesRequest(msg);
@@ -1633,6 +1651,25 @@ export class Session {
       case "file.upload.request":
         this.workspaceFilesSession.handleFileUploadRequest(msg);
         return undefined;
+      default:
+        return undefined;
+    }
+  }
+
+  private dispatchTaskMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "tasks.list.request":
+        return this.taskSession.handleList(msg);
+      case "tasks.list_all.request":
+        return this.taskSession.handleListAll(msg);
+      case "tasks.create.request":
+        return this.taskSession.handleCreate(msg);
+      case "tasks.update.request":
+        return this.taskSession.handleUpdate(msg);
+      case "tasks.delete.request":
+        return this.taskSession.handleDelete(msg);
+      case "tasks.attachment.download_token.request":
+        return this.taskSession.handleAttachmentDownloadToken(msg);
       default:
         return undefined;
     }

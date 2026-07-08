@@ -42,6 +42,21 @@ import {
   ScheduleUpdateResponseSchema,
 } from "./schedule/rpc-schemas.js";
 import {
+  TaskAttachmentDownloadTokenRequestSchema,
+  TaskAttachmentDownloadTokenResponseSchema,
+  TaskCreateRequestSchema,
+  TaskCreateResponseSchema,
+  TaskDeleteRequestSchema,
+  TaskDeleteResponseSchema,
+  TaskListAllRequestSchema,
+  TaskListAllResponseSchema,
+  TaskListRequestSchema,
+  TaskListResponseSchema,
+  TaskUpdateRequestSchema,
+  TaskUpdateResponseSchema,
+  TaskUploadedFileAttachmentSchema,
+} from "./tasks/rpc-schemas.js";
+import {
   LoopRunRequestSchema,
   LoopListRequestSchema,
   LoopInspectRequestSchema,
@@ -899,14 +914,7 @@ export const ReviewAttachmentSchema = z.object({
   comments: z.array(ReviewAttachmentCommentSchema),
 });
 
-export const UploadedFileAttachmentSchema = z.object({
-  type: z.literal("uploaded_file"),
-  id: z.string(),
-  fileName: z.string(),
-  mimeType: z.string(),
-  size: z.number().int().nonnegative(),
-  path: z.string(),
-});
+export const UploadedFileAttachmentSchema = TaskUploadedFileAttachmentSchema;
 
 export const AgentAttachmentSchema = z.discriminatedUnion("type", [
   GitHubPrAttachmentSchema,
@@ -2168,6 +2176,12 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ScheduleDeleteRequestSchema,
   ScheduleRunOnceRequestSchema,
   ScheduleUpdateRequestSchema,
+  TaskListRequestSchema,
+  TaskListAllRequestSchema,
+  TaskCreateRequestSchema,
+  TaskUpdateRequestSchema,
+  TaskDeleteRequestSchema,
+  TaskAttachmentDownloadTokenRequestSchema,
   LoopRunRequestSchema,
   LoopListRequestSchema,
   LoopInspectRequestSchema,
@@ -2367,6 +2381,10 @@ export const ServerInfoStatusPayloadSchema = z
         daemonSelfUpdate: z.boolean().optional(),
         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
         agentForkContext: z.boolean().optional(),
+        // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
+        taskBacklog: z.boolean().optional(),
+        // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
+        taskBacklogListAll: z.boolean().optional(),
       })
       .optional(),
   })
@@ -4304,6 +4322,12 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ScheduleDeleteResponseSchema,
   ScheduleRunOnceResponseSchema,
   ScheduleUpdateResponseSchema,
+  TaskListResponseSchema,
+  TaskListAllResponseSchema,
+  TaskCreateResponseSchema,
+  TaskUpdateResponseSchema,
+  TaskDeleteResponseSchema,
+  TaskAttachmentDownloadTokenResponseSchema,
   LoopRunResponseSchema,
   LoopListResponseSchema,
   LoopInspectResponseSchema,
@@ -4443,6 +4467,14 @@ export type ScheduleResumeResponse = z.infer<typeof ScheduleResumeResponseSchema
 export type ScheduleDeleteResponse = z.infer<typeof ScheduleDeleteResponseSchema>;
 export type ScheduleRunOnceResponse = z.infer<typeof ScheduleRunOnceResponseSchema>;
 export type ScheduleUpdateResponse = z.infer<typeof ScheduleUpdateResponseSchema>;
+export type TaskListResponse = z.infer<typeof TaskListResponseSchema>;
+export type TaskListAllResponse = z.infer<typeof TaskListAllResponseSchema>;
+export type TaskCreateResponse = z.infer<typeof TaskCreateResponseSchema>;
+export type TaskUpdateResponse = z.infer<typeof TaskUpdateResponseSchema>;
+export type TaskDeleteResponse = z.infer<typeof TaskDeleteResponseSchema>;
+export type TaskAttachmentDownloadTokenResponse = z.infer<
+  typeof TaskAttachmentDownloadTokenResponseSchema
+>;
 export type LoopRunResponse = z.infer<typeof LoopRunResponseSchema>;
 export type LoopListResponse = z.infer<typeof LoopListResponseSchema>;
 export type LoopInspectResponse = z.infer<typeof LoopInspectResponseSchema>;

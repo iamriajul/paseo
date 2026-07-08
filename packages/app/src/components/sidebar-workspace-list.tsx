@@ -46,6 +46,7 @@ import {
   Copy,
   ExternalLink,
   GitPullRequest,
+  ListTodo,
   Settings,
   MoreVertical,
   Pencil,
@@ -61,6 +62,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { useProjectIconDataByProjectKey } from "@/projects/project-icons";
 import {
   buildNewWorkspaceRoute,
+  buildBacklogRoute,
   buildProjectSettingsRoute,
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
@@ -145,6 +147,7 @@ const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const ThemedPlus = withUnistyles(Plus);
+const ThemedListTodo = withUnistyles(ListTodo);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
@@ -256,6 +259,7 @@ interface ProjectHeaderRowProps {
   isProjectActive?: boolean;
   onWorkspacePress?: () => void;
   onWorktreeCreated?: (workspaceId: string) => void;
+  backlogTarget: ProjectBacklogTarget | null;
   shortcutNumber?: number | null;
   showShortcutBadge?: boolean;
   drag: () => void;
@@ -265,6 +269,10 @@ interface ProjectHeaderRowProps {
   onRemoveProject?: () => void;
   removeProjectStatus?: "idle" | "pending";
   dragHandleProps?: DraggableListDragHandleProps;
+}
+
+interface ProjectBacklogTarget {
+  serverId: string;
 }
 
 interface WorkspaceRowInnerProps {
@@ -383,6 +391,18 @@ function getProjectWorkspaceRowStyle({
 
 function noop() {}
 
+function resolveProjectBacklogTarget(
+  project: SidebarProjectEntry,
+  supportsBacklogByServerId: ReadonlyMap<string, boolean>,
+): ProjectBacklogTarget | null {
+  for (const host of project.hosts) {
+    if (supportsBacklogByServerId.get(host.serverId)) {
+      return { serverId: host.serverId };
+    }
+  }
+  return null;
+}
+
 const prBadgeStyles = StyleSheet.create((theme) => ({
   badge: {
     flexDirection: "row",
@@ -492,20 +512,24 @@ function ProjectRowTrailingActions({
   project,
   displayName,
   worktreeTarget,
+  backlogTarget,
   isHovered,
   isMobileBreakpoint,
   isProjectActive,
   onBeginWorkspaceSetup,
+  onOpenBacklog,
   onRemoveProject,
   removeProjectStatus,
 }: {
   project: SidebarProjectEntry;
   displayName: string;
   worktreeTarget: SidebarProjectHostTarget | null;
+  backlogTarget: ProjectBacklogTarget | null;
   isHovered: boolean;
   isMobileBreakpoint: boolean;
   isProjectActive: boolean;
   onBeginWorkspaceSetup: () => void;
+  onOpenBacklog: () => void;
   onRemoveProject?: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
@@ -519,6 +543,14 @@ function ProjectRowTrailingActions({
           visible={actionsVisible}
           showShortcutHint={isProjectActive}
           testID={`sidebar-project-new-worktree-${project.projectKey}`}
+        />
+      ) : null}
+      {backlogTarget ? (
+        <ProjectBacklogButton
+          displayName={displayName}
+          onPress={onOpenBacklog}
+          visible={actionsVisible}
+          testID={`sidebar-project-backlog-${project.projectKey}`}
         />
       ) : null}
       {onRemoveProject ? (
@@ -979,6 +1011,66 @@ function NewWorktreeButton({
   );
 }
 
+function ProjectBacklogButton({
+  displayName,
+  onPress,
+  visible,
+  testID,
+}: {
+  displayName: string;
+  onPress: () => void;
+  visible: boolean;
+  testID: string;
+}) {
+  const { t } = useTranslation();
+  const pressableStyle = useCallback(
+    ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.projectIconActionButton,
+      !visible && styles.projectIconActionButtonHidden,
+      (Boolean(hovered) || pressed) && styles.projectIconActionButtonHovered,
+    ],
+    [visible],
+  );
+
+  const handlePress = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      onPress();
+    },
+    [onPress],
+  );
+
+  return (
+    <View style={styles.projectTrailingControlSlot} pointerEvents={visible ? "auto" : "none"}>
+      <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+        <TooltipTrigger asChild disabled={!visible}>
+          <Pressable
+            style={pressableStyle}
+            onPress={handlePress}
+            accessibilityRole={platformIsWeb ? undefined : "button"}
+            accessibilityLabel={t("sidebar.project.actions.openBacklogFor", {
+              projectName: displayName,
+            })}
+            testID={testID}
+          >
+            {({ hovered, pressed }) => (
+              <ThemedListTodo
+                size={15}
+                uniProps={hovered || pressed ? foregroundColorMapping : foregroundMutedColorMapping}
+              />
+            )}
+          </Pressable>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="center" offset={8}>
+          <Text style={styles.projectActionTooltipText}>
+            {t("sidebar.project.actions.openBacklog")}
+          </Text>
+        </TooltipContent>
+      </Tooltip>
+    </View>
+  );
+}
+
 function NewWorkspaceGhostRow({
   project,
   displayName,
@@ -1273,6 +1365,7 @@ function ProjectHeaderRow({
   isProjectActive = false,
   onWorkspacePress,
   onWorktreeCreated: _onWorktreeCreated,
+  backlogTarget,
   shortcutNumber = null,
   showShortcutBadge = false,
   drag,
@@ -1299,6 +1392,19 @@ function ProjectHeaderRow({
       }) as Href,
     );
   }, [displayName, onWorkspacePress, project.projectKey, worktreeTarget]);
+  const handleOpenBacklog = useCallback(() => {
+    if (!backlogTarget) {
+      return;
+    }
+    onWorkspacePress?.();
+    router.navigate(
+      buildBacklogRoute({
+        serverId: backlogTarget.serverId,
+        projectId: project.projectKey,
+        displayName,
+      }) as Href,
+    );
+  }, [backlogTarget, displayName, onWorkspacePress, project.projectKey]);
   const interaction = useLongPressDragInteraction({
     drag,
     menuController,
@@ -1355,10 +1461,12 @@ function ProjectHeaderRow({
         project={project}
         displayName={displayName}
         worktreeTarget={worktreeTarget}
+        backlogTarget={backlogTarget}
         isHovered={isHovered}
         isMobileBreakpoint={isMobileBreakpoint}
         isProjectActive={isProjectActive}
         onBeginWorkspaceSetup={handleBeginWorkspaceSetup}
+        onOpenBacklog={handleOpenBacklog}
         onRemoveProject={onRemoveProject}
         removeProjectStatus={removeProjectStatus}
       />
@@ -1883,6 +1991,7 @@ function ProjectBlock({
   hostLabelByServerId,
   showHostLabels,
   supportsMultiplicityByServerId,
+  supportsBacklogByServerId,
 }: {
   project: SidebarProjectEntry;
   collapsed: boolean;
@@ -1905,6 +2014,7 @@ function ProjectBlock({
   hostLabelByServerId: ReadonlyMap<string, string>;
   showHostLabels: boolean;
   supportsMultiplicityByServerId: ReadonlyMap<string, boolean>;
+  supportsBacklogByServerId: ReadonlyMap<string, boolean>;
 }) {
   const rowModel = useMemo(
     () =>
@@ -1914,6 +2024,10 @@ function ProjectBlock({
         supportsMultiplicityByServerId,
       }),
     [collapsed, project, supportsMultiplicityByServerId],
+  );
+  const backlogTarget = useMemo(
+    () => resolveProjectBacklogTarget(project, supportsBacklogByServerId),
+    [project, supportsBacklogByServerId],
   );
 
   const active = isProjectSelectedByRoute({
@@ -2094,6 +2208,7 @@ function ProjectBlock({
         isProjectActive={active}
         onWorkspacePress={onWorkspacePress}
         onWorktreeCreated={onWorktreeCreated}
+        backlogTarget={backlogTarget}
         drag={drag}
         isDragging={isDragging}
         isArchiving={isRemovingProject}
@@ -2123,6 +2238,7 @@ function areProjectBlockPropsEqual(previous: ProjectBlockProps, next: ProjectBlo
     previous.hostLabelByServerId === next.hostLabelByServerId &&
     previous.showHostLabels === next.showHostLabels &&
     previous.supportsMultiplicityByServerId === next.supportsMultiplicityByServerId &&
+    previous.supportsBacklogByServerId === next.supportsBacklogByServerId &&
     previous.parentGestureRef === next.parentGestureRef &&
     previous.onToggleCollapsed === next.onToggleCollapsed &&
     previous.onWorkspacePress === next.onWorkspacePress &&
@@ -2191,6 +2307,7 @@ export function SidebarWorkspaceList({
   }, [hosts]);
   const serverIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
   const supportsMultiplicityByServerId = useHostFeatureMap(serverIds, "workspaceMultiplicity");
+  const supportsBacklogByServerId = useHostFeatureMap(serverIds, "taskBacklog");
   const showHostLabels = useMemo(() => shouldShowSidebarHostLabels(projects), [projects]);
 
   const content =
@@ -2217,6 +2334,7 @@ export function SidebarWorkspaceList({
         hostLabelByServerId={hostLabelByServerId}
         showHostLabels={showHostLabels}
         supportsMultiplicityByServerId={supportsMultiplicityByServerId}
+        supportsBacklogByServerId={supportsBacklogByServerId}
       />
     );
 
@@ -2266,6 +2384,7 @@ function ProjectModeList({
   hostLabelByServerId,
   showHostLabels,
   supportsMultiplicityByServerId,
+  supportsBacklogByServerId,
 }: Omit<
   SidebarWorkspaceListProps,
   "statusWorkspacePlacements" | "projectNamesByKey" | "groupMode" | "isRefreshing" | "onRefresh"
@@ -2274,6 +2393,7 @@ function ProjectModeList({
   hostLabelByServerId: ReadonlyMap<string, string>;
   showHostLabels: boolean;
   supportsMultiplicityByServerId: ReadonlyMap<string, boolean>;
+  supportsBacklogByServerId: ReadonlyMap<string, boolean>;
 }) {
   const { t } = useTranslation();
   const [creatingWorkspaceIds, setCreatingWorkspaceIds] = useState<Set<string>>(() => new Set());
@@ -2463,6 +2583,7 @@ function ProjectModeList({
           hostLabelByServerId={hostLabelByServerId}
           showHostLabels={showHostLabels}
           supportsMultiplicityByServerId={supportsMultiplicityByServerId}
+          supportsBacklogByServerId={supportsBacklogByServerId}
         />
       );
     },
@@ -2474,6 +2595,7 @@ function ProjectModeList({
       hostLabelByServerId,
       showHostLabels,
       supportsMultiplicityByServerId,
+      supportsBacklogByServerId,
       onWorkspacePress,
       onToggleProjectCollapsed,
       parentGestureRef,

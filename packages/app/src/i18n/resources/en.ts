@@ -791,6 +791,7 @@ export const en = {
     },
     sections: {
       sessions: "History",
+      backlog: "Backlog",
       schedules: "Schedules",
     },
     worktreeSetup: {
@@ -805,6 +806,8 @@ export const en = {
         openSettings: "Open project settings",
         openNewWindow: "Open in new window",
         openNewWindowFailed: "Couldn't open a new window",
+        openBacklog: "Open backlog",
+        openBacklogFor: "Open backlog for {{projectName}}",
         remove: "Remove project",
         removing: "Removing...",
       },

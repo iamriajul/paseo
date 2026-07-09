@@ -86,6 +86,7 @@ import {
   resolveNewWorkspaceInitialServerId,
 } from "./new-workspace-initial-context";
 import { useNewWorkspaceProjectPicker } from "./new-workspace/project-picker";
+import { buildNewWorkspaceDraftKey } from "@/utils/new-workspace-draft";
 
 function resolveCheckoutRequest(
   selectedItem: PickerItem | null,
@@ -747,18 +748,6 @@ function getContentStyle(input: { isCompact: boolean; insetBottom: number }) {
     return [styles.content, styles.contentCompact, { paddingBottom: input.insetBottom }];
   }
   return [styles.content, styles.contentCentered];
-}
-
-function buildNewWorkspaceDraftKey(input: {
-  selectedServerId: string;
-  selectedSourceDirectory: string | null;
-  draftId?: string;
-}): string {
-  const explicitDraftId = input.draftId?.trim();
-  if (explicitDraftId) {
-    return `new-workspace:draft:${explicitDraftId}`;
-  }
-  return `new-workspace:${input.selectedServerId}:${input.selectedSourceDirectory ?? "choose-project"}`;
 }
 
 function getSelectedPickerItem(selection: PickerSelection | null): PickerItem | null {

@@ -781,6 +781,7 @@ export const zhCN: TranslationResources = {
     },
     sections: {
       sessions: "历史",
+      backlog: "Backlog",
       schedules: "计划",
     },
     worktreeSetup: {
@@ -794,6 +795,8 @@ export const zhCN: TranslationResources = {
         openSettings: "打开 project 设置",
         openNewWindow: "在新窗口中打开",
         openNewWindowFailed: "无法打开新窗口",
+        openBacklog: "Open backlog",
+        openBacklogFor: "Open backlog for {{projectName}}",
         remove: "移除 project",
         removing: "正在移除...",
       },

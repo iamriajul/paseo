@@ -474,6 +474,27 @@ type ScheduleUpdatePayload = Extract<
   SessionOutboundMessage,
   { type: "schedule/update/response" }
 >["payload"];
+type TaskListPayload = Extract<SessionOutboundMessage, { type: "tasks.list.response" }>["payload"];
+type TaskListAllPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.list_all.response" }
+>["payload"];
+type TaskCreatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.create.response" }
+>["payload"];
+type TaskUpdatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.update.response" }
+>["payload"];
+type TaskDeletePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.delete.response" }
+>["payload"];
+type TaskAttachmentDownloadTokenPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.attachment.download_token.response" }
+>["payload"];
 export type FetchAgentTimelinePayload = FetchAgentTimelineResponseMessage["payload"];
 export type AgentForkContextPayload = AgentForkContextResponseMessage["payload"];
 
@@ -733,6 +754,33 @@ export interface UpdateScheduleOptions {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  requestId?: string;
+}
+export type TaskUploadAttachmentInput = NonNullable<FileUploadResult["file"]>;
+export interface CreateTaskOptions {
+  projectId: string;
+  title: string;
+  description: string;
+  attachments?: readonly TaskUploadAttachmentInput[];
+  requestId?: string;
+}
+export interface UpdateTaskOptions {
+  projectId: string;
+  taskId: string;
+  title?: string;
+  description?: string;
+  status?: "active" | "completed";
+  requestId?: string;
+}
+export interface DeleteTaskOptions {
+  projectId: string;
+  taskId: string;
+  requestId?: string;
+}
+export interface TaskAttachmentDownloadTokenOptions {
+  projectId: string;
+  taskId: string;
+  attachmentId: string;
   requestId?: string;
 }
 export interface RenameBranchInput {
@@ -3791,6 +3839,77 @@ export class DaemonClient {
         path,
       },
       responseType: "file_download_token_response",
+    });
+  }
+
+  async listTasks(projectId: string, requestId?: string): Promise<TaskListPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "tasks.list.request",
+        projectId,
+      },
+    });
+  }
+
+  async listAllTasks(requestId?: string): Promise<TaskListAllPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "tasks.list_all.request",
+      },
+    });
+  }
+
+  async createTask(options: CreateTaskOptions): Promise<TaskCreatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "tasks.create.request",
+        projectId: options.projectId,
+        title: options.title,
+        description: options.description,
+        ...(options.attachments ? { attachments: options.attachments } : {}),
+      },
+    });
+  }
+
+  async updateTask(options: UpdateTaskOptions): Promise<TaskUpdatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "tasks.update.request",
+        projectId: options.projectId,
+        taskId: options.taskId,
+        ...(options.title !== undefined ? { title: options.title } : {}),
+        ...(options.description !== undefined ? { description: options.description } : {}),
+        ...(options.status !== undefined ? { status: options.status } : {}),
+      },
+    });
+  }
+
+  async deleteTask(options: DeleteTaskOptions): Promise<TaskDeletePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "tasks.delete.request",
+        projectId: options.projectId,
+        taskId: options.taskId,
+      },
+    });
+  }
+
+  async requestTaskAttachmentDownloadToken(
+    options: TaskAttachmentDownloadTokenOptions,
+  ): Promise<TaskAttachmentDownloadTokenPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "tasks.attachment.download_token.request",
+        projectId: options.projectId,
+        taskId: options.taskId,
+        attachmentId: options.attachmentId,
+      },
     });
   }
 

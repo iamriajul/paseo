@@ -787,6 +787,7 @@ export const ar: TranslationResources = {
     },
     sections: {
       sessions: "السجل",
+      backlog: "Backlog",
       schedules: "الجداول",
     },
     worktreeSetup: {
@@ -801,6 +802,8 @@ export const ar: TranslationResources = {
         openSettings: "افتح إعدادات المشروع",
         openNewWindow: "Open in new window",
         openNewWindowFailed: "Couldn't open a new window",
+        openBacklog: "Open backlog",
+        openBacklogFor: "Open backlog for {{projectName}}",
         remove: "إزالة المشروع",
         removing: "جارٍ الإزالة...",
       },

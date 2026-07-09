@@ -1699,6 +1699,8 @@ export class Session {
         return this.providerCatalogSession.handleProviderDiagnosticRequest(msg);
       case "provider.usage.list.request":
         return this.providerCatalogSession.handleProviderUsageListRequest(msg);
+      case "provider.usage.reset_quota.request":
+        return this.providerCatalogSession.handleProviderUsageResetQuotaRequest(msg);
       default:
         return undefined;
     }

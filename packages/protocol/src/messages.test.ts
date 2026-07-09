@@ -138,11 +138,27 @@ describe("provider usage list message contract", () => {
     const parsed = SessionInboundMessageSchema.parse({
       type: "provider.usage.list.request",
       requestId: "usage-1",
+      forceRefresh: true,
     });
 
     expect(parsed).toEqual({
       type: "provider.usage.list.request",
       requestId: "usage-1",
+      forceRefresh: true,
+    });
+  });
+
+  test("accepts the reset quota request as a namespaced correlated RPC", () => {
+    const parsed = SessionInboundMessageSchema.parse({
+      type: "provider.usage.reset_quota.request",
+      providerId: "codex",
+      requestId: "reset-quota-1",
+    });
+
+    expect(parsed).toEqual({
+      type: "provider.usage.reset_quota.request",
+      providerId: "codex",
+      requestId: "reset-quota-1",
     });
   });
 
@@ -178,6 +194,16 @@ describe("provider usage list message contract", () => {
               },
             ],
             details: [{ id: "region", label: "Region", value: "US" }],
+            resetCredits: [
+              {
+                id: "reset-1",
+                label: "Full reset",
+                status: "available",
+                grantedAt: "2026-06-12T00:00:00.000Z",
+                expiresAt: "2026-07-12T00:00:00.000Z",
+                tone: "ok",
+              },
+            ],
             error: null,
           },
         ],
@@ -190,6 +216,9 @@ describe("provider usage list message contract", () => {
     }
     expect(parsed.payload.providers[0]?.providerId).toBe("glm");
     expect(parsed.payload.providers[0]?.windows[0]?.label).toBe("Biweekly");
+    expect(parsed.payload.providers[0]?.resetCredits?.[0]?.expiresAt).toBe(
+      "2026-07-12T00:00:00.000Z",
+    );
   });
 
   test("keeps protocol numbers strict after API boundary normalization", () => {
@@ -217,6 +246,30 @@ describe("provider usage list message contract", () => {
     });
 
     expect(parsed.success).toBe(false);
+  });
+
+  test("accepts reset quota responses with provider result details", () => {
+    const parsed = SessionOutboundMessageSchema.parse({
+      type: "provider.usage.reset_quota.response",
+      payload: {
+        requestId: "reset-quota-2",
+        providerId: "codex",
+        code: "reset",
+        windowsReset: 2,
+        message: "Reset quota consumed",
+      },
+    });
+
+    expect(parsed).toEqual({
+      type: "provider.usage.reset_quota.response",
+      payload: {
+        requestId: "reset-quota-2",
+        providerId: "codex",
+        code: "reset",
+        windowsReset: 2,
+        message: "Reset quota consumed",
+      },
+    });
   });
 });
 

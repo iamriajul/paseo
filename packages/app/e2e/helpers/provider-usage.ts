@@ -9,7 +9,10 @@ interface ProviderUsageFixturePayload {
 
 export interface ProviderUsageFixture {
   requestCount(): number;
+  forceRefreshRequestCount(): number;
   waitForRequestCount(count: number): Promise<void>;
+  resetQuotaRequestCount(): number;
+  waitForResetQuotaRequestCount(count: number): Promise<void>;
 }
 
 type WebSocketMessage = string | Buffer;
@@ -69,10 +72,22 @@ function withProviderUsageFeature(message: WebSocketMessage): string | null {
             ? payload.features
             : {}),
           providerUsageList: true,
+          providerUsageResetQuota: true,
+          providerUsageForceRefresh: true,
         },
       },
     },
   });
+}
+
+function notifyWaiters(waiters: Array<{ count: number; resolve: () => void }>, current: number) {
+  for (const waiter of waiters.splice(0)) {
+    if (current >= waiter.count) {
+      waiter.resolve();
+    } else {
+      waiters.push(waiter);
+    }
+  }
 }
 
 export async function installProviderUsageFixture(
@@ -80,17 +95,10 @@ export async function installProviderUsageFixture(
   payloads: ProviderUsageFixturePayload[],
 ): Promise<ProviderUsageFixture> {
   let requests = 0;
+  let forceRefreshRequests = 0;
+  let resetQuotaRequests = 0;
   const waiters: Array<{ count: number; resolve: () => void }> = [];
-
-  function notifyWaiters() {
-    for (const waiter of waiters.splice(0)) {
-      if (requests >= waiter.count) {
-        waiter.resolve();
-      } else {
-        waiters.push(waiter);
-      }
-    }
-  }
+  const resetQuotaWaiters: Array<{ count: number; resolve: () => void }> = [];
 
   function payloadForRequest(): ProviderUsageFixturePayload {
     const index = Math.min(requests - 1, payloads.length - 1);
@@ -108,12 +116,15 @@ export async function installProviderUsageFixture(
       const sessionMessage = getSessionMessage(message);
       if (sessionMessage?.type === "provider.usage.list.request") {
         requests += 1;
+        if (sessionMessage.forceRefresh === true) {
+          forceRefreshRequests += 1;
+        }
         const requestId = sessionMessage.requestId;
         if (typeof requestId !== "string") {
           throw new Error("provider.usage.list.request missing requestId");
         }
         const payload = payloadForRequest();
-        notifyWaiters();
+        notifyWaiters(waiters, requests);
         ws.send(
           JSON.stringify({
             type: "session",
@@ -123,6 +134,32 @@ export async function installProviderUsageFixture(
                 requestId,
                 fetchedAt: payload.fetchedAt,
                 providers: payload.providers,
+              },
+            },
+          }),
+        );
+        return;
+      }
+      if (sessionMessage?.type === "provider.usage.reset_quota.request") {
+        resetQuotaRequests += 1;
+        const requestId = sessionMessage.requestId;
+        if (typeof requestId !== "string") {
+          throw new Error("provider.usage.reset_quota.request missing requestId");
+        }
+        const providerId =
+          typeof sessionMessage.providerId === "string" ? sessionMessage.providerId : "codex";
+        notifyWaiters(resetQuotaWaiters, resetQuotaRequests);
+        ws.send(
+          JSON.stringify({
+            type: "session",
+            message: {
+              type: "provider.usage.reset_quota.response",
+              payload: {
+                requestId,
+                providerId,
+                code: "reset",
+                windowsReset: 1,
+                message: "Reset quota consumed.",
               },
             },
           }),
@@ -142,12 +179,26 @@ export async function installProviderUsageFixture(
     requestCount() {
       return requests;
     },
+    forceRefreshRequestCount() {
+      return forceRefreshRequests;
+    },
     waitForRequestCount(count: number) {
       if (requests >= count) {
         return Promise.resolve();
       }
       return new Promise<void>((resolve) => {
         waiters.push({ count, resolve });
+      });
+    },
+    resetQuotaRequestCount() {
+      return resetQuotaRequests;
+    },
+    waitForResetQuotaRequestCount(count: number) {
+      if (resetQuotaRequests >= count) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        resetQuotaWaiters.push({ count, resolve });
       });
     },
   };

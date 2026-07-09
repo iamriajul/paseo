@@ -4992,13 +4992,14 @@ test("sends provider.usage.list.request and resolves provider.usage.list.respons
   mock.triggerOpen();
   await connectPromise;
 
-  const usagePromise = client.listProviderUsage({ requestId: "usage-1" });
+  const usagePromise = client.listProviderUsage({ requestId: "usage-1", forceRefresh: true });
 
   expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
     type: "session",
     message: {
       type: "provider.usage.list.request",
       requestId: "usage-1",
+      forceRefresh: true,
     },
   });
 
@@ -5047,6 +5048,59 @@ test("sends provider.usage.list.request and resolves provider.usage.list.respons
         ],
       },
     ],
+  });
+});
+
+test("sends provider.usage.reset_quota.request and resolves provider.usage.reset_quota.response", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const resetPromise = client.resetProviderUsageQuota({
+    providerId: "codex",
+    requestId: "reset-1",
+  });
+
+  expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
+    type: "session",
+    message: {
+      type: "provider.usage.reset_quota.request",
+      providerId: "codex",
+      requestId: "reset-1",
+    },
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "provider.usage.reset_quota.response",
+      payload: {
+        requestId: "reset-1",
+        providerId: "codex",
+        code: "reset",
+        windowsReset: 2,
+        message: "Reset quota consumed. Windows reset: 2.",
+      },
+    }),
+  );
+
+  await expect(resetPromise).resolves.toEqual({
+    requestId: "reset-1",
+    providerId: "codex",
+    code: "reset",
+    windowsReset: 2,
+    message: "Reset quota consumed. Windows reset: 2.",
   });
 });
 

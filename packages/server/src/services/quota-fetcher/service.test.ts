@@ -96,13 +96,33 @@ function makeCodexResponse(overrides: object = {}) {
   };
 }
 
-function mockFetch(handlers: Map<string, () => Response>): typeof fetch {
-  return vi.fn(async (url: RequestInfo | URL) => {
+function mockFetch(
+  handlers: Map<string, (init?: RequestInit) => Response | Promise<Response>>,
+): typeof fetch {
+  return vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const key = url.toString();
     const handler = handlers.get(key);
     if (!handler) throw new Error(`Unmocked fetch: ${key}`);
-    return handler();
+    return handler(init);
   }) as unknown as typeof fetch;
+}
+
+function hangingResponse(init?: RequestInit): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal;
+    if (!signal) return;
+    if (signal.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new Error("Aborted"));
+      return;
+    }
+    signal.addEventListener(
+      "abort",
+      () => {
+        reject(signal.reason instanceof Error ? signal.reason : new Error("Aborted"));
+      },
+      { once: true },
+    );
+  });
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -128,6 +148,16 @@ function usageFetcher(usage: ProviderUsage): ProviderUsageFetcher {
     providerId: usage.providerId,
     displayName: usage.displayName,
     fetchUsage: async () => usage,
+  };
+}
+
+function codexUsage(usedPct: number): ProviderUsage {
+  return {
+    providerId: "codex",
+    displayName: "Codex",
+    status: "available",
+    planLabel: "Pro",
+    windows: [{ id: "weekly", label: "Weekly", usedPct }],
   };
 }
 
@@ -218,6 +248,160 @@ describe("ProviderUsageService", () => {
     expect(calls).toBe(2);
     expect(cached).toBe(first);
     expect(refreshed.providers[0]?.windows[0]?.usedPct).toBe(2);
+  });
+
+  it("starts a new request for force refresh instead of joining an older in-flight fetch", async () => {
+    let calls = 0;
+    const resolvers: Array<(usage: ProviderUsage) => void> = [];
+    function resolveUsage(index: number, usage: ProviderUsage): void {
+      const resolve = resolvers[index];
+      if (!resolve) throw new Error(`Missing usage resolver ${index}`);
+      resolve(usage);
+    }
+    const service = new ProviderUsageService({
+      logger: createLogger(),
+      now: () => Date.parse("2026-06-19T00:00:00.000Z"),
+      fetchers: [
+        {
+          providerId: "codex",
+          displayName: "Codex",
+          fetchUsage: () => {
+            calls += 1;
+            return new Promise<ProviderUsage>((resolve) => {
+              resolvers.push(resolve);
+            });
+          },
+        },
+      ],
+    });
+
+    const first = service.listUsage();
+    expect(calls).toBe(1);
+    const forced = service.listUsage({ forceRefresh: true });
+    expect(calls).toBe(2);
+
+    resolveUsage(1, codexUsage(2));
+    await expect(forced).resolves.toMatchObject({
+      providers: [expect.objectContaining({ windows: [expect.objectContaining({ usedPct: 2 })] })],
+    });
+    resolveUsage(0, codexUsage(1));
+    await expect(first).resolves.toMatchObject({
+      providers: [expect.objectContaining({ windows: [expect.objectContaining({ usedPct: 1 })] })],
+    });
+
+    const cached = await service.listUsage();
+    expect(calls).toBe(2);
+    expect(cached.providers[0]?.windows[0]?.usedPct).toBe(2);
+  });
+
+  it("delegates quota resets and clears cached usage", async () => {
+    let usageCalls = 0;
+    let resetCalls = 0;
+    const service = new ProviderUsageService({
+      logger: createLogger(),
+      now: () => Date.parse("2026-06-19T00:00:00.000Z"),
+      cacheTtlMs: 60_000,
+      fetchers: [
+        {
+          providerId: "codex",
+          displayName: "Codex",
+          fetchUsage: async () => {
+            usageCalls += 1;
+            return {
+              providerId: "codex",
+              displayName: "Codex",
+              status: "available",
+              planLabel: "Pro",
+              windows: [{ id: "weekly", label: "Weekly", usedPct: usageCalls }],
+            };
+          },
+          resetQuota: async () => {
+            resetCalls += 1;
+            return {
+              providerId: "codex",
+              code: "reset",
+              windowsReset: 2,
+              message: "Reset quota consumed. Windows reset: 2.",
+            };
+          },
+        },
+      ],
+    });
+
+    const first = await service.listUsage();
+    const cached = await service.listUsage();
+    const reset = await service.resetQuota("codex");
+    const refreshed = await service.listUsage();
+
+    expect(cached).toBe(first);
+    expect(resetCalls).toBe(1);
+    expect(reset).toEqual({
+      providerId: "codex",
+      code: "reset",
+      windowsReset: 2,
+      message: "Reset quota consumed. Windows reset: 2.",
+    });
+    expect(refreshed.providers[0]?.windows[0]?.usedPct).toBe(2);
+  });
+
+  it("does not let a pre-reset in-flight fetch satisfy post-reset usage", async () => {
+    let usageCalls = 0;
+    let resetCalls = 0;
+    const resolvers: Array<(usage: ProviderUsage) => void> = [];
+    function resolveUsage(index: number, usage: ProviderUsage): void {
+      const resolve = resolvers[index];
+      if (!resolve) throw new Error(`Missing usage resolver ${index}`);
+      resolve(usage);
+    }
+    const service = new ProviderUsageService({
+      logger: createLogger(),
+      now: () => Date.parse("2026-06-19T00:00:00.000Z"),
+      cacheTtlMs: 60_000,
+      fetchers: [
+        {
+          providerId: "codex",
+          displayName: "Codex",
+          fetchUsage: () => {
+            usageCalls += 1;
+            return new Promise<ProviderUsage>((resolve) => {
+              resolvers.push(resolve);
+            });
+          },
+          resetQuota: async () => {
+            resetCalls += 1;
+            return {
+              providerId: "codex",
+              code: "reset",
+              windowsReset: 1,
+              message: "Reset quota consumed.",
+            };
+          },
+        },
+      ],
+    });
+
+    const beforeReset = service.listUsage();
+    expect(usageCalls).toBe(1);
+    await expect(service.resetQuota("codex")).resolves.toMatchObject({
+      providerId: "codex",
+      code: "reset",
+    });
+    const afterReset = service.listUsage();
+    expect(resetCalls).toBe(1);
+    expect(usageCalls).toBe(2);
+
+    resolveUsage(1, codexUsage(2));
+    await expect(afterReset).resolves.toMatchObject({
+      providers: [expect.objectContaining({ windows: [expect.objectContaining({ usedPct: 2 })] })],
+    });
+    resolveUsage(0, codexUsage(1));
+    await expect(beforeReset).resolves.toMatchObject({
+      providers: [expect.objectContaining({ windows: [expect.objectContaining({ usedPct: 1 })] })],
+    });
+
+    const cached = await service.listUsage();
+    expect(usageCalls).toBe(2);
+    expect(cached.providers[0]?.windows[0]?.usedPct).toBe(2);
   });
 
   it("deduplicates concurrent cache misses", async () => {
@@ -534,7 +718,7 @@ describe("real provider usage fetchers", () => {
     );
   });
 
-  it("fetches Codex windows and coerces string credit balances", async () => {
+  it("fetches Codex windows, additional model windows, and reset credit expiries", async () => {
     writeCodexAuth(codexHome, "at_codex_valid");
     fetchApi = mockFetch(
       new Map([
@@ -545,8 +729,48 @@ describe("real provider usage fetchers", () => {
               makeCodexResponse({
                 code_review_rate_limit: null,
                 credits: { balance: "0" },
+                additional_rate_limits: [
+                  {
+                    limit_name: "GPT-5.3-Codex-Spark",
+                    metered_feature: "codex_bengalfox",
+                    rate_limit: {
+                      primary_window: { used_percent: 25, reset_at: 1_748_812_800 },
+                      secondary_window: { used_percent: 75, reset_at: 1_749_072_000 },
+                    },
+                  },
+                ],
+                rate_limit_reset_credits: { available_count: 2 },
               }),
             ),
+        ],
+        [
+          "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+          () =>
+            jsonResponse({
+              available_count: 2,
+              credits: [
+                {
+                  id: "reset-later",
+                  status: "available",
+                  title: "Full reset (Weekly + 5 hr)",
+                  granted_at: "2026-06-18T00:35:58.917422Z",
+                  expires_at: "2026-07-18T00:35:58.917422Z",
+                },
+                {
+                  id: "reset-sooner",
+                  status: "available",
+                  title: "Full reset (Weekly + 5 hr)",
+                  granted_at: "2026-06-12T02:19:39.558977Z",
+                  expires_at: "2026-07-12T02:19:39.558977Z",
+                },
+                {
+                  id: "reset-used",
+                  status: "redeemed",
+                  title: "Full reset (Weekly + 5 hr)",
+                  expires_at: "2026-07-01T00:00:00Z",
+                },
+              ],
+            }),
         ],
       ]),
     );
@@ -560,9 +784,166 @@ describe("real provider usage fetchers", () => {
       windows: expect.arrayContaining([
         expect.objectContaining({ id: "session", usedPct: 42 }),
         expect.objectContaining({ id: "weekly", usedPct: 8 }),
+        expect.objectContaining({ id: "codex_bengalfox_five_hour", usedPct: 25 }),
+        expect.objectContaining({
+          id: "codex_bengalfox_weekly",
+          label: "GPT 5.3 Codex Spark weekly",
+          usedPct: 75,
+          tone: "warning",
+        }),
       ]),
       balances: [expect.objectContaining({ id: "credits", remaining: 0 })],
+      resetCredits: [
+        expect.objectContaining({
+          id: "reset-sooner",
+          expiresAt: "2026-07-12T02:19:39.558977Z",
+        }),
+        expect.objectContaining({
+          id: "reset-later",
+          expiresAt: "2026-07-18T00:35:58.917422Z",
+        }),
+      ],
     });
+  });
+
+  it("shows Codex reset credit count when the detailed expiry endpoint is unavailable", async () => {
+    writeCodexAuth(codexHome, "at_codex_valid");
+    fetchApi = mockFetch(
+      new Map([
+        [
+          "https://chatgpt.com/backend-api/wham/usage",
+          () =>
+            jsonResponse(
+              makeCodexResponse({
+                rate_limit_reset_credits: { available_count: "3" },
+              }),
+            ),
+        ],
+        [
+          "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+          () => new Response(null, { status: 404 }),
+        ],
+      ]),
+    );
+
+    const codex = findProvider(await service().listUsage(), "codex");
+
+    expect(codex).toMatchObject({
+      resetCredits: [],
+      balances: expect.arrayContaining([
+        expect.objectContaining({
+          id: "rate_limit_reset_credits",
+          remaining: 3,
+          unit: "requests",
+        }),
+      ]),
+    });
+  });
+
+  it("does not let the optional Codex reset credit endpoint block usage", async () => {
+    writeCodexAuth(codexHome, "at_codex_valid");
+    fetchApi = mockFetch(
+      new Map([
+        [
+          "https://chatgpt.com/backend-api/wham/usage",
+          () =>
+            jsonResponse(
+              makeCodexResponse({
+                rate_limit_reset_credits: { available_count: 2 },
+              }),
+            ),
+        ],
+        ["https://chatgpt.com/backend-api/wham/rate-limit-reset-credits", hangingResponse],
+      ]),
+    );
+    const logger = createLogger();
+    const usageService = new ProviderUsageService({
+      logger,
+      fetchers: [
+        new CodexQuotaProvider({
+          logger,
+          codexHome,
+          fetch: fetchApi,
+          resetCreditsTimeoutMs: 1,
+        }),
+      ],
+    });
+
+    const codex = findProvider(await usageService.listUsage(), "codex");
+
+    expect(codex).toMatchObject({
+      status: "available",
+      resetCredits: [],
+      balances: expect.arrayContaining([
+        expect.objectContaining({
+          id: "rate_limit_reset_credits",
+          remaining: 2,
+        }),
+      ]),
+    });
+  });
+
+  it("consumes a Codex reset quota credit", async () => {
+    writeCodexAuth(codexHome, "at_codex_valid");
+    fetchApi = mockFetch(
+      new Map([
+        [
+          "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume",
+          (init) => {
+            expect(init?.method).toBe("POST");
+            expect(JSON.parse(String(init?.body))).toEqual({
+              redeem_request_id: expect.any(String),
+            });
+            return jsonResponse({ code: "reset", windows_reset: 2 });
+          },
+        ],
+      ]),
+    );
+
+    await expect(service().resetQuota("codex")).resolves.toEqual({
+      providerId: "codex",
+      code: "reset",
+      windowsReset: 2,
+      message: "Reset quota consumed. Windows reset: 2.",
+    });
+  });
+
+  it("refreshes Codex auth before retrying reset quota when the access token is stale", async () => {
+    writeCodexAuth(codexHome, "at_codex_stale", "rt_codex_valid");
+    let resetCalls = 0;
+    fetchApi = mockFetch(
+      new Map([
+        [
+          "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume",
+          (init) => {
+            resetCalls += 1;
+            const headers = init?.headers as Record<string, string>;
+            if (resetCalls === 1) {
+              expect(headers.Authorization).toBe("Bearer at_codex_stale");
+              return new Response(null, { status: 401 });
+            }
+            expect(headers.Authorization).toBe("Bearer at_codex_fresh");
+            return jsonResponse({ code: "reset", windows_reset: 1 });
+          },
+        ],
+        [
+          "https://auth.openai.com/oauth/token",
+          () => jsonResponse({ access_token: "at_codex_fresh", refresh_token: "rt_codex_fresh" }),
+        ],
+      ]),
+    );
+
+    await expect(service().resetQuota("codex")).resolves.toEqual({
+      providerId: "codex",
+      code: "reset",
+      windowsReset: 1,
+      message: "Reset quota consumed. Windows reset: 1.",
+    });
+
+    const refreshedAuth = JSON.parse(readFileSync(join(codexHome, "auth.json"), "utf8"));
+    expect(resetCalls).toBe(2);
+    expect(refreshedAuth.tokens.access_token).toBe("at_codex_fresh");
+    expect(refreshedAuth.tokens.refresh_token).toBe("rt_codex_fresh");
   });
 
   it("treats a Codex HTML usage response as auth failure", async () => {

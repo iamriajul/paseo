@@ -1238,6 +1238,13 @@ export const ProviderDiagnosticRequestMessageSchema = z.object({
 export const ProviderUsageListRequestMessageSchema = z.object({
   type: z.literal("provider.usage.list.request"),
   requestId: z.string(),
+  forceRefresh: z.boolean().optional(),
+});
+
+export const ProviderUsageResetQuotaRequestMessageSchema = z.object({
+  type: z.literal("provider.usage.reset_quota.request"),
+  providerId: z.string(),
+  requestId: z.string(),
 });
 
 export const ResumeAgentRequestMessageSchema = z.object({
@@ -2089,6 +2096,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   RefreshProvidersSnapshotRequestMessageSchema,
   ProviderDiagnosticRequestMessageSchema,
   ProviderUsageListRequestMessageSchema,
+  ProviderUsageResetQuotaRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
@@ -2384,6 +2392,10 @@ export const ServerInfoStatusPayloadSchema = z
         worktreeRestore: z.boolean().optional(),
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
         providerUsageList: z.boolean().optional(),
+        // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
+        providerUsageResetQuota: z.boolean().optional(),
+        // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
+        providerUsageForceRefresh: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.
@@ -3995,6 +4007,15 @@ export const ProviderUsageDetailSchema = z.object({
   tone: ProviderUsageToneSchema.optional(),
 });
 
+export const ProviderUsageResetCreditSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: z.string().optional(),
+  grantedAt: z.string().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
+  tone: ProviderUsageToneSchema.optional(),
+});
+
 export const ProviderUsageSchema = z.object({
   providerId: z.string(),
   displayName: z.string(),
@@ -4006,6 +4027,7 @@ export const ProviderUsageSchema = z.object({
   windows: z.array(ProviderUsageWindowSchema),
   balances: z.array(ProviderUsageBalanceSchema).optional(),
   details: z.array(ProviderUsageDetailSchema).optional(),
+  resetCredits: z.array(ProviderUsageResetCreditSchema).optional(),
   error: z.string().nullable().optional(),
 });
 
@@ -4015,6 +4037,17 @@ export const ProviderUsageListResponseMessageSchema = z.object({
     requestId: z.string(),
     fetchedAt: z.string(),
     providers: z.array(ProviderUsageSchema),
+  }),
+});
+
+export const ProviderUsageResetQuotaResponseMessageSchema = z.object({
+  type: z.literal("provider.usage.reset_quota.response"),
+  payload: z.object({
+    requestId: z.string(),
+    providerId: z.string(),
+    code: z.string(),
+    windowsReset: z.number().nullable(),
+    message: z.string().nullable(),
   }),
 });
 
@@ -4309,6 +4342,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   RefreshProvidersSnapshotResponseMessageSchema,
   ProviderDiagnosticResponseMessageSchema,
   ProviderUsageListResponseMessageSchema,
+  ProviderUsageResetQuotaResponseMessageSchema,
   ListCommandsResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
@@ -4461,8 +4495,12 @@ export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
 export type ProviderUsageWindow = z.infer<typeof ProviderUsageWindowSchema>;
 export type ProviderUsageBalance = z.infer<typeof ProviderUsageBalanceSchema>;
 export type ProviderUsageDetail = z.infer<typeof ProviderUsageDetailSchema>;
+export type ProviderUsageResetCredit = z.infer<typeof ProviderUsageResetCreditSchema>;
 export type ProviderUsageListResponseMessage = z.infer<
   typeof ProviderUsageListResponseMessageSchema
+>;
+export type ProviderUsageResetQuotaResponseMessage = z.infer<
+  typeof ProviderUsageResetQuotaResponseMessageSchema
 >;
 export type ChatCreateResponse = z.infer<typeof ChatCreateResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;

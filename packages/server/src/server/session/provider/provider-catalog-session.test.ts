@@ -184,6 +184,82 @@ describe("ProviderCatalogSession", () => {
     expect(err?.payload.requestId).toBe("u1");
   });
 
+  it("passes usage-list force refresh through to the usage service", async () => {
+    const listUsage = vi.fn(async () => ({
+      fetchedAt: "2026-06-19T00:00:00.000Z",
+      providers: [
+        {
+          providerId: "codex",
+          displayName: "Codex",
+          status: "available" as const,
+          planLabel: "Pro",
+          windows: [{ id: "weekly", label: "Weekly", usedPct: 12 }],
+        },
+      ],
+    }));
+    const { subsystem, emitted } = makeSubsystem({
+      usage: { listUsage },
+    });
+
+    await subsystem.handleProviderUsageListRequest({
+      type: "provider.usage.list.request",
+      requestId: "u-force",
+      forceRefresh: true,
+    });
+
+    expect(listUsage).toHaveBeenCalledWith({ forceRefresh: true });
+    const res = findByType(emitted, "provider.usage.list.response");
+    expect(res?.payload.requestId).toBe("u-force");
+  });
+
+  it("emits provider usage reset-quota responses", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      usage: {
+        resetQuota: async () => ({
+          providerId: "codex",
+          code: "reset",
+          windowsReset: 2,
+          message: "Reset quota consumed. Windows reset: 2.",
+        }),
+      },
+    });
+
+    await subsystem.handleProviderUsageResetQuotaRequest({
+      type: "provider.usage.reset_quota.request",
+      providerId: "codex",
+      requestId: "rq1",
+    });
+
+    const res = findByType(emitted, "provider.usage.reset_quota.response");
+    expect(res?.payload).toEqual({
+      requestId: "rq1",
+      providerId: "codex",
+      code: "reset",
+      windowsReset: 2,
+      message: "Reset quota consumed. Windows reset: 2.",
+    });
+  });
+
+  it("surfaces a usage reset-quota failure as an rpc_error envelope", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      usage: {
+        resetQuota: async () => {
+          throw new Error("no reset credits");
+        },
+      },
+    });
+
+    await subsystem.handleProviderUsageResetQuotaRequest({
+      type: "provider.usage.reset_quota.request",
+      providerId: "codex",
+      requestId: "rq2",
+    });
+
+    const err = findByType(emitted, "rpc_error");
+    expect(err?.payload.code).toBe("provider_usage_reset_quota_failed");
+    expect(err?.payload.requestId).toBe("rq2");
+  });
+
   it("surfaces a feature-list failure inline, not as an rpc_error", async () => {
     const { subsystem, emitted } = makeSubsystem({
       host: {

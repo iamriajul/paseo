@@ -8,16 +8,30 @@ import { settingsStyles } from "@/styles/settings";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { providerUsageCopy } from "./copy";
 import { ProviderUsageList } from "./list";
-import type { ProviderUsageView } from "./types";
+import type { ProviderUsage, ProviderUsageView } from "./types";
 
 export function ProviderUsageSettingsSection({
   view,
   onRefresh,
+  onResetQuota,
+  canResetQuota = false,
+  canForceRefreshQuota = false,
+  resettingProviderId = null,
 }: {
   view: ProviderUsageView;
   onRefresh: () => void;
+  onResetQuota?: (usage: ProviderUsage) => void;
+  canResetQuota?: boolean;
+  canForceRefreshQuota?: boolean;
+  resettingProviderId?: string | null;
 }) {
   const busy = view.kind === "loading" || (view.kind === "ready" && view.isRefreshing);
+  const refreshLabel = canForceRefreshQuota
+    ? providerUsageCopy.refreshQuota
+    : providerUsageCopy.refresh;
+  const refreshingLabel = canForceRefreshQuota
+    ? providerUsageCopy.refreshingQuota
+    : providerUsageCopy.refreshing;
 
   const refreshButton = useMemo(
     () => (
@@ -27,12 +41,12 @@ export function ProviderUsageSettingsSection({
         leftIcon={RefreshCw}
         loading={busy}
         onPress={onRefresh}
-        accessibilityLabel={providerUsageCopy.refresh}
+        accessibilityLabel={refreshLabel}
       >
-        {busy ? providerUsageCopy.refreshing : providerUsageCopy.refresh}
+        {busy ? refreshingLabel : refreshLabel}
       </Button>
     ),
-    [busy, onRefresh],
+    [busy, onRefresh, refreshLabel, refreshingLabel],
   );
 
   return (
@@ -41,7 +55,13 @@ export function ProviderUsageSettingsSection({
       testID="provider-usage-card"
       trailing={refreshButton}
     >
-      <ProviderUsageBody view={view} onRefresh={onRefresh} />
+      <ProviderUsageBody
+        view={view}
+        onRefresh={onRefresh}
+        onResetQuota={onResetQuota}
+        canResetQuota={canResetQuota}
+        resettingProviderId={resettingProviderId}
+      />
     </SettingsSection>
   );
 }
@@ -49,9 +69,15 @@ export function ProviderUsageSettingsSection({
 function ProviderUsageBody({
   view,
   onRefresh,
+  onResetQuota,
+  canResetQuota,
+  resettingProviderId,
 }: {
   view: ProviderUsageView;
   onRefresh: () => void;
+  onResetQuota?: (usage: ProviderUsage) => void;
+  canResetQuota: boolean;
+  resettingProviderId: string | null;
 }) {
   if (view.kind === "loading") {
     return (
@@ -79,7 +105,14 @@ function ProviderUsageBody({
     );
   }
 
-  return <ProviderUsageList providers={view.payload.providers} />;
+  return (
+    <ProviderUsageList
+      providers={view.payload.providers}
+      onResetQuota={onResetQuota}
+      canResetQuota={canResetQuota}
+      resettingProviderId={resettingProviderId}
+    />
+  );
 }
 
 const styles = StyleSheet.create((theme) => ({

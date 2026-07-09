@@ -7,6 +7,7 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   GestureResponderEvent,
   LayoutChangeEvent,
@@ -157,6 +158,7 @@ export function BacklogScreen({ serverId, projectId, displayName }: BacklogScree
 }
 
 function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScreenProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const toast = useToast();
   const client = useHostRuntimeClient(serverId);
@@ -183,7 +185,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
     enabled: Boolean(client && serverId && projectId && supportsBacklog),
     queryFn: async () => {
       if (!client) {
-        throw new Error("Host is not connected");
+        throw new Error(t("workspace.terminal.hostDisconnected"));
       }
       const payload = await client.listTasks(projectId);
       if (payload.error) {
@@ -235,7 +237,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
   const handleCreateTask = useCallback(
     async (input: { title: string; description: string; attachments: PickedFile[] }) => {
       if (!client) {
-        throw new Error("Host is not connected");
+        throw new Error(t("workspace.terminal.hostDisconnected"));
       }
       const uploaded = await Promise.all(
         input.attachments.map(async (attachment) => {
@@ -261,7 +263,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
       }
       await invalidateTasks();
     },
-    [client, invalidateTasks, projectId],
+    [client, invalidateTasks, projectId, t],
   );
 
   const handleUpdateTask = useCallback(
@@ -270,7 +272,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
       input: { title?: string; description?: string; status?: TaskCard["status"] },
     ) => {
       if (!client) {
-        throw new Error("Host is not connected");
+        throw new Error(t("workspace.terminal.hostDisconnected"));
       }
       const payload = await client.updateTask({ projectId, taskId, ...input });
       if (payload.error || !payload.task) {
@@ -278,13 +280,13 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
       }
       await invalidateTasks();
     },
-    [client, invalidateTasks, projectId],
+    [client, invalidateTasks, projectId, t],
   );
 
   const handleDeleteTask = useCallback(
     async (taskId: string) => {
       if (!client) {
-        throw new Error("Host is not connected");
+        throw new Error(t("workspace.terminal.hostDisconnected"));
       }
       const payload = await client.deleteTask({ projectId, taskId });
       if (payload.error) {
@@ -292,13 +294,13 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
       }
       await invalidateTasks();
     },
-    [client, invalidateTasks, projectId],
+    [client, invalidateTasks, projectId, t],
   );
 
   const requestAttachmentToken = useCallback(
     async (taskId: string, attachment: TaskAttachment) => {
       if (!client) {
-        throw new Error("Host is not connected");
+        throw new Error(t("workspace.terminal.hostDisconnected"));
       }
       const token = await client.requestTaskAttachmentDownloadToken({
         projectId,
@@ -310,7 +312,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
       }
       return token;
     },
-    [client, projectId],
+    [client, projectId, t],
   );
 
   const buildAttachmentUri = useCallback(
@@ -376,7 +378,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
   const handleCreateWorkspaceFromTask = useCallback(
     async (task: TaskCard) => {
       if (!client) {
-        toast.error("Host is not connected");
+        toast.error(t("workspace.terminal.hostDisconnected"));
         return;
       }
       if (!serverId || !projectId) {
@@ -415,7 +417,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
         setCreatingWorkspaceTaskId(null);
       }
     },
-    [client, displayName, projectId, requestAttachmentToken, serverId, toast],
+    [client, displayName, projectId, requestAttachmentToken, serverId, t, toast],
   );
 
   const handleToggleTaskStatus = useCallback(
@@ -594,6 +596,7 @@ function ProjectBacklogScreen({ serverId, projectId, displayName }: BacklogScree
 }
 
 function MasterBacklogScreen() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const toast = useToast();
   const runtime = getHostRuntimeStore();
@@ -687,11 +690,11 @@ function MasterBacklogScreen() {
     (serverId: string) => {
       const client = runtime.getClient(serverId);
       if (!client) {
-        throw new Error("Host is not connected");
+        throw new Error(t("workspace.terminal.hostDisconnected"));
       }
       return client;
     },
-    [runtime],
+    [runtime, t],
   );
 
   const requestAttachmentToken = useCallback(

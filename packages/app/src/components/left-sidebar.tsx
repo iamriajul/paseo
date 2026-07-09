@@ -3,6 +3,7 @@ import {
   CalendarClock,
   FolderPlus,
   History,
+  ListTodo,
   Home,
   Plus,
   Search,
@@ -65,6 +66,7 @@ import { useWindowControlsPadding } from "@/utils/desktop-window";
 import { canCloseLeftSidebarGesture } from "@/utils/sidebar-animation-state";
 import {
   buildOpenProjectRoute,
+  buildBacklogRoute,
   buildNewWorkspaceRoute,
   buildSchedulesRoute,
   buildSessionsRoute,
@@ -116,6 +118,7 @@ interface SidebarLabels {
   switchHost: string;
   searchHosts: string;
   sessions: string;
+  backlog: string;
   schedules: string;
   closeSidebar: string;
 }
@@ -126,6 +129,7 @@ interface MobileSidebarProps extends SidebarSharedProps {
   isOpen: boolean;
   closeSidebar: () => void;
   handleViewMoreNavigate: () => void;
+  handleViewBacklogNavigate: () => void;
   handleViewSchedulesNavigate: () => void;
 }
 
@@ -133,6 +137,7 @@ interface DesktopSidebarProps extends SidebarSharedProps {
   insetsTop: number;
   isOpen: boolean;
   handleViewMore: () => void;
+  handleViewBacklog: () => void;
   handleViewSchedules: () => void;
 }
 
@@ -235,6 +240,10 @@ export const LeftSidebar = memo(function LeftSidebar({
     router.push(buildSessionsRoute());
   }, []);
 
+  const handleViewBacklogNavigate = useCallback(() => {
+    router.push(buildBacklogRoute());
+  }, []);
+
   const handleViewSchedulesNavigate = useCallback(() => {
     router.push(buildSchedulesRoute());
   }, []);
@@ -249,6 +258,7 @@ export const LeftSidebar = memo(function LeftSidebar({
       switchHost: t("sidebar.host.switchTitle"),
       searchHosts: t("sidebar.host.searchPlaceholder"),
       sessions: t("sidebar.sections.sessions"),
+      backlog: t("sidebar.sections.backlog"),
       schedules: t("sidebar.sections.schedules"),
       closeSidebar: t("sidebar.actions.closeSidebar"),
     }),
@@ -286,6 +296,7 @@ export const LeftSidebar = memo(function LeftSidebar({
         handleAddHost={handleAddHostMobile}
         handleOpenHostSettings={handleOpenHostSettingsMobile}
         handleViewMoreNavigate={handleViewMoreNavigate}
+        handleViewBacklogNavigate={handleViewBacklogNavigate}
         handleViewSchedulesNavigate={handleViewSchedulesNavigate}
       />
     );
@@ -302,6 +313,7 @@ export const LeftSidebar = memo(function LeftSidebar({
       handleAddHost={handleAddHostDesktop}
       handleOpenHostSettings={handleOpenHostSettingsDesktop}
       handleViewMore={handleViewMoreNavigate}
+      handleViewBacklog={handleViewBacklogNavigate}
       handleViewSchedules={handleViewSchedulesNavigate}
     />
   );
@@ -579,10 +591,12 @@ function MobileSidebar({
   isOpen,
   closeSidebar,
   handleViewMoreNavigate,
+  handleViewBacklogNavigate,
   handleViewSchedulesNavigate,
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
+  const isBacklogActive = pathname.includes("/backlog");
   const isSchedulesActive = pathname.includes("/schedules");
   const {
     translateX,
@@ -617,6 +631,13 @@ function MobileSidebar({
     closeSidebar();
     handleViewSchedulesNavigate();
   }, [backdropOpacity, closeSidebar, handleViewSchedulesNavigate, translateX, windowWidth]);
+
+  const handleViewBacklog = useCallback(() => {
+    translateX.value = -windowWidth;
+    backdropOpacity.value = 0;
+    closeSidebar();
+    handleViewBacklogNavigate();
+  }, [backdropOpacity, closeSidebar, handleViewBacklogNavigate, translateX, windowWidth]);
 
   const handleWorkspacePress = useCallback(() => {
     closeSidebar();
@@ -779,6 +800,14 @@ function MobileSidebar({
                 variant="compact"
               />
               <SidebarHeaderRow
+                icon={ListTodo}
+                label={labels.backlog}
+                onPress={handleViewBacklog}
+                isActive={isBacklogActive}
+                testID="sidebar-backlog"
+                variant="compact"
+              />
+              <SidebarHeaderRow
                 icon={CalendarClock}
                 label={labels.schedules}
                 onPress={handleViewSchedules}
@@ -866,10 +895,12 @@ function DesktopSidebar({
   insetsTop,
   isOpen,
   handleViewMore,
+  handleViewBacklog,
   handleViewSchedules,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
+  const isBacklogActive = pathname.includes("/backlog");
   const isSchedulesActive = pathname.includes("/schedules");
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
@@ -948,6 +979,14 @@ function DesktopSidebar({
               onPress={handleViewMore}
               isActive={isSessionsActive}
               testID="sidebar-sessions"
+              variant="compact"
+            />
+            <SidebarHeaderRow
+              icon={ListTodo}
+              label={labels.backlog}
+              onPress={handleViewBacklog}
+              isActive={isBacklogActive}
+              testID="sidebar-backlog"
               variant="compact"
             />
             <SidebarHeaderRow

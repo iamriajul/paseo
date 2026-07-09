@@ -799,6 +799,7 @@ export const ja: TranslationResources = {
     },
     sections: {
       sessions: "履歴",
+      backlog: "Backlog",
       schedules: "スケジュール",
     },
     worktreeSetup: {
@@ -813,6 +814,8 @@ export const ja: TranslationResources = {
         openSettings: "プロジェクト設定を開く",
         openNewWindow: "新しいウィンドウで開く",
         openNewWindowFailed: "新しいウィンドウを開けませんでした",
+        openBacklog: "Open backlog",
+        openBacklogFor: "Open backlog for {{projectName}}",
         remove: "プロジェクトを削除",
         removing: "削除中...",
       },

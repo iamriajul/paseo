@@ -24,6 +24,11 @@ $PASEO_HOME/
 │       └── {agentId}.json               # One file per agent
 ├── schedules/
 │   └── {scheduleId}.json                # One file per schedule
+├── tasks/
+│   ├── tasks.json                       # Project-scoped backlog tasks
+│   └── assets/
+│       └── {sanitized-project-id}/
+│           └── {taskId}/                # Attachment blobs owned by a task
 ├── chat/
 │   └── rooms.json                       # All rooms + messages
 ├── loops/
@@ -465,7 +470,44 @@ than treating it as valid.
 
 ---
 
-## 8. Push Token Store
+## 8. Task Backlog
+
+**Path:** `$PASEO_HOME/tasks/tasks.json`
+
+Single file containing all project-scoped backlog tasks. Writes are atomic and serialized through
+an in-memory queue. Attachment bytes live separately under
+`$PASEO_HOME/tasks/assets/{sanitized-project-id}/{taskId}/`; task records store absolute paths
+server-side, but task list/create/update RPCs only return attachment metadata. Task creation imports
+attachments only from the daemon's `$PASEO_HOME/uploads/{uploadId}/` staging area. New Workspace
+handoffs reuse these server-local task asset paths as uploaded-file references instead of copying the
+bytes through the client again.
+
+| Field         | Type                                 | Description                                      |
+| ------------- | ------------------------------------ | ------------------------------------------------ |
+| `id`          | `string` (UUID)                      | Task ID                                          |
+| `projectId`   | `string`                             | FK to Project.projectId                          |
+| `title`       | `string`                             | User-visible title                               |
+| `description` | `string`                             | Markdown-ish task body text                      |
+| `status`      | `"active" \| "completed"`            | Completion state                                 |
+| `attachments` | `TaskAttachment[]`                   | File metadata; persisted rows also keep the path |
+| `createdAt`   | `string` (ISO 8601)                  |                                                  |
+| `updatedAt`   | `string` (ISO 8601)                  |                                                  |
+| `completedAt` | `string \| null` (ISO 8601 nullable) | Set when completed                               |
+| `order`       | `number`                             | Per-project append order                         |
+
+### Nested: TaskAttachment
+
+| Field       | Type                | Description                                   |
+| ----------- | ------------------- | --------------------------------------------- |
+| `id`        | `string` (UUID)     | Attachment ID                                 |
+| `fileName`  | `string`            | Original file name after path-safe sanitizing |
+| `mimeType`  | `string`            | Browser/client supplied MIME type             |
+| `size`      | `number`            | Byte size                                     |
+| `createdAt` | `string` (ISO 8601) |                                               |
+
+---
+
+## 9. Push Token Store
 
 **Path:** `$PASEO_HOME/push-tokens.json`
 
@@ -479,7 +521,7 @@ Simple set of Expo push notification tokens. Loaded with permissive parsing (fil
 
 ---
 
-## 9. Daemon meta files
+## 10. Daemon meta files
 
 These small files are not validated as full Zod schemas but are persisted under `$PASEO_HOME` for daemon identity and runtime coordination.
 

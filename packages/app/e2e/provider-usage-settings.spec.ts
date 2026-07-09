@@ -25,6 +25,56 @@ test.describe("provider usage settings", () => {
             status: "available",
             planLabel: "Pro 20x",
             windows: [{ id: "weekly", label: "Weekly", usedPct: 29 }],
+            resetCredits: [
+              {
+                id: "reset-1",
+                label: "Full reset",
+                status: "available",
+                expiresAt: "2026-07-12T02:19:39.558977Z",
+              },
+              {
+                id: "reset-2",
+                label: "Full reset",
+                status: "available",
+                expiresAt: "2026-07-18T00:35:58.917422Z",
+              },
+            ],
+          },
+          {
+            providerId: "glm",
+            displayName: "GLM coding plan",
+            status: "available",
+            planLabel: "GLM coding plan",
+            sourceLabel: "OpenUsage 0.6.27",
+            windows: [
+              { id: "biweekly", label: "Biweekly", usedPct: 23 },
+              { id: "daily", label: "Daily", remainingPct: 30 },
+            ],
+            balances: [
+              { id: "credits", label: "Credits", remaining: 1234, unit: "credits" },
+              { id: "extra", label: "Extra usage", used: 5, limit: 20, unit: "usd" },
+            ],
+            details: [{ id: "valid", label: "Valid until", value: "2026-12-31" }],
+          },
+        ],
+      },
+      {
+        fetchedAt: "2026-06-19T00:01:00.000Z",
+        providers: [
+          {
+            providerId: "claude",
+            displayName: "Claude",
+            status: "available",
+            planLabel: "Max 20x",
+            windows: [{ id: "session", label: "Session", usedPct: 7 }],
+          },
+          {
+            providerId: "codex",
+            displayName: "Codex",
+            status: "available",
+            planLabel: "Pro 20x",
+            windows: [{ id: "weekly", label: "Weekly", usedPct: 0 }],
+            resetCredits: [],
           },
           {
             providerId: "glm",
@@ -64,9 +114,28 @@ test.describe("provider usage settings", () => {
     await expect(card.getByText("1,234 left", { exact: true })).toBeVisible();
     await expect(card.getByText("Extra usage", { exact: true })).toBeVisible();
     await expect(card.getByText("$5.00 / $20.00", { exact: true })).toBeVisible();
+    await expect(card.getByText("Available resets", { exact: true })).toBeVisible();
+    await expect(card.getByText("2 resets", { exact: true })).toBeVisible();
+    await expect(card.getByText("Full reset", { exact: true }).first()).toBeVisible();
+    await expect(card.getByText(/^Expires .*2026$/).first()).toBeVisible();
+    await expect(card.getByRole("button", { name: "Reset quota", exact: true })).toBeVisible();
     await expect(card.getByText("Valid until", { exact: true })).toBeVisible();
     await expect(card.getByText("2026-12-31", { exact: true })).toBeVisible();
     await expect(card.getByText(/OpenUsage 0\.6\.27/)).toBeVisible();
+
+    const dialogMessages: string[] = [];
+    page.on("dialog", async (dialog) => {
+      dialogMessages.push(dialog.message());
+      await dialog.accept();
+    });
+
+    await card.getByRole("button", { name: "Reset quota", exact: true }).click();
+    await usageFixture.waitForResetQuotaRequestCount(1);
+    await usageFixture.waitForRequestCount(2);
+
+    expect(usageFixture.resetQuotaRequestCount()).toBe(1);
+    expect(dialogMessages.some((message) => message.includes("Reset Codex quota?"))).toBe(true);
+    await expect(card.getByText("0%", { exact: true })).toBeVisible();
   });
 
   test("refresh invalidates and refetches usage", async ({ page }) => {
@@ -105,10 +174,11 @@ test.describe("provider usage settings", () => {
     await usageFixture.waitForRequestCount(1);
     await expect(page.getByText("23%")).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.getByRole("button", { name: "Refresh quota", exact: true }).click();
     await usageFixture.waitForRequestCount(2);
 
     expect(usageFixture.requestCount()).toBe(2);
+    expect(usageFixture.forceRefreshRequestCount()).toBe(1);
     await expect(page.getByText("64%")).toBeVisible();
   });
 

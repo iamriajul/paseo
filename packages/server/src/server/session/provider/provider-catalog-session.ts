@@ -428,7 +428,9 @@ export class ProviderCatalogSession {
     msg: Extract<SessionInboundMessage, { type: "provider.usage.list.request" }>,
   ): Promise<void> {
     try {
-      const usage = await this.providerUsageService.listUsage();
+      const usage = await this.providerUsageService.listUsage({
+        forceRefresh: msg.forceRefresh === true,
+      });
       this.host.emit({
         type: "provider.usage.list.response",
         payload: {
@@ -447,6 +449,36 @@ export class ProviderCatalogSession {
           requestType: msg.type,
           error: `Failed to list provider usage: ${err.message}`,
           code: "provider_usage_list_failed",
+        },
+      });
+    }
+  }
+
+  async handleProviderUsageResetQuotaRequest(
+    msg: Extract<SessionInboundMessage, { type: "provider.usage.reset_quota.request" }>,
+  ): Promise<void> {
+    try {
+      const result = await this.providerUsageService.resetQuota(msg.providerId);
+      this.host.emit({
+        type: "provider.usage.reset_quota.response",
+        payload: {
+          requestId: msg.requestId,
+          providerId: result.providerId,
+          code: result.code,
+          windowsReset: result.windowsReset,
+          message: result.message,
+        },
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.error({ err, providerId: msg.providerId }, "Failed to reset provider quota");
+      this.host.emit({
+        type: "rpc_error",
+        payload: {
+          requestId: msg.requestId,
+          requestType: msg.type,
+          error: `Failed to reset provider quota: ${err.message}`,
+          code: "provider_usage_reset_quota_failed",
         },
       });
     }

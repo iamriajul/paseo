@@ -19,6 +19,7 @@ export interface WorkspaceDraftTabSetup {
 export type WorkspaceTabTarget =
   | { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup }
   | { kind: "agent"; agentId: string }
+  | { kind: "provider_subagent"; parentAgentId: string; subagentId: string }
   | { kind: "terminal"; terminalId: string }
   | { kind: "browser"; browserId: string }
   | { kind: "codeServer"; codeServerId: string }
@@ -496,6 +497,7 @@ function extractMigrationRawSources(persistedState: unknown): MigrationRawSource
   };
 }
 
+// oxlint-disable-next-line complexity -- migration decoder intentionally handles every persisted tab kind.
 function coerceWorkspaceTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget | null {
   const kind = typeof raw.kind === "string" ? raw.kind : null;
   if (kind === "draft" && typeof raw.draftId === "string") {
@@ -508,6 +510,17 @@ function coerceWorkspaceTabTarget(raw: Record<string, unknown>): WorkspaceTabTar
   }
   if (kind === "agent" && typeof raw.agentId === "string") {
     return normalizeWorkspaceTabTarget({ kind: "agent", agentId: raw.agentId });
+  }
+  if (
+    kind === "provider_subagent" &&
+    typeof raw.parentAgentId === "string" &&
+    typeof raw.subagentId === "string"
+  ) {
+    return normalizeWorkspaceTabTarget({
+      kind: "provider_subagent",
+      parentAgentId: raw.parentAgentId,
+      subagentId: raw.subagentId,
+    });
   }
   if (kind === "terminal" && typeof raw.terminalId === "string") {
     return normalizeWorkspaceTabTarget({ kind: "terminal", terminalId: raw.terminalId });

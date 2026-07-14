@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.1.904 - 2026-07-14
+
+### Added
+
+- Open the current workspace folder in Code Server from desktop or mobile through host URL settings ([#4](https://github.com/iamriajul/paseo/pull/4) by [@iamriajul](https://github.com/iamriajul))
+- Browse changed files as a collapsible folder tree or flat list ([#1918](https://github.com/getpaseo/paseo/pull/1918), [#1945](https://github.com/getpaseo/paseo/pull/1945) by [@cleiter](https://github.com/cleiter))
+- Always expand agent reasoning with a new appearance setting ([#1943](https://github.com/getpaseo/paseo/pull/1943) by [@mcowger](https://github.com/mcowger))
+- Approve Codex MCP permission requests in Paseo ([#2001](https://github.com/getpaseo/paseo/pull/2001))
+- Inspect provider-created subagents and their conversations across workspaces ([#2013](https://github.com/getpaseo/paseo/pull/2013), [#2061](https://github.com/getpaseo/paseo/pull/2061) by [@omercnet](https://github.com/omercnet))
+- Fork chats with every supported agent provider ([#2022](https://github.com/getpaseo/paseo/pull/2022))
+- Clone GitHub repositories directly into new workspaces ([#1331](https://github.com/getpaseo/paseo/pull/1331) by [@mcowger](https://github.com/mcowger))
+- Pin important chats to the top of the sidebar ([#1981](https://github.com/getpaseo/paseo/pull/1981) by [@half144](https://github.com/half144))
+- Choose how much detail tool calls show in chat ([#2031](https://github.com/getpaseo/paseo/pull/2031) by [@mcowger](https://github.com/mcowger))
+- Build Paseo for F-Droid without proprietary mobile services ([#1768](https://github.com/getpaseo/paseo/pull/1768) by [@antonok-edm](https://github.com/antonok-edm))
+
+### Improved
+
+- Project picker finds folders with fuzzy search and native desktop browsing ([#1968](https://github.com/getpaseo/paseo/pull/1968))
+- Add projects directly from New Workspace when none are configured ([#2026](https://github.com/getpaseo/paseo/pull/2026))
+- Cloned workspaces open immediately after setup ([#2045](https://github.com/getpaseo/paseo/pull/2045))
+- New terminals open at the correct size immediately ([#2023](https://github.com/getpaseo/paseo/pull/2023) by [@cleiter](https://github.com/cleiter))
+- Attachments remain visible after creating an agent ([#2030](https://github.com/getpaseo/paseo/pull/2030))
+- New Workspace prompts survive switching projects or hosts ([#2036](https://github.com/getpaseo/paseo/pull/2036))
+- Codex timelines show every terminal command an agent runs ([#2037](https://github.com/getpaseo/paseo/pull/2037))
+- Permission modes use distinct icons for faster recognition ([#1980](https://github.com/getpaseo/paseo/pull/1980) by [@cleiter](https://github.com/cleiter))
+- Nix installations can serve the daemon web interface ([#1978](https://github.com/getpaseo/paseo/pull/1978) by [@liamdiprose](https://github.com/liamdiprose))
+- Workspace search includes OpenCode configuration files ([#2049](https://github.com/getpaseo/paseo/pull/2049))
+
+### Fixed
+
+- Mobile chats no longer freeze or go blank while switching workspaces during streaming ([#1989](https://github.com/getpaseo/paseo/pull/1989))
+- OpenCode sessions start reliably ([#2015](https://github.com/getpaseo/paseo/pull/2015) by [@mcowger](https://github.com/mcowger))
+- OpenCode shuts down cleanly after sessions close ([#2027](https://github.com/getpaseo/paseo/pull/2027) by [@mcowger](https://github.com/mcowger))
+- Pi keeps existing MCP settings when Paseo adds its own ([#1990](https://github.com/getpaseo/paseo/pull/1990) by [@mcowger](https://github.com/mcowger))
+- Pi remains usable after canceling extension commands ([#2019](https://github.com/getpaseo/paseo/pull/2019))
+- Codex stays active and streams correctly while subagents run ([#1967](https://github.com/getpaseo/paseo/pull/1967))
+- Mobile sidebars stay synchronized while changing workspaces ([#1953](https://github.com/getpaseo/paseo/pull/1953))
+- Mobile retains the swipe-to-open sidebar gesture ([#1976](https://github.com/getpaseo/paseo/pull/1976))
+- Shortcut capture recognizes punctuation keys correctly ([#2047](https://github.com/getpaseo/paseo/pull/2047) by [@OnCloud125252](https://github.com/OnCloud125252))
+- Codebuddy Code models appear reliably during discovery ([#1979](https://github.com/getpaseo/paseo/pull/1979) by [@park0er](https://github.com/park0er))
+- Oversized tool output no longer slows or floods chat timelines ([#2020](https://github.com/getpaseo/paseo/pull/2020))
+
 ## 0.1.107 - 2026-07-13
 
 ### Added

@@ -30,7 +30,8 @@ The tunnel protocol is a binary WebSocket frame family in `packages/protocol/src
 Hosts may advertise optional Code Server openers in `server_info.urlOpeners.codeServer`.
 
 - `localhostUrl` is derived from a running daemon-local code-server process, such as `http://127.0.0.1:13337`. Electron desktop shows a Code Server action when this is present. Clicking it creates a dedicated Code Server workspace tab that internally uses a Browser webview with hidden chrome.
-- `externalUrl` comes from `CODE_SERVER_URL` when it is set to an absolute `http` or `https` URL. Web and native platforms show the Code Server action when this is present and open it in the external browser.
+- `externalUrl` comes from `CODE_SERVER_URL` when it is set to an absolute `http` or `https` URL. Web and native platforms open it in the external browser. When that URL is loopback, or when only `localhostUrl` is available, the client can derive the mobile URL from `VSCODE_PROXY_URI` instead of opening the phone's own localhost.
+- Code Server launch URLs include the current workspace directory in the `folder` query parameter so the editor opens the selected workspace by default.
 - Code Server workspace tabs have their own local title records (`Code Server 1`, `Code Server 2`, etc.) and can be renamed from the tab menu. They are not generic Browser tabs, even though desktop uses Browser infrastructure internally.
 
 ## Invariants

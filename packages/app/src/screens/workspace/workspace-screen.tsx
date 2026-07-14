@@ -112,6 +112,7 @@ import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store"
 import { createWorkspaceCodeServer, useCodeServerStore } from "@/stores/code-server-store";
 import { getDesktopHost } from "@/desktop/host";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { resolveCodeServerLaunchUrl } from "@/utils/code-server-url";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
 import { resolveWorkspaceRouteId } from "@/utils/workspace-identity";
@@ -353,26 +354,15 @@ function resolveBrowserBackedTabIdForCleanup(target: WorkspaceTabTarget | null |
 
 interface UseWorkspaceCodeServerActionInput {
   normalizedServerId: string;
+  workspaceDirectory: string | null;
   persistenceKey: string | null;
   focusWorkspacePane: (workspaceKey: string, paneId: string) => void;
   openWorkspaceTabFocused: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
 }
 
-function shouldShowCodeServerAction(
-  codeServerUrlOpeners:
-    | {
-        localhostUrl?: string;
-        externalUrl?: string;
-      }
-    | undefined,
-): boolean {
-  return getIsElectron()
-    ? Boolean(codeServerUrlOpeners?.localhostUrl)
-    : Boolean(codeServerUrlOpeners?.externalUrl);
-}
-
 function useWorkspaceCodeServerAction({
   normalizedServerId,
+  workspaceDirectory,
   persistenceKey,
   focusWorkspacePane,
   openWorkspaceTabFocused,
@@ -380,28 +370,35 @@ function useWorkspaceCodeServerAction({
   const codeServerUrlOpeners = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.codeServer,
   );
-  const showCreateCodeServerTab = shouldShowCodeServerAction(codeServerUrlOpeners);
+  const vscodeProxyUri = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.vscodeProxyUri,
+  );
+  const codeServerLaunchUrl = resolveCodeServerLaunchUrl({
+    isElectron: getIsElectron(),
+    codeServerUrlOpeners,
+    vscodeProxyUri,
+    workspaceDirectory,
+  });
+  const showCreateCodeServerTab = Boolean(codeServerLaunchUrl);
   const handleCreateCodeServerTab = useCallback(
     (input?: { paneId?: string }) => {
       if (getIsElectron()) {
-        const localhostUrl = codeServerUrlOpeners?.localhostUrl;
-        if (!persistenceKey || !localhostUrl) {
+        if (!persistenceKey || !codeServerLaunchUrl) {
           return;
         }
         if (input?.paneId) {
           focusWorkspacePane(persistenceKey, input.paneId);
         }
-        const { codeServerId } = createWorkspaceCodeServer({ initialUrl: localhostUrl });
+        const { codeServerId } = createWorkspaceCodeServer({ initialUrl: codeServerLaunchUrl });
         openWorkspaceTabFocused(persistenceKey, { kind: "codeServer", codeServerId });
         return;
       }
 
-      const externalUrl = codeServerUrlOpeners?.externalUrl;
-      if (externalUrl) {
-        void openExternalUrl(externalUrl);
+      if (codeServerLaunchUrl) {
+        void openExternalUrl(codeServerLaunchUrl);
       }
     },
-    [codeServerUrlOpeners, focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+    [codeServerLaunchUrl, focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
   );
 
   return { handleCreateCodeServerTab, showCreateCodeServerTab };
@@ -2556,6 +2553,7 @@ function WorkspaceScreenContent({
 
   const { handleCreateCodeServerTab, showCreateCodeServerTab } = useWorkspaceCodeServerAction({
     normalizedServerId,
+    workspaceDirectory,
     persistenceKey,
     focusWorkspacePane,
     openWorkspaceTabFocused,

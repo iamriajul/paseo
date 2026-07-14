@@ -626,7 +626,7 @@ export const ptBR: TranslationResources = {
           success: "Atualizado",
         },
         archive: {
-          label: "Arquivar worktree",
+          label: "Arquivar workspace",
           pending: "Arquivando...",
           success: "Arquivado",
         },
@@ -678,8 +678,6 @@ export const ptBR: TranslationResources = {
             "Atualizar não está disponível enquanto há alterações locais. Faça commit ou stash primeiro",
           updateCurrent:
             "Atualizar não está disponível porque esta branch já está atualizada com {{baseRef}}",
-          archiveNotWorktree:
-            "Arquivar não está disponível aqui porque este workspace não foi criado como um worktree do Paseo",
           mergePrNoGithub:
             "Merge da PR não está disponível agora porque o GitHub não está conectado",
           mergePrMissing: "Merge da PR não está disponível porque ainda não há uma pull request",
@@ -706,11 +704,9 @@ export const ptBR: TranslationResources = {
           baseRefUnavailable: "Ref base indisponível",
           failedMerge: "Falha ao fazer merge",
           failedMergeFromBase: "Falha ao fazer merge da base",
-          worktreePathUnavailable: "Caminho do worktree indisponível",
-          failedArchive: "Falha ao arquivar worktree",
         },
         archiveWarning: {
-          title: 'Arquivar "{{worktreeName}}"?',
+          title: 'Arquivar "{{workspaceName}}"?',
           confirm: "Arquivar",
           cancel: "Cancelar",
           uncommittedChanges: "Alterações sem commit",
@@ -799,6 +795,9 @@ export const ptBR: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "Fixados",
+    },
     host: {
       noHost: "Nenhum host",
       switchTitle: "Trocar host",
@@ -807,9 +806,24 @@ export const ptBR: TranslationResources = {
     actions: {
       addProject: "Adicionar projeto",
       newWorkspace: "Novo workspace",
+      hosts: "Hosts",
       home: "Início",
       settings: "Configurações",
       closeSidebar: "Fechar barra lateral",
+    },
+    help: {
+      trigger: "Ajuda e suporte",
+      troubleshoot: "Resolver problemas",
+      diagnostics: "Executar diagnóstico",
+      diagnosticsDescription: "Coletar detalhes do app e dos hosts conectados",
+      shortcuts: "Atalhos de teclado",
+      shortcutsDescription: "Ver os atalhos de teclado disponíveis",
+      reportIssue: "Relatar um problema",
+      discord: "Discord",
+      discordDescription: "Ideal para ajuda rápida e conversa",
+      github: "Criar issue no GitHub",
+      githubDescription: "Relatar um bug reproduzível",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "Histórico",
@@ -862,8 +876,10 @@ export const ptBR: TranslationResources = {
         copyPath: "Copiar caminho",
         copyBranchName: "Copiar nome da branch",
         rename: "Renomear workspace",
+        pin: "Fixar no topo",
+        unpin: "Desafixar",
         archive: "Arquivar",
-        archiveWorktree: "Arquivar worktree",
+        archiveWorkspace: "Arquivar workspace",
         hideFromSidebar: "Ocultar da barra lateral",
         archiving: "Arquivando...",
         hiding: "Ocultando...",
@@ -886,7 +902,7 @@ export const ptBR: TranslationResources = {
         branchNameCopied: "Nome da branch copiado",
         hostDisconnected: "Host não está conectado",
         hideFailed: "Falha ao ocultar workspace",
-        archiveFailed: "Falha ao arquivar worktree",
+        archiveFailed: "Falha ao arquivar workspace",
       },
     },
   },
@@ -1121,7 +1137,8 @@ export const ptBR: TranslationResources = {
     },
   },
   projectPicker: {
-    placeholder: "Digite um caminho de diretório...",
+    placeholder: "Digite para pesquisar...",
+    browse: "Procurar…",
     opening: "Abrindo projeto...",
     searching: "Buscando...",
     empty: "Comece digitando um caminho",
@@ -1409,6 +1426,36 @@ export const ptBR: TranslationResources = {
     input: "Entrada",
     output: "Saída",
   },
+  toolCallGroup: {
+    title: "Ferramentas",
+    accessibilityLabel: "Ferramentas, {{count}} chamadas",
+    editedFiles: {
+      one: "editou {{count}} arquivo",
+      other: "editou {{count}} arquivos",
+    },
+    commands: {
+      one: "executou {{count}} comando",
+      other: "executou {{count}} comandos",
+    },
+    readFiles: {
+      one: "leu {{count}} arquivo",
+      other: "leu {{count}} arquivos",
+    },
+    searches: {
+      one: "pesquisou {{count}} vez",
+      other: "pesquisou {{count}} vezes",
+    },
+    otherTools: {
+      one: "usou {{count}} outra ferramenta",
+      other: "usou {{count}} outras ferramentas",
+    },
+    paseoCalls: {
+      one: "chamou o Paseo {{count}} vez",
+      other: "chamou o Paseo {{count}} vezes",
+    },
+    and: "e",
+    failed: "{{count}} com falha",
+  },
   renameModal: {
     rename: "Renomear",
     saving: "Salvando...",
@@ -1506,6 +1553,16 @@ export const ptBR: TranslationResources = {
         label: "Sempre expandir raciocínio",
         description:
           "Mostrar os blocos de pensamento e raciocínio do agente totalmente expandidos por padrão",
+      },
+      toolCallDetail: {
+        label: "Detalhe das chamadas de ferramentas",
+        description: "Como a atividade das ferramentas aparece na linha do tempo do agente",
+        accessibilityLabel: "Selecionar detalhe das ferramentas ({{value}})",
+        options: {
+          overview: "Visão geral",
+          concise: "Conciso",
+          detailed: "Detalhado",
+        },
       },
       language: {
         label: "Idioma",
@@ -1636,7 +1693,7 @@ export const ptBR: TranslationResources = {
         openProject: "Abrir projeto",
         newWorkspace: "Novo workspace",
         newWorktree: "Novo worktree",
-        archiveWorktree: "Arquivar worktree",
+        archiveWorkspace: "Arquivar workspace",
         newTab: "Nova aba",
         closeCurrentTab: "Fechar aba atual",
         jumpToWorkspace: "Ir para workspace",

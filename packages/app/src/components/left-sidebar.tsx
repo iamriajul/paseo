@@ -29,6 +29,7 @@ import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { HostPicker } from "@/components/hosts/host-picker";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
 import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/sidebar-display-preferences-menu";
+import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -37,10 +38,15 @@ import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { canCreateWorktreeForProjectKind } from "@/projects/host-projects";
 import { useHostFeature } from "@/runtime/host-features";
-import { type SidebarProjectEntry } from "@/hooks/use-sidebar-workspaces-list";
+import {
+  type SidebarProjectEntry,
+  type SidebarWorkspaceEntry,
+} from "@/hooks/use-sidebar-workspaces-list";
 import { useSidebarModel } from "@/components/sidebar/sidebar-model";
+import type { PinnedSidebarGroups } from "@/hooks/use-sidebar-pins";
+import { RetainedPanelActivity } from "@/components/retained-panel";
 import type { StatusGroup } from "@/hooks/sidebar-status-view-model";
-import { type SidebarGroupMode } from "@/stores/sidebar-view-store";
+import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useHosts } from "@/runtime/host-runtime";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
@@ -76,7 +82,9 @@ type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
 interface SidebarSharedProps {
   theme: SidebarTheme;
   statusGroups: StatusGroup[];
+  pinnedGroups: PinnedSidebarGroups;
   projects: SidebarProjectEntry[];
+  workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
   projectNamesByKey: Map<string, string>;
   isInitialLoad: boolean;
   isRevalidating: boolean;
@@ -98,9 +106,9 @@ interface SidebarSharedProps {
 interface SidebarLabels {
   addProject: string;
   newWorkspace: string;
+  hosts: string;
   home: string;
   settings: string;
-  switchHost: string;
   searchHosts: string;
   sessions: string;
   backlog: string;
@@ -137,11 +145,13 @@ export const LeftSidebar = memo(function LeftSidebar() {
 
   const {
     projects,
+    workspaceEntriesByKey,
     projectNamesByKey,
     isInitialLoad,
     isRevalidating,
     refreshAll,
     statusGroups,
+    pinnedGroups,
     collapsedProjectKeys,
     toggleProjectCollapsed,
     groupMode,
@@ -229,9 +239,9 @@ export const LeftSidebar = memo(function LeftSidebar() {
     (): SidebarLabels => ({
       addProject: t("sidebar.actions.addProject"),
       newWorkspace: t("sidebar.actions.newWorkspace"),
+      hosts: t("sidebar.actions.hosts"),
       home: t("sidebar.actions.home"),
       settings: t("sidebar.actions.settings"),
-      switchHost: t("sidebar.host.switchTitle"),
       searchHosts: t("sidebar.host.searchPlaceholder"),
       sessions: t("sidebar.sections.sessions"),
       backlog: t("sidebar.sections.backlog"),
@@ -244,7 +254,9 @@ export const LeftSidebar = memo(function LeftSidebar() {
   const sharedProps = {
     theme,
     statusGroups,
+    pinnedGroups,
     projects,
+    workspaceEntriesByKey,
     projectNamesByKey,
     isInitialLoad,
     isRevalidating,
@@ -260,37 +272,41 @@ export const LeftSidebar = memo(function LeftSidebar() {
 
   if (isCompactLayout) {
     return (
-      <MobileSidebar
-        {...sharedProps}
-        insetsTop={insets.top}
-        insetsBottom={insets.bottom}
-        closeSidebar={showMobileAgent}
-        handleOpenProject={handleOpenProjectMobile}
-        handleHome={handleHomeMobile}
-        handleSettings={handleSettingsMobile}
-        handleAddHost={handleAddHostMobile}
-        handleOpenHostSettings={handleOpenHostSettingsMobile}
-        handleViewMoreNavigate={handleViewMoreNavigate}
-        handleViewBacklogNavigate={handleViewBacklogNavigate}
-        handleViewSchedulesNavigate={handleViewSchedulesNavigate}
-      />
+      <RetainedPanelActivity active={isOpen}>
+        <MobileSidebar
+          {...sharedProps}
+          insetsTop={insets.top}
+          insetsBottom={insets.bottom}
+          closeSidebar={showMobileAgent}
+          handleOpenProject={handleOpenProjectMobile}
+          handleHome={handleHomeMobile}
+          handleSettings={handleSettingsMobile}
+          handleAddHost={handleAddHostMobile}
+          handleOpenHostSettings={handleOpenHostSettingsMobile}
+          handleViewMoreNavigate={handleViewMoreNavigate}
+          handleViewBacklogNavigate={handleViewBacklogNavigate}
+          handleViewSchedulesNavigate={handleViewSchedulesNavigate}
+        />
+      </RetainedPanelActivity>
     );
   }
 
   return (
-    <DesktopSidebar
-      {...sharedProps}
-      insetsTop={insets.top}
-      isOpen={isOpen}
-      handleOpenProject={handleOpenProjectDesktop}
-      handleHome={handleHomeDesktop}
-      handleSettings={handleSettingsDesktop}
-      handleAddHost={handleAddHostDesktop}
-      handleOpenHostSettings={handleOpenHostSettingsDesktop}
-      handleViewMore={handleViewMoreNavigate}
-      handleViewBacklog={handleViewBacklogNavigate}
-      handleViewSchedules={handleViewSchedulesNavigate}
-    />
+    <RetainedPanelActivity active={isOpen}>
+      <DesktopSidebar
+        {...sharedProps}
+        insetsTop={insets.top}
+        isOpen={isOpen}
+        handleOpenProject={handleOpenProjectDesktop}
+        handleHome={handleHomeDesktop}
+        handleSettings={handleSettingsDesktop}
+        handleAddHost={handleAddHostDesktop}
+        handleOpenHostSettings={handleOpenHostSettingsDesktop}
+        handleViewMore={handleViewMoreNavigate}
+        handleViewBacklog={handleViewBacklogNavigate}
+        handleViewSchedules={handleViewSchedulesNavigate}
+      />
+    </RetainedPanelActivity>
   );
 });
 
@@ -302,47 +318,58 @@ function FooterIconButton({
   buttonRef,
   onPress,
   testID,
-  accessibilityLabel,
+  label,
   icon: Icon,
   iconSize,
+  shortcutKeys,
   theme,
 }: {
   onPress: () => void;
   testID: string;
-  accessibilityLabel: string;
+  label: string;
   icon: typeof FolderPlus;
   iconSize?: number;
+  shortcutKeys?: ReturnType<typeof useShortcutKeys>;
   theme: SidebarTheme;
   buttonRef?: RefObject<View | null>;
 }) {
   return (
-    <Pressable
-      ref={buttonRef}
-      style={styles.footerIconButton}
-      testID={testID}
-      nativeID={testID}
-      collapsable={false}
-      accessible
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole="button"
-      onPress={onPress}
-    >
-      {({ hovered }) => (
-        <Icon
-          size={iconSize ?? theme.iconSize.md}
-          color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
-        />
-      )}
-    </Pressable>
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        <Pressable
+          ref={buttonRef}
+          style={styles.footerIconButton}
+          testID={testID}
+          nativeID={testID}
+          collapsable={false}
+          accessible
+          accessibilityLabel={label}
+          accessibilityRole="button"
+          onPress={onPress}
+        >
+          {({ hovered }) => (
+            <Icon
+              size={iconSize ?? theme.iconSize.md}
+              color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
+            />
+          )}
+        </Pressable>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center" offset={8}>
+        <IconTooltipContent label={label} shortcutKeys={shortcutKeys} />
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
 function SidebarHostPicker({
   theme,
+  label,
   onAddHost,
   onOpenHostSettings,
 }: {
   theme: SidebarTheme;
+  label: string;
   onAddHost: () => void;
   onOpenHostSettings: (serverId: string) => void;
 }) {
@@ -381,7 +408,7 @@ function SidebarHostPicker({
         buttonRef={triggerRef}
         onPress={handleOpen}
         testID="sidebar-hosts-trigger"
-        accessibilityLabel="Hosts"
+        label={label}
         icon={Server}
         iconSize={theme.iconSize.sm}
         theme={theme}
@@ -390,22 +417,7 @@ function SidebarHostPicker({
   );
 }
 
-function AddProjectTooltipContent({
-  newAgentKeys,
-  label,
-}: {
-  newAgentKeys: ReturnType<typeof useShortcutKeys>;
-  label: string;
-}) {
-  return (
-    <View style={styles.tooltipRow}>
-      <Text style={styles.tooltipText}>{label}</Text>
-      {newAgentKeys ? <Shortcut chord={newAgentKeys} /> : null}
-    </View>
-  );
-}
-
-function HeaderIconTooltipContent({
+function IconTooltipContent({
   label,
   shortcutKeys,
 }: {
@@ -490,52 +502,50 @@ function SidebarFooter({
   handleSettings: () => void;
   labels: {
     addProject: string;
+    hosts: string;
     home: string;
     settings: string;
-    switchHost: string;
     searchHosts: string;
   };
   handleAddHost: () => void;
   handleOpenHostSettings: (serverId: string) => void;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
+  const settingsKeys = useShortcutKeys("toggle-settings");
 
   return (
     <View style={styles.sidebarFooter}>
       <View style={styles.footerIconRow}>
         <SidebarHostPicker
           theme={theme}
+          label={labels.hosts}
           onAddHost={handleAddHost}
           onOpenHostSettings={handleOpenHostSettings}
         />
-        <Tooltip delayDuration={300}>
-          <TooltipTrigger asChild>
-            <FooterIconButton
-              onPress={handleOpenProject}
-              testID="sidebar-add-project"
-              accessibilityLabel={labels.addProject}
-              icon={FolderPlus}
-              theme={theme}
-            />
-          </TooltipTrigger>
-          <TooltipContent side="top" align="center" offset={8}>
-            <AddProjectTooltipContent newAgentKeys={newAgentKeys} label={labels.addProject} />
-          </TooltipContent>
-        </Tooltip>
+        <FooterIconButton
+          onPress={handleOpenProject}
+          testID="sidebar-add-project"
+          label={labels.addProject}
+          icon={FolderPlus}
+          shortcutKeys={newAgentKeys}
+          theme={theme}
+        />
         <FooterIconButton
           onPress={handleHome}
           testID="sidebar-home"
-          accessibilityLabel={labels.home}
+          label={labels.home}
           icon={Home}
           theme={theme}
         />
         <FooterIconButton
           onPress={handleSettings}
           testID="sidebar-settings"
-          accessibilityLabel={labels.settings}
+          label={labels.settings}
           icon={Settings}
+          shortcutKeys={settingsKeys}
           theme={theme}
         />
+        <SidebarHelpMenu />
       </View>
     </View>
   );
@@ -544,7 +554,9 @@ function SidebarFooter({
 function MobileSidebar({
   theme,
   statusGroups,
+  pinnedGroups,
   projects,
+  workspaceEntriesByKey,
   projectNamesByKey,
   isInitialLoad,
   isRevalidating,
@@ -569,6 +581,7 @@ function MobileSidebar({
   handleViewSchedulesNavigate,
 }: MobileSidebarProps) {
   const pathname = usePathname();
+  const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const isSessionsActive = pathname.includes("/sessions");
   const isBacklogActive = pathname.includes("/backlog");
   const isSchedulesActive = pathname.includes("/schedules");
@@ -642,7 +655,6 @@ function MobileSidebar({
             variant="compact"
           />
         </View>
-        <WorkspacesSectionHeader />
         <Pressable
           style={styles.mobileCloseButton}
           onPress={closeSidebar}
@@ -661,7 +673,7 @@ function MobileSidebar({
           )}
         </Pressable>
 
-        {isInitialLoad ? (
+        {isInitialLoad && !hasActiveHostFilter ? (
           <SidebarAgentListSkeleton />
         ) : (
           <SidebarWorkspaceList
@@ -670,13 +682,16 @@ function MobileSidebar({
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
             groupMode={groupMode}
             statusGroups={statusGroups}
+            pinnedGroups={pinnedGroups}
             projects={projects}
+            workspaceEntriesByKey={workspaceEntriesByKey}
             projectNamesByKey={projectNamesByKey}
             isRefreshing={isManualRefresh && isRevalidating}
             onRefresh={handleRefresh}
             onWorkspacePress={handleWorkspacePress}
             onAddProject={handleOpenProject}
             parentGestureRef={closeGestureRef}
+            listHeaderComponent={workspacesSectionHeaderElement}
           />
         )}
 
@@ -697,7 +712,9 @@ function MobileSidebar({
 function DesktopSidebar({
   theme,
   statusGroups,
+  pinnedGroups,
   projects,
+  workspaceEntriesByKey,
   projectNamesByKey,
   isInitialLoad,
   isRevalidating,
@@ -721,6 +738,7 @@ function DesktopSidebar({
   handleViewSchedules,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
+  const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const isSessionsActive = pathname.includes("/sessions");
   const isBacklogActive = pathname.includes("/backlog");
   const isSchedulesActive = pathname.includes("/schedules");
@@ -821,9 +839,8 @@ function DesktopSidebar({
             />
           </View>
         </View>
-        <WorkspacesSectionHeader />
 
-        {isInitialLoad ? (
+        {isInitialLoad && !hasActiveHostFilter ? (
           <SidebarAgentListSkeleton />
         ) : (
           <SidebarWorkspaceList
@@ -832,11 +849,14 @@ function DesktopSidebar({
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
             groupMode={groupMode}
             statusGroups={statusGroups}
+            pinnedGroups={pinnedGroups}
             projects={projects}
+            workspaceEntriesByKey={workspaceEntriesByKey}
             projectNamesByKey={projectNamesByKey}
             isRefreshing={isManualRefresh && isRevalidating}
             onRefresh={handleRefresh}
             onAddProject={handleOpenProject}
+            listHeaderComponent={workspacesSectionHeaderElement}
           />
         )}
 
@@ -898,7 +918,7 @@ function WorkspacesSectionHeader() {
             </Pressable>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center" offset={8}>
-            <HeaderIconTooltipContent label="Search" shortcutKeys={commandCenterKeys} />
+            <IconTooltipContent label="Search" shortcutKeys={commandCenterKeys} />
           </TooltipContent>
         </Tooltip>
         <Tooltip delayDuration={300}>
@@ -908,13 +928,17 @@ function WorkspacesSectionHeader() {
             </View>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center" offset={8}>
-            <HeaderIconTooltipContent label="Display preferences" />
+            <IconTooltipContent label="Display preferences" />
           </TooltipContent>
         </Tooltip>
       </View>
     </View>
   );
 }
+
+// Stable element so the sidebar list's listHeaderComponent prop keeps identity across
+// renders (WorkspacesSectionHeader takes no props).
+const workspacesSectionHeaderElement = <WorkspacesSectionHeader />;
 
 // Static styles for Animated.Views — must NOT use Unistyles dynamic theme to
 // avoid the "Unable to find node on an unmounted component" crash when Unistyles
@@ -941,15 +965,11 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "space-between",
     gap: theme.spacing[2],
-    // Align the title with the compact rows' icons and the project icons below
-    // (listContent + projectRow inner padding both spacing[2]).
-    paddingLeft: theme.spacing[2] + theme.spacing[2],
-    // Align the trailing action pill's right edge with the New workspace and
-    // project row pills (both 8px from the sidebar edge).
-    paddingRight: theme.spacing[2],
-    // Less than sidebarHeaderGroup's paddingBottom: the 28px-tall action buttons
-    // center the title and add their own offset above it, so equal padding reads
-    // as a larger gap than History's. Trim paddingTop to balance it visually.
+    // Rendered inside the scroll's listContent (paddingHorizontal spacing[2]), so the
+    // title lands at spacing[2] left to align with project icons, and the trailing
+    // pill sits flush with the list edge on the right.
+    paddingLeft: theme.spacing[2],
+    paddingRight: 0,
     paddingTop: theme.spacing[1],
     paddingBottom: theme.spacing[1],
   },

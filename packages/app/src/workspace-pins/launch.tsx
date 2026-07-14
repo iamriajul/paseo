@@ -67,9 +67,13 @@ export function usePinnedLaunchers({ serverId, onLaunch }: UsePinnedLaunchersInp
   const codeServerUrlOpeners = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.urlOpeners?.codeServer,
   );
+  const vscodeProxyUri = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.urlOpeners?.vscodeProxyUri,
+  );
   const showCodeServerLauncher = shouldShowCodeServerLauncher({
     isElectron: getIsElectron(),
     codeServerUrlOpeners,
+    vscodeProxyUri,
   });
 
   return useMemo(() => {

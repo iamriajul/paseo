@@ -42,6 +42,12 @@ Hosts may advertise optional Code Server openers in `server_info.urlOpeners.code
 - Do not route Browser localhost through generated service-proxy hostnames. That would change the visible origin and break pages that expect `localhost`.
 - Normal HTTP proxy requests force `Connection: close` after the rewritten request. This makes Chromium open a fresh proxy connection for later Vite module requests, so every request is parsed and rewritten from proxy absolute-form to origin-form. WebSocket upgrade requests keep their upgrade connection for HMR.
 
+## Browser profile compatibility
+
+The fork intentionally keeps Browser webviews on `persist:paseo-browser-${browserId}` partitions even though upstream Browser tabs can use one shared profile. Electron proxy settings are session-scoped, so moving fork webviews onto a single shared partition would make every tab use whichever workspace proxy registered last and silently route `localhost` to the wrong host.
+
+Upstream's attached-webview identity checks and profile cleanup still apply to these prefixed partitions. Do not collapse them into the shared `persist:paseo-browser` partition unless the remote-localhost proxy is first redesigned so concurrent tabs on different hosts remain isolated.
+
 ## Testing
 
 Use focused tests for the protocol codec and daemon forwarder:

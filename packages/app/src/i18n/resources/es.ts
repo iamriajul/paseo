@@ -54,12 +54,13 @@ export const es: TranslationResources = {
       close: "Cerrar menú",
     },
     commandCenter: {
-      placeholder: "Escriba un comando o busque agentes...",
+      placeholder: "Buscar comandos, espacios de trabajo y agentes...",
       noMatches: "No hay coincidencias",
       actions: "Comportamiento",
+      workspaces: "Espacios de trabajo",
       agents: "Agentes",
       newAgent: "Nuevo agente",
-      openProject: "Abrir proyecto",
+      addProject: "Agregar proyecto",
       home: "Hogar",
     },
   },
@@ -822,16 +823,13 @@ export const es: TranslationResources = {
     },
     help: {
       trigger: "Ayuda y soporte",
-      troubleshoot: "Solucionar problemas",
+      sectionHelp: "Ayuda",
       diagnostics: "Ejecutar diagnóstico",
-      diagnosticsDescription: "Recopila datos de la app y los hosts conectados",
       shortcuts: "Atajos de teclado",
-      shortcutsDescription: "Ver los atajos de teclado disponibles",
       reportIssue: "Informar de un problema",
       discord: "Discord",
-      discordDescription: "La mejor opción para ayuda rápida y conversación",
       github: "Crear incidencia en GitHub",
-      githubDescription: "Informar de un error reproducible",
+      whatsNew: "Novedades",
       version: "Paseo {{version}}",
     },
     sections: {
@@ -1418,6 +1416,8 @@ export const es: TranslationResources = {
     detachTooltip: "Separar subagente",
     archiveAction: "Archivo{{label}}",
     archiveTooltip: "Subagente de archivo",
+    archiveFinishedAction: "Archivar subagentes finalizados",
+    archiveFinishedTooltip: "Archivar finalizados",
   },
   panels: {
     draft: {
@@ -1441,8 +1441,6 @@ export const es: TranslationResources = {
     output: "Producción",
   },
   toolCallGroup: {
-    title: "Herramientas",
-    accessibilityLabel: "Herramientas, {{count}} llamadas",
     editedFiles: {
       one: "editó {{count}} archivo",
       other: "editó {{count}} archivos",
@@ -1468,7 +1466,6 @@ export const es: TranslationResources = {
       other: "llamó a Paseo {{count}} veces",
     },
     and: "y",
-    failed: "{{count}} con error",
   },
   renameModal: {
     rename: "Rebautizar",
@@ -1537,6 +1534,19 @@ export const es: TranslationResources = {
     },
     general: {
       title: "General",
+      browserData: {
+        title: "Datos del navegador",
+        siteData: "Cookies y datos de sitios",
+        description:
+          "Las pestañas del navegador comparten inicios de sesión y datos de sitios en Paseo.",
+        clear: "Borrar datos del navegador",
+        clearing: "Borrando...",
+        confirmTitle: "¿Borrar los datos del navegador?",
+        confirmMessage:
+          "Se cerrarán las sesiones de los sitios y se recargarán las pestañas abiertas del navegador.",
+        success: "Datos del navegador borrados.",
+        error: "No se pudieron borrar los datos del navegador.",
+      },
       defaultSend: {
         label: "Envío predeterminado",
         descriptions: {
@@ -1570,13 +1580,12 @@ export const es: TranslationResources = {
           "Mostrar los bloques de pensamiento y razonamiento del agente totalmente expandidos de forma predeterminada",
       },
       toolCallDetail: {
-        label: "Detalle de llamadas a herramientas",
-        description: "Cómo aparece la actividad de herramientas en las cronologías del agente",
-        accessibilityLabel: "Seleccionar detalle de herramientas ({{value}})",
+        label: "Visualización de llamadas a herramientas",
+        description: "Cómo aparecen las llamadas a herramientas en la cronología",
+        accessibilityLabel: "Seleccionar visualización de llamadas a herramientas ({{value}})",
         options: {
           overview: "Resumen",
-          concise: "Conciso",
-          detailed: "Detallado",
+          detailed: "Detalle completo",
         },
       },
       language: {

@@ -54,12 +54,13 @@ export const ru: TranslationResources = {
       close: "Закрыть меню",
     },
     commandCenter: {
-      placeholder: "Введите команду или найдите агентов...",
+      placeholder: "Поиск команд, рабочих пространств и агентов...",
       noMatches: "Нет совпадений",
       actions: "Действия",
+      workspaces: "Рабочие пространства",
       agents: "Агенты",
       newAgent: "Новый агент",
-      openProject: "Открыть проект",
+      addProject: "Добавить проект",
       home: "Дом",
     },
   },
@@ -814,16 +815,13 @@ export const ru: TranslationResources = {
     },
     help: {
       trigger: "Помощь и поддержка",
-      troubleshoot: "Устранение неполадок",
+      sectionHelp: "Помощь",
       diagnostics: "Запустить диагностику",
-      diagnosticsDescription: "Собрать данные приложения и подключённых хостов",
       shortcuts: "Сочетания клавиш",
-      shortcutsDescription: "Показать доступные сочетания клавиш",
       reportIssue: "Сообщить о проблеме",
       discord: "Discord",
-      discordDescription: "Для быстрой помощи и обсуждения",
       github: "Создать issue в GitHub",
-      githubDescription: "Сообщить о воспроизводимой ошибке",
+      whatsNew: "Что нового",
       version: "Paseo {{version}}",
     },
     sections: {
@@ -1410,6 +1408,8 @@ export const ru: TranslationResources = {
     detachTooltip: "Отсоединить субагент",
     archiveAction: "Архив{{label}}",
     archiveTooltip: "Архивный субагент",
+    archiveFinishedAction: "Архивировать завершенные субагенты",
+    archiveFinishedTooltip: "Архивировать завершенные",
   },
   panels: {
     draft: {
@@ -1433,8 +1433,6 @@ export const ru: TranslationResources = {
     output: "Выход",
   },
   toolCallGroup: {
-    title: "Инструменты",
-    accessibilityLabel: "Инструменты, вызовов: {{count}}",
     editedFiles: {
       one: "изменён {{count}} файл",
       other: "изменено {{count}} файлов",
@@ -1460,7 +1458,6 @@ export const ru: TranslationResources = {
       other: "Paseo вызван {{count}} раз",
     },
     and: "и",
-    failed: "С ошибкой: {{count}}",
   },
   renameModal: {
     rename: "Переименовать",
@@ -1529,6 +1526,18 @@ export const ru: TranslationResources = {
     },
     general: {
       title: "Общий",
+      browserData: {
+        title: "Данные браузера",
+        siteData: "Файлы cookie и данные сайтов",
+        description: "Вкладки браузера используют общие данные входа и данные сайтов в Paseo.",
+        clear: "Очистить данные браузера",
+        clearing: "Очистка...",
+        confirmTitle: "Очистить данные браузера?",
+        confirmMessage:
+          "На сайтах будет выполнен выход, а открытые вкладки браузера перезагрузятся.",
+        success: "Данные браузера очищены.",
+        error: "Не удалось очистить данные браузера.",
+      },
       defaultSend: {
         label: "Отправка по умолчанию",
         descriptions: {
@@ -1560,13 +1569,12 @@ export const ru: TranslationResources = {
           "По умолчанию показывать блоки размышлений и логики агента полностью развернутыми",
       },
       toolCallDetail: {
-        label: "Детализация вызовов инструментов",
-        description: "Отображение активности инструментов в хронологии агента",
-        accessibilityLabel: "Выбрать детализацию инструментов ({{value}})",
+        label: "Отображение вызовов инструментов",
+        description: "Как вызовы инструментов отображаются на временной шкале",
+        accessibilityLabel: "Выбрать отображение вызовов инструментов ({{value}})",
         options: {
-          overview: "Обзор",
-          concise: "Кратко",
-          detailed: "Подробно",
+          overview: "Сводка",
+          detailed: "Полная детализация",
         },
       },
       language: {

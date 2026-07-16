@@ -258,7 +258,6 @@ async function closeBrowserTabForRequest(params: {
   useBrowserStore.getState().removeBrowser(browserId);
   removeResidentBrowserWebview(browserId);
   await browserHost?.unregisterWorkspaceBrowser?.(browserId);
-  await browserHost?.clearPartition?.(browserId);
 
   return {
     requestId: request.requestId,
@@ -338,9 +337,8 @@ async function openBrowserTabForRequest(params: {
   });
 
   await browserHost?.registerWorkspaceBrowser?.({ browserId, serverId, workspaceId });
-
   if (browserHost?.executeAutomationCommand) {
-    ensureResidentBrowserWebview({ browserId, url: normalizedUrl });
+    ensureResidentBrowserWebview({ browserId, workspaceId, url: normalizedUrl });
     const registered = await waitForBrowserRegistration({
       request,
       browserId,

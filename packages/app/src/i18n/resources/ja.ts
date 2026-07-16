@@ -54,12 +54,13 @@ export const ja: TranslationResources = {
       close: "メニューを閉じる",
     },
     commandCenter: {
-      placeholder: "コマンドを入力またはエージェントを検索...",
+      placeholder: "コマンド、ワークスペース、エージェントを検索...",
       noMatches: "一致なし",
       actions: "アクション",
+      workspaces: "ワークスペース",
       agents: "エージェント",
       newAgent: "新しいエージェント",
-      openProject: "プロジェクトを開く",
+      addProject: "プロジェクトを追加",
       home: "ホーム",
     },
   },
@@ -807,16 +808,13 @@ export const ja: TranslationResources = {
     },
     help: {
       trigger: "ヘルプとサポート",
-      troubleshoot: "トラブルシューティング",
+      sectionHelp: "ヘルプ",
       diagnostics: "診断を実行",
-      diagnosticsDescription: "アプリと接続中のホストの詳細を収集",
       shortcuts: "キーボードショートカット",
-      shortcutsDescription: "利用可能なキーボードショートカットを表示",
       reportIssue: "問題を報告",
       discord: "Discord",
-      discordDescription: "すばやいサポートや相談に最適",
       github: "GitHub Issueを作成",
-      githubDescription: "再現可能なバグを報告",
+      whatsNew: "新着情報",
       version: "Paseo {{version}}",
     },
     sections: {
@@ -1396,6 +1394,8 @@ export const ja: TranslationResources = {
     detachTooltip: "サブエージェントを切り離す",
     archiveAction: "{{label}}をアーカイブ",
     archiveTooltip: "サブエージェントをアーカイブ",
+    archiveFinishedAction: "完了したサブエージェントをアーカイブ",
+    archiveFinishedTooltip: "完了した項目をアーカイブ",
   },
   panels: {
     draft: {
@@ -1419,8 +1419,6 @@ export const ja: TranslationResources = {
     output: "出力",
   },
   toolCallGroup: {
-    title: "ツール",
-    accessibilityLabel: "ツール、{{count}}件の呼び出し",
     editedFiles: {
       one: "{{count}}個のファイルを編集",
       other: "{{count}}個のファイルを編集",
@@ -1446,7 +1444,6 @@ export const ja: TranslationResources = {
       other: "Paseoを{{count}}回呼び出し",
     },
     and: "および",
-    failed: "{{count}}件失敗",
   },
   renameModal: {
     rename: "名前を変更",
@@ -1515,6 +1512,17 @@ export const ja: TranslationResources = {
     },
     general: {
       title: "一般",
+      browserData: {
+        title: "ブラウザーデータ",
+        siteData: "Cookie とサイトデータ",
+        description: "ブラウザータブ間でログイン情報とサイトデータが共有されます。",
+        clear: "ブラウザーデータを消去",
+        clearing: "消去中...",
+        confirmTitle: "ブラウザーデータを消去しますか？",
+        confirmMessage: "サイトからログアウトし、開いているブラウザータブを再読み込みします。",
+        success: "ブラウザーデータを消去しました。",
+        error: "ブラウザーデータを消去できませんでした。",
+      },
       defaultSend: {
         label: "デフォルトの送信",
         descriptions: {
@@ -1545,13 +1553,12 @@ export const ja: TranslationResources = {
         description: "デフォルトでAIのエージェント思考・推論ブロックを完全に展開して表示します",
       },
       toolCallDetail: {
-        label: "ツール呼び出しの詳細",
-        description: "エージェントのタイムラインでのツール活動の表示方法",
-        accessibilityLabel: "ツール詳細を選択（{{value}}）",
+        label: "ツール呼び出しの表示",
+        description: "タイムラインでのツール呼び出しの表示方法",
+        accessibilityLabel: "ツール呼び出しの表示を選択（{{value}}）",
         options: {
-          overview: "概要",
-          concise: "簡潔",
-          detailed: "詳細",
+          overview: "要約",
+          detailed: "すべての詳細",
         },
       },
       language: {

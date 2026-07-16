@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.905 - 2026-07-16
+
+### Added
+
+- Sync the fork with official Paseo v0.1.109, including the keyboard-driven Add Project flow for existing directories, new folders, and GitHub repositories ([#5](https://github.com/iamriajul/paseo/pull/5), [#2097](https://github.com/getpaseo/paseo/pull/2097))
+- Search for and open workspaces from the search menu ([#2096](https://github.com/getpaseo/paseo/pull/2096))
+- Preserve browser cookies and site data across tabs and restarts ([#2089](https://github.com/getpaseo/paseo/pull/2089))
+- Fork chats from failed turns ([#2063](https://github.com/getpaseo/paseo/pull/2063))
+
+### Improved
+
+- Keep the fork's Backlog, Code Server, provider quota, and remote Browser localhost routing features while adopting official Browser profile and desktop window-chrome hardening ([#5](https://github.com/iamriajul/paseo/pull/5))
+
+### Fixed
+
+- Paseo Desktop no longer gets stuck connecting or loses native window controls after updating ([#2111](https://github.com/getpaseo/paseo/pull/2111) by [@cleiter](https://github.com/cleiter))
+- Add Project now recognizes a host that finishes connecting after the flow opens ([#5](https://github.com/iamriajul/paseo/pull/5))
+
 ## 0.1.904 - 2026-07-14
 
 ### Added

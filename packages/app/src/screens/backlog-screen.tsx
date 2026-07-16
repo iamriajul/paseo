@@ -1627,7 +1627,6 @@ function TaskFormSheet({
       footer={footer}
       desktopMaxWidth={620}
       testID="task-form-sheet"
-      webScrollbar
     >
       {!isEdit && projectTargets ? (
         <View style={styles.field}>

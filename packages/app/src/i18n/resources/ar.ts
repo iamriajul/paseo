@@ -54,12 +54,13 @@ export const ar: TranslationResources = {
       close: "إغلاق القائمة",
     },
     commandCenter: {
-      placeholder: "اكتب أمرًا أو وكلاء بحث...",
+      placeholder: "ابحث في الأوامر ومساحات العمل والوكلاء...",
       noMatches: "لا توجد مباريات",
       actions: "الإجراءات",
+      workspaces: "مساحات العمل",
       agents: "الوكلاء",
       newAgent: "وكيل جديد",
-      openProject: "مشروع مفتوح",
+      addProject: "إضافة مشروع",
       home: "بيت",
     },
   },
@@ -795,16 +796,13 @@ export const ar: TranslationResources = {
     },
     help: {
       trigger: "المساعدة والدعم",
-      troubleshoot: "استكشاف الأخطاء وإصلاحها",
+      sectionHelp: "المساعدة",
       diagnostics: "تشغيل التشخيص",
-      diagnosticsDescription: "جمع تفاصيل التطبيق والمضيفين المتصلين",
       shortcuts: "اختصارات لوحة المفاتيح",
-      shortcutsDescription: "عرض اختصارات لوحة المفاتيح المتاحة",
       reportIssue: "الإبلاغ عن مشكلة",
       discord: "Discord",
-      discordDescription: "الأفضل للمساعدة السريعة والنقاش",
       github: "إنشاء مشكلة على GitHub",
-      githubDescription: "الإبلاغ عن خطأ يمكن إعادة إنتاجه",
+      whatsNew: "ما الجديد",
       version: "Paseo {{version}}",
     },
     sections: {
@@ -1379,6 +1377,8 @@ export const ar: TranslationResources = {
     detachTooltip: "فصل الوكيل الفرعي",
     archiveAction: "أرشيف{{label}}",
     archiveTooltip: "أرشفة الوكيل الفرعي",
+    archiveFinishedAction: "أرشفة الوكلاء الفرعيين المكتملين",
+    archiveFinishedTooltip: "أرشفة المكتملين",
   },
   panels: {
     draft: {
@@ -1402,8 +1402,6 @@ export const ar: TranslationResources = {
     output: "الإخراج",
   },
   toolCallGroup: {
-    title: "الأدوات",
-    accessibilityLabel: "الأدوات، {{count}} استدعاءات",
     editedFiles: {
       one: "حرّر {{count}} ملفًا",
       other: "حرّر {{count}} ملفات",
@@ -1429,7 +1427,6 @@ export const ar: TranslationResources = {
       other: "استدعى Paseo {{count}} مرات",
     },
     and: "و",
-    failed: "فشل {{count}}",
   },
   renameModal: {
     rename: "إعادة تسمية",
@@ -1498,6 +1495,17 @@ export const ar: TranslationResources = {
     },
     general: {
       title: "عام",
+      browserData: {
+        title: "بيانات المتصفح",
+        siteData: "ملفات تعريف الارتباط وبيانات المواقع",
+        description: "تتشارك علامات تبويب المتصفح تسجيلات الدخول وبيانات المواقع عبر Paseo.",
+        clear: "مسح بيانات المتصفح",
+        clearing: "جارٍ المسح...",
+        confirmTitle: "هل تريد مسح بيانات المتصفح؟",
+        confirmMessage: "سيتم تسجيل خروجك من المواقع وإعادة تحميل علامات تبويب المتصفح المفتوحة.",
+        success: "تم مسح بيانات المتصفح.",
+        error: "تعذر مسح بيانات المتصفح.",
+      },
       defaultSend: {
         label: "إرسال افتراضي",
         descriptions: {
@@ -1529,13 +1537,12 @@ export const ar: TranslationResources = {
         description: "إظهار تفكير الوكيل وخطوات الاستدلال بشكل كامل بشكل افتراضي",
       },
       toolCallDetail: {
-        label: "تفاصيل استدعاءات الأدوات",
-        description: "كيفية ظهور نشاط الأدوات في الخط الزمني للوكيل",
-        accessibilityLabel: "حدد مستوى تفاصيل الأدوات ({{value}})",
+        label: "عرض استدعاءات الأدوات",
+        description: "كيفية ظهور استدعاءات الأدوات في المخطط الزمني",
+        accessibilityLabel: "حدد عرض استدعاءات الأدوات ({{value}})",
         options: {
-          overview: "نظرة عامة",
-          concise: "موجز",
-          detailed: "مفصل",
+          overview: "ملخص",
+          detailed: "التفاصيل الكاملة",
         },
       },
       language: {

@@ -52,12 +52,13 @@ export const en = {
       close: "Close menu",
     },
     commandCenter: {
-      placeholder: "Type a command or search agents...",
+      placeholder: "Search commands, workspaces, and agents...",
       noMatches: "No matches",
       actions: "Actions",
+      workspaces: "Workspaces",
       agents: "Agents",
       newAgent: "New agent",
-      openProject: "Open project",
+      addProject: "Add project",
       home: "Home",
     },
   },
@@ -802,16 +803,13 @@ export const en = {
     },
     help: {
       trigger: "Help and support",
-      troubleshoot: "Troubleshoot",
+      sectionHelp: "Help",
       diagnostics: "Run diagnostics",
-      diagnosticsDescription: "Collect app and connected host details",
       shortcuts: "Keyboard shortcuts",
-      shortcutsDescription: "View available keyboard shortcuts",
       reportIssue: "Report an issue",
       discord: "Discord",
-      discordDescription: "Best for quick help and discussion",
       github: "Create GitHub issue",
-      githubDescription: "Report a reproducible bug",
+      whatsNew: "What's new",
       version: "Paseo {{version}}",
     },
     sections: {
@@ -1387,6 +1385,8 @@ export const en = {
     detachTooltip: "Detach subagent",
     archiveAction: "Archive {{label}}",
     archiveTooltip: "Archive subagent",
+    archiveFinishedAction: "Archive finished subagents",
+    archiveFinishedTooltip: "Archive finished",
   },
   panels: {
     draft: {
@@ -1410,8 +1410,6 @@ export const en = {
     output: "Output",
   },
   toolCallGroup: {
-    title: "Tools",
-    accessibilityLabel: "Tools, {{count}} calls",
     editedFiles: {
       one: "edited {{count}} file",
       other: "edited {{count}} files",
@@ -1437,7 +1435,6 @@ export const en = {
       other: "called Paseo {{count}} times",
     },
     and: "and",
-    failed: "{{count}} failed",
   },
   renameModal: {
     rename: "Rename",
@@ -1506,6 +1503,17 @@ export const en = {
     },
     general: {
       title: "General",
+      browserData: {
+        title: "Browser data",
+        siteData: "Cookies and site data",
+        description: "Browser tabs share sign-ins and site data across Paseo.",
+        clear: "Clear browser data",
+        clearing: "Clearing...",
+        confirmTitle: "Clear browser data?",
+        confirmMessage: "Sites will be signed out and open browser tabs will reload.",
+        success: "Browser data cleared.",
+        error: "Couldn't clear browser data.",
+      },
       defaultSend: {
         label: "Default send",
         descriptions: {
@@ -1536,13 +1544,12 @@ export const en = {
         description: "Show agent thinking and chain-of-thought blocks fully expanded by default",
       },
       toolCallDetail: {
-        label: "Tool call detail",
-        description: "How tool activity appears in agent timelines",
-        accessibilityLabel: "Select tool call detail ({{value}})",
+        label: "Tool call display",
+        description: "How tool calls appear in the timeline",
+        accessibilityLabel: "Select tool call display ({{value}})",
         options: {
-          overview: "Overview",
-          concise: "Concise",
-          detailed: "Detailed",
+          overview: "Summary",
+          detailed: "Full detail",
         },
       },
       language: {

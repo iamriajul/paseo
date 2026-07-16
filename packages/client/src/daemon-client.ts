@@ -55,9 +55,11 @@ import type {
   PaseoWorktreeArchiveResponse,
   ProjectIconResponse,
   ProjectAddResponse,
+  ProjectCreateDirectoryResponse,
   OpenProjectResponseMessage,
-  WorkspaceGithubCloneProtocol,
-  WorkspaceGithubCloneResponse,
+  WorkspaceGithubSearchRepositoriesResponse,
+  ProjectGithubCloneProtocol,
+  ProjectGithubCloneResponse,
   ArchiveWorkspaceResponseMessage,
   WorkspaceSetupStatusResponseMessage,
   ListCommandsResponse,
@@ -156,7 +158,7 @@ const perfNow: () => number =
     ? () => performance.now()
     : () => Date.now();
 
-const WORKSPACE_GITHUB_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
+const PROJECT_GITHUB_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
 
 interface ImportAgentInputBase {
   cwd?: string;
@@ -566,6 +568,7 @@ function normalizeListCommandsOptions(
   return { agentId: input, ...legacyOptions };
 }
 export interface AgentForkContextOptions {
+  boundaryCursor?: FetchAgentTimelineCursor;
   boundaryMessageId?: string;
   requestId?: string;
 }
@@ -817,7 +820,10 @@ export interface RenameTerminalInput {
 }
 type OpenProjectPayload = OpenProjectResponseMessage["payload"];
 type ProjectAddPayload = ProjectAddResponse["payload"];
-type WorkspaceGithubClonePayload = WorkspaceGithubCloneResponse["payload"];
+export type ProjectCreateDirectoryPayload = ProjectCreateDirectoryResponse["payload"];
+export type WorkspaceGithubSearchRepositoriesPayload =
+  WorkspaceGithubSearchRepositoriesResponse["payload"];
+type ProjectGithubClonePayload = ProjectGithubCloneResponse["payload"];
 type ArchiveWorkspacePayload = ArchiveWorkspaceResponseMessage["payload"];
 type WorkspaceSetupStatusPayload = WorkspaceSetupStatusResponseMessage["payload"];
 
@@ -2120,20 +2126,50 @@ export class DaemonClient {
     });
   }
 
-  async cloneGithubWorkspace(
-    input: { repo: string; targetDirectory: string; cloneProtocol?: WorkspaceGithubCloneProtocol },
+  async createProjectDirectory(
+    input: { parentPath: string; name: string },
     requestId?: string,
-  ): Promise<WorkspaceGithubClonePayload> {
+  ): Promise<ProjectCreateDirectoryPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"project.create_directory.response">({
+      requestId,
+      message: {
+        type: "project.create_directory.request",
+        parentPath: input.parentPath,
+        name: input.name,
+      },
+    });
+  }
+
+  async searchGithubRepositories(
+    input: { query: string; limit?: number },
+    requestId?: string,
+  ): Promise<WorkspaceGithubSearchRepositoriesPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"workspace.github.search_repositories.response">(
+      {
+        requestId,
+        message: {
+          type: "workspace.github.search_repositories.request",
+          query: input.query,
+          limit: input.limit,
+        },
+      },
+    );
+  }
+
+  async cloneGithubProject(
+    input: { repo: string; targetDirectory: string; cloneProtocol?: ProjectGithubCloneProtocol },
+    requestId?: string,
+  ): Promise<ProjectGithubClonePayload> {
     const message = {
-      type: "workspace.github.clone.request",
+      type: "project.github.clone.request",
       repo: input.repo,
       targetDirectory: input.targetDirectory,
       ...(input.cloneProtocol ? { cloneProtocol: input.cloneProtocol } : {}),
     } as const;
-    return this.sendNamespacedCorrelatedSessionRequest<"workspace.github.clone.response">({
+    return this.sendNamespacedCorrelatedSessionRequest<"project.github.clone.response">({
       requestId,
       message,
-      timeout: WORKSPACE_GITHUB_CLONE_TIMEOUT_MS,
+      timeout: PROJECT_GITHUB_CLONE_TIMEOUT_MS,
     });
   }
 
@@ -2682,6 +2718,7 @@ export class DaemonClient {
       type: "agent.fork_context.request",
       agentId,
       requestId: resolvedRequestId,
+      ...(options.boundaryCursor ? { boundaryCursor: options.boundaryCursor } : {}),
       ...(options.boundaryMessageId ? { boundaryMessageId: options.boundaryMessageId } : {}),
     });
 
@@ -2791,7 +2828,7 @@ export class DaemonClient {
       agentId,
       requestId,
     });
-    await this.sendRequest({
+    const payload = await this.sendRequest({
       requestId,
       message,
       options: { skipQueue: true },
@@ -2805,6 +2842,9 @@ export class DaemonClient {
         return msg.payload;
       },
     });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
   }
 
   async setAgentMode(agentId: string, modeId: string): Promise<AgentProviderNotice | null> {

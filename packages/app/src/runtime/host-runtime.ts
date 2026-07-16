@@ -2263,22 +2263,27 @@ export function useHostRuntimeConnectionStatuses(
   serverIds: readonly string[],
 ): ReadonlyMap<string, HostRuntimeConnectionStatus> {
   const store = getHostRuntimeStore();
-  const version = useSyncExternalStore(
+  const serializedStatuses = useSyncExternalStore(
     (onStoreChange) => store.subscribeAll(onStoreChange),
-    () => store.getVersion(),
-    () => store.getVersion(),
+    () =>
+      JSON.stringify(
+        serverIds.map(
+          (serverId) =>
+            [serverId, store.getSnapshot(serverId)?.connectionStatus ?? "connecting"] as const,
+        ),
+      ),
+    () =>
+      JSON.stringify(
+        serverIds.map(
+          (serverId) =>
+            [serverId, store.getSnapshot(serverId)?.connectionStatus ?? "connecting"] as const,
+        ),
+      ),
   );
 
-  return useMemo(() => {
-    // The aggregate version is the reactivity trigger; re-read snapshots on every host tick.
-    void version;
-    return new Map(
-      serverIds.map(
-        (serverId) =>
-          [serverId, store.getSnapshot(serverId)?.connectionStatus ?? "connecting"] as const,
-      ),
-    );
-  }, [serverIds, store, version]);
+  // Make the external-store snapshot contain the statuses themselves. Using only the store's
+  // aggregate version here lets React Compiler retain a Map built from an older runtime snapshot.
+  return new Map(JSON.parse(serializedStatuses) as Array<[string, HostRuntimeConnectionStatus]>);
 }
 
 export function useHostRuntimeLastError(serverId: string): string | null {

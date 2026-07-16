@@ -1304,12 +1304,18 @@ export class VoiceAssistantWebSocketServer {
         taskBacklogListAll: true,
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
         tcpTunnel: true,
+        // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
+        agentForkContextCursor: true,
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
         providerSubagents: true,
         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
         workspacePinning: true,
-        // COMPAT(workspaceGithubClone): added in v0.1.108, remove gate after 2027-01-13.
-        workspaceGithubClone: true,
+        // COMPAT(projectGithubClone): added in v0.1.108, remove gate after 2027-01-15.
+        projectGithubClone: true,
+        // COMPAT(workspaceGithubRepositorySearch): added in v0.1.108, remove gate after 2027-01-15.
+        workspaceGithubRepositorySearch: true,
+        // COMPAT(projectCreateDirectory): added in v0.1.108, remove gate after 2027-01-15.
+        projectCreateDirectory: true,
       },
     };
   }

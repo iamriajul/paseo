@@ -54,12 +54,13 @@ export const ptBR: TranslationResources = {
       close: "Fechar menu",
     },
     commandCenter: {
-      placeholder: "Digite um comando ou busque agentes...",
+      placeholder: "Buscar comandos, espaços de trabalho e agentes...",
       noMatches: "Nenhuma correspondência",
       actions: "Ações",
+      workspaces: "Espaços de trabalho",
       agents: "Agentes",
       newAgent: "Novo agente",
-      openProject: "Abrir projeto",
+      addProject: "Adicionar projeto",
       home: "Início",
     },
   },
@@ -813,16 +814,13 @@ export const ptBR: TranslationResources = {
     },
     help: {
       trigger: "Ajuda e suporte",
-      troubleshoot: "Resolver problemas",
+      sectionHelp: "Ajuda",
       diagnostics: "Executar diagnóstico",
-      diagnosticsDescription: "Coletar detalhes do app e dos hosts conectados",
       shortcuts: "Atalhos de teclado",
-      shortcutsDescription: "Ver os atalhos de teclado disponíveis",
       reportIssue: "Relatar um problema",
       discord: "Discord",
-      discordDescription: "Ideal para ajuda rápida e conversa",
       github: "Criar issue no GitHub",
-      githubDescription: "Relatar um bug reproduzível",
+      whatsNew: "Novidades",
       version: "Paseo {{version}}",
     },
     sections: {
@@ -1404,6 +1402,8 @@ export const ptBR: TranslationResources = {
     detachTooltip: "Desanexar subagente",
     archiveAction: "Arquivar {{label}}",
     archiveTooltip: "Arquivar subagente",
+    archiveFinishedAction: "Arquivar subagentes concluídos",
+    archiveFinishedTooltip: "Arquivar concluídos",
   },
   panels: {
     draft: {
@@ -1427,8 +1427,6 @@ export const ptBR: TranslationResources = {
     output: "Saída",
   },
   toolCallGroup: {
-    title: "Ferramentas",
-    accessibilityLabel: "Ferramentas, {{count}} chamadas",
     editedFiles: {
       one: "editou {{count}} arquivo",
       other: "editou {{count}} arquivos",
@@ -1454,7 +1452,6 @@ export const ptBR: TranslationResources = {
       other: "chamou o Paseo {{count}} vezes",
     },
     and: "e",
-    failed: "{{count}} com falha",
   },
   renameModal: {
     rename: "Renomear",
@@ -1523,6 +1520,18 @@ export const ptBR: TranslationResources = {
     },
     general: {
       title: "Geral",
+      browserData: {
+        title: "Dados do navegador",
+        siteData: "Cookies e dados de sites",
+        description: "As abas do navegador compartilham logins e dados de sites no Paseo.",
+        clear: "Limpar dados do navegador",
+        clearing: "Limpando...",
+        confirmTitle: "Limpar dados do navegador?",
+        confirmMessage:
+          "Você será desconectado dos sites e as abas abertas do navegador serão recarregadas.",
+        success: "Dados do navegador limpos.",
+        error: "Não foi possível limpar os dados do navegador.",
+      },
       defaultSend: {
         label: "Envio padrão",
         descriptions: {
@@ -1555,13 +1564,12 @@ export const ptBR: TranslationResources = {
           "Mostrar os blocos de pensamento e raciocínio do agente totalmente expandidos por padrão",
       },
       toolCallDetail: {
-        label: "Detalhe das chamadas de ferramentas",
-        description: "Como a atividade das ferramentas aparece na linha do tempo do agente",
-        accessibilityLabel: "Selecionar detalhe das ferramentas ({{value}})",
+        label: "Exibição de chamadas de ferramentas",
+        description: "Como as chamadas de ferramentas aparecem na linha do tempo",
+        accessibilityLabel: "Selecionar exibição de chamadas de ferramentas ({{value}})",
         options: {
-          overview: "Visão geral",
-          concise: "Conciso",
-          detailed: "Detalhado",
+          overview: "Resumo",
+          detailed: "Detalhes completos",
         },
       },
       language: {

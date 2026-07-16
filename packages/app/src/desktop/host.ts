@@ -24,6 +24,7 @@ export interface DesktopDialogOpenOptions {
   title?: string;
   defaultPath?: string;
   directory?: boolean;
+  createDirectory?: boolean;
   multiple?: boolean;
   filters?: Array<{
     name: string;
@@ -97,6 +98,7 @@ export interface DesktopWindowControlsOverlayUpdate {
 export interface DesktopWindowBridge {
   label?: string;
   toggleMaximize?: () => Promise<void>;
+  setFullscreen?: (fullscreen: boolean) => Promise<void>;
   isFullscreen?: () => Promise<boolean>;
   updateWindowControls?: (update: DesktopWindowControlsOverlayUpdate) => Promise<void>;
   onResized?: <TEvent = unknown>(
@@ -127,7 +129,15 @@ export interface DesktopBrowserNewTabRequestEvent {
   url: string;
 }
 
+export interface DesktopAttachedBrowserRegistration {
+  browserId: string;
+  workspaceId: string;
+  webContentsId: number;
+}
+
 export interface DesktopBrowserBridge {
+  readonly profilePartition?: string;
+  registerAttachedBrowser?: (input: DesktopAttachedBrowserRegistration) => Promise<void>;
   registerWorkspaceBrowser?: (input: {
     browserId: string;
     serverId: string;
@@ -139,7 +149,7 @@ export interface DesktopBrowserBridge {
     browserId: string | null;
   }) => Promise<void>;
   openDevTools?: (browserId: string) => Promise<unknown>;
-  clearPartition?: (browserId: string) => Promise<void>;
+  clearProfile?: (legacyBrowserIds: string[]) => Promise<void>;
   executeAutomationCommand?: (
     request: BrowserAutomationExecuteRequest,
   ) => Promise<BrowserAutomationExecuteResponse["payload"]>;

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.907 - 2026-07-17
+
+### Added
+
+- Preview PDF files directly in the file explorer ([#7](https://github.com/iamriajul/paseo/pull/7) by [@iamriajul](https://github.com/iamriajul))
+- Open workspace localhost sites in the Android Browser ([#8](https://github.com/iamriajul/paseo/pull/8) by [@iamriajul](https://github.com/iamriajul))
+
 ## 0.1.906 - 2026-07-17
 
 ### Fixed

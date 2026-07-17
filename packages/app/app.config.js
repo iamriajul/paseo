@@ -172,6 +172,7 @@ export default {
     },
     plugins: [
       "expo-router",
+      "@config-plugins/react-native-pdf",
       [
         "expo-camera",
         {

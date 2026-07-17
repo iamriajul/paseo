@@ -32,6 +32,8 @@ import type { WorkspaceFileLocation } from "@/workspace/file-open";
 import { MountedTabActiveContext } from "@/components/split-container";
 import { useAppVisible } from "@/hooks/use-app-visible";
 import { isFileQueryEnabled } from "@/components/file-pane-enabled";
+import { PdfPreview } from "@/components/pdf-preview";
+import { isPdfMimeType } from "@/file-explorer/pdf";
 
 interface CodeLineProps {
   tokens: HighlightToken[];
@@ -46,7 +48,7 @@ interface FilePreviewBodyProps {
   showDesktopWebScrollbar: boolean;
   isMobile: boolean;
   location: WorkspaceFileLocation;
-  imagePreviewUri: string | null;
+  mediaPreviewUri: string | null;
 }
 
 function trimNonEmpty(value: string | null | undefined): string | null {
@@ -74,18 +76,19 @@ function formatFileSize({ size }: { size: number }): string {
 
 async function createFilePanePreview(file: FileReadResult | null): Promise<{
   file: ExplorerFile | null;
-  imageAttachment: AttachmentMetadata | null;
+  mediaAttachment: AttachmentMetadata | null;
 }> {
   if (!file) {
-    return { file: null, imageAttachment: null };
+    return { file: null, mediaAttachment: null };
   }
 
   const explorerFile = explorerFileFromReadResult(file);
-  if (file.kind !== "image") {
-    return { file: explorerFile, imageAttachment: null };
+  const hasMediaPreview = file.kind === "image" || isPdfMimeType(file.mime);
+  if (!hasMediaPreview) {
+    return { file: explorerFile, mediaAttachment: null };
   }
 
-  const imageAttachment = await persistAttachmentFromBytes({
+  const mediaAttachment = await persistAttachmentFromBytes({
     id: createPreviewAttachmentId({
       mimeType: file.mime,
       path: file.path,
@@ -100,7 +103,7 @@ async function createFilePanePreview(file: FileReadResult | null): Promise<{
 
   return {
     file: explorerFile,
-    imageAttachment,
+    mediaAttachment,
   };
 }
 
@@ -195,7 +198,7 @@ function FilePreviewBody({
   showDesktopWebScrollbar,
   isMobile,
   location,
-  imagePreviewUri,
+  mediaPreviewUri,
 }: FilePreviewBodyProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
@@ -234,8 +237,8 @@ function FilePreviewBody({
   }, [highlightedLines, location.lineEnd, location.lineStart]);
 
   const imageSource = useMemo(
-    () => (imagePreviewUri ? { uri: imagePreviewUri } : null),
-    [imagePreviewUri],
+    () => (mediaPreviewUri ? { uri: mediaPreviewUri } : null),
+    [mediaPreviewUri],
   );
 
   useEffect(() => {
@@ -344,7 +347,7 @@ function FilePreviewBody({
   }
 
   if (preview.kind === "image") {
-    if (!imagePreviewUri) {
+    if (!mediaPreviewUri) {
       return (
         <View style={styles.centerState}>
           <ActivityIndicator size="small" />
@@ -373,6 +376,21 @@ function FilePreviewBody({
         </RNScrollView>
         {scrollbar.overlay}
       </View>
+    );
+  }
+
+  if (preview.kind === "binary" && isPdfMimeType(preview.mimeType)) {
+    if (!mediaPreviewUri) {
+      return (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="small" />
+          <Text style={styles.loadingText}>{t("panels.file.loading")}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <PdfPreview uri={mediaPreviewUri} label={getFileNameFromPath(preview.path) ?? preview.path} />
     );
   }
 
@@ -428,6 +446,7 @@ export function FilePane({
       if (!client || !readTarget) {
         return {
           file: null as ExplorerFile | null,
+          mediaAttachment: null,
           error: t("workspace.terminal.hostDisconnected"),
         };
       }
@@ -436,13 +455,13 @@ export function FilePane({
         const preview = await createFilePanePreview(file);
         return {
           file: preview.file,
-          imageAttachment: preview.imageAttachment,
+          mediaAttachment: preview.mediaAttachment,
           error: null,
         };
       } catch (error) {
         return {
           file: null,
-          imageAttachment: null,
+          mediaAttachment: null,
           error: error instanceof Error ? error.message : t("panels.file.failedToLoad"),
         };
       }
@@ -450,7 +469,7 @@ export function FilePane({
     staleTime: 5_000,
     refetchOnMount: true,
   });
-  const imagePreviewUri = useAttachmentPreviewUrl(query.data?.imageAttachment ?? null);
+  const mediaPreviewUri = useAttachmentPreviewUrl(query.data?.mediaAttachment ?? null);
 
   return (
     <View style={styles.container} testID="workspace-file-pane">
@@ -466,7 +485,7 @@ export function FilePane({
         showDesktopWebScrollbar={showDesktopWebScrollbar}
         isMobile={isMobile}
         location={location}
-        imagePreviewUri={imagePreviewUri}
+        mediaPreviewUri={mediaPreviewUri}
       />
     </View>
   );

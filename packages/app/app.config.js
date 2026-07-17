@@ -1,7 +1,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const pkg = require("./package.json");
+const withFdroidAutolinking = require("./plugins/with-fdroid-autolinking");
 const appVariant = process.env.APP_VARIANT ?? "production";
+const isFdroidBuild = process.env.PASEO_FDROID_BUILD === "1";
 const forkIdSuffix = process.env.PASEO_FORK_ID_SUFFIX?.trim();
 const explicitAndroidPackageId = process.env.PASEO_ANDROID_PACKAGE_ID?.trim();
 const explicitAndroidAppName = process.env.PASEO_ANDROID_APP_NAME?.trim();
@@ -19,6 +21,72 @@ const isForkBuild = Boolean(
   explicitExpoProjectId ||
   explicitExpoOwner,
 );
+
+const buildProfile = isFdroidBuild
+  ? {
+      androidPermissions: [
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+      ],
+      cameraPlugins: [],
+      fdroidPlugins: [withFdroidAutolinking],
+      notificationPlugins: [],
+      updates: { enabled: false },
+    }
+  : {
+      androidPermissions: [
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "CAMERA",
+        "android.permission.CAMERA",
+      ],
+      cameraPlugins: [
+        [
+          "expo-camera",
+          {
+            cameraPermission:
+              "Allow $(PRODUCT_NAME) to access your camera to scan pairing QR codes.",
+          },
+        ],
+      ],
+      fdroidPlugins: [],
+      notificationPlugins: [
+        [
+          "expo-notifications",
+          {
+            icon: "./assets/images/notification-icon.png",
+            color: "#20744A",
+          },
+        ],
+      ],
+      updates: {},
+    };
+
+function getNativeBuildVersionCode(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version);
+  if (!match) {
+    throw new Error(`Cannot derive Android versionCode from non-semver version: ${version}`);
+  }
+
+  const [, majorText, minorText, patchText] = match;
+  const major = Number(majorText);
+  const minor = Number(minorText);
+  const patch = Number(patchText);
+
+  if (minor > 999 || patch > 999) {
+    throw new Error(`Cannot derive collision-free Android versionCode from version: ${version}`);
+  }
+
+  const versionCode = major * 1_000_000 + minor * 1_000 + patch;
+
+  if (!Number.isSafeInteger(versionCode) || versionCode <= 0 || versionCode > 2_100_000_000) {
+    throw new Error(`Derived Android versionCode is out of range: ${versionCode}`);
+  }
+
+  return versionCode;
+}
 
 function resolveSecretFile(params) {
   const fromEnv = process.env[params.envKey];
@@ -55,6 +123,10 @@ function resolvePackageId(defaultPackageId) {
 }
 
 function resolveUpdatesConfig() {
+  if (isFdroidBuild) {
+    return { enabled: false };
+  }
+
   if (explicitExpoUpdatesUrl) {
     return { url: explicitExpoUpdatesUrl };
   }
@@ -63,9 +135,7 @@ function resolveUpdatesConfig() {
     return { enabled: false };
   }
 
-  return {
-    url: "https://u.expo.dev/0e7f65ce-0367-46c8-a238-2b65963d235a",
-  };
+  return { url: "https://u.expo.dev/0e7f65ce-0367-46c8-a238-2b65963d235a" };
 }
 
 function resolveExpoProjectId() {
@@ -112,6 +182,7 @@ const variants = {
 };
 
 const variant = variants[appVariant] ?? variants.production;
+const nativeBuildVersionCode = getNativeBuildVersionCode(pkg.version);
 const expoProjectId = resolveExpoProjectId();
 const expoOwner = resolveExpoOwner();
 
@@ -139,6 +210,7 @@ export default {
       ...(variant.googleServiceInfoPlist
         ? { googleServicesFile: variant.googleServiceInfoPlist }
         : {}),
+      buildNumber: String(nativeBuildVersionCode),
     },
     android: {
       adaptiveIcon: {
@@ -150,17 +222,12 @@ export default {
       softwareKeyboardLayoutMode: "resize",
       // Allow HTTP connections for local network hosts (required for release builds)
       usesCleartextTraffic: true,
-      permissions: [
-        "RECORD_AUDIO",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "CAMERA",
-        "android.permission.CAMERA",
-      ],
+      permissions: buildProfile.androidPermissions,
       package: variant.packageId,
-      ...(Number.isInteger(androidVersionCode) && androidVersionCode > 0
-        ? { versionCode: androidVersionCode }
-        : {}),
+      versionCode:
+        Number.isInteger(androidVersionCode) && androidVersionCode > 0
+          ? androidVersionCode
+          : nativeBuildVersionCode,
       ...(variant.googleServicesFile ? { googleServicesFile: variant.googleServicesFile } : {}),
     },
     web: {
@@ -173,12 +240,7 @@ export default {
     plugins: [
       "expo-router",
       "@config-plugins/react-native-pdf",
-      [
-        "expo-camera",
-        {
-          cameraPermission: "Allow $(PRODUCT_NAME) to access your camera to scan pairing QR codes.",
-        },
-      ],
+      ...buildProfile.cameraPlugins,
       [
         "expo-splash-screen",
         {
@@ -191,14 +253,15 @@ export default {
           },
         },
       ],
+      ...buildProfile.notificationPlugins,
+      "expo-audio",
       [
-        "expo-notifications",
+        "expo-gradle-jvmargs",
         {
-          icon: "./assets/images/notification-icon.png",
-          color: "#20744A",
+          xmx: "4096m",
+          maxMetaspace: "1024m",
         },
       ],
-      "expo-audio",
       [
         "expo-build-properties",
         {
@@ -210,6 +273,7 @@ export default {
           },
         },
       ],
+      ...buildProfile.fdroidPlugins,
     ],
     experiments: {
       typedRoutes: true,
@@ -217,6 +281,7 @@ export default {
       autolinkingModuleResolution: true,
     },
     extra: {
+      fdroidBuild: isFdroidBuild,
       router: {},
       ...(expoProjectId ? { eas: { projectId: expoProjectId } } : {}),
     },

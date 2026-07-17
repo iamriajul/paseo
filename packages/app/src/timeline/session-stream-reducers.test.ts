@@ -187,6 +187,25 @@ const baseStreamInput: ProcessAgentStreamEventInput = {
 // ---------------------------------------------------------------------------
 
 describe("processTimelineResponse", () => {
+  it("preserves the canonical end cursor on a projected assistant message", () => {
+    const result = processTimelineResponse({
+      ...baseTimelineInput,
+      payload: {
+        ...baseTimelineInput.payload,
+        epoch: "timeline-1",
+        entries: [makeTimelineEntry(40, "[System Error] failed", "assistant_message", 42)],
+      },
+    });
+
+    expect(result.tail).toEqual([
+      expect.objectContaining({
+        kind: "assistant_message",
+        text: "[System Error] failed",
+        timelineCursor: { epoch: "timeline-1", seq: 42 },
+      }),
+    ]);
+  });
+
   it("returns error path when payload.error is set", () => {
     const result = processTimelineResponse({
       ...baseTimelineInput,
@@ -352,6 +371,29 @@ describe("processTimelineResponse", () => {
       attachments: [attachment],
     });
     expect(userMessages[0]?.optimistic).toBeUndefined();
+
+    const repeated = processTimelineResponse({
+      ...baseTimelineInput,
+      currentTail: result.tail,
+      payload: {
+        ...baseTimelineInput.payload,
+        reset: true,
+        startCursor: { seq: 1 },
+        endCursor: { seq: 1 },
+        entries: [
+          {
+            ...makeTimelineEntry(1, "Analyze this", "user_message"),
+            item: {
+              type: "user_message",
+              text: "server-rendered attachment text",
+              messageId: "canonical-create-user",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(repeated.tail.filter((item) => item.kind === "user_message")).toEqual(userMessages);
   });
 
   it("keeps an unmatched optimistic user message during tail replacement", () => {
@@ -869,7 +911,12 @@ describe("processTimelineResponse", () => {
   });
 
   it("merges assistant chunks across the older-page prepend boundary", () => {
-    const currentTail = [makeAssistantItem("newer chunk", "assistant-newer")];
+    const currentTail = [
+      {
+        ...makeAssistantItem("newer chunk", "assistant-newer"),
+        timelineCursor: { epoch: "epoch-1", seq: 3 },
+      },
+    ];
     const existingCursor: TimelineCursor = {
       epoch: "epoch-1",
       startSeq: 3,
@@ -891,6 +938,9 @@ describe("processTimelineResponse", () => {
     });
 
     expect(getAssistantTexts(result.tail)).toEqual(["older chunk newer chunk"]);
+    expect(result.tail[0]).toEqual(
+      expect.objectContaining({ timelineCursor: { epoch: "epoch-1", seq: 3 } }),
+    );
     expect(result.cursor).toEqual({
       epoch: "epoch-1",
       startSeq: 1,
@@ -1199,6 +1249,23 @@ describe("processTimelineResponse", () => {
 // ---------------------------------------------------------------------------
 
 describe("processAgentStreamEvent", () => {
+  it("preserves the live timeline cursor on an assistant error", () => {
+    const result = processAgentStreamEvent({
+      ...baseStreamInput,
+      event: makeAssistantTimelineEvent("[System Error] failed"),
+      epoch: "timeline-1",
+      seq: 42,
+    });
+
+    expect(result.head).toEqual([
+      expect.objectContaining({
+        kind: "assistant_message",
+        text: "[System Error] failed",
+        timelineCursor: { epoch: "timeline-1", seq: 42 },
+      }),
+    ]);
+  });
+
   it("passes through non-timeline events without cursor changes", () => {
     const turnEvent: AgentStreamEventPayload = {
       type: "turn_completed",

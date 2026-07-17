@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { createTestLogger } from "../../test-utils/test-logger.js";
 import {
   AgentManager,
+  AgentManagerShuttingDownError,
   commandMayHaveChangedExternalState,
   type AgentManagerEvent,
   type ManagedAgent,
@@ -51,6 +52,28 @@ function deferred<T>(): Deferred<T> {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+function waitForAgentLifecycle(
+  manager: AgentManager,
+  agentId: string,
+  lifecycle: ManagedAgent["lifecycle"],
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const unsubscribe = manager.subscribe(
+      (event) => {
+        if (
+          event.type === "agent_state" &&
+          event.agent.id === agentId &&
+          event.agent.lifecycle === lifecycle
+        ) {
+          unsubscribe();
+          resolve();
+        }
+      },
+      { agentId, replayState: false },
+    );
+  });
 }
 
 const TEST_CAPABILITIES = {
@@ -136,6 +159,117 @@ class TestAgentClient implements AgentClient {
       cwd: config?.cwd ?? process.cwd(),
       daemonAppendSystemPrompt: config?.daemonAppendSystemPrompt,
     });
+  }
+}
+
+class HeldAgentCreationClient extends TestAgentClient {
+  private readonly creationStarted = deferred<void>();
+  private readonly creationAllowed = deferred<void>();
+  createdSessionClosed = false;
+
+  override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+    const recordSessionClosed = () => {
+      this.createdSessionClosed = true;
+    };
+    const session = new (class extends TestAgentSession {
+      override async close(): Promise<void> {
+        recordSessionClosed();
+      }
+    })(config);
+    this.creationStarted.resolve();
+    await this.creationAllowed.promise;
+    return session;
+  }
+
+  waitForCreationToStart(): Promise<void> {
+    return this.creationStarted.promise;
+  }
+
+  finishCreating(): void {
+    this.creationAllowed.resolve();
+  }
+}
+
+class HeldAgentCreationAndCloseClient extends TestAgentClient {
+  private readonly creationStarted = deferred<void>();
+  private readonly creationAllowed = deferred<void>();
+  private readonly closeStarted = deferred<void>();
+  private readonly closeAllowed = deferred<void>();
+
+  override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+    this.creationStarted.resolve();
+    await this.creationAllowed.promise;
+    const signalCloseStarted = () => this.closeStarted.resolve();
+    const waitForClose = () => this.closeAllowed.promise;
+    return new (class extends TestAgentSession {
+      override async close(): Promise<void> {
+        signalCloseStarted();
+        await waitForClose();
+      }
+    })(config);
+  }
+
+  waitForCreationToStart(): Promise<void> {
+    return this.creationStarted.promise;
+  }
+
+  finishCreating(): void {
+    this.creationAllowed.resolve();
+  }
+
+  waitForCloseToStart(): Promise<void> {
+    return this.closeStarted.promise;
+  }
+
+  finishClosing(): void {
+    this.closeAllowed.resolve();
+  }
+}
+
+class HeldReloadCloseClient extends TestAgentClient {
+  private readonly closeStarted = deferred<void>();
+  private readonly closeAllowed = deferred<void>();
+  originalSessionClosed = false;
+  replacementSessionClosed = false;
+
+  override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+    const signalCloseStarted = () => this.closeStarted.resolve();
+    const waitForClose = () => this.closeAllowed.promise;
+    const recordOriginalClosed = () => {
+      this.originalSessionClosed = true;
+    };
+    return new (class extends TestAgentSession {
+      override async close(): Promise<void> {
+        signalCloseStarted();
+        await waitForClose();
+        recordOriginalClosed();
+      }
+    })(config);
+  }
+
+  override async resumeSession(
+    _handle: AgentPersistenceHandle,
+    config?: Partial<AgentSessionConfig>,
+  ): Promise<AgentSession> {
+    const recordReplacementClosed = () => {
+      this.replacementSessionClosed = true;
+    };
+    return new (class extends TestAgentSession {
+      override async close(): Promise<void> {
+        recordReplacementClosed();
+      }
+    })({
+      provider: "codex",
+      cwd: config?.cwd ?? process.cwd(),
+    });
+  }
+
+  waitForCloseToStart(): Promise<void> {
+    return this.closeStarted.promise;
+  }
+
+  finishClosing(): void {
+    this.closeAllowed.resolve();
   }
 }
 
@@ -288,6 +422,129 @@ class TestAgentSession implements AgentSession {
   }
 
   async close(): Promise<void> {}
+}
+
+class ControlledInterruptSession extends TestAgentSession {
+  interruptCalled = false;
+
+  constructor(
+    config: AgentSessionConfig,
+    readonly turnId: string,
+    private readonly interruptBehavior: (session: ControlledInterruptSession) => Promise<void>,
+  ) {
+    super(config);
+  }
+
+  override async startTurn(): Promise<{ turnId: string }> {
+    setTimeout(() => {
+      this.pushEvent({ type: "turn_started", provider: this.provider, turnId: this.turnId });
+    }, 0);
+    return { turnId: this.turnId };
+  }
+
+  override async interrupt(): Promise<void> {
+    this.interruptCalled = true;
+    await this.interruptBehavior(this);
+  }
+}
+
+interface ControlledInterruptFixture {
+  agentId: string;
+  manager: AgentManager;
+  session: ControlledInterruptSession;
+  startForegroundRun(): Promise<void>;
+  cleanup(): void;
+}
+
+async function createControlledInterruptFixture(options: {
+  name: string;
+  agentId: string;
+  turnId: string;
+  interrupt: (session: ControlledInterruptSession) => Promise<void>;
+}): Promise<ControlledInterruptFixture> {
+  const workdir = mkdtempSync(join(tmpdir(), `agent-manager-${options.name}-`));
+  const session = new ControlledInterruptSession(
+    { provider: "codex", cwd: workdir },
+    options.turnId,
+    options.interrupt,
+  );
+  const client = new (class extends TestAgentClient {
+    override async createSession(): Promise<AgentSession> {
+      return session;
+    }
+  })();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: new AgentStorage(join(workdir, "agents"), logger),
+    logger,
+    rescueTimeouts: { interruptSessionMs: 10 },
+    idFactory: () => options.agentId,
+  });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+
+  return {
+    agentId: agent.id,
+    manager,
+    session,
+    async startForegroundRun() {
+      const run = manager.streamAgent(agent.id, "exercise cancellation");
+      void (async () => {
+        for await (const _event of run) {
+          // Keep the foreground stream subscribed until the controlled turn settles.
+        }
+      })();
+      await manager.waitForAgentRunStart(agent.id);
+    },
+    cleanup: () => rmSync(workdir, { recursive: true, force: true }),
+  };
+}
+
+class HeldRuntimeInfoSession extends TestAgentSession {
+  private readonly runtimeInfoRequested = deferred<void>();
+  private readonly runtimeInfoAllowed = deferred<void>();
+
+  override async getRuntimeInfo() {
+    this.runtimeInfoRequested.resolve();
+    await this.runtimeInfoAllowed.promise;
+    return await super.getRuntimeInfo();
+  }
+
+  waitForRuntimeInfo(): Promise<void> {
+    return this.runtimeInfoRequested.promise;
+  }
+
+  finishRuntimeInfo(): void {
+    this.runtimeInfoAllowed.resolve();
+  }
+}
+
+class HeldRuntimeInfoClient extends TestAgentClient {
+  private readonly sessionCreated = deferred<HeldRuntimeInfoSession>();
+  private session: HeldRuntimeInfoSession | null = null;
+
+  override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+    this.session = new HeldRuntimeInfoSession(config);
+    this.sessionCreated.resolve(this.session);
+    return this.session;
+  }
+
+  async waitForRuntimeInfo(): Promise<void> {
+    const session = await this.sessionCreated.promise;
+    await session.waitForRuntimeInfo();
+  }
+
+  finishRuntimeInfo(): void {
+    this.requireSession().finishRuntimeInfo();
+  }
+
+  private requireSession(): HeldRuntimeInfoSession {
+    if (!this.session) {
+      throw new Error("Expected a created session");
+    }
+    return this.session;
+  }
 }
 
 class StreamingAssistantSession implements AgentSession {
@@ -448,6 +705,211 @@ function fakeCodexEmitting(args: FakeCodexEmitterArgs): AgentClient {
 }
 
 const logger = createTestLogger();
+
+test("does not register a session that finishes starting after shutdown begins", async () => {
+  const client = new HeldAgentCreationClient();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000100",
+  });
+
+  const creation = manager.createAgent(
+    {
+      provider: "codex",
+      cwd: process.cwd(),
+    },
+    undefined,
+    { workspaceId: undefined },
+  );
+  await client.waitForCreationToStart();
+
+  manager.prepareForShutdown();
+  client.finishCreating();
+
+  await expect(creation).rejects.toThrow("Agent manager is shutting down");
+  expect({ agents: manager.listAgents(), sessionClosed: client.createdSessionClosed }).toEqual({
+    agents: [],
+    sessionClosed: true,
+  });
+});
+
+test("flush waits for rejected session cleanup that starts after shutdown", async () => {
+  const client = new HeldAgentCreationAndCloseClient();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000098",
+  });
+
+  const creation = manager
+    .createAgent(
+      {
+        provider: "codex",
+        cwd: process.cwd(),
+      },
+      undefined,
+      { workspaceId: undefined },
+    )
+    .catch((error: unknown) => error);
+  await client.waitForCreationToStart();
+
+  manager.prepareForShutdown();
+  let flushResolved = false;
+  const flushing = manager.flushForShutdown().then(() => {
+    flushResolved = true;
+    return undefined;
+  });
+  client.finishCreating();
+  await client.waitForCloseToStart();
+
+  try {
+    expect(flushResolved).toBe(false);
+  } finally {
+    client.finishClosing();
+  }
+
+  expect(await creation).toBeInstanceOf(AgentManagerShuttingDownError);
+  await flushing;
+  expect(manager.listAgents()).toEqual([]);
+});
+
+test("does not persist an initializing session after shutdown closes it", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-shutdown-register-test-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new HeldRuntimeInfoClient();
+  const agentId = "00000000-0000-4000-8000-000000000099";
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: storage,
+    logger,
+    idFactory: () => agentId,
+  });
+
+  try {
+    const creation = manager.createAgent(
+      {
+        provider: "codex",
+        cwd: workdir,
+      },
+      undefined,
+      { workspaceId: undefined },
+    );
+    await client.waitForRuntimeInfo();
+
+    manager.prepareForShutdown();
+    const closing = manager.closeAgent(agentId);
+    client.finishRuntimeInfo();
+
+    await expect(creation).rejects.toBeInstanceOf(AgentManagerShuttingDownError);
+    await closing;
+    await storage.flush();
+    expect({ agents: manager.listAgents(), record: await storage.get(agentId) }).toMatchObject({
+      agents: [],
+      record: { lastStatus: "closed" },
+    });
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("reload leaves a closed durable snapshot when shutdown starts during the swap", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-shutdown-reload-test-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new HeldReloadCloseClient();
+  const agentId = "00000000-0000-4000-8000-000000000097";
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: storage,
+    logger,
+    idFactory: () => agentId,
+  });
+
+  try {
+    await manager.createAgent(
+      {
+        provider: "codex",
+        cwd: workdir,
+      },
+      undefined,
+      { workspaceId: undefined },
+    );
+    const reload = manager.reloadAgentSession(agentId).catch((error: unknown) => error);
+    await client.waitForCloseToStart();
+
+    manager.prepareForShutdown();
+    const closing = Promise.all(manager.listAgents().map((agent) => manager.closeAgent(agent.id)));
+    client.finishClosing();
+
+    await closing;
+    expect(await reload).toBeInstanceOf(AgentManagerShuttingDownError);
+    await manager.flush();
+    await storage.flush();
+    expect({
+      agents: manager.listAgents(),
+      record: await storage.get(agentId),
+      replacementSessionClosed: client.replacementSessionClosed,
+    }).toMatchObject({
+      agents: [],
+      record: { lastStatus: "closed" },
+      replacementSessionClosed: true,
+    });
+  } finally {
+    client.finishClosing();
+    await manager.flush().catch(() => undefined);
+    await storage.flush().catch(() => undefined);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("reload closes both sessions when the closed snapshot cannot be persisted", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-reload-persist-failure-test-"));
+  const storagePath = join(workdir, "agents");
+  const storage = new AgentStorage(storagePath, logger);
+  const client = new HeldReloadCloseClient();
+  const agentId = "00000000-0000-4000-8000-000000000096";
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: storage,
+    logger,
+    idFactory: () => agentId,
+  });
+
+  try {
+    await manager.createAgent(
+      {
+        provider: "codex",
+        cwd: workdir,
+      },
+      undefined,
+      { workspaceId: undefined },
+    );
+    await storage.flush();
+    rmSync(storagePath, { recursive: true, force: true });
+    writeFileSync(storagePath, "blocks the storage directory");
+
+    const reload = manager.reloadAgentSession(agentId).catch((error: unknown) => error);
+    await client.waitForCloseToStart();
+    client.finishClosing();
+
+    expect(await reload).toBeInstanceOf(Error);
+    await manager.flushForShutdown();
+    expect({
+      agents: manager.listAgents(),
+      originalSessionClosed: client.originalSessionClosed,
+      replacementSessionClosed: client.replacementSessionClosed,
+    }).toEqual({
+      agents: [],
+      originalSessionClosed: true,
+      replacementSessionClosed: true,
+    });
+  } finally {
+    client.finishClosing();
+    await manager.flushForShutdown().catch(() => undefined);
+    await storage.flush().catch(() => undefined);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
 
 test("normalizeConfig injects the provider default model when omitted", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-test-"));
@@ -994,77 +1456,124 @@ test("reloadAgentSession completes when the previous session close hangs", async
   }
 });
 
-test("cancelAgentRun completes when provider interrupt hangs", async () => {
-  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-interrupt-timeout-"));
-  const storagePath = join(workdir, "agents");
-  const storage = new AgentStorage(storagePath, logger);
-
-  class HangingInterruptSession extends TestAgentSession {
-    interruptCalled = false;
-
-    override async interrupt(): Promise<void> {
-      this.interruptCalled = true;
-      await new Promise(() => {});
-    }
-  }
-
-  class HangingInterruptClient extends TestAgentClient {
-    readonly session = new HangingInterruptSession({
-      provider: "codex",
-      cwd: workdir,
-    });
-
-    override async createSession(): Promise<AgentSession> {
-      return this.session;
-    }
-  }
-
-  const client = new HangingInterruptClient();
-  const manager = new AgentManager({
-    clients: {
-      codex: client,
-    },
-    registry: storage,
-    logger,
-    rescueTimeouts: { interruptSessionMs: 10 },
-    idFactory: () => "00000000-0000-4000-8000-000000000303",
+test("cancelAgentRun preserves running state when the provider interrupt hangs", async () => {
+  const fixture = await createControlledInterruptFixture({
+    name: "interrupt-timeout",
+    agentId: "00000000-0000-4000-8000-000000000303",
+    turnId: "hanging-interrupt-turn",
+    interrupt: async () => await new Promise(() => {}),
   });
 
   try {
-    const snapshot = await manager.createAgent(
-      {
-        provider: "codex",
-        cwd: workdir,
-      },
-      undefined,
-      { workspaceId: undefined },
-    );
+    const running = waitForAgentLifecycle(fixture.manager, fixture.agentId, "running");
+    fixture.session.pushEvent({
+      type: "turn_started",
+      provider: "codex",
+      turnId: "hanging-interrupt-turn",
+    });
+    await running;
 
-    await new Promise<void>((resolve) => {
-      const unsubscribe = manager.subscribe(
-        (event) => {
-          if (
-            event.type === "agent_state" &&
-            event.agent.id === snapshot.id &&
-            event.agent.lifecycle === "running"
-          ) {
-            unsubscribe();
-            resolve();
-          }
-        },
-        { agentId: snapshot.id, replayState: false },
-      );
-      client.session.pushEvent({
-        type: "turn_started",
-        provider: "codex",
-        turnId: "hanging-interrupt-turn",
-      });
+    await expect(fixture.manager.cancelAgentRun(fixture.agentId)).resolves.toEqual({
+      status: "refused",
+    });
+    expect(fixture.session.interruptCalled).toBe(true);
+    expect(fixture.manager.getAgent(fixture.agentId)?.lifecycle).toBe("running");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("cancelAgentRun preserves the active turn when the provider rejects the interrupt", async () => {
+  const fixture = await createControlledInterruptFixture({
+    name: "interrupt-rejected",
+    agentId: "00000000-0000-4000-8000-000000000304",
+    turnId: "provider-still-active-turn",
+    interrupt: async () => {
+      throw new Error("A foreground turn is already active");
+    },
+  });
+
+  try {
+    await fixture.startForegroundRun();
+
+    await expect(fixture.manager.cancelAgentRun(fixture.agentId)).resolves.toEqual({
+      status: "refused",
+    });
+    expect(fixture.manager.getAgent(fixture.agentId)).toMatchObject({
+      lifecycle: "running",
+      activeForegroundTurnId: "provider-still-active-turn",
     });
 
-    await expect(manager.cancelAgentRun(snapshot.id)).resolves.toBe(true);
-    expect(client.session.interruptCalled).toBe(true);
+    fixture.session.pushEvent({
+      type: "turn_completed",
+      provider: "codex",
+      turnId: "provider-still-active-turn",
+    });
   } finally {
-    rmSync(workdir, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("cancelAgentRun succeeds when the foreground turn finishes before the provider rejects the interrupt", async () => {
+  let fixture!: ControlledInterruptFixture;
+  fixture = await createControlledInterruptFixture({
+    name: "interrupt-after-completion",
+    agentId: "00000000-0000-4000-8000-000000000305",
+    turnId: "naturally-completed-turn",
+    interrupt: async (session) => {
+      const settled = waitForAgentLifecycle(fixture.manager, fixture.agentId, "idle");
+      session.pushEvent({
+        type: "turn_completed",
+        provider: session.provider,
+        turnId: "naturally-completed-turn",
+      });
+      await settled;
+      throw new Error("turn already completed");
+    },
+  });
+
+  try {
+    await fixture.startForegroundRun();
+
+    await expect(fixture.manager.cancelAgentRun(fixture.agentId)).resolves.toEqual({
+      status: "settled",
+    });
+    expect(fixture.manager.getAgent(fixture.agentId)).toMatchObject({
+      lifecycle: "idle",
+      activeForegroundTurnId: null,
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("cancelAgentRun succeeds when the provider queues completion before rejecting the interrupt", async () => {
+  const fixture = await createControlledInterruptFixture({
+    name: "interrupt-queued-completion",
+    agentId: "00000000-0000-4000-8000-000000000306",
+    turnId: "queued-completion-turn",
+    interrupt: async (session) => {
+      session.pushEvent({
+        type: "turn_completed",
+        provider: session.provider,
+        turnId: "queued-completion-turn",
+      });
+      throw new Error("turn already completed");
+    },
+  });
+
+  try {
+    await fixture.startForegroundRun();
+
+    await expect(fixture.manager.cancelAgentRun(fixture.agentId)).resolves.toEqual({
+      status: "settled",
+    });
+    expect(fixture.manager.getAgent(fixture.agentId)).toMatchObject({
+      lifecycle: "idle",
+      activeForegroundTurnId: null,
+    });
+  } finally {
+    fixture.cleanup();
   }
 });
 
@@ -1951,6 +2460,43 @@ test("importProviderSession imports the selected session without listing and pub
             item: { type: "assistant_message" as const, text: "Done" },
             timestamp: "2026-01-02T00:00:01.000Z",
           },
+          {
+            item: {
+              type: "tool_call" as const,
+              callId: "large-shell-result",
+              name: "shell",
+              status: "completed" as const,
+              error: null,
+              detail: {
+                type: "shell" as const,
+                command: "print output",
+                output: "x".repeat(1024 * 1024),
+                exitCode: 0,
+              },
+            },
+            timestamp: "2026-01-02T00:00:02.000Z",
+          },
+        ],
+        providerSubagentEvents: [
+          {
+            type: "provider_subagent" as const,
+            provider: "codex" as const,
+            event: {
+              type: "upsert" as const,
+              id: "thread-child",
+              title: "Imported child",
+              status: "completed" as const,
+            },
+          },
+          {
+            type: "provider_subagent" as const,
+            provider: "codex" as const,
+            event: {
+              type: "timeline" as const,
+              id: "thread-child",
+              item: { type: "assistant_message" as const, text: "Child result" },
+            },
+          },
         ],
       };
     }
@@ -1980,8 +2526,27 @@ test("importProviderSession imports the selected session without listing and pub
   expect(manager.getTimeline(imported.id)).toEqual([
     { type: "user_message", text: "Trace provider imports" },
     { type: "assistant_message", text: "Done" },
+    {
+      type: "tool_call",
+      callId: "large-shell-result",
+      name: "shell",
+      status: "completed",
+      error: null,
+      detail: {
+        type: "shell",
+        command: "print output",
+        output: "x".repeat(64 * 1024),
+        exitCode: 0,
+      },
+    },
   ]);
-  expect(events).toHaveLength(1);
+  expect(manager.listProviderSubagents(imported.id)).toEqual([
+    expect.objectContaining({ id: "thread-child", title: "Imported child", status: "completed" }),
+  ]);
+  expect(manager.fetchProviderSubagentTimeline(imported.id, "thread-child").rows).toEqual([
+    expect.objectContaining({ item: { type: "assistant_message", text: "Child result" } }),
+  ]);
+  expect(events).toHaveLength(3);
   expect(events[0]).toMatchObject({
     type: "agent_state",
     agent: {
@@ -2159,6 +2724,150 @@ test("reloadAgentSession preserves timeline and does not force history replay", 
   await manager.hydrateTimelineFromProvider(snapshot.id);
   const afterHydrate = manager.getTimeline(snapshot.id);
   expect(afterHydrate).toEqual(beforeReload);
+});
+
+test("reloadAgentSession clears provider children before rehydrating from disk", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-child-reload-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  let activeSession: TestAgentSession | null = null;
+  class ProviderChildClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      activeSession = new TestAgentSession(config);
+      return activeSession;
+    }
+
+    override async resumeSession(
+      _handle: AgentPersistenceHandle,
+      config?: Partial<AgentSessionConfig>,
+    ): Promise<AgentSession> {
+      return new TestAgentSession({
+        provider: "codex",
+        cwd: config?.cwd ?? workdir,
+      });
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new ProviderChildClient() },
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000116",
+  });
+  const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  activeSession?.pushEvent({
+    type: "provider_subagent",
+    provider: "codex",
+    event: { type: "upsert", id: "stale-child", title: "Stale child", status: "running" },
+  });
+  await vi.waitFor(() => expect(manager.listProviderSubagents(snapshot.id)).toHaveLength(1));
+
+  await manager.reloadAgentSession(snapshot.id, undefined, { rehydrateFromDisk: true });
+
+  expect(manager.listProviderSubagents(snapshot.id)).toEqual([]);
+});
+
+test("hydrateTimelineFromProvider restores and broadcasts provider children from session history", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-child-history-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  class ProviderChildHistorySession extends TestAgentSession {
+    override async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
+      yield {
+        type: "provider_subagent",
+        provider: "codex",
+        event: {
+          type: "upsert",
+          id: "restored-child",
+          title: "Restored child",
+          status: "completed",
+        },
+      };
+    }
+  }
+  class ProviderChildHistoryClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      return new ProviderChildHistorySession(config);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new ProviderChildHistoryClient() },
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000117",
+  });
+  const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  const events: AgentManagerEvent[] = [];
+  manager.subscribe((event) => events.push(event), {
+    agentId: snapshot.id,
+    replayState: false,
+  });
+
+  await manager.hydrateTimelineFromProvider(snapshot.id, { broadcast: true });
+
+  expect(manager.listProviderSubagents(snapshot.id)).toEqual([
+    expect.objectContaining({
+      id: "restored-child",
+      parentAgentId: snapshot.id,
+      title: "Restored child",
+      status: "completed",
+    }),
+  ]);
+  expect(events).toContainEqual({
+    type: "provider_subagent",
+    event: {
+      type: "upsert",
+      subagent: expect.objectContaining({
+        id: "restored-child",
+        parentAgentId: snapshot.id,
+      }),
+    },
+  });
+});
+
+test("force provider hydration removes children absent from current history", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-child-force-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  let session: TestAgentSession | null = null;
+  class ProviderChildForceClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      session = new TestAgentSession(config);
+      return session;
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new ProviderChildForceClient() },
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000118",
+  });
+  const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  session?.pushEvent({
+    type: "provider_subagent",
+    provider: "codex",
+    event: { type: "upsert", id: "removed-by-rewind", status: "completed" },
+  });
+  await vi.waitFor(() => expect(manager.listProviderSubagents(snapshot.id)).toHaveLength(1));
+  const events: AgentManagerEvent[] = [];
+  manager.subscribe((event) => events.push(event), {
+    agentId: snapshot.id,
+    replayState: false,
+  });
+
+  await manager.hydrateTimelineFromProvider(snapshot.id, { force: true, broadcast: true });
+
+  expect(manager.listProviderSubagents(snapshot.id)).toEqual([]);
+  expect(events).toContainEqual({
+    type: "provider_subagent",
+    event: {
+      type: "remove",
+      parentAgentId: snapshot.id,
+      subagentId: "removed-by-rewind",
+    },
+  });
 });
 
 test("reloadAgentSession preserves current title when config title is unset", async () => {
@@ -3727,7 +4436,7 @@ test("replaceAgentRun does not emit idle or resolve waiters between interrupted 
   await manager.waitForAgentRunStart(snapshot.id);
 
   const waitPromise = manager.waitForAgentEvent(snapshot.id);
-  const secondRun = manager.replaceAgentRun(snapshot.id, "second run");
+  const secondRun = await manager.replaceAgentRun(snapshot.id, "second run");
   const secondRunDrain = (async () => {
     for await (const _event of secondRun) {
       // Drain replacement run.
@@ -3858,12 +4567,7 @@ test("replaceAgentRun stays running when a stale old terminal arrives before the
 
   const replaceUpdatesStart = stateUpdates.length;
   const beforeReplaceUpdatedAt = manager.getAgent(snapshot.id)?.updatedAt.getTime() ?? 0;
-  const secondRun = manager.replaceAgentRun(snapshot.id, "replacement run");
-  const secondRunDrain = (async () => {
-    for await (const _event of secondRun) {
-      // Drain replacement run.
-    }
-  })();
+  const secondRunPromise = manager.replaceAgentRun(snapshot.id, "replacement run");
 
   await interruptStarted.promise;
   const replacementUpdates = stateUpdates.slice(replaceUpdatesStart);
@@ -3875,14 +4579,27 @@ test("replaceAgentRun stays running when a stale old terminal arrives before the
   expect(replacementUpdates.map((update) => update.lifecycle)).not.toContain("idle");
   allowInterruptToFinish.resolve();
 
+  const secondRun = await secondRunPromise;
+  const secondRunDrain = (async () => {
+    for await (const _event of secondRun) {
+      // Drain replacement run.
+    }
+  })();
   await secondStartEntered.promise;
 
   const replaceGapSnapshot = manager.getAgent(snapshot.id) as
     | { pendingReplacement: boolean; activeForegroundTurnId: string | null; lifecycle: string }
     | undefined;
-  expect(replaceGapSnapshot?.pendingReplacement).toBe(false);
+  expect(replaceGapSnapshot?.pendingReplacement).toBe(true);
   expect(replaceGapSnapshot?.activeForegroundTurnId).toBeNull();
   expect(replaceGapSnapshot?.lifecycle).toBe("running");
+
+  const replacementStart = manager.waitForAgentRunStart(snapshot.id);
+  const prematureStart = await Promise.race([
+    replacementStart.then(() => "resolved"),
+    new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 50)),
+  ]);
+  expect(prematureStart).toBe("pending");
 
   capturedSession!.pushEvent({ type: "turn_completed", provider: "codex", turnId: "turn-1" });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -3895,7 +4612,7 @@ test("replaceAgentRun stays running when a stale old terminal arrives before the
 
   allowSecondStartToResolve.resolve();
 
-  await manager.waitForAgentRunStart(snapshot.id);
+  await replacementStart;
   await firstRunDrain;
   await secondRunDrain;
   unsubscribe();
@@ -3983,16 +4700,18 @@ test("applies live autonomous events while no foreground run is active", async (
   expect(lifecycleUpdates).toContain("idle");
 });
 
-test("cancelAgentRun can interrupt autonomous running state without a foreground activeForegroundTurnId", async () => {
+test("cancelAgentRun waits for an acknowledged autonomous interrupt to settle", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-live-cancel-"));
   const storagePath = join(workdir, "agents");
   const storage = new AgentStorage(storagePath, logger);
 
   class LiveInterruptSession extends TestAgentSession {
     public interruptCount = 0;
+    readonly interruptCalled = deferred<void>();
 
     override async interrupt(): Promise<void> {
       this.interruptCount += 1;
+      this.interruptCalled.resolve(undefined);
     }
   }
 
@@ -4055,9 +4774,80 @@ test("cancelAgentRun can interrupt autonomous running state without a foreground
   expect(beforeCancel?.lifecycle).toBe("running");
   expect(beforeCancel?.activeForegroundTurnId).toBeNull();
 
-  const cancelled = await manager.cancelAgentRun(snapshot.id);
-  expect(cancelled).toBe(true);
+  let cancelSettled = false;
+  const cancelPromise = manager.cancelAgentRun(snapshot.id).finally(() => {
+    cancelSettled = true;
+  });
+  await capturedSession.interruptCalled.promise;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(cancelSettled).toBe(false);
   expect(client.lastSession?.interruptCount).toBe(1);
+
+  capturedSession.pushEvent({
+    type: "turn_canceled",
+    provider: "codex",
+    turnId: "autonomous-cancel-1",
+    reason: "interrupted",
+  });
+
+  await expect(cancelPromise).resolves.toEqual({ status: "settled" });
+  expect(manager.getAgent(snapshot.id)?.lifecycle).toBe("idle");
+});
+
+test("failed replacement cancellation preserves an autonomous running state", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-live-replace-rejected-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+
+  class RejectingLiveInterruptSession extends TestAgentSession {
+    override async interrupt(): Promise<void> {
+      throw new Error("provider still owns the autonomous turn");
+    }
+  }
+
+  class RejectingLiveInterruptClient extends TestAgentClient {
+    readonly session = new RejectingLiveInterruptSession({
+      provider: "codex",
+      cwd: workdir,
+    });
+
+    override async createSession(): Promise<AgentSession> {
+      return this.session;
+    }
+  }
+
+  const client = new RejectingLiveInterruptClient();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: storage,
+    logger,
+    rescueTimeouts: { interruptSessionMs: 10 },
+    idFactory: () => "00000000-0000-4000-8000-000000000130",
+  });
+
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    const running = waitForAgentLifecycle(manager, agent.id, "running");
+
+    client.session.pushEvent({
+      type: "turn_started",
+      provider: "codex",
+      turnId: "autonomous-replace-1",
+    });
+    await running;
+
+    await expect(manager.replaceAgentRun(agent.id, "replacement prompt")).rejects.toThrow(
+      `Cannot replace agent ${agent.id} because its active run cancellation was not acknowledged`,
+    );
+    expect(manager.getAgent(agent.id)).toMatchObject({
+      lifecycle: "running",
+      activeForegroundTurnId: null,
+    });
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
 });
 
 test("waitForAgentEvent waitForActive resolves for autonomous live-event run", async () => {
@@ -4612,6 +5402,67 @@ test("subscribe does not emit state events for internal agents to global subscri
   // Should only have events from the normal agent
   expect(receivedEvents.filter((id) => id === generatedAgentIds[0]).length).toBeGreaterThan(0);
   expect(receivedEvents.filter((id) => id === generatedAgentIds[1]).length).toBe(0);
+});
+
+test("subscribe hides provider subagents of internal parents from global subscribers", async () => {
+  const internalAgentId = "00000000-0000-4000-8000-000000000117";
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-internal-provider-child-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const sessionHolder: { current: TestAgentSession | null } = { current: null };
+  class InternalProviderChildClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      sessionHolder.current = new TestAgentSession(config);
+      return sessionHolder.current;
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new InternalProviderChildClient() },
+    registry: storage,
+    logger,
+    idFactory: () => internalAgentId,
+  });
+  const globalEvents: AgentManagerEvent[] = [];
+  const scopedEvents: AgentManagerEvent[] = [];
+  manager.subscribe((event) => globalEvents.push(event), { replayState: false });
+  await manager.createAgent(
+    { provider: "codex", cwd: workdir, title: "Internal Agent", internal: true },
+    undefined,
+    { workspaceId: undefined },
+  );
+  manager.subscribe((event) => scopedEvents.push(event), {
+    agentId: internalAgentId,
+    replayState: false,
+  });
+
+  sessionHolder.current?.pushEvent({
+    type: "provider_subagent",
+    provider: "codex",
+    event: { type: "upsert", id: "hidden-child", title: "Hidden child", status: "running" },
+  });
+  await manager.flush();
+
+  expect(globalEvents.filter((event) => event.type === "provider_subagent")).toEqual([]);
+  expect(scopedEvents).toContainEqual(
+    expect.objectContaining({
+      type: "provider_subagent",
+      event: expect.objectContaining({
+        type: "upsert",
+        subagent: expect.objectContaining({
+          id: "hidden-child",
+          parentAgentId: internalAgentId,
+        }),
+      }),
+    }),
+  );
+  expect(() => manager.listProviderSubagents(internalAgentId)).toThrow(
+    `Unknown agent '${internalAgentId}'`,
+  );
+  expect(() => manager.getProviderSubagent(internalAgentId, "hidden-child")).toThrow(
+    `Unknown agent '${internalAgentId}'`,
+  );
+  expect(() => manager.fetchProviderSubagentTimeline(internalAgentId, "hidden-child")).toThrow(
+    `Unknown agent '${internalAgentId}'`,
+  );
 });
 
 test("subscribe emits state events for internal agents when subscribed by agentId", async () => {
@@ -6593,7 +7444,7 @@ test("replaceAgentRun succeeds when foreground turn terminal event is never deli
   // Replace the hung run. cancelAgentRun will time out after 2s because
   // no terminal event arrives. After the fix, it should force-clear the
   // stale foreground state so streamAgent can proceed.
-  const secondRun = manager.replaceAgentRun(snapshot.id, "replacement prompt");
+  const secondRun = await manager.replaceAgentRun(snapshot.id, "replacement prompt");
   const collectedEvents: AgentStreamEvent[] = [];
   const secondRunDrain = (async () => {
     for await (const event of secondRun) {

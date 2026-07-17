@@ -18,7 +18,7 @@ import {
   type ShortcutCallbackName,
 } from "@/keyboard/route-shortcut";
 import { getShortcutOs } from "@/utils/shortcut-platform";
-import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
+import { useOpenAddProject } from "@/hooks/use-open-add-project";
 import { useKeyboardShortcutOverrides } from "@/hooks/use-keyboard-shortcut-overrides";
 import { isNative } from "@/constants/platform";
 import { getDesktopHost, isElectronRuntime } from "@/desktop/host";
@@ -54,7 +54,7 @@ export function useKeyboardShortcuts({
     step: 0,
     timeoutId: null,
   });
-  const openProjectPickerAction = useOpenProjectPicker();
+  const openProjectPickerAction = useOpenAddProject();
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const keyboardWorkspaceSelectionRef = useRef<ActiveWorkspaceSelection | null>(null);
 
@@ -120,7 +120,7 @@ export function useKeyboardShortcuts({
             serverId: action.serverId,
             workspaceId: action.workspaceId,
           };
-          navigateToWorkspace(action.serverId, action.workspaceId);
+          navigateToWorkspace({ serverId: action.serverId, workspaceId: action.workspaceId });
           return true;
         case "navigate-last-workspace":
           return navigateToLastWorkspace();

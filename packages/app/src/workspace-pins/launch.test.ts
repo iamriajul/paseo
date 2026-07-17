@@ -17,7 +17,7 @@ describe("shouldShowCodeServerLauncher", () => {
     ).toBe(false);
   });
 
-  it("shows non-desktop code-server pins only when the host advertises an external URL", () => {
+  it("shows non-desktop code-server pins for an external URL or a proxied localhost URL", () => {
     expect(
       shouldShowCodeServerLauncher({
         isElectron: false,
@@ -30,5 +30,12 @@ describe("shouldShowCodeServerLauncher", () => {
         codeServerUrlOpeners: { localhostUrl: "http://127.0.0.1:13337" },
       }),
     ).toBe(false);
+    expect(
+      shouldShowCodeServerLauncher({
+        isElectron: false,
+        codeServerUrlOpeners: { localhostUrl: "http://127.0.0.1:13337" },
+        vscodeProxyUri: "https://{{port}}--workspace.example.test",
+      }),
+    ).toBe(true);
   });
 });

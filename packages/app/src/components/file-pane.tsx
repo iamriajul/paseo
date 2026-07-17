@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { FileReadResult } from "@getpaseo/client/internal/daemon-client";
 import {
@@ -13,15 +13,12 @@ import { useTranslation } from "react-i18next";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useSessionStore, type ExplorerFile } from "@/stores/session-store";
-import { useWebScrollViewScrollbar } from "@/components/use-web-scrollbar";
-import { useWebScrollbarStyle } from "@/hooks/use-web-scrollbar-style";
 import { highlightCode, type HighlightToken } from "@getpaseo/highlight";
 import { syntaxTokenStyleFor } from "@/styles/syntax-token-styles";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { lineNumberGutterWidth } from "@/components/code-insets";
 import { CODE_SURFACE_DATASET } from "@/styles/code-surface";
 import { isRenderedMarkdownFile } from "@/components/file-pane-render-mode";
-import { isWeb } from "@/constants/platform";
 import type { AttachmentMetadata } from "@/attachments/types";
 import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-url";
 import { persistAttachmentFromBytes } from "@/attachments/service";
@@ -29,7 +26,7 @@ import { createPreviewAttachmentId, getFileNameFromPath } from "@/attachments/ut
 import { explorerFileFromReadResult } from "@/file-explorer/read-result";
 import { resolveFilePreviewReadTarget } from "@/file-explorer/preview-target";
 import type { WorkspaceFileLocation } from "@/workspace/file-open";
-import { MountedTabActiveContext } from "@/components/split-container";
+import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useAppVisible } from "@/hooks/use-app-visible";
 import { isFileQueryEnabled } from "@/components/file-pane-enabled";
 import { PdfPreview } from "@/components/pdf-preview";
@@ -45,7 +42,6 @@ interface CodeLineProps {
 interface FilePreviewBodyProps {
   preview: ExplorerFile | null;
   isLoading: boolean;
-  showDesktopWebScrollbar: boolean;
   isMobile: boolean;
   location: WorkspaceFileLocation;
   mediaPreviewUri: string | null;
@@ -195,7 +191,6 @@ const codeLineStyles = StyleSheet.create((theme) => ({
 function FilePreviewBody({
   preview,
   isLoading,
-  showDesktopWebScrollbar,
   isMobile,
   location,
   mediaPreviewUri,
@@ -207,10 +202,6 @@ function FilePreviewBody({
     preview?.kind === "text" && isRenderedMarkdownFile(filePath) && !location.lineStart;
 
   const previewScrollRef = useRef<RNScrollView>(null);
-  const webScrollbarStyle = useWebScrollbarStyle();
-  const scrollbar = useWebScrollViewScrollbar(previewScrollRef, {
-    enabled: showDesktopWebScrollbar,
-  });
 
   const highlightedLines = useMemo(() => {
     if (!preview || preview.kind !== "text" || isMarkdownFile) {
@@ -279,15 +270,10 @@ function FilePreviewBody({
             ref={previewScrollRef}
             style={styles.previewContent}
             contentContainerStyle={styles.previewMarkdownScrollContent}
-            onLayout={scrollbar.onLayout}
-            onScroll={scrollbar.onScroll}
-            onContentSizeChange={scrollbar.onContentSizeChange}
-            scrollEventThrottle={16}
-            showsVerticalScrollIndicator={!showDesktopWebScrollbar}
+            showsVerticalScrollIndicator
           >
             <MarkdownRenderer text={preview.content ?? ""} />
           </RNScrollView>
-          {scrollbar.overlay}
         </View>
       );
     }
@@ -321,11 +307,7 @@ function FilePreviewBody({
         <RNScrollView
           ref={previewScrollRef}
           style={styles.previewContent}
-          onLayout={scrollbar.onLayout}
-          onScroll={scrollbar.onScroll}
-          onContentSizeChange={scrollbar.onContentSizeChange}
-          scrollEventThrottle={16}
-          showsVerticalScrollIndicator={!showDesktopWebScrollbar}
+          showsVerticalScrollIndicator
         >
           {isMobile ? (
             <View style={styles.previewCodeScrollContent}>{codeLines}</View>
@@ -334,14 +316,12 @@ function FilePreviewBody({
               horizontal
               nestedScrollEnabled
               showsHorizontalScrollIndicator
-              style={webScrollbarStyle}
               contentContainerStyle={styles.previewCodeScrollContent}
             >
               {codeLines}
             </RNScrollView>
           )}
         </RNScrollView>
-        {scrollbar.overlay}
       </View>
     );
   }
@@ -362,11 +342,7 @@ function FilePreviewBody({
           ref={previewScrollRef}
           style={styles.previewContent}
           contentContainerStyle={styles.previewImageScrollContent}
-          onLayout={scrollbar.onLayout}
-          onScroll={scrollbar.onScroll}
-          onContentSizeChange={scrollbar.onContentSizeChange}
-          scrollEventThrottle={16}
-          showsVerticalScrollIndicator={!showDesktopWebScrollbar}
+          showsVerticalScrollIndicator
         >
           <RNImage
             source={imageSource ?? undefined}
@@ -374,7 +350,6 @@ function FilePreviewBody({
             resizeMode="contain"
           />
         </RNScrollView>
-        {scrollbar.overlay}
       </View>
     );
   }
@@ -413,7 +388,6 @@ export function FilePane({
 }) {
   const { t } = useTranslation();
   const isMobile = useIsCompactFormFactor();
-  const showDesktopWebScrollbar = isWeb && !isMobile;
 
   const client = useSessionStore((state) => state.sessions[serverId]?.client ?? null);
   const normalizedWorkspaceRoot = useMemo(() => workspaceRoot.trim(), [workspaceRoot]);
@@ -432,7 +406,7 @@ export function FilePane({
   // Re-read the file when this pane becomes visible again (#445). `isActive`
   // covers tab switches, `isAppVisible` the whole-app background/foreground; the
   // gate itself lives in isFileQueryEnabled.
-  const isActive = useContext(MountedTabActiveContext);
+  const isActive = useRetainedPanelActive();
   const isAppVisible = useAppVisible();
 
   const query = useQuery({
@@ -482,7 +456,6 @@ export function FilePane({
       <FilePreviewBody
         preview={query.data?.file ?? null}
         isLoading={query.isFetching}
-        showDesktopWebScrollbar={showDesktopWebScrollbar}
         isMobile={isMobile}
         location={location}
         mediaPreviewUri={mediaPreviewUri}

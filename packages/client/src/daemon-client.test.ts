@@ -555,6 +555,7 @@ test("advertises client capabilities in hello", async () => {
     protocolVersion: 1,
     capabilities: {
       custom_mode_icons: true,
+      provider_subagents: true,
       reasoning_merge_enum: true,
       terminal_reflowable_snapshot: true,
       browser_host: {
@@ -2254,6 +2255,136 @@ test("sends project.add.request without creating a workspace", async () => {
       projectKind: "git",
     },
     error: null,
+  });
+});
+
+test("searches GitHub repositories through the dotted RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const searchPromise = client.searchGithubRepositories(
+    { query: "paseo", limit: 10 },
+    "req-repositories",
+  );
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "workspace.github.search_repositories.request",
+    query: "paseo",
+    limit: 10,
+    requestId: "req-repositories",
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.github.search_repositories.response",
+      payload: {
+        status: "success",
+        requestId: "req-repositories",
+        repositories: [
+          {
+            id: "R_paseo",
+            name: "paseo",
+            nameWithOwner: "getpaseo/paseo",
+            description: "Development environment in your pocket",
+            visibility: "public",
+            updatedAt: "2026-07-15T10:00:00Z",
+            cloneUrl: "git@github.com:getpaseo/paseo.git",
+          },
+        ],
+        available: true,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(searchPromise).resolves.toEqual({
+    status: "success",
+    requestId: "req-repositories",
+    repositories: [
+      {
+        id: "R_paseo",
+        name: "paseo",
+        nameWithOwner: "getpaseo/paseo",
+        description: "Development environment in your pocket",
+        visibility: "public",
+        updatedAt: "2026-07-15T10:00:00Z",
+        cloneUrl: "git@github.com:getpaseo/paseo.git",
+      },
+    ],
+    available: true,
+    error: null,
+  });
+});
+
+test("creates and registers a project directory through the dotted RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const createPromise = client.createProjectDirectory(
+    { parentPath: "/tmp/projects", name: "new-project" },
+    "req-create-project-directory",
+  );
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "project.create_directory.request",
+    parentPath: "/tmp/projects",
+    name: "new-project",
+    requestId: "req-create-project-directory",
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "project.create_directory.response",
+      payload: {
+        requestId: "req-create-project-directory",
+        directoryPath: "/tmp/projects/new-project",
+        project: {
+          projectId: "directory:/tmp/projects/new-project",
+          projectDisplayName: "new-project",
+          projectCustomName: null,
+          projectRootPath: "/tmp/projects/new-project",
+          projectKind: "non_git",
+        },
+        error: null,
+        errorCode: null,
+      },
+    }),
+  );
+
+  await expect(createPromise).resolves.toEqual({
+    requestId: "req-create-project-directory",
+    directoryPath: "/tmp/projects/new-project",
+    project: {
+      projectId: "directory:/tmp/projects/new-project",
+      projectDisplayName: "new-project",
+      projectCustomName: null,
+      projectRootPath: "/tmp/projects/new-project",
+      projectKind: "non_git",
+    },
+    error: null,
+    errorCode: null,
   });
 });
 

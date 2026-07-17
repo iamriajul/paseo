@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
@@ -60,9 +61,11 @@ import {
   FloatingPanelPortalHostNameProvider,
 } from "@/components/ui/floating-panel-portal";
 import { ExplorerSidebar } from "@/components/explorer-sidebar";
-import { MountedTabActiveContext, SplitContainer } from "@/components/split-container";
+import { SplitContainer } from "@/components/split-container";
+import { RetainedPanel } from "@/components/retained-panel";
+import { WindowChromeRegion } from "@/utils/desktop-window";
 import { SourceControlPanelIcon } from "@/components/icons/source-control-panel-icon";
-import { WorkspaceGitActions } from "@/git/workspace-actions";
+import { WorkspaceActions } from "@/git/workspace-actions";
 import { WorkspaceOpenInEditorButton } from "@/screens/workspace/workspace-open-in-editor-button";
 import { WorkspaceScriptsButton } from "@/screens/workspace/workspace-scripts-button";
 import { ImportSessionSheet } from "@/components/import-session-sheet";
@@ -111,6 +114,7 @@ import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store"
 import { createWorkspaceCodeServer, useCodeServerStore } from "@/stores/code-server-store";
 import { getDesktopHost } from "@/desktop/host";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { resolveCodeServerLaunchUrl } from "@/utils/code-server-url";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
 import { resolveWorkspaceRouteId } from "@/utils/workspace-identity";
@@ -334,7 +338,6 @@ function cleanupBrowserBackedTab(browserId: string): void {
   const browserHost = getDesktopHost()?.browser;
   void (async () => {
     await browserHost?.unregisterWorkspaceBrowser?.(browserId);
-    await browserHost?.clearPartition?.(browserId);
   })();
 }
 
@@ -352,26 +355,15 @@ function resolveBrowserBackedTabIdForCleanup(target: WorkspaceTabTarget | null |
 
 interface UseWorkspaceCodeServerActionInput {
   normalizedServerId: string;
+  workspaceDirectory: string | null;
   persistenceKey: string | null;
   focusWorkspacePane: (workspaceKey: string, paneId: string) => void;
   openWorkspaceTabFocused: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
 }
 
-function shouldShowCodeServerAction(
-  codeServerUrlOpeners:
-    | {
-        localhostUrl?: string;
-        externalUrl?: string;
-      }
-    | undefined,
-): boolean {
-  return getIsElectron()
-    ? Boolean(codeServerUrlOpeners?.localhostUrl)
-    : Boolean(codeServerUrlOpeners?.externalUrl);
-}
-
 function useWorkspaceCodeServerAction({
   normalizedServerId,
+  workspaceDirectory,
   persistenceKey,
   focusWorkspacePane,
   openWorkspaceTabFocused,
@@ -379,28 +371,35 @@ function useWorkspaceCodeServerAction({
   const codeServerUrlOpeners = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.codeServer,
   );
-  const showCreateCodeServerTab = shouldShowCodeServerAction(codeServerUrlOpeners);
+  const vscodeProxyUri = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.vscodeProxyUri,
+  );
+  const codeServerLaunchUrl = resolveCodeServerLaunchUrl({
+    isElectron: getIsElectron(),
+    codeServerUrlOpeners,
+    vscodeProxyUri,
+    workspaceDirectory,
+  });
+  const showCreateCodeServerTab = Boolean(codeServerLaunchUrl);
   const handleCreateCodeServerTab = useCallback(
     (input?: { paneId?: string }) => {
       if (getIsElectron()) {
-        const localhostUrl = codeServerUrlOpeners?.localhostUrl;
-        if (!persistenceKey || !localhostUrl) {
+        if (!persistenceKey || !codeServerLaunchUrl) {
           return;
         }
         if (input?.paneId) {
           focusWorkspacePane(persistenceKey, input.paneId);
         }
-        const { codeServerId } = createWorkspaceCodeServer({ initialUrl: localhostUrl });
+        const { codeServerId } = createWorkspaceCodeServer({ initialUrl: codeServerLaunchUrl });
         openWorkspaceTabFocused(persistenceKey, { kind: "codeServer", codeServerId });
         return;
       }
 
-      const externalUrl = codeServerUrlOpeners?.externalUrl;
-      if (externalUrl) {
-        void openExternalUrl(externalUrl);
+      if (codeServerLaunchUrl) {
+        void openExternalUrl(codeServerLaunchUrl);
       }
     },
-    [codeServerUrlOpeners, focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+    [codeServerLaunchUrl, focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
   );
 
   return { handleCreateCodeServerTab, showCreateCodeServerTab };
@@ -466,6 +465,9 @@ function getFallbackTabOptionDescription(
   }
   if (tab.target.kind === "codeServer") {
     return labels.codeServer;
+  }
+  if (tab.target.kind === "provider_subagent") {
+    return labels.agent;
   }
   return tab.target.path;
 }
@@ -939,21 +941,15 @@ const MobileMountedTabSlot = memo(function MobileMountedTabSlot({
     [buildPaneContentModel, paneId, tabDescriptor],
   );
 
-  const slotStyle = isVisible
-    ? styles.mobileMountedTabSlotVisible
-    : styles.mobileMountedTabSlotHidden;
-
   return (
     <RenderProfile id={`MobileMountedTabSlot:${tabDescriptor.kind}:${tabDescriptor.tabId}`}>
-      <MountedTabActiveContext value={isVisible}>
-        <View style={slotStyle} pointerEvents={isVisible ? "auto" : "none"}>
-          <WorkspacePaneContent
-            content={content}
-            isWorkspaceFocused={isWorkspaceFocused}
-            isPaneFocused={isPaneFocused}
-          />
-        </View>
-      </MountedTabActiveContext>
+      <RetainedPanel active={isVisible} style={styles.mobileMountedTabSlot}>
+        <WorkspacePaneContent
+          content={content}
+          isWorkspaceFocused={isWorkspaceFocused}
+          isPaneFocused={isPaneFocused}
+        />
+      </RetainedPanel>
     </RenderProfile>
   );
 });
@@ -1682,6 +1678,46 @@ function shouldShowWorkspaceExplorerSidebar(input: {
   isMobile: boolean;
 }): boolean {
   return !input.isMobile && input.isRouteFocused && shouldShowWorkspaceScreenHeader(input);
+}
+
+interface WorkspaceChromeRowProps extends Omit<
+  ComponentProps<typeof ExplorerSidebar>,
+  "workspaceRoot"
+> {
+  children: ReactNode;
+  explorerOpen: boolean;
+  portalHostName: string;
+  showExplorerSidebar: boolean;
+  workspaceRoot: string | null;
+}
+
+function WorkspaceChromeRow({
+  children,
+  explorerOpen,
+  portalHostName,
+  showExplorerSidebar,
+  workspaceRoot,
+  ...explorerProps
+}: WorkspaceChromeRowProps) {
+  const explorerRendered = showExplorerSidebar && explorerOpen && workspaceRoot !== null;
+
+  return (
+    <View style={styles.threePaneRow}>
+      <WindowChromeRegion corners={explorerRendered ? "top-left" : "both"}>
+        <FloatingPanelPortalHostNameProvider hostName={portalHostName}>
+          {children}
+        </FloatingPanelPortalHostNameProvider>
+      </WindowChromeRegion>
+
+      <FloatingPanelPortalHost name={portalHostName} />
+
+      {showExplorerSidebar && workspaceRoot ? (
+        <WindowChromeRegion corners="top-right">
+          <ExplorerSidebar {...explorerProps} workspaceRoot={workspaceRoot} />
+        </WindowChromeRegion>
+      ) : null}
+    </View>
+  );
 }
 
 function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): string | null {
@@ -2558,6 +2594,7 @@ function WorkspaceScreenContent({
 
   const { handleCreateCodeServerTab, showCreateCodeServerTab } = useWorkspaceCodeServerAction({
     normalizedServerId,
+    workspaceDirectory,
     persistenceKey,
     focusWorkspacePane,
     openWorkspaceTabFocused,
@@ -3405,56 +3442,56 @@ function WorkspaceScreenContent({
             hideLabels
           />
         ) : null}
-        {!isMobile && isGitCheckout ? (
+        {!isMobile && workspaceDirectory ? (
           <>
-            {workspaceDirectory ? (
-              <WorkspaceGitActions
-                serverId={normalizedServerId}
-                cwd={workspaceDirectory}
-                hideLabels={showCompactButtonLabels}
-              />
-            ) : null}
-            <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
-              <TooltipTrigger asChild>
-                <Pressable
-                  testID="workspace-explorer-toggle"
-                  onPress={handleToggleExplorer}
-                  accessibilityRole="button"
-                  accessibilityLabel={explorerToggleLabel}
-                  accessibilityState={explorerToggleAccessibilityState}
-                  style={explorerToggleStyle}
+            <WorkspaceActions
+              serverId={normalizedServerId}
+              cwd={workspaceDirectory}
+              hideLabels={showCompactButtonLabels}
+            />
+            {isGitCheckout ? (
+              <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+                <TooltipTrigger asChild>
+                  <Pressable
+                    testID="workspace-explorer-toggle"
+                    onPress={handleToggleExplorer}
+                    accessibilityRole="button"
+                    accessibilityLabel={explorerToggleLabel}
+                    accessibilityState={explorerToggleAccessibilityState}
+                    style={explorerToggleStyle}
+                  >
+                    {({ hovered, pressed }) => {
+                      const active = isExplorerOpen || hovered || pressed;
+                      const colorMapping = active ? foregroundColorMapping : mutedColorMapping;
+                      return (
+                        <>
+                          <ThemedSourceControlPanelIcon size={16} uniProps={colorMapping} />
+                          {workspaceDescriptor?.diffStat ? (
+                            <DiffStat
+                              additions={workspaceDescriptor.diffStat.additions}
+                              deletions={workspaceDescriptor.diffStat.deletions}
+                            />
+                          ) : null}
+                        </>
+                      );
+                    }}
+                  </Pressable>
+                </TooltipTrigger>
+                <TooltipContent
+                  testID="workspace-explorer-toggle-tooltip"
+                  side="left"
+                  align="center"
+                  offset={8}
                 >
-                  {({ hovered, pressed }) => {
-                    const active = isExplorerOpen || hovered || pressed;
-                    const colorMapping = active ? foregroundColorMapping : mutedColorMapping;
-                    return (
-                      <>
-                        <ThemedSourceControlPanelIcon size={16} uniProps={colorMapping} />
-                        {workspaceDescriptor?.diffStat ? (
-                          <DiffStat
-                            additions={workspaceDescriptor.diffStat.additions}
-                            deletions={workspaceDescriptor.diffStat.deletions}
-                          />
-                        ) : null}
-                      </>
-                    );
-                  }}
-                </Pressable>
-              </TooltipTrigger>
-              <TooltipContent
-                testID="workspace-explorer-toggle-tooltip"
-                side="left"
-                align="center"
-                offset={8}
-              >
-                <View style={styles.explorerTooltipRow}>
-                  <Text style={styles.explorerTooltipText}>
-                    {t("workspace.tabs.explorer.toggle")}
-                  </Text>
-                  <Shortcut keys={EXPLORER_TOGGLE_KEYS} style={styles.explorerTooltipShortcut} />
-                </View>
-              </TooltipContent>
-            </Tooltip>
+                  <View style={styles.explorerTooltipRow}>
+                    <Text style={styles.explorerTooltipText}>
+                      {t("workspace.tabs.explorer.toggle")}
+                    </Text>
+                    <Shortcut keys={EXPLORER_TOGGLE_KEYS} style={styles.explorerTooltipShortcut} />
+                  </View>
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </>
         ) : null}
         {!isMobile && !isGitCheckout ? (
@@ -3759,23 +3796,18 @@ function WorkspaceScreenContent({
               workspaceId={normalizedWorkspaceId}
               isRouteFocused={isRouteFocused}
             />
-            <View style={styles.threePaneRow}>
-              <FloatingPanelPortalHostNameProvider hostName={workspaceFloatingPanelPortalHostName}>
-                {workspaceCenterColumn}
-              </FloatingPanelPortalHostNameProvider>
-
-              <FloatingPanelPortalHost name={workspaceFloatingPanelPortalHostName} />
-
-              {showExplorerSidebar && workspaceDirectory ? (
-                <ExplorerSidebar
-                  serverId={normalizedServerId}
-                  workspaceId={normalizedWorkspaceId}
-                  workspaceRoot={workspaceDirectory}
-                  isGit={isGitCheckout}
-                  onOpenFile={handleOpenFileFromExplorer}
-                />
-              ) : null}
-            </View>
+            <WorkspaceChromeRow
+              portalHostName={workspaceFloatingPanelPortalHostName}
+              showExplorerSidebar={showExplorerSidebar}
+              explorerOpen={isExplorerOpen}
+              serverId={normalizedServerId}
+              workspaceId={normalizedWorkspaceId}
+              workspaceRoot={workspaceDirectory}
+              isGit={isGitCheckout}
+              onOpenFile={handleOpenFileFromExplorer}
+            >
+              {workspaceCenterColumn}
+            </WorkspaceChromeRow>
             <ImportSessionSheet
               visible={isImportSheetVisible}
               client={client}
@@ -4098,13 +4130,8 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface0,
     position: "relative",
   },
-  mobileMountedTabSlotVisible: {
+  mobileMountedTabSlot: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 1,
-  },
-  mobileMountedTabSlotHidden: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0,
   },
   contentPlaceholder: {
     flex: 1,

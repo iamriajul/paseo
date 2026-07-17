@@ -54,12 +54,13 @@ export const ru: TranslationResources = {
       close: "Закрыть меню",
     },
     commandCenter: {
-      placeholder: "Введите команду или найдите агентов...",
+      placeholder: "Поиск команд, рабочих пространств и агентов...",
       noMatches: "Нет совпадений",
       actions: "Действия",
+      workspaces: "Рабочие пространства",
       agents: "Агенты",
       newAgent: "Новый агент",
-      openProject: "Открыть проект",
+      addProject: "Добавить проект",
       home: "Дом",
     },
   },
@@ -627,7 +628,7 @@ export const ru: TranslationResources = {
           success: "Обновлено",
         },
         archive: {
-          label: "Архив рабочего дерева",
+          label: "Архивировать рабочее пространство",
           pending: "Архивирование...",
           success: "В архиве",
         },
@@ -678,8 +679,6 @@ export const ru: TranslationResources = {
             "Обновление недоступно, пока у вас есть локальные изменения, поэтому сначала зафиксируйте или сохраните их.",
           updateCurrent:
             "Обновление недоступно, поскольку эта ветка уже обновлена ​​до версии{{baseRef}}.",
-          archiveNotWorktree:
-            "Архив здесь недоступен, поскольку это рабочее пространство не было создано как рабочее дерево Paseo.",
           mergePrNoGithub: "Объединение PR сейчас недоступно, поскольку GitHub не подключен.",
           mergePrMissing: "Объединение PR недоступно, поскольку еще нет запроса на включение",
           mergePrDraft:
@@ -707,11 +706,9 @@ export const ru: TranslationResources = {
           baseRefUnavailable: "Базовый номер недоступен.",
           failedMerge: "Не удалось объединиться",
           failedMergeFromBase: "Не удалось объединиться с базой.",
-          worktreePathUnavailable: "Путь к рабочему дереву недоступен.",
-          failedArchive: "Не удалось заархивировать рабочее дерево.",
         },
         archiveWarning: {
-          title: 'Архив "{{worktreeName}}"?',
+          title: 'Архив "{{workspaceName}}"?',
           confirm: "Архив",
           cancel: "Отмена",
           uncommittedChanges: "Незафиксированные изменения",
@@ -729,11 +726,19 @@ export const ru: TranslationResources = {
         tooLarge: "Разница слишком велика для отображения",
         unified: "Единый дифференциал",
         split: "Параллельная разница",
+        switchToUnified: "Переключить на объединенный diff",
+        switchToSplit: "Переключить на diff рядом",
+        showTreeView: "Показать дерево папок",
+        showFlatView: "Показать плоский список файлов",
+        options: "Параметры diff",
         hideWhitespace: "Скрыть пробелы",
+        showWhitespace: "Показать пробелы",
         scrollLongLines: "Прокручивать длинные строки",
         wrapLongLines: "Перенос длинных строк",
         collapseAll: "Свернуть все файлы",
         expandAll: "Развернуть все файлы",
+        collapseAllFolders: "Свернуть все папки",
+        expandAllFolders: "Развернуть все папки",
         refreshing: "Освежающий",
         refresh: "Обновить",
         refreshState: "Обновить состояние git и GitHub.",
@@ -792,6 +797,9 @@ export const ru: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "Закреплённые",
+    },
     host: {
       noHost: "Нет хоста",
       switchTitle: "Сменить хост",
@@ -800,9 +808,21 @@ export const ru: TranslationResources = {
     actions: {
       addProject: "Добавить проект",
       newWorkspace: "Новое рабочее пространство",
+      hosts: "Хосты",
       home: "Дом",
       settings: "Настройки",
       closeSidebar: "Закрыть боковую панель",
+    },
+    help: {
+      trigger: "Помощь и поддержка",
+      sectionHelp: "Помощь",
+      diagnostics: "Запустить диагностику",
+      shortcuts: "Сочетания клавиш",
+      reportIssue: "Сообщить о проблеме",
+      discord: "Discord",
+      github: "Создать issue в GitHub",
+      whatsNew: "Что нового",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "История",
@@ -855,8 +875,10 @@ export const ru: TranslationResources = {
         copyPath: "Копировать путь",
         copyBranchName: "Скопировать название ветки",
         rename: "Переименовать рабочую область",
+        pin: "Закрепить вверху",
+        unpin: "Открепить",
         archive: "Архив",
-        archiveWorktree: "Архив рабочего дерева",
+        archiveWorkspace: "Архивировать рабочее пространство",
         hideFromSidebar: "Скрыть с боковой панели",
         archiving: "Архивирование...",
         hiding: "Скрытие...",
@@ -879,7 +901,7 @@ export const ru: TranslationResources = {
         branchNameCopied: "Название филиала скопировано.",
         hostDisconnected: "Host не подключен",
         hideFailed: "Не удалось скрыть рабочую область.",
-        archiveFailed: "Не удалось заархивировать рабочее дерево.",
+        archiveFailed: "Не удалось заархивировать рабочее пространство.",
       },
     },
   },
@@ -1080,6 +1102,12 @@ export const ru: TranslationResources = {
       },
     },
   },
+  rootError: {
+    kicker: "Что-то пошло не так",
+    title: "В Paseo возникла проблема.",
+    body: "Попробуйте снова перезагрузить приложение. Если это повторяется, приложите приведенные ниже подробности к отчету.",
+    details: "Подробности",
+  },
   startup: {
     errorTitle: "Что- то пошло не так",
     errorDescription:
@@ -1111,7 +1139,8 @@ export const ru: TranslationResources = {
     },
   },
   projectPicker: {
-    placeholder: "Введите путь к каталогу...",
+    placeholder: "Введите текст для поиска...",
+    browse: "Обзор…",
     opening: "Открытие проекта...",
     searching: "Идет поиск...",
     empty: "Начните вводить путь",
@@ -1379,6 +1408,8 @@ export const ru: TranslationResources = {
     detachTooltip: "Отсоединить субагент",
     archiveAction: "Архив{{label}}",
     archiveTooltip: "Архивный субагент",
+    archiveFinishedAction: "Архивировать завершенные субагенты",
+    archiveFinishedTooltip: "Архивировать завершенные",
   },
   panels: {
     draft: {
@@ -1400,6 +1431,33 @@ export const ru: TranslationResources = {
     subAgentActivity: "Субагентская деятельность",
     input: "Вход",
     output: "Выход",
+  },
+  toolCallGroup: {
+    editedFiles: {
+      one: "изменён {{count}} файл",
+      other: "изменено {{count}} файлов",
+    },
+    commands: {
+      one: "выполнена {{count}} команда",
+      other: "выполнено {{count}} команд",
+    },
+    readFiles: {
+      one: "прочитан {{count}} файл",
+      other: "прочитано {{count}} файлов",
+    },
+    searches: {
+      one: "выполнен {{count}} поиск",
+      other: "выполнено {{count}} поисков",
+    },
+    otherTools: {
+      one: "использован {{count}} другой инструмент",
+      other: "использовано {{count}} других инструментов",
+    },
+    paseoCalls: {
+      one: "Paseo вызван {{count}} раз",
+      other: "Paseo вызван {{count}} раз",
+    },
+    and: "и",
   },
   renameModal: {
     rename: "Переименовать",
@@ -1441,6 +1499,7 @@ export const ru: TranslationResources = {
     },
     backToWorkspace: "Назад",
     addHost: "Добавить хост",
+    enableBuiltInDaemon: "Включить встроенный демон",
     projects: "Проекты",
     projectList: {
       hostLoadFailed: "Не удалось загрузить проекты с хоста{{hostName}}:{{message}}.",
@@ -1449,7 +1508,6 @@ export const ru: TranslationResources = {
     groupInfo: "О{{title}}",
     sections: {
       general: "Общий",
-      daemon: "Daemon",
       appearance: "Появление",
       shortcuts: "Ярлыки",
       integrations: "Интеграции",
@@ -1464,10 +1522,22 @@ export const ru: TranslationResources = {
       providers: "Провайдеры",
       usage: "Использование",
       terminals: "Terminals",
-      host: "Host",
+      host: "Обзор",
     },
     general: {
       title: "Общий",
+      browserData: {
+        title: "Данные браузера",
+        siteData: "Файлы cookie и данные сайтов",
+        description: "Вкладки браузера используют общие данные входа и данные сайтов в Paseo.",
+        clear: "Очистить данные браузера",
+        clearing: "Очистка...",
+        confirmTitle: "Очистить данные браузера?",
+        confirmMessage:
+          "На сайтах будет выполнен выход, а открытые вкладки браузера перезагрузятся.",
+        success: "Данные браузера очищены.",
+        error: "Не удалось очистить данные браузера.",
+      },
       defaultSend: {
         label: "Отправка по умолчанию",
         descriptions: {
@@ -1492,6 +1562,20 @@ export const ru: TranslationResources = {
         label: "Terminal прокрутка назад",
         description: "Строки, хранящиеся во встроенном буфере терминала.",
         accessibilityLabel: "Линии прокрутки Terminal",
+      },
+      autoExpandReasoning: {
+        label: "Всегда разворачивать размышления",
+        description:
+          "По умолчанию показывать блоки размышлений и логики агента полностью развернутыми",
+      },
+      toolCallDetail: {
+        label: "Отображение вызовов инструментов",
+        description: "Как вызовы инструментов отображаются на временной шкале",
+        accessibilityLabel: "Выбрать отображение вызовов инструментов ({{value}})",
+        options: {
+          overview: "Сводка",
+          detailed: "Полная детализация",
+        },
       },
       language: {
         label: "Язык",
@@ -1575,6 +1659,9 @@ export const ru: TranslationResources = {
           auto: "Система",
         },
       },
+      detailLevel: {
+        title: "Уровень детализации",
+      },
       fonts: {
         title: "Шрифты",
         systemDefault: "Система по умолчанию",
@@ -1622,7 +1709,7 @@ export const ru: TranslationResources = {
         openProject: "Открыть проект",
         newWorkspace: "Новое рабочее пространство",
         newWorktree: "Новое рабочее дерево",
-        archiveWorktree: "Архив рабочего дерева",
+        archiveWorkspace: "Архивировать рабочее пространство",
         newTab: "Новая вкладка",
         closeCurrentTab: "Закрыть текущую вкладку",
         jumpToWorkspace: "Перейти в рабочую область",

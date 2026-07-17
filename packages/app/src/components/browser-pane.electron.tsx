@@ -746,6 +746,7 @@ export function BrowserPane({
     if (!residentWebview) {
       prepareBrowserWebview(webview, {
         browserId,
+        workspaceId,
         initialUrl: "about:blank",
       });
     }

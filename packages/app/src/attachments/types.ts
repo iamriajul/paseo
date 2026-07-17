@@ -79,15 +79,22 @@ export interface ChatHistoryContextAttachment {
     serverId: string;
     agentId: string;
     boundaryMessageId?: string | null;
+    boundaryCursor?: { epoch: string; seq: number } | null;
     itemCount?: number;
   };
 }
+
+export const NEW_WORKSPACE_PICKER_ATTACHMENT_OWNER = "new-workspace-picker";
 
 export type UserComposerAttachment =
   | { kind: "image"; metadata: AttachmentMetadata }
   | { kind: "file"; attachment: UploadedFileAttachment }
   | { kind: "github_issue"; item: GitHubSearchItem }
-  | { kind: "github_pr"; item: GitHubSearchItem };
+  | {
+      kind: "github_pr";
+      item: GitHubSearchItem;
+      owner?: typeof NEW_WORKSPACE_PICKER_ATTACHMENT_OWNER;
+    };
 
 export type WorkspaceComposerAttachment =
   | {

@@ -54,12 +54,13 @@ export const zhCN: TranslationResources = {
       close: "关闭菜单",
     },
     commandCenter: {
-      placeholder: "输入命令或搜索 Agent...",
+      placeholder: "搜索命令、工作区和 Agent...",
       noMatches: "没有匹配项",
       actions: "操作",
+      workspaces: "工作区",
       agents: "Agents",
       newAgent: "新建 Agent",
-      openProject: "打开项目",
+      addProject: "添加 project",
       home: "首页",
     },
   },
@@ -620,7 +621,7 @@ export const zhCN: TranslationResources = {
           success: "已更新",
         },
         archive: {
-          label: "归档 worktree",
+          label: "归档工作区",
           pending: "正在归档...",
           success: "已归档",
         },
@@ -659,7 +660,6 @@ export const zhCN: TranslationResources = {
           updateNoBase: "无法更新，因为无法确定 base branch",
           updateDirty: "有本地变更时无法更新，请先 commit 或 stash",
           updateCurrent: "无法更新，因为此分支已与 {{baseRef}} 保持最新",
-          archiveNotWorktree: "此处无法归档，因为此 workspace 不是作为 Paseo worktree 创建的",
           mergePrNoGithub: "当前无法 merge PR，因为 GitHub 未连接",
           mergePrMissing: "无法 merge PR，因为还没有 pull request",
           mergePrDraft: "无法 merge PR，因为 pull request 仍是 draft",
@@ -682,11 +682,9 @@ export const zhCN: TranslationResources = {
           baseRefUnavailable: "Base ref 不可用",
           failedMerge: "Merge 失败",
           failedMergeFromBase: "从 base merge 失败",
-          worktreePathUnavailable: "Worktree 路径不可用",
-          failedArchive: "归档 worktree 失败",
         },
         archiveWarning: {
-          title: "归档「{{worktreeName}}」？",
+          title: "归档「{{workspaceName}}」？",
           confirm: "归档",
           cancel: "取消",
           uncommittedChanges: "未 commit 的变更",
@@ -704,11 +702,19 @@ export const zhCN: TranslationResources = {
         tooLarge: "Diff 过大，无法显示",
         unified: "Unified diff",
         split: "Side-by-side diff",
+        switchToUnified: "切换到统一差异视图",
+        switchToSplit: "切换到并排差异视图",
+        showTreeView: "显示文件夹树",
+        showFlatView: "显示平铺文件列表",
+        options: "Diff 选项",
         hideWhitespace: "隐藏空白差异",
+        showWhitespace: "显示空白差异",
         scrollLongLines: "滚动长行",
         wrapLongLines: "自动换行长行",
         collapseAll: "折叠所有文件",
         expandAll: "展开所有文件",
+        collapseAllFolders: "折叠所有文件夹",
+        expandAllFolders: "展开所有文件夹",
         refreshing: "正在刷新",
         refresh: "刷新",
         refreshState: "刷新 git 和 GitHub 状态",
@@ -767,6 +773,9 @@ export const zhCN: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "已置顶",
+    },
     host: {
       noHost: "没有 Host",
       switchTitle: "切换 Host",
@@ -775,9 +784,21 @@ export const zhCN: TranslationResources = {
     actions: {
       addProject: "添加 project",
       newWorkspace: "新建工作区",
+      hosts: "Hosts",
       home: "首页",
       settings: "设置",
       closeSidebar: "关闭侧边栏",
+    },
+    help: {
+      trigger: "帮助与支持",
+      sectionHelp: "帮助",
+      diagnostics: "运行诊断",
+      shortcuts: "键盘快捷键",
+      reportIssue: "报告问题",
+      discord: "Discord",
+      github: "创建 GitHub Issue",
+      whatsNew: "新功能",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "历史",
@@ -828,8 +849,10 @@ export const zhCN: TranslationResources = {
         copyPath: "复制路径",
         copyBranchName: "复制分支名称",
         rename: "重命名 workspace",
+        pin: "置顶",
+        unpin: "取消置顶",
         archive: "归档",
-        archiveWorktree: "归档 worktree",
+        archiveWorkspace: "归档工作区",
         hideFromSidebar: "从侧边栏隐藏",
         archiving: "正在归档...",
         hiding: "正在隐藏...",
@@ -851,7 +874,7 @@ export const zhCN: TranslationResources = {
         branchNameCopied: "分支名称已复制",
         hostDisconnected: "Host 未连接",
         hideFailed: "隐藏 workspace 失败",
-        archiveFailed: "归档 worktree 失败",
+        archiveFailed: "归档工作区失败",
       },
     },
   },
@@ -1040,6 +1063,12 @@ export const zhCN: TranslationResources = {
       },
     },
   },
+  rootError: {
+    kicker: "出现问题",
+    title: "Paseo 遇到了问题。",
+    body: "请重试以重新加载应用。如果问题持续发生，请在报告时附上下面的详细信息。",
+    details: "详情",
+  },
   startup: {
     errorTitle: "出现问题",
     errorDescription: "本地服务器启动失败。如果持续发生，请在 GitHub 报告问题并附上下方日志。",
@@ -1070,7 +1099,8 @@ export const zhCN: TranslationResources = {
     },
   },
   projectPicker: {
-    placeholder: "输入目录路径...",
+    placeholder: "输入以搜索...",
+    browse: "浏览…",
     opening: "正在打开 project...",
     searching: "正在搜索...",
     empty: "开始输入路径",
@@ -1331,6 +1361,8 @@ export const zhCN: TranslationResources = {
     detachTooltip: "分离 subagent",
     archiveAction: "归档 {{label}}",
     archiveTooltip: "归档 subagent",
+    archiveFinishedAction: "归档已完成的 subagent",
+    archiveFinishedTooltip: "归档已完成项",
   },
   panels: {
     draft: {
@@ -1352,6 +1384,33 @@ export const zhCN: TranslationResources = {
     subAgentActivity: "Sub-agent 活动",
     input: "输入",
     output: "输出",
+  },
+  toolCallGroup: {
+    editedFiles: {
+      one: "编辑了 {{count}} 个文件",
+      other: "编辑了 {{count}} 个文件",
+    },
+    commands: {
+      one: "运行了 {{count}} 个命令",
+      other: "运行了 {{count}} 个命令",
+    },
+    readFiles: {
+      one: "读取了 {{count}} 个文件",
+      other: "读取了 {{count}} 个文件",
+    },
+    searches: {
+      one: "搜索了 {{count}} 次",
+      other: "搜索了 {{count}} 次",
+    },
+    otherTools: {
+      one: "使用了 {{count}} 个其他工具",
+      other: "使用了 {{count}} 个其他工具",
+    },
+    paseoCalls: {
+      one: "调用了 Paseo {{count}} 次",
+      other: "调用了 Paseo {{count}} 次",
+    },
+    and: "并",
   },
   renameModal: {
     rename: "重命名",
@@ -1393,6 +1452,7 @@ export const zhCN: TranslationResources = {
     },
     backToWorkspace: "返回",
     addHost: "添加主机",
+    enableBuiltInDaemon: "启用内置 daemon",
     projects: "项目",
     projectList: {
       hostLoadFailed: "无法从 Host {{hostName}} 加载 projects：{{message}}",
@@ -1401,7 +1461,6 @@ export const zhCN: TranslationResources = {
     groupInfo: "关于 {{title}}",
     sections: {
       general: "通用",
-      daemon: "Daemon",
       appearance: "外观",
       shortcuts: "快捷键",
       integrations: "集成",
@@ -1416,10 +1475,21 @@ export const zhCN: TranslationResources = {
       providers: "Providers",
       usage: "使用情况",
       terminals: "Terminals",
-      host: "Host",
+      host: "概览",
     },
     general: {
       title: "通用",
+      browserData: {
+        title: "浏览器数据",
+        siteData: "Cookie 和网站数据",
+        description: "浏览器标签页在 Paseo 中共享登录状态和网站数据。",
+        clear: "清除浏览器数据",
+        clearing: "正在清除...",
+        confirmTitle: "清除浏览器数据？",
+        confirmMessage: "网站帐号将退出登录，打开的浏览器标签页将重新加载。",
+        success: "浏览器数据已清除。",
+        error: "无法清除浏览器数据。",
+      },
       defaultSend: {
         label: "默认发送",
         descriptions: {
@@ -1444,6 +1514,19 @@ export const zhCN: TranslationResources = {
         label: "终端回滚",
         description: "内置终端缓冲区保留的行数",
         accessibilityLabel: "终端回滚行数",
+      },
+      autoExpandReasoning: {
+        label: "始终展开推理过程",
+        description: "默认情况下完全展开 AI 的思考和推理过程",
+      },
+      toolCallDetail: {
+        label: "工具调用显示",
+        description: "工具调用在时间线中的显示方式",
+        accessibilityLabel: "选择工具调用显示方式（{{value}}）",
+        options: {
+          overview: "摘要",
+          detailed: "完整详情",
+        },
       },
       language: {
         label: "语言",
@@ -1526,6 +1609,9 @@ export const zhCN: TranslationResources = {
           auto: "系统",
         },
       },
+      detailLevel: {
+        title: "详细程度",
+      },
       fonts: {
         title: "字体",
         systemDefault: "系统默认",
@@ -1570,7 +1656,7 @@ export const zhCN: TranslationResources = {
         openProject: "打开项目",
         newWorkspace: "新建 workspace",
         newWorktree: "新建 worktree",
-        archiveWorktree: "归档 worktree",
+        archiveWorkspace: "归档工作区",
         newTab: "新建标签",
         closeCurrentTab: "关闭当前标签",
         jumpToWorkspace: "跳转到 workspace",

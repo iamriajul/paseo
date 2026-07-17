@@ -16,6 +16,7 @@ import {
   decodeWorkspaceIdFromPathSegment,
   encodeFilePathForPathSegment,
   encodeWorkspaceIdForPathSegment,
+  isSettingsSectionSlug,
   normalizeHostSectionSlug,
   parseHostAgentRouteFromPathname,
   parseHostWorkspaceOpenIntentFromPathname,
@@ -278,6 +279,12 @@ describe("host settings section slugs", () => {
   it("maps old host settings sections to their new names", () => {
     expect(normalizeHostSectionSlug("orchestration")).toBe("agents");
     expect(normalizeHostSectionSlug("daemon")).toBe("host");
+  });
+});
+
+describe("settings section slugs", () => {
+  it("no longer treats daemon as a valid app-level settings section", () => {
+    expect(isSettingsSectionSlug("daemon")).toBe(false);
   });
 });
 

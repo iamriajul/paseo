@@ -30,7 +30,8 @@ The tunnel protocol is a binary WebSocket frame family in `packages/protocol/src
 Hosts may advertise optional Code Server openers in `server_info.urlOpeners.codeServer`.
 
 - `localhostUrl` is derived from a running daemon-local code-server process, such as `http://127.0.0.1:13337`. Electron desktop shows a Code Server action when this is present. Clicking it creates a dedicated Code Server workspace tab that internally uses a Browser webview with hidden chrome.
-- `externalUrl` comes from `CODE_SERVER_URL` when it is set to an absolute `http` or `https` URL. Web and native platforms show the Code Server action when this is present and open it in the external browser.
+- `externalUrl` comes from `CODE_SERVER_URL` when it is set to an absolute `http` or `https` URL. Web and native platforms open it in the external browser. When that URL is loopback, or when only `localhostUrl` is available, the client can derive the mobile URL from `VSCODE_PROXY_URI` instead of opening the phone's own localhost.
+- Code Server launch URLs include the current workspace directory in the `folder` query parameter so the editor opens the selected workspace by default.
 - Code Server workspace tabs have their own local title records (`Code Server 1`, `Code Server 2`, etc.) and can be renamed from the tab menu. They are not generic Browser tabs, even though desktop uses Browser infrastructure internally.
 
 ## Invariants
@@ -40,6 +41,12 @@ Hosts may advertise optional Code Server openers in `server_info.urlOpeners.code
 - Browser automation registers the Browser before creating its resident webview for the same reason.
 - Do not route Browser localhost through generated service-proxy hostnames. That would change the visible origin and break pages that expect `localhost`.
 - Normal HTTP proxy requests force `Connection: close` after the rewritten request. This makes Chromium open a fresh proxy connection for later Vite module requests, so every request is parsed and rewritten from proxy absolute-form to origin-form. WebSocket upgrade requests keep their upgrade connection for HMR.
+
+## Browser profile compatibility
+
+The fork intentionally keeps Browser webviews on `persist:paseo-browser-${browserId}` partitions even though upstream Browser tabs can use one shared profile. Electron proxy settings are session-scoped, so moving fork webviews onto a single shared partition would make every tab use whichever workspace proxy registered last and silently route `localhost` to the wrong host.
+
+Upstream's attached-webview identity checks and profile cleanup still apply to these prefixed partitions. Do not collapse them into the shared `persist:paseo-browser` partition unless the remote-localhost proxy is first redesigned so concurrent tabs on different hosts remain isolated.
 
 ## Testing
 

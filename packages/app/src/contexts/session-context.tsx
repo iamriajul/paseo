@@ -72,12 +72,14 @@ import {
 import { isNative } from "@/constants/platform";
 import { useToast } from "@/contexts/toast-context";
 import { toErrorMessage } from "@/utils/error-messages";
+import { toDaemonServerInfo } from "@/utils/server-info";
 import { showProviderNoticeToast } from "@/utils/provider-notice-toast";
 import { applyCheckoutStatusUpdateFromEvent } from "@/git/checkout-status-cache";
 import {
   applyLegacyDaemonWorkspaceOwnership,
   backfillLegacyDaemonWorkspaceDirectoryIfEmpty,
 } from "@/workspace/legacy-daemon-workspaces";
+import { useProviderSubagentStore } from "@/subagents/provider-store";
 
 // Re-export types from session-store and draft-store for backward compatibility
 export type { DraftInput } from "@/stores/draft-store";
@@ -473,6 +475,15 @@ function applyToolErrorToMessages(
         ? { ...msg, error, status: "failed" as const }
         : msg,
     );
+}
+
+function notifyVoiceAbortFailure(
+  data: Extract<SessionOutboundMessage, { type: "activity_log" }>["payload"],
+  notifyError: (message: string) => void,
+): void {
+  if (data.type === "error" && data.metadata?.voiceAbortFailed === true) {
+    notifyError(data.content);
+  }
 }
 
 interface SessionProviderSharedProps {
@@ -937,13 +948,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       return;
     }
 
-    updateSessionServerInfo(serverId, {
-      serverId: serverInfo.serverId,
-      hostname: serverInfo.hostname,
-      version: serverInfo.version,
-      ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
-      ...(serverInfo.features ? { features: serverInfo.features } : {}),
-    });
+    updateSessionServerInfo(serverId, toDaemonServerInfo(serverInfo));
   }, [client, serverId, updateSessionServerInfo]);
 
   useEffect(() => {
@@ -1349,6 +1354,11 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       applyTimelineResponse(message.payload);
     });
 
+    const unsubProviderSubagentUpdate = client.on("agent.provider_subagents.update", (message) => {
+      if (message.type !== "agent.provider_subagents.update") return;
+      useProviderSubagentStore.getState().applyUpdate(serverId, message.payload);
+    });
+
     const unsubWorkspaceUpdate = client.on("workspace_update", (message) => {
       if (message.type !== "workspace_update") return;
       if (message.payload.kind === "remove") {
@@ -1403,13 +1413,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       if (message.type !== "status") return;
       const serverInfo = parseServerInfoStatusPayload(message.payload);
       if (serverInfo) {
-        updateSessionServerInfo(serverId, {
-          serverId: serverInfo.serverId,
-          hostname: serverInfo.hostname,
-          version: serverInfo.version,
-          ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
-          ...(serverInfo.features ? { features: serverInfo.features } : {}),
-        });
+        updateSessionServerInfo(serverId, toDaemonServerInfo(serverInfo));
         return;
       }
     });
@@ -1563,6 +1567,8 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         const applyToolError = applyToolErrorToMessages(toolCallId, error);
         setMessages(serverId, applyToolError);
       }
+
+      notifyVoiceAbortFailure(data, toast.error);
 
       let activityType: "system" | "info" | "success" | "error" = "info";
       if (data.type === "error") activityType = "error";
@@ -1750,6 +1756,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       unsubAgentUpdate();
       unsubAgentStream();
       unsubAgentTimeline();
+      unsubProviderSubagentUpdate();
       unsubWorkspaceUpdate();
       unsubScriptStatusUpdate();
       unsubCheckoutStatusUpdate();
@@ -1798,6 +1805,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
     applyWorkspaceSetupProgress,
     applyTimelineResponse,
     updateSessionServerInfo,
+    toast,
     voiceRuntime,
     voiceAudioEngine,
   ]);

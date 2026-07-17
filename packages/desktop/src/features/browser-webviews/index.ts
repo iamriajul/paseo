@@ -1,13 +1,18 @@
 import { webContents as allWebContents, type WebContents } from "electron";
+import { PASEO_BROWSER_PROFILE_PARTITION } from "../browser-profile.js";
 import {
   BROWSER_NEW_TAB_REQUEST_EVENT,
   handleBrowserWindowOpenRequest,
   isAllowedBrowserWebviewUrl,
+  PendingBrowserWindowOpenRequests,
 } from "./window-open.js";
 import { PaseoBrowserWebviewRegistry, type BrowserWorkspaceRegistration } from "./registry.js";
 
-export { BROWSER_NEW_TAB_REQUEST_EVENT, handleBrowserWindowOpenRequest };
-export type { BrowserWorkspaceRegistration };
+export {
+  BROWSER_NEW_TAB_REQUEST_EVENT,
+  handleBrowserWindowOpenRequest,
+  PendingBrowserWindowOpenRequests,
+};
 
 const browserRegistry = new PaseoBrowserWebviewRegistry();
 
@@ -17,27 +22,30 @@ interface BrowserWebContentsIdentity {
 }
 
 interface RegisteredBrowserWebContents extends BrowserWebContentsIdentity {
+  readonly hostWebContents: BrowserWebContentsIdentity | null;
+  readonly session: object;
   setBackgroundThrottling(allowed: boolean): void;
   once(event: "destroyed", listener: () => void): void;
 }
 
-function getBrowserIdFromWebviewPartition(partition: string | undefined): string | null {
-  const prefix = "persist:paseo-browser-";
-  if (!partition?.startsWith(prefix)) {
-    return null;
-  }
-  const browserId = partition.slice(prefix.length).trim();
-  return browserId.length > 0 ? browserId : null;
+interface AttachedBrowserRegistration {
+  browserId: string;
+  workspaceId: string;
+  webContentsId: number;
 }
 
-export function readBrowserIdFromWebviewAttach(input: {
-  src?: string;
-  partition?: string;
-}): string | null {
-  if (!isAllowedBrowserWebviewUrl(input.src)) {
-    return null;
-  }
-  return getBrowserIdFromWebviewPartition(input.partition);
+interface RegisterAttachedBrowserInput extends AttachedBrowserRegistration {
+  sender: BrowserWebContentsIdentity;
+  profileSession: object;
+  findWebContents(webContentsId: number): RegisteredBrowserWebContents | null;
+}
+
+export function isPaseoBrowserWebviewAttach(input: { src?: string; partition?: string }): boolean {
+  return (
+    isAllowedBrowserWebviewUrl(input.src) &&
+    (input.partition === PASEO_BROWSER_PROFILE_PARTITION ||
+      input.partition?.startsWith(`${PASEO_BROWSER_PROFILE_PARTITION}-`) === true)
+  );
 }
 
 export function listRegisteredPaseoBrowserIds(): string[] {
@@ -46,15 +54,33 @@ export function listRegisteredPaseoBrowserIds(): string[] {
     .filter((browserId) => getPaseoBrowserWebContents(browserId));
 }
 
-export function registerPaseoBrowserWebContents(
-  contents: RegisteredBrowserWebContents,
-  browserId: string,
-): void {
+export function preparePaseoBrowserWebContents(contents: RegisteredBrowserWebContents): void {
   contents.setBackgroundThrottling(false);
-  browserRegistry.registerWebContents({ webContentsId: contents.id, browserId });
   contents.once("destroyed", () => {
     browserRegistry.unregisterWebContents(contents.id);
   });
+}
+
+export function registerAttachedPaseoBrowser(input: RegisterAttachedBrowserInput): boolean {
+  const guest = input.findWebContents(input.webContentsId);
+  if (
+    !guest ||
+    guest.isDestroyed() ||
+    guest.hostWebContents !== input.sender ||
+    guest.session !== input.profileSession
+  ) {
+    return false;
+  }
+
+  browserRegistry.registerWebContents({
+    webContentsId: input.webContentsId,
+    browserId: input.browserId,
+  });
+  browserRegistry.registerWorkspace({
+    browserId: input.browserId,
+    workspaceId: input.workspaceId,
+  });
+  return true;
 }
 
 export function getPaseoBrowserIdForWebContents(
@@ -66,12 +92,12 @@ export function getPaseoBrowserIdForWebContents(
   return browserRegistry.getBrowserIdForWebContents(contents.id);
 }
 
-export function registerPaseoBrowserWorkspace(input: BrowserWorkspaceRegistration): void {
-  browserRegistry.registerWorkspace(input);
-}
-
 export function unregisterPaseoBrowser(browserId: string): void {
   browserRegistry.unregisterBrowser(browserId);
+}
+
+export function registerPaseoBrowserWorkspace(input: BrowserWorkspaceRegistration): void {
+  browserRegistry.registerWorkspace(input);
 }
 
 export function getPaseoBrowserWorkspaceId(browserId: string): string | null {

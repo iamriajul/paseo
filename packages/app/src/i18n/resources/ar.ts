@@ -54,12 +54,13 @@ export const ar: TranslationResources = {
       close: "إغلاق القائمة",
     },
     commandCenter: {
-      placeholder: "اكتب أمرًا أو وكلاء بحث...",
+      placeholder: "ابحث في الأوامر ومساحات العمل والوكلاء...",
       noMatches: "لا توجد مباريات",
       actions: "الإجراءات",
+      workspaces: "مساحات العمل",
       agents: "الوكلاء",
       newAgent: "وكيل جديد",
-      openProject: "مشروع مفتوح",
+      addProject: "إضافة مشروع",
       home: "بيت",
     },
   },
@@ -622,7 +623,7 @@ export const ar: TranslationResources = {
           success: "تم التحديث",
         },
         archive: {
-          label: "أرشفة شجرة العمل",
+          label: "أرشفة مساحة العمل",
           pending: "أرشفة...",
           success: "مؤرشف",
         },
@@ -664,8 +665,6 @@ export const ar: TranslationResources = {
           updateNoBase: "التحديث غير متاح لأننا لم نتمكن من تحديد الفرع الأساسي",
           updateDirty: "التحديث غير متاح أثناء وجود تغييرات محلية، لذا قم بتنفيذها أو تخزينها أولاً",
           updateCurrent: "التحديث غير متاح لأن هذا الفرع محدث بالفعل باستخدام{{baseRef}}",
-          archiveNotWorktree:
-            "الأرشيف غير متاح هنا لأنه لم يتم إنشاء مساحة العمل هذه كشجرة عمل Paseo",
           mergePrNoGithub: "دمج PR غير متاح الآن لأن GitHub غير متصل",
           mergePrMissing: "دمج PR غير متاح لأنه لا يوجد طلب سحب حتى الآن",
           mergePrDraft: "دمج PR غير متاح لأن طلب السحب لا يزال مسودة",
@@ -688,11 +687,9 @@ export const ar: TranslationResources = {
           baseRefUnavailable: "المرجع الأساسي غير متاح",
           failedMerge: "فشل الدمج",
           failedMergeFromBase: "فشل الدمج من القاعدة",
-          worktreePathUnavailable: "مسار شجرة العمل غير متوفر",
-          failedArchive: "فشل في أرشفة شجرة العمل",
         },
         archiveWarning: {
-          title: 'الأرشيف "{{worktreeName}}"؟',
+          title: 'الأرشيف "{{workspaceName}}"؟',
           confirm: "أرشيف",
           cancel: "يلغي",
           uncommittedChanges: "تغييرات غير ملتزم بها",
@@ -710,11 +707,19 @@ export const ar: TranslationResources = {
         tooLarge: "الفرق كبير جدًا بحيث لا يمكن عرضه",
         unified: "الفرق الموحدة",
         split: "فرق جنبًا إلى جنب",
+        switchToUnified: "التبديل إلى الفرق الموحد",
+        switchToSplit: "التبديل إلى الفرق جنبًا إلى جنب",
+        showTreeView: "إظهار شجرة المجلدات",
+        showFlatView: "إظهار قائمة الملفات المسطحة",
+        options: "خيارات الفرق",
         hideWhitespace: "إخفاء المسافة البيضاء",
+        showWhitespace: "إظهار المسافة البيضاء",
         scrollLongLines: "قم بتمرير الخطوط الطويلة",
         wrapLongLines: "لف الخطوط الطويلة",
         collapseAll: "طي كافة الملفات",
         expandAll: "قم بتوسيع كافة الملفات",
+        collapseAllFolders: "طي كافة المجلدات",
+        expandAllFolders: "توسيع كافة المجلدات",
         refreshing: "منعش",
         refresh: "ينعش",
         refreshState: "تحديث بوابة وحالة GitHub",
@@ -773,6 +778,9 @@ export const ar: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "المثبتة",
+    },
     host: {
       noHost: "لا مضيف",
       switchTitle: "تبديل المضيف",
@@ -781,9 +789,21 @@ export const ar: TranslationResources = {
     actions: {
       addProject: "إضافة مشروع",
       newWorkspace: "مساحة عمل جديدة",
+      hosts: "المضيفون",
       home: "بيت",
       settings: "إعدادات",
       closeSidebar: "إغلاق الشريط الجانبي",
+    },
+    help: {
+      trigger: "المساعدة والدعم",
+      sectionHelp: "المساعدة",
+      diagnostics: "تشغيل التشخيص",
+      shortcuts: "اختصارات لوحة المفاتيح",
+      reportIssue: "الإبلاغ عن مشكلة",
+      discord: "Discord",
+      github: "إنشاء مشكلة على GitHub",
+      whatsNew: "ما الجديد",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "السجل",
@@ -836,8 +856,10 @@ export const ar: TranslationResources = {
         copyPath: "نسخ المسار",
         copyBranchName: "انسخ اسم الفرع",
         rename: "إعادة تسمية مساحة العمل",
+        pin: "تثبيت في الأعلى",
+        unpin: "إلغاء التثبيت",
         archive: "أرشيف",
-        archiveWorktree: "أرشفة شجرة العمل",
+        archiveWorkspace: "أرشفة مساحة العمل",
         hideFromSidebar: "إخفاء من الشريط الجانبي",
         archiving: "أرشفة...",
         hiding: "إخفاء...",
@@ -860,7 +882,7 @@ export const ar: TranslationResources = {
         branchNameCopied: "تم نسخ اسم الفرع",
         hostDisconnected: "Host غير متصل",
         hideFailed: "فشل في إخفاء مساحة العمل",
-        archiveFailed: "فشل في أرشفة شجرة العمل",
+        archiveFailed: "فشل في أرشفة مساحة العمل",
       },
     },
   },
@@ -1054,6 +1076,12 @@ export const ar: TranslationResources = {
       },
     },
   },
+  rootError: {
+    kicker: "حدث خطأ",
+    title: "واجه Paseo مشكلة.",
+    body: "جرّب مرة أخرى لإعادة تحميل التطبيق. إذا استمر حدوث ذلك، فأرفق التفاصيل أدناه عند الإبلاغ عنه.",
+    details: "التفاصيل",
+  },
   startup: {
     errorTitle: "حدث خطأ ما",
     errorDescription:
@@ -1085,7 +1113,8 @@ export const ar: TranslationResources = {
     },
   },
   projectPicker: {
-    placeholder: "اكتب مسار الدليل...",
+    placeholder: "اكتب للبحث...",
+    browse: "استعراض…",
     opening: "افتتاح المشروع...",
     searching: "جارٍ البحث...",
     empty: "ابدأ بكتابة المسار",
@@ -1348,6 +1377,8 @@ export const ar: TranslationResources = {
     detachTooltip: "فصل الوكيل الفرعي",
     archiveAction: "أرشيف{{label}}",
     archiveTooltip: "أرشفة الوكيل الفرعي",
+    archiveFinishedAction: "أرشفة الوكلاء الفرعيين المكتملين",
+    archiveFinishedTooltip: "أرشفة المكتملين",
   },
   panels: {
     draft: {
@@ -1369,6 +1400,33 @@ export const ar: TranslationResources = {
     subAgentActivity: "نشاط الوكيل الفرعي",
     input: "مدخل",
     output: "الإخراج",
+  },
+  toolCallGroup: {
+    editedFiles: {
+      one: "حرّر {{count}} ملفًا",
+      other: "حرّر {{count}} ملفات",
+    },
+    commands: {
+      one: "شغّل {{count}} أمرًا",
+      other: "شغّل {{count}} أوامر",
+    },
+    readFiles: {
+      one: "قرأ {{count}} ملفًا",
+      other: "قرأ {{count}} ملفات",
+    },
+    searches: {
+      one: "بحث {{count}} مرة",
+      other: "بحث {{count}} مرات",
+    },
+    otherTools: {
+      one: "استخدم {{count}} أداة أخرى",
+      other: "استخدم {{count}} أدوات أخرى",
+    },
+    paseoCalls: {
+      one: "استدعى Paseo {{count}} مرة",
+      other: "استدعى Paseo {{count}} مرات",
+    },
+    and: "و",
   },
   renameModal: {
     rename: "إعادة تسمية",
@@ -1410,6 +1468,7 @@ export const ar: TranslationResources = {
     },
     backToWorkspace: "خلف",
     addHost: "أضف مضيفًا",
+    enableBuiltInDaemon: "تفعيل البرنامج الخفي المدمج",
     projects: "المشاريع",
     projectList: {
       hostLoadFailed: "تعذر تحميل المشاريع من المضيف{{hostName}}:{{message}}",
@@ -1418,7 +1477,6 @@ export const ar: TranslationResources = {
     groupInfo: "حول{{title}}",
     sections: {
       general: "عام",
-      daemon: "Daemon",
       appearance: "مظهر",
       shortcuts: "الاختصارات",
       integrations: "التكامل",
@@ -1433,10 +1491,21 @@ export const ar: TranslationResources = {
       providers: "مقدمي الخدمات",
       usage: "الاستخدام",
       terminals: "Terminals",
-      host: "Host",
+      host: "نظرة عامة",
     },
     general: {
       title: "عام",
+      browserData: {
+        title: "بيانات المتصفح",
+        siteData: "ملفات تعريف الارتباط وبيانات المواقع",
+        description: "تتشارك علامات تبويب المتصفح تسجيلات الدخول وبيانات المواقع عبر Paseo.",
+        clear: "مسح بيانات المتصفح",
+        clearing: "جارٍ المسح...",
+        confirmTitle: "هل تريد مسح بيانات المتصفح؟",
+        confirmMessage: "سيتم تسجيل خروجك من المواقع وإعادة تحميل علامات تبويب المتصفح المفتوحة.",
+        success: "تم مسح بيانات المتصفح.",
+        error: "تعذر مسح بيانات المتصفح.",
+      },
       defaultSend: {
         label: "إرسال افتراضي",
         descriptions: {
@@ -1462,6 +1531,19 @@ export const ar: TranslationResources = {
         label: "التمرير Terminal",
         description: "يتم الاحتفاظ بالخطوط في المخزن المؤقت الطرفي المدمج",
         accessibilityLabel: "خطوط التمرير Terminal",
+      },
+      autoExpandReasoning: {
+        label: "عرض التفكير دائماً",
+        description: "إظهار تفكير الوكيل وخطوات الاستدلال بشكل كامل بشكل افتراضي",
+      },
+      toolCallDetail: {
+        label: "عرض استدعاءات الأدوات",
+        description: "كيفية ظهور استدعاءات الأدوات في المخطط الزمني",
+        accessibilityLabel: "حدد عرض استدعاءات الأدوات ({{value}})",
+        options: {
+          overview: "ملخص",
+          detailed: "التفاصيل الكاملة",
+        },
       },
       language: {
         label: "لغة",
@@ -1544,6 +1626,9 @@ export const ar: TranslationResources = {
           auto: "نظام",
         },
       },
+      detailLevel: {
+        title: "مستوى التفاصيل",
+      },
       fonts: {
         title: "الخطوط",
         systemDefault: "الافتراضي للنظام",
@@ -1589,7 +1674,7 @@ export const ar: TranslationResources = {
         openProject: "مشروع مفتوح",
         newWorkspace: "مساحة عمل جديدة",
         newWorktree: "شجرة عمل جديدة",
-        archiveWorktree: "أرشفة شجرة العمل",
+        archiveWorkspace: "أرشفة مساحة العمل",
         newTab: "علامة تبويب جديدة",
         closeCurrentTab: "إغلاق علامة التبويب الحالية",
         jumpToWorkspace: "انتقل إلى مساحة العمل",

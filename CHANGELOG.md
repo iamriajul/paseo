@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.906 - 2026-07-17
+
+### Fixed
+
+- Sync the fork with official Paseo v0.1.110 so Kimi and other ACP agents stay marked as running while streaming responses ([#6](https://github.com/iamriajul/paseo/pull/6), [#2148](https://github.com/getpaseo/paseo/pull/2148))
+
 ## 0.1.905 - 2026-07-16
 
 ### Added
@@ -59,6 +65,12 @@
 - Shortcut capture recognizes punctuation keys correctly ([#2047](https://github.com/getpaseo/paseo/pull/2047) by [@OnCloud125252](https://github.com/OnCloud125252))
 - Codebuddy Code models appear reliably during discovery ([#1979](https://github.com/getpaseo/paseo/pull/1979) by [@park0er](https://github.com/park0er))
 - Oversized tool output no longer slows or floods chat timelines ([#2020](https://github.com/getpaseo/paseo/pull/2020))
+
+## 0.1.110 - 2026-07-16
+
+### Fixed
+
+- Kimi and other ACP agents now stay marked as running while a response is actively streaming ([#2148](https://github.com/getpaseo/paseo/pull/2148))
 
 ## 0.1.109 - 2026-07-16
 

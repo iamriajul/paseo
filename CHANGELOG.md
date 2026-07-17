@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.906 - 2026-07-17
+
+### Fixed
+
+- Sync the fork with official Paseo v0.1.110 so Kimi and other ACP agents stay marked as running while streaming responses ([#6](https://github.com/iamriajul/paseo/pull/6), [#2148](https://github.com/getpaseo/paseo/pull/2148))
+
 ## 0.1.905 - 2026-07-16
 
 ### Added

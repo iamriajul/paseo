@@ -60,6 +60,12 @@
 - Codebuddy Code models appear reliably during discovery ([#1979](https://github.com/getpaseo/paseo/pull/1979) by [@park0er](https://github.com/park0er))
 - Oversized tool output no longer slows or floods chat timelines ([#2020](https://github.com/getpaseo/paseo/pull/2020))
 
+## 0.1.110 - 2026-07-16
+
+### Fixed
+
+- Kimi and other ACP agents now stay marked as running while a response is actively streaming ([#2148](https://github.com/getpaseo/paseo/pull/2148))
+
 ## 0.1.109 - 2026-07-16
 
 ### Fixed

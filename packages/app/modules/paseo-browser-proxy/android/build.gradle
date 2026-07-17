@@ -1,0 +1,25 @@
+apply plugin: 'com.android.library'
+
+group = 'sh.paseo.browserproxy'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace "sh.paseo.browserproxy"
+
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  implementation "androidx.webkit:webkit:1.14.0"
+  testImplementation "junit:junit:4.13.2"
+}

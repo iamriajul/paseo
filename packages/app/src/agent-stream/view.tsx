@@ -89,7 +89,8 @@ import {
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { buildNewWorkspaceRoute } from "@/utils/host-routes";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import { getIsElectron, isWeb } from "@/constants/platform";
+import { isWeb } from "@/constants/platform";
+import { useWorkspaceBrowserAvailability } from "@/browser/workspace-browser-availability";
 import type { Theme } from "@/styles/theme";
 import { recordRenderProfileReasons } from "@/utils/render-profiler";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -365,6 +366,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     // Get serverId (fallback to agent's serverId if not provided)
     const resolvedServerId = serverId ?? context.serverId ?? "";
+    const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(resolvedServerId);
 
     const vscodeProxyUri = useSessionStore((state) =>
       resolvedServerId
@@ -391,7 +393,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       if (!isLoopbackHttpUrl(url)) {
         return false;
       }
-      if (getIsElectron() && onOpenUrlInBrowserTab) {
+      if (hasWorkspaceBrowser && onOpenUrlInBrowserTab) {
         onOpenUrlInBrowserTab(url);
         return true;
       }

@@ -1,0 +1,249 @@
+diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCProxyAuthCredential.java b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCProxyAuthCredential.java
+new file mode 100644
+index 0000000..622b63c
+--- /dev/null
++++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCProxyAuthCredential.java
+@@ -0,0 +1,19 @@
++package com.reactnativecommunity.webview;
++
++class RNCProxyAuthCredential {
++    String host;
++    String realm;
++    String username;
++    String password;
++
++    RNCProxyAuthCredential(String host, String realm, String username, String password) {
++        this.host = host;
++        this.realm = realm;
++        this.username = username;
++        this.password = password;
++    }
++
++    boolean matches(String challengeHost, String challengeRealm) {
++        return host.equalsIgnoreCase(challengeHost) && realm.equals(challengeRealm);
++    }
++}
+diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
+index 80c6803..9c3f3db 100644
+--- a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
++++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
+@@ -95,6 +95,10 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
+         mRNCWebViewClient.setBasicAuthCredential(credential);
+     }
+ 
++    public void setProxyAuthCredential(RNCProxyAuthCredential credential) {
++        mRNCWebViewClient.setProxyAuthCredential(credential);
++    }
++
+     public void setSendContentSizeChangeEvents(boolean sendContentSizeChangeEvents) {
+         this.sendContentSizeChangeEvents = sendContentSizeChangeEvents;
+     }
+diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
+index 0287e1c..4344fb3 100644
+--- a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
++++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
+@@ -44,11 +44,16 @@ public class RNCWebViewClient extends WebViewClient {
+     protected boolean mLastLoadFailed = false;
+     protected RNCWebView.ProgressChangedFilter progressChangedFilter = null;
+     protected @Nullable RNCBasicAuthCredential basicAuthCredential = null;
++    protected @Nullable RNCProxyAuthCredential proxyAuthCredential = null;
+ 
+     public void setBasicAuthCredential(@Nullable RNCBasicAuthCredential credential) {
+         basicAuthCredential = credential;
+     }
+ 
++    public void setProxyAuthCredential(@Nullable RNCProxyAuthCredential credential) {
++        proxyAuthCredential = credential;
++    }
++
+     @Override
+     public void onPageFinished(WebView webView, String url) {
+         super.onPageFinished(webView, url);
+@@ -148,6 +153,10 @@ public class RNCWebViewClient extends WebViewClient {
+ 
+     @Override
+     public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler, String host, String realm) {
++        if (proxyAuthCredential != null && proxyAuthCredential.matches(host, realm)) {
++            handler.proceed(proxyAuthCredential.username, proxyAuthCredential.password);
++            return;
++        }
+         if (basicAuthCredential != null) {
+             handler.proceed(basicAuthCredential.username, basicAuthCredential.password);
+             return;
+diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
+index f83033b..24ac938 100644
+--- a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
++++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
+@@ -268,6 +268,26 @@ class RNCWebViewManagerImpl(private val newArch: Boolean = false) {
+         viewWrapper.webView.setBasicAuthCredential(basicAuthCredential)
+     }
+ 
++    fun setProxyAuthCredential(viewWrapper: RNCWebViewWrapper, credential: ReadableMap?) {
++        var proxyAuthCredential: RNCProxyAuthCredential? = null
++        if (credential != null) {
++            if (
++                credential.hasKey("host") &&
++                credential.hasKey("realm") &&
++                credential.hasKey("username") &&
++                credential.hasKey("password")
++            ) {
++                proxyAuthCredential = RNCProxyAuthCredential(
++                    credential.getString("host"),
++                    credential.getString("realm"),
++                    credential.getString("username"),
++                    credential.getString("password")
++                )
++            }
++        }
++        viewWrapper.webView.setProxyAuthCredential(proxyAuthCredential)
++    }
++
+     fun onAfterUpdateTransaction(viewWrapper: RNCWebViewWrapper) {
+         mPendingSource?.let { source ->
+             loadSource(viewWrapper, source)
+diff --git a/node_modules/react-native-webview/android/src/newarch/com/reactnativecommunity/webview/RNCWebViewManager.java b/node_modules/react-native-webview/android/src/newarch/com/reactnativecommunity/webview/RNCWebViewManager.java
+index 4709e28..87b2ec6 100644
+--- a/node_modules/react-native-webview/android/src/newarch/com/reactnativecommunity/webview/RNCWebViewManager.java
++++ b/node_modules/react-native-webview/android/src/newarch/com/reactnativecommunity/webview/RNCWebViewManager.java
+@@ -112,6 +112,12 @@ public class RNCWebViewManager extends ViewGroupManager<RNCWebViewWrapper>
+         mRNCWebViewManagerImpl.setBasicAuthCredential(view, value);
+     }
+ 
++    @Override
++    @ReactProp(name = "proxyAuthCredential")
++    public void setProxyAuthCredential(RNCWebViewWrapper view, @Nullable ReadableMap value) {
++        mRNCWebViewManagerImpl.setProxyAuthCredential(view, value);
++    }
++
+     @Override
+     @ReactProp(name = "cacheEnabled")
+     public void setCacheEnabled(RNCWebViewWrapper view, boolean value) {
+diff --git a/node_modules/react-native-webview/android/src/oldarch/com/reactnativecommunity/webview/RNCWebViewManager.java b/node_modules/react-native-webview/android/src/oldarch/com/reactnativecommunity/webview/RNCWebViewManager.java
+index 974337f..aab6794 100644
+--- a/node_modules/react-native-webview/android/src/oldarch/com/reactnativecommunity/webview/RNCWebViewManager.java
++++ b/node_modules/react-native-webview/android/src/oldarch/com/reactnativecommunity/webview/RNCWebViewManager.java
+@@ -87,6 +87,11 @@ public class RNCWebViewManager extends ViewGroupManager<RNCWebViewWrapper> {
+         mRNCWebViewManagerImpl.setBasicAuthCredential(view, value);
+     }
+ 
++    @ReactProp(name = "proxyAuthCredential")
++    public void setProxyAuthCredential(RNCWebViewWrapper view, @Nullable ReadableMap value) {
++        mRNCWebViewManagerImpl.setProxyAuthCredential(view, value);
++    }
++
+     @ReactProp(name = "cacheEnabled")
+     public void setCacheEnabled(RNCWebViewWrapper view, boolean value) {
+         mRNCWebViewManagerImpl.setCacheEnabled(view, value);
+diff --git a/node_modules/react-native-webview/lib/RNCWebViewNativeComponent.d.ts b/node_modules/react-native-webview/lib/RNCWebViewNativeComponent.d.ts
+index 8dd6cef..a4af556 100644
+--- a/node_modules/react-native-webview/lib/RNCWebViewNativeComponent.d.ts
++++ b/node_modules/react-native-webview/lib/RNCWebViewNativeComponent.d.ts
+@@ -187,6 +187,12 @@ export interface NativeProps extends ViewProps {
+         username: string;
+         password: string;
+     }>;
++    proxyAuthCredential?: Readonly<{
++        host: string;
++        realm: string;
++        username: string;
++        password: string;
++    }>;
+     cacheEnabled?: WithDefault<boolean, true>;
+     incognito?: boolean;
+     injectedJavaScript?: string;
+diff --git a/node_modules/react-native-webview/lib/WebViewTypes.d.ts b/node_modules/react-native-webview/lib/WebViewTypes.d.ts
+index 998cc88..de758b1 100644
+--- a/node_modules/react-native-webview/lib/WebViewTypes.d.ts
++++ b/node_modules/react-native-webview/lib/WebViewTypes.d.ts
+@@ -180,6 +180,12 @@ export interface BasicAuthCredential {
+      */
+     password: string;
+ }
++export interface ProxyAuthCredential extends BasicAuthCredential {
++    /** Proxy challenge host. Origin authentication challenges never receive these credentials. */
++    host: string;
++    /** Proxy authentication realm. */
++    realm: string;
++}
+ export interface CommonNativeWebViewProps extends ViewProps {
+     cacheEnabled?: boolean;
+     incognito?: boolean;
+@@ -209,6 +215,7 @@ export interface CommonNativeWebViewProps extends ViewProps {
+      */
+     applicationNameForUserAgent?: string;
+     basicAuthCredential?: BasicAuthCredential;
++    proxyAuthCredential?: ProxyAuthCredential;
+ }
+ export declare type ContentInsetAdjustmentBehavior = 'automatic' | 'scrollableAxes' | 'never' | 'always';
+ export declare type MediaCapturePermissionGrantType = 'grantIfSameHostElsePrompt' | 'grantIfSameHostElseDeny' | 'deny' | 'grant' | 'prompt';
+@@ -1101,6 +1108,12 @@ export interface WebViewSharedProps extends ViewProps {
+      * An object that specifies the credentials of a user to be used for basic authentication.
+      */
+     basicAuthCredential?: BasicAuthCredential;
++    /**
++     * Credentials used only when an Android HTTP authentication challenge matches
++     * both this proxy host and realm.
++     * @platform android
++     */
++    proxyAuthCredential?: ProxyAuthCredential;
+     /**
+      * Inject a JavaScript object to be accessed as a JSON string via JavaScript in the WebView.
+      */
+diff --git a/node_modules/react-native-webview/src/RNCWebViewNativeComponent.ts b/node_modules/react-native-webview/src/RNCWebViewNativeComponent.ts
+index 7f4e6c4..486796e 100644
+--- a/node_modules/react-native-webview/src/RNCWebViewNativeComponent.ts
++++ b/node_modules/react-native-webview/src/RNCWebViewNativeComponent.ts
+@@ -255,6 +255,12 @@ export interface NativeProps extends ViewProps {
+     username: string;
+     password: string;
+   }>;
++  proxyAuthCredential?: Readonly<{
++    host: string;
++    realm: string;
++    username: string;
++    password: string;
++  }>;
+   cacheEnabled?: WithDefault<boolean, true>;
+   incognito?: boolean;
+   injectedJavaScript?: string;
+diff --git a/node_modules/react-native-webview/src/WebViewTypes.ts b/node_modules/react-native-webview/src/WebViewTypes.ts
+index eca8141..53ec576 100644
+--- a/node_modules/react-native-webview/src/WebViewTypes.ts
++++ b/node_modules/react-native-webview/src/WebViewTypes.ts
+@@ -287,6 +287,14 @@ export interface BasicAuthCredential {
+   password: string;
+ }
+ 
++export interface ProxyAuthCredential extends BasicAuthCredential {
++  /** Proxy challenge host. Origin authentication challenges never receive these credentials. */
++  host: string;
++
++  /** Proxy authentication realm. */
++  realm: string;
++}
++
+ export interface CommonNativeWebViewProps extends ViewProps {
+   cacheEnabled?: boolean;
+   incognito?: boolean;
+@@ -318,6 +326,7 @@ export interface CommonNativeWebViewProps extends ViewProps {
+    */
+   applicationNameForUserAgent?: string;
+   basicAuthCredential?: BasicAuthCredential;
++  proxyAuthCredential?: ProxyAuthCredential;
+ }
+ 
+ export declare type ContentInsetAdjustmentBehavior =
+@@ -1343,6 +1352,13 @@ export interface WebViewSharedProps extends ViewProps {
+    */
+   basicAuthCredential?: BasicAuthCredential;
+ 
++  /**
++   * Credentials used only when an Android HTTP authentication challenge matches
++   * both this proxy host and realm.
++   * @platform android
++   */
++  proxyAuthCredential?: ProxyAuthCredential;
++
+   /**
+    * Inject a JavaScript object to be accessed as a JSON string via JavaScript in the WebView.
+    */

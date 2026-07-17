@@ -6,7 +6,6 @@ export type WorkspaceUrlOpenAction =
 
 export function resolveWorkspaceUrlOpenAction(input: {
   url: string;
-  isElectron: boolean;
   hasWorkspaceBrowser: boolean;
   vscodeProxyUri?: string | null;
 }): WorkspaceUrlOpenAction {
@@ -14,7 +13,7 @@ export function resolveWorkspaceUrlOpenAction(input: {
     return { kind: "external", url: input.url };
   }
 
-  if (input.isElectron && input.hasWorkspaceBrowser) {
+  if (input.hasWorkspaceBrowser) {
     return { kind: "browser", url: input.url };
   }
 

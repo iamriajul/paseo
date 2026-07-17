@@ -27,6 +27,7 @@ import {
   Pencil,
   RotateCw,
   Rows2,
+  Search,
   Globe,
   Plus,
   SquarePen,
@@ -90,6 +91,7 @@ import { runPinnedTabTarget, type TabTargetHandlers } from "@/workspace-pins/run
 import type { PinnedTabTarget } from "@/workspace-pins/target";
 import { PinnedTargetsRow } from "@/workspace-pins/pinned-targets-row";
 import { PinnableMenuItem } from "@/workspace-pins/pinnable-menu-item";
+import { keyboardActionDispatcher } from "@/keyboard/keyboard-action-dispatcher";
 
 const DROPDOWN_WIDTH = 220;
 const LOADING_TAB_LABEL_SKELETON_WIDTH = 80;
@@ -111,6 +113,7 @@ const ThemedGlobe = withUnistyles(Globe);
 const ThemedColumns2 = withUnistyles(Columns2);
 const ThemedRows2 = withUnistyles(Rows2);
 const ThemedPlus = withUnistyles(Plus);
+const ThemedSearch = withUnistyles(Search);
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
@@ -795,6 +798,11 @@ export function WorkspaceDesktopTabsRow({
   const newTabKeys = useShortcutKeys("workspace-tab-new");
   const splitRightKeys = useShortcutKeys("workspace-pane-split-right");
   const splitDownKeys = useShortcutKeys("workspace-pane-split-down");
+  const searchKeys = useShortcutKeys("agent-search");
+  const activeTabIsAgent = tabs.some((item) => item.isActive && item.tab.target.kind === "agent");
+  const handleSearchAgent = useCallback(() => {
+    keyboardActionDispatcher.dispatch({ id: "agent.search", scope: "workspace" });
+  }, []);
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
   const [tabsActionsWidth, setTabsActionsWidth] = useState<number>(0);
   const [inlineAddButtonWidth, setInlineAddButtonWidth] = useState<number>(0);
@@ -1030,6 +1038,25 @@ export function WorkspaceDesktopTabsRow({
         />
       </ScrollView>
       <View style={styles.tabsActions} onLayout={handleTabsActionsLayout}>
+        {activeTabIsAgent ? (
+          <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+            <TooltipTrigger
+              testID="workspace-agent-search"
+              accessibilityRole="button"
+              accessibilityLabel={t("agentStream.search.label")}
+              onPress={handleSearchAgent}
+              style={newTabActionButtonStyle}
+            >
+              <ThemedSearch size={14} uniProps={mutedColorMapping} />
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="center" offset={8}>
+              <View style={styles.newTabTooltipRow}>
+                <Text style={styles.newTabTooltipText}>{t("agentStream.search.label")}</Text>
+                {searchKeys ? <Shortcut chord={searchKeys} /> : null}
+              </View>
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
         <WorkspaceTabRowExtras
           onCreateAgentTab={handleCreateAgentTab}
           onCreateTerminal={handleCreateTerminal}

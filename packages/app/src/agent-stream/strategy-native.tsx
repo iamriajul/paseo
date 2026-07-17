@@ -92,6 +92,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
   const [isNativeViewportSettling, setIsNativeViewportSettling] = useState(false);
   const nativeViewportSettlingFrameIdRef = useRef<number | null>(null);
   const historyStartReadyRef = useRef(false);
+  const pendingScrollIndexRef = useRef<number | null>(null);
 
   const historyItems = useMemo(() => {
     if (segments.historyVirtualized.length === 0) {
@@ -170,6 +171,18 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     [onNearBottomChange],
   );
 
+  const scrollToItem = useCallback(
+    (itemId: string) => {
+      const index = historyRows.findIndex((item) => item.id === itemId);
+      if (index < 0) {
+        return;
+      }
+      pendingScrollIndexRef.current = index;
+      flatListRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    },
+    [historyRows],
+  );
+
   const bottomAnchorController = useBottomAnchorController({
     agentId,
     routeRequest: routeBottomAnchorRequest,
@@ -246,6 +259,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
           reason,
         });
       },
+      scrollToItem,
       prepareForViewportChange: () => {
         bottomAnchorController.prepareForStickyViewportChange();
         markNativeViewportSettling();
@@ -257,7 +271,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
         viewportRef.current = null;
       }
     };
-  }, [agentId, bottomAnchorController, markNativeViewportSettling, viewportRef]);
+  }, [agentId, bottomAnchorController, markNativeViewportSettling, scrollToItem, viewportRef]);
 
   const handleScroll = useStableEvent((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -352,6 +366,19 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
       return (rendered ?? null) as ReactElement | null;
     },
   );
+  const handleScrollToIndexFailed = useStableEvent(
+    ({ index, averageItemLength }: { index: number; averageItemLength: number }) => {
+      flatListRef.current?.scrollToOffset({
+        offset: Math.max(0, index * averageItemLength),
+        animated: false,
+      });
+      requestAnimationFrame(() => {
+        if (pendingScrollIndexRef.current === index) {
+          flatListRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+        }
+      });
+    },
+  );
 
   const liveHeaderContent = useMemo(() => {
     // Stable render events read the latest expansion state; this revision makes
@@ -414,6 +441,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
       onScroll={handleScroll}
       scrollEventThrottle={16}
       onContentSizeChange={handleContentSizeChange}
+      onScrollToIndexFailed={handleScrollToIndexFailed}
       maintainVisibleContentPosition={DEFAULT_MAINTAIN_VISIBLE_CONTENT_POSITION}
       initialNumToRender={40}
       maxToRenderPerBatch={40}

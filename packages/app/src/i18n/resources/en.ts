@@ -170,6 +170,20 @@ export const en = {
   agentStream: {
     empty: "Start chatting with this agent...",
     scrollToBottom: "Scroll to bottom",
+    search: {
+      label: "Find in chat",
+      placeholder: "Search conversation",
+      user: "User",
+      assistant: "Assistant",
+      noResults: "No results",
+      resultPosition: "{{current}} of {{total}}",
+      loading: "Searching full history...",
+      incomplete: "Results may be incomplete",
+      retry: "Retry",
+      previous: "Previous result",
+      next: "Next result",
+      close: "Close search",
+    },
     permission: {
       plan: "Plan",
       required: "Permission Required",
@@ -1716,6 +1730,7 @@ export const en = {
         toggleSettings: "Toggle settings",
         toggleFocusMode: "Toggle focus mode",
         cycleTheme: "Cycle theme",
+        findInChat: "Find in chat",
         focusMessageInput: "Focus message input",
         cycleAgentMode: "Cycle agent mode",
         toggleVoiceMode: "Toggle voice mode",

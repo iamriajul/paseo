@@ -138,6 +138,7 @@ import {
   type WorkspaceTabMenuLabels,
 } from "@/screens/workspace/workspace-tab-menu";
 import { useDesktopBrowserNewTabRequests } from "@/browser/new-tab-requests";
+import { useWorkspaceBrowserAvailability } from "@/browser/workspace-browser-availability";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
 import {
   resolveWorkspaceHeaderRenderState,
@@ -1811,6 +1812,7 @@ function WorkspaceScreenContent({
   const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
 
   const normalizedServerId = useMemo(() => trimNonEmpty(decodeSegment(serverId)) ?? "", [serverId]);
+  const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(normalizedServerId);
 
   const normalizedWorkspaceId = useMemo(
     () => resolveWorkspaceRouteId({ routeWorkspaceId: workspaceId }) ?? "",
@@ -2580,7 +2582,7 @@ function WorkspaceScreenContent({
 
   const handleCreateBrowserTab = useCallback(
     (input?: { paneId?: string }) => {
-      if (!persistenceKey || !getIsElectron()) {
+      if (!persistenceKey || !hasWorkspaceBrowser) {
         return;
       }
       if (input?.paneId) {
@@ -2589,7 +2591,7 @@ function WorkspaceScreenContent({
       const { browserId } = createWorkspaceBrowser();
       openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
     },
-    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+    [focusWorkspacePane, hasWorkspaceBrowser, openWorkspaceTabFocused, persistenceKey],
   );
 
   const { handleCreateCodeServerTab, showCreateCodeServerTab } = useWorkspaceCodeServerAction({
@@ -2602,13 +2604,14 @@ function WorkspaceScreenContent({
 
   const handleOpenUrlInBrowserTab = useCallback(
     (url: string) => {
-      if (!persistenceKey || !getIsElectron()) {
-        return;
+      if (!persistenceKey || !hasWorkspaceBrowser) {
+        return false;
       }
       const { browserId } = createWorkspaceBrowser({ initialUrl: url });
       openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
+      return true;
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [hasWorkspaceBrowser, openWorkspaceTabFocused, persistenceKey],
   );
 
   useDesktopBrowserNewTabRequests({
@@ -3578,7 +3581,7 @@ function WorkspaceScreenContent({
     () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
-  const showCreateBrowserTab = getIsElectron();
+  const showCreateBrowserTab = hasWorkspaceBrowser;
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);
   const desktopFocusModeEnabled = useMemo(
     () => isFocusModeEnabled && !isMobile,

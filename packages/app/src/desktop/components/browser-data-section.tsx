@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/contexts/toast-context";
@@ -8,6 +8,8 @@ import { SettingsSection } from "@/screens/settings/settings-section";
 import { useBrowserStore } from "@/stores/browser-store";
 import { settingsStyles } from "@/styles/settings";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { mobileBrowserProxy } from "@/native/mobile-browser-proxy";
+import { requestMobileBrowserReload } from "@/browser/mobile-browser-tunnel-state";
 
 export function BrowserDataSection() {
   const { t } = useTranslation();
@@ -34,12 +36,16 @@ export function BrowserDataSection() {
         return;
       }
 
-      const clearProfile = getDesktopHost()?.browser?.clearProfile;
-      if (!clearProfile) {
-        throw new Error("Electron browser profile bridge is unavailable");
+      if (Platform.OS === "android") {
+        await mobileBrowserProxy.clearBrowserData();
+        requestMobileBrowserReload();
+      } else {
+        const clearProfile = getDesktopHost()?.browser?.clearProfile;
+        if (!clearProfile) {
+          throw new Error("Electron browser profile bridge is unavailable");
+        }
+        await clearProfile(Object.keys(useBrowserStore.getState().browsersById));
       }
-
-      await clearProfile(Object.keys(useBrowserStore.getState().browsersById));
       toast.show(t("settings.general.browserData.success"), { variant: "success" });
     } catch {
       toast.error(t("settings.general.browserData.error"));

@@ -447,6 +447,12 @@ export const es: TranslationResources = {
         failedToLoad: "No se pudo cargar la página",
         invalidUrl: "Navegador no válidoURL",
         unsupportedProtocol: "Navegador bloqueado no compatibleURL:{{protocol}}",
+        localhostHttpsUnsupported: "HTTPS de localhost no es compatible. Usa HTTP para localhost.",
+        hostDisconnected: "El host no está conectado",
+        updateHost: "Actualiza el host para usar el navegador",
+        updateSystemWebView: "Actualiza Android System WebView para usar el navegador",
+        startingTunnel: "Iniciando el túnel seguro de localhost…",
+        tunnelFailed: "Falló el túnel de localhost",
       },
     },
     terminal: {

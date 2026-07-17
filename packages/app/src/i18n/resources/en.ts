@@ -443,6 +443,12 @@ export const en = {
         failedToLoad: "Failed to load page",
         invalidUrl: "Invalid browser URL",
         unsupportedProtocol: "Blocked unsupported browser URL: {{protocol}}",
+        localhostHttpsUnsupported: "Localhost HTTPS isn't supported. Use HTTP for localhost.",
+        hostDisconnected: "Host is not connected",
+        updateHost: "Update the host to use Browser",
+        updateSystemWebView: "Update Android System WebView to use Browser",
+        startingTunnel: "Starting secure localhost tunnel…",
+        tunnelFailed: "Localhost tunnel failed",
       },
     },
     terminal: {

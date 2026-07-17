@@ -12,7 +12,7 @@ import { encodeTerminalKeyInput } from "@getpaseo/protocol/terminal-key-input";
 import type { TerminalInputModeState } from "@getpaseo/protocol/terminal-input-mode";
 import { useTranslation } from "react-i18next";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { getIsElectron } from "@/constants/platform";
+import { useWorkspaceBrowserAvailability } from "@/browser/workspace-browser-availability";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { useAppVisible } from "@/hooks/use-app-visible";
 import { useStableEvent } from "@/hooks/use-stable-event";
@@ -196,6 +196,7 @@ export function TerminalPane({
 
   const client = useHostRuntimeClient(serverId);
   const isConnected = useHostRuntimeIsConnected(serverId);
+  const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(serverId);
   const supportsTerminalRestoreModes = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.["terminal-restore-modes"] === true,
   );
@@ -767,8 +768,7 @@ export function TerminalPane({
   const handleOpenExternalUrl = useStableEvent((url: string) => {
     const action = resolveWorkspaceUrlOpenAction({
       url,
-      isElectron: getIsElectron(),
-      hasWorkspaceBrowser: true,
+      hasWorkspaceBrowser,
       vscodeProxyUri,
     });
 

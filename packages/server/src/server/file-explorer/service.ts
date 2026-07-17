@@ -69,6 +69,10 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
 };
 
+const BINARY_MIME_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+};
+
 interface ScopedPathParams {
   root: string;
   relativePath?: string;
@@ -208,6 +212,16 @@ export async function readExplorerFileBytes({
       };
     }
 
+    if (ext in BINARY_MIME_TYPES) {
+      return {
+        ...basePayload,
+        kind: "binary",
+        encoding: "binary",
+        bytes: buffer,
+        mimeType: BINARY_MIME_TYPES[ext],
+      };
+    }
+
     if (isLikelyBinary(buffer)) {
       return {
         ...basePayload,
@@ -251,6 +265,8 @@ export async function getDownloadableFileInfo({ root, relativePath }: ReadFilePa
     let mimeType = "application/octet-stream";
     if (ext in IMAGE_MIME_TYPES) {
       mimeType = IMAGE_MIME_TYPES[ext];
+    } else if (ext in BINARY_MIME_TYPES) {
+      mimeType = BINARY_MIME_TYPES[ext];
     } else {
       const sample = Buffer.alloc(FILE_TYPE_SAMPLE_BYTES);
       const { bytesRead } = await handle.read(sample, 0, sample.length, 0);

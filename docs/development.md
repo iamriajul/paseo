@@ -445,6 +445,16 @@ agents, and an aggressive service worker can strand installed users on stale web
 code. If offline behavior becomes a product requirement, add it deliberately
 with an update strategy and test the installed-app upgrade path.
 
+### Expo web workers
+
+Give browser workers a local `.web.ts` entry and construct them with a relative
+URL, for example `new Worker(new URL("./worker.web", window.location.href))`.
+Expo Metro then emits a dedicated worker bundle during web export. Do not point
+`new URL()` directly at a package specifier such as a PDF.js worker: Metro can
+leave that specifier unresolved in the production bundle instead of emitting the
+worker. After adding or changing a worker, run a web export and confirm the
+output contains the worker chunk.
+
 ## Expo troubleshooting
 
 ```bash

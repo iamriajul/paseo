@@ -78,6 +78,26 @@ describe("file explorer service", () => {
     }
   });
 
+  it("identifies PDF files for clients that can preview them", async () => {
+    const root = await createTempDir("paseo-file-explorer-");
+
+    try {
+      const filePath = path.join(root, "document.pdf");
+      await writeFile(filePath, Buffer.from("%PDF-1.7\n\0preview"));
+
+      const result = await readExplorerFile({
+        root,
+        relativePath: "document.pdf",
+      });
+
+      expect(result.kind).toBe("binary");
+      expect(result.encoding).toBe("none");
+      expect(result.mimeType).toBe("application/pdf");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("expands a ~ prefix in relative paths against the user home directory", async () => {
     const root = await createHomeTempDir(".paseo-file-explorer-home-");
 

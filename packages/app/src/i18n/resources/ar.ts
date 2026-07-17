@@ -443,6 +443,12 @@ export const ar: TranslationResources = {
         failedToLoad: "فشل تحميل الصفحة",
         invalidUrl: "متصفح غير صالح URL",
         unsupportedProtocol: "متصفح محظور غير مدعوم URL:{{protocol}}",
+        localhostHttpsUnsupported: "لا يدعم HTTPS للمضيف المحلي. استخدم HTTP للمضيف المحلي.",
+        hostDisconnected: "المضيف غير متصل",
+        updateHost: "حدّث المضيف لاستخدام المتصفح",
+        updateSystemWebView: "حدّث Android System WebView لاستخدام المتصفح",
+        startingTunnel: "جارٍ بدء نفق المضيف المحلي الآمن…",
+        tunnelFailed: "فشل نفق المضيف المحلي",
       },
     },
     terminal: {

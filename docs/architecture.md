@@ -96,6 +96,7 @@ Cross-platform React Native app that connects to one or more daemons.
 - Timeline reducers in `timeline/session-stream-reducers.ts` handle compaction, gap detection, sequence-based deduplication
 - Timeline sync correctness is documented in [docs/timeline-sync.md](timeline-sync.md): live streams are for immediacy, `fetch_agent_timeline_request` is authoritative, and catch-up is paged but complete.
 - Voice features: dictation (STT) and voice agent (realtime)
+- Android workspace Browser panes use `react-native-webview` plus one app-level tunnel controller. An app-local Expo module owns an authenticated loopback HTTP proxy and a process-wide reverse-bypass WebView proxy override; JavaScript maps each accepted loopback connection onto the selected host's existing direct or encrypted-relay `DaemonClient.openTcpTunnel` stream. Public HTTP/HTTPS bypasses this proxy. See [browser-localhost-routing.md](browser-localhost-routing.md).
 
 ### `packages/cli` — Command-line client
 

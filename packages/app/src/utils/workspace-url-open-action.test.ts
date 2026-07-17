@@ -9,18 +9,26 @@ describe("workspace URL open action", () => {
     expect(
       resolveWorkspaceUrlOpenAction({
         url: "http://localhost:5173",
-        isElectron: true,
         hasWorkspaceBrowser: true,
         vscodeProxyUri: TEMPLATE,
       }),
     ).toEqual({ kind: "browser", url: "http://localhost:5173" });
   });
 
-  test("rewrites localhost URLs through VSCODE_PROXY_URI outside Electron", () => {
+  test("opens localhost URLs in the Android workspace Browser when available", () => {
+    expect(
+      resolveWorkspaceUrlOpenAction({
+        url: "http://127.0.0.1:3000",
+        hasWorkspaceBrowser: true,
+        vscodeProxyUri: TEMPLATE,
+      }),
+    ).toEqual({ kind: "browser", url: "http://127.0.0.1:3000" });
+  });
+
+  test("rewrites localhost URLs through VSCODE_PROXY_URI when Browser is unavailable", () => {
     expect(
       resolveWorkspaceUrlOpenAction({
         url: "http://localhost:5173/src/main.tsx?cache=1#module",
-        isElectron: false,
         hasWorkspaceBrowser: false,
         vscodeProxyUri: TEMPLATE,
       }),
@@ -34,7 +42,6 @@ describe("workspace URL open action", () => {
     expect(
       resolveWorkspaceUrlOpenAction({
         url: "https://example.com/docs",
-        isElectron: true,
         hasWorkspaceBrowser: true,
         vscodeProxyUri: TEMPLATE,
       }),
@@ -45,7 +52,6 @@ describe("workspace URL open action", () => {
     expect(
       resolveWorkspaceUrlOpenAction({
         url: "http://localhost:5173",
-        isElectron: false,
         hasWorkspaceBrowser: false,
       }),
     ).toEqual({ kind: "external", url: "http://localhost:5173" });

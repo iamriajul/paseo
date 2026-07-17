@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import type { ComponentType, ReactNode } from "react";
 import {
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -1395,7 +1396,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
                 handleLanguageChange={handleLanguageChange}
                 handleTerminalScrollbackLinesChange={handleTerminalScrollbackLinesChange}
               />
-              {isDesktopApp ? <BrowserDataSection /> : null}
+              {isDesktopApp || Platform.OS === "android" ? <BrowserDataSection /> : null}
             </>
           );
         case "appearance":

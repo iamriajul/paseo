@@ -447,6 +447,13 @@ export const ja: TranslationResources = {
         failedToLoad: "ページの読み込みに失敗しました",
         invalidUrl: "無効なブラウザURL",
         unsupportedProtocol: "サポートされていないブラウザURLをブロック: {{protocol}}",
+        localhostHttpsUnsupported:
+          "localhost の HTTPS はサポートされていません。HTTP を使用してください。",
+        hostDisconnected: "ホストが接続されていません",
+        updateHost: "ブラウザを使用するにはホストを更新してください",
+        updateSystemWebView: "ブラウザを使用するには Android System WebView を更新してください",
+        startingTunnel: "安全な localhost トンネルを開始しています…",
+        tunnelFailed: "localhost トンネルに失敗しました",
       },
     },
     terminal: {

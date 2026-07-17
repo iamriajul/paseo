@@ -22,7 +22,6 @@ import {
   Tablet,
   Wrench,
   X,
-  type LucideIcon,
 } from "lucide-react-native";
 import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
@@ -37,12 +36,29 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  buildWorkspaceAttachmentScopeKey,
   useWorkspaceAttachments,
   useWorkspaceAttachmentsStore,
 } from "@/attachments/workspace-attachments-store";
-import type { AttachmentMetadata, BrowserElementAttachment } from "@/attachments/types";
+import type { AttachmentMetadata } from "@/attachments/types";
 import { persistAttachmentFromDataUrl } from "@/attachments/service";
+import {
+  buildAnnotationMarkerScript,
+  buildBrowserAttachmentScopeKey,
+  buildBrowserElementAttachment,
+  formatBrowserElementAttachment,
+  truncateBrowserText,
+  type BrowserAnnotationMarker,
+  type BrowserElementAnnotation,
+  type BrowserElementSelection,
+} from "@/browser/browser-element-attachment";
+import {
+  BROWSER_DEVICE_SIZE_PRESETS,
+  formatBrowserDevicePresetLabel,
+  getBrowserDevicePreset,
+  RESPONSIVE_BROWSER_DEVICE_LABEL_KEY,
+  type BrowserDeviceSizeId,
+  type BrowserDeviceSizePreset,
+} from "@/browser/device-presets";
 import { WORKSPACE_SECONDARY_HEADER_HEIGHT } from "@/constants/layout";
 import {
   getDesktopHost,
@@ -75,76 +91,8 @@ type WebTextInput = TextInput & {
   getNativeRef?: () => unknown;
 };
 
-type BrowserElementSelection = Omit<BrowserElementAttachment, "formatted" | "comment"> & {
-  attributes?: Record<string, string>;
-};
-
-interface BrowserElementAnnotation {
-  comment: string;
-}
-
-type DeviceSizeId =
-  | "responsive"
-  | "iphone-se"
-  | "iphone-14"
-  | "iphone-14-pro-max"
-  | "pixel-7"
-  | "galaxy-s20"
-  | "ipad-mini"
-  | "ipad-air"
-  | "ipad-pro-11"
-  | "ipad-pro-12"
-  | "surface-pro"
-  | "laptop"
-  | "desktop-1080"
-  | "desktop-1440";
-
-interface DeviceSizePreset {
-  id: DeviceSizeId;
-  /** Display name (not translated — device names are proper nouns). */
-  name: string;
-  /** Fixed CSS width, or null for "fill the available area". */
-  width: number | null;
-  height: number | null;
-  icon: LucideIcon;
-}
-
-// Viewport presets for the in-app browser. "responsive" fills the pane; the
-// others render a fixed-size, centered frame so the user can preview how a page
-// behaves at common device sizes. Content is centered (not left-aligned).
-const DEVICE_SIZE_PRESETS: readonly DeviceSizePreset[] = [
-  { id: "responsive", name: "Responsive", width: null, height: null, icon: Maximize },
-  { id: "iphone-se", name: "iPhone SE", width: 375, height: 667, icon: Smartphone },
-  { id: "iphone-14", name: "iPhone 14", width: 390, height: 844, icon: Smartphone },
-  { id: "iphone-14-pro-max", name: "iPhone 14 Pro Max", width: 430, height: 932, icon: Smartphone },
-  { id: "pixel-7", name: "Pixel 7", width: 412, height: 915, icon: Smartphone },
-  { id: "galaxy-s20", name: "Galaxy S20", width: 360, height: 800, icon: Smartphone },
-  { id: "ipad-mini", name: "iPad Mini", width: 768, height: 1024, icon: Tablet },
-  { id: "ipad-air", name: "iPad Air", width: 820, height: 1180, icon: Tablet },
-  { id: "ipad-pro-11", name: 'iPad Pro 11"', width: 834, height: 1194, icon: Tablet },
-  { id: "ipad-pro-12", name: 'iPad Pro 12.9"', width: 1024, height: 1366, icon: Tablet },
-  { id: "surface-pro", name: "Surface Pro", width: 912, height: 1368, icon: Tablet },
-  { id: "laptop", name: "Laptop", width: 1366, height: 768, icon: Monitor },
-  { id: "desktop-1080", name: "Desktop 1080p", width: 1920, height: 1080, icon: Monitor },
-  { id: "desktop-1440", name: "Desktop 1440p", width: 2560, height: 1440, icon: Monitor },
-];
-
-const RESPONSIVE_DEVICE_LABEL_KEY = "workspace.browser.devices.responsive";
-
-function formatDevicePresetLabel(preset: DeviceSizePreset, responsiveLabel: string): string {
-  const name = preset.id === "responsive" ? responsiveLabel : preset.name;
-  if (preset.width && preset.height) {
-    return `${name} · ${preset.width}×${preset.height}`;
-  }
-  return name;
-}
-
 const ERR_ABORTED = -3;
 const ALLOWED_BROWSER_PROTOCOLS = new Set(["http:", "https:"]);
-
-function truncateText(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength).trim()}...` : value;
-}
 
 function getWebviewLoadErrorMessage(event: Event, failedToLoadLabel: string): string | null {
   const details = event as Event & {
@@ -200,96 +148,6 @@ function getUnsafeNavigationMessage(
   }
 }
 
-function formatElementAttachment(
-  selection: BrowserElementSelection,
-  annotation?: BrowserElementAnnotation,
-): string {
-  const textPreview = truncateText(selection.text.trim(), 200);
-  const html = truncateText(selection.outerHTML.trim(), 800);
-  const parts: string[] = [];
-
-  if (selection.reactSource?.fileName) {
-    const loc = [
-      selection.reactSource.fileName,
-      selection.reactSource.lineNumber != null ? `:${selection.reactSource.lineNumber}` : "",
-      selection.reactSource.columnNumber != null ? `:${selection.reactSource.columnNumber}` : "",
-    ].join("");
-    parts.push(`source: ${selection.reactSource.componentName ?? selection.tag} @ ${loc}`);
-  }
-
-  parts.push(`selector: ${selection.selector}`);
-
-  if (textPreview) {
-    parts.push(`text: ${JSON.stringify(textPreview)}`);
-  }
-
-  parts.push(`size: ${selection.boundingRect.width}x${selection.boundingRect.height}`);
-
-  const keyStyles = Object.entries(selection.computedStyles)
-    .filter(([key]) =>
-      ["display", "position", "font-size", "color", "background-color"].includes(key),
-    )
-    .map(([key, value]) => `${key}: ${value}`)
-    .join("; ");
-  if (keyStyles) {
-    parts.push(`styles: ${keyStyles}`);
-  }
-
-  if (selection.parentChain.length > 0) {
-    parts.push(`parents: ${selection.parentChain.slice(0, 3).join(" > ")}`);
-  }
-
-  const comment = annotation?.comment.trim();
-  if (comment) {
-    parts.push(`feedback: ${comment}`);
-  }
-
-  return [
-    `<browser-element url="${selection.url}">`,
-    parts.map((part) => `  ${part}`).join("\n"),
-    `  html: ${html}`,
-    `</browser-element>`,
-  ].join("\n");
-}
-
-function buildBrowserElementAttachment(
-  selection: BrowserElementSelection,
-  annotation?: BrowserElementAnnotation,
-  screenshot?: AttachmentMetadata,
-): BrowserElementAttachment {
-  const comment = annotation?.comment.trim();
-  return {
-    url: selection.url,
-    selector: selection.selector,
-    tag: selection.tag,
-    text: selection.text,
-    outerHTML: truncateText(selection.outerHTML, 2000),
-    computedStyles: selection.computedStyles,
-    boundingRect: selection.boundingRect,
-    reactSource: selection.reactSource,
-    parentChain: selection.parentChain,
-    children: selection.children,
-    ...(comment ? { comment } : {}),
-    ...(screenshot ? { screenshot } : {}),
-    formatted: formatElementAttachment(selection, annotation),
-  };
-}
-
-function buildBrowserAttachmentScopeKey(input: {
-  cwd: string | null;
-  serverId: string;
-  workspaceId: string;
-}): string | null {
-  if (!input.cwd) {
-    return null;
-  }
-  return buildWorkspaceAttachmentScopeKey({
-    serverId: input.serverId,
-    workspaceId: input.workspaceId,
-    cwd: input.cwd,
-  });
-}
-
 function executeWebviewJavaScript(webview: ElectronWebview, code: string): Promise<unknown> {
   if (!webview.isConnected) {
     return Promise.resolve(null);
@@ -315,74 +173,6 @@ function clearWebviewSelector(webview: ElectronWebview): void {
     webview,
     "if(window.__paseoSelector) window.__paseoSelector.destroy(); window.__paseoSelectorResult = null;",
   ).catch(ignoreWebviewJavaScriptError);
-}
-
-interface BrowserAnnotationMarker {
-  index: number;
-  selector: string;
-}
-
-// Draws numbered badges over annotated elements inside the guest page. The
-// overlay is a fixed, pointer-events:none layer that re-measures element rects
-// on scroll/resize via rAF. Markers are matched by the CSS selector captured at
-// annotation time; unmatched selectors are simply skipped.
-function buildAnnotationMarkerScript(markers: readonly BrowserAnnotationMarker[]): string {
-  const payload = JSON.stringify(
-    markers.map((marker) => ({ index: marker.index, selector: marker.selector })),
-  );
-  return `
-    (function() {
-      var markers = ${payload};
-      if (window.__paseoAnnotationMarkers) { window.__paseoAnnotationMarkers.update(markers); return true; }
-      var host = document.createElement('div');
-      host.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;z-index:2147483646;pointer-events:none;';
-      (document.body || document.documentElement).appendChild(host);
-      var badges = [];
-      var current = markers;
-      function clearBadges() {
-        for (var i = 0; i < badges.length; i++) { if (badges[i].parentNode) badges[i].parentNode.removeChild(badges[i]); }
-        badges = [];
-      }
-      function reposition() {
-        clearBadges();
-        for (var i = 0; i < current.length; i++) {
-          var m = current[i];
-          var el = null;
-          try { el = document.querySelector(m.selector); } catch (e) { el = null; }
-          if (!el) continue;
-          var rect = el.getBoundingClientRect();
-          if (rect.width === 0 && rect.height === 0) continue;
-          var badge = document.createElement('div');
-          badge.textContent = String(m.index);
-          badge.style.cssText = 'position:fixed;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:#2563eb;color:#fff;font:600 11px/18px -apple-system,system-ui,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.4);pointer-events:none;box-sizing:border-box;';
-          badge.style.left = Math.max(0, rect.left) + 'px';
-          badge.style.top = Math.max(0, rect.top) + 'px';
-          host.appendChild(badge);
-          badges.push(badge);
-        }
-      }
-      var scheduled = false;
-      function schedule() {
-        if (scheduled) return;
-        scheduled = true;
-        requestAnimationFrame(function() { scheduled = false; reposition(); });
-      }
-      window.addEventListener('scroll', schedule, true);
-      window.addEventListener('resize', schedule, true);
-      window.__paseoAnnotationMarkers = {
-        update: function(next) { current = next; schedule(); },
-        destroy: function() {
-          window.removeEventListener('scroll', schedule, true);
-          window.removeEventListener('resize', schedule, true);
-          clearBadges();
-          if (host.parentNode) host.parentNode.removeChild(host);
-          window.__paseoAnnotationMarkers = null;
-        }
-      };
-      reposition();
-      return true;
-    })()
-  `;
 }
 
 function applyAnnotationMarkers(
@@ -508,10 +298,10 @@ const deviceMutedIconMapping = (theme: { colors: { foregroundMuted: string } }) 
   color: theme.colors.foregroundMuted,
 });
 
-function resolveThemedDeviceIcon(icon: LucideIcon): typeof ThemedMaximize {
-  if (icon === Smartphone) return ThemedSmartphone;
-  if (icon === Tablet) return ThemedTablet;
-  if (icon === Monitor) return ThemedMonitor;
+function resolveThemedDeviceIcon(kind: BrowserDeviceSizePreset["kind"]): typeof ThemedMaximize {
+  if (kind === "phone") return ThemedSmartphone;
+  if (kind === "tablet") return ThemedTablet;
+  if (kind === "desktop") return ThemedMonitor;
   return ThemedMaximize;
 }
 
@@ -521,12 +311,12 @@ function DeviceSizeMenuItem({
   label,
   onSelect,
 }: {
-  preset: DeviceSizePreset;
+  preset: BrowserDeviceSizePreset;
   selected: boolean;
   label: string;
-  onSelect: (id: DeviceSizeId) => void;
+  onSelect: (id: BrowserDeviceSizeId) => void;
 }) {
-  const ThemedIcon = resolveThemedDeviceIcon(preset.icon);
+  const ThemedIcon = resolveThemedDeviceIcon(preset.kind);
   const handleSelect = useCallback(() => {
     onSelect(preset.id);
   }, [onSelect, preset.id]);
@@ -551,14 +341,13 @@ function DeviceSizeMenu({
   onSelect,
   triggerStyle,
 }: {
-  selectedId: DeviceSizeId;
-  onSelect: (id: DeviceSizeId) => void;
+  selectedId: BrowserDeviceSizeId;
+  onSelect: (id: BrowserDeviceSizeId) => void;
   triggerStyle: (state: { hovered?: boolean; pressed?: boolean }) => StyleProp<ViewStyle>;
 }) {
   const { t } = useTranslation();
-  const selectedPreset =
-    DEVICE_SIZE_PRESETS.find((preset) => preset.id === selectedId) ?? DEVICE_SIZE_PRESETS[0];
-  const SelectedIcon = resolveThemedDeviceIcon(selectedPreset.icon);
+  const selectedPreset = getBrowserDevicePreset(selectedId);
+  const SelectedIcon = resolveThemedDeviceIcon(selectedPreset.kind);
   const label = t("workspace.browser.devices.label");
   return (
     <DropdownMenu>
@@ -576,12 +365,12 @@ function DeviceSizeMenu({
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" scrollable maxHeight={360}>
-        {DEVICE_SIZE_PRESETS.map((preset) => (
+        {BROWSER_DEVICE_SIZE_PRESETS.map((preset) => (
           <DeviceSizeMenuItem
             key={preset.id}
             preset={preset}
             selected={preset.id === selectedId}
-            label={formatDevicePresetLabel(preset, t(RESPONSIVE_DEVICE_LABEL_KEY))}
+            label={formatBrowserDevicePresetLabel(preset, t(RESPONSIVE_BROWSER_DEVICE_LABEL_KEY))}
             onSelect={onSelect}
           />
         ))}
@@ -605,7 +394,9 @@ export function BrowserPane({
   workspaceId: string;
   cwd: string | null;
   isInteractive?: boolean;
+  isWorkspaceFocused?: boolean;
   onFocusPane?: () => void;
+  onOpenUrlInBrowserTab?: (url: string) => void;
   chrome?: "visible" | "hidden";
 }) {
   const { theme } = useUnistyles();
@@ -631,7 +422,7 @@ export function BrowserPane({
   const toast = useToast();
   const toastRef = useRef(toast);
   toastRef.current = toast;
-  const [deviceSizeId, setDeviceSizeId] = useState<DeviceSizeId>("responsive");
+  const [deviceSizeId, setDeviceSizeId] = useState<BrowserDeviceSizeId>("responsive");
   const [pendingSelection, setPendingSelection] = useState<BrowserElementSelection | null>(null);
   // Screenshot is captured at selection time (overlay already torn down, no
   // scroll drift) and reused when the annotation card is submitted.
@@ -1090,7 +881,7 @@ export function BrowserPane({
 
   const screenshotElementToClipboard = useCallback(
     async (selection: BrowserElementSelection) => {
-      const text = formatElementAttachment(selection);
+      const text = formatBrowserElementAttachment(selection);
       const copyElement = getDesktopHost()?.browser?.copyElement;
       const captureElement = getDesktopHost()?.browser?.captureElement;
       const { x, y, width, height } = selection.boundingRect;
@@ -1558,11 +1349,7 @@ export function BrowserPane({
     [selectorMode],
   );
 
-  const devicePreset = useMemo(
-    () =>
-      DEVICE_SIZE_PRESETS.find((preset) => preset.id === deviceSizeId) ?? DEVICE_SIZE_PRESETS[0],
-    [deviceSizeId],
-  );
+  const devicePreset = useMemo(() => getBrowserDevicePreset(deviceSizeId), [deviceSizeId]);
   const isResponsiveDevice = devicePreset.width === null;
 
   const webviewHostStyle = useMemo<CSSProperties>(
@@ -1769,7 +1556,7 @@ function BrowserElementAnnotationCard({
     };
   }, [handleSubmit, onCancel]);
 
-  const elementText = truncateText(selection.text.trim().replace(/\s+/g, " "), 60);
+  const elementText = truncateBrowserText(selection.text.trim().replace(/\s+/g, " "), 60);
   const elementLabel = elementText ? `${selection.tag} · ${elementText}` : selection.tag;
 
   return (

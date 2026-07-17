@@ -18,6 +18,8 @@ describe("normalizeBrowserUrl", () => {
   it("normalizes local development hosts to http by default", () => {
     expect(normalizeBrowserUrl("localhost:8081")).toBe("http://localhost:8081");
     expect(normalizeBrowserUrl("localhost/path")).toBe("http://localhost/path");
+    expect(normalizeBrowserUrl("app.localhost:4173")).toBe("http://app.localhost:4173");
+    expect(normalizeBrowserUrl("app.localhost.:4173")).toBe("http://app.localhost.:4173");
     expect(normalizeBrowserUrl("127.0.0.1:3000/path")).toBe("http://127.0.0.1:3000/path");
     expect(normalizeBrowserUrl("192.168.0.8")).toBe("http://192.168.0.8");
     expect(normalizeBrowserUrl("[::1]:5173")).toBe("http://[::1]:5173");

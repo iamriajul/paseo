@@ -447,6 +447,12 @@ export const ptBR: TranslationResources = {
         failedToLoad: "Falha ao carregar página",
         invalidUrl: "URL de navegador inválida",
         unsupportedProtocol: "URL de navegador sem suporte bloqueada: {{protocol}}",
+        localhostHttpsUnsupported: "HTTPS no localhost não é compatível. Use HTTP para localhost.",
+        hostDisconnected: "O host não está conectado",
+        updateHost: "Atualize o host para usar o navegador",
+        updateSystemWebView: "Atualize o Android System WebView para usar o navegador",
+        startingTunnel: "Iniciando túnel seguro do localhost…",
+        tunnelFailed: "Falha no túnel do localhost",
       },
     },
     terminal: {

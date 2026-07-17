@@ -447,6 +447,13 @@ export const fr: TranslationResources = {
         failedToLoad: "Échec du chargement de la page",
         invalidUrl: "NavigateurURLinvalide",
         unsupportedProtocol: "Navigateur non pris en charge bloquéURL:{{protocol}}",
+        localhostHttpsUnsupported:
+          "Le HTTPS localhost n’est pas pris en charge. Utilisez HTTP pour localhost.",
+        hostDisconnected: "L’hôte n’est pas connecté",
+        updateHost: "Mettez à jour l’hôte pour utiliser le navigateur",
+        updateSystemWebView: "Mettez à jour Android System WebView pour utiliser le navigateur",
+        startingTunnel: "Démarrage du tunnel localhost sécurisé…",
+        tunnelFailed: "Échec du tunnel localhost",
       },
     },
     terminal: {

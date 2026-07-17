@@ -443,6 +443,12 @@ export const zhCN: TranslationResources = {
         failedToLoad: "页面加载失败",
         invalidUrl: "浏览器 URL 无效",
         unsupportedProtocol: "已阻止不支持的浏览器 URL：{{protocol}}",
+        localhostHttpsUnsupported: "不支持 localhost HTTPS。请为 localhost 使用 HTTP。",
+        hostDisconnected: "主机未连接",
+        updateHost: "请更新主机以使用浏览器",
+        updateSystemWebView: "请更新 Android System WebView 以使用浏览器",
+        startingTunnel: "正在启动安全的 localhost 隧道…",
+        tunnelFailed: "localhost 隧道失败",
       },
     },
     terminal: {

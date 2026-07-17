@@ -58,21 +58,39 @@ function parseLoopbackHttpUrl(value: string): { url: URL; port: number } | null 
   return { url: parsed, port };
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname
-    .trim()
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "")
-    .replace(/\.$/, "");
+export function isLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+  return isStandardLoopbackHostname(normalized) || normalized === "::" || normalized === "0.0.0.0";
+}
+
+export function isStandardLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+  if (normalized === "localhost" || normalized.endsWith(".localhost") || normalized === "::1") {
+    return true;
+  }
+  const octets = normalized.split(".");
   return (
-    normalized === "localhost" ||
-    normalized.endsWith(".localhost") ||
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized === "0.0.0.0" ||
-    normalized === "127.0.0.1" ||
-    normalized.startsWith("127.")
+    octets.length === 4 &&
+    octets[0] === "127" &&
+    octets.slice(1).every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
   );
+}
+
+export function isUnspecifiedHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+  return normalized === "::" || normalized === "0.0.0.0";
+}
+
+export function isLoopbackTlsUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    return (
+      (parsed.protocol === "https:" || parsed.protocol === "wss:") &&
+      isLoopbackHostname(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function joinUrlPath(basePath: string, originalPath: string): string {
@@ -82,4 +100,12 @@ function joinUrlPath(basePath: string, originalPath: string): string {
     return normalizedOriginal;
   }
   return `${normalizedBase}${normalizedOriginal}`;
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
 }

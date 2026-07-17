@@ -447,6 +447,12 @@ export const ru: TranslationResources = {
         failedToLoad: "Не удалось загрузить страницу",
         invalidUrl: "Неверный браузер URL",
         unsupportedProtocol: "Заблокирован неподдерживаемый браузер URL:{{protocol}}",
+        localhostHttpsUnsupported: "HTTPS для localhost не поддерживается. Используйте HTTP.",
+        hostDisconnected: "Хост не подключен",
+        updateHost: "Обновите хост, чтобы использовать браузер",
+        updateSystemWebView: "Обновите Android System WebView, чтобы использовать браузер",
+        startingTunnel: "Запуск защищённого туннеля localhost…",
+        tunnelFailed: "Сбой туннеля localhost",
       },
     },
     terminal: {

@@ -4,6 +4,19 @@
 
 Maestro flows live in `packages/app/maestro/`. Reusable sub-flows live in `packages/app/maestro/flows/`.
 
+### Android workspace Browser
+
+Android Browser device coverage must run in GitHub Actions or the existing cloud/mobile test environment, not as part of routine local verification. Prepare two connected Paseo hosts that serve different content on the same localhost port, then cover this matrix:
+
+- Navigate, edit the address, Back/Forward, reload/stop, Android hardware Back, popup-to-new-tab, and tab retention.
+- Load a localhost HTTP page with nested fetches, images, redirects, third-party HTTPS scripts/CSS/images/API requests, a `ws://` echo, and HMR through both direct and encrypted-relay host connections.
+- Open a public HTTPS page and confirm it retains normal WebView TLS checks and device-network access.
+- Switch between the two hosts and prove the shared port never returns content from the previous host.
+- Background/resume, disconnect/reconnect, viewport presets, touch annotations, element screenshots, and Settings > General > Clear browser data.
+- Attempt loopback HTTPS and WSS and prove neither the phone's localhost nor a non-selected host receives a connection.
+
+Use `android-workspace-browser`, `android-browser-webview`, `android-browser-capture-target`, and `android-browser-state` test IDs. Hosts without `server_info.features.tcpTunnel` must show the update-host state; WebViews without reverse-bypass proxy support must show the update-System-WebView state.
+
 Run a flow:
 
 ```bash

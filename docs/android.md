@@ -67,6 +67,8 @@ Gradle auto-fetches the platform/build-tools it needs once licenses are accepted
 
 ## Local build + install
 
+> **Android Browser native changes:** routine local verification stops at focused Vitest tests, formatting, lint, and TypeScript typecheck. Do not run Expo prebuild, Gradle, an emulator, Maestro, or APK/AAB assembly locally for Browser tunneling work. The path-filtered `android-browser-native` CI job runs the proxy's Kotlin tests and `:app:assembleDebug` with `--no-daemon`, one worker, and Gradle parallelism disabled. APK validation remains in the existing GitHub/cloud release workflows.
+
 From repo root:
 
 ```bash

@@ -37,6 +37,14 @@ Initialization timeouts guard lack of catch-up progress, not the full multi-page
 
 The first load of an agent without a local cursor is different: it fetches a bounded latest tail page. Older history remains user-driven by scrolling upward.
 
+Conversation search is the other intentional older-history consumer. While a non-empty user or
+assistant search is open, the app walks older projected timeline pages sequentially using the same
+100-item `direction: "before"` requests as scroll pagination. Scroll and search share a per-agent
+single-flight coordinator, so they never overlap a cursor request. Search stops scheduling pages
+when it closes or the agent changes, but an already in-flight bounded page is allowed to finish.
+Loaded matches remain usable after a fetch error and the result count stays explicitly incomplete
+until `hasOlder` is false.
+
 ## Durable item anchors
 
 Provider message IDs are not guaranteed for every displayed item. Paseo-generated system errors are one example. Rendered item indices are not durable either because pagination and projection can merge source rows.

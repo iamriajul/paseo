@@ -172,6 +172,20 @@ export const ptBR: TranslationResources = {
   agentStream: {
     empty: "Comece a conversar com este agente...",
     scrollToBottom: "Rolar para o fim",
+    search: {
+      label: "Buscar no chat",
+      placeholder: "Buscar na conversa",
+      user: "Usuário",
+      assistant: "Assistente",
+      noResults: "Nenhum resultado",
+      resultPosition: "{{current}} de {{total}}",
+      loading: "Buscando em todo o histórico...",
+      incomplete: "Os resultados podem estar incompletos",
+      retry: "Tentar novamente",
+      previous: "Resultado anterior",
+      next: "Próximo resultado",
+      close: "Fechar busca",
+    },
     permission: {
       plan: "Plano",
       required: "Permissão necessária",
@@ -1736,6 +1750,7 @@ export const ptBR: TranslationResources = {
         toggleSettings: "Alternar Configurações",
         toggleFocusMode: "Alternar modo de foco",
         cycleTheme: "Alternar tema",
+        findInChat: "Buscar no chat",
         focusMessageInput: "Focar entrada de mensagem",
         cycleAgentMode: "Alternar modo do agente",
         toggleVoiceMode: "Alternar modo de voz",

@@ -31,6 +31,7 @@ import {
   PanelRight,
   Pencil,
   RotateCw,
+  Search,
   Settings,
   SquarePen,
   SquareTerminal,
@@ -87,7 +88,10 @@ import {
 } from "@/stores/workspace-layout-store";
 import type { WorkspaceTab, WorkspaceTabTarget } from "@/stores/workspace-tabs-store";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
-import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
+import {
+  keyboardActionDispatcher,
+  type KeyboardActionDefinition,
+} from "@/keyboard/keyboard-action-dispatcher";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import {
   buildDeterministicWorkspaceTabId,
@@ -583,6 +587,10 @@ function switcherTriggerStyle({ pressed }: { pressed?: boolean }) {
   return [styles.switcherTrigger, Boolean(pressed) && styles.switcherTriggerPressed];
 }
 
+function mobileSearchButtonStyle({ pressed }: { pressed?: boolean }) {
+  return [styles.mobileSearchButton, Boolean(pressed) && styles.switcherTriggerPressed];
+}
+
 function MobileTabTrailingAccessory({
   menuTestIDBase,
   presentationLabel,
@@ -816,6 +824,9 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
     Keyboard.dismiss();
     setIsOpen(true);
   }, []);
+  const handleSearchAgent = useCallback(() => {
+    keyboardActionDispatcher.dispatch({ id: "agent.search", scope: "workspace" });
+  }, []);
 
   const renderTabOption = useCallback(
     ({
@@ -896,6 +907,18 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
         </View>
         <ThemedChevronDown size={14} uniProps={mutedColorMapping} />
       </Pressable>
+
+      {activeTab?.target.kind === "agent" ? (
+        <Pressable
+          testID="workspace-agent-search"
+          accessibilityRole="button"
+          accessibilityLabel={t("agentStream.search.label")}
+          onPress={handleSearchAgent}
+          style={mobileSearchButtonStyle}
+        >
+          <Search size={17} />
+        </Pressable>
+      ) : null}
 
       <Combobox
         options={tabSwitcherOptions}
@@ -3995,15 +4018,22 @@ const styles = StyleSheet.create((theme) => ({
   },
   explorerTooltipShortcut: {},
   mobileTabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: theme.colors.surface0,
     borderBottomWidth: theme.borderWidth[1],
     borderBottomColor: theme.colors.border,
   },
   switcherTrigger: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
     paddingHorizontal: theme.spacing[2] + theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+  },
+  mobileSearchButton: {
+    paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[2],
   },
   switcherTriggerPressed: {

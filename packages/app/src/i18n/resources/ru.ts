@@ -172,6 +172,20 @@ export const ru: TranslationResources = {
   agentStream: {
     empty: "Начните общаться с этим агентом...",
     scrollToBottom: "Прокрутить вниз",
+    search: {
+      label: "Найти в чате",
+      placeholder: "Поиск в разговоре",
+      user: "Пользователь",
+      assistant: "Ассистент",
+      noResults: "Нет результатов",
+      resultPosition: "{{current}} из {{total}}",
+      loading: "Поиск по всей истории...",
+      incomplete: "Результаты могут быть неполными",
+      retry: "Повторить",
+      previous: "Предыдущий результат",
+      next: "Следующий результат",
+      close: "Закрыть поиск",
+    },
     permission: {
       plan: "План",
       required: "Требуется разрешение",
@@ -1744,6 +1758,7 @@ export const ru: TranslationResources = {
         toggleSettings: "Переключить настройки",
         toggleFocusMode: "Переключить режим фокусировки",
         cycleTheme: "Циклическая тема",
+        findInChat: "Найти в чате",
         focusMessageInput: "Фокус ввода сообщения",
         cycleAgentMode: "Переключить режим агента",
         toggleVoiceMode: "Переключить голосовой режим",

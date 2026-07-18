@@ -13,6 +13,26 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.concurrent.Executor
 
+internal fun buildBrowserProxyConfig(session: BrowserProxySession): ProxyConfig =
+  ProxyConfig.Builder()
+    .addProxyRule("http://${session.host}:${session.port}", ProxyConfig.MATCH_ALL_SCHEMES)
+    // Chromium evaluates bypass rules from last to first. Add the negative
+    // <-loopback> rule before our explicit loopback includes so reverse bypass
+    // sends those destinations through Paseo instead of directly to the phone.
+    .removeImplicitRules()
+    .addBypassRule("localhost")
+    .addBypassRule("*.localhost")
+    .addBypassRule("localhost.")
+    .addBypassRule("*.localhost.")
+    .addBypassRule("127.*")
+    .addBypassRule("[::1]")
+    // Unspecified addresses are not valid tunnel targets. Sink them into the
+    // authenticated proxy so they fail closed instead of reaching the phone.
+    .addBypassRule("[::]")
+    .addBypassRule("0.0.0.0")
+    .setReverseBypassEnabled(true)
+    .build()
+
 class PaseoBrowserProxyModule : Module() {
   companion object {
     private const val OPEN_EVENT = "onProxyConnectionOpen"
@@ -83,21 +103,7 @@ class PaseoBrowserProxyModule : Module() {
             return@clearCurrentProxy
           }
           proxyServer = server
-          val config = ProxyConfig.Builder()
-            .addProxyRule("http://${session.host}:${session.port}", ProxyConfig.MATCH_ALL_SCHEMES)
-            .addBypassRule("localhost")
-            .addBypassRule("*.localhost")
-            .addBypassRule("localhost.")
-            .addBypassRule("*.localhost.")
-            .addBypassRule("127.*")
-            .addBypassRule("[::1]")
-            // Unspecified addresses are not valid tunnel targets. Sink them into the
-            // authenticated proxy so they fail closed instead of reaching the phone.
-            .addBypassRule("[::]")
-            .addBypassRule("0.0.0.0")
-            .removeImplicitRules()
-            .setReverseBypassEnabled(true)
-            .build()
+          val config = buildBrowserProxyConfig(session)
           ProxyController.getInstance().setProxyOverride(config, executor) {
             if (isCurrentProxyGeneration(generation) && proxyServer === server) {
               promise.resolve(session.toMap())

@@ -172,6 +172,20 @@ export const zhCN: TranslationResources = {
   agentStream: {
     empty: "开始和这个 Agent 对话...",
     scrollToBottom: "滚动到底部",
+    search: {
+      label: "在聊天中查找",
+      placeholder: "搜索对话",
+      user: "用户",
+      assistant: "助手",
+      noResults: "无结果",
+      resultPosition: "第 {{current}} 个，共 {{total}} 个",
+      loading: "正在搜索完整历史记录...",
+      incomplete: "结果可能不完整",
+      retry: "重试",
+      previous: "上一个结果",
+      next: "下一个结果",
+      close: "关闭搜索",
+    },
     permission: {
       plan: "Plan",
       required: "需要权限",
@@ -1691,6 +1705,7 @@ export const zhCN: TranslationResources = {
         toggleSettings: "切换设置",
         toggleFocusMode: "切换专注模式",
         cycleTheme: "循环切换主题",
+        findInChat: "在聊天中查找",
         focusMessageInput: "聚焦消息输入框",
         cycleAgentMode: "循环切换代理模式",
         toggleVoiceMode: "切换语音模式",

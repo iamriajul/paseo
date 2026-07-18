@@ -172,6 +172,20 @@ export const es: TranslationResources = {
   agentStream: {
     empty: "Comience a chatear con este agente...",
     scrollToBottom: "Desplazarse hacia abajo",
+    search: {
+      label: "Buscar en el chat",
+      placeholder: "Buscar conversación",
+      user: "Usuario",
+      assistant: "Asistente",
+      noResults: "Sin resultados",
+      resultPosition: "{{current}} de {{total}}",
+      loading: "Buscando en todo el historial...",
+      incomplete: "Los resultados pueden estar incompletos",
+      retry: "Reintentar",
+      previous: "Resultado anterior",
+      next: "Resultado siguiente",
+      close: "Cerrar búsqueda",
+    },
     permission: {
       plan: "Plan",
       required: "Permiso requerido",
@@ -1753,6 +1767,7 @@ export const es: TranslationResources = {
         toggleSettings: "Alternar configuración",
         toggleFocusMode: "Alternar modo de enfoque",
         cycleTheme: "Tema del ciclo",
+        findInChat: "Buscar en el chat",
         focusMessageInput: "Entrada de mensaje de enfoque",
         cycleAgentMode: "Alternar modo del agente",
         toggleVoiceMode: "Alternar modo de voz",

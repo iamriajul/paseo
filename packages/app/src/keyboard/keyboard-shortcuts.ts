@@ -150,6 +150,7 @@ const SHORTCUT_HELP_LABEL_KEYS: Record<string, string> = {
   "toggle-settings": "settings.shortcuts.help.toggleSettings",
   "toggle-focus": "settings.shortcuts.help.toggleFocusMode",
   "cycle-theme": "settings.shortcuts.help.cycleTheme",
+  "agent-search": "settings.shortcuts.help.findInChat",
   "focus-message-input": "settings.shortcuts.help.focusMessageInput",
   "cycle-agent-mode": "settings.shortcuts.help.cycleAgentMode",
   "voice-toggle": "settings.shortcuts.help.toggleVoiceMode",
@@ -165,6 +166,30 @@ const SHORTCUT_HELP_NOTE_KEYS: Record<string, string> = {
 // --- Binding definitions ---
 
 const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
+  {
+    id: "agent-search-cmd-f-mac",
+    action: "agent.search",
+    combo: "Cmd+F",
+    when: { mac: true, commandCenter: false, terminal: false },
+    help: {
+      id: "agent-search",
+      section: "panels",
+      label: "Find in chat",
+      keys: ["mod", "F"],
+    },
+  },
+  {
+    id: "agent-search-ctrl-f-non-mac",
+    action: "agent.search",
+    combo: "Ctrl+F",
+    when: { mac: false, commandCenter: false, terminal: false },
+    help: {
+      id: "agent-search",
+      section: "panels",
+      label: "Find in chat",
+      keys: ["mod", "F"],
+    },
+  },
   // --- Open project ---
   // Open project moved from Cmd+Shift+O to Cmd+O. The binding ids intentionally
   // keep their original "cmd-shift-o" / "ctrl-shift-o" names: user shortcut

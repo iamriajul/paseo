@@ -172,6 +172,20 @@ export const ar: TranslationResources = {
   agentStream: {
     empty: "ابدأ الدردشة مع هذا الوكيل...",
     scrollToBottom: "قم بالتمرير إلى الأسفل",
+    search: {
+      label: "بحث في المحادثة",
+      placeholder: "ابحث في المحادثة",
+      user: "المستخدم",
+      assistant: "المساعد",
+      noResults: "لا توجد نتائج",
+      resultPosition: "{{current}} من {{total}}",
+      loading: "جارٍ البحث في السجل الكامل...",
+      incomplete: "قد تكون النتائج غير مكتملة",
+      retry: "إعادة المحاولة",
+      previous: "النتيجة السابقة",
+      next: "النتيجة التالية",
+      close: "إغلاق البحث",
+    },
     permission: {
       plan: "يخطط",
       required: "الإذن مطلوب",
@@ -1709,6 +1723,7 @@ export const ar: TranslationResources = {
         toggleSettings: "تبديل الإعدادات",
         toggleFocusMode: "تبديل وضع التركيز",
         cycleTheme: "موضوع الدورة",
+        findInChat: "بحث في المحادثة",
         focusMessageInput: "التركيز على إدخال الرسالة",
         cycleAgentMode: "تبديل وضع الوكيل",
         toggleVoiceMode: "تبديل الوضع الصوتي",

@@ -32,31 +32,76 @@ export interface LoadOlderAgentHistoryDeps {
   failedMessage?: string;
 }
 
+export type LoadOlderAgentHistoryResult = "loaded" | "complete" | "failed";
+
+const olderHistoryRequests = new Map<string, Promise<LoadOlderAgentHistoryResult>>();
+
 export async function loadOlderAgentHistory(
   agentId: string,
   deps: LoadOlderAgentHistoryDeps,
-): Promise<void> {
+  requestKey = agentId,
+): Promise<LoadOlderAgentHistoryResult> {
+  const existing = olderHistoryRequests.get(requestKey);
+  if (existing) {
+    return existing;
+  }
   const { client, cursor, hasOlder, isLoadingOlder, setInFlight, toast, logger, failedMessage } =
     deps;
   if (!client || !cursor || !hasOlder || isLoadingOlder) {
-    return;
+    return "complete";
   }
 
-  setInFlight(true);
+  const request = (async (): Promise<LoadOlderAgentHistoryResult> => {
+    setInFlight(true);
+    try {
+      await client.fetchAgentTimeline(
+        agentId,
+        planTimelineOlderFetch({ epoch: cursor.epoch, seq: cursor.startSeq }),
+      );
+      return "loaded";
+    } catch (error) {
+      (logger ?? console).warn("[Timeline] failed to load older agent history", agentId, error);
+      toast?.show(failedMessage ?? i18n.t("loadOlderHistory.failed"), {
+        durationMs: 2200,
+        testID: "agent-load-older-history-toast",
+      });
+      return "failed";
+    } finally {
+      setInFlight(false);
+    }
+  })();
+  olderHistoryRequests.set(requestKey, request);
   try {
-    await client.fetchAgentTimeline(
-      agentId,
-      planTimelineOlderFetch({ epoch: cursor.epoch, seq: cursor.startSeq }),
-    );
-  } catch (error) {
-    (logger ?? console).warn("[Timeline] failed to load older agent history", agentId, error);
-    toast?.show(failedMessage ?? i18n.t("loadOlderHistory.failed"), {
-      durationMs: 2200,
-      testID: "agent-load-older-history-toast",
-    });
+    return await request;
   } finally {
-    setInFlight(false);
+    if (olderHistoryRequests.get(requestKey) === request) {
+      olderHistoryRequests.delete(requestKey);
+    }
   }
+}
+
+export async function loadAllOlderAgentHistory({
+  agentId,
+  requestKey,
+  getDeps,
+  shouldContinue,
+}: {
+  agentId: string;
+  requestKey: string;
+  getDeps: () => LoadOlderAgentHistoryDeps;
+  shouldContinue: () => boolean;
+}): Promise<LoadOlderAgentHistoryResult> {
+  while (shouldContinue()) {
+    const deps = getDeps();
+    if (!deps.client || !deps.cursor || !deps.hasOlder) {
+      return "complete";
+    }
+    const result = await loadOlderAgentHistory(agentId, deps, requestKey);
+    if (result !== "loaded") {
+      return result;
+    }
+  }
+  return "complete";
 }
 
 export function useLoadOlderAgentHistory({
@@ -96,20 +141,47 @@ export function useLoadOlderAgentHistory({
 
   const loadOlder = useCallback(() => {
     const session = useSessionStore.getState().sessions[serverId];
-    void loadOlderAgentHistory(agentId, {
-      client: (session?.client ?? null) as LoadOlderAgentHistoryClient | null,
-      cursor: session?.agentTimelineCursor.get(agentId),
-      hasOlder: session?.agentTimelineHasOlder.get(agentId) === true,
-      isLoadingOlder: session?.agentTimelineOlderFetchInFlight.get(agentId) === true,
-      setInFlight,
-      toast,
-      failedMessage: t("loadOlderHistory.failed"),
-    });
+    void loadOlderAgentHistory(
+      agentId,
+      {
+        client: (session?.client ?? null) as LoadOlderAgentHistoryClient | null,
+        cursor: session?.agentTimelineCursor.get(agentId),
+        hasOlder: session?.agentTimelineHasOlder.get(agentId) === true,
+        isLoadingOlder: session?.agentTimelineOlderFetchInFlight.get(agentId) === true,
+        setInFlight,
+        toast,
+        failedMessage: t("loadOlderHistory.failed"),
+      },
+      `${serverId}:${agentId}`,
+    );
   }, [agentId, serverId, setInFlight, toast, t]);
+
+  const loadAllOlder = useCallback(
+    (shouldContinue: () => boolean) =>
+      loadAllOlderAgentHistory({
+        agentId,
+        requestKey: `${serverId}:${agentId}`,
+        shouldContinue,
+        getDeps: () => {
+          const session = useSessionStore.getState().sessions[serverId];
+          return {
+            client: (session?.client ?? null) as LoadOlderAgentHistoryClient | null,
+            cursor: session?.agentTimelineCursor.get(agentId),
+            hasOlder: session?.agentTimelineHasOlder.get(agentId) === true,
+            isLoadingOlder: session?.agentTimelineOlderFetchInFlight.get(agentId) === true,
+            setInFlight,
+            toast,
+            failedMessage: t("loadOlderHistory.failed"),
+          };
+        },
+      }),
+    [agentId, serverId, setInFlight, toast, t],
+  );
 
   return {
     isLoadingOlder,
     hasOlder,
     loadOlder,
+    loadAllOlder,
   };
 }

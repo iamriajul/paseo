@@ -204,12 +204,11 @@ export function useKeyboardShortcuts({
 
       chordStateRef.current = result.nextChordState;
 
-      if (result.preventDefault) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-
       if (!result.match) {
+        if (result.preventDefault) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
         return;
       }
 

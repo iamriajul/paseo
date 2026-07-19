@@ -173,6 +173,20 @@ export const fr: TranslationResources = {
   agentStream: {
     empty: "Commencez à discuter avec cet agent...",
     scrollToBottom: "Faire défiler vers le bas",
+    search: {
+      label: "Rechercher dans le chat",
+      placeholder: "Rechercher dans la conversation",
+      user: "Utilisateur",
+      assistant: "Assistant",
+      noResults: "Aucun résultat",
+      resultPosition: "{{current}} sur {{total}}",
+      loading: "Recherche dans tout l’historique...",
+      incomplete: "Les résultats peuvent être incomplets",
+      retry: "Réessayer",
+      previous: "Résultat précédent",
+      next: "Résultat suivant",
+      close: "Fermer la recherche",
+    },
     permission: {
       plan: "Plan",
       required: "Autorisation requise",
@@ -447,6 +461,13 @@ export const fr: TranslationResources = {
         failedToLoad: "Échec du chargement de la page",
         invalidUrl: "NavigateurURLinvalide",
         unsupportedProtocol: "Navigateur non pris en charge bloquéURL:{{protocol}}",
+        localhostHttpsUnsupported:
+          "Le HTTPS localhost n’est pas pris en charge. Utilisez HTTP pour localhost.",
+        hostDisconnected: "L’hôte n’est pas connecté",
+        updateHost: "Mettez à jour l’hôte pour utiliser le navigateur",
+        updateSystemWebView: "Mettez à jour Android System WebView pour utiliser le navigateur",
+        startingTunnel: "Démarrage du tunnel localhost sécurisé…",
+        tunnelFailed: "Échec du tunnel localhost",
       },
     },
     terminal: {
@@ -1749,6 +1770,7 @@ export const fr: TranslationResources = {
         toggleSettings: "Basculer les paramètres",
         toggleFocusMode: "Basculer le mode de mise au point",
         cycleTheme: "Thème du cycle",
+        findInChat: "Rechercher dans le chat",
         focusMessageInput: "Saisie du message de focus",
         cycleAgentMode: "Parcourir les modes de l'agent",
         toggleVoiceMode: "Changer le mode vocal",

@@ -1,17 +1,18 @@
 # Browser Localhost Routing
 
-The in-app Browser on Electron desktop has per-browser localhost routing. When a Browser tab belongs to a workspace on host `H`, loopback URLs loaded inside that Browser are resolved against host `H`, not against the machine running the desktop frontend.
+The in-app Browser on Electron desktop and Android has workspace-aware localhost routing. When a Browser tab belongs to a workspace on host `H`, loopback URLs loaded inside that Browser are resolved against host `H`, not against the machine running the client.
 
 This is separate from the service proxy. The service proxy exposes `paseo.json` service scripts through generated hostnames and optional public URLs. Browser localhost routing is for raw loopback URLs that a user or page enters directly, such as `http://localhost:5173`, `http://127.0.0.1:3000`, or a WebSocket opened to `ws://localhost:3000`.
 
 ## Routing scope
 
-- Applies only to Electron desktop Browser panes and browser automation tabs.
+- Applies to Electron Browser panes and browser automation tabs, plus human-operated Android Browser panes. Browser automation and DevTools remain Electron-only.
 - Applies per Browser instance. Each Browser uses its own Electron session partition, so multiple Browser panes can point `localhost:3000` at different workspace hosts at the same time.
-- Applies to loopback hosts: `localhost`, `*.localhost`, `127.*`, `::1`, `::`, and `0.0.0.0`. Explicit IPv6 loopback URLs are tunneled to `::1` on the host daemon; all other loopback forms use `127.0.0.1`.
+- Android's WebView proxy override is process-wide, so Android activates one selected host route at a time. Tabs for that host share it; switching hosts unmounts the previous host's WebViews, closes its tunnels, rotates proxy credentials, and reloads saved URLs when that host is selected again.
+- Electron retains its existing loopback set: `localhost`, `*.localhost`, `127.*`, `::1`, `::`, and `0.0.0.0`. Android tunnels only standard loopback names and addresses (`localhost`, `*.localhost`, valid `127.*`, and `::1`); unspecified listen addresses are rejected. Explicit IPv6 loopback URLs are tunneled to `::1` on the host daemon; all other tunneled forms use `127.0.0.1`.
 - Preserves the visible URL and page origin. The user still sees `localhost:<port>` in the Browser, and page code still observes the same origin it requested.
 - Does not affect the system browser, the web app running in a normal browser, or service proxy generated URLs.
-- Assistant chat and terminal links keep rendering the original `localhost` URL. On Electron desktop, clicking one opens that original URL in the workspace Browser so this routing layer can handle it.
+- Assistant chat, terminal, and workspace-script links keep rendering the original `localhost` URL. On Electron or a capable Android host, clicking one opens that original URL in the workspace Browser so this routing layer can handle it.
 - Code Server tabs on Electron desktop reuse the Browser webview and this same localhost routing layer, but hide Browser chrome so the tab feels like an embedded editor.
 
 ## How it works
@@ -24,6 +25,32 @@ This is separate from the service proxy. The service proxy exposes `paseo.json` 
 6. The daemon connects to `127.0.0.1:<port>` or `::1:<port>` on its own machine and relays bytes over the WebSocket tunnel.
 
 The tunnel protocol is a binary WebSocket frame family in `packages/protocol/src/binary-frames/tcp-tunnel.ts`. The daemon advertises support through `server_info.features.tcpTunnel`; old daemons do not get a fallback path. The UI-side tunnel controller checks this capability in one place and reports that the host must be updated.
+
+### Android WebView routing
+
+Android uses the app-local `paseo-browser-proxy` Expo module and AndroidX WebKit's process-wide proxy override. The module binds an authenticated HTTP proxy to a random `127.0.0.1` port, removes WebView's implicit loopback exclusion, and enables reverse bypass rules. `localhost`, `*.localhost`, valid `127.*` addresses, and `::1` are tunnel candidates; every ordinary non-loopback request bypasses the proxy and uses the phone's normal network stack. `0.0.0.0` and `::` are deliberately sent to the proxy only as fail-closed deny targets, never as host tunnel destinations.
+
+Proxy bypass rule order is significant. Chromium evaluates the list from last to first, so AndroidX's negative `<-loopback>` rule from `removeImplicitRules()` must be added before the explicit loopback rules. If it is added last, it wins over those rules under reverse bypass and WebView silently connects to the phone's own localhost, typically surfacing `net::ERR_CONNECTION_REFUSED` (`WebViewClient.ERROR_CONNECT`, code `-6`).
+
+The proxy accepts credentials only for its generated host and realm. It validates every destination, removes `Proxy-Authorization`, rewrites HTTP proxy absolute-form to origin-form, and opens `DaemonClient.openTcpTunnel` on the active host. Chromium uses `CONNECT` for proxied WebSockets, including plaintext `ws://`, so the native proxy acknowledges `CONNECT` and inspects the first tunneled bytes. Only a validated plaintext WebSocket Upgrade opens a daemon tunnel; a TLS ClientHello is closed before any tunnel-open event can reach JavaScript. WebSocket Upgrade requests then keep their connection for development servers and HMR. The app never installs a certificate, intercepts TLS, or weakens WebView certificate checks.
+
+| Requested resource                      | Android route                                  |
+| --------------------------------------- | ---------------------------------------------- |
+| `http://localhost:<port>` and assets    | Selected Paseo host through the TCP tunnel     |
+| `ws://localhost:<port>`                 | Selected Paseo host through the TCP tunnel     |
+| Public/LAN `http://` or `https://`      | Device network, outside the Paseo proxy        |
+| Third-party HTTPS from a localhost page | Device network with normal TLS validation      |
+| `https://localhost` / `wss://localhost` | Rejected; never falls back to device localhost |
+| `0.0.0.0` / `::` as URL destinations    | Rejected; use a standard loopback URL          |
+
+Android requires both `PROXY_OVERRIDE` and `PROXY_OVERRIDE_REVERSE_BYPASS`. If the installed Android System WebView lacks either feature, Browser shows an update-WebView state instead of attempting a degraded route.
+
+### Android lifecycle
+
+- One root tunnel controller owns the active Android proxy. Browser tabs claim a host only while their workspace route is focused.
+- Backgrounding stops the proxy and all open TCP streams. Returning creates a new authenticated session and reloads retained Browser panes.
+- Host changes clear the old proxy override before the new route becomes usable. Native operation generations prevent a late start callback from replacing a newer route.
+- Settings > General > Clear browser data clears WebView cookies, cache, DOM storage, form data, and live histories, then reloads Browser panes. It does not delete tab records or saved URLs.
 
 ## Code Server
 
@@ -58,3 +85,5 @@ npx vitest run packages/server/src/server/tcp-tunnel-forwarder.test.ts --bail=1
 ```
 
 For full Electron behavior, use a real Browser pane or browser automation tab because the important behavior depends on Electron session proxying and webview partitions.
+
+Android request parsing has Kotlin unit coverage in the local Expo module. `.github/workflows/ci.yml` runs those tests and a one-worker debug assembly only when Android Browser paths change. Do not use local Expo prebuild, Gradle, emulator, Maestro, APK, or AAB builds as routine verification for this feature; use focused JS tests plus formatting, lint, and typecheck locally, and leave native compilation and device validation to GitHub Actions or the cloud release workflow.

@@ -31,6 +31,7 @@ import {
   PanelRight,
   Pencil,
   RotateCw,
+  Search,
   Settings,
   SquarePen,
   SquareTerminal,
@@ -87,7 +88,10 @@ import {
 } from "@/stores/workspace-layout-store";
 import type { WorkspaceTab, WorkspaceTabTarget } from "@/stores/workspace-tabs-store";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
-import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
+import {
+  keyboardActionDispatcher,
+  type KeyboardActionDefinition,
+} from "@/keyboard/keyboard-action-dispatcher";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import {
   buildDeterministicWorkspaceTabId,
@@ -138,6 +142,7 @@ import {
   type WorkspaceTabMenuLabels,
 } from "@/screens/workspace/workspace-tab-menu";
 import { useDesktopBrowserNewTabRequests } from "@/browser/new-tab-requests";
+import { useWorkspaceBrowserAvailability } from "@/browser/workspace-browser-availability";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
 import {
   resolveWorkspaceHeaderRenderState,
@@ -582,6 +587,10 @@ function switcherTriggerStyle({ pressed }: { pressed?: boolean }) {
   return [styles.switcherTrigger, Boolean(pressed) && styles.switcherTriggerPressed];
 }
 
+function mobileSearchButtonStyle({ pressed }: { pressed?: boolean }) {
+  return [styles.mobileSearchButton, Boolean(pressed) && styles.switcherTriggerPressed];
+}
+
 function MobileTabTrailingAccessory({
   menuTestIDBase,
   presentationLabel,
@@ -815,6 +824,9 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
     Keyboard.dismiss();
     setIsOpen(true);
   }, []);
+  const handleSearchAgent = useCallback(() => {
+    keyboardActionDispatcher.dispatch({ id: "agent.search", scope: "workspace" });
+  }, []);
 
   const renderTabOption = useCallback(
     ({
@@ -895,6 +907,18 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
         </View>
         <ThemedChevronDown size={14} uniProps={mutedColorMapping} />
       </Pressable>
+
+      {activeTab?.target.kind === "agent" ? (
+        <Pressable
+          testID="workspace-agent-search"
+          accessibilityRole="button"
+          accessibilityLabel={t("agentStream.search.label")}
+          onPress={handleSearchAgent}
+          style={mobileSearchButtonStyle}
+        >
+          <Search size={17} />
+        </Pressable>
+      ) : null}
 
       <Combobox
         options={tabSwitcherOptions}
@@ -1811,6 +1835,7 @@ function WorkspaceScreenContent({
   const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
 
   const normalizedServerId = useMemo(() => trimNonEmpty(decodeSegment(serverId)) ?? "", [serverId]);
+  const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(normalizedServerId);
 
   const normalizedWorkspaceId = useMemo(
     () => resolveWorkspaceRouteId({ routeWorkspaceId: workspaceId }) ?? "",
@@ -2580,7 +2605,7 @@ function WorkspaceScreenContent({
 
   const handleCreateBrowserTab = useCallback(
     (input?: { paneId?: string }) => {
-      if (!persistenceKey || !getIsElectron()) {
+      if (!persistenceKey || !hasWorkspaceBrowser) {
         return;
       }
       if (input?.paneId) {
@@ -2589,7 +2614,7 @@ function WorkspaceScreenContent({
       const { browserId } = createWorkspaceBrowser();
       openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
     },
-    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+    [focusWorkspacePane, hasWorkspaceBrowser, openWorkspaceTabFocused, persistenceKey],
   );
 
   const { handleCreateCodeServerTab, showCreateCodeServerTab } = useWorkspaceCodeServerAction({
@@ -2602,13 +2627,14 @@ function WorkspaceScreenContent({
 
   const handleOpenUrlInBrowserTab = useCallback(
     (url: string) => {
-      if (!persistenceKey || !getIsElectron()) {
-        return;
+      if (!persistenceKey || !hasWorkspaceBrowser) {
+        return false;
       }
       const { browserId } = createWorkspaceBrowser({ initialUrl: url });
       openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
+      return true;
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [hasWorkspaceBrowser, openWorkspaceTabFocused, persistenceKey],
   );
 
   useDesktopBrowserNewTabRequests({
@@ -3578,7 +3604,7 @@ function WorkspaceScreenContent({
     () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
-  const showCreateBrowserTab = getIsElectron();
+  const showCreateBrowserTab = hasWorkspaceBrowser;
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);
   const desktopFocusModeEnabled = useMemo(
     () => isFocusModeEnabled && !isMobile,
@@ -3992,15 +4018,22 @@ const styles = StyleSheet.create((theme) => ({
   },
   explorerTooltipShortcut: {},
   mobileTabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: theme.colors.surface0,
     borderBottomWidth: theme.borderWidth[1],
     borderBottomColor: theme.colors.border,
   },
   switcherTrigger: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
     paddingHorizontal: theme.spacing[2] + theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+  },
+  mobileSearchButton: {
+    paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[2],
   },
   switcherTriggerPressed: {

@@ -4,6 +4,7 @@ import { SquarePen } from "lucide-react-native";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Text, View } from "react-native";
+import type { TextInput } from "react-native";
 import ReanimatedAnimated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -11,6 +12,14 @@ import invariant from "tiny-invariant";
 import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/agent-stream/view";
+import { ChatHistorySearchBar } from "@/agent-search/chat-history-search-bar";
+import {
+  findChatHistoryMatches,
+  navigateChatHistoryMatches,
+  normalizeChatHistoryQuery,
+  preserveOrSelectChatHistoryMatch,
+  selectInitialChatHistoryMatch,
+} from "@/agent-search/chat-history-search";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
 import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { Composer } from "@/composer";
@@ -39,6 +48,8 @@ import {
 } from "@/hooks/use-agent-screen-state-machine";
 import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
+import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
+import { useLoadOlderAgentHistory } from "@/hooks/use-load-older-agent-history";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import {
   clearHistorySyncErrorAfterSuccessfulSync,
@@ -1144,6 +1155,118 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   onOpenUrlInBrowserTab?: (url: string) => void;
 }) {
   const { t } = useTranslation();
+  const streamItemsRaw = useSessionStore((state) =>
+    state.sessions[serverId]?.agentStreamTail?.get(agentId),
+  );
+  const streamItems = streamItemsRaw ?? EMPTY_STREAM_ITEMS;
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [includeUser, setIncludeUser] = useState(true);
+  const [includeAssistant, setIncludeAssistant] = useState(true);
+  const [activeSearchResultId, setActiveSearchResultId] = useState<string | null>(null);
+  const [searchBackfillState, setSearchBackfillState] = useState<"idle" | "loading" | "error">(
+    "idle",
+  );
+  const [searchRetryKey, setSearchRetryKey] = useState(0);
+  const searchInputRef = useRef<TextInput>(null);
+  const searchGenerationRef = useRef(0);
+  const previousSearchKeyRef = useRef("");
+  const { hasOlder, loadAllOlder } = useLoadOlderAgentHistory({
+    serverId,
+    agentId,
+    toast: toastApi,
+  });
+  const searchMatches = useMemo(
+    () =>
+      findChatHistoryMatches(streamItems, searchQuery, {
+        includeUser,
+        includeAssistant,
+      }),
+    [includeAssistant, includeUser, searchQuery, streamItems],
+  );
+  const normalizedSearchQuery = normalizeChatHistoryQuery(searchQuery);
+  const canSearch = normalizedSearchQuery.length > 0 && (includeUser || includeAssistant);
+  const activeSearchIndex = searchMatches.findIndex((match) => match.id === activeSearchResultId);
+
+  const openSearch = useCallback(() => {
+    setIsSearchOpen(true);
+    setActiveSearchResultId((current) => preserveOrSelectChatHistoryMatch(searchMatches, current));
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [searchMatches]);
+
+  const closeSearch = useCallback(() => {
+    searchGenerationRef.current += 1;
+    setIsSearchOpen(false);
+    setActiveSearchResultId(null);
+    setSearchBackfillState("idle");
+  }, []);
+
+  const navigateSearch = useCallback(
+    (direction: "next" | "previous") => {
+      setActiveSearchResultId((current) =>
+        navigateChatHistoryMatches(searchMatches, current, direction),
+      );
+    },
+    [searchMatches],
+  );
+  const selectPreviousSearchResult = useCallback(
+    () => navigateSearch("previous"),
+    [navigateSearch],
+  );
+  const selectNextSearchResult = useCallback(() => navigateSearch("next"), [navigateSearch]);
+  const retrySearch = useCallback(() => setSearchRetryKey((value) => value + 1), []);
+
+  useKeyboardActionHandler({
+    handlerId: `agent-search:${serverId}:${agentId}`,
+    actions: ["agent.search"],
+    enabled: isPaneFocused,
+    priority: 250,
+    isActive: () => isPaneFocused,
+    handle: () => {
+      openSearch();
+      return true;
+    },
+  });
+
+  useEffect(() => {
+    const nextKey = `${normalizedSearchQuery}\u0000${includeUser}\u0000${includeAssistant}`;
+    if (previousSearchKeyRef.current !== nextKey) {
+      previousSearchKeyRef.current = nextKey;
+      setActiveSearchResultId(selectInitialChatHistoryMatch(searchMatches));
+      return;
+    }
+    setActiveSearchResultId((current) => preserveOrSelectChatHistoryMatch(searchMatches, current));
+  }, [includeAssistant, includeUser, normalizedSearchQuery, searchMatches]);
+
+  useEffect(() => {
+    if (isSearchOpen && activeSearchResultId) {
+      streamViewRef.current?.scrollToItem(activeSearchResultId);
+    }
+  }, [activeSearchResultId, isSearchOpen, streamViewRef]);
+
+  useEffect(() => {
+    if (!isSearchOpen || !canSearch || !hasOlder) {
+      return;
+    }
+    const generation = ++searchGenerationRef.current;
+    setSearchBackfillState("loading");
+    void loadAllOlder(() => searchGenerationRef.current === generation)
+      .then((result) => {
+        if (searchGenerationRef.current !== generation) return undefined;
+        setSearchBackfillState(result === "failed" ? "error" : "idle");
+        return undefined;
+      })
+      .catch(() => {
+        if (searchGenerationRef.current === generation) setSearchBackfillState("error");
+      });
+  }, [canSearch, hasOlder, isSearchOpen, loadAllOlder, searchRetryKey]);
+
+  useEffect(
+    () => () => {
+      searchGenerationRef.current += 1;
+    },
+    [],
+  );
   const rawAgentInputDraft = useAgentInputDraft({
     draftKey: buildDraftStoreKey({
       serverId,
@@ -1173,6 +1296,8 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
         serverId={serverId}
         agentId={agentId}
         agent={effectiveAgent}
+        streamItems={streamItems}
+        activeSearchResultId={isSearchOpen ? activeSearchResultId : null}
         routeBottomAnchorRequest={routeBottomAnchorRequest}
         hasAppliedAuthoritativeHistory={hasAppliedAuthoritativeHistory}
         toast={toastApi}
@@ -1202,7 +1327,31 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   const streamContent = (
     <ReanimatedAnimated.View style={animatedContentStyle}>{streamSection}</ReanimatedAnimated.View>
   );
-  const contentContainer = <View style={styles.contentContainer}>{streamContent}</View>;
+  const contentContainer = (
+    <View style={styles.contentContainer}>
+      {isSearchOpen ? (
+        <ChatHistorySearchBar
+          ref={searchInputRef}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          includeUser={includeUser}
+          includeAssistant={includeAssistant}
+          onIncludeUserChange={setIncludeUser}
+          onIncludeAssistantChange={setIncludeAssistant}
+          current={activeSearchIndex >= 0 ? activeSearchIndex + 1 : 0}
+          total={searchMatches.length}
+          isLoading={searchBackfillState === "loading"}
+          isIncomplete={hasOlder || searchBackfillState === "error"}
+          hasError={searchBackfillState === "error"}
+          onPrevious={selectPreviousSearchResult}
+          onNext={selectNextSearchResult}
+          onRetry={retrySearch}
+          onClose={closeSearch}
+        />
+      ) : null}
+      {streamContent}
+    </View>
+  );
 
   return (
     <RewindComposerRestoreProvider text={agentInputDraft.text} setText={agentInputDraft.setText}>
@@ -1238,6 +1387,8 @@ const AgentStreamSection = memo(function AgentStreamSection({
   serverId,
   agentId,
   agent,
+  streamItems,
+  activeSearchResultId,
   routeBottomAnchorRequest,
   hasAppliedAuthoritativeHistory,
   toast,
@@ -1248,16 +1399,14 @@ const AgentStreamSection = memo(function AgentStreamSection({
   serverId: string;
   agentId?: string;
   agent: AgentScreenAgent;
+  streamItems: StreamItem[];
+  activeSearchResultId: string | null;
   routeBottomAnchorRequest: RouteBottomAnchorRequest;
   hasAppliedAuthoritativeHistory: boolean;
   toast: ReturnType<typeof useToastHost>["api"];
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
   onOpenUrlInBrowserTab?: (url: string) => void;
 }) {
-  const streamItemsRaw = useSessionStore((state) =>
-    agentId ? state.sessions[serverId]?.agentStreamTail?.get(agentId) : undefined,
-  );
-  const streamItems = streamItemsRaw ?? EMPTY_STREAM_ITEMS;
   const pendingPermissionList = useStoreWithEqualityFn(
     useSessionStore,
     (state) => {
@@ -1292,6 +1441,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
       serverId={serverId}
       context={agent}
       streamItems={streamItems}
+      activeSearchResultId={activeSearchResultId}
       pendingPermissions={pendingPermissions}
       routeBottomAnchorRequest={routeBottomAnchorRequest}
       isAuthoritativeHistoryReady={hasAppliedAuthoritativeHistory}

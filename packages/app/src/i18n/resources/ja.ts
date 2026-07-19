@@ -172,6 +172,20 @@ export const ja: TranslationResources = {
   agentStream: {
     empty: "このエージェントとチャットを始めましょう...",
     scrollToBottom: "下にスクロール",
+    search: {
+      label: "チャット内を検索",
+      placeholder: "会話を検索",
+      user: "ユーザー",
+      assistant: "アシスタント",
+      noResults: "結果なし",
+      resultPosition: "{{total}}件中{{current}}件目",
+      loading: "履歴全体を検索中...",
+      incomplete: "結果は不完全な可能性があります",
+      retry: "再試行",
+      previous: "前の結果",
+      next: "次の結果",
+      close: "検索を閉じる",
+    },
     permission: {
       plan: "プラン",
       required: "権限が必要です",
@@ -447,6 +461,13 @@ export const ja: TranslationResources = {
         failedToLoad: "ページの読み込みに失敗しました",
         invalidUrl: "無効なブラウザURL",
         unsupportedProtocol: "サポートされていないブラウザURLをブロック: {{protocol}}",
+        localhostHttpsUnsupported:
+          "localhost の HTTPS はサポートされていません。HTTP を使用してください。",
+        hostDisconnected: "ホストが接続されていません",
+        updateHost: "ブラウザを使用するにはホストを更新してください",
+        updateSystemWebView: "ブラウザを使用するには Android System WebView を更新してください",
+        startingTunnel: "安全な localhost トンネルを開始しています…",
+        tunnelFailed: "localhost トンネルに失敗しました",
       },
     },
     terminal: {
@@ -1720,6 +1741,7 @@ export const ja: TranslationResources = {
         toggleSettings: "設定を切り替え",
         toggleFocusMode: "フォーカスモードを切り替え",
         cycleTheme: "テーマを順に切り替え",
+        findInChat: "チャット内を検索",
         focusMessageInput: "メッセージ入力にフォーカス",
         cycleAgentMode: "エージェントモードを順に切り替え",
         toggleVoiceMode: "音声モードを切り替え",

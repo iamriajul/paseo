@@ -83,7 +83,9 @@ assertSingleLine(displayName, "display name");
 const entries = [
   ["PASEO_FORK_ID_SUFFIX", suffix],
   ["PASEO_FORK_DISPLAY_NAME", displayName],
-  ["PASEO_ANDROID_PACKAGE_ID", process.env.PASEO_ANDROID_PACKAGE_ID || `sh.paseo.${suffix}`],
+  // Match the original app package so side-by-side installs replace the upstream APK.
+  // Override with PASEO_ANDROID_PACKAGE_ID if a fork needs a distinct package.
+  ["PASEO_ANDROID_PACKAGE_ID", process.env.PASEO_ANDROID_PACKAGE_ID || "sh.paseo"],
   ["PASEO_ANDROID_APP_NAME", process.env.PASEO_ANDROID_APP_NAME || `Paseo ${displayName}`],
   ["PASEO_URL_SCHEME", process.env.PASEO_URL_SCHEME || `paseo-${suffix.replace(/\./g, "-")}`],
   ["PASEO_DESKTOP_APP_ID", process.env.PASEO_DESKTOP_APP_ID || `sh.paseo.desktop.${suffix}`],

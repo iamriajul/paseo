@@ -108,9 +108,11 @@ For `iamriajul/paseo`, the APK defaults to:
 | Setting    | Value                 |
 | ---------- | --------------------- |
 | App name   | `Paseo iamriajul`     |
-| Package ID | `sh.paseo.iamriajul`  |
+| Package ID | `sh.paseo`            |
 | URL scheme | `paseo-iamriajul`     |
 | Updates    | Upstream EAS disabled |
+
+The Android package ID matches the original app (`sh.paseo`) so the fork APK can replace an existing official install. Set `PASEO_ANDROID_PACKAGE_ID` in the release environment if a fork needs a distinct package.
 
 Configure these repository secrets once for a secure, stable signing key:
 

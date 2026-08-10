@@ -95,11 +95,13 @@ export function buildMasterBacklogProjectTargets(input: {
       if (!host.isOnline || !repoRoot || !input.supportsBacklogByServerId.get(host.serverId)) {
         continue;
       }
+      // Tasks and task RPCs key by host-local projectId, not the mutable
+      // cross-host viewKey (which can change when a Git remote is transferred).
       targets.push({
-        optionId: buildMasterBacklogProjectOptionId(host.serverId, project.viewKey),
+        optionId: buildMasterBacklogProjectOptionId(host.serverId, host.projectId),
         serverId: host.serverId,
         serverName: host.serverName,
-        projectId: project.viewKey,
+        projectId: host.projectId,
         projectName: project.projectName,
         repoRoot,
       });
@@ -122,7 +124,7 @@ export function annotateMasterBacklogTasks(input: {
 
   for (const project of input.projects) {
     for (const host of project.hosts) {
-      metadataByProject.set(projectMetadataKey(host.serverId, project.viewKey), {
+      metadataByProject.set(projectMetadataKey(host.serverId, host.projectId), {
         projectName: project.projectName,
         repoRoot: host.repoRoot.trim() || null,
       });

@@ -282,6 +282,8 @@ interface ProjectHeaderRowProps {
 
 interface ProjectBacklogTarget {
   serverId: string;
+  /** Host-local project FK used by task RPCs; not the mutable viewKey. */
+  projectId: string;
 }
 
 interface WorkspaceRowInnerProps {
@@ -410,7 +412,7 @@ function resolveProjectBacklogTarget(
 ): ProjectBacklogTarget | null {
   for (const host of project.hosts) {
     if (supportsBacklogByServerId.get(host.serverId)) {
-      return { serverId: host.serverId };
+      return { serverId: host.serverId, projectId: host.projectId };
     }
   }
   return null;
@@ -995,11 +997,13 @@ function ProjectHeaderRow({
     router.navigate(
       buildBacklogRoute({
         serverId: backlogTarget.serverId,
-        projectId: project.viewKey,
+        // Host-local projectId is the task FK; viewKey is only for grouping
+        // and can diverge after a remote transfer.
+        projectId: backlogTarget.projectId,
         displayName,
       }) as Href,
     );
-  }, [backlogTarget, displayName, onWorkspacePress, project.viewKey]);
+  }, [backlogTarget, displayName, onWorkspacePress]);
   const interaction = useLongPressDragInteraction({
     drag,
     menuController,

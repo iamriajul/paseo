@@ -2504,6 +2504,12 @@ export const es: TranslationResources = {
         maxOutputPlaceholder: "e.g. 500000",
         maxOutputHint: "How long one response can be before it must stop or continue.",
         maxOutputInvalid: "Enter a positive whole number of tokens.",
+        autoCompactThreshold: "Umbral de auto-compactación",
+        autoCompactThresholdHint:
+          "Cuándo Claude Code debe resumir el historial. Se aplica como CLAUDE_CODE_AUTO_COMPACT_WINDOW en sesiones compatibles con Claude.",
+        autoCompactThresholdValue: "{{percent}}% · auto-compacta cerca de {{tokens}} tokens",
+        autoCompactThresholdNeedsContext:
+          "{{percent}}% · define una ventana de contexto para ver el umbral en tokens",
         metadataSource: "Metadata Source",
         metadataSourceHint: "Which listing to trust when the same model has different limits.",
         metadataSourceSearch: "Search providers…",

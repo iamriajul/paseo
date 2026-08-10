@@ -16,12 +16,16 @@ import {
 } from "./model-manifest.js";
 import {
   applyClaudeCustomModelEnvPins,
+  applyClaudeAutoCompactWindowEnv,
   applyClaudeMaxContextTokensEnv,
   applyClaudeMaxOutputTokensEnv,
   buildClaudeCustomModelEnvPins,
+  CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY,
   CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY,
   CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY,
+  resolveClaudeAutoCompactWindowTokens,
   resolveClaudeMaxOutputTokens,
+  normalizeClaudeAutoCompactThresholdPercent,
   CLAUDE_CUSTOM_MODEL_PIN_ENV_KEYS,
   findClaudeModel,
   getClaudeModels,
@@ -660,6 +664,55 @@ describe("Claude max output tokens env", () => {
       500_000,
     );
     expect(applied[CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY]).toBe("32000");
+  });
+});
+
+describe("Claude auto-compact window env", () => {
+  it("normalizeClaudeAutoCompactThresholdPercent clamps and defaults", () => {
+    expect(normalizeClaudeAutoCompactThresholdPercent(undefined)).toBe(90);
+    expect(normalizeClaudeAutoCompactThresholdPercent(95)).toBe(95);
+    expect(normalizeClaudeAutoCompactThresholdPercent(49)).toBe(90);
+    expect(normalizeClaudeAutoCompactThresholdPercent(100)).toBe(90);
+  });
+
+  it("resolveClaudeAutoCompactWindowTokens uses profile context and percent", () => {
+    expect(
+      resolveClaudeAutoCompactWindowTokens({
+        modelId: "glm-5.1",
+        profileModels: [{ id: "glm-5.1", contextWindowMaxTokens: 500_000 }],
+      }),
+    ).toBe(450_000);
+    expect(
+      resolveClaudeAutoCompactWindowTokens({
+        modelId: "glm-5.1",
+        profileModels: [
+          {
+            id: "glm-5.1",
+            contextWindowMaxTokens: 500_000,
+            autoCompactThresholdPercent: 95,
+          },
+        ],
+      }),
+    ).toBe(475_000);
+    expect(
+      resolveClaudeAutoCompactWindowTokens({
+        modelId: "claude-sonnet-4-6",
+        profileModels: [],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("applyClaudeAutoCompactWindowEnv fills missing auto-compact window", () => {
+    const applied = applyClaudeAutoCompactWindowEnv({ PATH: "/usr/bin" }, 450_000);
+    expect(applied[CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]).toBe("450000");
+  });
+
+  it("applyClaudeAutoCompactWindowEnv preserves user env", () => {
+    const applied = applyClaudeAutoCompactWindowEnv(
+      { [CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]: "300000" },
+      450_000,
+    );
+    expect(applied[CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]).toBe("300000");
   });
 });
 

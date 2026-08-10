@@ -43,6 +43,74 @@ describe("master backlog helpers", () => {
     ]);
   });
 
+  it("uses host-local projectId when viewKey diverges after a remote transfer", () => {
+    const legacyProjectId = "remote:github.com/iamriajul/deepcycle";
+    const transferredViewKey = "remote:github.com/deepcycleai/deepcycle";
+    const targets = buildMasterBacklogProjectTargets({
+      projects: [
+        projectSummary({
+          viewKey: transferredViewKey,
+          projectName: "DeepCycleAI/deepcycle",
+          hosts: [
+            {
+              serverId: "host-a",
+              serverName: "Alpha",
+              isOnline: true,
+              repoRoot: "/home/coder/deepcycle/deepcycle-v2",
+              projectId: legacyProjectId,
+            },
+          ],
+        }),
+      ],
+      supportsBacklogByServerId: new Map([["host-a", true]]),
+    });
+
+    expect(targets).toEqual([
+      {
+        optionId: `backlog-project:host-a:${legacyProjectId}`,
+        serverId: "host-a",
+        serverName: "Alpha",
+        projectId: legacyProjectId,
+        projectName: "DeepCycleAI/deepcycle",
+        repoRoot: "/home/coder/deepcycle/deepcycle-v2",
+      },
+    ]);
+
+    const annotated = annotateMasterBacklogTasks({
+      projects: [
+        projectSummary({
+          viewKey: transferredViewKey,
+          projectName: "DeepCycleAI/deepcycle",
+          hosts: [
+            {
+              serverId: "host-a",
+              serverName: "Alpha",
+              isOnline: true,
+              repoRoot: "/home/coder/deepcycle/deepcycle-v2",
+              projectId: legacyProjectId,
+            },
+          ],
+        }),
+      ],
+      hostTasks: [
+        {
+          serverId: "host-a",
+          serverName: "Alpha",
+          tasks: [task({ id: "task-1", projectId: legacyProjectId, title: "First" })],
+        },
+      ],
+    });
+
+    expect(annotated).toMatchObject([
+      {
+        id: "task-1",
+        projectId: legacyProjectId,
+        projectName: "DeepCycleAI/deepcycle",
+        projectRootPath: "/home/coder/deepcycle/deepcycle-v2",
+      },
+    ]);
+  });
+
   it("annotates host tasks with project metadata and stable task keys", () => {
     const annotated = annotateMasterBacklogTasks({
       projects: [
@@ -172,6 +240,7 @@ function projectSummary(input: {
     serverName: string;
     isOnline: boolean;
     repoRoot: string;
+    projectId?: string;
   }>;
 }): ProjectSummary {
   return {
@@ -179,8 +248,11 @@ function projectSummary(input: {
     projectName: input.projectName,
     projectCustomName: null,
     hosts: input.hosts.map((host) => ({
-      ...host,
-      projectId: input.viewKey,
+      serverId: host.serverId,
+      serverName: host.serverName,
+      isOnline: host.isOnline,
+      repoRoot: host.repoRoot,
+      projectId: host.projectId ?? input.viewKey,
       projectName: input.projectName,
       projectCustomName: null,
       workspaceCount: 1,

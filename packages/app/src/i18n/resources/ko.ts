@@ -2415,6 +2415,12 @@ export const ko: TranslationResources = {
         maxOutputPlaceholder: "e.g. 500000",
         maxOutputHint: "How long one response can be before it must stop or continue.",
         maxOutputInvalid: "Enter a positive whole number of tokens.",
+        autoCompactThreshold: "자동 압축 임계값",
+        autoCompactThresholdHint:
+          "Claude Code가 기록을 요약하는 시점입니다. Claude 호환 세션에서는 CLAUDE_CODE_AUTO_COMPACT_WINDOW로 적용됩니다.",
+        autoCompactThresholdValue: "{{percent}}% · 약 {{tokens}} 토큰 근처에서 자동 압축",
+        autoCompactThresholdNeedsContext:
+          "{{percent}}% · 컨텍스트 창을 설정하면 토큰 임계값을 미리 볼 수 있습니다",
         metadataSource: "Metadata Source",
         metadataSourceHint: "Which listing to trust when the same model has different limits.",
         metadataSourceSearch: "Search providers…",

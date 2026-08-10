@@ -2452,6 +2452,11 @@ export const ar: TranslationResources = {
         maxOutputPlaceholder: "e.g. 500000",
         maxOutputHint: "How long one response can be before it must stop or continue.",
         maxOutputInvalid: "Enter a positive whole number of tokens.",
+        autoCompactThreshold: "عتبة الضغط التلقائي",
+        autoCompactThresholdHint:
+          "متى يجب على Claude Code تلخيص السجل. يُطبَّق كـ CLAUDE_CODE_AUTO_COMPACT_WINDOW لجلسات Claude.",
+        autoCompactThresholdValue: "{{percent}}% · ضغط تلقائي قرب {{tokens}} رمزًا",
+        autoCompactThresholdNeedsContext: "{{percent}}% · عيّن نافذة السياق لمعاينة عتبة الرموز",
         metadataSource: "Metadata Source",
         metadataSourceHint: "Which listing to trust when the same model has different limits.",
         metadataSourceSearch: "Search providers…",

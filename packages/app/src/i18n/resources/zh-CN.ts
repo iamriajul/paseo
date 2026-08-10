@@ -2425,6 +2425,11 @@ export const zhCN: TranslationResources = {
         maxOutputPlaceholder: "e.g. 500000",
         maxOutputHint: "How long one response can be before it must stop or continue.",
         maxOutputInvalid: "Enter a positive whole number of tokens.",
+        autoCompactThreshold: "自动压缩阈值",
+        autoCompactThresholdHint:
+          "Claude Code 何时应总结历史。Claude 兼容会话会写入 CLAUDE_CODE_AUTO_COMPACT_WINDOW。",
+        autoCompactThresholdValue: "{{percent}}% · 约在 {{tokens}} tokens 时自动压缩",
+        autoCompactThresholdNeedsContext: "{{percent}}% · 设置上下文窗口后可预览 token 阈值",
         metadataSource: "Metadata Source",
         metadataSourceHint: "Which listing to trust when the same model has different limits.",
         metadataSourceSearch: "Search providers…",

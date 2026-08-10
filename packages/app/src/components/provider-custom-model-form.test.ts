@@ -5,9 +5,12 @@ import {
   buildSavedCustomModel,
   candidateSourceId,
   canAutofillField,
+  computeAutoCompactWindowTokens,
   describeCandidateOption,
+  normalizeAutoCompactThresholdPercent,
   parsePositiveTokenInput,
   pickPreferredCandidate,
+  resolveCustomModelFormFields,
 } from "./provider-custom-model-form";
 
 describe("provider-custom-model-form helpers", () => {
@@ -118,5 +121,54 @@ test("buildSavedCustomModel stores custom source or listing metadata", () => {
     modelsDevProviderId: "openrouter",
     modelsDevMatchedId: "x-ai/grok-4.5",
     capabilities: ["tools"],
+  });
+});
+
+describe("auto-compact threshold helpers", () => {
+  test("normalizeAutoCompactThresholdPercent defaults and clamps", () => {
+    expect(normalizeAutoCompactThresholdPercent(undefined)).toBe(90);
+    expect(normalizeAutoCompactThresholdPercent(80)).toBe(80);
+    expect(normalizeAutoCompactThresholdPercent(40)).toBe(90);
+  });
+
+  test("computeAutoCompactWindowTokens multiplies context by percent", () => {
+    expect(computeAutoCompactWindowTokens(500_000, 90)).toBe(450_000);
+    expect(computeAutoCompactWindowTokens(500_000, 95)).toBe(475_000);
+    expect(computeAutoCompactWindowTokens(undefined, 90)).toBeUndefined();
+  });
+
+  test("buildSavedCustomModel stores auto-compact percent with context window", () => {
+    const model = buildSavedCustomModel({
+      id: "glm-5.1",
+      label: "GLM",
+      contextTokens: 500_000,
+      maxOutputTokens: undefined,
+      autoCompactThresholdPercent: 95,
+      sourceId: "custom",
+      selectedCandidate: null,
+    });
+    expect(model.contextWindowMaxTokens).toBe(500_000);
+    expect(model.autoCompactThresholdPercent).toBe(95);
+  });
+
+  test("resolveCustomModelFormFields defaults percent to 90", () => {
+    expect(resolveCustomModelFormFields({ kind: "add" }).autoCompactThresholdPercent).toBe(90);
+    expect(
+      resolveCustomModelFormFields({
+        kind: "edit",
+        model: { id: "glm-5.1", label: "GLM", contextWindowMaxTokens: 500_000 },
+      }).autoCompactThresholdPercent,
+    ).toBe(90);
+    expect(
+      resolveCustomModelFormFields({
+        kind: "edit",
+        model: {
+          id: "glm-5.1",
+          label: "GLM",
+          contextWindowMaxTokens: 500_000,
+          autoCompactThresholdPercent: 80,
+        },
+      }).autoCompactThresholdPercent,
+    ).toBe(80);
   });
 });

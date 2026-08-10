@@ -260,7 +260,63 @@ describe("Claude SDK env", () => {
       await session.run("compact window check");
       expect(capturedEnv?.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("500000");
       expect(capturedEnv?.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("500000");
-      expect(capturedEnv?.CLAUDE_CODE_AUTO_COMPACT_WINDOW).not.toBe("500000");
+      expect(capturedEnv?.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe("450000");
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("sets CLAUDE_CODE_AUTO_COMPACT_WINDOW from profile threshold percent", async () => {
+    let capturedEnv: Record<string, string | undefined> | undefined;
+    const queryFactory = vi.fn(({ options }: ClaudeQueryInput) => {
+      capturedEnv = options.env;
+      return createQueryMock([
+        {
+          type: "system",
+          subtype: "init",
+          session_id: "custom-model-compact-percent-session",
+          permissionMode: "default",
+          model: "glm-5.1",
+        },
+        {
+          type: "assistant",
+          message: { content: "done" },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          usage: {
+            input_tokens: 1,
+            cache_read_input_tokens: 0,
+            output_tokens: 1,
+          },
+          total_cost_usd: 0,
+        },
+      ]);
+    });
+
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+      profileModels: [
+        {
+          id: "glm-5.1",
+          contextWindowMaxTokens: 500_000,
+          autoCompactThresholdPercent: 95,
+        },
+      ],
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "glm-5.1",
+    });
+
+    try {
+      await session.run("compact percent check");
+      expect(capturedEnv?.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("500000");
+      expect(capturedEnv?.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe("475000");
     } finally {
       await session.close();
     }

@@ -2,6 +2,10 @@ import type { ProviderProfileModel } from "@getpaseo/protocol/provider-config";
 
 export const CUSTOM_MODEL_METADATA_SOURCE_ID = "custom";
 
+export const AUTO_COMPACT_THRESHOLD_PERCENT_MIN = 50;
+export const AUTO_COMPACT_THRESHOLD_PERCENT_MAX = 99;
+export const AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT = 90;
+
 export interface ModelsDevCandidateLike {
   providerId: string;
   matchedId: string;
@@ -24,6 +28,7 @@ export interface CustomModelFormFields {
   label: string;
   contextWindow: string;
   maxOutput: string;
+  autoCompactThresholdPercent: number;
   sourceId: string;
   summary: ModelsDevCandidateLike | null;
 }
@@ -61,6 +66,34 @@ export function formatTokenCount(tokens: number | undefined): string | null {
     return `${thousands}k`;
   }
   return String(tokens);
+}
+
+export function normalizeAutoCompactThresholdPercent(percent: number | undefined): number {
+  if (
+    typeof percent !== "number" ||
+    !Number.isFinite(percent) ||
+    percent < AUTO_COMPACT_THRESHOLD_PERCENT_MIN ||
+    percent > AUTO_COMPACT_THRESHOLD_PERCENT_MAX
+  ) {
+    return AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT;
+  }
+  return Math.trunc(percent);
+}
+
+export function computeAutoCompactWindowTokens(
+  contextWindowMaxTokens: number | undefined,
+  percent: number | undefined,
+): number | undefined {
+  if (
+    typeof contextWindowMaxTokens !== "number" ||
+    !Number.isFinite(contextWindowMaxTokens) ||
+    contextWindowMaxTokens <= 0
+  ) {
+    return undefined;
+  }
+  const normalizedPercent = normalizeAutoCompactThresholdPercent(percent);
+  const tokens = Math.floor((Math.trunc(contextWindowMaxTokens) * normalizedPercent) / 100);
+  return tokens > 0 ? tokens : undefined;
 }
 
 export function canAutofillField(current: string, lastAutofilled: string | null): boolean {
@@ -191,6 +224,7 @@ export function resolveCustomModelFormFields(
       label: "",
       contextWindow: "",
       maxOutput: "",
+      autoCompactThresholdPercent: AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT,
       sourceId: CUSTOM_MODEL_METADATA_SOURCE_ID,
       summary: null,
     };
@@ -213,6 +247,9 @@ export function resolveCustomModelFormFields(
     contextWindow:
       typeof model.contextWindowMaxTokens === "number" ? String(model.contextWindowMaxTokens) : "",
     maxOutput: typeof model.maxOutputTokens === "number" ? String(model.maxOutputTokens) : "",
+    autoCompactThresholdPercent: normalizeAutoCompactThresholdPercent(
+      model.autoCompactThresholdPercent,
+    ),
     sourceId,
     summary: hasSummaryMetadata(model) ? summaryFromModel(model) : null,
   };
@@ -223,6 +260,7 @@ export function buildSavedCustomModel(options: {
   label: string;
   contextTokens: number | undefined;
   maxOutputTokens: number | undefined;
+  autoCompactThresholdPercent?: number;
   sourceId: string;
   selectedCandidate: ModelsDevCandidateLike | null;
 }): ProviderProfileModel {
@@ -232,6 +270,9 @@ export function buildSavedCustomModel(options: {
   };
   if (options.contextTokens !== undefined) {
     nextModel.contextWindowMaxTokens = options.contextTokens;
+    nextModel.autoCompactThresholdPercent = normalizeAutoCompactThresholdPercent(
+      options.autoCompactThresholdPercent,
+    );
   }
   if (options.maxOutputTokens !== undefined) {
     nextModel.maxOutputTokens = options.maxOutputTokens;

@@ -2492,6 +2492,12 @@ export const ru: TranslationResources = {
         maxOutputPlaceholder: "e.g. 500000",
         maxOutputHint: "How long one response can be before it must stop or continue.",
         maxOutputInvalid: "Enter a positive whole number of tokens.",
+        autoCompactThreshold: "Порог авто-сжатия",
+        autoCompactThresholdHint:
+          "Когда Claude Code должен суммировать историю. Задаётся как CLAUDE_CODE_AUTO_COMPACT_WINDOW для Claude-совместимых сессий.",
+        autoCompactThresholdValue: "{{percent}}% · авто-сжатие около {{tokens}} токенов",
+        autoCompactThresholdNeedsContext:
+          "{{percent}}% · укажите context window, чтобы увидеть порог в токенах",
         metadataSource: "Metadata Source",
         metadataSourceHint: "Which listing to trust when the same model has different limits.",
         metadataSourceSearch: "Search providers…",

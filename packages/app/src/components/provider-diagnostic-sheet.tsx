@@ -7,6 +7,7 @@ import {
   FileText,
   Image as ImageIcon,
   Mic,
+  Minus,
   Pencil,
   Plus,
   RotateCw,
@@ -30,12 +31,17 @@ import { Combobox } from "@/components/ui/combobox";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ScrollableCodeSurface, SurfaceCard } from "@/components/ui/scrollable-code-surface";
 import {
+  AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT,
+  AUTO_COMPACT_THRESHOLD_PERCENT_MAX,
+  AUTO_COMPACT_THRESHOLD_PERCENT_MIN,
   applyCandidateToFields,
   buildSavedCustomModel,
   candidateSourceId,
+  computeAutoCompactWindowTokens,
   CUSTOM_MODEL_METADATA_SOURCE_ID,
   describeCandidateOption,
   formatTokenCount,
+  normalizeAutoCompactThresholdPercent,
   parsePositiveTokenInput,
   resolveCustomModelFormFields,
   resolveCustomModelLookup,
@@ -357,6 +363,106 @@ function createEmptyAutofillSnapshot(): {
   return { label: "", contextWindow: "", maxOutput: "" };
 }
 
+function clampAutoCompactThresholdPercent(value: number): number {
+  return normalizeAutoCompactThresholdPercent(
+    Math.min(
+      AUTO_COMPACT_THRESHOLD_PERCENT_MAX,
+      Math.max(AUTO_COMPACT_THRESHOLD_PERCENT_MIN, Math.round(value)),
+    ),
+  );
+}
+
+function AutoCompactThresholdSlider({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}) {
+  const { theme } = useUnistyles();
+  const trackWidthRef = useRef(0);
+  const percent =
+    (value - AUTO_COMPACT_THRESHOLD_PERCENT_MIN) /
+    (AUTO_COMPACT_THRESHOLD_PERCENT_MAX - AUTO_COMPACT_THRESHOLD_PERCENT_MIN);
+  const fillPercent = Math.max(0, Math.min(1, percent));
+  const fillStyle = useMemo(
+    () => ({ width: `${Math.round(fillPercent * 100)}%` as const }),
+    [fillPercent],
+  );
+  const accessibilityValue = useMemo(
+    () => ({
+      min: AUTO_COMPACT_THRESHOLD_PERCENT_MIN,
+      max: AUTO_COMPACT_THRESHOLD_PERCENT_MAX,
+      now: value,
+    }),
+    [value],
+  );
+
+  const handleDecrease = useCallback(() => {
+    onChange(clampAutoCompactThresholdPercent(value - 1));
+  }, [onChange, value]);
+
+  const handleIncrease = useCallback(() => {
+    onChange(clampAutoCompactThresholdPercent(value + 1));
+  }, [onChange, value]);
+
+  const handleTrackLayout = useCallback((event: { nativeEvent: { layout: { width: number } } }) => {
+    trackWidthRef.current = event.nativeEvent.layout.width;
+  }, []);
+
+  const handleTrackPress = useCallback(
+    (event: { nativeEvent: { locationX: number } }) => {
+      if (disabled || trackWidthRef.current <= 0) {
+        return;
+      }
+      const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / trackWidthRef.current));
+      const next =
+        AUTO_COMPACT_THRESHOLD_PERCENT_MIN +
+        ratio * (AUTO_COMPACT_THRESHOLD_PERCENT_MAX - AUTO_COMPACT_THRESHOLD_PERCENT_MIN);
+      onChange(clampAutoCompactThresholdPercent(next));
+    },
+    [disabled, onChange],
+  );
+
+  return (
+    <View
+      style={[sheetStyles.sliderRow, disabled ? sheetStyles.disabled : null]}
+      testID="custom-model-auto-compact-threshold"
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Decrease auto-compact threshold"
+        disabled={disabled || value <= AUTO_COMPACT_THRESHOLD_PERCENT_MIN}
+        onPress={handleDecrease}
+        style={sheetStyles.sliderStepButton}
+      >
+        <Minus size={16} color={theme.colors.foregroundMuted} />
+      </Pressable>
+      <Pressable
+        accessibilityRole="adjustable"
+        accessibilityValue={accessibilityValue}
+        disabled={disabled}
+        onLayout={handleTrackLayout}
+        onPress={handleTrackPress}
+        style={sheetStyles.sliderTrack}
+      >
+        <View style={[sheetStyles.sliderFill, fillStyle]} />
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Increase auto-compact threshold"
+        disabled={disabled || value >= AUTO_COMPACT_THRESHOLD_PERCENT_MAX}
+        onPress={handleIncrease}
+        style={sheetStyles.sliderStepButton}
+      >
+        <Plus size={16} color={theme.colors.foregroundMuted} />
+      </Pressable>
+    </View>
+  );
+}
+
 // Form has progressive disclosure branches for lookup/source/manual values.
 // eslint-disable-next-line complexity -- multi-case custom model form UI
 function CustomModelFormSubSheet({
@@ -382,6 +488,9 @@ function CustomModelFormSubSheet({
   const [label, setLabel] = useState("");
   const [contextWindow, setContextWindow] = useState("");
   const [maxOutput, setMaxOutput] = useState("");
+  const [autoCompactThresholdPercent, setAutoCompactThresholdPercent] = useState(
+    AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT,
+  );
   const [sourceId, setSourceId] = useState(CUSTOM_MODEL_METADATA_SOURCE_ID);
   const [candidates, setCandidates] = useState<ModelsDevCandidateLike[]>([]);
   const [summary, setSummary] = useState<ModelsDevCandidateLike | null>(null);
@@ -404,6 +513,14 @@ function CustomModelFormSubSheet({
   const trimmedLabel = label.trim();
   const parsedContext = parseContextWindowInput(contextWindow);
   const parsedMaxOutput = parseContextWindowInput(maxOutput);
+  const autoCompactWindowTokens =
+    typeof parsedContext === "number"
+      ? computeAutoCompactWindowTokens(parsedContext, autoCompactThresholdPercent)
+      : undefined;
+  const autoCompactWindowLabel =
+    autoCompactWindowTokens !== undefined
+      ? (formatTokenCount(autoCompactWindowTokens) ?? String(autoCompactWindowTokens))
+      : null;
   const idConflict =
     trimmedId.length > 0 &&
     additionalModels.some((model) => model.id === trimmedId && model.id !== originalId);
@@ -437,6 +554,7 @@ function CustomModelFormSubSheet({
       setLabel("");
       setContextWindow("");
       setMaxOutput("");
+      setAutoCompactThresholdPercent(AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT);
       setSourceId(CUSTOM_MODEL_METADATA_SOURCE_ID);
       setCandidates([]);
       setSummary(null);
@@ -452,6 +570,7 @@ function CustomModelFormSubSheet({
     setLabel(fields.label);
     setContextWindow(fields.contextWindow);
     setMaxOutput(fields.maxOutput);
+    setAutoCompactThresholdPercent(fields.autoCompactThresholdPercent);
     setSourceId(fields.sourceId);
     setSummary(fields.summary);
     setCandidates([]);
@@ -564,6 +683,7 @@ function CustomModelFormSubSheet({
       label: trimmedLabel.length > 0 ? trimmedLabel : trimmedId,
       contextTokens: contextTokens === undefined ? undefined : contextTokens,
       maxOutputTokens: maxOutputTokens === undefined ? undefined : maxOutputTokens,
+      autoCompactThresholdPercent,
       sourceId,
       selectedCandidate: resolveSelectedCandidate(sourceId, candidates, summary),
     });
@@ -586,6 +706,7 @@ function CustomModelFormSubSheet({
       .finally(() => setSaving(false));
   }, [
     additionalModels,
+    autoCompactThresholdPercent,
     canSave,
     candidates,
     contextWindow,
@@ -725,6 +846,28 @@ function CustomModelFormSubSheet({
             {t("settings.providers.models.contextWindowInvalid")}
           </Text>
         ) : null}
+
+        <Text style={sheetStyles.formLabel}>
+          {t("settings.providers.models.autoCompactThreshold")}
+        </Text>
+        <Text style={sheetStyles.descriptionInline}>
+          {t("settings.providers.models.autoCompactThresholdHint")}
+        </Text>
+        <AutoCompactThresholdSlider
+          value={autoCompactThresholdPercent}
+          onChange={setAutoCompactThresholdPercent}
+          disabled={parsedContext === "invalid"}
+        />
+        <Text style={sheetStyles.descriptionInline}>
+          {autoCompactWindowLabel
+            ? t("settings.providers.models.autoCompactThresholdValue", {
+                percent: autoCompactThresholdPercent,
+                tokens: autoCompactWindowLabel,
+              })
+            : t("settings.providers.models.autoCompactThresholdNeedsContext", {
+                percent: autoCompactThresholdPercent,
+              })}
+        </Text>
 
         <Text style={sheetStyles.formLabel}>{t("settings.providers.models.maxOutput")}</Text>
         <Text style={sheetStyles.descriptionInline}>
@@ -1397,6 +1540,35 @@ const sheetStyles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: theme.spacing[2],
+  },
+  sliderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  sliderStepButton: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  sliderTrack: {
+    flex: 1,
+    height: 10,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    overflow: "hidden",
+    justifyContent: "center",
+  },
+  sliderFill: {
+    height: "100%",
+    backgroundColor: theme.colors.primary,
   },
   sourceTrigger: {
     minHeight: 44,

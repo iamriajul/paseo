@@ -226,11 +226,17 @@ export function applyClaudeCustomModelEnvPins(
 
 export const CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY = "CLAUDE_CODE_MAX_CONTEXT_TOKENS";
 export const CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY = "CLAUDE_CODE_MAX_OUTPUT_TOKENS";
+export const CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+
+export const CLAUDE_AUTO_COMPACT_THRESHOLD_PERCENT_MIN = 50;
+export const CLAUDE_AUTO_COMPACT_THRESHOLD_PERCENT_MAX = 99;
+export const CLAUDE_AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT = 90;
 
 interface ClaudeProfileModelLimits {
   id: string;
   contextWindowMaxTokens?: number;
   maxOutputTokens?: number;
+  autoCompactThresholdPercent?: number;
 }
 
 /**
@@ -296,6 +302,57 @@ export function applyClaudeMaxOutputTokensEnv(
   maxOutputTokens: number | undefined,
 ): NodeJS.ProcessEnv {
   return applyPositiveTokenEnv(env, CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY, maxOutputTokens);
+}
+
+/**
+ * Clamp a configured auto-compact threshold percent into the supported range.
+ * Missing or invalid values fall back to the default.
+ */
+export function normalizeClaudeAutoCompactThresholdPercent(percent: number | undefined): number {
+  if (
+    typeof percent !== "number" ||
+    !Number.isFinite(percent) ||
+    percent < CLAUDE_AUTO_COMPACT_THRESHOLD_PERCENT_MIN ||
+    percent > CLAUDE_AUTO_COMPACT_THRESHOLD_PERCENT_MAX
+  ) {
+    return CLAUDE_AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT;
+  }
+  return Math.trunc(percent);
+}
+
+/**
+ * Compute CLAUDE_CODE_AUTO_COMPACT_WINDOW from a profile context window + percent.
+ * Only profile-configured context windows participate (not first-party catalog defaults).
+ */
+export function resolveClaudeAutoCompactWindowTokens(options: {
+  modelId: string | null | undefined;
+  profileModels?: ClaudeProfileModelLimits[];
+}): number | undefined {
+  const profileMatch = findProfileModel(options.modelId, options.profileModels);
+  const contextWindowMaxTokens = profileMatch?.contextWindowMaxTokens;
+  if (
+    typeof contextWindowMaxTokens !== "number" ||
+    !Number.isFinite(contextWindowMaxTokens) ||
+    contextWindowMaxTokens <= 0
+  ) {
+    return undefined;
+  }
+  const percent = normalizeClaudeAutoCompactThresholdPercent(
+    profileMatch?.autoCompactThresholdPercent,
+  );
+  const windowTokens = Math.floor((Math.trunc(contextWindowMaxTokens) * percent) / 100);
+  return windowTokens > 0 ? windowTokens : undefined;
+}
+
+/**
+ * Fill-if-missing CLAUDE_CODE_AUTO_COMPACT_WINDOW from profile capacity settings.
+ * Leaves Claude Code's own threshold math alone when no profile context window is set.
+ */
+export function applyClaudeAutoCompactWindowEnv(
+  env: NodeJS.ProcessEnv,
+  autoCompactWindowTokens: number | undefined,
+): NodeJS.ProcessEnv {
+  return applyPositiveTokenEnv(env, CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY, autoCompactWindowTokens);
 }
 
 function findProfileModel(

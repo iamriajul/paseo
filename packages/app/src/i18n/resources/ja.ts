@@ -2475,6 +2475,12 @@ export const ja: TranslationResources = {
         maxOutputPlaceholder: "e.g. 500000",
         maxOutputHint: "How long one response can be before it must stop or continue.",
         maxOutputInvalid: "Enter a positive whole number of tokens.",
+        autoCompactThreshold: "自動コンパクト閾値",
+        autoCompactThresholdHint:
+          "Claude Code が履歴を要約するタイミング。Claude 互換セッションでは CLAUDE_CODE_AUTO_COMPACT_WINDOW として適用されます。",
+        autoCompactThresholdValue: "{{percent}}% · 約 {{tokens}} トークンで自動コンパクト",
+        autoCompactThresholdNeedsContext:
+          "{{percent}}% · コンテキストウィンドウを設定するとトークン閾値を表示します",
         metadataSource: "Metadata Source",
         metadataSourceHint: "Which listing to trust when the same model has different limits.",
         metadataSourceSearch: "Search providers…",

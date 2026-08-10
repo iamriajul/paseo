@@ -2468,6 +2468,12 @@ export const en = {
         maxOutputPlaceholder: "e.g. 500000",
         maxOutputHint: "How long one response can be before it must stop or continue.",
         maxOutputInvalid: "Enter a positive whole number of tokens.",
+        autoCompactThreshold: "Auto-Compact Threshold",
+        autoCompactThresholdHint:
+          "When Claude Code should summarize history. Applied as CLAUDE_CODE_AUTO_COMPACT_WINDOW for Claude-compatible sessions.",
+        autoCompactThresholdValue: "{{percent}}% · auto-compacts near {{tokens}} tokens",
+        autoCompactThresholdNeedsContext:
+          "{{percent}}% · set a context window to preview the token threshold",
         metadataSource: "Metadata Source",
         metadataSourceHint: "Which listing to trust when the same model has different limits.",
         metadataSourceSearch: "Search providers…",

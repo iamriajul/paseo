@@ -45,6 +45,8 @@ import {
   getClaudeModelsWithSettings,
   normalizeClaudeRuntimeModelId,
   resolveConfiguredClaudeModel,
+  applyClaudeAutoCompactWindowEnv,
+  resolveClaudeAutoCompactWindowTokens,
 } from "./models.js";
 import {
   CLAUDE_DISABLED_THINKING_OPTION_ID,
@@ -409,7 +411,12 @@ interface ClaudeAgentClientOptions {
   defaults?: { agents?: Record<string, AgentDefinition> };
   logger: Logger;
   runtimeSettings?: ProviderRuntimeSettings;
-  profileModels?: Array<{ id: string; contextWindowMaxTokens?: number; maxOutputTokens?: number }>;
+  profileModels?: Array<{
+    id: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+    autoCompactThresholdPercent?: number;
+  }>;
   queryFactory?: ClaudeQueryFactory;
   resolveBinary?: () => Promise<string>;
   resolveVersion?: () => Promise<string>;
@@ -419,7 +426,12 @@ interface ClaudeAgentClientOptions {
 interface ClaudeAgentSessionOptions {
   defaults?: { agents?: Record<string, AgentDefinition> };
   runtimeSettings?: ProviderRuntimeSettings;
-  profileModels?: Array<{ id: string; contextWindowMaxTokens?: number; maxOutputTokens?: number }>;
+  profileModels?: Array<{
+    id: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+    autoCompactThresholdPercent?: number;
+  }>;
   handle?: AgentPersistenceHandle;
   agentId?: string;
   launchEnv?: Record<string, string>;
@@ -1499,6 +1511,7 @@ export class ClaudeAgentClient implements AgentClient {
     id: string;
     contextWindowMaxTokens?: number;
     maxOutputTokens?: number;
+    autoCompactThresholdPercent?: number;
   }>;
   private readonly queryFactory?: ClaudeQueryFactory;
   private readonly resolveBinary: () => Promise<string>;
@@ -2039,6 +2052,7 @@ class ClaudeAgentSession implements AgentSession {
     id: string;
     contextWindowMaxTokens?: number;
     maxOutputTokens?: number;
+    autoCompactThresholdPercent?: number;
   }>;
   private readonly persistSession?: boolean;
   private readonly logger: Logger;
@@ -3314,8 +3328,13 @@ class ClaudeAgentSession implements AgentSession {
       modelId: this.config.model,
       profileModels: this.profileModels,
     });
+    const configuredAutoCompactWindow = resolveClaudeAutoCompactWindowTokens({
+      modelId: this.config.model,
+      profileModels: this.profileModels,
+    });
     const withContext = applyClaudeMaxContextTokensEnv(pinned, configuredWindow);
-    return applyClaudeMaxOutputTokensEnv(withContext, configuredMaxOutput);
+    const withOutput = applyClaudeMaxOutputTokensEnv(withContext, configuredMaxOutput);
+    return applyClaudeAutoCompactWindowEnv(withOutput, configuredAutoCompactWindow);
   }
 
   private async buildOptions(): Promise<ClaudeOptions> {

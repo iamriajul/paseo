@@ -2489,6 +2489,12 @@ export const ptBR: TranslationResources = {
         maxOutputPlaceholder: "e.g. 500000",
         maxOutputHint: "How long one response can be before it must stop or continue.",
         maxOutputInvalid: "Enter a positive whole number of tokens.",
+        autoCompactThreshold: "Limite de auto-compactação",
+        autoCompactThresholdHint:
+          "Quando o Claude Code deve resumir o histórico. Aplicado como CLAUDE_CODE_AUTO_COMPACT_WINDOW em sessões Claude.",
+        autoCompactThresholdValue: "{{percent}}% · auto-compacta perto de {{tokens}} tokens",
+        autoCompactThresholdNeedsContext:
+          "{{percent}}% · defina uma janela de contexto para pré-visualizar o limite",
         metadataSource: "Metadata Source",
         metadataSourceHint: "Which listing to trust when the same model has different limits.",
         metadataSourceSearch: "Search providers…",

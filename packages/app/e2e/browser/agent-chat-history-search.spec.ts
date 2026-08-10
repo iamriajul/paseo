@@ -1,9 +1,9 @@
-import { expect, test } from "./support/fixtures";
+import { expect, test } from "../support/fixtures";
 import {
   expectTimelinePromptVisible,
   openAgentTimeline,
   seedLongMockAgentTimeline,
-} from "./support/helpers/timeline-pagination";
+} from "../support/helpers/timeline-pagination";
 
 test.describe("Agent chat history search", () => {
   test("backfills bounded history, filters, navigates, highlights, and closes", async ({

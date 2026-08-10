@@ -16,7 +16,9 @@ const CLAUDE_CUSTOM_THINKING_FIELDS = {
     { id: "low", label: "Low" },
     { id: "medium", label: "Medium" },
     { id: "high", label: "High", isDefault: true },
+    { id: "xhigh", label: "Extra High" },
     { id: "max", label: "Max" },
+    { id: "ultracode", label: "Ultra Code" },
   ],
   defaultThinkingOptionId: "high",
 } satisfies Partial<AgentModelDefinition>;

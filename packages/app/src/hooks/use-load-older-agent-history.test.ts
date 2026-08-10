@@ -95,7 +95,7 @@ describe("loadOlderAgentHistory", () => {
 
     expect(client.calls).toEqual([]);
     expect(inFlight.values).toEqual([false]);
-    expect(started).toBe(false);
+    expect(started).toBe("complete");
   });
 
   it("no-ops when the daemon says no older history exists", async () => {
@@ -112,10 +112,10 @@ describe("loadOlderAgentHistory", () => {
 
     expect(client.calls).toEqual([]);
     expect(inFlight.values).toEqual([false]);
-    expect(started).toBe(false);
+    expect(started).toBe("complete");
   });
 
-  it("no-ops when a request is already in flight", async () => {
+  it("no-ops when a request is already marked in-flight", async () => {
     const client = createClient();
     const inFlight = createInFlight(true);
 
@@ -129,7 +129,8 @@ describe("loadOlderAgentHistory", () => {
 
     expect(client.calls).toEqual([]);
     expect(inFlight.values).toEqual([true]);
-    expect(started).toBe(true);
+    // Early complete: isLoadingOlder means the row is already fetching.
+    expect(started).toBe("complete");
   });
 
   it("requests the page before the current start cursor and clears in-flight on success", async () => {
@@ -156,7 +157,7 @@ describe("loadOlderAgentHistory", () => {
       },
     ]);
     expect(inFlight.values).toEqual([false, true, false]);
-    expect(started).toBe(true);
+    expect(started).toBe("loaded");
   });
 
   it("shows a panel toast, warns, and clears in-flight on failure", async () => {
@@ -168,7 +169,7 @@ describe("loadOlderAgentHistory", () => {
     const toast = createToast();
     const logger = createLogger();
 
-    await loadOlderAgentHistory(agentId, {
+    const result = await loadOlderAgentHistory(agentId, {
       client,
       cursor: someCursor,
       hasOlder: true,
@@ -178,6 +179,7 @@ describe("loadOlderAgentHistory", () => {
       logger,
     });
 
+    expect(result).toBe("failed");
     expect(client.calls).toHaveLength(1);
     expect(toast.shown).toEqual([
       {

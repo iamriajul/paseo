@@ -5,6 +5,7 @@ import {
   fetchCliproxyAnthropicModels,
   isOfficialCpaOwner,
   isCliproxyNonChatModel,
+  responseHasCpaFingerprint,
   resolveCliproxyAnthropicCredentials,
 } from "./cliproxy-models.js";
 
@@ -91,6 +92,11 @@ describe("resolveCliproxyAnthropicCredentials", () => {
 });
 
 describe("fetchCliproxyAnthropicModels", () => {
+  test("recognizes X-CPA fingerprints case-insensitively", () => {
+    expect(responseHasCpaFingerprint(new Headers({ "X-cPa-Version": "1" }))).toBe(true);
+    expect(responseHasCpaFingerprint(new Headers({ "x-other-header": "1" }))).toBe(false);
+  });
+
   test("returns empty when response lacks X-CPA fingerprint", async () => {
     const fetchImpl = vi.fn(
       async () =>
@@ -108,38 +114,44 @@ describe("fetchCliproxyAnthropicModels", () => {
   });
 
   test("loads single page when has_more is false", async () => {
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: "claude-fable-5-dd-5.4-korg",
-                display_name: "Grok 4.5",
-                owned_by: "xai",
-                max_input_tokens: 500000,
-                max_tokens: 65536,
-              },
-            ],
-            has_more: false,
-            first_id: "claude-fable-5-dd-5.4-korg",
-            last_id: "claude-fable-5-dd-5.4-korg",
-          }),
-          {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "x-cpa-version": "1",
+    let requestInit: RequestInit | undefined;
+    const fetchImpl = vi.fn(async (_input: RequestInfo, init?: RequestInit) => {
+      requestInit = init;
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "claude-fable-5-dd-5.4-korg",
+              display_name: "Grok 4.5",
+              owned_by: "xai",
+              max_input_tokens: 500000,
+              max_tokens: 65536,
             },
+          ],
+          has_more: false,
+          first_id: "claude-fable-5-dd-5.4-korg",
+          last_id: "claude-fable-5-dd-5.4-korg",
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "x-cpa-version": "1",
           },
-        ),
-    );
+        },
+      );
+    });
     const rows = await fetchCliproxyAnthropicModels({
       baseUrl: "http://cpa.example",
       token: "t",
       fetchImpl,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(requestInit?.method).toBe("GET");
+    const requestHeaders = new Headers(requestInit?.headers);
+    expect(requestHeaders.get("authorization")).toBe("Bearer t");
+    expect(requestHeaders.get("anthropic-version")).toBe("2023-06-01");
+    expect(requestHeaders.get("user-agent")).toBe("claude-cli/paseo");
     expect(rows).toEqual([
       {
         id: "grok-4.5",
@@ -204,6 +216,84 @@ describe("fetchCliproxyAnthropicModels", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(String(fetchImpl.mock.calls[1]?.[0])).toContain("after_id=claude-a");
     expect(rows.map((r) => r.id)).toEqual(["claude-a", "claude-b"]);
+  });
+
+  test("keeps collected rows when a follow-up request fails", async () => {
+    let call = 0;
+    const fetchImpl = vi.fn(async () => {
+      call += 1;
+      if (call > 1) throw new Error("follow-up failed");
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "claude-a",
+              display_name: "A",
+              owned_by: "anthropic",
+            },
+          ],
+          has_more: true,
+          last_id: "claude-a",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json", "x-cpa-version": "1" },
+        },
+      );
+    });
+
+    const rows = await fetchCliproxyAnthropicModels({
+      baseUrl: "http://cpa.example",
+      token: "t",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(rows.map((row) => row.id)).toEqual(["claude-a"]);
+  });
+
+  test("continues after a page with only new non-chat ids", async () => {
+    const pages = [
+      {
+        data: [
+          {
+            id: "gpt-image-2",
+            display_name: "GPT Image 2",
+            owned_by: "openai",
+          },
+        ],
+        has_more: true,
+        last_id: "gpt-image-2",
+      },
+      {
+        data: [
+          {
+            id: "claude-chat",
+            display_name: "Claude Chat",
+            owned_by: "anthropic",
+          },
+        ],
+        has_more: false,
+        last_id: "claude-chat",
+      },
+    ];
+    let call = 0;
+    const fetchImpl = vi.fn(async () => {
+      const body = pages[call++]!;
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json", "x-cpa-version": "1" },
+      });
+    });
+
+    const rows = await fetchCliproxyAnthropicModels({
+      baseUrl: "http://cpa.example",
+      token: "t",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(rows.map((row) => row.id)).toEqual(["claude-chat"]);
   });
 
   test("stops when a page adds no new decoded ids", async () => {

@@ -132,16 +132,23 @@ export async function fetchCliproxyAnthropicModels(
       return rows;
     }
 
-    let addedRows = 0;
+    let addedDecodedIds = 0;
     for (const value of page.data) {
-      const row = mapCliproxyAnthropicModelRow(value);
-      if (!row || seenIds.has(row.id)) continue;
-      seenIds.add(row.id);
-      rows.push(row);
-      addedRows += 1;
+      const decodedModel = decodeCliproxyAnthropicModel(value);
+      if (!decodedModel || seenIds.has(decodedModel.id)) continue;
+      seenIds.add(decodedModel.id);
+      addedDecodedIds += 1;
+
+      const row = mapCliproxyAnthropicModelRow(value, decodedModel);
+      if (row) rows.push(row);
     }
 
-    if (!page.hasMore || !page.lastId || pages >= CLIPROXY_MODELS_MAX_PAGES || addedRows === 0) {
+    if (
+      !page.hasMore ||
+      !page.lastId ||
+      pages >= CLIPROXY_MODELS_MAX_PAGES ||
+      addedDecodedIds === 0
+    ) {
       return rows;
     }
     afterId = page.lastId;
@@ -156,6 +163,11 @@ interface CliproxyAnthropicModelsPage {
   lastId: string | null;
 }
 
+interface DecodedCliproxyAnthropicModel {
+  id: string;
+  rawListId: string;
+}
+
 function parseCliproxyAnthropicModelsPage(payload: unknown): CliproxyAnthropicModelsPage {
   if (!isRecord(payload)) {
     return { data: [], hasMore: false, lastId: null };
@@ -166,29 +178,39 @@ function parseCliproxyAnthropicModelsPage(payload: unknown): CliproxyAnthropicMo
   return { data, hasMore: payload.has_more === true, lastId };
 }
 
-function mapCliproxyAnthropicModelRow(value: unknown): CliproxyAnthropicModelRow | null {
+function decodeCliproxyAnthropicModel(value: unknown): DecodedCliproxyAnthropicModel | null {
   if (!isRecord(value)) return null;
 
   const rawListId = trimNonEmpty(value.id);
   if (!rawListId) return null;
 
   const id = decodeCliproxyClaudeModelId(rawListId);
-  if (!id || isCliproxyNonChatModel({ id, displayName: readString(value.display_name) })) {
+  return id ? { id, rawListId } : null;
+}
+
+function mapCliproxyAnthropicModelRow(
+  value: unknown,
+  decodedModel: DecodedCliproxyAnthropicModel,
+): CliproxyAnthropicModelRow | null {
+  if (!isRecord(value)) return null;
+  if (
+    isCliproxyNonChatModel({ id: decodedModel.id, displayName: readString(value.display_name) })
+  ) {
     return null;
   }
 
-  const label = trimNonEmpty(value.display_name) ?? id;
+  const label = trimNonEmpty(value.display_name) ?? decodedModel.id;
   const ownedBy = readString(value.owned_by)?.trim() ?? "";
   const maxInputTokens = readFiniteNumber(value.max_input_tokens);
   const maxOutputTokens = readFiniteNumber(value.max_tokens);
 
   return {
-    id,
+    id: decodedModel.id,
     label,
     ownedBy,
     ...(maxInputTokens === undefined ? {} : { maxInputTokens }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-    rawListId,
+    rawListId: decodedModel.rawListId,
   };
 }
 

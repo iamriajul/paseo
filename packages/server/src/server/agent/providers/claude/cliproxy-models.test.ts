@@ -491,6 +491,64 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
     expect(result.autoPersist).toEqual([]);
   });
 
+  test("fills missing output without overwriting configured context", async () => {
+    const result = await appendCliproxyModelsToClaudeCatalog({
+      baseModels: base,
+      rows: [
+        {
+          id: "grok-4.5",
+          label: "Grok 4.5",
+          ownedBy: "xai",
+          maxInputTokens: 500_000,
+          maxOutputTokens: 65_536,
+          rawListId: "claude-fable-5-dd-5.4-korg",
+        },
+      ],
+      existingAdditionalModels: [{ id: "grok-4.5", contextWindowMaxTokens: 500_000 }],
+      lookupModelsDev: async () => {
+        throw new Error("should not be called");
+      },
+      getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
+    });
+
+    const grok = result.models.find((model) => model.id === "grok-4.5")!;
+    expect(grok.contextWindowMaxTokens).toBe(500_000);
+    expect(grok.maxOutputTokens).toBe(65_536);
+    expect(grok.needsCapacityConfig).toBeUndefined();
+    expect(result.autoPersist).toEqual([
+      { id: "grok-4.5", label: "Grok 4.5", maxOutputTokens: 65_536 },
+    ]);
+  });
+
+  test("fills missing context without overwriting configured output", async () => {
+    const result = await appendCliproxyModelsToClaudeCatalog({
+      baseModels: base,
+      rows: [
+        {
+          id: "grok-4.5",
+          label: "Grok 4.5",
+          ownedBy: "xai",
+          maxInputTokens: 500_000,
+          maxOutputTokens: 65_536,
+          rawListId: "claude-fable-5-dd-5.4-korg",
+        },
+      ],
+      existingAdditionalModels: [{ id: "grok-4.5", maxOutputTokens: 65_536 }],
+      lookupModelsDev: async () => {
+        throw new Error("should not be called");
+      },
+      getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
+    });
+
+    const grok = result.models.find((model) => model.id === "grok-4.5")!;
+    expect(grok.contextWindowMaxTokens).toBe(500_000);
+    expect(grok.maxOutputTokens).toBe(65_536);
+    expect(grok.needsCapacityConfig).toBeUndefined();
+    expect(result.autoPersist).toEqual([
+      { id: "grok-4.5", label: "Grok 4.5", contextWindowMaxTokens: 500_000 },
+    ]);
+  });
+
   test("does not overwrite openai subscription windows via models.dev", async () => {
     const lookup = vi.fn(async () => ({
       found: true as const,

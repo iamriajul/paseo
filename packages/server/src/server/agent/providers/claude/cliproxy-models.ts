@@ -372,49 +372,54 @@ async function resolveCliproxyModelCapacity(
   options: CliproxyCapacityLookupOptions,
 ): Promise<CliproxyModelCapacity> {
   const configured = options.existingAdditionalModels.find((model) => model.id === row.id);
-  if (configured && hasPositiveCapacityLimit(configured)) {
-    return {
-      ...(positiveCapacityValue(configured.contextWindowMaxTokens) === undefined
-        ? {}
-        : { contextWindowMaxTokens: configured.contextWindowMaxTokens }),
-      ...(positiveCapacityValue(configured.maxOutputTokens) === undefined
-        ? {}
-        : { maxOutputTokens: configured.maxOutputTokens }),
-    };
+  let contextWindowMaxTokens = positiveCapacityValue(configured?.contextWindowMaxTokens);
+  let maxOutputTokens = positiveCapacityValue(configured?.maxOutputTokens);
+  let autoPersist: CliproxyAdditionalModelLimits | undefined;
+  let modelsDevCandidates: ModelsDevCandidate[] | undefined;
+
+  const fillContextWindow = (value: number | undefined): void => {
+    if (contextWindowMaxTokens !== undefined || value === undefined) return;
+    contextWindowMaxTokens = value;
+    autoPersist ??= { id: row.id, label: row.label || row.id };
+    autoPersist.contextWindowMaxTokens = value;
+  };
+  const fillMaxOutput = (value: number | undefined): void => {
+    if (maxOutputTokens !== undefined || value === undefined) return;
+    maxOutputTokens = value;
+    autoPersist ??= { id: row.id, label: row.label || row.id };
+    autoPersist.maxOutputTokens = value;
+  };
+
+  if (isOfficialCpaOwner(row.ownedBy)) {
+    fillContextWindow(positiveCapacityValue(row.maxInputTokens));
+    fillMaxOutput(positiveCapacityValue(row.maxOutputTokens));
   }
 
-  const contextWindowMaxTokens = positiveCapacityValue(row.maxInputTokens);
-  if (isOfficialCpaOwner(row.ownedBy) && contextWindowMaxTokens !== undefined) {
-    const maxOutputTokens = positiveCapacityValue(row.maxOutputTokens);
-    return {
-      contextWindowMaxTokens,
-      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-      autoPersist: buildAutoPersistLimits(row, contextWindowMaxTokens, maxOutputTokens),
-    };
+  if (contextWindowMaxTokens === undefined || maxOutputTokens === undefined) {
+    try {
+      const lookup = await options.lookupModelsDev(row.id);
+      if (lookup.found && lookup.candidates.length === 1) {
+        const candidate = lookup.candidates[0];
+        fillContextWindow(positiveCapacityValue(candidate.contextWindowMaxTokens));
+        fillMaxOutput(positiveCapacityValue(candidate.maxOutputTokens));
+      } else if (lookup.found && lookup.candidates.length > 1) {
+        modelsDevCandidates = lookup.candidates;
+      }
+    } catch {
+      // Keep configured/trusted values and mark unresolved context below.
+    }
   }
 
-  let lookup: ModelsDevLookupResult;
-  try {
-    lookup = await options.lookupModelsDev(row.id);
-  } catch {
-    return { needsCapacityConfig: true };
-  }
-
-  if (!lookup.found || lookup.candidates.length !== 1) {
-    return {
-      needsCapacityConfig: true,
-      ...(lookup.found && lookup.candidates.length > 1
-        ? { modelsDevCandidates: lookup.candidates }
-        : {}),
-    };
-  }
-
-  const candidate = lookup.candidates[0];
-  const maxOutputTokens = positiveCapacityValue(candidate.maxOutputTokens);
   return {
-    contextWindowMaxTokens: candidate.contextWindowMaxTokens,
+    ...(contextWindowMaxTokens === undefined ? {} : { contextWindowMaxTokens }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-    autoPersist: buildAutoPersistLimits(row, candidate.contextWindowMaxTokens, maxOutputTokens),
+    ...(contextWindowMaxTokens === undefined
+      ? {
+          needsCapacityConfig: true,
+          ...(modelsDevCandidates ? { modelsDevCandidates } : {}),
+        }
+      : {}),
+    ...(autoPersist ? { autoPersist } : {}),
   };
 }
 
@@ -446,19 +451,6 @@ function mapCliproxyModelRowToAgentModel(
       : { maxOutputTokens: capacity.maxOutputTokens }),
     ...(capacity.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
     ...(capacity.modelsDevCandidates ? { modelsDevCandidates: capacity.modelsDevCandidates } : {}),
-  };
-}
-
-function buildAutoPersistLimits(
-  row: CliproxyAnthropicModelRow,
-  contextWindowMaxTokens: number,
-  maxOutputTokens: number | undefined,
-): CliproxyAdditionalModelLimits {
-  return {
-    id: row.id,
-    label: row.label || row.id,
-    contextWindowMaxTokens,
-    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
   };
 }
 
@@ -508,13 +500,6 @@ export function mergeCliproxyAdditionalModelLimits(
   }
 
   return merged;
-}
-
-function hasPositiveCapacityLimit(model: CliproxyAdditionalModelLimits): boolean {
-  return (
-    positiveCapacityValue(model.contextWindowMaxTokens) !== undefined ||
-    positiveCapacityValue(model.maxOutputTokens) !== undefined
-  );
 }
 
 function positiveCapacityValue(value: number | undefined): number | undefined {

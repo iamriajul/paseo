@@ -2,6 +2,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-types.js";
+import type { ModelsDevCandidate, ModelsDevLookupResult } from "../../../models-dev/catalog.js";
+
 // cliproxy-models.ts — decode mirrors CLIProxyAPI internal/util/claude_model.go
 export const CLAUDE_DD_MODEL_PREFIX = "claude-fable-5-dd-";
 
@@ -47,6 +50,38 @@ export interface CliproxyAnthropicModelRow {
   maxInputTokens?: number;
   maxOutputTokens?: number;
   rawListId: string;
+}
+
+/**
+ * Task 4 will promote the capacity warning fields to AgentModelDefinition. Keep the
+ * local extension here so this task can expose the complete result to same-process
+ * callers, while the metadata mirror remains available across today's wire schema.
+ */
+export interface CliproxyAgentModelDefinition extends AgentModelDefinition {
+  maxOutputTokens?: number;
+  needsCapacityConfig?: boolean;
+  modelsDevCandidates?: ModelsDevCandidate[];
+}
+
+export interface CliproxyAdditionalModelLimits {
+  id: string;
+  label?: string;
+  contextWindowMaxTokens?: number;
+  maxOutputTokens?: number;
+}
+
+export interface AppendCliproxyModelsResult {
+  models: CliproxyAgentModelDefinition[];
+  /** Limits to merge into additionalModels (trusted CPA or single models.dev hit). */
+  autoPersist: CliproxyAdditionalModelLimits[];
+}
+
+export interface AppendCliproxyModelsOptions {
+  baseModels: readonly AgentModelDefinition[];
+  rows: readonly CliproxyAnthropicModelRow[];
+  existingAdditionalModels: readonly CliproxyAdditionalModelLimits[];
+  lookupModelsDev: (modelId: string) => Promise<ModelsDevLookupResult>;
+  getCustomThinkingOptions: () => AgentSelectOption[];
 }
 
 export interface FetchCliproxyAnthropicModelsOptions {
@@ -290,4 +325,198 @@ export function isCliproxyNonChatModel(options: { id: string; displayName?: stri
     haystack.includes("gpt-image") ||
     haystack.includes("grok-imagine")
   );
+}
+
+export async function appendCliproxyModelsToClaudeCatalog(
+  options: AppendCliproxyModelsOptions,
+): Promise<AppendCliproxyModelsResult> {
+  const existingIds = new Set(options.baseModels.map((model) => model.id));
+  const additions: CliproxyAgentModelDefinition[] = [];
+  const autoPersist: CliproxyAdditionalModelLimits[] = [];
+
+  for (const row of options.rows) {
+    if (existingIds.has(row.id)) continue;
+    existingIds.add(row.id);
+
+    const capacity = await resolveCliproxyModelCapacity(row, {
+      existingAdditionalModels: options.existingAdditionalModels,
+      lookupModelsDev: options.lookupModelsDev,
+    });
+    additions.push(
+      mapCliproxyModelRowToAgentModel(row, capacity, options.getCustomThinkingOptions()),
+    );
+    if (capacity.autoPersist) autoPersist.push(capacity.autoPersist);
+  }
+
+  return {
+    models: mergeCliproxyModels(options.baseModels, additions),
+    autoPersist,
+  };
+}
+
+interface CliproxyModelCapacity {
+  contextWindowMaxTokens?: number;
+  maxOutputTokens?: number;
+  needsCapacityConfig?: true;
+  modelsDevCandidates?: ModelsDevCandidate[];
+  autoPersist?: CliproxyAdditionalModelLimits;
+}
+
+interface CliproxyCapacityLookupOptions {
+  existingAdditionalModels: readonly CliproxyAdditionalModelLimits[];
+  lookupModelsDev: (modelId: string) => Promise<ModelsDevLookupResult>;
+}
+
+async function resolveCliproxyModelCapacity(
+  row: CliproxyAnthropicModelRow,
+  options: CliproxyCapacityLookupOptions,
+): Promise<CliproxyModelCapacity> {
+  const configured = options.existingAdditionalModels.find((model) => model.id === row.id);
+  if (configured && hasPositiveCapacityLimit(configured)) {
+    return {
+      ...(positiveCapacityValue(configured.contextWindowMaxTokens) === undefined
+        ? {}
+        : { contextWindowMaxTokens: configured.contextWindowMaxTokens }),
+      ...(positiveCapacityValue(configured.maxOutputTokens) === undefined
+        ? {}
+        : { maxOutputTokens: configured.maxOutputTokens }),
+    };
+  }
+
+  const contextWindowMaxTokens = positiveCapacityValue(row.maxInputTokens);
+  if (isOfficialCpaOwner(row.ownedBy) && contextWindowMaxTokens !== undefined) {
+    const maxOutputTokens = positiveCapacityValue(row.maxOutputTokens);
+    return {
+      contextWindowMaxTokens,
+      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+      autoPersist: buildAutoPersistLimits(row, contextWindowMaxTokens, maxOutputTokens),
+    };
+  }
+
+  let lookup: ModelsDevLookupResult;
+  try {
+    lookup = await options.lookupModelsDev(row.id);
+  } catch {
+    return { needsCapacityConfig: true };
+  }
+
+  if (!lookup.found || lookup.candidates.length !== 1) {
+    return {
+      needsCapacityConfig: true,
+      ...(lookup.found && lookup.candidates.length > 1
+        ? { modelsDevCandidates: lookup.candidates }
+        : {}),
+    };
+  }
+
+  const candidate = lookup.candidates[0];
+  const maxOutputTokens = positiveCapacityValue(candidate.maxOutputTokens);
+  return {
+    contextWindowMaxTokens: candidate.contextWindowMaxTokens,
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    autoPersist: buildAutoPersistLimits(row, candidate.contextWindowMaxTokens, maxOutputTokens),
+  };
+}
+
+function mapCliproxyModelRowToAgentModel(
+  row: CliproxyAnthropicModelRow,
+  capacity: CliproxyModelCapacity,
+  thinkingOptions: AgentSelectOption[],
+): CliproxyAgentModelDefinition {
+  const label = row.label || row.id;
+  const metadata = {
+    source: "cliproxyapi",
+    ownedBy: row.ownedBy,
+    ...(capacity.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
+    ...(capacity.modelsDevCandidates ? { modelsDevCandidates: capacity.modelsDevCandidates } : {}),
+  };
+
+  return {
+    provider: "claude",
+    id: row.id,
+    label,
+    description: row.label && row.label !== row.id ? row.label : undefined,
+    thinkingOptions,
+    metadata,
+    ...(capacity.contextWindowMaxTokens === undefined
+      ? {}
+      : { contextWindowMaxTokens: capacity.contextWindowMaxTokens }),
+    ...(capacity.maxOutputTokens === undefined
+      ? {}
+      : { maxOutputTokens: capacity.maxOutputTokens }),
+    ...(capacity.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
+    ...(capacity.modelsDevCandidates ? { modelsDevCandidates: capacity.modelsDevCandidates } : {}),
+  };
+}
+
+function buildAutoPersistLimits(
+  row: CliproxyAnthropicModelRow,
+  contextWindowMaxTokens: number,
+  maxOutputTokens: number | undefined,
+): CliproxyAdditionalModelLimits {
+  return {
+    id: row.id,
+    label: row.label || row.id,
+    contextWindowMaxTokens,
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+  };
+}
+
+export function mergeCliproxyModels(
+  baseModels: readonly AgentModelDefinition[],
+  additions: readonly CliproxyAgentModelDefinition[],
+): CliproxyAgentModelDefinition[] {
+  const merged = [...baseModels] as CliproxyAgentModelDefinition[];
+  const seenIds = new Set(baseModels.map((model) => model.id));
+  for (const addition of additions) {
+    if (seenIds.has(addition.id)) continue;
+    seenIds.add(addition.id);
+    merged.push(addition);
+  }
+  return merged;
+}
+
+export function mergeCliproxyAdditionalModelLimits(
+  existingModels: readonly CliproxyAdditionalModelLimits[],
+  updates: readonly CliproxyAdditionalModelLimits[],
+): CliproxyAdditionalModelLimits[] {
+  const merged = existingModels.map((model) => ({ ...model }));
+  const byId = new Map(merged.map((model) => [model.id, model]));
+
+  for (const update of updates) {
+    const existing = byId.get(update.id);
+    if (!existing) {
+      const added = { ...update };
+      merged.push(added);
+      byId.set(added.id, added);
+      continue;
+    }
+
+    if (!existing.label && update.label) existing.label = update.label;
+    if (
+      positiveCapacityValue(existing.contextWindowMaxTokens) === undefined &&
+      positiveCapacityValue(update.contextWindowMaxTokens) !== undefined
+    ) {
+      existing.contextWindowMaxTokens = update.contextWindowMaxTokens;
+    }
+    if (
+      positiveCapacityValue(existing.maxOutputTokens) === undefined &&
+      positiveCapacityValue(update.maxOutputTokens) !== undefined
+    ) {
+      existing.maxOutputTokens = update.maxOutputTokens;
+    }
+  }
+
+  return merged;
+}
+
+function hasPositiveCapacityLimit(model: CliproxyAdditionalModelLimits): boolean {
+  return (
+    positiveCapacityValue(model.contextWindowMaxTokens) !== undefined ||
+    positiveCapacityValue(model.maxOutputTokens) !== undefined
+  );
+}
+
+function positiveCapacityValue(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }

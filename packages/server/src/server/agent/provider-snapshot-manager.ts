@@ -26,6 +26,7 @@ import type {
 import {
   buildProviderRegistry,
   shutdownAgentClients,
+  type BuildProviderRegistryOptions,
   type ProviderDefinition,
 } from "./provider-registry.js";
 import { BUILTIN_PROVIDER_IDS } from "@getpaseo/protocol/provider-manifest";
@@ -92,6 +93,7 @@ export interface ProviderSnapshotManagerOptions {
   managedProcesses?: ManagedProcessRegistry;
   isDev?: boolean;
   extraClients?: Partial<Record<AgentProvider, AgentClient>>;
+  persistClaudeAdditionalModelLimits?: BuildProviderRegistryOptions["persistClaudeAdditionalModelLimits"];
   refreshTimeoutMs?: number;
   diagnosticTimeoutMs?: number;
 }
@@ -189,6 +191,7 @@ export class ProviderSnapshotManager {
   private readonly managedProcesses?: ManagedProcessRegistry;
   private readonly isDev: boolean;
   private readonly extraClients: Partial<Record<AgentProvider, AgentClient>>;
+  private readonly persistClaudeAdditionalModelLimits?: BuildProviderRegistryOptions["persistClaudeAdditionalModelLimits"];
   private runtimeSettings: AgentProviderRuntimeSettingsMap | undefined;
   private providerOverrides: Record<string, ProviderOverride> | undefined;
   private baseProviderOverrides: Record<string, ProviderOverride> | undefined;
@@ -201,6 +204,7 @@ export class ProviderSnapshotManager {
     this.managedProcesses = options.managedProcesses;
     this.isDev = options.isDev === true;
     this.extraClients = options.extraClients ?? {};
+    this.persistClaudeAdditionalModelLimits = options.persistClaudeAdditionalModelLimits;
     this.runtimeSettings = options.runtimeSettings;
     this.providerOverrides = options.providerOverrides;
     this.baseProviderOverrides = options.providerOverrides;
@@ -457,6 +461,7 @@ export class ProviderSnapshotManager {
       workspaceGitService: this.workspaceGitService,
       managedProcesses: this.managedProcesses,
       isDev: this.isDev,
+      persistClaudeAdditionalModelLimits: this.persistClaudeAdditionalModelLimits,
     });
 
     for (const [provider, client] of Object.entries(this.extraClients) as Array<

@@ -6,7 +6,7 @@ import {
   fetchCliproxyAnthropicModels,
   isOfficialCpaOwner,
   isCliproxyNonChatModel,
-  mergeCliproxyAdditionalModelLimits,
+  mergeAdditionalModelLimits,
   responseHasCpaFingerprint,
   resolveCliproxyAnthropicCredentials,
 } from "./cliproxy-models.js";
@@ -608,10 +608,10 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
   });
 });
 
-describe("mergeCliproxyAdditionalModelLimits", () => {
+describe("mergeAdditionalModelLimits", () => {
   test("preserves existing user fields and fills only missing limits", () => {
     const existing = [{ id: "configured", label: "My model", contextWindowMaxTokens: 99_999 }];
-    const merged = mergeCliproxyAdditionalModelLimits(existing, [
+    const merged = mergeAdditionalModelLimits(existing, [
       {
         id: "configured",
         label: "Gateway label",
@@ -633,5 +633,27 @@ describe("mergeCliproxyAdditionalModelLimits", () => {
       },
       { id: "new-model", label: "New model", contextWindowMaxTokens: 500_000 },
     ]);
+  });
+
+  test("returns the existing array when every positive limit is already configured", () => {
+    const existing = [
+      {
+        id: "configured",
+        label: "My model",
+        contextWindowMaxTokens: 99_999,
+        maxOutputTokens: 65_536,
+      },
+    ];
+
+    expect(
+      mergeAdditionalModelLimits(existing, [
+        {
+          id: "configured",
+          label: "Gateway label",
+          contextWindowMaxTokens: 1_000_000,
+          maxOutputTokens: 128_000,
+        },
+      ]),
+    ).toBe(existing);
   });
 });

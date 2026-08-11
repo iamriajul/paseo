@@ -32,7 +32,7 @@ import type {
   ProviderProfileModel,
   ProviderRuntimeSettings,
 } from "./provider-launch-config.js";
-import { ClaudeAgentClient } from "./providers/claude/agent.js";
+import { ClaudeAgentClient, type ClaudeAgentClientOptions } from "./providers/claude/agent.js";
 import { enrichClaudeCatalogModel } from "./providers/claude/model-manifest.js";
 import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
 import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
@@ -103,14 +103,16 @@ export interface BuildProviderRegistryOptions {
   managedProcesses?: ManagedProcessRegistry;
   isDev?: boolean;
   ompRuntime?: OmpRuntime;
+  persistClaudeAdditionalModelLimits?: ClaudeAgentClientOptions["persistClaudeAdditionalModelLimits"];
 }
 
 interface ProviderClientFactoryOptions extends Pick<
   BuildProviderRegistryOptions,
-  "workspaceGitService" | "managedProcesses" | "ompRuntime"
+  "workspaceGitService" | "managedProcesses" | "ompRuntime" | "persistClaudeAdditionalModelLimits"
 > {
   providerParams?: unknown;
   profileModels?: ProviderProfileModel[];
+  additionalModels?: ProviderProfileModel[];
   customProvider?: {
     id: string;
     label: string;
@@ -189,6 +191,10 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
       logger,
       runtimeSettings,
       profileModels: options?.profileModels,
+      additionalModels: options?.additionalModels ?? options?.profileModels,
+      persistClaudeAdditionalModelLimits: options?.customProvider
+        ? undefined
+        : options?.persistClaudeAdditionalModelLimits,
     }),
   codex: (logger, runtimeSettings, options) =>
     new CodexAppServerAgentClient(logger, runtimeSettings, {
@@ -691,7 +697,7 @@ function buildResolvedBuiltinProviders(
   runtimeSettings: AgentProviderRuntimeSettingsMap | undefined,
   options: Pick<
     BuildProviderRegistryOptions,
-    "workspaceGitService" | "managedProcesses" | "ompRuntime"
+    "workspaceGitService" | "managedProcesses" | "ompRuntime" | "persistClaudeAdditionalModelLimits"
   >,
   isDev: boolean,
 ): Map<string, ResolvedProvider> {
@@ -725,6 +731,8 @@ function buildResolvedBuiltinProviders(
           ompRuntime: options.ompRuntime,
           providerParams: override?.params,
           profileModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
+          additionalModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
+          persistClaudeAdditionalModelLimits: options.persistClaudeAdditionalModelLimits,
         }),
       contract: PROVIDER_CONTRACTS[definition.id] ?? UNSUPPORTED_PROVIDER_CONTRACT,
     });
@@ -858,6 +866,7 @@ export function buildProviderRegistry(
       workspaceGitService: options?.workspaceGitService,
       managedProcesses: options?.managedProcesses,
       ompRuntime: options?.ompRuntime,
+      persistClaudeAdditionalModelLimits: options?.persistClaudeAdditionalModelLimits,
     },
     options?.isDev === true,
   );

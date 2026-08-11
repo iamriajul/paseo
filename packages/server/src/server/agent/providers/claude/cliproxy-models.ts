@@ -459,39 +459,67 @@ export function mergeCliproxyModels(
   return merged;
 }
 
-export function mergeCliproxyAdditionalModelLimits(
+export function mergeAdditionalModelLimits(
   existingModels: readonly CliproxyAdditionalModelLimits[],
   updates: readonly CliproxyAdditionalModelLimits[],
 ): CliproxyAdditionalModelLimits[] {
-  const merged = existingModels.map((model) => ({ ...model }));
-  const byId = new Map(merged.map((model) => [model.id, model]));
+  let merged: CliproxyAdditionalModelLimits[] | undefined;
+  const byId = new Map(existingModels.map((model) => [model.id, model]));
+
+  const cloneExisting = (): CliproxyAdditionalModelLimits[] => {
+    if (merged) return merged;
+    merged = existingModels.map((model) => ({ ...model }));
+    for (const model of merged) {
+      byId.set(model.id, model);
+    }
+    return merged;
+  };
 
   for (const update of updates) {
     const existing = byId.get(update.id);
     if (!existing) {
-      const added = { ...update };
-      merged.push(added);
+      const added: CliproxyAdditionalModelLimits = {
+        id: update.id,
+        ...(update.label ? { label: update.label } : {}),
+        ...(positiveCapacityValue(update.contextWindowMaxTokens) === undefined
+          ? {}
+          : { contextWindowMaxTokens: update.contextWindowMaxTokens }),
+        ...(positiveCapacityValue(update.maxOutputTokens) === undefined
+          ? {}
+          : { maxOutputTokens: update.maxOutputTokens }),
+      };
+      cloneExisting().push(added);
       byId.set(added.id, added);
       continue;
     }
 
-    if (!existing.label && update.label) existing.label = update.label;
-    if (
+    const contextWindowMaxTokens = positiveCapacityValue(update.contextWindowMaxTokens);
+    const maxOutputTokens = positiveCapacityValue(update.maxOutputTokens);
+    const shouldFillLabel = !existing.label && !!update.label;
+    const shouldFillContext =
       positiveCapacityValue(existing.contextWindowMaxTokens) === undefined &&
-      positiveCapacityValue(update.contextWindowMaxTokens) !== undefined
-    ) {
-      existing.contextWindowMaxTokens = update.contextWindowMaxTokens;
-    }
-    if (
+      contextWindowMaxTokens !== undefined;
+    const shouldFillMaxOutput =
       positiveCapacityValue(existing.maxOutputTokens) === undefined &&
-      positiveCapacityValue(update.maxOutputTokens) !== undefined
-    ) {
-      existing.maxOutputTokens = update.maxOutputTokens;
+      maxOutputTokens !== undefined;
+
+    if (!shouldFillLabel && !shouldFillContext && !shouldFillMaxOutput) continue;
+
+    const mergedExisting = cloneExisting().find((model) => model.id === update.id);
+    if (!mergedExisting) continue;
+    if (shouldFillLabel && update.label) mergedExisting.label = update.label;
+    if (shouldFillContext && contextWindowMaxTokens !== undefined) {
+      mergedExisting.contextWindowMaxTokens = contextWindowMaxTokens;
+    }
+    if (shouldFillMaxOutput && maxOutputTokens !== undefined) {
+      mergedExisting.maxOutputTokens = maxOutputTokens;
     }
   }
 
-  return merged;
+  return merged ?? (existingModels as CliproxyAdditionalModelLimits[]);
 }
+
+export const mergeCliproxyAdditionalModelLimits = mergeAdditionalModelLimits;
 
 function positiveCapacityValue(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;

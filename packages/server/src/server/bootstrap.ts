@@ -858,18 +858,21 @@ export async function createPaseoDaemon(
       const existing = current.providers?.claude?.additionalModels ?? [];
       const merged = mergeAdditionalModelLimits(existing, models);
       if (merged !== existing) {
-        daemonConfigStore.patch({
-          providers: {
-            claude: {
-              additionalModels: merged.map(
-                (model) =>
-                  Object.assign({}, model, {
-                    label: model.label ?? model.id,
-                  }) as MutableAdditionalModel,
-              ),
+        daemonConfigStore.patch(
+          {
+            providers: {
+              claude: {
+                additionalModels: merged.map(
+                  (model) =>
+                    Object.assign({}, model, {
+                      label: model.label ?? model.id,
+                    }) as MutableAdditionalModel,
+                ),
+              },
             },
           },
-        });
+          { preserveInFlightProviderLoads: ["claude"] },
+        );
       }
     },
   });

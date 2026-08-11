@@ -116,6 +116,7 @@ interface ProviderSnapshotReadOptions {
 
 interface ApplyMutableProviderConfigOptions {
   removeProviders?: readonly string[];
+  preserveInFlightProviderLoads?: readonly string[];
 }
 
 interface ProviderSnapshotProviderOptions {
@@ -417,8 +418,24 @@ export class ProviderSnapshotManager {
     this.providerRegistry = this.buildRegistry();
     this.providerClients = { ...this.extraClients } as Record<AgentProvider, AgentClient>;
 
+    const removedProviders = new Set(options.removeProviders ?? []);
+    const preservedProviders = new Set(
+      (options.preserveInFlightProviderLoads ?? []).filter(
+        (provider) => !removedProviders.has(provider),
+      ),
+    );
     for (const cwd of this.snapshots.keys()) {
-      this.providerLoads.delete(cwd);
+      const providerLoads = this.providerLoads.get(cwd);
+      if (providerLoads) {
+        for (const provider of Array.from(providerLoads.keys())) {
+          if (!preservedProviders.has(provider)) {
+            providerLoads.delete(provider);
+          }
+        }
+        if (providerLoads.size === 0) {
+          this.providerLoads.delete(cwd);
+        }
+      }
       this.snapshots.set(cwd, this.reconcileSnapshotForRegistry(cwd));
       this.emitChange(cwd);
     }
@@ -616,7 +633,11 @@ export class ProviderSnapshotManager {
         defaultModeId: definition?.defaultModeId ?? null,
       };
 
-      if (!definition?.enabled || !current || current.status === "loading") {
+      if (
+        !definition?.enabled ||
+        !current ||
+        (current.status === "loading" && !this.getProviderLoad(cwd, provider))
+      ) {
         entries.set(provider, {
           ...metadata,
           status: "unavailable",
@@ -771,7 +792,6 @@ export class ProviderSnapshotManager {
     force: boolean;
   }): Promise<void> {
     const { snapshotCwd, catalogScope, provider, definition, load, force } = options;
-    const snapshot = this.getOrCreateSnapshot(snapshotCwd);
     const base = {
       provider,
       source: this.getProviderSource(provider),
@@ -783,7 +803,7 @@ export class ProviderSnapshotManager {
       if (!this.isCurrentProviderLoad(snapshotCwd, provider, load)) {
         return false;
       }
-      snapshot.set(provider, entry);
+      this.getOrCreateSnapshot(snapshotCwd).set(provider, entry);
       this.emitChange(snapshotCwd);
       return true;
     };

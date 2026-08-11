@@ -446,7 +446,6 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
     expect(persistClaudeAdditionalModelLimits).toHaveBeenCalledWith([
       {
         id: "grok-4.5",
-        label: "Grok 4.5",
         contextWindowMaxTokens: 500_000,
         maxOutputTokens: 65_536,
       },

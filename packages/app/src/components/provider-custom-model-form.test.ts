@@ -172,6 +172,43 @@ describe("auto-compact threshold helpers", () => {
       }).autoCompactThresholdPercent,
     ).toBe(80);
   });
+
+  test("resolveCustomModelFormFields seeds an add form from model metadata candidates", () => {
+    expect(
+      resolveCustomModelFormFields({
+        kind: "add",
+        modelId: "qwen3.8-max",
+        candidates: [
+          {
+            providerId: "opencode-go",
+            matchedId: "qwen3.8-max",
+            name: "Qwen 3.8 Max",
+            contextWindowMaxTokens: 1_000_000,
+            maxOutputTokens: 131_072,
+          },
+          {
+            providerId: "openrouter",
+            matchedId: "qwen/qwen3.8-max",
+            contextWindowMaxTokens: 1_000_000,
+          },
+        ],
+      }),
+    ).toEqual({
+      modelId: "qwen3.8-max",
+      label: "Qwen 3.8 Max",
+      contextWindow: "1000000",
+      maxOutput: "131072",
+      autoCompactThresholdPercent: 90,
+      sourceId: "opencode-go\0qwen3.8-max",
+      summary: {
+        providerId: "opencode-go",
+        matchedId: "qwen3.8-max",
+        name: "Qwen 3.8 Max",
+        contextWindowMaxTokens: 1_000_000,
+        maxOutputTokens: 131_072,
+      },
+    });
+  });
 });
 
 describe("resolveCustomModelLookup", () => {

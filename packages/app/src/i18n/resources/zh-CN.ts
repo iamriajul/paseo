@@ -2419,6 +2419,7 @@ export const zhCN: TranslationResources = {
         one: "1 个 Model",
         many: "{{count}} 个 Model",
         addModel: "添加 Model",
+        configure: "Configure",
         addCustomTitle: "添加自定义 Model",
         editCustomTitle: "Edit custom model",
         editModel: "Edit {{id}}",
@@ -2468,6 +2469,7 @@ export const zhCN: TranslationResources = {
         noneDetected: "未检测到 Model",
         discovered: "已发现",
         custom: "自定义 Models",
+        capacityWarning: "Configure metadata for the best experience.",
         updated: "已更新 {{time}}",
       },
       diagnostic: {

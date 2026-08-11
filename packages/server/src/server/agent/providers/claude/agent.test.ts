@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Logger } from "pino";
 
 import { createTestLogger } from "../../../../test-utils/test-logger.js";
 import * as executableUtils from "../../../../executable-resolution/executable-resolution.js";
@@ -25,7 +26,20 @@ interface TestClaudeSession {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
+
+function createCapturingLogger(): { logger: Logger; warnings: unknown[][] } {
+  const warnings: unknown[][] = [];
+  const logger = {
+    child: () => ({
+      debug: () => undefined,
+      warn: (...args: unknown[]) => warnings.push(args),
+    }),
+  } as unknown as Logger;
+  return { logger, warnings };
+}
 
 describe("convertClaudeHistoryEntry", () => {
   test("maps user tool results to timeline items", () => {
@@ -498,6 +512,96 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
       // Fork policy: full Effort parity with the Claude Code TUI on every
       // catalog model, including older generations.
       expect(getThinkingIds("claude-sonnet-4-6")).toContain("ultracode");
+    } finally {
+      await fs.rm(emptyConfigDir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not publish auto-persisted capacity after persistence fails", async () => {
+    const emptyConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-models-persist-"));
+    const { logger: capturedLogger, warnings } = createCapturingLogger();
+    vi.stubEnv("ANTHROPIC_BASE_URL", "http://cpa.example");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "secret-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "claude-fable-5-dd-5.4-korg",
+                  display_name: "Grok 4.5",
+                  owned_by: "xai",
+                  max_input_tokens: 500_000,
+                  max_tokens: 65_536,
+                },
+              ],
+              has_more: false,
+            }),
+            { status: 200, headers: { "x-cpa-version": "1" } },
+          ),
+      ),
+    );
+
+    try {
+      const client = new ClaudeAgentClient({
+        logger: capturedLogger,
+        resolveVersion: async () => "2.1.219",
+        configDir: emptyConfigDir,
+        persistClaudeAdditionalModelLimits: async () => {
+          throw new Error("config store unavailable");
+        },
+      });
+      const { models } = await client.fetchCatalog({
+        scope: "global",
+        force: true,
+      });
+      const grok = models.find((model) => model.id === "grok-4.5");
+
+      expect(grok).toMatchObject({
+        id: "grok-4.5",
+        needsCapacityConfig: true,
+        metadata: { needsCapacityConfig: true },
+      });
+      expect(grok?.isSelectable).not.toBe(false);
+      expect(grok?.contextWindowMaxTokens).toBeUndefined();
+      expect(grok?.maxOutputTokens).toBeUndefined();
+      expect(JSON.stringify(warnings)).toContain("cliproxy_auto_persist");
+    } finally {
+      await fs.rm(emptyConfigDir, { recursive: true, force: true });
+    }
+  });
+
+  test("surfaces first-page CPA discovery failures through a safe warning", async () => {
+    const emptyConfigDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "paseo-claude-models-discovery-"),
+    );
+    const { logger: capturedLogger, warnings } = createCapturingLogger();
+    vi.stubEnv("ANTHROPIC_BASE_URL", "http://cpa.example");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "secret-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("request failed for Bearer secret-token");
+      }),
+    );
+
+    try {
+      const client = new ClaudeAgentClient({
+        logger: capturedLogger,
+        resolveVersion: async () => "2.1.219",
+        configDir: emptyConfigDir,
+      });
+      const { models } = await client.fetchCatalog({
+        scope: "global",
+        force: true,
+      });
+
+      expect(models.find((model) => model.id === "grok-4.5")).toBeUndefined();
+      expect(JSON.stringify(warnings)).toContain("request_failed");
+      expect(JSON.stringify(warnings)).not.toContain("secret-token");
+      expect(JSON.stringify(warnings)).not.toContain("Authorization");
     } finally {
       await fs.rm(emptyConfigDir, { recursive: true, force: true });
     }

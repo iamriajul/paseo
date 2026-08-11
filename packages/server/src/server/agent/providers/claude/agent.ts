@@ -51,9 +51,18 @@ import {
 import {
   CLAUDE_DISABLED_THINKING_OPTION_ID,
   CLAUDE_ULTRACODE_THINKING_OPTION_ID,
+  getClaudeCustomModelThinkingOptions,
   parseClaudeCodeVersion,
   resolveClaudeDisabledThinkingForModel,
 } from "./model-manifest.js";
+import {
+  appendCliproxyModelsToClaudeCatalog,
+  fetchCliproxyAnthropicModels,
+  markCliproxyAutoPersistFailure,
+  resolveCliproxyAnthropicCredentials,
+  type CliproxyAdditionalModelLimits,
+  type CliproxyAgentModelDefinition,
+} from "./cliproxy-models.js";
 import { parsePartialJsonObject } from "./partial-json.js";
 import { ClaudeSidechainTracker } from "./sidechain-tracker.js";
 import {
@@ -152,6 +161,7 @@ import { withTimeout } from "../../../../utils/promise-timeout.js";
 import { terminateWithTreeKill } from "../../../../utils/tree-kill.js";
 import { execCommand } from "../../../../utils/spawn.js";
 import { composeSystemPromptParts } from "../../system-prompt.js";
+import { lookupModelsDevModel } from "../../../models-dev/catalog.js";
 
 const fsPromises = promises;
 const CLAUDE_SETTING_SOURCES: NonNullable<ClaudeOptions["settingSources"]> = [
@@ -407,7 +417,7 @@ export interface ClaudeContentChunk {
   [key: string]: unknown;
 }
 
-interface ClaudeAgentClientOptions {
+export interface ClaudeAgentClientOptions {
   defaults?: { agents?: Record<string, AgentDefinition> };
   logger: Logger;
   runtimeSettings?: ProviderRuntimeSettings;
@@ -417,6 +427,22 @@ interface ClaudeAgentClientOptions {
     maxOutputTokens?: number;
     autoCompactThresholdPercent?: number;
   }>;
+  /** Existing Claude additionalModels from daemon config (for capacity precedence). */
+  additionalModels?: Array<{
+    id: string;
+    label?: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+  }>;
+  /** Persist auto-resolved capacity into agents.providers.claude.additionalModels. */
+  persistClaudeAdditionalModelLimits?: (
+    models: Array<{
+      id: string;
+      label?: string;
+      contextWindowMaxTokens?: number;
+      maxOutputTokens?: number;
+    }>,
+  ) => void | Promise<void>;
   queryFactory?: ClaudeQueryFactory;
   resolveBinary?: () => Promise<string>;
   resolveVersion?: () => Promise<string>;
@@ -1513,6 +1539,8 @@ export class ClaudeAgentClient implements AgentClient {
     maxOutputTokens?: number;
     autoCompactThresholdPercent?: number;
   }>;
+  private readonly additionalModels?: ClaudeAgentClientOptions["additionalModels"];
+  private readonly persistClaudeAdditionalModelLimits?: ClaudeAgentClientOptions["persistClaudeAdditionalModelLimits"];
   private readonly queryFactory?: ClaudeQueryFactory;
   private readonly resolveBinary: () => Promise<string>;
   private readonly resolveVersion: () => Promise<string>;
@@ -1523,6 +1551,8 @@ export class ClaudeAgentClient implements AgentClient {
     this.logger = options.logger.child({ module: "agent", provider: "claude" });
     this.runtimeSettings = options.runtimeSettings;
     this.profileModels = options.profileModels;
+    this.additionalModels = options.additionalModels;
+    this.persistClaudeAdditionalModelLimits = options.persistClaudeAdditionalModelLimits;
     this.queryFactory = options.queryFactory;
     this.resolveBinary = options.resolveBinary ?? (() => resolveClaudeBinary(this.runtimeSettings));
     this.resolveVersion =
@@ -1590,11 +1620,44 @@ export class ClaudeAgentClient implements AgentClient {
     } catch (error) {
       this.logger.warn({ err: error }, "Failed to resolve Claude Code version for model catalog");
     }
-    const models = await getClaudeModelsWithSettings(
-      this.logger,
-      this.configDir,
-      claudeCodeVersion,
-    );
+    let models = await getClaudeModelsWithSettings(this.logger, this.configDir, claudeCodeVersion);
+    try {
+      const credentials = await resolveCliproxyAnthropicCredentials({
+        env: createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings }),
+        configDir: this.configDir,
+      });
+      if (credentials) {
+        const rows = await fetchCliproxyAnthropicModels({
+          ...credentials,
+          onWarning: (warning) => {
+            this.logger.warn(
+              {
+                phase: "cliproxy_discovery",
+                code: warning.code,
+                page: warning.page,
+                ...(warning.status === undefined ? {} : { status: warning.status }),
+              },
+              "CLIProxyAPI Claude model discovery warning",
+            );
+          },
+        });
+        if (rows.length > 0) {
+          const { models: nextModels, autoPersist } = await appendCliproxyModelsToClaudeCatalog({
+            baseModels: models,
+            rows,
+            existingAdditionalModels: this.additionalModels ?? this.profileModels ?? [],
+            lookupModelsDev: (id) => lookupModelsDevModel(id),
+            getCustomThinkingOptions: () => getClaudeCustomModelThinkingOptions(),
+          });
+          models = await this.persistCliproxyCatalogCapacity(nextModels, autoPersist);
+        }
+      }
+    } catch {
+      this.logger.warn(
+        { phase: "cliproxy_discovery" },
+        "CLIProxyAPI Claude model discovery failed",
+      );
+    }
     const modes = detectIneligibleAutoModeTransport(
       createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings }),
     )
@@ -1605,6 +1668,32 @@ export class ClaudeAgentClient implements AgentClient {
       modes,
       defaultModeId: modes.some((mode) => mode.id === "auto") ? "auto" : "default",
     };
+  }
+
+  private async persistCliproxyCatalogCapacity(
+    nextModels: CliproxyAgentModelDefinition[],
+    autoPersist: CliproxyAdditionalModelLimits[],
+  ): Promise<CliproxyAgentModelDefinition[]> {
+    if (autoPersist.length === 0) return nextModels;
+
+    if (!this.persistClaudeAdditionalModelLimits) {
+      this.logger.warn(
+        { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
+        "CLIProxyAPI Claude model capacity was not persisted",
+      );
+      return markCliproxyAutoPersistFailure(nextModels, autoPersist);
+    }
+
+    try {
+      await this.persistClaudeAdditionalModelLimits(autoPersist);
+      return nextModels;
+    } catch {
+      this.logger.warn(
+        { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
+        "CLIProxyAPI Claude model capacity persistence failed",
+      );
+      return markCliproxyAutoPersistFailure(nextModels, autoPersist);
+    }
   }
 
   async resolveDefaultModeId({ env: launchEnv }: ResolveAgentDefaultModeInput): Promise<string> {

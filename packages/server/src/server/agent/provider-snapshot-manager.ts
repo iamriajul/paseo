@@ -26,6 +26,7 @@ import type {
 import {
   buildProviderRegistry,
   shutdownAgentClients,
+  type BuildProviderRegistryOptions,
   type ProviderDefinition,
 } from "./provider-registry.js";
 import { BUILTIN_PROVIDER_IDS } from "@getpaseo/protocol/provider-manifest";
@@ -92,6 +93,7 @@ export interface ProviderSnapshotManagerOptions {
   managedProcesses?: ManagedProcessRegistry;
   isDev?: boolean;
   extraClients?: Partial<Record<AgentProvider, AgentClient>>;
+  persistClaudeAdditionalModelLimits?: BuildProviderRegistryOptions["persistClaudeAdditionalModelLimits"];
   refreshTimeoutMs?: number;
   diagnosticTimeoutMs?: number;
 }
@@ -114,6 +116,7 @@ interface ProviderSnapshotReadOptions {
 
 interface ApplyMutableProviderConfigOptions {
   removeProviders?: readonly string[];
+  preserveInFlightProviderLoads?: readonly string[];
 }
 
 interface ProviderSnapshotProviderOptions {
@@ -189,6 +192,7 @@ export class ProviderSnapshotManager {
   private readonly managedProcesses?: ManagedProcessRegistry;
   private readonly isDev: boolean;
   private readonly extraClients: Partial<Record<AgentProvider, AgentClient>>;
+  private readonly persistClaudeAdditionalModelLimits?: BuildProviderRegistryOptions["persistClaudeAdditionalModelLimits"];
   private runtimeSettings: AgentProviderRuntimeSettingsMap | undefined;
   private providerOverrides: Record<string, ProviderOverride> | undefined;
   private baseProviderOverrides: Record<string, ProviderOverride> | undefined;
@@ -201,6 +205,7 @@ export class ProviderSnapshotManager {
     this.managedProcesses = options.managedProcesses;
     this.isDev = options.isDev === true;
     this.extraClients = options.extraClients ?? {};
+    this.persistClaudeAdditionalModelLimits = options.persistClaudeAdditionalModelLimits;
     this.runtimeSettings = options.runtimeSettings;
     this.providerOverrides = options.providerOverrides;
     this.baseProviderOverrides = options.providerOverrides;
@@ -413,8 +418,24 @@ export class ProviderSnapshotManager {
     this.providerRegistry = this.buildRegistry();
     this.providerClients = { ...this.extraClients } as Record<AgentProvider, AgentClient>;
 
+    const removedProviders = new Set(options.removeProviders ?? []);
+    const preservedProviders = new Set(
+      (options.preserveInFlightProviderLoads ?? []).filter(
+        (provider) => !removedProviders.has(provider),
+      ),
+    );
     for (const cwd of this.snapshots.keys()) {
-      this.providerLoads.delete(cwd);
+      const providerLoads = this.providerLoads.get(cwd);
+      if (providerLoads) {
+        for (const provider of Array.from(providerLoads.keys())) {
+          if (!preservedProviders.has(provider)) {
+            providerLoads.delete(provider);
+          }
+        }
+        if (providerLoads.size === 0) {
+          this.providerLoads.delete(cwd);
+        }
+      }
       this.snapshots.set(cwd, this.reconcileSnapshotForRegistry(cwd));
       this.emitChange(cwd);
     }
@@ -457,6 +478,7 @@ export class ProviderSnapshotManager {
       workspaceGitService: this.workspaceGitService,
       managedProcesses: this.managedProcesses,
       isDev: this.isDev,
+      persistClaudeAdditionalModelLimits: this.persistClaudeAdditionalModelLimits,
     });
 
     for (const [provider, client] of Object.entries(this.extraClients) as Array<
@@ -530,6 +552,11 @@ export class ProviderSnapshotManager {
   ): Promise<ProviderSnapshotEntry> {
     try {
       const target = createGlobalSnapshotTarget();
+      const existing = this.snapshots.get(target.snapshotCwd)?.get(provider);
+      if (existing?.status === "ready") {
+        return existing;
+      }
+
       this.resetSnapshotToLoading(target.snapshotCwd, [provider], { preserveExisting: false });
       this.emitChange(target.snapshotCwd);
       await this.refreshProviders(target, [provider]);
@@ -611,7 +638,11 @@ export class ProviderSnapshotManager {
         defaultModeId: definition?.defaultModeId ?? null,
       };
 
-      if (!definition?.enabled || !current || current.status === "loading") {
+      if (
+        !definition?.enabled ||
+        !current ||
+        (current.status === "loading" && !this.getProviderLoad(cwd, provider))
+      ) {
         entries.set(provider, {
           ...metadata,
           status: "unavailable",
@@ -766,7 +797,6 @@ export class ProviderSnapshotManager {
     force: boolean;
   }): Promise<void> {
     const { snapshotCwd, catalogScope, provider, definition, load, force } = options;
-    const snapshot = this.getOrCreateSnapshot(snapshotCwd);
     const base = {
       provider,
       source: this.getProviderSource(provider),
@@ -778,7 +808,7 @@ export class ProviderSnapshotManager {
       if (!this.isCurrentProviderLoad(snapshotCwd, provider, load)) {
         return false;
       }
-      snapshot.set(provider, entry);
+      this.getOrCreateSnapshot(snapshotCwd).set(provider, entry);
       this.emitChange(snapshotCwd);
       return true;
     };

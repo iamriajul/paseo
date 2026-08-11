@@ -2483,6 +2483,7 @@ export const ptBR: TranslationResources = {
         one: "1 modelo",
         many: "{{count}} modelos",
         addModel: "Adicionar modelo",
+        configure: "Configure",
         addCustomTitle: "Adicionar modelo personalizado",
         editCustomTitle: "Edit custom model",
         editModel: "Edit {{id}}",
@@ -2533,6 +2534,7 @@ export const ptBR: TranslationResources = {
         noneDetected: "Nenhum modelo detectado",
         discovered: "Descobertos",
         custom: "Modelos personalizados",
+        capacityWarning: "Configure metadata for the best experience.",
         updated: "Atualizado {{time}}",
       },
       diagnostic: {

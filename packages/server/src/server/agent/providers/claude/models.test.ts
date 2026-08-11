@@ -38,6 +38,7 @@ import {
 const createdClaudeConfigDirs: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   await Promise.all(
     createdClaudeConfigDirs.map((dir) => fs.rm(dir, { recursive: true, force: true })),
@@ -395,6 +396,67 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
 
     expect(models.map((model) => model.id)).not.toContain("claude-opus-5[1m]");
     expect(models.map((model) => model.id)).not.toContain("claude-opus-5");
+  });
+
+  it("appends CLIProxyAPI models and persists trusted capacity", async () => {
+    const configDir = await createClaudeConfigDir({});
+    vi.stubEnv("ANTHROPIC_BASE_URL", "http://cpa.example");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "test-token");
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "claude-fable-5-dd-5.4-korg",
+              display_name: "Grok 4.5",
+              owned_by: "xai",
+              max_input_tokens: 500_000,
+              max_tokens: 65_536,
+            },
+          ],
+          has_more: false,
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json", "x-cpa-version": "test" },
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    const persistClaudeAdditionalModelLimits = vi.fn();
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      configDir,
+      resolveVersion: async () => "2.1.219",
+      persistClaudeAdditionalModelLimits,
+    });
+
+    const { models } = await client.fetchCatalog({
+      scope: "global",
+      force: true,
+    });
+
+    expect(models.find((model) => model.id === "grok-4.5")).toMatchObject({
+      id: "grok-4.5",
+      label: "Grok 4.5",
+      contextWindowMaxTokens: 500_000,
+      maxOutputTokens: 65_536,
+      metadata: { source: "cliproxyapi", ownedBy: "xai" },
+    });
+    expect(persistClaudeAdditionalModelLimits).toHaveBeenCalledWith([
+      {
+        id: "grok-4.5",
+        contextWindowMaxTokens: 500_000,
+        maxOutputTokens: 65_536,
+      },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://cpa.example/v1/models",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ Authorization: "Bearer test-token" }),
+      }),
+    );
   });
 });
 

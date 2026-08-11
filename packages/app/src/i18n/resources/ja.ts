@@ -2469,6 +2469,7 @@ export const ja: TranslationResources = {
         one: "1つのモデル",
         many: "{{count}}つのモデル",
         addModel: "モデルを追加",
+        configure: "Configure",
         addCustomTitle: "カスタムモデルを追加",
         editCustomTitle: "Edit custom model",
         editModel: "Edit {{id}}",
@@ -2519,6 +2520,7 @@ export const ja: TranslationResources = {
         noneDetected: "モデルが検出されませんでした",
         discovered: "検出済み",
         custom: "カスタムモデル",
+        capacityWarning: "Configure metadata for the best experience.",
         updated: "{{time}}に更新",
       },
       diagnostic: {

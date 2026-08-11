@@ -2446,6 +2446,7 @@ export const ar: TranslationResources = {
         one: "1 نموذج",
         many: "{{count}} نماذج",
         addModel: "إضافة نموذج",
+        configure: "Configure",
         addCustomTitle: "إضافة نموذج مخصص",
         editCustomTitle: "Edit custom model",
         editModel: "Edit {{id}}",
@@ -2495,6 +2496,7 @@ export const ar: TranslationResources = {
         noneDetected: "لم يتم اكتشاف أي نماذج",
         discovered: "اكتشف",
         custom: "نماذج مخصصة",
+        capacityWarning: "Configure metadata for the best experience.",
         updated: "تم تحديث{{time}}",
       },
       diagnostic: {

@@ -22,6 +22,11 @@ interface LoggerLike {
 
 export interface DaemonConfigChangeDetails {
   removedProviders: readonly string[];
+  preserveInFlightProviderLoads?: readonly string[];
+}
+
+export interface DaemonConfigPatchOptions {
+  preserveInFlightProviderLoads?: readonly string[];
 }
 
 type ConfigListener = (config: MutableDaemonConfig, details: DaemonConfigChangeDetails) => void;
@@ -188,7 +193,10 @@ export class DaemonConfigStore {
     return this.current;
   }
 
-  public patch(partial: MutableDaemonConfigPatch): MutableDaemonConfig {
+  public patch(
+    partial: MutableDaemonConfigPatch,
+    options: DaemonConfigPatchOptions = {},
+  ): MutableDaemonConfig {
     const parsedPatch = MutableDaemonConfigPatchSchema.parse(partial);
     if (parsedPatch.relay?.enabled !== undefined && !this.relayEnabledMutable) {
       throw new Error(
@@ -242,7 +250,10 @@ export class DaemonConfigStore {
       throw error;
     }
 
-    const changeDetails: DaemonConfigChangeDetails = { removedProviders };
+    const changeDetails: DaemonConfigChangeDetails = {
+      removedProviders,
+      preserveInFlightProviderLoads: options.preserveInFlightProviderLoads,
+    };
     for (const listener of this.changeListeners) {
       listener(next, changeDetails);
     }

@@ -82,6 +82,14 @@ export interface AgentModelDefinition {
   metadata?: AgentMetadata;
   contextWindowMaxTokens?: number;
   maxOutputTokens?: number;
+  needsCapacityConfig?: boolean;
+  modelsDevCandidates?: Array<{
+    providerId: string;
+    matchedId: string;
+    name?: string;
+    contextWindowMaxTokens: number;
+    maxOutputTokens?: number;
+  }>;
   thinkingOptions?: AgentSelectOption[];
   defaultThinkingOptionId?: string;
 }

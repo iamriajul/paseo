@@ -52,16 +52,7 @@ export interface CliproxyAnthropicModelRow {
   rawListId: string;
 }
 
-/**
- * Task 4 will promote the capacity warning fields to AgentModelDefinition. Keep the
- * local extension here so this task can expose the complete result to same-process
- * callers, while the metadata mirror remains available across today's wire schema.
- */
-export interface CliproxyAgentModelDefinition extends AgentModelDefinition {
-  maxOutputTokens?: number;
-  needsCapacityConfig?: boolean;
-  modelsDevCandidates?: ModelsDevCandidate[];
-}
+export type CliproxyAgentModelDefinition = AgentModelDefinition;
 
 export interface CliproxyAdditionalModelLimits {
   id: string;

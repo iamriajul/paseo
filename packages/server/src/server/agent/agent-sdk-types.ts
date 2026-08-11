@@ -1,4 +1,5 @@
 import type {
+  AgentModelDefinition as ProtocolAgentModelDefinition,
   AgentProviderNotice,
   ProviderOptions,
   ToolPolicy,
@@ -7,6 +8,7 @@ import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { PaseoToolCatalog } from "./tools/types.js";
 
 export type { AgentProviderNotice };
+export type AgentModelDefinition = ProtocolAgentModelDefinition;
 
 export type AgentProvider = string;
 
@@ -74,20 +76,6 @@ export interface AgentMode {
 }
 
 export type ProviderStatus = "ready" | "loading" | "error" | "unavailable";
-
-export interface AgentModelDefinition {
-  provider: AgentProvider;
-  id: string;
-  aliases?: string[];
-  isSelectable?: boolean;
-  label: string;
-  description?: string;
-  isDefault?: boolean;
-  metadata?: AgentMetadata;
-  contextWindowMaxTokens?: number;
-  thinkingOptions?: AgentSelectOption[];
-  defaultThinkingOptionId?: string;
-}
 
 export interface AgentSelectOption {
   id: string;

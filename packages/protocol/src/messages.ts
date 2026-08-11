@@ -334,6 +334,19 @@ const AgentModelDefinitionSchema = z.object({
   isDefault: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   contextWindowMaxTokens: z.number().optional(),
+  maxOutputTokens: z.number().optional(),
+  needsCapacityConfig: z.boolean().optional(),
+  modelsDevCandidates: z
+    .array(
+      z.object({
+        providerId: z.string(),
+        matchedId: z.string(),
+        name: z.string().optional(),
+        contextWindowMaxTokens: z.number(),
+        maxOutputTokens: z.number().optional(),
+      }),
+    )
+    .optional(),
   thinkingOptions: z.array(AgentSelectOptionSchema).optional(),
   defaultThinkingOptionId: z.string().optional(),
 }) satisfies z.ZodType<AgentModelDefinition>;

@@ -1099,6 +1099,39 @@ test("extension inherits base override — override claude command, zai extends 
 });
 
 describe("model merging", () => {
+  test("capacity-only additional model preserves a profile label", async () => {
+    const registry = buildProviderRegistry(logger, {
+      providerOverrides: {
+        claude: {
+          models: [{ id: "grok-4.5", label: "My Grok profile" }],
+          additionalModels: [
+            {
+              id: "grok-4.5",
+              label: "grok-4.5",
+              contextWindowMaxTokens: 500_000,
+              maxOutputTokens: 65_536,
+            },
+          ],
+        },
+      },
+    });
+
+    const { models } = await registry.claude.fetchCatalog({
+      scope: "workspace",
+      cwd: "/tmp/registry-models",
+      force: false,
+    });
+
+    expect(models).toEqual([
+      expect.objectContaining({
+        id: "grok-4.5",
+        label: "My Grok profile",
+        contextWindowMaxTokens: 500_000,
+        maxOutputTokens: 65_536,
+      }),
+    ]);
+  });
+
   test("profile models replace runtime models", async () => {
     mockState.runtimeModels.set("codex", [
       {

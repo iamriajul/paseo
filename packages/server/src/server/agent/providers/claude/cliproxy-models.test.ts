@@ -100,6 +100,7 @@ describe("fetchCliproxyAnthropicModels", () => {
   });
 
   test("returns empty when response lacks X-CPA fingerprint", async () => {
+    const warnings: unknown[] = [];
     const fetchImpl = vi.fn(
       async () =>
         new Response(JSON.stringify({ data: [], has_more: false }), {
@@ -111,8 +112,58 @@ describe("fetchCliproxyAnthropicModels", () => {
       baseUrl: "http://cpa.example",
       token: "t",
       fetchImpl,
+      onWarning: (warning) => warnings.push(warning),
     });
     expect(rows).toEqual([]);
+    expect(warnings).toEqual([{ code: "missing_fingerprint", page: 1 }]);
+  });
+
+  test("reports first-page failures with safe structured warnings", async () => {
+    const cases: Array<{
+      fetchImpl: typeof fetch;
+      warning: unknown;
+    }> = [
+      {
+        fetchImpl: vi.fn(async () => {
+          throw new Error("request failed for Bearer secret-token");
+        }),
+        warning: { code: "request_failed", page: 1 },
+      },
+      {
+        fetchImpl: vi.fn(
+          async () =>
+            new Response("unauthorized", {
+              status: 401,
+              headers: { "x-cpa-version": "1" },
+            }),
+        ),
+        warning: { code: "http_error", page: 1, status: 401 },
+      },
+      {
+        fetchImpl: vi.fn(
+          async () =>
+            new Response("not-json", {
+              status: 200,
+              headers: { "x-cpa-version": "1" },
+            }),
+        ),
+        warning: { code: "invalid_json", page: 1 },
+      },
+    ];
+
+    for (const { fetchImpl, warning } of cases) {
+      const warnings: unknown[] = [];
+      const rows = await fetchCliproxyAnthropicModels({
+        baseUrl: "http://cpa.example",
+        token: "secret-token",
+        fetchImpl,
+        onWarning: (nextWarning) => warnings.push(nextWarning),
+      });
+
+      expect(rows).toEqual([]);
+      expect(warnings).toEqual([warning]);
+      expect(JSON.stringify(warnings)).not.toContain("secret-token");
+    }
   });
 
   test("loads single page when has_more is false", async () => {
@@ -222,6 +273,7 @@ describe("fetchCliproxyAnthropicModels", () => {
 
   test("keeps collected rows when a follow-up request fails", async () => {
     let call = 0;
+    const warnings: unknown[] = [];
     const fetchImpl = vi.fn(async () => {
       call += 1;
       if (call > 1) throw new Error("follow-up failed");
@@ -248,10 +300,12 @@ describe("fetchCliproxyAnthropicModels", () => {
       baseUrl: "http://cpa.example",
       token: "t",
       fetchImpl,
+      onWarning: (warning) => warnings.push(warning),
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(rows.map((row) => row.id)).toEqual(["claude-a"]);
+    expect(warnings).toEqual([{ code: "request_failed", page: 2 }]);
   });
 
   test("continues after a page with only new non-chat ids", async () => {
@@ -375,7 +429,6 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
     expect(result.autoPersist).toEqual([
       {
         id: "grok-4.5",
-        label: "Grok 4.5",
         contextWindowMaxTokens: 500_000,
         maxOutputTokens: 65_536,
       },
@@ -515,8 +568,40 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
     expect(grok.contextWindowMaxTokens).toBe(500_000);
     expect(grok.maxOutputTokens).toBe(65_536);
     expect(grok.needsCapacityConfig).toBeUndefined();
-    expect(result.autoPersist).toEqual([
-      { id: "grok-4.5", label: "Grok 4.5", maxOutputTokens: 65_536 },
+    expect(result.autoPersist).toEqual([{ id: "grok-4.5", maxOutputTokens: 65_536 }]);
+  });
+
+  test("preserves a configured model label when auto-filling capacity", async () => {
+    const existing = [
+      { id: "grok-4.5", label: "My Grok profile", contextWindowMaxTokens: 500_000 },
+    ];
+    const result = await appendCliproxyModelsToClaudeCatalog({
+      baseModels: base,
+      rows: [
+        {
+          id: "grok-4.5",
+          label: "Gateway Grok label",
+          ownedBy: "xai",
+          maxInputTokens: 500_000,
+          maxOutputTokens: 65_536,
+          rawListId: "claude-fable-5-dd-5.4-korg",
+        },
+      ],
+      existingAdditionalModels: existing,
+      lookupModelsDev: async () => {
+        throw new Error("should not be called");
+      },
+      getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
+    });
+
+    expect(result.autoPersist).toEqual([{ id: "grok-4.5", maxOutputTokens: 65_536 }]);
+    expect(mergeAdditionalModelLimits(existing, result.autoPersist)).toEqual([
+      {
+        id: "grok-4.5",
+        label: "My Grok profile",
+        contextWindowMaxTokens: 500_000,
+        maxOutputTokens: 65_536,
+      },
     ]);
   });
 
@@ -544,9 +629,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
     expect(grok.contextWindowMaxTokens).toBe(500_000);
     expect(grok.maxOutputTokens).toBe(65_536);
     expect(grok.needsCapacityConfig).toBeUndefined();
-    expect(result.autoPersist).toEqual([
-      { id: "grok-4.5", label: "Grok 4.5", contextWindowMaxTokens: 500_000 },
-    ]);
+    expect(result.autoPersist).toEqual([{ id: "grok-4.5", contextWindowMaxTokens: 500_000 }]);
   });
 
   test("does not overwrite openai subscription windows via models.dev", async () => {

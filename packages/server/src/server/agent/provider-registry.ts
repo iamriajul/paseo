@@ -421,9 +421,14 @@ function mergeModelAdditions(
     const existingModel = mergedModels[existingIndex];
     const explicitlyEnablesCompatibilityModel =
       existingModel?.isSelectable === false && additionalModel.isSelectable === undefined;
+    const preservesConfiguredClaudeLabel =
+      provider === "claude" &&
+      additionalModel.label === additionalModel.id &&
+      existingModel?.label !== additionalModel.id;
     mergedModels[existingIndex] = {
       ...existingModel,
       ...additionalModel,
+      ...(preservesConfiguredClaudeLabel ? { label: existingModel?.label } : {}),
       ...(explicitlyEnablesCompatibilityModel ? { isSelectable: true } : {}),
     };
   }

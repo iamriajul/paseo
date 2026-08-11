@@ -563,6 +563,34 @@ describe("ProviderSnapshotManager public surface", () => {
     }
   });
 
+  test("getProviderDiagnostic reuses a ready snapshot without refreshing the catalog", async () => {
+    const fetchCatalog = vi.fn(async () => ({
+      models: [{ provider: "codex", id: "gpt-5.4-mini", label: "GPT 5.4 Mini" }],
+      modes: [] as AgentMode[],
+    }));
+    const getDiagnostic = vi.fn(async () => ({ diagnostic: "codex is ready" }));
+    const client = createExtraClient("codex", {
+      isAvailable: async () => true,
+      fetchCatalog,
+      getDiagnostic,
+    });
+    const manager = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      extraClients: { codex: client },
+    });
+    try {
+      await manager.getProvider({ provider: "codex", wait: true });
+      const result = await manager.getProviderDiagnostic("codex");
+
+      expect(fetchCatalog).toHaveBeenCalledTimes(1);
+      expect(getDiagnostic).toHaveBeenCalledTimes(1);
+      expect(result.diagnostic).toContain("Models: 1");
+      expect(result.diagnostic).toContain("Status: Ready");
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("getProviderDiagnostic falls back to a default message when the client has no getDiagnostic and appends snapshot models/status", async () => {
     const manager = new ProviderSnapshotManager({
       logger: createTestLogger(),

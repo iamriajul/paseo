@@ -79,6 +79,24 @@ export interface FetchCliproxyAnthropicModelsOptions {
   baseUrl: string;
   token: string;
   fetchImpl?: typeof fetch;
+  onWarning?: (warning: CliproxyAnthropicModelsWarning) => void;
+}
+
+export type CliproxyAnthropicModelsWarningCode =
+  | "invalid_url"
+  | "request_failed"
+  | "http_error"
+  | "missing_fingerprint"
+  | "invalid_json"
+  | "invalid_payload"
+  | "invalid_pagination"
+  | "pagination_stalled"
+  | "pagination_limit";
+
+export interface CliproxyAnthropicModelsWarning {
+  code: CliproxyAnthropicModelsWarningCode;
+  page: number;
+  status?: number;
 }
 
 export async function resolveCliproxyAnthropicCredentials(
@@ -133,7 +151,10 @@ export async function fetchCliproxyAnthropicModels(
 
   while (pages < CLIPROXY_MODELS_MAX_PAGES) {
     const url = buildCliproxyModelsUrl(options.baseUrl, afterId);
-    if (!url) return rows;
+    if (!url) {
+      reportCliproxyModelsWarning(options, { code: "invalid_url", page: pages + 1 });
+      return rows;
+    }
 
     let response: Response;
     try {
@@ -143,18 +164,34 @@ export async function fetchCliproxyAnthropicModels(
         signal: AbortSignal.timeout(CLIPROXY_MODELS_TIMEOUT_MS),
       });
     } catch {
+      reportCliproxyModelsWarning(options, { code: "request_failed", page: pages + 1 });
       return rows;
     }
     pages += 1;
 
-    if (!response.ok) return rows;
-    if (pages === 1 && !responseHasCpaFingerprint(response.headers)) return [];
+    if (!response.ok) {
+      reportCliproxyModelsWarning(options, {
+        code: "http_error",
+        page: pages,
+        status: response.status,
+      });
+      return rows;
+    }
+    if (pages === 1 && !responseHasCpaFingerprint(response.headers)) {
+      reportCliproxyModelsWarning(options, { code: "missing_fingerprint", page: pages });
+      return [];
+    }
 
-    let page: CliproxyAnthropicModelsPage;
+    let payload: unknown;
     try {
-      const payload: unknown = await response.json();
-      page = parseCliproxyAnthropicModelsPage(payload);
+      payload = await response.json();
     } catch {
+      reportCliproxyModelsWarning(options, { code: "invalid_json", page: pages });
+      return rows;
+    }
+    const page = parseCliproxyAnthropicModelsPage(payload);
+    if (!page) {
+      reportCliproxyModelsWarning(options, { code: "invalid_payload", page: pages });
       return rows;
     }
 
@@ -169,12 +206,19 @@ export async function fetchCliproxyAnthropicModels(
       if (row) rows.push(row);
     }
 
-    if (
-      !page.hasMore ||
-      !page.lastId ||
-      pages >= CLIPROXY_MODELS_MAX_PAGES ||
-      addedDecodedIds === 0
-    ) {
+    if (!page.hasMore) {
+      return rows;
+    }
+    if (!page.lastId) {
+      reportCliproxyModelsWarning(options, { code: "invalid_pagination", page: pages });
+      return rows;
+    }
+    if (pages >= CLIPROXY_MODELS_MAX_PAGES) {
+      reportCliproxyModelsWarning(options, { code: "pagination_limit", page: pages });
+      return rows;
+    }
+    if (addedDecodedIds === 0) {
+      reportCliproxyModelsWarning(options, { code: "pagination_stalled", page: pages });
       return rows;
     }
     afterId = page.lastId;
@@ -194,14 +238,25 @@ interface DecodedCliproxyAnthropicModel {
   rawListId: string;
 }
 
-function parseCliproxyAnthropicModelsPage(payload: unknown): CliproxyAnthropicModelsPage {
-  if (!isRecord(payload)) {
-    return { data: [], hasMore: false, lastId: null };
+function parseCliproxyAnthropicModelsPage(payload: unknown): CliproxyAnthropicModelsPage | null {
+  if (!isRecord(payload) || !Array.isArray(payload.data) || typeof payload.has_more !== "boolean") {
+    return null;
   }
 
-  const data = Array.isArray(payload.data) ? payload.data : [];
+  const data = payload.data;
   const lastId = trimNonEmpty(payload.last_id);
   return { data, hasMore: payload.has_more === true, lastId };
+}
+
+function reportCliproxyModelsWarning(
+  options: FetchCliproxyAnthropicModelsOptions,
+  warning: CliproxyAnthropicModelsWarning,
+): void {
+  try {
+    options.onWarning?.(warning);
+  } catch {
+    // A diagnostic warning hook must never change catalog discovery behavior.
+  }
 }
 
 function decodeCliproxyAnthropicModel(value: unknown): DecodedCliproxyAnthropicModel | null {
@@ -371,13 +426,13 @@ async function resolveCliproxyModelCapacity(
   const fillContextWindow = (value: number | undefined): void => {
     if (contextWindowMaxTokens !== undefined || value === undefined) return;
     contextWindowMaxTokens = value;
-    autoPersist ??= { id: row.id, label: row.label || row.id };
+    autoPersist ??= { id: row.id };
     autoPersist.contextWindowMaxTokens = value;
   };
   const fillMaxOutput = (value: number | undefined): void => {
     if (maxOutputTokens !== undefined || value === undefined) return;
     maxOutputTokens = value;
-    autoPersist ??= { id: row.id, label: row.label || row.id };
+    autoPersist ??= { id: row.id };
     autoPersist.maxOutputTokens = value;
   };
 
@@ -457,6 +512,35 @@ export function mergeCliproxyModels(
     merged.push(addition);
   }
   return merged;
+}
+
+export function markCliproxyAutoPersistFailure(
+  models: readonly CliproxyAgentModelDefinition[],
+  autoPersist: readonly CliproxyAdditionalModelLimits[],
+): CliproxyAgentModelDefinition[] {
+  const failedById = new Map(autoPersist.map((update) => [update.id, update]));
+
+  return models.map((model) => {
+    const failedUpdate = failedById.get(model.id);
+    if (!failedUpdate) return model;
+
+    const nextModel = { ...model };
+    if (failedUpdate.contextWindowMaxTokens !== undefined) {
+      delete nextModel.contextWindowMaxTokens;
+    }
+    if (failedUpdate.maxOutputTokens !== undefined) {
+      delete nextModel.maxOutputTokens;
+    }
+
+    return {
+      ...nextModel,
+      needsCapacityConfig: true,
+      metadata: {
+        ...model.metadata,
+        needsCapacityConfig: true,
+      },
+    };
+  });
 }
 
 export function mergeAdditionalModelLimits(

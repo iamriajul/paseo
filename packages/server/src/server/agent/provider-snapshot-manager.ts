@@ -552,6 +552,11 @@ export class ProviderSnapshotManager {
   ): Promise<ProviderSnapshotEntry> {
     try {
       const target = createGlobalSnapshotTarget();
+      const existing = this.snapshots.get(target.snapshotCwd)?.get(provider);
+      if (existing?.status === "ready") {
+        return existing;
+      }
+
       this.resetSnapshotToLoading(target.snapshotCwd, [provider], { preserveExisting: false });
       this.emitChange(target.snapshotCwd);
       await this.refreshProviders(target, [provider]);

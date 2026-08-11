@@ -58,7 +58,10 @@ import {
 import {
   appendCliproxyModelsToClaudeCatalog,
   fetchCliproxyAnthropicModels,
+  markCliproxyAutoPersistFailure,
   resolveCliproxyAnthropicCredentials,
+  type CliproxyAdditionalModelLimits,
+  type CliproxyAgentModelDefinition,
 } from "./cliproxy-models.js";
 import { parsePartialJsonObject } from "./partial-json.js";
 import { ClaudeSidechainTracker } from "./sidechain-tracker.js";
@@ -1624,7 +1627,20 @@ export class ClaudeAgentClient implements AgentClient {
         configDir: this.configDir,
       });
       if (credentials) {
-        const rows = await fetchCliproxyAnthropicModels(credentials);
+        const rows = await fetchCliproxyAnthropicModels({
+          ...credentials,
+          onWarning: (warning) => {
+            this.logger.warn(
+              {
+                phase: "cliproxy_discovery",
+                code: warning.code,
+                page: warning.page,
+                ...(warning.status === undefined ? {} : { status: warning.status }),
+              },
+              "CLIProxyAPI Claude model discovery warning",
+            );
+          },
+        });
         if (rows.length > 0) {
           const { models: nextModels, autoPersist } = await appendCliproxyModelsToClaudeCatalog({
             baseModels: models,
@@ -1633,14 +1649,14 @@ export class ClaudeAgentClient implements AgentClient {
             lookupModelsDev: (id) => lookupModelsDevModel(id),
             getCustomThinkingOptions: () => getClaudeCustomModelThinkingOptions(),
           });
-          models = nextModels;
-          if (autoPersist.length > 0 && this.persistClaudeAdditionalModelLimits) {
-            await this.persistClaudeAdditionalModelLimits(autoPersist);
-          }
+          models = await this.persistCliproxyCatalogCapacity(nextModels, autoPersist);
         }
       }
-    } catch (error) {
-      this.logger.warn({ err: error }, "CLIProxyAPI Claude model discovery failed");
+    } catch {
+      this.logger.warn(
+        { phase: "cliproxy_discovery" },
+        "CLIProxyAPI Claude model discovery failed",
+      );
     }
     const modes = detectIneligibleAutoModeTransport(
       createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings }),
@@ -1652,6 +1668,32 @@ export class ClaudeAgentClient implements AgentClient {
       modes,
       defaultModeId: modes.some((mode) => mode.id === "auto") ? "auto" : "default",
     };
+  }
+
+  private async persistCliproxyCatalogCapacity(
+    nextModels: CliproxyAgentModelDefinition[],
+    autoPersist: CliproxyAdditionalModelLimits[],
+  ): Promise<CliproxyAgentModelDefinition[]> {
+    if (autoPersist.length === 0) return nextModels;
+
+    if (!this.persistClaudeAdditionalModelLimits) {
+      this.logger.warn(
+        { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
+        "CLIProxyAPI Claude model capacity was not persisted",
+      );
+      return markCliproxyAutoPersistFailure(nextModels, autoPersist);
+    }
+
+    try {
+      await this.persistClaudeAdditionalModelLimits(autoPersist);
+      return nextModels;
+    } catch {
+      this.logger.warn(
+        { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
+        "CLIProxyAPI Claude model capacity persistence failed",
+      );
+      return markCliproxyAutoPersistFailure(nextModels, autoPersist);
+    }
   }
 
   async resolveDefaultModeId({ env: launchEnv }: ResolveAgentDefaultModeInput): Promise<string> {

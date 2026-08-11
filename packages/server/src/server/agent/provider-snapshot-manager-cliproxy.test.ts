@@ -123,12 +123,12 @@ test("retains a discovered CLIProxyAPI model when auto-persist changes daemon co
 
     expect(entry.status).toBe("ready");
     expect(entry.models).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "grok-4.5" })]),
+      expect.arrayContaining([expect.objectContaining({ id: "grok-4.5", label: "Grok 4.5" })]),
     );
     expect(store.get().providers.claude?.additionalModels).toEqual([
       {
         id: "grok-4.5",
-        label: "Grok 4.5",
+        label: "grok-4.5",
         contextWindowMaxTokens: 500_000,
         maxOutputTokens: 65_536,
       },

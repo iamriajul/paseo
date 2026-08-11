@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
@@ -178,8 +181,16 @@ describe("lookupModelsDevModel", () => {
       json: async () => FIXTURE,
     })) as unknown as typeof fetch;
 
-    const first = await lookupModelsDevModel("glm-5.1", { fetchImpl, now: () => 1_000 });
-    const second = await lookupModelsDevModel("glm-5.1", { fetchImpl, now: () => 2_000 });
+    const first = await lookupModelsDevModel("glm-5.1", {
+      fetchImpl,
+      now: () => 1_000,
+      disableDiskCache: true,
+    });
+    const second = await lookupModelsDevModel("glm-5.1", {
+      fetchImpl,
+      now: () => 2_000,
+      disableDiskCache: true,
+    });
 
     expect(first.found).toBe(true);
     if (first.found) {
@@ -196,11 +207,90 @@ describe("lookupModelsDevModel", () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
 
-    const result = await lookupModelsDevModel("glm-5.1", { fetchImpl });
+    const result = await lookupModelsDevModel("glm-5.1", { fetchImpl, disableDiskCache: true });
     expect(result).toEqual({
       found: false,
       query: "glm-5.1",
       error: "network down",
     });
+  });
+});
+
+describe("models.dev disk cache + stale-while-revalidate", () => {
+  test("writes disk cache and reloads after memory reset", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "models-dev-cache-"));
+    const cacheFilePath = join(dir, "api.json");
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => FIXTURE,
+    })) as unknown as typeof fetch;
+
+    const first = await lookupModelsDevModel("glm-5.1", {
+      fetchImpl,
+      now: () => 1_000,
+      cacheFilePath,
+    });
+    expect(first.found).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    resetModelsDevCatalogCacheForTests();
+
+    const failingFetch = vi.fn(async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+
+    const second = await lookupModelsDevModel("glm-5.1", {
+      fetchImpl: failingFetch,
+      now: () => 2_000,
+      cacheFilePath,
+    });
+    expect(second.found).toBe(true);
+    if (second.found) {
+      expect(second.contextWindowMaxTokens).toBe(500_000);
+    }
+    // Fresh disk cache should not require network.
+    expect(failingFetch).not.toHaveBeenCalled();
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("serves stale memory while refresh is in flight", async () => {
+    let resolveFetch: ((value: { ok: true; json: () => Promise<unknown> }) => void) | null = null;
+    const fetchImpl = vi.fn(
+      () =>
+        new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    ) as unknown as typeof fetch;
+
+    // Seed memory cache with a completed fetch.
+    const seedFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => FIXTURE,
+    })) as unknown as typeof fetch;
+    await lookupModelsDevModel("glm-5.1", {
+      fetchImpl: seedFetch,
+      now: () => 1_000,
+      cacheTtlMs: 1_000,
+      disableDiskCache: true,
+    });
+
+    // TTL expired: should return stale immediately without waiting on the slow refresh.
+    const stalePromise = lookupModelsDevModel("glm-5.1", {
+      fetchImpl,
+      now: () => 10_000,
+      cacheTtlMs: 1_000,
+      disableDiskCache: true,
+    });
+    const stale = await stalePromise;
+    expect(stale.found).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    resolveFetch?.({
+      ok: true,
+      json: async () => FIXTURE,
+    });
+    // Let background refresh settle.
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalled());
   });
 });

@@ -11,6 +11,7 @@ import {
   parsePositiveTokenInput,
   pickPreferredCandidate,
   resolveCustomModelFormFields,
+  resolveCustomModelLookup,
 } from "./provider-custom-model-form";
 
 describe("provider-custom-model-form helpers", () => {
@@ -170,5 +171,42 @@ describe("auto-compact threshold helpers", () => {
         },
       }).autoCompactThresholdPercent,
     ).toBe(80);
+  });
+});
+
+describe("resolveCustomModelLookup", () => {
+  test("returns error when daemon reports a transport failure", async () => {
+    const result = await resolveCustomModelLookup({
+      modelId: "glm-5.1",
+      client: {
+        getLastServerInfoMessage: () => ({ features: { modelsDevLookup: true } }),
+        lookupModelsDevModel: async () => ({
+          found: false,
+          modelId: "glm-5.1",
+          error: "This operation was aborted",
+        }),
+      },
+    });
+    expect(result).toEqual({
+      kind: "error",
+      candidates: [],
+      preferred: null,
+      error: "This operation was aborted",
+    });
+  });
+
+  test("returns missing when catalog has no match", async () => {
+    const result = await resolveCustomModelLookup({
+      modelId: "nope",
+      client: {
+        getLastServerInfoMessage: () => ({ features: { modelsDevLookup: true } }),
+        lookupModelsDevModel: async () => ({
+          found: false,
+          modelId: "nope",
+          error: null,
+        }),
+      },
+    });
+    expect(result).toEqual({ kind: "missing", candidates: [], preferred: null });
   });
 });

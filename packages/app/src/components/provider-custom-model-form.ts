@@ -354,9 +354,10 @@ export async function resolveCustomModelLookup(options: {
   modelId: string;
   preferredProviderId?: string;
 }): Promise<{
-  kind: "missing" | "found";
+  kind: "missing" | "found" | "error";
   candidates: ModelsDevCandidateLike[];
   preferred: ModelsDevCandidateLike | null;
+  error?: string;
 }> {
   const supportsLookup =
     options.client.getLastServerInfoMessage?.()?.features?.modelsDevLookup === true;
@@ -366,6 +367,14 @@ export async function resolveCustomModelLookup(options: {
 
   const result = await options.client.lookupModelsDevModel(options.modelId);
   if (!result.found || typeof result.contextWindowMaxTokens !== "number") {
+    if (result.error) {
+      return {
+        kind: "error",
+        candidates: [],
+        preferred: null,
+        error: result.error,
+      };
+    }
     return { kind: "missing", candidates: [], preferred: null };
   }
 

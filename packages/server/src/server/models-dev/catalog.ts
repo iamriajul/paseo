@@ -1,6 +1,13 @@
+import path from "node:path";
+import { promises as fs } from "node:fs";
+
+import { writeFileAtomic } from "../atomic-file.js";
+import { resolvePaseoHome } from "../paseo-home.js";
+
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const DEFAULT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_FETCH_TIMEOUT_MS = 8_000;
+const DISK_CACHE_RELATIVE_PATH = ["cache", "models-dev", "api.json"] as const;
 
 export interface ModelsDevCandidate {
   providerId: string;
@@ -54,12 +61,21 @@ interface ModelsDevCatalogCache {
   bySuffix: Map<string, ModelsDevIndexEntry[]>;
 }
 
+interface ModelsDevDiskEnvelope {
+  fetchedAtMs: number;
+  payload: unknown;
+}
+
 export interface ModelsDevCatalogOptions {
   fetchImpl?: typeof fetch;
   now?: () => number;
   cacheTtlMs?: number;
   fetchTimeoutMs?: number;
   apiUrl?: string;
+  /** Override on-disk catalog path. Defaults to $PASEO_HOME/cache/models-dev/api.json. */
+  cacheFilePath?: string;
+  /** Skip disk read/write (tests that only exercise network/memory). */
+  disableDiskCache?: boolean;
 }
 
 let cache: ModelsDevCatalogCache | null = null;
@@ -112,10 +128,13 @@ export async function lookupModelsDevModel(
   }
 }
 
-export function buildModelsDevCatalogIndex(payload: unknown): ModelsDevCatalogCache {
+export function buildModelsDevCatalogIndex(
+  payload: unknown,
+  fetchedAtMs: number = Date.now(),
+): ModelsDevCatalogCache {
   const entries: ModelsDevIndexEntry[] = [];
   if (!isRecord(payload)) {
-    return indexEntries(entries, Date.now());
+    return indexEntries(entries, fetchedAtMs);
   }
 
   for (const [providerId, providerValue] of Object.entries(payload)) {
@@ -134,7 +153,7 @@ export function buildModelsDevCatalogIndex(payload: unknown): ModelsDevCatalogCa
     }
   }
 
-  return indexEntries(entries, Date.now());
+  return indexEntries(entries, fetchedAtMs);
 }
 
 function parseModelsDevModelEntry(
@@ -177,16 +196,42 @@ function parseModelsDevModelEntry(
   };
 }
 
+function isFresh(catalog: ModelsDevCatalogCache, nowMs: number, cacheTtlMs: number): boolean {
+  return nowMs - catalog.fetchedAtMs <= cacheTtlMs;
+}
+
 async function loadModelsDevCatalog(
   options: ModelsDevCatalogOptions,
 ): Promise<ModelsDevCatalogCache> {
   const now = options.now ?? Date.now;
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
-  const current = cache;
-  if (current && now() - current.fetchedAtMs <= cacheTtlMs) {
-    return current;
+  const nowMs = now();
+
+  if (cache && isFresh(cache, nowMs, cacheTtlMs)) {
+    return cache;
   }
 
+  // Stale-while-revalidate: serve memory cache immediately and refresh in background.
+  if (cache) {
+    void refreshCatalogInBackground(options);
+    return cache;
+  }
+
+  const disk = await readDiskCatalog(options);
+  if (disk) {
+    cache = disk;
+    if (!isFresh(disk, nowMs, cacheTtlMs)) {
+      void refreshCatalogInBackground(options);
+    }
+    return disk;
+  }
+
+  return await refreshCatalogInBackground(options);
+}
+
+function refreshCatalogInBackground(
+  options: ModelsDevCatalogOptions,
+): Promise<ModelsDevCatalogCache> {
   if (inflight) {
     return inflight;
   }
@@ -215,6 +260,7 @@ async function fetchAndIndexCatalog(
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
   const apiUrl = options.apiUrl ?? MODELS_DEV_API_URL;
+  const now = options.now ?? Date.now;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -223,13 +269,63 @@ async function fetchAndIndexCatalog(
       throw new Error(`models.dev fetch failed: HTTP ${response.status}`);
     }
     const payload: unknown = await response.json();
-    const indexed = buildModelsDevCatalogIndex(payload);
-    return {
-      ...indexed,
-      fetchedAtMs: (options.now ?? Date.now)(),
-    };
+    const fetchedAtMs = now();
+    const indexed = buildModelsDevCatalogIndex(payload, fetchedAtMs);
+    await writeDiskCatalog(options, { fetchedAtMs, payload });
+    return indexed;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function resolveDiskCachePath(options: ModelsDevCatalogOptions): string | null {
+  if (options.disableDiskCache) {
+    return null;
+  }
+  if (options.cacheFilePath) {
+    return options.cacheFilePath;
+  }
+  return path.join(resolvePaseoHome(), ...DISK_CACHE_RELATIVE_PATH);
+}
+
+async function readDiskCatalog(
+  options: ModelsDevCatalogOptions,
+): Promise<ModelsDevCatalogCache | null> {
+  const filePath = resolveDiskCachePath(options);
+  if (!filePath) {
+    return null;
+  }
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) {
+      return null;
+    }
+    const fetchedAtMs = parsed.fetchedAtMs;
+    if (typeof fetchedAtMs !== "number" || !Number.isFinite(fetchedAtMs)) {
+      return null;
+    }
+    if (!("payload" in parsed)) {
+      return null;
+    }
+    return buildModelsDevCatalogIndex(parsed.payload, Math.trunc(fetchedAtMs));
+  } catch {
+    return null;
+  }
+}
+
+async function writeDiskCatalog(
+  options: ModelsDevCatalogOptions,
+  envelope: ModelsDevDiskEnvelope,
+): Promise<void> {
+  const filePath = resolveDiskCachePath(options);
+  if (!filePath) {
+    return;
+  }
+  try {
+    await writeFileAtomic(filePath, JSON.stringify(envelope));
+  } catch {
+    // Disk cache is best-effort; network success still updates memory.
   }
 }
 

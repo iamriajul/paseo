@@ -621,6 +621,12 @@ function CustomModelFormSubSheet({
       if (requestId !== lookupRequestIdRef.current) {
         return;
       }
+      if (lookup.kind === "error") {
+        setCandidates([]);
+        setSourceId(CUSTOM_MODEL_METADATA_SOURCE_ID);
+        setLookupHint(t("settings.providers.models.modelsDevLookupFailed"));
+        return;
+      }
       if (lookup.kind !== "found" || !lookup.preferred) {
         setCandidates([]);
         setSourceId(CUSTOM_MODEL_METADATA_SOURCE_ID);

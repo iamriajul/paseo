@@ -117,12 +117,13 @@ Claude fetchCatalog / provider snapshot refresh
   ├─ resolve ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN
   │    (process/provider env, then ~/.claude/settings.json env)
   ├─ if missing → return base
-  ├─ GET {base}/v1/models
+  ├─ GET {base}/v1/models  (+ defensive after_id pages while has_more)
   │    Authorization: Bearer {token}
   │    Anthropic-Version: 2023-06-01
   │    User-Agent: claude-cli/...  (optional; Version alone is enough)
+  │    CPA today: has_more always false, full list in one response
   ├─ require X-CPA-* → else return base
-  ├─ for each data[] row:
+  ├─ for each data[] row (all pages, deduped):
   │    decode id → rawId
   │    filter non-chat
   │    map display_name, owned_by, max_input_tokens, max_tokens
@@ -161,6 +162,28 @@ Do **not** log raw tokens.
 3. Non-CPA Anthropic-compatible gateways: no fingerprint → leave catalog unchanged.
 
 Timeouts: short (same order as models.dev helpers; e.g. ~8s). Failures are non-fatal: log and keep the base catalog.
+
+## Pagination (`has_more`)
+
+Anthropic Models API responses include `data`, `has_more`, `first_id`, and `last_id`. **CPA copies that envelope but does not paginate.**
+
+From `CLIProxyAPI` `ClaudeModels`:
+
+- Response is the **full** in-memory model list in one shot.
+- `has_more` is **hard-coded `false`**.
+- `first_id` / `last_id` are only the first/last ids of that full array.
+- Query params such as `limit`, `after_id`, `starting_after` are **ignored** (verified live: `?limit=5` still returns the entire list).
+
+**v1 behavior:**
+
+1. Always consume `data` from the first successful response (sufficient for current CPA).
+2. Implement a **defensive** Anthropic-style cursor loop so a future CPA (or another gateway that fingerprints similarly) cannot silently truncate:
+   - While `has_more === true` and `last_id` is non-empty and page count `< MAX_PAGES` (e.g. 20):
+     - `GET /v1/models?after_id={last_id}` with the same auth/headers.
+     - Append `data`; stop if the page adds **no new decoded ids** (broken/no-op pagination).
+   - Dedupe by decoded id across pages.
+3. Do **not** treat `has_more: false` as an error or incomplete fetch — that is CPA’s normal full dump.
+4. If `has_more: true` but follow-up requests fail, keep models already collected and log a warning (partial catalog is better than base-only).
 
 ## Decode helper
 
@@ -298,14 +321,15 @@ User/provider/process non-empty env always wins. Soft-warning models with no lim
 
 ## Failure modes
 
-| Case                 | Result                                   |
-| -------------------- | ---------------------------------------- |
-| No base URL or token | Base catalog only                        |
-| No `X-CPA-*`         | Base catalog only                        |
-| Anthropic list fails | Base catalog only                        |
-| models.dev down      | Soft warning + manual configure          |
-| Timeout              | Non-blocking; do not hang Claude catalog |
-| Partial parse        | Append what was parsed; log issues       |
+| Case                                 | Result                                   |
+| ------------------------------------ | ---------------------------------------- |
+| No base URL or token                 | Base catalog only                        |
+| No `X-CPA-*`                         | Base catalog only                        |
+| Anthropic list fails                 | Base catalog only                        |
+| `has_more: true` but next page fails | Keep models already fetched; log warning |
+| models.dev down                      | Soft warning + manual configure          |
+| Timeout                              | Non-blocking; do not hang Claude catalog |
+| Partial parse                        | Append what was parsed; log issues       |
 
 ## Protocol / compatibility
 
@@ -331,15 +355,16 @@ User/provider/process non-empty env always wins. Soft-warning models with no lim
 
 1. Credential resolve: process vs settings.json; missing keys skip.
 2. Fingerprint: with/without `X-CPA-*`.
-3. Decode table: known `claude-fable-5-dd-*` pairs + unchanged `claude-*` ids + thinking suffix.
-4. Merge: append only decoded ids; never replace built-in id; never store rewritten id.
-5. Trust matrix: `openai` / `anthropic` / `xai` / `antigravity` trusted; `OpenCodeGo` untrusted.
-6. Trusted rows map `max_input_tokens` → context and `max_tokens` → output.
-7. GPT subscription window not overwritten by models.dev when official `owned_by`.
-8. models.dev: 1 → auto-persist; N → `needsCapacityConfig` + candidates; 0 → warning only.
-9. Thinking: appended models get custom-model defaults including `max` (not Codex-capped).
-10. Non-chat filter on decoded ids.
-11. Launch env fill-if-missing from trusted CPA / additionalModels.
+3. Pagination: single page when `has_more: false` (CPA normal); multi-page loop when `has_more: true`; stop on empty/no-new-ids pages; cap max pages.
+4. Decode table: known `claude-fable-5-dd-*` pairs + unchanged `claude-*` ids + thinking suffix.
+5. Merge: append only decoded ids; never replace built-in id; never store rewritten id.
+6. Trust matrix: `openai` / `anthropic` / `xai` / `antigravity` trusted; `OpenCodeGo` untrusted.
+7. Trusted rows map `max_input_tokens` → context and `max_tokens` → output.
+8. GPT subscription window not overwritten by models.dev when official `owned_by`.
+9. models.dev: 1 → auto-persist; N → `needsCapacityConfig` + candidates; 0 → warning only.
+10. Thinking: appended models get custom-model defaults including `max` (not Codex-capped).
+11. Non-chat filter on decoded ids.
+12. Launch env fill-if-missing from trusted CPA / additionalModels.
 
 Optional: mock HTTP Anthropic list with CPA headers.
 
@@ -353,4 +378,4 @@ Optional: mock HTTP Anthropic list with CPA headers.
 
 ## Summary
 
-Detect CPA via credentials + `X-CPA-*`. Discover with one Anthropic-format `/v1/models` call; decode `claude-fable-5-dd-*` to raw ids; take context from `max_input_tokens` and output from `max_tokens` when `owned_by` is official. OpenAI-compat brands use models.dev or soft configure UX. Effort stays on Claude defaults so Grok `max` remains available. Reuse existing Refresh and Add Model; warn gently with a round, touchable control and **“Configure metadata for the best experience.”**
+Detect CPA via credentials + `X-CPA-*`. Discover with Anthropic-format `/v1/models` (CPA returns the full list with `has_more: false`; still implement a defensive `after_id` loop if `has_more` is ever true). Decode `claude-fable-5-dd-*` to raw ids; take context from `max_input_tokens` and output from `max_tokens` when `owned_by` is official. OpenAI-compat brands use models.dev or soft configure UX. Effort stays on Claude defaults so Grok `max` remains available. Reuse existing Refresh and Add Model; warn gently with a round, touchable control and **“Configure metadata for the best experience.”**

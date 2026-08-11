@@ -5,7 +5,12 @@ import { createTestLogger } from "../../../../test-utils/test-logger.js";
 import type { AgentLaunchContext } from "../../agent-sdk-types.js";
 import { ClaudeAgentClient } from "./agent.js";
 import type { ClaudeQueryInput } from "./query.js";
-import { CLAUDE_CUSTOM_MODEL_PIN_ENV_KEYS, CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY } from "./models.js";
+import {
+  CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY,
+  CLAUDE_CUSTOM_MODEL_PIN_ENV_KEYS,
+  CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY,
+  CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY,
+} from "./models.js";
 
 function createQueryMock(events: unknown[]): Query {
   let index = 0;
@@ -35,6 +40,8 @@ describe("Claude SDK env", () => {
       vi.stubEnv(key, "");
     }
     vi.stubEnv(CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY, "");
+    vi.stubEnv(CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY, "");
+    vi.stubEnv(CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY, "");
   });
 
   afterEach(() => {

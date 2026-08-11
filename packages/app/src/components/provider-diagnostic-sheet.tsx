@@ -20,7 +20,7 @@ import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, type PressableStateCallbackType, Text, View } from "react-native";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
 import {
   AdaptiveModalSheet,
   AdaptiveTextInput,
@@ -53,6 +53,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import { useToast } from "@/contexts/toast-context";
 import { CODE_SURFACE_DATASET } from "@/styles/code-surface";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
@@ -66,6 +67,11 @@ import {
   resolveProviderDiscoveredModels,
   type ProviderDiscoveredModelsCache,
 } from "./provider-diagnostic-models";
+
+const ThemedCapacityWarning = withUnistyles(AlertTriangle);
+const capacityWarningMapping = (theme: Theme) => ({
+  color: theme.colors.palette.amber[500],
+});
 
 interface ProviderDiagnosticSheetProps {
   provider: string;
@@ -93,7 +99,6 @@ function DiscoveredModelRow({
   onConfigure: (model: AgentModelDefinition) => void;
 }) {
   const { t } = useTranslation();
-  const { theme } = useUnistyles();
   const capacityWarning = t("settings.providers.models.capacityWarning");
   const warningButtonStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
@@ -134,7 +139,7 @@ function DiscoveredModelRow({
                 accessibilityLabel={capacityWarning}
                 testID={`capacity-warning-${model.id}`}
               >
-                <AlertTriangle size={theme.iconSize.sm} color={theme.colors.palette.amber[500]} />
+                <ThemedCapacityWarning size={ICON_SIZE.sm} uniProps={capacityWarningMapping} />
               </TooltipTrigger>
               <TooltipContent side="top" align="center" offset={8}>
                 <Text style={sheetStyles.tooltipText}>{capacityWarning}</Text>

@@ -266,6 +266,77 @@ describe("Claude SDK env", () => {
     }
   });
 
+  test("applies context and output env from profileModels for CPA-discovered custom model", async () => {
+    const capturedEnvs: Array<Record<string, string | undefined>> = [];
+    const queryFactory = vi.fn(({ options }: ClaudeQueryInput) => {
+      capturedEnvs.push(options.env);
+      return createQueryMock([
+        {
+          type: "system",
+          subtype: "init",
+          session_id: `grok-4.5-capacity-session-${capturedEnvs.length}`,
+          permissionMode: "default",
+          model: "grok-4.5",
+        },
+        {
+          type: "assistant",
+          message: { content: "done" },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          usage: {
+            input_tokens: 1,
+            cache_read_input_tokens: 0,
+            output_tokens: 1,
+          },
+          total_cost_usd: 0,
+        },
+      ]);
+    });
+
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+      profileModels: [{ id: "grok-4.5", contextWindowMaxTokens: 500_000, maxOutputTokens: 65_536 }],
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "grok-4.5",
+    });
+
+    try {
+      await session.run("CPA capacity env check");
+      expect(capturedEnvs[0]?.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("500000");
+      expect(capturedEnvs[0]?.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("65536");
+    } finally {
+      await session.close();
+    }
+
+    const preSetSession = await client.createSession(
+      {
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "grok-4.5",
+      },
+      {
+        env: {
+          CLAUDE_CODE_MAX_CONTEXT_TOKENS: "123456",
+        },
+      },
+    );
+
+    try {
+      await preSetSession.run("CPA capacity env preservation check");
+      expect(capturedEnvs[1]?.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("123456");
+      expect(capturedEnvs[1]?.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("65536");
+    } finally {
+      await preSetSession.close();
+    }
+  });
+
   test("sets CLAUDE_CODE_AUTO_COMPACT_WINDOW from profile threshold percent", async () => {
     let capturedEnv: Record<string, string | undefined> | undefined;
     const queryFactory = vi.fn(({ options }: ClaudeQueryInput) => {

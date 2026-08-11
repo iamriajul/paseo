@@ -701,7 +701,10 @@ export class VoiceAssistantWebSocketServer {
     this.unsubscribeDaemonConfigChange = this.daemonConfigStore.onChange((config, details) => {
       const nextAgentManagerState = this.providerSnapshotManager.applyMutableProviderConfig(
         config.providers,
-        { removeProviders: details.removedProviders },
+        {
+          removeProviders: details.removedProviders,
+          preserveInFlightProviderLoads: details.preserveInFlightProviderLoads,
+        },
       );
       this.agentManager.updateProviderRegistry(nextAgentManagerState);
       this.broadcastDaemonConfigChanged(config);

@@ -20,7 +20,7 @@ import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, type PressableStateCallbackType, Text, View } from "react-native";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
 import {
   AdaptiveModalSheet,
   AdaptiveTextInput,
@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ScrollableCodeSurface, SurfaceCard } from "@/components/ui/scrollable-code-surface";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT,
   AUTO_COMPACT_THRESHOLD_PERCENT_MAX,
@@ -45,12 +46,14 @@ import {
   parsePositiveTokenInput,
   resolveCustomModelFormFields,
   resolveCustomModelLookup,
+  type CustomModelFormMode,
   type ModelsDevCandidateLike,
 } from "@/components/provider-custom-model-form";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import { useToast } from "@/contexts/toast-context";
 import { CODE_SURFACE_DATASET } from "@/styles/code-surface";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
@@ -64,6 +67,11 @@ import {
   resolveProviderDiscoveredModels,
   type ProviderDiscoveredModelsCache,
 } from "./provider-diagnostic-models";
+
+const ThemedCapacityWarning = withUnistyles(AlertTriangle);
+const capacityWarningMapping = (theme: Theme) => ({
+  color: theme.colors.palette.amber[500],
+});
 
 interface ProviderDiagnosticSheetProps {
   provider: string;
@@ -83,7 +91,24 @@ function rankModels<T>(items: T[], query: string, fields: (item: T) => string[])
   return scored.map((entry) => entry.item);
 }
 
-function DiscoveredModelRow({ model }: { model: AgentModelDefinition }) {
+function DiscoveredModelRow({
+  model,
+  onConfigure,
+}: {
+  model: AgentModelDefinition;
+  onConfigure: (model: AgentModelDefinition) => void;
+}) {
+  const { t } = useTranslation();
+  const capacityWarning = t("settings.providers.models.capacityWarning");
+  const warningButtonStyle = useCallback(
+    ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      sheetStyles.capacityWarningButton,
+      (Boolean(hovered) || pressed) && sheetStyles.capacityWarningButtonHovered,
+    ],
+    [],
+  );
+  const handleConfigure = useCallback(() => onConfigure(model), [model, onConfigure]);
+
   return (
     <View style={sheetStyles.modelRow}>
       <Text style={sheetStyles.modelTitle} numberOfLines={1}>
@@ -101,6 +126,35 @@ function DiscoveredModelRow({ model }: { model: AgentModelDefinition }) {
         <Text style={sheetStyles.descriptionInline} numberOfLines={1}>
           {model.description}
         </Text>
+      ) : null}
+      {model.needsCapacityConfig === true ? (
+        <>
+          <View style={sheetStyles.modelRowFiller} />
+          <View style={sheetStyles.modelRowActions}>
+            <Tooltip enabledOnDesktop enabledOnMobile={true}>
+              <TooltipTrigger
+                style={warningButtonStyle}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={capacityWarning}
+                testID={`capacity-warning-${model.id}`}
+              >
+                <ThemedCapacityWarning size={ICON_SIZE.sm} uniProps={capacityWarningMapping} />
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center" offset={8}>
+                <Text style={sheetStyles.tooltipText}>{capacityWarning}</Text>
+              </TooltipContent>
+            </Tooltip>
+            <Button
+              variant="secondary"
+              size="xs"
+              onPress={handleConfigure}
+              testID={`capacity-configure-${model.id}`}
+            >
+              {t("settings.providers.models.configure")}
+            </Button>
+          </View>
+        </>
       ) : null}
     </View>
   );
@@ -476,7 +530,7 @@ function CustomModelFormSubSheet({
   provider: string;
   serverId: string;
   visible: boolean;
-  mode: { kind: "add" } | { kind: "edit"; model: ProviderProfileModel };
+  mode: CustomModelFormMode;
   onClose: () => void;
   refresh: (providers?: AgentProvider[]) => Promise<void>;
 }) {
@@ -566,6 +620,7 @@ function CustomModelFormSubSheet({
       return;
     }
     const fields = resolveCustomModelFormFields(mode);
+    const initialCandidates = mode.kind === "add" ? (mode.candidates ?? []) : [];
     setModelId(fields.modelId);
     setLabel(fields.label);
     setContextWindow(fields.contextWindow);
@@ -573,10 +628,16 @@ function CustomModelFormSubSheet({
     setAutoCompactThresholdPercent(fields.autoCompactThresholdPercent);
     setSourceId(fields.sourceId);
     setSummary(fields.summary);
-    setCandidates([]);
+    setCandidates(initialCandidates);
     setError(null);
     setLookupHint(null);
-    lastAutofilledRef.current = createEmptyAutofillSnapshot();
+    lastAutofilledRef.current = initialCandidates.length
+      ? {
+          label: fields.label,
+          contextWindow: fields.contextWindow,
+          maxOutput: fields.maxOutput,
+        }
+      : createEmptyAutofillSnapshot();
   }, [mode, visible]);
 
   const applyCandidate = useCallback(
@@ -1084,6 +1145,7 @@ interface ProviderModalBodyProps {
   filteredCustom: ProviderProfileModel[];
   deletingModelId: string | null;
   onRefresh: () => void;
+  onConfigureDiscovered: (model: AgentModelDefinition) => void;
   onEditCustom: (model: ProviderProfileModel) => void;
   onDeleteCustom: (modelId: string) => void;
   theme: { iconSize: { md: number }; colors: { foregroundMuted: string } };
@@ -1171,6 +1233,7 @@ function ProviderModalBody(props: ProviderModalBodyProps) {
     filteredCustom,
     deletingModelId,
     onRefresh,
+    onConfigureDiscovered,
     onEditCustom,
     onDeleteCustom,
     theme,
@@ -1221,7 +1284,11 @@ function ProviderModalBody(props: ProviderModalBodyProps) {
           />
           <View style={settingsStyles.card}>
             {filteredDiscovered.map((model) => (
-              <DiscoveredModelRow key={model.id} model={model} />
+              <DiscoveredModelRow
+                key={model.id}
+                model={model}
+                onConfigure={onConfigureDiscovered}
+              />
             ))}
           </View>
         </View>
@@ -1261,9 +1328,7 @@ export function ProviderDiagnosticSheet({
   const { entries: snapshotEntries, refresh, isRefreshing } = useProvidersSnapshot(serverId);
   const { config, patchConfig } = useDaemonConfig(serverId);
   const [query, setQuery] = useState("");
-  const [formMode, setFormMode] = useState<
-    null | { kind: "add" } | { kind: "edit"; model: ProviderProfileModel }
-  >(null);
+  const [formMode, setFormMode] = useState<CustomModelFormMode | null>(null);
   const [diagSheetOpen, setDiagSheetOpen] = useState(false);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
 
@@ -1336,6 +1401,22 @@ export function ProviderDiagnosticSheet({
     setFormMode({ kind: "edit", model });
   }, []);
 
+  const handleConfigureDiscovered = useCallback(
+    (model: AgentModelDefinition) => {
+      const existingModel = additionalModels.find((candidate) => candidate.id === model.id);
+      if (existingModel) {
+        setFormMode({ kind: "edit", model: existingModel });
+        return;
+      }
+      setFormMode({
+        kind: "add",
+        modelId: model.id,
+        candidates: model.modelsDevCandidates,
+      });
+    },
+    [additionalModels],
+  );
+
   const handleDeleteCustom = useCallback(
     (modelId: string) => {
       setDeletingModelId(modelId);
@@ -1395,6 +1476,7 @@ export function ProviderDiagnosticSheet({
           filteredCustom={filteredCustom}
           deletingModelId={deletingModelId}
           onRefresh={handleRefreshModels}
+          onConfigureDiscovered={handleConfigureDiscovered}
           onEditCustom={handleEditCustom}
           onDeleteCustom={handleDeleteCustom}
           theme={theme}
@@ -1433,6 +1515,11 @@ const sheetStyles = StyleSheet.create((theme) => ({
     flex: 1,
     fontSize: theme.fontSize.xs,
     color: theme.colors.foregroundMuted,
+  },
+  tooltipText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    lineHeight: theme.fontSize.sm * 1.4,
   },
   errorText: {
     fontSize: theme.fontSize.xs,
@@ -1498,6 +1585,21 @@ const sheetStyles = StyleSheet.create((theme) => ({
   },
   modelRowFiller: {
     flex: 1,
+  },
+  modelRowActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  capacityWarningButton: {
+    width: 28,
+    height: 28,
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  capacityWarningButtonHovered: {
+    backgroundColor: theme.colors.surface2,
   },
   emptyState: {
     paddingVertical: theme.spacing[8],

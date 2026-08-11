@@ -62,6 +62,14 @@ Required fields for custom providers:
 
 See [Codex with a custom OpenAI-compatible endpoint](#codex-with-a-custom-openai-compatible-endpoint) below for the dedicated Codex example.
 
+### CLIProxyAPI model discovery
+
+When `ANTHROPIC_BASE_URL` points to [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), Paseo confirms the endpoint from its `X-CPA-*` response headers. On a Claude catalog refresh, it decodes CLIProxyAPI's rewritten model IDs to raw IDs and appends the discovered models to the existing catalog.
+
+Use the existing provider models `Refresh` button to run discovery. Paseo trusts capacity reported by CPA for official `owned_by` brands. For OpenAI-compatible and other non-official owners, it uses models.dev; unresolved capacity leaves the model selectable with a soft configuration warning.
+
+When capacity resolves, Paseo fills only missing fields in `additionalModels`, so the saved limits are available for Claude launch environment pins. See the [CLIProxyAPI Claude model discovery design](superpowers/specs/2026-08-11-cliproxyapi-claude-code-models-design.md) for the protocol and precedence details.
+
 ---
 
 ## Z.AI (Zhipu) coding plan

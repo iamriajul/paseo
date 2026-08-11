@@ -36,6 +36,7 @@ import {
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { useCurrentOverlayLayer } from "@/lib/overlay-root";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   resolveInitialModelBrowserView,
   type ModelBrowserView,
@@ -109,6 +110,10 @@ const favoriteStarMapping =
     };
   };
 
+const capacityWarningMapping = (theme: Theme) => ({
+  color: theme.colors.palette.amber[500],
+});
+
 interface ModelBrowserInput {
   providers: ProviderSelectorProvider[];
   selectedProvider: string;
@@ -180,6 +185,40 @@ function HeaderSettingsIcon({ disabled }: { disabled: boolean }) {
 function FavoriteStar({ isFavorite, hovered }: { isFavorite: boolean; hovered: boolean }) {
   const uniProps = useMemo(() => favoriteStarMapping(isFavorite, hovered), [hovered, isFavorite]);
   return <ThemedStar size={ICON_SIZE.md} uniProps={uniProps} />;
+}
+
+function CapacityWarningControl({ provider, modelId }: { provider: string; modelId: string }) {
+  const { t } = useTranslation();
+  const warningLabel = t("settings.providers.models.capacityWarning");
+  const warningButtonStyle = useCallback(
+    ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.rowIconButton,
+      Boolean(hovered) && styles.rowIconButtonHovered,
+      pressed && styles.rowIconButtonPressed,
+    ],
+    [],
+  );
+  const handlePress = useCallback((event: GestureResponderEvent) => {
+    event.stopPropagation();
+  }, []);
+
+  return (
+    <Tooltip enabledOnDesktop enabledOnMobile={true}>
+      <TooltipTrigger
+        onPress={handlePress}
+        hitSlop={8}
+        style={warningButtonStyle}
+        accessibilityRole="button"
+        accessibilityLabel={warningLabel}
+        testID={`model-capacity-warning-${provider}-${modelId}`}
+      >
+        <ThemedAlertTriangle size={ICON_SIZE.sm} uniProps={capacityWarningMapping} />
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center" offset={8}>
+        <Text style={styles.tooltipText}>{warningLabel}</Text>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function favoriteButtonStyle({
@@ -552,23 +591,39 @@ function ModelRow({
     () => <ModelProviderGlyph provider={row.provider} size={ICON_SIZE.sm} />,
     [row.provider],
   );
-  const trailingSlot = useMemo(
-    () =>
-      onToggleFavorite ? (
-        <ModelBrowserPressable
-          onPress={handleToggleFavorite}
-          hitSlop={8}
-          style={favoriteButtonStyle}
-          accessibilityLabel={
-            isFavorite ? t("modelSelector.unfavoriteModel") : t("modelSelector.favoriteModel")
-          }
-          testID={`favorite-model-${row.provider}-${row.modelId}`}
-        >
-          {({ hovered }) => <FavoriteStar isFavorite={isFavorite} hovered={Boolean(hovered)} />}
-        </ModelBrowserPressable>
-      ) : null,
-    [handleToggleFavorite, isFavorite, onToggleFavorite, row.modelId, row.provider, t],
-  );
+  const trailingSlot = useMemo(() => {
+    const warning = row.needsCapacityConfig ? (
+      <CapacityWarningControl provider={row.provider} modelId={row.modelId} />
+    ) : null;
+    const favorite = onToggleFavorite ? (
+      <ModelBrowserPressable
+        onPress={handleToggleFavorite}
+        hitSlop={8}
+        style={favoriteButtonStyle}
+        accessibilityLabel={
+          isFavorite ? t("modelSelector.unfavoriteModel") : t("modelSelector.favoriteModel")
+        }
+        testID={`favorite-model-${row.provider}-${row.modelId}`}
+      >
+        {({ hovered }) => <FavoriteStar isFavorite={isFavorite} hovered={Boolean(hovered)} />}
+      </ModelBrowserPressable>
+    ) : null;
+    if (!warning && !favorite) return null;
+    return (
+      <View style={styles.modelRowActions}>
+        {warning}
+        {favorite}
+      </View>
+    );
+  }, [
+    handleToggleFavorite,
+    isFavorite,
+    onToggleFavorite,
+    row.modelId,
+    row.needsCapacityConfig,
+    row.provider,
+    t,
+  ]);
 
   return (
     <ModelBrowserRow
@@ -1178,6 +1233,16 @@ const styles = StyleSheet.create((theme) => ({
   },
   favoriteButtonPressed: {
     backgroundColor: theme.colors.surface1,
+  },
+  modelRowActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  tooltipText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    lineHeight: theme.fontSize.sm * 1.4,
   },
   providerIconMuted: {
     color: theme.colors.foregroundMuted,

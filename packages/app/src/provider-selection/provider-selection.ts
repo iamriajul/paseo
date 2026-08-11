@@ -11,7 +11,10 @@ import { i18n } from "@/i18n/i18next";
 import { compareMatchScores, scoreTextFields } from "@getpaseo/protocol/search/text-match";
 import { filterSelectableModels } from "./model-catalog";
 
-export type ProviderSelectionModelRow = FavoriteModelRow & { isDefault?: boolean };
+export type ProviderSelectionModelRow = FavoriteModelRow &
+  Pick<AgentModelDefinition, "needsCapacityConfig" | "modelsDevCandidates"> & {
+    isDefault?: boolean;
+  };
 
 export type ProviderModelSelection =
   | { kind: "models"; rows: ProviderSelectionModelRow[] }
@@ -51,6 +54,8 @@ function buildModelRows(
     modelLabel: model.label,
     description: model.description ?? model.id,
     isDefault: model.isDefault,
+    ...(model.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
+    ...(model.modelsDevCandidates ? { modelsDevCandidates: model.modelsDevCandidates } : {}),
   }));
 }
 

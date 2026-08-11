@@ -139,7 +139,7 @@ import {
 } from "./agent/tools/paseo-tools.js";
 import type { PaseoToolRuntimeContext } from "./agent/tools/types.js";
 import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
-import { mergeAdditionalModelLimits } from "./agent/providers/claude/cliproxy-models.js";
+import { createAdditionalModelLimitsPersistence } from "./agent/additional-model-limits-persister.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
@@ -221,10 +221,6 @@ import {
   type HubRelationshipRemote,
 } from "./hub/relationship-remote.js";
 import { DaemonExecutions } from "./hub/daemon-executions.js";
-
-type MutableAdditionalModel = NonNullable<
-  MutableDaemonConfig["providers"][string]["additionalModels"]
->[number];
 
 const MAX_MCP_DEBUG_BATCH_ITEMS = 10;
 const REDACTED_LOG_VALUE = "[redacted]";
@@ -853,28 +849,7 @@ export async function createPaseoDaemon(
     managedProcesses,
     isDev: config.isDev === true,
     extraClients: config.agentClients,
-    persistClaudeAdditionalModelLimits: async (models) => {
-      const current = daemonConfigStore.get();
-      const existing = current.providers?.claude?.additionalModels ?? [];
-      const merged = mergeAdditionalModelLimits(existing, models);
-      if (merged !== existing) {
-        daemonConfigStore.patch(
-          {
-            providers: {
-              claude: {
-                additionalModels: merged.map(
-                  (model) =>
-                    Object.assign({}, model, {
-                      label: model.label ?? model.id,
-                    }) as MutableAdditionalModel,
-                ),
-              },
-            },
-          },
-          { preserveInFlightProviderLoads: ["claude"] },
-        );
-      }
-    },
+    ...createAdditionalModelLimitsPersistence(daemonConfigStore),
   });
   const initialAgentManagerState = providerSnapshotManager.getAgentManagerProviderState();
   const agentManager = new AgentManager({

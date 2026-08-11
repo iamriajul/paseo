@@ -2486,6 +2486,7 @@ export const ru: TranslationResources = {
         one: "1 модель",
         many: "{{count}} моделей",
         addModel: "Добавить модель",
+        configure: "Configure",
         addCustomTitle: "Добавить пользовательскую модель",
         editCustomTitle: "Edit custom model",
         editModel: "Edit {{id}}",
@@ -2536,6 +2537,7 @@ export const ru: TranslationResources = {
         noneDetected: "Модели не обнаружены",
         discovered: "Обнаруженный",
         custom: "Пользовательские модели",
+        capacityWarning: "Configure metadata for the best experience.",
         updated: "Обновлен{{time}}",
       },
       diagnostic: {

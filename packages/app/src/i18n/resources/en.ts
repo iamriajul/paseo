@@ -2460,6 +2460,7 @@ export const en = {
         one: "1 model",
         many: "{{count}} models",
         addModel: "Add model",
+        configure: "Configure",
         addCustomTitle: "Add custom model",
         editCustomTitle: "Edit custom model",
         editModel: "Edit {{id}}",
@@ -2510,6 +2511,7 @@ export const en = {
         noneDetected: "No models detected",
         discovered: "Discovered",
         custom: "Custom models",
+        capacityWarning: "Configure metadata for the best experience.",
         updated: "Updated {{time}}",
       },
       diagnostic: {

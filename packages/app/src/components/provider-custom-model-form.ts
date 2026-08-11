@@ -33,6 +33,10 @@ export interface CustomModelFormFields {
   summary: ModelsDevCandidateLike | null;
 }
 
+export type CustomModelFormMode =
+  | { kind: "add"; modelId?: string; candidates?: ModelsDevCandidateLike[] }
+  | { kind: "edit"; model: ProviderProfileModel };
+
 export function candidateSourceId(
   candidate: Pick<ModelsDevCandidateLike, "providerId" | "matchedId">,
 ): string {
@@ -215,18 +219,22 @@ function summaryFromModel(model: ProviderProfileModel): ModelsDevCandidateLike {
   };
 }
 
-export function resolveCustomModelFormFields(
-  mode: { kind: "add" } | { kind: "edit"; model: ProviderProfileModel },
-): CustomModelFormFields {
+export function resolveCustomModelFormFields(mode: CustomModelFormMode): CustomModelFormFields {
   if (mode.kind !== "edit") {
+    const preferredCandidate = mode.candidates?.[0] ?? null;
     return {
-      modelId: "",
-      label: "",
-      contextWindow: "",
-      maxOutput: "",
+      modelId: mode.modelId ?? "",
+      label: preferredCandidate?.name ?? "",
+      contextWindow: preferredCandidate ? String(preferredCandidate.contextWindowMaxTokens) : "",
+      maxOutput:
+        typeof preferredCandidate?.maxOutputTokens === "number"
+          ? String(preferredCandidate.maxOutputTokens)
+          : "",
       autoCompactThresholdPercent: AUTO_COMPACT_THRESHOLD_PERCENT_DEFAULT,
-      sourceId: CUSTOM_MODEL_METADATA_SOURCE_ID,
-      summary: null,
+      sourceId: preferredCandidate
+        ? candidateSourceId(preferredCandidate)
+        : CUSTOM_MODEL_METADATA_SOURCE_ID,
+      summary: preferredCandidate,
     };
   }
 

@@ -2503,6 +2503,7 @@ export const fr: TranslationResources = {
         one: "1 modèle",
         many: "{{count}} modèles",
         addModel: "Ajouter un modèle",
+        configure: "Configure",
         addCustomTitle: "Ajouter un modèle personnalisé",
         editCustomTitle: "Edit custom model",
         editModel: "Edit {{id}}",
@@ -2553,6 +2554,7 @@ export const fr: TranslationResources = {
         noneDetected: "Aucun modèle détecté",
         discovered: "Découvert",
         custom: "Modèles personnalisés",
+        capacityWarning: "Configure metadata for the best experience.",
         updated: "{{time}}mis à jour",
       },
       diagnostic: {

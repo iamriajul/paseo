@@ -86,6 +86,7 @@ import {
   deriveRouteBottomAnchorRequest,
 } from "@/screens/agent/agent-ready-screen-bottom-anchor";
 import { WorkspaceDraftAgentTab } from "@/composer/draft/workspace-tab";
+import { AgentTaskList } from "@/composer/task-list";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
 import { usePanelStore } from "@/stores/panel-store";
@@ -109,9 +110,6 @@ import { BackgroundTasksTrack } from "@/background-tasks/track";
 import { useBackgroundTasksForParent } from "@/background-tasks/select";
 import { refreshBackgroundTasks } from "@/background-tasks/store";
 import { useStopBackgroundTask } from "@/background-tasks/use-stop-background-task";
-import { LoopsTrack } from "@/loops/track";
-import { selectLoopsForAgentFromStore, refreshLoops, useLoopStore } from "@/loops/store";
-import { useStopLoop } from "@/loops/use-stop-loop";
 import { HeartbeatsTrack } from "@/heartbeats/track";
 import {
   mergeHeartbeatRows,
@@ -1702,11 +1700,6 @@ function ActiveAgentComposer({
     serverId,
     parentAgentId: agentId,
   });
-  const loopsByServer = useLoopStore((state) => state.loopsByServer);
-  const loopRows = useMemo(
-    () => selectLoopsForAgentFromStore(loopsByServer, serverId, agentId),
-    [agentId, loopsByServer, serverId],
-  );
   const { loadState: schedulesLoadState } = useSchedules();
   const schedulesForServer = useMemo(() => {
     if (schedulesLoadState.status !== "loaded") return EMPTY_AGGREGATED_SCHEDULES;
@@ -1760,7 +1753,6 @@ function ActiveAgentComposer({
     serverId,
     parentAgentId: agentId,
   });
-  const { stopLoop, stoppingLoopIds } = useStopLoop({ serverId });
   const handleOpenSubagent = useCallback(
     (subagentId: string) => {
       navigateToAgent({ serverId, agentId: subagentId });
@@ -1778,12 +1770,6 @@ function ActiveAgentComposer({
       openTab({ kind: "background_task", parentAgentId: agentId, taskId });
     },
     [agentId, openTab],
-  );
-  const handleOpenLoop = useCallback(
-    (loopId: string) => {
-      openTab({ kind: "loop", loopId });
-    },
-    [openTab],
   );
   const handleOpenHeartbeat = useCallback(
     (row: HeartbeatRow) => {
@@ -1824,10 +1810,6 @@ function ActiveAgentComposer({
     if (!sessionClient || !supportsBackgroundTasks) return;
     void refreshBackgroundTasks(sessionClient, serverId, agentId).catch(() => undefined);
   }, [agentId, serverId, sessionClient, supportsBackgroundTasks]);
-  useEffect(() => {
-    if (!sessionClient) return;
-    void refreshLoops(sessionClient, serverId).catch(() => undefined);
-  }, [agentId, serverId, sessionClient]);
   useEffect(() => {
     if (!sessionClient || !supportsProviderHeartbeats) return;
     void refreshProviderHeartbeats(sessionClient, serverId, agentId).catch(() => undefined);
@@ -1924,6 +1906,7 @@ function ActiveAgentComposer({
 
   return (
     <ReanimatedAnimated.View style={inputAreaStyle} onLayout={onInputAreaLayout}>
+      <AgentTaskList serverId={serverId} agentId={agentId} />
       <SubagentsTrack
         rows={subagentRows}
         onOpenSubagent={handleOpenSubagent}
@@ -1939,12 +1922,6 @@ function ActiveAgentComposer({
         onResume={resumeHeartbeat}
         onDelete={deleteHeartbeat}
         pendingIds={heartbeatPendingIds}
-      />
-      <LoopsTrack
-        rows={loopRows}
-        onOpenLoop={handleOpenLoop}
-        onStopLoop={stopLoop}
-        stoppingLoopIds={stoppingLoopIds}
       />
       {supportsBackgroundTasks ? (
         <BackgroundTasksTrack

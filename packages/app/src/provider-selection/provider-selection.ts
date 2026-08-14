@@ -6,15 +6,30 @@ import type {
 } from "@getpaseo/protocol/agent-types";
 import type { AgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 import type { DraftCommandConfig } from "@/hooks/use-agent-commands-query";
-import { buildFavoriteModelKey, type FavoriteModelRow } from "@/hooks/use-form-preferences";
 import { i18n } from "@/i18n/i18next";
 import { compareMatchScores, scoreTextFields } from "@getpaseo/protocol/search/text-match";
 import { filterSelectableModels } from "./model-catalog";
 
-export type ProviderSelectionModelRow = FavoriteModelRow &
-  Pick<AgentModelDefinition, "needsCapacityConfig" | "modelsDevCandidates"> & {
-    isDefault?: boolean;
-  };
+export interface ProviderSelectionModelRow {
+  /**
+   * Row identity — `provider:modelId`. Used as the React key and as the row's
+   * stable handle across list rebuilds. The name is historical; it has nothing
+   * to do with the removed favourites feature.
+   */
+  favoriteKey: string;
+  provider: string;
+  providerLabel: string;
+  modelId: string;
+  modelLabel: string;
+  description?: string;
+  isDefault?: boolean;
+  needsCapacityConfig?: boolean;
+  modelsDevCandidates?: AgentModelDefinition["modelsDevCandidates"];
+}
+
+function buildModelRowKey(provider: string, modelId: string): string {
+  return `${provider}:${modelId}`;
+}
 
 export type ProviderModelSelection =
   | { kind: "models"; rows: ProviderSelectionModelRow[] }
@@ -47,7 +62,7 @@ function buildModelRows(
   models: AgentModelDefinition[],
 ): ProviderSelectionModelRow[] {
   return models.map((model) => ({
-    favoriteKey: buildFavoriteModelKey({ provider, modelId: model.id }),
+    favoriteKey: buildModelRowKey(provider, model.id),
     provider,
     providerLabel,
     modelId: model.id,
@@ -64,7 +79,7 @@ function buildSyntheticDefaultRow(
   providerLabel: string,
 ): ProviderSelectionModelRow {
   return {
-    favoriteKey: buildFavoriteModelKey({ provider, modelId: "" }),
+    favoriteKey: buildModelRowKey(provider, ""),
     provider,
     providerLabel,
     modelId: "",
@@ -201,6 +216,14 @@ export function resolveSelectedModelLabel(input: {
 
 export function buildSelectedTriggerLabel(modelLabel: string): string {
   return modelLabel;
+}
+
+/**
+ * Cross-provider result rows need the provider named up front: the same model
+ * label ships on several providers at once.
+ */
+export function buildProviderQualifiedDescription(row: ProviderSelectionModelRow): string {
+  return row.description ? `${row.providerLabel} · ${row.description}` : row.providerLabel;
 }
 
 export function matchesModelSearch(

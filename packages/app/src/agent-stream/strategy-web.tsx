@@ -1069,6 +1069,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       </div>
     ));
   }, [liveHeadRowRevision, renderLiveHeadRow, segments.liveHead]);
+  const mountedRows = useMemo(
+    () => [...mountedHistoryRows, ...liveHeadRows],
+    [liveHeadRows, mountedHistoryRows],
+  );
   const liveAuxiliary = useMemo(() => {
     return renderLiveAuxiliary();
   }, [renderLiveAuxiliary]);
@@ -1120,8 +1124,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
             })}
           </div>
         ) : null}
-        {mountedHistoryRows}
-        {liveHeadRows}
+        {mountedRows}
         {liveAuxiliary}
         {shouldRenderEmpty ? listEmptyComponent : null}
       </div>

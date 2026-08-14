@@ -87,6 +87,12 @@ describe("Claude SDK env", () => {
       logger: createTestLogger(),
       queryFactory,
       resolveBinary: async () => "/test/claude/bin",
+      runtimeSettings: {
+        env: {
+          MCP_TIMEOUT: "claude-startup-timeout",
+          MCP_TOOL_TIMEOUT: "claude-tool-timeout",
+        },
+      },
     });
     const session = await client.createSession(
       {
@@ -101,6 +107,8 @@ describe("Claude SDK env", () => {
       expect(result.sessionId).toBe("managed-agent-env-session");
       expect(capturedEnv?.PASEO_AGENT_ID).toBe(launchContext.env?.PASEO_AGENT_ID);
       expect(capturedEnv?.PASEO_TEST_FLAG).toBe(launchContext.env?.PASEO_TEST_FLAG);
+      expect(capturedEnv?.MCP_TIMEOUT).toBe("claude-startup-timeout");
+      expect(capturedEnv?.MCP_TOOL_TIMEOUT).toBe("claude-tool-timeout");
     } finally {
       await session.close();
     }

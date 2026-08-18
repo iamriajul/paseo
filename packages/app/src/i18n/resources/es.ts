@@ -302,6 +302,7 @@ export const es: TranslationResources = {
       resetZoom: "Restablecer vista",
       viewSource: "Ver fuente",
       viewDiagram: "Ver diagrama",
+      renderError: "No se pudo renderizar el diagrama: {{message}}",
     },
     actions: {
       copyCode: "Copiar código",

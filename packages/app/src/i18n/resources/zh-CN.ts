@@ -299,6 +299,7 @@ export const zhCN: TranslationResources = {
       resetZoom: "重置视图",
       viewSource: "查看源码",
       viewDiagram: "查看图表",
+      renderError: "无法渲染图表：{{message}}",
     },
     actions: {
       copyCode: "复制代码",

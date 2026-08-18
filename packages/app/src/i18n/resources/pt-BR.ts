@@ -302,6 +302,7 @@ export const ptBR: TranslationResources = {
       resetZoom: "Redefinir visualização",
       viewSource: "Ver fonte",
       viewDiagram: "Ver diagrama",
+      renderError: "Não foi possível renderizar o diagrama: {{message}}",
     },
     actions: {
       copyCode: "Copiar código",

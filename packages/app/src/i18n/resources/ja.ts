@@ -302,6 +302,7 @@ export const ja: TranslationResources = {
       resetZoom: "表示をリセット",
       viewSource: "ソースを表示",
       viewDiagram: "図を表示",
+      renderError: "図を表示できませんでした: {{message}}",
     },
     actions: {
       copyCode: "コードをコピー",

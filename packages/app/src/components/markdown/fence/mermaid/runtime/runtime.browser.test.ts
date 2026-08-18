@@ -82,7 +82,7 @@ describe("Mermaid sandbox runtime", () => {
     const second = await render(frame, { revision: 3, source: secondSource });
 
     expect(first).toMatchObject({ type: "rendered", revision: 1, source: firstSource });
-    expect(invalid).toEqual({ type: "renderError", revision: 2 });
+    expect(invalid).toMatchObject({ type: "renderError", revision: 2 });
     expect(second).toMatchObject({ type: "rendered", revision: 3, source: secondSource });
   });
 

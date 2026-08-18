@@ -303,6 +303,7 @@ export const fr: TranslationResources = {
       resetZoom: "Réinitialiser la vue",
       viewSource: "Afficher la source",
       viewDiagram: "Afficher le diagramme",
+      renderError: "Impossible d'afficher le diagramme : {{message}}",
     },
     actions: {
       copyCode: "Copier le code",

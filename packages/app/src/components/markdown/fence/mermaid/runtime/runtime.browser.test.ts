@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { neutralizeDisallowedTags } from "../source-policy";
 import { mermaidRuntimeHtml } from "./html.gen";
 import { parseMermaidRuntimeMessage, type MermaidRuntimeMessage } from "./messages";
 
@@ -115,5 +116,29 @@ describe("Mermaid sandbox runtime", () => {
 
     expect(current).toMatchObject({ type: "rendered", revision: 11, source: currentSource });
     expect(obsoleteResponses).toEqual([]);
+  });
+
+  it("renders diagrams containing placeholder-style angle brackets once neutralized", async () => {
+    const frame = await mountRuntime();
+    const gitProxySource = neutralizeDisallowedTags(
+      "sequenceDiagram\n" +
+        "    participant A as Agent\n" +
+        "    participant D as Daemon\n" +
+        "    A->>D: git clone/push  <canonical URL>\n" +
+        "    Note over A,D: git wire protocol has NO delete verb → deletion structurally impossible",
+    );
+    const repoNewSource = neutralizeDisallowedTags(
+      "sequenceDiagram\n" +
+        "    participant A as Agent\n" +
+        "    participant CLI as deepcycle CLI\n" +
+        "    A->>CLI: deepcycle repo new <name>\n" +
+        "    CLI-->>A: canonical URL<br/>https://<origin>/<ws>/repositories/<name>.git",
+    );
+
+    const gitProxy = await render(frame, { revision: 1, source: gitProxySource });
+    const repoNew = await render(frame, { revision: 2, source: repoNewSource });
+
+    expect(gitProxy).toMatchObject({ type: "rendered", revision: 1, source: gitProxySource });
+    expect(repoNew).toMatchObject({ type: "rendered", revision: 2, source: repoNewSource });
   });
 });

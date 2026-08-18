@@ -6,7 +6,14 @@ import React, {
   useState,
   type ComponentType,
 } from "react";
-import { Pressable, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
+import {
+  Pressable,
+  Text,
+  View,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
+} from "react-native";
 import { useTranslation } from "react-i18next";
 import { Code, Scan, Workflow, ZoomIn, ZoomOut } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -35,7 +42,7 @@ interface MermaidIframeRuntimeProps {
     height: number;
     width: number;
   }) => void;
-  onRenderFailed: (revision: number) => void;
+  onRenderFailed: (revision: number, message?: string) => void;
 }
 
 function MermaidIframeRuntime({
@@ -92,7 +99,7 @@ function MermaidIframeRuntime({
         return;
       }
       if (message.type === "renderError") {
-        onRenderFailed(message.revision);
+        onRenderFailed(message.revision, message.message);
         sendRequest(driverRef.current?.settled(message.revision, false) ?? null);
         return;
       }
@@ -341,11 +348,11 @@ function MermaidFenceHostImpl({
       onBlur={handleBlurWithin}
     >
       {sourceVisible ? (
-        <HighlightedCodeBlock
+        <MermaidSourceFallback
           code={code}
-          language="mermaid"
           inheritedStyles={inheritedStyles}
           textStyle={sourceTextStyle}
+          errorMessage={state.status === "failed" ? state.errorMessage : null}
         />
       ) : null}
       <div
@@ -404,6 +411,37 @@ function MermaidFenceHostImpl({
         </View>
       ) : null}
     </View>
+  );
+}
+
+interface MermaidSourceFallbackProps {
+  code: string;
+  inheritedStyles: TextStyle;
+  textStyle: TextStyle;
+  errorMessage: string | null;
+}
+
+function MermaidSourceFallback({
+  code,
+  inheritedStyles,
+  textStyle,
+  errorMessage,
+}: MermaidSourceFallbackProps) {
+  const { t } = useTranslation();
+  return (
+    <>
+      {errorMessage ? (
+        <Text style={controlStyles.errorCaption}>
+          {t("message.diagram.renderError", { message: errorMessage })}
+        </Text>
+      ) : null}
+      <HighlightedCodeBlock
+        code={code}
+        language="mermaid"
+        inheritedStyles={inheritedStyles}
+        textStyle={textStyle}
+      />
+    </>
   );
 }
 
@@ -469,6 +507,11 @@ const controlStyles = StyleSheet.create((theme) => ({
   plainButtonHidden: { padding: theme.spacing[1], opacity: 0, pointerEvents: "none" },
   icon: { color: theme.colors.foregroundMuted },
   iconHovered: { color: theme.colors.foreground },
+  errorCaption: {
+    color: theme.colors.foregroundMuted,
+    fontSize: 12,
+    paddingBottom: theme.spacing[1],
+  },
 }));
 
 const sourceContainerStyle: ViewStyle = { position: "relative" };

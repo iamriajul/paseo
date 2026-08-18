@@ -298,6 +298,7 @@ export const en = {
       resetZoom: "Reset view",
       viewSource: "View source",
       viewDiagram: "View diagram",
+      renderError: "Couldn't render diagram: {{message}}",
     },
     actions: {
       copyCode: "Copy code",

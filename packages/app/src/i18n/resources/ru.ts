@@ -301,6 +301,7 @@ export const ru: TranslationResources = {
       resetZoom: "Сбросить вид",
       viewSource: "Показать код",
       viewDiagram: "Показать диаграмму",
+      renderError: "Не удалось отобразить диаграмму: {{message}}",
     },
     actions: {
       copyCode: "Скопировать код",

@@ -300,6 +300,7 @@ export const ko: TranslationResources = {
       resetZoom: "보기 초기화",
       viewSource: "소스 보기",
       viewDiagram: "다이어그램 보기",
+      renderError: "다이어그램을 렌더링할 수 없습니다: {{message}}",
     },
     actions: {
       copyCode: "코드 복사",

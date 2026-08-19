@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -17,7 +18,7 @@ import type {
   StyleProp,
   ViewStyle,
 } from "react-native";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { FlatList, Image, Pressable, Text, View, type ListRenderItem } from "react-native";
 import { router, type Href } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -105,6 +106,10 @@ const CONTENT_PADDING = 20;
 const TASKS_QUERY_KEY = "tasks.backlog";
 const EMPTY_TASKS: TaskCard[] = [];
 const LIST_CARD_STYLE = { height: LIST_CARD_HEIGHT } satisfies ViewStyle;
+const GRID_COLUMN_WRAPPER_STYLE = { gap: CARD_GAP } satisfies ViewStyle;
+const INITIAL_TASKS_TO_RENDER = 12;
+const MAX_TASKS_PER_BATCH = 12;
+const TASK_LIST_WINDOW_SIZE = 7;
 
 const scrollContentStyle = {
   padding: CONTENT_PADDING,
@@ -260,15 +265,23 @@ function ProjectBacklogScreen({
   }, []);
 
   const cardWidth = useMemo(() => {
-    if (contentWidth <= 0) {
+    const availableWidth = Math.max(0, contentWidth - CONTENT_PADDING * 2);
+    if (availableWidth <= 0) {
       return MIN_GRID_CARD_WIDTH;
     }
     const columns = Math.max(
       1,
-      Math.floor((contentWidth + CARD_GAP) / (MIN_GRID_CARD_WIDTH + CARD_GAP)),
+      Math.floor((availableWidth + CARD_GAP) / (MIN_GRID_CARD_WIDTH + CARD_GAP)),
     );
-    const width = (contentWidth - CARD_GAP * (columns - 1)) / columns;
+    const width = (availableWidth - CARD_GAP * (columns - 1)) / columns;
     return Math.min(MAX_GRID_CARD_WIDTH, Math.max(MIN_GRID_CARD_WIDTH, width));
+  }, [contentWidth]);
+  const gridColumnCount = useMemo(() => {
+    const availableWidth = Math.max(0, contentWidth - CONTENT_PADDING * 2);
+    if (availableWidth <= 0) {
+      return 1;
+    }
+    return Math.max(1, Math.floor((availableWidth + CARD_GAP) / (MIN_GRID_CARD_WIDTH + CARD_GAP)));
   }, [contentWidth]);
   const gridCardStyle = useMemo(
     () => ({ width: cardWidth, aspectRatio: GRID_CARD_ASPECT_RATIO }),
@@ -478,6 +491,29 @@ function ProjectBacklogScreen({
     },
     [handleUpdateTask, toast],
   );
+  const renderTask = useCallback<ListRenderItem<TaskCard>>(
+    ({ item }) => (
+      <MemoizedTaskCardView
+        task={item}
+        mode={viewMode}
+        cardStyle={taskCardStyle}
+        onOpenTask={setEditingTask}
+        onAttachmentPress={handleAttachmentPress}
+        onCreateWorkspace={handleCreateWorkspaceFromTask}
+        isCreatingWorkspace={creatingWorkspaceTaskId === item.id}
+        onToggleStatus={handleToggleTaskStatus}
+      />
+    ),
+    [
+      creatingWorkspaceTaskId,
+      handleAttachmentPress,
+      handleCreateWorkspaceFromTask,
+      handleToggleTaskStatus,
+      taskCardStyle,
+      viewMode,
+    ],
+  );
+  const keyExtractor = useCallback((task: TaskCard) => task.id, []);
   const handleOpenCreate = useCallback(() => {
     setIsCreateOpen(true);
   }, []);
@@ -571,35 +607,36 @@ function ProjectBacklogScreen({
       );
     }
     return (
-      <ScrollView style={styles.scroll} contentContainerStyle={scrollContentStyle}>
-        <View onLayout={handleLayout} style={viewMode === "grid" ? styles.grid : styles.list}>
-          {visibleTasks.map((task) => (
-            <TaskCardView
-              key={task.id}
-              task={task}
-              mode={viewMode}
-              cardStyle={taskCardStyle}
-              onOpenTask={setEditingTask}
-              onAttachmentPress={handleAttachmentPress}
-              onCreateWorkspace={handleCreateWorkspaceFromTask}
-              isCreatingWorkspace={creatingWorkspaceTaskId === task.id}
-              onToggleStatus={handleToggleTaskStatus}
-            />
-          ))}
-        </View>
-      </ScrollView>
+      <View style={styles.scrollViewport} onLayout={handleLayout}>
+        <FlatList
+          key={viewMode === "grid" ? `${viewMode}-${gridColumnCount}` : viewMode}
+          data={visibleTasks}
+          renderItem={renderTask}
+          keyExtractor={keyExtractor}
+          style={styles.scroll}
+          contentContainerStyle={scrollContentStyle}
+          numColumns={viewMode === "grid" ? gridColumnCount : undefined}
+          columnWrapperStyle={
+            viewMode === "grid" && gridColumnCount > 1 ? GRID_COLUMN_WRAPPER_STYLE : undefined
+          }
+          initialNumToRender={INITIAL_TASKS_TO_RENDER}
+          maxToRenderPerBatch={MAX_TASKS_PER_BATCH}
+          windowSize={TASK_LIST_WINDOW_SIZE}
+          keyboardShouldPersistTaps="handled"
+          extraData={creatingWorkspaceTaskId}
+        />
+      </View>
     );
   }, [
-    handleAttachmentPress,
-    handleCreateWorkspaceFromTask,
     handleLayout,
-    handleToggleTaskStatus,
     creatingWorkspaceTaskId,
+    gridColumnCount,
+    keyExtractor,
     projectId,
+    renderTask,
     searchQuery,
     serverId,
     supportsBacklog,
-    taskCardStyle,
     tasksQuery.error,
     tasksQuery.isLoading,
     viewMode,
@@ -771,15 +808,23 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
   }, []);
 
   const cardWidth = useMemo(() => {
-    if (contentWidth <= 0) {
+    const availableWidth = Math.max(0, contentWidth - CONTENT_PADDING * 2);
+    if (availableWidth <= 0) {
       return MIN_GRID_CARD_WIDTH;
     }
     const columns = Math.max(
       1,
-      Math.floor((contentWidth + CARD_GAP) / (MIN_GRID_CARD_WIDTH + CARD_GAP)),
+      Math.floor((availableWidth + CARD_GAP) / (MIN_GRID_CARD_WIDTH + CARD_GAP)),
     );
-    const width = (contentWidth - CARD_GAP * (columns - 1)) / columns;
+    const width = (availableWidth - CARD_GAP * (columns - 1)) / columns;
     return Math.min(MAX_GRID_CARD_WIDTH, Math.max(MIN_GRID_CARD_WIDTH, width));
+  }, [contentWidth]);
+  const gridColumnCount = useMemo(() => {
+    const availableWidth = Math.max(0, contentWidth - CONTENT_PADDING * 2);
+    if (availableWidth <= 0) {
+      return 1;
+    }
+    return Math.max(1, Math.floor((availableWidth + CARD_GAP) / (MIN_GRID_CARD_WIDTH + CARD_GAP)));
   }, [contentWidth]);
   const gridCardStyle = useMemo(
     () => ({ width: cardWidth, aspectRatio: GRID_CARD_ASPECT_RATIO }),
@@ -1006,6 +1051,30 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
     },
     [toast, updateTask],
   );
+  const renderTask = useCallback<ListRenderItem<MasterBacklogTask>>(
+    ({ item }) => (
+      <MemoizedTaskCardView
+        task={item}
+        mode={viewMode}
+        cardStyle={taskCardStyle}
+        contextLabel={`${item.projectName} - ${item.serverName}`}
+        onOpenTask={setEditingTask}
+        onAttachmentPress={handleAttachmentPress}
+        onCreateWorkspace={handleCreateWorkspaceFromTask}
+        isCreatingWorkspace={creatingWorkspaceTaskKey === item.taskKey}
+        onToggleStatus={handleToggleTaskStatus}
+      />
+    ),
+    [
+      creatingWorkspaceTaskKey,
+      handleAttachmentPress,
+      handleCreateWorkspaceFromTask,
+      handleToggleTaskStatus,
+      taskCardStyle,
+      viewMode,
+    ],
+  );
+  const keyExtractor = useCallback((task: MasterBacklogTask) => task.taskKey, []);
 
   const handleOpenCreate = useCallback(() => {
     setIsCreateOpen(true);
@@ -1074,6 +1143,19 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
 
   const showUnsupportedNotice = unsupportedHostCount > 0 && supportedHosts.length > 0;
   const hostErrors = tasksQuery.data?.hostErrors ?? [];
+  const listHeader = useMemo(
+    () => (
+      <>
+        {showUnsupportedNotice ? (
+          <BacklogNotice message="Some hosts need an update before their backlog can appear here." />
+        ) : null}
+        {hostErrors.length > 0 ? (
+          <BacklogNotice message="Some hosts could not load backlog tasks." />
+        ) : null}
+      </>
+    ),
+    [hostErrors.length, showUnsupportedNotice],
+  );
   const content = useMemo(() => {
     if (hosts.length === 0) {
       return <PanelMessage title="No hosts" message="Connect a host to use Backlog." />;
@@ -1106,44 +1188,38 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
       );
     }
     return (
-      <ScrollView style={styles.scroll} contentContainerStyle={scrollContentStyle}>
-        {showUnsupportedNotice ? (
-          <BacklogNotice message="Some hosts need an update before their backlog can appear here." />
-        ) : null}
-        {hostErrors.length > 0 ? (
-          <BacklogNotice message="Some hosts could not load backlog tasks." />
-        ) : null}
-        <View onLayout={handleLayout} style={viewMode === "grid" ? styles.grid : styles.list}>
-          {visibleTasks.map((task) => (
-            <TaskCardView
-              key={task.taskKey}
-              task={task}
-              mode={viewMode}
-              cardStyle={taskCardStyle}
-              contextLabel={`${task.projectName} - ${task.serverName}`}
-              onOpenTask={setEditingTask}
-              onAttachmentPress={handleAttachmentPress}
-              onCreateWorkspace={handleCreateWorkspaceFromTask}
-              isCreatingWorkspace={creatingWorkspaceTaskKey === task.taskKey}
-              onToggleStatus={handleToggleTaskStatus}
-            />
-          ))}
-        </View>
-      </ScrollView>
+      <View style={styles.scrollViewport} onLayout={handleLayout}>
+        <FlatList
+          key={viewMode === "grid" ? `${viewMode}-${gridColumnCount}` : viewMode}
+          data={visibleTasks}
+          renderItem={renderTask}
+          keyExtractor={keyExtractor}
+          style={styles.scroll}
+          contentContainerStyle={scrollContentStyle}
+          numColumns={viewMode === "grid" ? gridColumnCount : undefined}
+          columnWrapperStyle={
+            viewMode === "grid" && gridColumnCount > 1 ? GRID_COLUMN_WRAPPER_STYLE : undefined
+          }
+          ListHeaderComponent={listHeader}
+          initialNumToRender={INITIAL_TASKS_TO_RENDER}
+          maxToRenderPerBatch={MAX_TASKS_PER_BATCH}
+          windowSize={TASK_LIST_WINDOW_SIZE}
+          keyboardShouldPersistTaps="handled"
+          extraData={creatingWorkspaceTaskKey}
+        />
+      </View>
     );
   }, [
     creatingWorkspaceTaskKey,
-    handleAttachmentPress,
-    handleCreateWorkspaceFromTask,
     handleLayout,
-    handleToggleTaskStatus,
-    hostErrors.length,
+    gridColumnCount,
     hosts.length,
+    keyExtractor,
+    listHeader,
     resolvedProjectFilterId,
+    renderTask,
     searchQuery,
-    showUnsupportedNotice,
     supportedHosts.length,
-    taskCardStyle,
     tasksQuery.data,
     tasksQuery.error,
     tasksQuery.isLoading,
@@ -1453,6 +1529,8 @@ function TaskCardView<TTask extends TaskCard>({
     </Pressable>
   );
 }
+
+const MemoizedTaskCardView = memo(TaskCardView) as typeof TaskCardView;
 
 function getTaskTitleLineLimit(input: { mode: BacklogViewMode; hasAttachments: boolean }): number {
   if (input.mode === "list") {
@@ -2266,15 +2344,10 @@ const styles = StyleSheet.create((theme) => ({
   scroll: {
     flex: 1,
   },
-  grid: {
+  scrollViewport: {
     width: "100%",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: CARD_GAP,
-  },
-  list: {
-    width: "100%",
-    gap: CARD_GAP,
+    flex: 1,
+    minHeight: 0,
   },
   taskCard: {
     borderWidth: 1,

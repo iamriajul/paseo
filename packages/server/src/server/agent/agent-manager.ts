@@ -87,7 +87,10 @@ import {
   ProviderHeartbeatStore,
   type ProviderHeartbeatDescriptor,
 } from "./provider-heartbeats/store.js";
-import { forkClaudeSessionAtMessage } from "./providers/claude/native-fork.js";
+import {
+  forkClaudeSessionAtMessage,
+  resolveNativeForkTarget,
+} from "./providers/claude/native-fork.js";
 import { realClaudeRewindSdk } from "./providers/claude/rewind.js";
 
 const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
@@ -2905,10 +2908,10 @@ export class AgentManager {
       boundaryCursor: input.boundaryCursor,
     });
 
-    const upToMessageId =
-      typeof source.session.resolveNativeForkUpToMessageId === "function"
-        ? await source.session.resolveNativeForkUpToMessageId(boundaryMessageId)
-        : boundaryMessageId;
+    const upToMessageId = await resolveNativeForkTarget({
+      session: source.session,
+      boundaryMessageId,
+    });
 
     const { forkedSessionId } = await forkClaudeSessionAtMessage({
       sdk: realClaudeRewindSdk,

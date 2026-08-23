@@ -15,7 +15,11 @@ const UPSTREAM_HOST = "localhost";
 
 export interface BrowserPreviewSubsystem {
   middleware(): RequestHandler;
-  upgradeHandler(): (req: IncomingMessage, socket: Socket, head: Buffer) => void;
+  // Returns whether this upgrade matched a preview host and was claimed.
+  // The caller needs this synchronously — before openUpstream's dial
+  // settles — to know whether it may still hand the socket to another
+  // candidate listener or must leave it alone.
+  upgradeHandler(): (req: IncomingMessage, socket: Socket, head: Buffer) => boolean;
 }
 
 // The dev server must see the request as if it arrived on loopback directly:
@@ -91,9 +95,9 @@ export function createBrowserPreviewSubsystem(options: {
     },
 
     upgradeHandler() {
-      return (req: IncomingMessage, socket: Socket, head: Buffer) => {
+      return (req: IncomingMessage, socket: Socket, head: Buffer): boolean => {
         const port = template?.matchHost(req.headers.host) ?? null;
-        if (port === null || !template) return; // leave the socket for the next listener
+        if (port === null || !template) return false; // leave the socket for the next listener
 
         // buildUpstreamHeaders strips connection/upgrade as hop-by-hop; put
         // them back or the dev server sees a plain GET and never fires its
@@ -172,6 +176,7 @@ export function createBrowserPreviewSubsystem(options: {
         });
         if (head.length) upstream.write(head);
         upstream.end();
+        return true;
       };
     },
   };

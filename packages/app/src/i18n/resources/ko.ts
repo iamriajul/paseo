@@ -534,6 +534,10 @@ export const ko: TranslationResources = {
         subtitle:
           "이 호스트에 browserPreview.urlTemplate을 설정하면 웹 앱에서 localhost 포트를 탐색할 수 있습니다. 데스크톱 앱에서는 이 워크스페이스의 브라우저가 이미 작동합니다.",
       },
+      unspecifiedAddress: {
+        title: "브라우저에서 이 주소를 열 수 없습니다",
+        subtitle: "{{address}}는 리슨 주소이며 열 수 있는 페이지가 아닙니다.",
+      },
       session: "브라우저 세션 {{browserId}}",
       controls: {
         back: "뒤로",

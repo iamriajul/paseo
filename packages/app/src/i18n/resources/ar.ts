@@ -533,6 +533,10 @@ export const ar: TranslationResources = {
         subtitle:
           "اضبط browserPreview.urlTemplate على هذا المضيف لتصفح منافذ localhost الخاصة به من تطبيق الويب. المتصفح يعمل بالفعل لمساحة العمل هذه في تطبيق سطح المكتب.",
       },
+      unspecifiedAddress: {
+        title: "لا يمكن للمتصفح فتح هذا العنوان",
+        subtitle: "{{address}} هو عنوان استماع، وليس صفحة يمكن فتحها.",
+      },
       session: "جلسة المتصفح{{browserId}}",
       controls: {
         back: "خلف",

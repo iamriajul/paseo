@@ -538,6 +538,10 @@ export const ja: TranslationResources = {
         subtitle:
           "このホストに browserPreview.urlTemplate を設定すると、Web アプリからこのホストの localhost ポートを閲覧できるようになります。デスクトップアプリでは、このワークスペースのブラウザはすでに利用できます。",
       },
+      unspecifiedAddress: {
+        title: "ブラウザはこのアドレスを開けません",
+        subtitle: "{{address}} はリッスンアドレスであり、開けるページではありません。",
+      },
       session: "ブラウザセッション{{browserId}}",
       controls: {
         back: "戻る",

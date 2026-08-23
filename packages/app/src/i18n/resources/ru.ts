@@ -537,6 +537,10 @@ export const ru: TranslationResources = {
         subtitle:
           "Настройте browserPreview.urlTemplate на этом хосте, чтобы просматривать его порты localhost из веб-приложения. В десктопном приложении браузер для этого рабочего пространства уже работает.",
       },
+      unspecifiedAddress: {
+        title: "Браузер не может открыть этот адрес",
+        subtitle: "{{address}} — это адрес прослушивания, а не страница, которую можно открыть.",
+      },
       session: "Сеанс браузера{{browserId}}",
       controls: {
         back: "Назад",

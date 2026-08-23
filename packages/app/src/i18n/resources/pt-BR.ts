@@ -537,6 +537,10 @@ export const ptBR: TranslationResources = {
         subtitle:
           "Defina browserPreview.urlTemplate neste host para navegar pelas portas localhost pelo aplicativo web. O navegador já funciona para este workspace no aplicativo de desktop.",
       },
+      unspecifiedAddress: {
+        title: "O navegador não pode abrir este endereço",
+        subtitle: "{{address}} é um endereço de escuta, não uma página que pode ser aberta.",
+      },
       session: "Sessão do navegador {{browserId}}",
       controls: {
         back: "Voltar",

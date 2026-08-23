@@ -538,6 +538,10 @@ export const es: TranslationResources = {
         subtitle:
           "Configure browserPreview.urlTemplate en este host para explorar sus puertos de localhost desde la aplicación web. El navegador ya funciona en este espacio de trabajo en la aplicación de escritorio.",
       },
+      unspecifiedAddress: {
+        title: "El navegador no puede abrir esta dirección",
+        subtitle: "{{address}} es una dirección de escucha, no una página que se pueda abrir.",
+      },
       session: "Sesión de navegador{{browserId}}",
       controls: {
         back: "Atrás",

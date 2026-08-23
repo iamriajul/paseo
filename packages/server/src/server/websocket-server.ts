@@ -1603,6 +1603,10 @@ export class VoiceAssistantWebSocketServer {
       desktopManaged: this.daemonRuntimeConfig?.desktopManaged === true,
       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
       ...(urlOpeners ? { urlOpeners } : {}),
+      // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
+      ...(this.daemonRuntimeConfig?.browserPreviewUrlTemplate
+        ? { browserPreview: { urlTemplate: this.daemonRuntimeConfig.browserPreviewUrlTemplate } }
+        : {}),
       features: {
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,

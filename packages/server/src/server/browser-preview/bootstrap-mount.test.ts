@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import pino from "pino";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { createPaseoDaemon } from "../bootstrap.js";
+import { DaemonClient } from "../test-utils/daemon-client.js";
 
 const logger = pino({ level: "silent" });
 let daemon: Awaited<ReturnType<typeof createPaseoDaemon>>;
@@ -325,4 +326,21 @@ it("completes a real WebSocket handshake for a registered service route on a non
   );
   expect(statusLine).toBe("HTTP/1.1 101 Switching Protocols");
   expect(headers["x-forwarded-host"]).toBe(`${route.hostname}:${daemonPort}`);
+});
+
+async function fetchServerInfo(port: number) {
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${port}/ws` });
+  await client.connect();
+  try {
+    const info = client.getLastServerInfoMessage();
+    if (!info) throw new Error("daemon did not send a server_info message");
+    return info;
+  } finally {
+    await client.close();
+  }
+}
+
+it("advertises the configured template on server_info", async () => {
+  const info = await fetchServerInfo(daemonPort);
+  expect(info.browserPreview?.urlTemplate).toBe("https://{port}.preview.example.com");
 });

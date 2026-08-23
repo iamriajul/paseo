@@ -291,6 +291,7 @@ export interface DaemonServerInfo {
   capabilities?: ServerCapabilities;
   features?: ServerInfoStatusPayload["features"];
   urlOpeners?: ServerInfoStatusPayload["urlOpeners"];
+  browserPreview?: ServerInfoStatusPayload["browserPreview"];
 }
 
 export interface AgentTimelineCursorState {

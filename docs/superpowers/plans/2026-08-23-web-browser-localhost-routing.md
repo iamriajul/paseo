@@ -861,13 +861,20 @@ export function resolveBrowserPreviewUrlTemplate(
   env: NodeJS.ProcessEnv,
   persisted: ReturnType<typeof loadPersistedConfig>,
 ): string | null {
+  // `?? null` rather than a truthiness check: `??` falls through only on null
+  // and undefined, so an empty PASEO_BROWSER_PREVIEW_URL_TEMPLATE would other-
+  // wise discard a valid persisted template without ever consulting it and
+  // return null silently — a stray empty env var disabling a configured
+  // feature, which is the exact failure this required-field design exists to
+  // prevent. The precedent (resolveServiceProxyPublicBaseUrl, config.ts:266-275)
+  // passes "" to new URL("") and throws; match that and fail loudly.
   const raw =
-    env.PASEO_BROWSER_PREVIEW_URL_TEMPLATE ?? persisted.daemon?.browserPreview?.urlTemplate;
-  if (!raw) return null;
-  // Throws with an "Invalid PASEO_BROWSER_PREVIEW_URL_TEMPLATE: ..." message,
-  // matching resolveServiceProxyPublicBaseUrl's convention at config.ts:272.
-  parseBrowserPreviewTemplate(raw);
-  return raw.trim();
+    env.PASEO_BROWSER_PREVIEW_URL_TEMPLATE ?? persisted.daemon?.browserPreview?.urlTemplate ?? null;
+  if (raw === null) return null;
+  // Throws "Invalid PASEO_BROWSER_PREVIEW_URL_TEMPLATE: ..." on any bad value,
+  // matching the convention at config.ts:272. `.raw` is already trimmed, so
+  // there is no need to validate and then re-trim independently.
+  return parseBrowserPreviewTemplate(raw).raw;
 }
 ```
 

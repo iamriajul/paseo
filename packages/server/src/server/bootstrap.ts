@@ -178,6 +178,8 @@ import type {
 } from "./agent/provider-launch-config.js";
 import { loadPersistedConfig, type PersistedConfig } from "./persisted-config.js";
 import { createServiceProxySubsystem, type ServiceProxySubsystem } from "./service-proxy.js";
+import { createBrowserPreviewSubsystem } from "./browser-preview/index.js";
+import { parseBrowserPreviewTemplate } from "./browser-preview/url-template.js";
 import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
 import { ScriptHealthMonitor } from "./script-health-monitor.js";
 import { createScriptStatusEmitter } from "./script-status-projection.js";
@@ -632,6 +634,12 @@ export async function createPaseoDaemon(
     logger,
     publicBaseUrl: serviceProxyPublicBaseUrl,
   });
+  const browserPreview = createBrowserPreviewSubsystem({
+    template: config.browserPreviewUrlTemplate
+      ? parseBrowserPreviewTemplate(config.browserPreviewUrlTemplate)
+      : null,
+    logger,
+  });
   const scriptRuntimeStore = new WorkspaceScriptRuntimeStore();
   const workspaceSetupRuntime = new WorkspaceSetupRuntime();
   const configuredHostnames = config.hostnames ?? config.allowedHosts;
@@ -660,6 +668,12 @@ export async function createPaseoDaemon(
     },
     logger,
   });
+
+  // Browser preview resolves loopback ports for the web build. It must run
+  // before the service proxy: classifyHost's known-service-miss branches would
+  // otherwise 404 preview hosts under a configured public base. Like service
+  // routes, handled requests never reach the host allowlist at :669.
+  app.use(browserPreview.middleware());
 
   // Service proxy classifies service hosts before daemon auth/route fallthrough.
   // Registered service hosts proxy directly; known service namespaces without a
@@ -805,6 +819,10 @@ export async function createPaseoDaemon(
   });
 
   const httpServer = createHTTPServer(app);
+
+  // Registered first so preview upgrades are claimed before the service proxy
+  // and before VoiceAssistantWebSocketServer's own listener. No-op otherwise.
+  httpServer.on("upgrade", browserPreview.upgradeHandler());
 
   // Script proxy WebSocket upgrade handler — must be registered before the
   // VoiceAssistantWebSocketServer attaches its own "upgrade" listener so that

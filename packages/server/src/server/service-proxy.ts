@@ -244,7 +244,7 @@ function toHealthTarget(route: ServiceProxyRouteEntry): ServiceProxyHealthTarget
   };
 }
 
-function stripHopByHopHeaders(
+export function stripHopByHopHeaders(
   rawHeaders: http.IncomingHttpHeaders,
 ): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};

@@ -103,14 +103,19 @@ export function createBrowserPreviewSubsystem(options: {
         headers.upgrade = req.headers.upgrade ?? "websocket";
         const upstream = openUpstream({ req, port, headers });
 
-        let upgraded = false;
+        // Covers every way the pending dial can reach a terminal state:
+        // upgraded (101), declined (an ordinary response), or failed
+        // outright (upstream 'error'). Sets before its own cleanup runs so
+        // abandon() — triggered independently by the client disconnecting —
+        // never redundantly re-destroys an already-settled dial.
+        let settled = false;
         // http.Server sockets are allowHalfOpen: true (required for
         // upgrades to work at all), so a client disconnecting while the
         // dial is still pending surfaces as 'end' here, not 'close' — and
         // nothing else about this socket is ever read or written, so
         // nothing else would notice or abort the in-flight upstream request.
         const abandon = () => {
-          if (!upgraded) {
+          if (!settled) {
             upstream.destroy();
             socket.destroy();
           }
@@ -119,7 +124,7 @@ export function createBrowserPreviewSubsystem(options: {
         socket.on("close", abandon);
 
         upstream.on("upgrade", (upstreamRes, upstreamSocket, upstreamHead) => {
-          upgraded = true;
+          settled = true;
           const lines = Object.entries(upstreamRes.headers).flatMap(([k, v]) => {
             if (Array.isArray(v)) return v.map((item) => `${k}: ${item}`);
             return v ? [`${k}: ${v}`] : [];
@@ -149,7 +154,19 @@ export function createBrowserPreviewSubsystem(options: {
             logger.debug({ err: error, port }, "browser_preview_upgrade_client_socket_failed");
           });
         });
+        // The dev server declined the upgrade — wrong path, misconfigured,
+        // mid-restart — and answered with an ordinary response instead of
+        // 101. There's no clean way to hand that back over a socket the
+        // client is waiting to speak WS on, so drain it and close: a
+        // definite failure signal beats leaving the handshake hanging with
+        // none at all.
+        upstream.on("response", (upstreamRes) => {
+          settled = true;
+          upstreamRes.resume();
+          socket.destroy();
+        });
         upstream.on("error", (error) => {
+          settled = true;
           logger.debug({ err: error, port }, "browser_preview_upgrade_failed");
           socket.destroy();
         });

@@ -168,21 +168,21 @@ describe("createBrowserPreviewSubsystem", () => {
 // covered independently here: a matching WS upgrade must reach the upstream
 // with the handshake headers intact (buildUpstreamHeaders strips connection/
 // upgrade as hop-by-hop; the upgrade path has to put them back or the dev
-// server never recognizes the request as an upgrade at all), and a
-// non-matching host must leave the socket untouched for the next 'upgrade'
-// listener.
+// server never recognizes the request as an upgrade at all), a non-matching
+// host must leave the socket untouched for the next 'upgrade' listener, a
+// dev server that declines the upgrade (an ordinary response instead of 101)
+// or refuses the dial outright must not hang the client, and a client that
+// disappears mid-dial must destroy the pending upstream request.
 //
-// Not covered here: the socket.on("end"/"close", abandon) guard in
-// upgradeHandler() that destroys a still-pending upstream dial when the
-// client disconnects first. It's implemented (see the comments at its call
-// site) and its core mechanism — an http.Server socket needs "end" handled
-// explicitly, not just "close", because allowHalfOpen never auto-closes the
-// write side on a peer's FIN — was verified against plain Node scripts
-// outside vitest. But the exact two-hop propagation this guard depends on
-// (client → this socket → upstream.destroy() → the dev server noticing)
-// was not reliably observable even in a minimal bare-Node reproduction of
-// the same shape, likely an http.Agent/socket-lifecycle interaction; no
-// black-box test in this file could be made to pass without being flaky.
+// That last one only asserts the locally observable side of the guard —
+// that the pending http.ClientRequest's own socket closes — not whether the
+// dev server's accepted socket ever observes it. The two-hop version raced
+// a real network round trip against passive close/end listeners and proved
+// unreliable even in a minimal bare-Node reproduction with no vitest
+// involved; an active write-probe on this side (see below) is not racy in
+// the same way, because it fails the moment the peer is actually gone
+// rather than waiting for a notification that may or may not arrive
+// promptly.
 describe("createBrowserPreviewSubsystem upgradeHandler", () => {
   let wsUpstream: Server;
   let wsUpstreamPort = 0;
@@ -202,6 +202,10 @@ describe("createBrowserPreviewSubsystem upgradeHandler", () => {
       `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nX-Echo-Length: ${payload.length}\r\n\r\n${payload}`,
     );
     socket.on("error", () => socket.destroy());
+  }
+
+  function ignoreSocketErrors(socket: net.Socket): void {
+    socket.on("error", () => {});
   }
 
   beforeEach(async () => {
@@ -329,5 +333,114 @@ describe("createBrowserPreviewSubsystem upgradeHandler", () => {
     });
     const statusLine = await readStatusLine("daemon-1.studio.example.com");
     expect(statusLine).toBe("HTTP/1.1 599 Fallback Listener");
+  });
+
+  // Shared by the two "must not hang" cases below: connects with a real
+  // upgrade request and resolves once the client's own socket closes,
+  // rejecting with a clear message (rather than the less useful default
+  // test-timeout failure) if it doesn't within timeoutMs.
+  function connectAndAwaitClose(host: string, timeoutMs = 2000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const socket = net.connect({ host: "127.0.0.1", port: proxyPort }, () => {
+        socket.write(
+          [
+            "GET /ws HTTP/1.1",
+            `Host: ${host}`,
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            "",
+            "",
+          ].join("\r\n"),
+        );
+      });
+      const timer = setTimeout(() => {
+        socket.destroy();
+        reject(new Error(`client connection to ${host} was not closed within ${timeoutMs}ms`));
+      }, timeoutMs);
+      const settle = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      socket.on("close", settle);
+      socket.on("error", settle);
+    });
+  }
+
+  it("closes the client connection when the dev server declines the upgrade with an ordinary response", async () => {
+    const decliningUpstream = createServer((_req, res) => {
+      res.writeHead(400, { "content-type": "text/plain" }).end("no websocket here");
+    });
+    const decliningPort = await listen(decliningUpstream);
+    try {
+      await connectAndAwaitClose(`${decliningPort}.preview.example.com`);
+    } finally {
+      await new Promise((r) => decliningUpstream.close(r));
+    }
+  });
+
+  it("closes the client connection when the loopback port refuses the upgrade dial", async () => {
+    await connectAndAwaitClose("9.preview.example.com");
+  });
+
+  it("destroys the pending upstream dial when the client disconnects before the handshake completes", async () => {
+    const acceptedSockets: net.Socket[] = [];
+    const slowUpstream = net.createServer({ allowHalfOpen: true }, (socket) => {
+      acceptedSockets.push(socket);
+    });
+    const slowPort = await new Promise<number>((resolve) => {
+      slowUpstream.listen(0, "127.0.0.1", () => {
+        const address = slowUpstream.address();
+        if (address === null || typeof address === "string") throw new Error("no port");
+        resolve(address.port);
+      });
+    });
+
+    try {
+      const acceptedSocket = await new Promise<net.Socket>((resolve) => {
+        const client = net.connect({ host: "127.0.0.1", port: proxyPort }, () => {
+          client.write(
+            [
+              "GET /ws HTTP/1.1",
+              `Host: ${slowPort}.preview.example.com`,
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "",
+              "",
+            ].join("\r\n"),
+          );
+        });
+        slowUpstream.once("connection", (socket) => {
+          // A write to an already-gone peer rejects via the write()
+          // callback below, but Node also emits a separate 'error' event
+          // on the stream for the same failure — an unlistened 'error'
+          // event throws, so this is required, not just tidy.
+          ignoreSocketErrors(socket);
+          client.destroy();
+          resolve(socket);
+        });
+      });
+
+      // Active probe, not passive close/end listening — see the note above
+      // this describe block for why. A write to a peer that's actually gone
+      // fails immediately and deterministically; 20 attempts at 20ms apart
+      // (400ms total) is generous headroom over the ~40ms this reliably
+      // takes when the guard is working.
+      const writeError = await new Promise<NodeJS.ErrnoException | null>((resolve) => {
+        let attempts = 0;
+        const tryWrite = () => {
+          attempts++;
+          acceptedSocket.write("x", (err) => {
+            if (err) resolve(err as NodeJS.ErrnoException);
+            else if (attempts >= 20) resolve(null);
+            else setTimeout(tryWrite, 20);
+          });
+        };
+        tryWrite();
+      });
+      expect(writeError).not.toBeNull();
+    } finally {
+      for (const socket of acceptedSockets) socket.destroy();
+      await new Promise((r) => slowUpstream.close(r));
+    }
   });
 });

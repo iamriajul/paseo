@@ -549,11 +549,13 @@ describe("createBrowserPreviewSubsystem", () => {
     await new Promise((r) => proxy.close(r));
   });
 
+  // NOT fetch(): `Host` is a forbidden header name, and fetch() silently drops
+  // both `host` and `Host` — verified on Node v26.5.1, where the server saw
+  // 127.0.0.1:<port> in both cases. Tests written against fetch() here would
+  // fail outright, or worse, pass vacuously for the next()-passthrough case.
+  // Use a raw http.request so the Host header actually reaches the proxy.
   const get = (path: string, host: string) =>
-    fetch(`http://127.0.0.1:${proxyPort}${path}`, {
-      headers: { host, origin: "https://app.example.com" },
-      redirect: "manual",
-    });
+    rawRequest({ port: proxyPort, path, host, origin: "https://app.example.com" });
 
   it("proxies a matching host to the loopback port", async () => {
     const res = await get("/", `${upstreamPort}.preview.example.com`);
@@ -722,6 +724,15 @@ export function createBrowserPreviewSubsystem(options: {
           socket.pipe(upstreamSocket);
           upstreamSocket.on("error", () => socket.destroy());
           socket.on("error", () => upstreamSocket.destroy());
+        });
+        // An upstream that declines the upgrade answers with an ordinary HTTP
+        // response, so Node emits 'response' — not 'upgrade', not 'error'.
+        // Without this the client socket is never written to and the browser's
+        // handshake hangs forever, which is worse than failing: it is
+        // indistinguishable from a slow server.
+        upstream.on("response", (upstreamRes) => {
+          upstreamRes.resume();
+          socket.destroy();
         });
         upstream.on("error", (error) => {
           logger.debug({ err: error, port }, "browser_preview_upgrade_failed");

@@ -28,4 +28,23 @@ describe("toDaemonServerInfo", () => {
       },
     });
   });
+
+  test("preserves browser preview template from the daemon handshake", () => {
+    expect(
+      toDaemonServerInfo({
+        status: "server_info",
+        serverId: "srv-1",
+        hostname: "host-1",
+        version: "0.1.104",
+        browserPreview: {
+          urlTemplate: "https://{port}--daemon-1.example.com",
+        },
+        features: {},
+      }),
+    ).toMatchObject({
+      browserPreview: {
+        urlTemplate: "https://{port}--daemon-1.example.com",
+      },
+    });
+  });
 });

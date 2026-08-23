@@ -12,5 +12,6 @@ export function toDaemonServerInfo(serverInfo: ServerInfoStatusPayload): DaemonS
     ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
     ...(serverInfo.features ? { features: serverInfo.features } : {}),
     ...(serverInfo.urlOpeners ? { urlOpeners: serverInfo.urlOpeners } : {}),
+    ...(serverInfo.browserPreview ? { browserPreview: serverInfo.browserPreview } : {}),
   };
 }

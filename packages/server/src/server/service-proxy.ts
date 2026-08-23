@@ -91,7 +91,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   "trailer",
 ]);
 
-function normalizeHostHeader(host: string): string {
+export function normalizeHostHeader(host: string): string {
   return host.trim().toLowerCase().replace(/:\d+$/, "");
 }
 

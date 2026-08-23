@@ -14,6 +14,16 @@ interface RewriteUrlOptions {
   template: BrowserPreviewTemplate;
 }
 
+interface TransformPreviewResponseHeadersOptions extends RewriteUrlOptions {
+  headers: NodeJS.Dict<string | string[]>;
+}
+
+// URL.port is empty at the scheme default; use the real port so e.g. targetPort 80 matches.
+function effectivePort(url: URL): number {
+  if (url.port !== "") return Number(url.port);
+  return url.protocol === "https:" ? 443 : 80;
+}
+
 function rewriteAbsoluteUrl(value: string, options: RewriteUrlOptions): string {
   let parsed: URL;
   try {
@@ -24,7 +34,7 @@ function rewriteAbsoluteUrl(value: string, options: RewriteUrlOptions): string {
   // URL keeps IPv6 hostnames bracketed; compare unbracketed.
   const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (!LOOPBACK_HOSTNAMES.has(hostname)) return value;
-  if (parsed.port !== String(options.targetPort)) return value;
+  if (effectivePort(parsed) !== options.targetPort) return value;
 
   const base = new URL(options.template.buildUrl(options.targetPort));
   parsed.protocol = base.protocol;
@@ -34,19 +44,17 @@ function rewriteAbsoluteUrl(value: string, options: RewriteUrlOptions): string {
 }
 
 function rewriteRefresh(value: string, options: RewriteUrlOptions): string {
-  const match = /^(\s*[^;]*;\s*url=)(.*)$/i.exec(value);
+  const match = /^(\s*[^;]*;\s*url=)([^;]*)(;.*)?$/i.exec(value);
   if (!match) return value;
-  const [, head, target] = match;
+  const [, head, target, trailer = ""] = match;
   const unquoted = target.trim().replace(/^["']|["']$/g, "");
   const rewritten = rewriteAbsoluteUrl(unquoted, options);
-  return rewritten === unquoted ? value : `${head}${rewritten}`;
+  return rewritten === unquoted ? value : `${head}${rewritten}${trailer}`;
 }
 
-export function transformPreviewResponseHeaders(options: {
-  headers: NodeJS.Dict<string | string[]>;
-  targetPort: number;
-  template: BrowserPreviewTemplate;
-}): NodeJS.Dict<string | string[]> {
+export function transformPreviewResponseHeaders(
+  options: TransformPreviewResponseHeadersOptions,
+): NodeJS.Dict<string | string[]> {
   const { headers, ...urlOptions } = options;
   const out: NodeJS.Dict<string | string[]> = {};
   for (const [name, value] of Object.entries(headers)) {

@@ -58,4 +58,17 @@ describe("transformPreviewResponseHeaders", () => {
   it("leaves non-loopback redirects untouched", () => {
     expect(run({ location: "https://example.com/x" }).location).toBe("https://example.com/x");
   });
+
+  it("rewrites a refresh header even when a directive follows the url, keeping it intact", () => {
+    expect(run({ refresh: "5;url=http://localhost:4000/z;charset=utf-8" }).refresh).toBe(
+      "5;url=https://4000--daemon-1.studio.example.com/z;charset=utf-8",
+    );
+  });
+
+  it("treats an implicit default port as the target port when comparing", () => {
+    expect(run({ location: "http://localhost/x" }, 80).location).toBe(
+      "https://80--daemon-1.studio.example.com/x",
+    );
+    expect(run({ location: "http://localhost/x" }, 3000).location).toBe("http://localhost/x");
+  });
 });

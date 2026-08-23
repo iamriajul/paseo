@@ -87,7 +87,7 @@ Each daemon renders its own identity into its own template at config time, so no
 - `{port}` appears exactly once.
 - The template parses as an absolute `http`/`https` URL once `{port}` is substituted.
 - `{port}` falls inside the **hostname**, not the path, query or userinfo. A path-based template reintroduces the root-absolute-subresource failure that ruled out the path-prefix option, so it is rejected rather than left to half-work.
-- The label containing `{port}` stays within `capDnsLabel`'s 63-character limit with a five-digit port substituted.
+- The label containing `{port}` is at most 63 characters with a five-digit port substituted. Reject rather than truncate: `capDnsLabel` (`service-proxy.ts:113`) exists to shorten generated slugs with a hash suffix, and silently rewriting an operator's template would yield a hostname their DNS does not serve.
 
 **Parsing** reverses the template. Precompute the literal prefix and suffix around `{port}` from the template's hostname; an inbound `Host`, normalised and stripped of its port, matches when it starts with the prefix, ends with the suffix, and has only digits between — parsed as an integer in `1..65535`.
 
@@ -100,9 +100,11 @@ Each daemon renders its own identity into its own template at config time, so no
 
 ### Host allowlist
 
-`isHostnameAllowed` (`hostnames.ts`) defaults to `localhost`, `*.localhost` and literal IPs. A preview hostname outside that set is rejected with `403 Host not allowed` before any routing happens.
+`isHostnameAllowed` (`hostnames.ts`) defaults to `localhost`, `*.localhost` and literal IPs, so a preview hostname is not in the default set. **No hostname configuration is required regardless**, because preview requests never reach the check.
 
-When a template is configured, derive the parent domain — the portion after the label containing `{port}` — and merge `.<parentDomain>` into the hostname config with the already-exported `mergeHostnames`. `{port}--daemon-1.studio.example.com` yields `.studio.example.com`; `{port}.preview.example.com` yields `.preview.example.com`. This is additive config assembly, not a change to the validator.
+The allowlist middleware is registered at `bootstrap.ts:669`, _after_ `app.use(serviceProxy.middleware())` at `:666`. Express runs middleware in order and a proxied request never calls `next()`, so it never reaches validation — which is why registered service routes work today without appearing in `hostnames`. Preview middleware mounts ahead of the service proxy and inherits the same property. The upgrade path behaves the same way: `websocket-server.ts:869` validates the host, but `bootstrap.ts:812` claims matching sockets before the WebSocket server attaches its listener.
+
+This narrows rather than widens DNS-rebinding exposure. Only hosts matching the operator-configured template bypass the check; everything else falls through to `next()` and is validated exactly as before.
 
 ### Classification by mount order
 
@@ -136,13 +138,12 @@ Upstream dial order is `127.0.0.1`, falling back to `::1` on `ECONNREFUSED`, so 
 
 This is a fork that merges upstream every release (`git log --grep="official Paseo"`: v0.2.3 through v0.4.0). Merge surface is a design constraint. The rule applied throughout: **import facts, own policy**, and make anything whose loss would be silent fail loudly instead.
 
-**Import from `service-proxy.ts`** — one-line `export` each. If an export is dropped resolving a conflict, `npm run typecheck` fails at the import site.
+**Import from `service-proxy.ts`** — one-line `export` each (two helpers; `capDnsLabel` is deliberately not among them, see Validation above). If an export is dropped resolving a conflict, `npm run typecheck` fails at the import site.
 
 | Helper                 | Line | Why not copy                                                                               |
 | ---------------------- | ---- | ------------------------------------------------------------------------------------------ |
 | `normalizeHostHeader`  | 94   | Host parsing must agree with `classifyHost`, or the two disagree about what a `Host` means |
 | `stripHopByHopHeaders` | 247  | A fact about HTTP that upstream keeps current; a copy rots silently                        |
-| `capDnsLabel`          | 113  | 63-character cap with hash suffix, for template validation                                 |
 
 **Own, in a fork-owned module.** `proxyHttpRequest` (318), `proxyUpgradeRequest` (358) and `buildForwardedHeaders` (273) bake the service policy in and would each need a policy parameter threaded through signature and body to share — the invasive refactor this design avoids. Their correctness for preview is defined by the policy table above, not by upstream, so divergence is intended rather than drift.
 

@@ -81,8 +81,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await daemon.stop();
+  // Destroy the tracked upstream-accepted sockets before stopping the
+  // daemon, not after: the registered-service and preview upgrade tests
+  // both leave a live piped chain (client -> daemon -> upstream), and
+  // daemon.stop()'s connection draining won't finish until the upstream
+  // leg closes too. Stopping the daemon first would deadlock — same
+  // ordering lesson as browser-preview/index.test.ts's afterEach.
   for (const socket of upstreamUpgradeSockets) socket.destroy();
+  await daemon.stop();
   await new Promise((resolve) => upstream.close(resolve));
   await rm(paseoHomeRoot, { recursive: true, force: true });
   await rm(staticDir, { recursive: true, force: true });
@@ -246,4 +252,77 @@ it("completes a real WebSocket handshake for a preview-host upgrade on a non-/ws
 it("still completes the daemon's own /ws handshake", async () => {
   const statusLine = await upgradeControlPlane();
   expect(statusLine).toBe("HTTP/1.1 101 Switching Protocols");
+});
+
+// Constraint 3 from task-5b-brief.md: an upgrade nothing claims must still
+// be closed, not leaked. This host matches no preview template, isn't
+// "/ws", and has no registered service route, so it falls through the
+// router to service proxy's terminal passthroughUnknown:false fallback,
+// which destroys the socket outright — a bare TCP close with no HTTP
+// response at all, unlike ws's own abortHandshake(socket, 400). The socket
+// closing IS the success condition here, mirroring
+// browser-preview/index.test.ts's connectAndAwaitClose.
+function expectUpgradeRejected(host: string, reqPath: string, timeoutMs = 2000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host: "127.0.0.1", port: daemonPort }, () => {
+      socket.write(
+        [
+          `GET ${reqPath} HTTP/1.1`,
+          `Host: ${host}`,
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version: 13",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+    });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(
+        new Error(
+          `socket to ${host}${reqPath} was not closed within ${timeoutMs}ms — an unclaimed upgrade leaked instead of closing`,
+        ),
+      );
+    }, timeoutMs);
+    const settle = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    socket.on("close", settle);
+    socket.on("error", settle);
+  });
+}
+
+it("closes an unclaimed upgrade instead of leaking the socket", async () => {
+  await expectUpgradeRejected("nobody-home.invalid", "/whatever");
+});
+
+// The incidental fix this task also produces: before it, a
+// registerWorkspaceService route reached on any path other than "/ws" was
+// silently broken by the same race this task exists to fix —
+// proxyUpgradeRequest's net.connect is async exactly like the preview
+// subsystem's loopback dial. service-proxy.test.ts's own upgrade coverage
+// (startForwardedHeadersFixture, :316-368) attaches its handler to a
+// private http.Server with no competing listener, so that fixture
+// structurally cannot exhibit this race — only a real, multi-listener
+// createPaseoDaemon() can. x-forwarded-host (not Host, which service proxy
+// forwards verbatim rather than forging — unlike the preview subsystem)
+// confirms the request actually went through service proxy's own
+// header-forwarding code, not some other path.
+it("completes a real WebSocket handshake for a registered service route on a non-/ws path", async () => {
+  const route = daemon.serviceProxy.registerWorkspaceService({
+    workspaceId: "workspace-ws-upgrade",
+    projectSlug: "repo",
+    branchName: "main",
+    scriptName: "web",
+    port: upstreamPort,
+  });
+  const { statusLine, headers } = await upgradeThroughDaemon(
+    `${route.hostname}:${daemonPort}`,
+    "/hmr",
+  );
+  expect(statusLine).toBe("HTTP/1.1 101 Switching Protocols");
+  expect(headers["x-forwarded-host"]).toBe(`${route.hostname}:${daemonPort}`);
 });

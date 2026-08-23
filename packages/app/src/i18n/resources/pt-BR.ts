@@ -529,8 +529,13 @@ export const ptBR: TranslationResources = {
     },
     browser: {
       unavailable: {
-        title: "O navegador é exclusivo do desktop",
-        subtitle: "Abra este workspace no Electron para usar o navegador integrado.",
+        title: "O navegador não está disponível aqui",
+        subtitle: "Abra este workspace no aplicativo de desktop para usar o navegador.",
+      },
+      previewNotConfigured: {
+        title: "O navegador não está configurado neste host",
+        subtitle:
+          "Defina browserPreview.urlTemplate neste host para navegar pelas portas localhost pelo aplicativo web. O navegador já funciona para este workspace no aplicativo de desktop.",
       },
       session: "Sessão do navegador {{browserId}}",
       controls: {

@@ -524,8 +524,13 @@ export const en = {
     },
     browser: {
       unavailable: {
-        title: "Browser is desktop-only",
-        subtitle: "Open this workspace in Electron to use the built-in browser.",
+        title: "Browser isn't available here",
+        subtitle: "Open this workspace in the desktop app to use Browser.",
+      },
+      previewNotConfigured: {
+        title: "Browser isn't set up on this host",
+        subtitle:
+          "Set browserPreview.urlTemplate on this host to browse its localhost ports from the web app. Browser already works for this workspace in the desktop app.",
       },
       session: "Browser session {{browserId}}",
       controls: {

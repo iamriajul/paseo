@@ -526,8 +526,13 @@ export const ko: TranslationResources = {
     },
     browser: {
       unavailable: {
-        title: "브라우저는 데스크톱 전용입니다",
-        subtitle: "내장 브라우저를 사용하려면 이 워크스페이스를 Electron에서 여세요.",
+        title: "브라우저를 여기서 사용할 수 없습니다",
+        subtitle: "브라우저를 사용하려면 이 워크스페이스를 데스크톱 앱에서 여세요.",
+      },
+      previewNotConfigured: {
+        title: "이 호스트에는 브라우저가 설정되어 있지 않습니다",
+        subtitle:
+          "이 호스트에 browserPreview.urlTemplate을 설정하면 웹 앱에서 localhost 포트를 탐색할 수 있습니다. 데스크톱 앱에서는 이 워크스페이스의 브라우저가 이미 작동합니다.",
       },
       session: "브라우저 세션 {{browserId}}",
       controls: {

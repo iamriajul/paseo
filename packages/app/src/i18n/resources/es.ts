@@ -529,8 +529,14 @@ export const es: TranslationResources = {
     },
     browser: {
       unavailable: {
-        title: "El navegador es solo para escritorio",
-        subtitle: "Abra este espacio de trabajo en Electron para usar el navegador integrado.",
+        title: "El navegador no está disponible aquí",
+        subtitle:
+          "Abra este espacio de trabajo en la aplicación de escritorio para usar el navegador.",
+      },
+      previewNotConfigured: {
+        title: "El navegador no está configurado en este host",
+        subtitle:
+          "Configure browserPreview.urlTemplate en este host para explorar sus puertos de localhost desde la aplicación web. El navegador ya funciona en este espacio de trabajo en la aplicación de escritorio.",
       },
       session: "Sesión de navegador{{browserId}}",
       controls: {

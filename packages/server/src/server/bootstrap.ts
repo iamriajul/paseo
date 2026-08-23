@@ -416,6 +416,7 @@ export interface PaseoDaemonConfig {
     publicBaseUrl: string | null;
     standaloneListen: string | null;
   };
+  browserPreviewUrlTemplate: string | null;
   webUi?: {
     enabled: boolean;
     distDir: string | null;

@@ -72,6 +72,7 @@ describe("bootstrap provider availability", () => {
       listen: "127.0.0.1:0",
       paseoHome,
       corsAllowedOrigins: [],
+      browserPreviewUrlTemplate: null,
       hostnames: true,
       mcpEnabled: false,
       staticDir,

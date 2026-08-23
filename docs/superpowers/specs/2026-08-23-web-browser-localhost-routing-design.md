@@ -149,7 +149,26 @@ This is a fork that merges upstream every release (`git log --grep="official Pas
 
 **Do not** extract or relocate anything inside `service-proxy.ts`. Moving upstream code conflicts on every sync, inside the relocated region.
 
-**Upstream files touched:** `bootstrap.ts` (two mount lines), `config.ts` (one resolver plus its call site, with the resolved field required so a dropped call fails typecheck), `persisted-config.ts` (one optional nested key), protocol `server_info` (one optional field), `pane/index.web.tsx` (whole-file replacement of a placeholder), `workspace-browser-availability.ts` (one branch, already fork-modified), and a new per-host selector beside `host-features.ts`. `docs/service-proxy.md` is upstream and is linked, never edited.
+**Upstream files touched.** Updated after implementation — the original list predated Task 5b, which was inserted mid-run once the WebSocket upgrade race was found, and predated the two client-side hops the field turned out to need.
+
+| File                                | Change                                                                                         |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `service-proxy.ts`                  | two `export` keywords, nothing else                                                            |
+| `bootstrap.ts`                      | subsystem construction, one `app.use`, and the explicit upgrade router                         |
+| `websocket-server.ts`               | `noServer: true` plus a new `handleUpgrade` method — Task 5b, not in the original plan         |
+| `config.ts`                         | one resolver plus its call site, the resolved field required so a dropped call fails typecheck |
+| `persisted-config.ts`               | one optional nested key                                                                        |
+| `messages.ts`                       | one optional `server_info` field                                                               |
+| `session-store.ts`                  | propagate and compare `browserPreview`                                                         |
+| `utils/server-info.ts`              | one spread clause in `toDaemonServerInfo`                                                      |
+| `daemon-session.ts`                 | one optional interface field                                                                   |
+| `pane/index.web.tsx`                | whole-file replacement of a placeholder                                                        |
+| `workspace-browser-availability.ts` | one branch, already fork-modified                                                              |
+| 9 i18n locale files                 | new keys, exact parity enforced                                                                |
+
+`docs/service-proxy.md` is upstream and is linked, never edited.
+
+The two files that grew past the original scope — `bootstrap.ts` and `websocket-server.ts` — did so because a proven defect required it, not by drift. Both changes are commented at the site so the next upstream merge does not undo them.
 
 ## Capability advertisement
 

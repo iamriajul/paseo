@@ -41,4 +41,13 @@ describe("resolveBrowserPreviewUrlTemplate", () => {
       ),
     ).toThrow(/must appear in the hostname/);
   });
+
+  it("throws on an empty environment variable instead of silently returning null", () => {
+    expect(() =>
+      resolveBrowserPreviewUrlTemplate(
+        { PASEO_BROWSER_PREVIEW_URL_TEMPLATE: "" },
+        { daemon: { browserPreview: { urlTemplate: "https://{port}.preview.example.com" } } },
+      ),
+    ).toThrow(/template must contain \{port\} exactly once/);
+  });
 });

@@ -304,10 +304,9 @@ export function resolveBrowserPreviewUrlTemplate(
   persisted: ReturnType<typeof loadPersistedConfig>,
 ): string | null {
   const raw =
-    env.PASEO_BROWSER_PREVIEW_URL_TEMPLATE ?? persisted.daemon?.browserPreview?.urlTemplate;
-  if (!raw) return null;
-  parseBrowserPreviewTemplate(raw);
-  return raw.trim();
+    env.PASEO_BROWSER_PREVIEW_URL_TEMPLATE ?? persisted.daemon?.browserPreview?.urlTemplate ?? null;
+  if (raw === null) return null;
+  return parseBrowserPreviewTemplate(raw).raw;
 }
 
 interface ResolvedWebUi {

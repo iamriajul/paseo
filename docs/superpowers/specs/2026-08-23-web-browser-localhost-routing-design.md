@@ -74,7 +74,13 @@ One config knob with a single `{port}` placeholder covers both deployment shapes
 }
 ```
 
-Each daemon renders its own identity into its own template at config time, so nothing is inferred and nested wildcards never arise. `PASEO_BROWSER_PREVIEW_URL_TEMPLATE` is the env form and takes precedence, matching how `serviceProxy` handles its own settings.
+Each daemon renders its own identity into its own template at config time, so nothing is inferred and nested wildcards never arise.
+
+**Who reads it.** The daemon, and only the daemon. `resolveBrowserPreviewConfig(env, persisted)` in `config.ts` mirrors `resolveServiceProxyConfig` (`config.ts:277`): `PASEO_BROWSER_PREVIEW_URL_TEMPLATE` wins, `persisted.daemon?.browserPreview?.urlTemplate` is the fallback, and an invalid value throws `Invalid PASEO_BROWSER_PREVIEW_URL_TEMPLATE: <value>` to match the convention at `config.ts:272`. It is called from the main resolver alongside `resolveServiceProxyConfig` (`config.ts:506`), lands on the resolved config, and reaches the subsystem at the point where `bootstrap.ts:627` already reads `serviceProxy.publicBaseUrl`.
+
+**The app never reads this variable.** Clients learn the template from `server_info`; see [Capability advertisement](#capability-advertisement). If the app read the environment instead, a single template would serve every connected daemon — precisely the failure that per-host advertisement exists to prevent.
+
+**Make its loss loud.** The resolved field is required on the config type, not optional. If the call site is dropped while resolving an upstream merge, `npm run typecheck` fails instead of the feature silently losing its configuration. Same rule as the imports in [Fork constraints](#fork-constraints).
 
 **Validation**, applied at config load, failing startup with a clear message:
 
@@ -142,28 +148,36 @@ This is a fork that merges upstream every release (`git log --grep="official Pas
 
 **Do not** extract or relocate anything inside `service-proxy.ts`. Moving upstream code conflicts on every sync, inside the relocated region.
 
-**Upstream files touched:** `bootstrap.ts` (two mount lines), `persisted-config.ts` (one optional nested key), protocol `server_info` (one optional field plus feature flag), `pane/index.web.tsx` (whole-file replacement of a placeholder), `workspace-browser-availability.ts` (one branch, already fork-modified). `docs/service-proxy.md` is upstream and is linked, never edited.
+**Upstream files touched:** `bootstrap.ts` (two mount lines), `config.ts` (one resolver plus its call site, with the resolved field required so a dropped call fails typecheck), `persisted-config.ts` (one optional nested key), protocol `server_info` (one optional field), `pane/index.web.tsx` (whole-file replacement of a placeholder), `workspace-browser-availability.ts` (one branch, already fork-modified), and a new per-host selector beside `host-features.ts`. `docs/service-proxy.md` is upstream and is linked, never edited.
 
 ## Capability advertisement
 
 ```
-server_info.features.browserPreview    = true
 server_info.browserPreview.urlTemplate = "https://{port}--daemon-1.studio.example.com"
 ```
 
-Per [protocol-compatibility](../../protocol-compatibility.md), the field is optional and additive, and the capability is gated once. A host that advertises nothing shows the existing unavailable state with no fallback path.
+**One field, not a flag plus a field.** A valid `urlTemplate` _is_ the capability. An earlier draft also advertised `features.browserPreview`, which let a daemon claim support while omitting the template — the client would then open a Browser tab with no origin to point it at. A single field cannot contradict itself.
 
-The app substitutes `{port}` into the template of _the tab's own host_, so a mixed fleet needs no client-side origin matching: each direct daemon advertises its own template, and a relay daemon advertises none. Follow whatever namespacing the fork used for `features.tcpTunnel`, the closest precedent — if upstream later ships its own `browserPreview` with different semantics, the collision is semantic rather than textual and will not surface as a merge conflict.
+This keeps the intent of the [protocol-compatibility](../../protocol-compatibility.md) rule — gate once, no defensive branches — while putting the gate on required data rather than a parallel boolean. On the wire the field stays optional and additive. A host that advertises nothing gets no fallback path.
+
+The app substitutes `{port}` into the template of _the tab's own host_, so a mixed fleet needs no client-side origin matching: each direct daemon advertises its own template, and a relay daemon advertises none. If upstream later ships its own `browserPreview` with different semantics, the collision is semantic rather than textual and will not surface as a merge conflict.
 
 ## App behaviour
 
-`resolveWorkspaceBrowserAvailability` gains `isWeb && hasBrowserPreview`. `pane/index.web.tsx` renders an `<iframe>` whose `src` is the substituted template.
+`resolveWorkspaceBrowserAvailability` gains a web branch **after** the existing `isElectron` short-circuit — Electron also reports `Platform.OS === "web"` and must keep returning `true` unconditionally. `pane/index.web.tsx` renders an `<iframe>` whose `src` is the substituted template.
+
+**Reading the template needs a new selector.** `useHostFeature` answers `boolean` only (`serverInfo?.features?.[feature] === true`), so it cannot carry a string. Add a sibling selector over `sessions[serverId].serverInfo.browserPreview?.urlTemplate`, keyed per `serverId` like the existing hooks, returning the template or `null`. Availability for web is then simply "the selector returned a template", which keeps one source of truth end to end.
 
 URL handling in the Browser address bar:
 
 - `localhost`, `127.0.0.1` and `[::1]` with a port are preview candidates and route through the template.
 - `0.0.0.0` and `::` are rejected as destinations, matching Android.
 - Non-loopback URLs load in the iframe directly, as ordinary web pages.
+
+**Two distinct unavailable states.** Availability is per platform _and_ per host, so the copy has to say which one applies. A daemon with no template still has a fully working Browser on Electron desktop and Android, which take a different route entirely — a flat "unavailable" leads a user who sees it working on their desktop to conclude the web build is broken.
+
+- Platform cannot support it at all → the existing generic message.
+- Web build, host advertises no template → name the host and the setting (`browserPreview.urlTemplate`) so the message is actionable, mirroring how Android surfaces an update-WebView state rather than a generic failure.
 
 **Known limitation.** A cross-origin iframe emits no navigation events to its parent, so if the page navigates itself the address bar keeps showing the last URL Paseo set. Electron's `<webview>` exposes these events; `<iframe>` does not. Document it so it is not mistaken for a bug.
 

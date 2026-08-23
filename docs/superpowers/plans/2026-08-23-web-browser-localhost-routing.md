@@ -280,7 +280,7 @@ Pure functions over header maps. Separated from socket work so they are testable
 **Interfaces:**
 
 - Consumes: `BrowserPreviewTemplate` from Task 1.
-- Produces: `interface TransformPreviewResponseHeadersOptions extends RewriteUrlOptions { headers: NodeJS.Dict<string | string[]> }` and `function transformPreviewResponseHeaders(options: TransformPreviewResponseHeadersOptions): NodeJS.Dict<string | string[]>`. Single named object param per `packages/server/CLAUDE.md` ("Object parameters", and "Named types — no complex inline types in public signatures").
+- Produces: `function transformPreviewResponseHeaders(options: TransformPreviewResponseHeadersOptions): NodeJS.Dict<string | string[]>`, where the options interface is internal (no external caller imports it). Single named object param per `packages/server/CLAUDE.md` ("Object parameters", and "Named types — no complex inline types in public signatures").
 
 - [ ] **Step 1: Write the failing test**
 
@@ -376,17 +376,15 @@ interface RewriteUrlOptions {
   template: BrowserPreviewTemplate;
 }
 
-export interface TransformPreviewResponseHeadersOptions extends RewriteUrlOptions {
+interface TransformPreviewResponseHeadersOptions extends RewriteUrlOptions {
   headers: NodeJS.Dict<string | string[]>;
 }
 
 // URL.port is "" when the port equals the scheme's default, so a dev server on
 // port 80 emitting `Location: http://localhost/x` would never match targetPort.
-function effectivePort(url: URL): number | null {
+function effectivePort(url: URL): number {
   if (url.port !== "") return Number(url.port);
-  if (url.protocol === "http:") return 80;
-  if (url.protocol === "https:") return 443;
-  return null;
+  return url.protocol === "https:" ? 443 : 80;
 }
 
 function rewriteAbsoluteUrl(value: string, options: RewriteUrlOptions): string {
@@ -636,8 +634,12 @@ import { stripHopByHopHeaders } from "../service-proxy.js";
 import { transformPreviewResponseHeaders } from "./response-headers.js";
 import type { BrowserPreviewTemplate } from "./url-template.js";
 
-const LOOPBACK_HOST = "127.0.0.1";
-const IPV6_LOOPBACK_HOST = "::1";
+// Dial "localhost" rather than a literal address. Node's autoSelectFamily
+// (default true on Node >= 20) tries both loopback families, so a dev server
+// bound only to ::1 still resolves — without a manual retry, which would have
+// to pipe the request a second time and would forward an empty body for any
+// request whose body the first pipe already consumed.
+const UPSTREAM_HOST = "localhost";
 
 export interface BrowserPreviewSubsystem {
   middleware(): RequestHandler;
@@ -679,30 +681,22 @@ export function createBrowserPreviewSubsystem(options: {
           return;
         }
 
-        const attempt = (host: string, allowFallback: boolean): void => {
-          const upstream = openUpstream(req, port, host);
-          upstream.on("response", (upstreamRes) => {
-            const headers = transformPreviewResponseHeaders({
-              headers: stripHopByHopHeaders(upstreamRes.headers),
-              targetPort: port,
-              template,
-            });
-            res.writeHead(upstreamRes.statusCode ?? 502, headers);
-            upstreamRes.pipe(res);
+        const upstream = openUpstream(req, port, UPSTREAM_HOST);
+        upstream.on("response", (upstreamRes) => {
+          const headers = transformPreviewResponseHeaders({
+            headers: stripHopByHopHeaders(upstreamRes.headers),
+            targetPort: port,
+            template,
           });
-          upstream.on("error", (error: NodeJS.ErrnoException) => {
-            if (allowFallback && error.code === "ECONNREFUSED") {
-              attempt(IPV6_LOOPBACK_HOST, false);
-              return;
-            }
-            logger.debug({ err: error, port }, "browser_preview_upstream_failed");
-            if (!res.headersSent) res.status(502).send("502 Bad Gateway");
-            else res.end();
-          });
-          req.pipe(upstream);
-        };
-
-        attempt(LOOPBACK_HOST, true);
+          res.writeHead(upstreamRes.statusCode ?? 502, headers);
+          upstreamRes.pipe(res);
+        });
+        upstream.on("error", (error: NodeJS.ErrnoException) => {
+          logger.debug({ err: error, port }, "browser_preview_upstream_failed");
+          if (!res.headersSent) res.status(502).send("502 Bad Gateway");
+          else res.end();
+        });
+        req.pipe(upstream);
       };
     },
 
@@ -712,7 +706,7 @@ export function createBrowserPreviewSubsystem(options: {
         if (port === null || !template) return; // leave the socket for the next listener
 
         const upstream = http.request({
-          host: LOOPBACK_HOST,
+          host: UPSTREAM_HOST,
           port,
           method: req.method,
           path: req.url,

@@ -280,7 +280,7 @@ Pure functions over header maps. Separated from socket work so they are testable
 **Interfaces:**
 
 - Consumes: `BrowserPreviewTemplate` from Task 1.
-- Produces: `function transformPreviewResponseHeaders(headers: NodeJS.Dict<string | string[]>, options: { targetPort: number; template: BrowserPreviewTemplate }): NodeJS.Dict<string | string[]>`
+- Produces: `interface TransformPreviewResponseHeadersOptions extends RewriteUrlOptions { headers: NodeJS.Dict<string | string[]> }` and `function transformPreviewResponseHeaders(options: TransformPreviewResponseHeadersOptions): NodeJS.Dict<string | string[]>`. Single named object param per `packages/server/CLAUDE.md` ("Object parameters", and "Named types — no complex inline types in public signatures").
 
 - [ ] **Step 1: Write the failing test**
 
@@ -293,7 +293,7 @@ import { transformPreviewResponseHeaders } from "./response-headers.js";
 
 const template = parseBrowserPreviewTemplate("https://{port}--daemon-1.studio.example.com");
 const run = (headers: NodeJS.Dict<string | string[]>, targetPort = 4000) =>
-  transformPreviewResponseHeaders(headers, { targetPort, template });
+  transformPreviewResponseHeaders({ headers, targetPort, template });
 
 describe("transformPreviewResponseHeaders", () => {
   it("strips framing and policy headers so the page can be embedded", () => {
@@ -371,12 +371,25 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
-interface TransformOptions {
+interface RewriteUrlOptions {
   targetPort: number;
   template: BrowserPreviewTemplate;
 }
 
-function rewriteAbsoluteUrl(value: string, options: TransformOptions): string {
+export interface TransformPreviewResponseHeadersOptions extends RewriteUrlOptions {
+  headers: NodeJS.Dict<string | string[]>;
+}
+
+// URL.port is "" when the port equals the scheme's default, so a dev server on
+// port 80 emitting `Location: http://localhost/x` would never match targetPort.
+function effectivePort(url: URL): number | null {
+  if (url.port !== "") return Number(url.port);
+  if (url.protocol === "http:") return 80;
+  if (url.protocol === "https:") return 443;
+  return null;
+}
+
+function rewriteAbsoluteUrl(value: string, options: RewriteUrlOptions): string {
   let parsed: URL;
   try {
     parsed = new URL(value);
@@ -386,7 +399,7 @@ function rewriteAbsoluteUrl(value: string, options: TransformOptions): string {
   // URL keeps IPv6 hostnames bracketed; compare unbracketed.
   const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (!LOOPBACK_HOSTNAMES.has(hostname)) return value;
-  if (parsed.port !== String(options.targetPort)) return value;
+  if (effectivePort(parsed) !== options.targetPort) return value;
 
   const base = new URL(options.template.buildUrl(options.targetPort));
   parsed.protocol = base.protocol;
@@ -395,19 +408,22 @@ function rewriteAbsoluteUrl(value: string, options: TransformOptions): string {
   return parsed.toString();
 }
 
-function rewriteRefresh(value: string, options: TransformOptions): string {
-  const match = /^(\s*[^;]*;\s*url=)(.*)$/i.exec(value);
+function rewriteRefresh(value: string, options: RewriteUrlOptions): string {
+  // Stop the URL capture at the next `;` and re-append the remainder verbatim.
+  // A greedy capture swallows trailing directives into the path, and because
+  // `;` is legal in a path `new URL()` accepts it — silent corruption.
+  const match = /^(\s*[^;]*;\s*url=)([^;]*)(.*)$/i.exec(value);
   if (!match) return value;
-  const [, head, target] = match;
+  const [, head, target, tail] = match;
   const unquoted = target.trim().replace(/^["']|["']$/g, "");
   const rewritten = rewriteAbsoluteUrl(unquoted, options);
-  return rewritten === unquoted ? value : `${head}${rewritten}`;
+  return rewritten === unquoted ? value : `${head}${rewritten}${tail}`;
 }
 
 export function transformPreviewResponseHeaders(
-  headers: NodeJS.Dict<string | string[]>,
-  options: TransformOptions,
+  options: TransformPreviewResponseHeadersOptions,
 ): NodeJS.Dict<string | string[]> {
+  const { headers, ...urlOptions } = options;
   const out: NodeJS.Dict<string | string[]> = {};
   for (const [name, value] of Object.entries(headers)) {
     const lower = name.toLowerCase();
@@ -416,14 +432,14 @@ export function transformPreviewResponseHeaders(
 
     if (lower === "location" || lower === "content-location") {
       out[name] = Array.isArray(value)
-        ? value.map((v) => rewriteAbsoluteUrl(v, options))
-        : rewriteAbsoluteUrl(value, options);
+        ? value.map((v) => rewriteAbsoluteUrl(v, urlOptions))
+        : rewriteAbsoluteUrl(value, urlOptions);
       continue;
     }
     if (lower === "refresh") {
       out[name] = Array.isArray(value)
-        ? value.map((v) => rewriteRefresh(v, options))
-        : rewriteRefresh(value, options);
+        ? value.map((v) => rewriteRefresh(v, urlOptions))
+        : rewriteRefresh(value, urlOptions);
       continue;
     }
     out[name] = value;
@@ -435,7 +451,7 @@ export function transformPreviewResponseHeaders(
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run packages/server/src/server/browser-preview/response-headers.test.ts --bail=1`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests — the 8 above, plus one for a `refresh` value carrying a trailing `;directive` after the URL, and one for a default-port loopback `Location` (`http://localhost/x` with targetPort 80) paired with a case that must still pass through.
 
 - [ ] **Step 5: Typecheck, lint, format, commit**
 
@@ -666,10 +682,11 @@ export function createBrowserPreviewSubsystem(options: {
         const attempt = (host: string, allowFallback: boolean): void => {
           const upstream = openUpstream(req, port, host);
           upstream.on("response", (upstreamRes) => {
-            const headers = transformPreviewResponseHeaders(
-              stripHopByHopHeaders(upstreamRes.headers),
-              { targetPort: port, template },
-            );
+            const headers = transformPreviewResponseHeaders({
+              headers: stripHopByHopHeaders(upstreamRes.headers),
+              targetPort: port,
+              template,
+            });
             res.writeHead(upstreamRes.statusCode ?? 502, headers);
             upstreamRes.pipe(res);
           });

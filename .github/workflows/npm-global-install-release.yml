@@ -114,8 +114,12 @@ jobs:
           pack_dir="$RUNNER_TEMP/npm-release-assets"
           mkdir -p "$pack_dir"
 
+          # Server imports @getpaseo/plugin/server; prepack tsc needs plugin dist.
+          npm run build:plugin
+
           workspaces=(
             @getpaseo/highlight
+            @getpaseo/plugin
             @getpaseo/relay
             @getpaseo/protocol
             @getpaseo/client
@@ -129,6 +133,7 @@ jobs:
 
           expected_files=(
             "getpaseo-highlight-${RELEASE_VERSION}.tgz"
+            "getpaseo-plugin-${RELEASE_VERSION}.tgz"
             "getpaseo-relay-${RELEASE_VERSION}.tgz"
             "getpaseo-protocol-${RELEASE_VERSION}.tgz"
             "getpaseo-client-${RELEASE_VERSION}.tgz"

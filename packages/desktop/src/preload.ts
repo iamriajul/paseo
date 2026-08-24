@@ -143,6 +143,7 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
       browserId: string;
       serverId: string;
       workspaceId: string;
+      directLoopback?: boolean;
     }) => ipcRenderer.invoke("paseo:browser:register-workspace-browser", input),
     unregisterWorkspaceBrowser: (browserId: string) =>
       ipcRenderer.invoke("paseo:browser:unregister-workspace-browser", browserId),

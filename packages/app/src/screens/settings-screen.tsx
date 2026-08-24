@@ -246,7 +246,6 @@ function getSendBehaviorOptions(t: TFunction) {
     { value: "interrupt" as const, label: t("settings.general.defaultSend.options.interrupt") },
     { value: "steer" as const, label: t("settings.general.defaultSend.options.steer") },
     { value: "queue" as const, label: t("settings.general.defaultSend.options.queue") },
-    { value: "steer" as const, label: t("settings.general.defaultSend.options.steer") },
   ];
 }
 

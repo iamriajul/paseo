@@ -147,7 +147,8 @@ Hosts may advertise optional Code Server openers in `server_info.urlOpeners.code
 - The client sends only a port plus a loopback-family enum to the daemon. Hostname normalization happens in Electron main, and the daemon only dials `127.0.0.1` or `::1`.
 - Browser panes delay their first navigation until workspace Browser registration finishes, so the initial `localhost` load uses the correct session proxy.
 - Browser automation registers the Browser before creating its resident webview for the same reason.
-- Do not spawn `daemon status` or any other CLI from `register-workspace-browser`. That IPC sits on the new-tab path before attach; a slow child process races the 5s automation wait and can `closeAllConnections` after the guest has already started. Direct-loopback reads the last successful desktop daemon status probe instead.
+- Do not spawn `daemon status` or any other CLI from `register-workspace-browser`. That IPC sits on the new-tab path before attach; a slow child process races the 5s automation wait and can `closeAllConnections` after the guest has already started. Direct-loopback reads the last successful desktop daemon status probe, or a renderer flag when the host connection is this machine.
+- When that tab is local, do not install the loopback proxy. `<-loopback>` forces 127.0.0.1 through the workspace tunnel; on the desktop daemon that loads a blank guest instead of the local page. Remote hosts still get the proxy.
 - Do not route Browser localhost through generated service-proxy hostnames. That would change the visible origin and break pages that expect `localhost`.
 - Normal HTTP proxy requests force `Connection: close` after the rewritten request. This makes Chromium open a fresh proxy connection for later Vite module requests, so every request is parsed and rewritten from proxy absolute-form to origin-form. WebSocket upgrade requests keep their upgrade connection for HMR.
 

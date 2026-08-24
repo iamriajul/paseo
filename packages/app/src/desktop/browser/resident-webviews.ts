@@ -82,6 +82,19 @@ function trimNonEmpty(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function assignBlankWebviewUrl(webview: HTMLElement, url: string): void {
+  const nextUrl = trimNonEmpty(url);
+  if (!nextUrl) {
+    return;
+  }
+  const element = webview as BrowserWebviewElement;
+  const current = trimNonEmpty(element.getAttribute("src") ?? element.src) ?? "";
+  if (current === nextUrl || (current.length > 0 && current !== "about:blank")) {
+    return;
+  }
+  element.src = nextUrl;
+}
+
 function readDocument(): Document | null {
   return typeof document === "undefined" ? null : document;
 }
@@ -333,12 +346,14 @@ export function ensureResidentBrowserWebview(input: {
 
   const resident = residentWebviewsByBrowserId.get(browserId) ?? null;
   if (resident?.isConnected) {
+    assignBlankWebviewUrl(resident, input.url);
     releaseResidentBrowserWebview(browserId, resident);
     return resident;
   }
 
   const existing = findBrowserWebview(browserId, ownerDocument);
   if (existing) {
+    assignBlankWebviewUrl(existing, input.url);
     if (existing.parentElement?.id === RESIDENT_BROWSER_HOST_ID) {
       releaseResidentBrowserWebview(browserId, existing);
     }

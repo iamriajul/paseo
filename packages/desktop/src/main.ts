@@ -373,9 +373,12 @@ ipcMain.handle("paseo:agent-navigation:ready", (event) => {
   return agentNavigationInbox.windowReady(event.sender.id);
 });
 
-function readBrowserWorkspaceInput(
-  input: unknown,
-): { browserId: string; serverId: string; workspaceId: string } | null {
+function readBrowserWorkspaceInput(input: unknown): {
+  browserId: string;
+  serverId: string;
+  workspaceId: string;
+  directLoopback: boolean;
+} | null {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return null;
   }
@@ -393,6 +396,7 @@ function readBrowserWorkspaceInput(
     browserId: record.browserId.trim(),
     serverId: record.serverId.trim(),
     workspaceId: record.workspaceId.trim(),
+    directLoopback: record.directLoopback === true,
   };
 }
 
@@ -470,10 +474,12 @@ ipcMain.handle("paseo:browser:register-workspace-browser", async (event, rawInpu
     await registerBrowserLoopbackProxy({
       ...input,
       rendererWebContentsId: event.sender.id,
-      directLoopback: shouldUseDirectLoopback({
-        localDaemonServerId: peekDesktopDaemonServerId(),
-        tabServerId: input.serverId,
-      }),
+      directLoopback:
+        input.directLoopback ||
+        shouldUseDirectLoopback({
+          localDaemonServerId: peekDesktopDaemonServerId(),
+          tabServerId: input.serverId,
+        }),
     });
   }
 });

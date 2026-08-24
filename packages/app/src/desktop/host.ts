@@ -160,6 +160,7 @@ export interface DesktopBrowserBridge {
     browserId: string;
     serverId: string;
     workspaceId: string;
+    directLoopback?: boolean;
   }) => Promise<void>;
   unregisterWorkspaceBrowser?: (browserId: string) => Promise<void>;
   setWorkspaceActiveBrowser?: (input: {

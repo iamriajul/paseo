@@ -206,6 +206,7 @@ function registerWorkspaceBrowserThenLoad(input: {
   browserId: string;
   serverId: string;
   workspaceId: string;
+  directLoopback?: boolean;
   initialUrl: string;
   shouldLoadInitialUrl: boolean;
   isCurrentWebview: () => boolean;
@@ -217,6 +218,7 @@ function registerWorkspaceBrowserThenLoad(input: {
       browserId: input.browserId,
       serverId: input.serverId,
       workspaceId: input.workspaceId,
+      ...(input.directLoopback ? { directLoopback: true } : {}),
     }) ?? Promise.resolve();
   void registration
     .then(() => {

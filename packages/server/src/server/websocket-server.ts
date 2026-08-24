@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 import type { IncomingMessage, Server as HTTPServer } from "http";
+import type { Socket } from "node:net";
 import { join } from "path";
 import { hostname as getHostname } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -602,7 +603,11 @@ export class VoiceAssistantWebSocketServer {
   private readonly advertiseRelayConfig: boolean;
 
   constructor(
-    server: HTTPServer,
+    // Unused since createWebSocketServer switched to noServer: true (bootstrap.ts
+    // now routes 'upgrade' events explicitly). Kept as the first positional
+    // parameter rather than removed: this constructor has ~30 positional
+    // arguments across many call sites, and every one after it would shift.
+    _server: HTTPServer,
     logger: pino.Logger,
     serverId: string,
     agentManager: AgentManager,
@@ -732,7 +737,7 @@ export class VoiceAssistantWebSocketServer {
       logger: this.logger,
     });
 
-    this.wss = this.createWebSocketServer(server, wsConfig, auth);
+    this.wss = this.createWebSocketServer(wsConfig, auth);
     this.startRuntimeMetricsInterval();
     this.startApplicationSocketLeaseInterval();
 
@@ -792,14 +797,20 @@ export class VoiceAssistantWebSocketServer {
   }
 
   private createWebSocketServer(
-    server: HTTPServer,
     wsConfig: WebSocketServerConfig,
     auth: DaemonAuthConfig | undefined,
   ): WebSocketServer {
     const { allowedOrigins, hostnames } = wsConfig;
     const password = auth?.password;
+    // noServer: bootstrap.ts routes 'upgrade' events to handleUpgrade() below
+    // explicitly, in priority order alongside the browser-preview and
+    // service-proxy upgrade handlers. Attaching via `server` here would make
+    // `ws` install its own 'upgrade' listener that synchronously aborts any
+    // request whose path isn't "/ws" — including ones another listener has
+    // already started an async claim on, destroying the socket out from
+    // under it. See browser-preview/index.ts's upgradeHandler.
     const wss = new WebSocketServer({
-      server,
+      noServer: true,
       path: "/ws",
       handleProtocols: (protocols) => selectWebSocketProtocol(protocols, password),
       verifyClient: ({ req }, callback) => {
@@ -810,6 +821,20 @@ export class VoiceAssistantWebSocketServer {
       void this.attachAuthenticatedSocket(ws, request, password);
     });
     return wss;
+  }
+
+  // Entry point for bootstrap.ts's explicit upgrade router. shouldHandle()
+  // is the same path check `ws` would otherwise run internally; checking it
+  // first lets the caller try other candidates when this returns false,
+  // instead of the socket being destroyed as a side effect of asking.
+  handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): boolean {
+    if (!this.wss.shouldHandle(req)) {
+      return false;
+    }
+    this.wss.handleUpgrade(req, socket, head, (ws) => {
+      this.wss.emit("connection", ws, req);
+    });
+    return true;
   }
 
   private startRuntimeMetricsInterval(): void {
@@ -1578,6 +1603,10 @@ export class VoiceAssistantWebSocketServer {
       desktopManaged: this.daemonRuntimeConfig?.desktopManaged === true,
       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
       ...(urlOpeners ? { urlOpeners } : {}),
+      // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
+      ...(this.daemonRuntimeConfig?.browserPreviewUrlTemplate
+        ? { browserPreview: { urlTemplate: this.daemonRuntimeConfig.browserPreviewUrlTemplate } }
+        : {}),
       features: {
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,

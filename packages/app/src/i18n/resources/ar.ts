@@ -525,8 +525,17 @@ export const ar: TranslationResources = {
     },
     browser: {
       unavailable: {
-        title: "المتصفح مخصص لسطح المكتب فقط",
-        subtitle: "افتح مساحة العمل هذه في Electron لاستخدام المتصفح المدمج.",
+        title: "المتصفح غير متاح هنا",
+        subtitle: "افتح مساحة العمل هذه في تطبيق سطح المكتب لاستخدام المتصفح.",
+      },
+      previewNotConfigured: {
+        title: "المتصفح غير مُعد على هذا المضيف",
+        subtitle:
+          "اضبط browserPreview.urlTemplate على هذا المضيف لتصفح منافذ localhost الخاصة به من تطبيق الويب. المتصفح يعمل بالفعل لمساحة العمل هذه في تطبيق سطح المكتب.",
+      },
+      unspecifiedAddress: {
+        title: "لا يمكن للمتصفح فتح هذا العنوان",
+        subtitle: "{{address}} هو عنوان استماع، وليس صفحة يمكن فتحها.",
       },
       session: "جلسة المتصفح{{browserId}}",
       controls: {

@@ -1,5 +1,6 @@
 import express from "express";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
+import type { Socket } from "node:net";
 import { constants, existsSync, unlinkSync } from "fs";
 import { open } from "fs/promises";
 import { randomUUID } from "node:crypto";
@@ -178,6 +179,8 @@ import type {
 } from "./agent/provider-launch-config.js";
 import { loadPersistedConfig, type PersistedConfig } from "./persisted-config.js";
 import { createServiceProxySubsystem, type ServiceProxySubsystem } from "./service-proxy.js";
+import { createBrowserPreviewSubsystem } from "./browser-preview/index.js";
+import { parseBrowserPreviewTemplate } from "./browser-preview/url-template.js";
 import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
 import { ScriptHealthMonitor } from "./script-health-monitor.js";
 import { createScriptStatusEmitter } from "./script-status-projection.js";
@@ -416,6 +419,7 @@ export interface PaseoDaemonConfig {
     publicBaseUrl: string | null;
     standaloneListen: string | null;
   };
+  browserPreviewUrlTemplate: string | null;
   webUi?: {
     enabled: boolean;
     distDir: string | null;
@@ -631,6 +635,12 @@ export async function createPaseoDaemon(
     logger,
     publicBaseUrl: serviceProxyPublicBaseUrl,
   });
+  const browserPreview = createBrowserPreviewSubsystem({
+    template: config.browserPreviewUrlTemplate
+      ? parseBrowserPreviewTemplate(config.browserPreviewUrlTemplate)
+      : null,
+    logger,
+  });
   const scriptRuntimeStore = new WorkspaceScriptRuntimeStore();
   const workspaceSetupRuntime = new WorkspaceSetupRuntime();
   const configuredHostnames = config.hostnames ?? config.allowedHosts;
@@ -659,6 +669,12 @@ export async function createPaseoDaemon(
     },
     logger,
   });
+
+  // Browser preview resolves loopback ports for the web build. It must run
+  // before the service proxy: classifyHost's known-service-miss branches would
+  // otherwise 404 preview hosts under a configured public base. Like service
+  // routes, handled requests never reach the host allowlist below.
+  app.use(browserPreview.middleware());
 
   // Service proxy classifies service hosts before daemon auth/route fallthrough.
   // Registered service hosts proxy directly; known service namespaces without a
@@ -805,11 +821,27 @@ export async function createPaseoDaemon(
 
   const httpServer = createHTTPServer(app);
 
-  // Script proxy WebSocket upgrade handler — must be registered before the
-  // VoiceAssistantWebSocketServer attaches its own "upgrade" listener so that
-  // script-bound upgrades are forwarded first. The handler is a no-op for
-  // requests that don't match a registered script route.
-  httpServer.on("upgrade", serviceProxy.upgradeHandler({ passthroughUnknown: true }));
+  // A single explicit router replaces three independent 'upgrade' listeners.
+  // Each candidate's claim decision — template.matchHost, wss.shouldHandle,
+  // classifyHost — is synchronous, so checking them in priority order here,
+  // before any of them starts async work (a loopback dial, a WS handshake),
+  // is what keeps one candidate's claim from being destroyed by another's
+  // fallback running later on the same 'upgrade' event. `ws`'s own
+  // {server, path} attachment can't coexist with that — see
+  // websocket-server.ts's createWebSocketServer.
+  //
+  // Order: preview (host match) before the daemon's own /ws (path match)
+  // before service proxy (host match, terminal). A preview host must win on
+  // any path per browser-preview/index.ts, and service proxy's
+  // passthroughUnknown:false fallback must run last so it never destroys a
+  // socket the daemon's own control plane or a preview host already claimed.
+  const previewUpgradeHandler = browserPreview.upgradeHandler();
+  const serviceProxyUpgradeHandler = serviceProxy.upgradeHandler({ passthroughUnknown: false });
+  httpServer.on("upgrade", (req: IncomingMessage, socket: Socket, head: Buffer) => {
+    if (previewUpgradeHandler(req, socket, head)) return;
+    if (wsServer?.handleUpgrade(req, socket, head)) return;
+    serviceProxyUpgradeHandler(req, socket, head);
+  });
 
   if (config.serviceProxy?.standaloneListen) {
     serviceProxyListenTarget = parseListenString(config.serviceProxy.standaloneListen);
@@ -1574,6 +1606,7 @@ export async function createPaseoDaemon(
                 worktreesRoot: config.worktreesRoot,
                 appBaseUrl: config.appBaseUrl,
                 desktopManaged: config.desktopManaged === true,
+                browserPreviewUrlTemplate: config.browserPreviewUrlTemplate,
                 getRelayConfig: () =>
                   relayRuntime?.getConfig() ?? {
                     enabled: daemonConfigStore.get().relay?.enabled ?? relayEnabled,

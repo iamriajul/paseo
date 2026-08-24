@@ -529,8 +529,18 @@ export const ja: TranslationResources = {
     },
     browser: {
       unavailable: {
-        title: "ブラウザはデスクトップ専用です",
-        subtitle: "組み込みブラウザを使用するには、このワークスペースをElectronで開いてください。",
+        title: "ブラウザはここでは利用できません",
+        subtitle:
+          "ブラウザを使用するには、このワークスペースをデスクトップアプリで開いてください。",
+      },
+      previewNotConfigured: {
+        title: "このホストではブラウザが設定されていません",
+        subtitle:
+          "このホストに browserPreview.urlTemplate を設定すると、Web アプリからこのホストの localhost ポートを閲覧できるようになります。デスクトップアプリでは、このワークスペースのブラウザはすでに利用できます。",
+      },
+      unspecifiedAddress: {
+        title: "ブラウザはこのアドレスを開けません",
+        subtitle: "{{address}} はリッスンアドレスであり、開けるページではありません。",
       },
       session: "ブラウザセッション{{browserId}}",
       controls: {

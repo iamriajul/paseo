@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolvePaseoNodeEnv } from "./paseo-env.js";
 import { z } from "zod";
 import { expandTilde } from "../utils/path.js";
+import { parseBrowserPreviewTemplate } from "./browser-preview/url-template.js";
 
 import type { PaseoDaemonConfig } from "./bootstrap.js";
 import {
@@ -298,6 +299,16 @@ function resolveServiceProxyConfig(
   return { publicBaseUrl, standaloneListen };
 }
 
+export function resolveBrowserPreviewUrlTemplate(
+  env: NodeJS.ProcessEnv,
+  persisted: ReturnType<typeof loadPersistedConfig>,
+): string | null {
+  const raw =
+    env.PASEO_BROWSER_PREVIEW_URL_TEMPLATE ?? persisted.daemon?.browserPreview?.urlTemplate ?? null;
+  if (raw === null) return null;
+  return parseBrowserPreviewTemplate(raw).raw;
+}
+
 interface ResolvedWebUi {
   enabled: boolean;
   distDir: string | null;
@@ -504,6 +515,7 @@ export function loadConfig(
     cliRelayUseTls: options?.cli?.relayUseTls,
   });
   const serviceProxy = resolveServiceProxyConfig(env, persisted);
+  const browserPreviewUrlTemplate = resolveBrowserPreviewUrlTemplate(env, persisted);
   const webUi = resolveWebUiConfig(paseoHome, env, options?.cli, persisted);
 
   const { openai, speech } = resolveSpeechConfig({
@@ -546,6 +558,7 @@ export function loadConfig(
     relayUseTls: relay.useTls,
     relayPublicUseTls: relay.publicUseTls,
     serviceProxy,
+    browserPreviewUrlTemplate,
     webUi,
     appBaseUrl,
     auth: resolveAuthConfig(env, persisted),

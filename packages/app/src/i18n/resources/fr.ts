@@ -529,8 +529,18 @@ export const fr: TranslationResources = {
     },
     browser: {
       unavailable: {
-        title: "Le navigateur est réservé au bureau",
-        subtitle: "Ouvrez cet espace de travail dans Electron pour utiliser le navigateur intégré.",
+        title: "Le navigateur n'est pas disponible ici",
+        subtitle:
+          "Ouvrez cet espace de travail dans l'application de bureau pour utiliser le navigateur.",
+      },
+      previewNotConfigured: {
+        title: "Le navigateur n'est pas configuré sur cet hôte",
+        subtitle:
+          "Définissez browserPreview.urlTemplate sur cet hôte pour parcourir ses ports localhost depuis l'application web. Le navigateur fonctionne déjà pour cet espace de travail dans l'application de bureau.",
+      },
+      unspecifiedAddress: {
+        title: "Le navigateur ne peut pas ouvrir cette adresse",
+        subtitle: "{{address}} est une adresse d'écoute, pas une page que vous pouvez ouvrir.",
       },
       session: "Session de navigateur{{browserId}}",
       controls: {

@@ -17,6 +17,7 @@ export interface DaemonRuntimeConfig {
   worktreesRoot?: string;
   appBaseUrl?: string;
   desktopManaged?: boolean;
+  browserPreviewUrlTemplate?: string | null;
   getRelayConfig(): {
     enabled: boolean;
     endpoint: string;

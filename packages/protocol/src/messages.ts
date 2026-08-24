@@ -3224,6 +3224,14 @@ export const ServerInfoStatusPayloadSchema = z
           .optional(),
       })
       .optional(),
+    // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
+    // Presence of a valid urlTemplate IS the capability; there is deliberately no
+    // features.browserPreview flag, so the two can never disagree.
+    browserPreview: z
+      .object({
+        urlTemplate: z.string().min(1).optional(),
+      })
+      .optional(),
     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
     features: z
       .object({

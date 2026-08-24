@@ -1,12 +1,12 @@
 # Browser Localhost Routing
 
-The in-app Browser on Electron desktop and Android has workspace-aware localhost routing. When a Browser tab belongs to a workspace on host `H`, loopback URLs loaded inside that Browser are resolved against host `H`, not against the machine running the client.
+The in-app Browser has workspace-aware localhost routing on Electron desktop, Android, and web builds. When a Browser tab belongs to a workspace on host `H`, loopback URLs loaded inside that Browser are resolved against host `H`, not against the machine running the client.
 
 This is separate from the service proxy. The service proxy exposes `paseo.json` service scripts through generated hostnames and optional public URLs. Browser localhost routing is for raw loopback URLs that a user or page enters directly, such as `http://localhost:5173`, `http://127.0.0.1:3000`, or a WebSocket opened to `ws://localhost:3000`.
 
 ## Routing scope
 
-- Applies to Electron Browser panes and browser automation tabs, plus human-operated Android Browser panes. Browser automation and DevTools remain Electron-only.
+- Applies to Electron Browser panes and browser automation tabs, human-operated Android Browser panes, and web build Browser panes on hosts that advertise a preview template. Browser automation and DevTools remain Electron-only.
 - Applies per Browser instance. Each Browser uses its own Electron session partition, so multiple Browser panes can point `localhost:3000` at different workspace hosts at the same time.
 - Android's WebView proxy override is process-wide, so Android activates one selected host route at a time. Tabs for that host share it; switching hosts unmounts the previous host's WebViews, closes its tunnels, rotates proxy credentials, and reloads saved URLs when that host is selected again.
 - Electron retains its existing loopback set: `localhost`, `*.localhost`, `127.*`, `::1`, `::`, and `0.0.0.0`. Android tunnels only standard loopback names and addresses (`localhost`, `*.localhost`, valid `127.*`, and `::1`); unspecified listen addresses are rejected. Explicit IPv6 loopback URLs are tunneled to `::1` on the host daemon; all other tunneled forms use `127.0.0.1`.
@@ -52,6 +52,87 @@ Android requires both `PROXY_OVERRIDE` and `PROXY_OVERRIDE_REVERSE_BYPASS`. If t
 - Host changes clear the old proxy override before the new route becomes usable. Native operation generations prevent a late start callback from replacing a newer route.
 - Settings > General > Clear browser data clears WebView cookies, cache, DOM storage, form data, and live histories, then reloads Browser panes. It does not delete tab records or saved URLs.
 
+## Web build
+
+A web build Browser tab has no engine hook to install a proxy into — an `<iframe>` can only load URLs the user's own browser can reach, so `http://localhost:3000` typed into a web build resolves against the _user's_ machine, not the daemon's. Electron and Android solve this client-side, inside the browser engine; the web build cannot, so the daemon solves it instead by serving an origin per loopback port and reverse-proxying it.
+
+```
+browser ──HTTP/WS──> 3000--daemon-1.studio.example.com
+                       └─> daemon (Host-matched) ──> 127.0.0.1:3000
+                                                     Host: localhost:3000
+```
+
+An inbound `Host` header matching a configured hostname template is forwarded to `127.0.0.1:<port>` on the daemon's own machine, with `Host` forged back to `localhost:<port>` so the dev server sees an ordinary loopback request — Vite host checks, cookie domains, and CORS behave as they do locally. WebSocket upgrades are proxied the same way, so HMR needs no special handling. There is no Service Worker and no injected script; the daemon does the proxying, and the app's own part is resolving each tab's URL before it ever reaches the iframe.
+
+That resolution is what decides preview versus direct: a loopback host and port substitute `{port}` into the template already received on `server_info`; everything else loads directly in the iframe. A direct `src` is the tab's raw, unvalidated URL, so `web-preview-url.ts` allowlists `http:`/`https:` before it reaches the iframe — `normalizeBrowserUrl` otherwise passes any `scheme:`-prefixed string through unchanged, so without this check a `javascript:` or `data:` URL on a tab record would execute in the app's own origin. The preview path skips the check: that URL is built from the host's own `browserPreview.urlTemplate`, a trusted config value, not arbitrary input. Electron and Android already gate navigation to unsupported schemes before a page loads; the web iframe had no equivalent and cannot gain a reactive one, because a cross-origin `<iframe>` emits no navigation events its parent could inspect — the same constraint behind the address-bar limitation below.
+
+### Configuration
+
+Set a hostname template with exactly one `{port}` placeholder in the **hostname** (not the path or query), either under `daemon.browserPreview.urlTemplate` in `~/.paseo/config.json` or as `PASEO_BROWSER_PREVIEW_URL_TEMPLATE` (the environment variable wins, matching `serviceProxy`'s own env-over-config precedent). One template covers both deployment shapes:
+
+```json
+// dedicated wildcard — the common case
+{
+  "version": 1,
+  "daemon": {
+    "browserPreview": {
+      "urlTemplate": "https://{port}.preview.example.com"
+    }
+  }
+}
+```
+
+```json
+// one daemon in an orchestrated fleet sharing *.studio.example.com
+{
+  "version": 1,
+  "daemon": {
+    "browserPreview": {
+      "urlTemplate": "https://{port}--daemon-1.studio.example.com"
+    }
+  }
+}
+```
+
+An invalid template — a missing or repeated placeholder, a placeholder outside the hostname, or a label that would exceed DNS's 63-character limit once a five-digit port is substituted — fails daemon startup with a clear error instead of silently not working. Unlike service-proxy's generated hostnames, which shorten an over-long label with a hash suffix, an over-long preview label is rejected outright: truncating would silently serve a hostname the operator's own DNS was never configured for.
+
+**Configuring this makes every loopback port on that machine reachable by anyone who can resolve the hostname** — not only dev servers, and not only the ports a `paseo.json` service script explicitly registers. A preview request is classified and forwarded ahead of both the host allowlist and daemon password auth (like [service proxy](service-proxy.md) routes, a matched request never calls `next()`), so it gets neither check. This follows the existing precedent that daemon password authentication protects daemon APIs but not proxied dev services (see [Service Proxy](service-proxy.md)) — but that precedent was set for named, enumerable service routes; a preview template resolves _any_ port a client's `Host` header names. This is a deliberate v1 tradeoff, documented rather than gated: operators fronting a fleet should require auth at the ingress.
+
+Wildcard DNS for the template's hostname pattern must point at the daemon's machine. There is no separate `browserPreview.listen` — whatever reverse proxy fronts the daemon's main listener has to route this pattern too, and it must preserve `Host` unchanged: `Host` is the routing key preview parses to recover the port, not incidental metadata.
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name *.preview.example.com;
+
+    location / {
+        proxy_pass http://10.1.1.1:6767;
+        proxy_set_header Host $http_host;
+    }
+}
+```
+
+Use `$http_host`, not `$host` — `$host` drops the port (see service-proxy's own [DNS and reverse proxy setup](service-proxy.md#dns-and-reverse-proxy-setup)).
+
+Each daemon renders its own identity into its own template and advertises it on `server_info.browserPreview.urlTemplate`; the app never reads `PASEO_BROWSER_PREVIEW_URL_TEMPLATE` itself. A mixed fleet therefore needs no client-side configuration — each tab substitutes `{port}` into whichever host it belongs to. A relay host advertises no template and Browser shows its existing unavailable state; relay support is out of scope for this version.
+
+### Fork rationale
+
+This is a fork that merges upstream every release. The preview module is shaped to survive that without becoming a merge conflict, in the same spirit as the Electron partition rationale under Browser profile compatibility below:
+
+- **Classification rides Express mount order, not a branch in `classifyHost`.** `browserPreview.middleware()` is mounted ahead of `serviceProxy.middleware()` (`bootstrap.ts:677` and `:682`). A matched request never calls `next()`, so it never reaches `classifyHost`'s `known-service-miss` branches, which would otherwise 404 a preview host that happens to fall under a configured public base. This feature's own commits touch `service-proxy.ts` only to export two existing helpers; an unrelated earlier commit accounts for the rest of the file's history against `main`, so `git blame` — not a raw diff — is what confirms that.
+- **The forwarding policy is owned, not shared.** Service routes pass `Host` and `X-Forwarded-*` through; preview inverts both, forging `Host` to `localhost:<port>` and dropping `X-Forwarded-*` so the dev server sees what looks like a direct loopback hit. Threading a policy parameter through `proxyHttpRequest`, `proxyUpgradeRequest`, and `buildForwardedHeaders` to share that code would be the more invasive change, so `packages/server/src/server/browser-preview/` owns its own forwarding instead.
+- **Preview hosts bypass the host allowlist by construction, exactly as service routes do.** The allowlist middleware (`bootstrap.ts:687`) only runs when a request reaches it via `next()`, and a handled preview request never does. No `hostnames`/`allowedHosts` entry is needed for the preview hostname pattern.
+
+A fourth constraint surfaced once WebSocket upgrades were wired up. `ws`'s `{ server, path: "/ws" }` attachment installs its own `upgrade` listener that synchronously aborts any request whose path isn't `/ws` — including one another listener already started an async claim on, destroying the socket out from under it before a preview dial could complete, which made HMR impossible. `createWebSocketServer` now attaches with `noServer: true` and exposes `handleUpgrade()` (`websocket-server.ts:813`); `bootstrap.ts` offers each socket to preview, then `/ws`, then the service proxy in one explicit router (`bootstrap.ts:840`), so no listener can abort a claim another intends to make. This incidentally fixed the same race for registered `paseo.json` service WebSocket routes, which predate preview and shared the same failure mode.
+
+Only `normalizeHostHeader` and `stripHopByHopHeaders` are imported from `service-proxy.ts`, one `export` keyword each: host parsing has to agree with `classifyHost`'s own parsing, and hop-by-hop headers are an HTTP fact that would rot if copied. Everything else — the proxy, the template parser, the response rewriter — is fork-owned in `packages/server/src/server/browser-preview/`.
+
+### Known limitations
+
+- **The address bar does not follow in-page navigation.** A cross-origin `<iframe>` emits no navigation events to its parent, so once a page navigates itself — a client-side route change, a redirect — Paseo's address bar keeps showing the last URL it set. Electron's `<webview>` exposes navigation events; a plain `<iframe>` does not, and there is no clean fix.
+- **A port already exposed as a service-proxy route is reachable at two origins.** If a `paseo.json` service script and a manually opened Browser tab point at the same port, the service hostname and the preview hostname are different origins with separate cookie jars — signing in on one does not carry over to the other. This is intended: [service proxy](service-proxy.md) routes and preview routes serve different purposes, and neither is aware of the other's routes.
+
 ## Code Server
 
 Hosts may advertise optional Code Server openers in `server_info.urlOpeners.codeServer`.
@@ -87,3 +168,10 @@ npx vitest run packages/server/src/server/tcp-tunnel-forwarder.test.ts --bail=1
 For full Electron behavior, use a real Browser pane or browser automation tab because the important behavior depends on Electron session proxying and webview partitions.
 
 Android request parsing has Kotlin unit coverage in the local Expo module. `.github/workflows/ci.yml` runs those tests and a one-worker debug assembly only when Android Browser paths change. Do not use local Expo prebuild, Gradle, emulator, Maestro, APK, or AAB builds as routine verification for this feature; use focused JS tests plus formatting, lint, and typecheck locally, and leave native compilation and device validation to GitHub Actions or the cloud release workflow.
+
+Web build routing has unit coverage in the fork-owned proxy module and the app-side URL resolver:
+
+```bash
+npx vitest run packages/server/src/server/browser-preview/index.test.ts packages/server/src/server/browser-preview/url-template.test.ts packages/server/src/server/browser-preview/response-headers.test.ts packages/server/src/server/browser-preview/bootstrap-mount.test.ts packages/server/src/server/config-browser-preview.test.ts --bail=1
+npx vitest run packages/app/src/desktop/browser/pane/web-preview-url.test.ts packages/app/src/desktop/browser/workspace-browser-availability.test.ts packages/app/src/desktop/browser/workspace-browser-preview.test.ts --bail=1
+```

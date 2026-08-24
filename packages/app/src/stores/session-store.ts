@@ -291,6 +291,7 @@ export interface DaemonServerInfo {
   capabilities?: ServerCapabilities;
   features?: ServerInfoStatusPayload["features"];
   urlOpeners?: ServerInfoStatusPayload["urlOpeners"];
+  browserPreview?: ServerInfoStatusPayload["browserPreview"];
 }
 
 export interface AgentTimelineCursorState {
@@ -703,6 +704,13 @@ function areServerInfoUrlOpenersEqual(
   return JSON.stringify(current ?? null) === JSON.stringify(next ?? null);
 }
 
+function areServerInfoBrowserPreviewEqual(
+  current: ServerInfoStatusPayload["browserPreview"] | undefined,
+  next: ServerInfoStatusPayload["browserPreview"] | undefined,
+): boolean {
+  return JSON.stringify(current ?? null) === JSON.stringify(next ?? null);
+}
+
 function isSessionServerInfoUnchanged(input: {
   currentServerInfo: SessionState["serverInfo"] | undefined;
   nextHostname: string | null;
@@ -711,6 +719,7 @@ function isSessionServerInfoUnchanged(input: {
   nextCapabilities: ServerCapabilities | undefined;
   nextFeatures: ServerInfoStatusPayload["features"] | undefined;
   nextUrlOpeners: ServerInfoStatusPayload["urlOpeners"] | undefined;
+  nextBrowserPreview: ServerInfoStatusPayload["browserPreview"] | undefined;
   nextServerId: string;
 }): boolean {
   const {
@@ -721,6 +730,7 @@ function isSessionServerInfoUnchanged(input: {
     nextCapabilities,
     nextFeatures,
     nextUrlOpeners,
+    nextBrowserPreview,
   } = input;
   const prevHostname = currentServerInfo?.hostname?.trim() || null;
   const prevVersion = currentServerInfo?.version?.trim() || null;
@@ -731,7 +741,8 @@ function isSessionServerInfoUnchanged(input: {
     currentServerInfo?.desktopManaged === nextDesktopManaged &&
     areServerCapabilitiesEqual(currentServerInfo?.capabilities, nextCapabilities) &&
     areServerInfoFeaturesEqual(currentServerInfo?.features, nextFeatures) &&
-    areServerInfoUrlOpenersEqual(currentServerInfo?.urlOpeners, nextUrlOpeners)
+    areServerInfoUrlOpenersEqual(currentServerInfo?.urlOpeners, nextUrlOpeners) &&
+    areServerInfoBrowserPreviewEqual(currentServerInfo?.browserPreview, nextBrowserPreview)
   );
 }
 
@@ -908,6 +919,7 @@ export const useSessionStore = create<SessionStore>()(
           const nextCapabilities = info.capabilities;
           const nextFeatures = info.features;
           const nextUrlOpeners = info.urlOpeners;
+          const nextBrowserPreview = info.browserPreview;
 
           if (
             isSessionServerInfoUnchanged({
@@ -918,6 +930,7 @@ export const useSessionStore = create<SessionStore>()(
               nextCapabilities,
               nextFeatures,
               nextUrlOpeners,
+              nextBrowserPreview,
               nextServerId: info.serverId,
             })
           ) {
@@ -940,6 +953,7 @@ export const useSessionStore = create<SessionStore>()(
                   ...(nextCapabilities ? { capabilities: nextCapabilities } : {}),
                   ...(nextFeatures ? { features: nextFeatures } : {}),
                   ...(nextUrlOpeners ? { urlOpeners: nextUrlOpeners } : {}),
+                  ...(nextBrowserPreview ? { browserPreview: nextBrowserPreview } : {}),
                 },
               },
             },

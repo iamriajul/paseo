@@ -525,8 +525,17 @@ export const zhCN: TranslationResources = {
     },
     browser: {
       unavailable: {
-        title: "浏览器仅桌面端可用",
-        subtitle: "在 Electron 中打开此 workspace 以使用内置浏览器。",
+        title: "浏览器在此处不可用",
+        subtitle: "在桌面应用中打开此 workspace 以使用浏览器。",
+      },
+      previewNotConfigured: {
+        title: "此主机上尚未设置浏览器",
+        subtitle:
+          "在此主机上设置 browserPreview.urlTemplate，即可通过 Web 应用浏览其 localhost 端口。在桌面应用中，此 workspace 的浏览器已经可用。",
+      },
+      unspecifiedAddress: {
+        title: "浏览器无法打开此地址",
+        subtitle: "{{address}} 是监听地址，不是可以打开的页面。",
       },
       session: "浏览器会话 {{browserId}}",
       controls: {

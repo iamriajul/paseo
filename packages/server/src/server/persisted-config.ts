@@ -297,6 +297,12 @@ export const PersistedConfigSchema = z
           })
           .strict()
           .optional(),
+        browserPreview: z
+          .object({
+            urlTemplate: z.string().optional(),
+          })
+          .strict()
+          .optional(),
         auth: DaemonAuthSchema.optional(),
       })
       .strict()

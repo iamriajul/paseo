@@ -86,7 +86,8 @@ export async function registerBrowserLoopbackProxy(
     existing.workspaceId = input.workspaceId;
     existing.rendererWebContentsId = input.rendererWebContentsId;
     existing.directLoopback = input.directLoopback === true;
-    await applyProxyToBrowserSession(input.browserId, existing.port);
+    // Re-applying setProxy + closeAllConnections after the guest has attached
+    // kills the first navigation. The first register already bound the session.
     return;
   }
 
@@ -214,6 +215,13 @@ function browserPartition(browserId: string): string {
 
 export function browserLoopbackProxyBypassRules(): string {
   return "<-loopback>";
+}
+
+export function shouldUseDirectLoopback(input: {
+  localDaemonServerId: string;
+  tabServerId: string;
+}): boolean {
+  return input.localDaemonServerId.length > 0 && input.localDaemonServerId === input.tabServerId;
 }
 
 function handleProxyConnection(record: BrowserProxyRecord, socket: Socket): void {

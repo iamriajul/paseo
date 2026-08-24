@@ -24,7 +24,7 @@ import {
   session,
   webContents,
 } from "electron";
-import { registerDaemonManager, resolveDesktopDaemonStatus } from "./daemon/daemon-manager.js";
+import { peekDesktopDaemonServerId, registerDaemonManager } from "./daemon/daemon-manager.js";
 import { parsePassthroughCliArgsFromArgv, runPassthroughCli } from "./daemon/cli/passthrough.js";
 import { closeAllTransportSessions } from "./daemon/local-transport.js";
 import {
@@ -72,6 +72,7 @@ import {
   handleLoopbackTunnelOpenResult,
   registerBrowserLoopbackProxy,
   resolveBrowserLoopbackProxyCredentials,
+  shouldUseDirectLoopback,
   unregisterBrowserLoopbackProxy,
 } from "./features/browser-loopback-proxy.js";
 import {
@@ -466,11 +467,13 @@ ipcMain.handle("paseo:browser:register-workspace-browser", async (event, rawInpu
   const input = readBrowserWorkspaceInput(rawInput);
   if (input) {
     registerPaseoBrowserWorkspace(input);
-    const daemonStatus = await resolveDesktopDaemonStatus();
     await registerBrowserLoopbackProxy({
       ...input,
       rendererWebContentsId: event.sender.id,
-      directLoopback: Boolean(daemonStatus.serverId && daemonStatus.serverId === input.serverId),
+      directLoopback: shouldUseDirectLoopback({
+        localDaemonServerId: peekDesktopDaemonServerId(),
+        tabServerId: input.serverId,
+      }),
     });
   }
 });

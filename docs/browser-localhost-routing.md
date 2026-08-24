@@ -17,10 +17,10 @@ This is separate from the service proxy. The service proxy exposes `paseo.json` 
 
 ## How it works
 
-1. The renderer registers each Browser with Electron main using `{ browserId, serverId, workspaceId }`.
-2. Electron main creates a loopback HTTP proxy for that Browser and applies it to the Browser's `persist:paseo-browser-${browserId}` session partition with loopback proxy bypass disabled. The proxy requires per-Browser Basic proxy auth; Electron main only supplies those credentials for the matching Browser webContents.
+1. The renderer registers each Browser with Electron main using `{ browserId, serverId, workspaceId }` before the first real navigation. Human-operated panes start on `about:blank`, wait for that IPC, then `loadURL`. Automation registers, then creates the resident webview.
+2. Electron main creates a loopback HTTP proxy for that Browser and applies it to the Browser's `persist:paseo-browser-${browserId}` session partition with loopback proxy bypass disabled. The proxy requires per-Browser Basic proxy auth; Electron main only supplies those credentials for the matching Browser webContents. If the tab's `serverId` matches the already-known local desktop daemon, loopback connects directly on this machine instead of opening a workspace TCP tunnel.
 3. For non-loopback requests, the proxy connects directly to the requested host.
-4. For loopback requests, the proxy asks the renderer to open a TCP tunnel on the Browser's registered `serverId`.
+4. For loopback requests on a remote host, the proxy asks the renderer to open a TCP tunnel on the Browser's registered `serverId`.
 5. The renderer uses that host's existing daemon WebSocket client to open a binary TCP tunnel to the daemon.
 6. The daemon connects to `127.0.0.1:<port>` or `::1:<port>` on its own machine and relays bytes over the WebSocket tunnel.
 
@@ -147,6 +147,7 @@ Hosts may advertise optional Code Server openers in `server_info.urlOpeners.code
 - The client sends only a port plus a loopback-family enum to the daemon. Hostname normalization happens in Electron main, and the daemon only dials `127.0.0.1` or `::1`.
 - Browser panes delay their first navigation until workspace Browser registration finishes, so the initial `localhost` load uses the correct session proxy.
 - Browser automation registers the Browser before creating its resident webview for the same reason.
+- Do not spawn `daemon status` or any other CLI from `register-workspace-browser`. That IPC sits on the new-tab path before attach; a slow child process races the 5s automation wait and can `closeAllConnections` after the guest has already started. Direct-loopback reads the last successful desktop daemon status probe instead.
 - Do not route Browser localhost through generated service-proxy hostnames. That would change the visible origin and break pages that expect `localhost`.
 - Normal HTTP proxy requests force `Connection: close` after the rewritten request. This makes Chromium open a fresh proxy connection for later Vite module requests, so every request is parsed and rewritten from proxy absolute-form to origin-form. WebSocket upgrade requests keep their upgrade connection for HMR.
 

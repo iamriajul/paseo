@@ -518,7 +518,7 @@ export class ProviderSnapshotManager {
         ),
       );
       for (const cwd of this.snapshots.keys()) {
-        this.pruneProviderLoadsForCwd(cwd, preservedProviders);
+        this.replaceProviderLoadsForCwd(cwd, preservedProviders);
         this.snapshots.set(cwd, this.reconcileSnapshotForRegistry(cwd));
       }
 
@@ -750,16 +750,21 @@ export class ProviderSnapshotManager {
     return entries;
   }
 
-  private pruneProviderLoadsForCwd(cwd: string, preservedProviders: Set<string>): void {
+  private replaceProviderLoadsForCwd(cwd: string, preservedProviders: Set<string>): void {
     const providerLoads = this.providerLoads.get(cwd);
     if (!providerLoads) return;
-    for (const provider of Array.from(providerLoads.keys())) {
-      if (preservedProviders.has(provider)) continue;
-      providerLoads.delete(provider);
-    }
-    if (providerLoads.size === 0) {
+    // Replace the outer map entry instead of mutating the inner map. In-flight
+    // refreshes and rollback snapshots close over the original inner maps.
+    if (preservedProviders.size === 0) {
       this.providerLoads.delete(cwd);
+      return;
     }
+    const nextLoads = new Map<AgentProvider, ProviderLoad>();
+    for (const [provider, load] of providerLoads) {
+      if (preservedProviders.has(provider)) nextLoads.set(provider, load);
+    }
+    if (nextLoads.size === 0) this.providerLoads.delete(cwd);
+    else this.providerLoads.set(cwd, nextLoads);
   }
 
   private reconcileSnapshotForRegistry(cwd: string): Map<AgentProvider, ProviderSnapshotEntry> {
@@ -778,11 +783,7 @@ export class ProviderSnapshotManager {
         defaultModeId: definition?.defaultModeId ?? null,
       };
 
-      if (
-        !definition?.enabled ||
-        !current ||
-        (current.status === "loading" && !this.getProviderLoad(cwd, provider))
-      ) {
+      if (!definition?.enabled) {
         entries.set(provider, {
           ...metadata,
           status: "unavailable",

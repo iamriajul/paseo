@@ -268,6 +268,50 @@ function pickMetadataGenerationPatch(
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
+function isDefaultCustomEndpoint(
+  endpoint: MutableDaemonConfig["metadataGeneration"]["customEndpoint"] | undefined,
+): boolean {
+  return (
+    endpoint !== undefined &&
+    endpoint.enabled === false &&
+    endpoint.baseUrl === "" &&
+    endpoint.apiKey === "" &&
+    endpoint.model === ""
+  );
+}
+
+function persistMetadataGeneration(input: {
+  merged: MutableDaemonConfig["metadataGeneration"] | undefined;
+  patch: NonNullable<SupportedMutableConfigPatch["metadataGeneration"]>;
+  persisted: PersistedConfig["agents"] extends infer T
+    ? T extends { metadataGeneration?: infer M }
+      ? M
+      : unknown
+    : unknown;
+}): Record<string, unknown> {
+  const persistedRecord =
+    input.persisted && typeof input.persisted === "object"
+      ? (input.persisted as Record<string, unknown>)
+      : {};
+  const next: Record<string, unknown> = { ...persistedRecord };
+  if (input.merged) {
+    Object.assign(next, input.merged);
+  }
+  if (input.patch.providers !== undefined) next["providers"] = input.patch.providers;
+  if (input.patch.customEndpoint !== undefined) next["customEndpoint"] = input.patch.customEndpoint;
+  const endpoint = next["customEndpoint"] as
+    | MutableDaemonConfig["metadataGeneration"]["customEndpoint"]
+    | undefined;
+  if (
+    input.patch.customEndpoint === undefined &&
+    persistedRecord["customEndpoint"] === undefined &&
+    isDefaultCustomEndpoint(endpoint)
+  ) {
+    delete next["customEndpoint"];
+  }
+  return next;
+}
+
 function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMutableConfigPatch {
   const metadataGeneration = pickMetadataGenerationPatch(patch.metadataGeneration);
   return {
@@ -398,6 +442,7 @@ export class DaemonConfigStore {
     const { previous: persistedBeforePatch, knownNext } = this.persistConfig(
       configPatch,
       removedProviders,
+      next,
     );
     if (!configChanged) {
       this.lastKnownPersisted = knownNext;
@@ -576,6 +621,7 @@ export class DaemonConfigStore {
   private persistConfig(
     patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
     removeProviders: readonly string[],
+    mergedConfig: MutableDaemonConfig,
   ): { previous: PersistedConfig; knownNext: PersistedConfig } {
     const persisted = loadPersistedConfig(this.paseoHome, this.logger);
     const merge = (source: PersistedConfig) =>
@@ -584,6 +630,8 @@ export class DaemonConfigStore {
         patch,
         removeProviders,
         persistRelayEnabled: this.relayEnabledMutable,
+        mergedMetadataGeneration:
+          patch.metadataGeneration !== undefined ? mergedConfig.metadataGeneration : undefined,
       });
     const nextPersisted = merge(persisted);
     const knownNext = merge(this.lastKnownPersisted);
@@ -597,10 +645,17 @@ function mergeMutablePatchIntoPersistedConfig(params: {
   patch: Omit<SupportedMutableConfigPatch, "removeProviders">;
   removeProviders: readonly string[];
   persistRelayEnabled: boolean;
+  mergedMetadataGeneration?: MutableDaemonConfig["metadataGeneration"];
 }): PersistedConfig {
-  const { persisted, patch, removeProviders, persistRelayEnabled } = params;
+  const { persisted, patch, removeProviders, persistRelayEnabled, mergedMetadataGeneration } =
+    params;
   const daemon = mergeMutableDaemonPatch(persisted.daemon, patch, persistRelayEnabled);
-  const agents = mergeMutableAgentPatch(persisted.agents, patch, removeProviders);
+  const agents = mergeMutableAgentPatch(
+    persisted.agents,
+    patch,
+    removeProviders,
+    mergedMetadataGeneration,
+  );
   return {
     ...persisted,
     ...(patch.pluginsEnabled !== undefined ? { pluginsEnabled: patch.pluginsEnabled } : {}),
@@ -614,6 +669,7 @@ function mergeMutableAgentPatch(
   persistedAgents: PersistedConfig["agents"],
   patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
   removeProviders: readonly string[],
+  mergedMetadataGeneration?: MutableDaemonConfig["metadataGeneration"],
 ): PersistedConfig["agents"] {
   if (
     patch.providers === undefined &&
@@ -637,18 +693,11 @@ function mergeMutableAgentPatch(
   else delete next["providers"];
 
   if (patch.metadataGeneration !== undefined) {
-    const existing =
-      (next["metadataGeneration"] as Record<string, unknown> | undefined) ??
-      (persistedAgents?.metadataGeneration as Record<string, unknown> | undefined) ??
-      {};
-    const nextMetadata: Record<string, unknown> = { ...existing };
-    if (patch.metadataGeneration.providers !== undefined) {
-      nextMetadata["providers"] = patch.metadataGeneration.providers;
-    }
-    if (patch.metadataGeneration.customEndpoint !== undefined) {
-      nextMetadata["customEndpoint"] = patch.metadataGeneration.customEndpoint;
-    }
-    next["metadataGeneration"] = nextMetadata;
+    next["metadataGeneration"] = persistMetadataGeneration({
+      merged: mergedMetadataGeneration,
+      patch: patch.metadataGeneration,
+      persisted: persistedAgents?.metadataGeneration,
+    });
   } else if (removeProviders.length > 0 && persistedAgents?.metadataGeneration?.providers) {
     const removed = new Set(removeProviders);
     next["metadataGeneration"] = {

@@ -4,13 +4,20 @@ import { Pressable, Text, View, type GestureResponderEvent } from "react-native"
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   ExternalLink,
+  Folder,
+  GitBranch,
   GitMerge,
   GitPullRequest,
   GitPullRequestClosed,
   Globe,
 } from "lucide-react-native";
+import {
+  workspaceLabelKey,
+  type WorkspaceLabelDefinition,
+} from "@getpaseo/protocol/workspace-labels";
 import type { HostBadgeModel } from "@/hosts/appearance";
 import { HostBadge, HOST_BADGE_ICON_SIZE } from "@/hosts/host-badge";
+import { WorkspaceLabelChip, WORKSPACE_LABEL_CHIP_INSET } from "@/workspace-labels/chip";
 import type { PrHint } from "@/git/pr-hint";
 import { getForgePresentation, normalizeForge } from "@/git/forge";
 import { openExternalUrl } from "@/utils/open-external-url";
@@ -35,43 +42,62 @@ export {
 const META_ICON_SIZE = HOST_BADGE_ICON_SIZE;
 
 const ThemedExternalLink = withUnistyles(ExternalLink);
+const ThemedFolder = withUnistyles(Folder);
+const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);
 const ThemedGitMerge = withUnistyles(GitMerge);
 const ThemedGitPullRequestClosed = withUnistyles(GitPullRequestClosed);
 const ThemedGlobe = withUnistyles(Globe);
 
+/** Stable identity so a row without labels doesn't re-select its items on every render. */
+const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
+
 const foregroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
+const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const mergedMapping = (theme: Theme) => ({ color: theme.colors.statusMerged });
 const dangerMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
 
 /**
  * The subtitle under a workspace title: which host it lives on, its change request, that
- * change request's CI, and any running service. Everything the row knows about a workspace
- * that isn't its name.
+ * change request's CI, any running service, and the labels someone put on it. Everything the
+ * row knows about a workspace that isn't its name.
  *
  * Items are peers separated by a dot rather than ranked by chrome. The host used to be a
  * tinted pill on the title line, which made it the loudest thing in a row whose subject is
- * the title; flattening it lets the whole line read as one piece of secondary text and
- * leaves color to mean status.
+ * the title; flattening it lets the line read as one piece of secondary text.
+ *
+ * Labels are the one exception, and a deliberate one. Everything else here reports state, and
+ * state has its own colors — a label is a name a person chose, so it carries its own identity
+ * color on a tint instead (see `WorkspaceLabelChip`). It sits last so the reported facts are
+ * read first, and it stays the same height as the rest of the line.
  */
 export function WorkspaceMetaRow({
+  currentBranch,
+  projectName,
   hostBadge,
   projectSubtitle = null,
   prHint,
   serviceSummary,
+  labels = EMPTY_LABELS,
 }: {
+  currentBranch: string | null;
+  projectName: string | null;
   hostBadge: HostBadgeModel | null;
   /** When set (status grouping + project subtitle pref), replaces host identity. */
   projectSubtitle?: string | null;
   prHint: PrHint | null;
   serviceSummary: WorkspaceServiceSummary | null;
+  labels?: readonly WorkspaceLabelDefinition[];
 }) {
   const { rowItems, checksDisplay } = useSidebarMetaPreferences();
   const items = selectMetaRowItems({
+    currentBranch,
+    projectName,
     hasHostBadge: hostBadge !== null,
     projectSubtitle,
     prHint,
     serviceSummary,
+    labels,
     visible: rowItems,
     checksDisplay,
   });
@@ -83,7 +109,7 @@ export function WorkspaceMetaRow({
       {items.map((item, index) => (
         <Fragment key={item.kind === "project" ? `project-${item.name}` : item.kind}>
           {index > 0 ? <Text style={styles.separator}>·</Text> : null}
-          <MetaItemNode item={item} hostBadge={hostBadge} />
+          <MetaItemNode item={item} hostBadge={hostBadge} leading={index === 0} />
         </Fragment>
       ))}
     </View>
@@ -93,19 +119,21 @@ export function WorkspaceMetaRow({
 function MetaItemNode({
   item,
   hostBadge,
+  leading,
 }: {
   item: MetaRowItem;
   hostBadge: HostBadgeModel | null;
+  /** First on the line, so this item's ink sets the rail the title above it already uses. */
+  leading: boolean;
 }): ReactNode {
-  if (item.kind === "host") {
-    return hostBadge ? <HostBadge badge={hostBadge} /> : null;
+  if (item.kind === "branch") {
+    return <IdentityItem kind="branch" name={item.name} />;
   }
   if (item.kind === "project") {
-    return (
-      <Text style={styles.projectName} numberOfLines={1}>
-        {item.name}
-      </Text>
-    );
+    return <IdentityItem kind="project" name={item.name} />;
+  }
+  if (item.kind === "host") {
+    return hostBadge ? <HostBadge badge={hostBadge} /> : null;
   }
   if (item.kind === "changeRequest") {
     return <PullRequestItem hint={item.hint} />;
@@ -113,7 +141,53 @@ function MetaItemNode({
   if (item.kind === "checks") {
     return <ChecksItem summary={item.summary} label={item.label} />;
   }
+  if (item.kind === "labels") {
+    return <LabelsItem labels={item.labels} leading={leading} />;
+  }
   return <ServiceItem summary={item.summary} />;
+}
+
+function IdentityItem({ kind, name }: { kind: "branch" | "project"; name: string }) {
+  const Icon = kind === "branch" ? ThemedGitBranch : ThemedFolder;
+  return (
+    <View style={styles.identityItem} testID={`sidebar-workspace-${kind}`}>
+      <View style={styles.identityIcon}>
+        <Icon size={META_ICON_SIZE} uniProps={mutedMapping} />
+      </View>
+      <Text style={styles.identityText} numberOfLines={1}>
+        {name}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Every label on the workspace, in one run. The chips sit closer to each other than the line's
+ * items do to each other, so several labels still read as one item rather than as new peers,
+ * and they take no separator between them — each chip's ground already ends it.
+ *
+ * The run shrinks and clips, the way the host badge does. A `+N` counter would be a second
+ * thing to read on a line that exists to be skimmed.
+ *
+ * A workspace whose only meta item is its labels puts a chip where every other row puts a glyph,
+ * and a chip's ground is chrome — so it hangs left by its own padding and the label's first
+ * letter lands on the rail the title above it uses. Mid-line the ground stays in the flow: there
+ * is a separator to its left, and pulling the tint up against that dot buys nothing.
+ */
+function LabelsItem({
+  labels,
+  leading,
+}: {
+  labels: readonly WorkspaceLabelDefinition[];
+  leading: boolean;
+}) {
+  return (
+    <View style={[styles.labels, leading && styles.labelsLeading]}>
+      {labels.map((label) => (
+        <WorkspaceLabelChip key={workspaceLabelKey(label.name)} label={label} />
+      ))}
+    </View>
+  );
 }
 
 /**
@@ -278,21 +352,48 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     flexShrink: 0,
   },
+  identityItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  identityIcon: {
+    flexShrink: 0,
+  },
+  identityText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 1,
+  },
   itemPressed: {
     opacity: 0.82,
   },
   separator: {
     color: theme.colors.foregroundExtraMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
   },
   projectName: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 1,
     minWidth: 0,
+  },
+  // Tighter than the line's own gap so a run of chips reads as one item — see `LabelsItem`.
+  labels: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  labelsLeading: {
+    marginLeft: -WORKSPACE_LABEL_CHIP_INSET,
   },
   // The one item that gives way when the line runs out of room — see `ServiceItem`.
   serviceItem: {
@@ -304,44 +405,44 @@ const styles = StyleSheet.create((theme) => ({
   },
   serviceName: {
     color: theme.colors.statusSuccess,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 1,
   },
   serviceNameUnhealthy: {
     color: theme.colors.statusDanger,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 1,
   },
   prText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
   },
   prTextHovered: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
   },
   // Matches the indicator — see COLOR_MAPPINGS in check-indicator.tsx.
   checksTextPassed: {
     color: theme.colors.statusSuccess,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
   },
   checksTextFailed: {
     color: theme.colors.statusDanger,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
   },
   checksTextRunning: {
     color: theme.colors.statusWarning,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
   },

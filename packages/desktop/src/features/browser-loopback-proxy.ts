@@ -7,12 +7,15 @@ export interface BrowserLoopbackProxyRegistration {
   serverId: string;
   workspaceId: string;
   rendererWebContentsId: number;
+  /** Local daemon: 127.0.0.1 is this machine, so skip the workspace TCP tunnel. */
+  directLoopback?: boolean;
 }
 
 interface BrowserProxyRecord extends BrowserLoopbackProxyRegistration {
   server: Server;
   port: number;
   auth: BrowserProxyAuth;
+  directLoopback: boolean;
 }
 
 interface BrowserProxyAuth {
@@ -77,12 +80,28 @@ export function resolveBrowserLoopbackProxyCredentials(input: {
 export async function registerBrowserLoopbackProxy(
   input: BrowserLoopbackProxyRegistration,
 ): Promise<void> {
+  const directLoopback = input.directLoopback === true;
   const existing = recordsByBrowserId.get(input.browserId);
+  if (directLoopback) {
+    if (existing) {
+      existing.serverId = input.serverId;
+      existing.workspaceId = input.workspaceId;
+      existing.rendererWebContentsId = input.rendererWebContentsId;
+      existing.directLoopback = true;
+    }
+    // Local daemon: Chromium should use its implicit localhost bypass, not our
+    // workspace tunnel proxy. Installing `<-loopback>` here is what made official
+    // browser-tabs E2E load a blank guest instead of #typing-target.
+    await applyDirectSession(input.browserId);
+    return;
+  }
   if (existing) {
     existing.serverId = input.serverId;
     existing.workspaceId = input.workspaceId;
     existing.rendererWebContentsId = input.rendererWebContentsId;
-    await applyProxyToBrowserSession(input.browserId, existing.port);
+    existing.directLoopback = false;
+    // Re-applying setProxy + closeAllConnections after the guest has attached
+    // kills the first navigation. The first register already bound the session.
     return;
   }
 
@@ -157,6 +176,7 @@ async function createBrowserProxyRecord(
 ): Promise<BrowserProxyRecord> {
   const record: BrowserProxyRecord = {
     ...input,
+    directLoopback: input.directLoopback === true,
     auth: createProxyAuth(),
     server: createServer(),
     port: 0,
@@ -193,6 +213,13 @@ function listenOnLoopback(server: Server): Promise<number> {
   });
 }
 
+async function applyDirectSession(browserId: string): Promise<void> {
+  await electronSession
+    .fromPartition(browserPartition(browserId))
+    .setProxy({ mode: "direct" })
+    .catch(() => undefined);
+}
+
 async function applyProxyToBrowserSession(browserId: string, port: number): Promise<void> {
   const ses = electronSession.fromPartition(browserPartition(browserId));
   await ses.setProxy({
@@ -209,6 +236,13 @@ function browserPartition(browserId: string): string {
 
 export function browserLoopbackProxyBypassRules(): string {
   return "<-loopback>";
+}
+
+export function shouldUseDirectLoopback(input: {
+  localDaemonServerId: string;
+  tabServerId: string;
+}): boolean {
+  return input.localDaemonServerId.length > 0 && input.localDaemonServerId === input.tabServerId;
 }
 
 function handleProxyConnection(record: BrowserProxyRecord, socket: Socket): void {
@@ -270,6 +304,10 @@ async function handleParsedProxyRequest(
 
   const tunnelHost = getLoopbackTunnelHost(parsed.target.host);
   if (tunnelHost) {
+    if (record.directLoopback) {
+      connectDirect(socket, parsed);
+      return;
+    }
     await connectViaWorkspaceTunnel(record, socket, parsed, tunnelHost);
     return;
   }

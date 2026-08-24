@@ -1,4 +1,5 @@
 import type { TranslationResources } from "./en";
+import { pluginSettings } from "./plugin-settings";
 
 export const es: TranslationResources = {
   common: {
@@ -63,6 +64,9 @@ export const es: TranslationResources = {
       workspaces: "Espacios de trabajo",
       agents: "Agentes",
       newAgent: "Nuevo agente",
+      open: "Abrir {{name}}",
+      openInSidePanel: "Abrir {{name}} en el panel lateral",
+      openInFocusedPane: "Abrir {{name}} en el panel enfocado",
       addProject: "Agregar proyecto",
       home: "Hogar",
       groupByProject: "Agrupar por proyecto",
@@ -98,6 +102,7 @@ export const es: TranslationResources = {
       steer: "Dirigir",
       steerHint: "Redirige el turno actual con este mensaje",
       sendAndInterrupt: "Enviar e interrumpir",
+      sendAndSteer: "Enviar y orientar",
       sendMessage: "enviar mensaje",
       queue: "Cola",
       send: "Enviar",
@@ -231,7 +236,8 @@ export const es: TranslationResources = {
       notFound: "Agentno encontrado",
       failedToLoad: "No se pudo cargar el agente",
       reconnecting: "Reconectando",
-      timelineSyncFailed: "No se pudo actualizar el historial del agente. Reintentando…",
+      timelineSyncFailed: "No se pudo actualizar el historial del agente.",
+      timelineSyncRetrying: "Reintentando…",
       archivingTitle: "Agente de archivo...",
       archivingSubtitle: "Espere mientras archivamos este agente.",
     },
@@ -357,7 +363,6 @@ export const es: TranslationResources = {
       title: "Tareas",
       empty: "Aún no hay tareas.",
       tasksProgress: "{{completed}}/{{total}} tareas",
-      tasksProgressCurrent: "{{completed}}/{{total}} tareas · {{task}}",
       activity: {
         created: "Se crearon {{count}} tareas",
         added: "Añadida",
@@ -529,9 +534,8 @@ export const es: TranslationResources = {
     },
     browser: {
       unavailable: {
-        title: "El navegador no está disponible aquí",
-        subtitle:
-          "Abra este espacio de trabajo en la aplicación de escritorio para usar el navegador.",
+        title: "El navegador es solo para escritorio",
+        subtitle: "Abra este espacio de trabajo en Electron para usar el navegador integrado.",
       },
       previewNotConfigured: {
         title: "El navegador no está configurado en este host",
@@ -557,6 +561,8 @@ export const es: TranslationResources = {
         screenshotCopied: "Captura copiada al portapapeles",
         elementCopied: "Elemento copiado al portapapeles",
         screenshotFailed: "No se pudo copiar la captura",
+        selectorLoading: "Espera a que la página termine de cargar",
+        selectorFailed: "No se pudo iniciar el selector de elementos",
       },
       annotate: {
         title: "Anotar elemento",
@@ -589,7 +595,6 @@ export const es: TranslationResources = {
       loading: "Cargando...",
       modified: "Cambios sin guardar",
       loadingAgentTitle: "Título del agente de carga",
-      emptyPane: "No hay pestañas en este panel.",
       fallback: {
         newAgent: "Nuevo agente",
         setup: "Configuración",
@@ -625,30 +630,37 @@ export const es: TranslationResources = {
         renameAgent: "Cambiar nombre del agente",
       },
       actions: {
+        newTab: "Nueva pestaña",
         newAgent: "Nuevo agente",
         newTerminal: "Nueva terminal",
         preparingTerminal: "Preparando la pestaña del terminal",
         preparingTerminalTooltip: "Preparando terminal...",
         newBrowser: "Nuevo navegador",
         newCodeServer: "New Code Server",
+        maximizePane: "Maximizar panel",
+        restorePane: "Restaurar panel",
+        closePane: "Cerrar panel",
         exitFocusMode: "Salir del modo de concentración",
         splitRight: "Panel dividido a la derecha",
         splitDown: "Dividir panel hacia abajo",
+        changes: "Cambios",
+        files: "Archivos",
+        pullRequest: "Solicitud de extracción",
         terminalProfilesMenu: "Terminal profiles",
-        editTerminalProfiles: "Edit profiles…",
+        editTerminalProfiles: "Edit profiles",
         pinTarget: "Fijar",
         unpinTarget: "Desfijar",
       },
-      explorer: {
-        open: "Explorador abierto",
-        close: "Cerrar explorador",
-        toggle: "Alternar explorador",
+      sidePanel: {
+        open: "Abrir panel lateral",
+        close: "Cerrar panel lateral",
+        toggle: "Alternar panel lateral",
         changes: "Cambios",
         files: "Archivos",
-        ports: "Puertos",
-        portsEmpty: "Aún no hay puertos de scripts del workspace.",
+        ports: "Ports",
+        portsEmpty: "No ports from workspace scripts yet.",
         portMeta: ":{{port}} · {{status}}",
-        portRowA11y: "{{name}}, {{protocol}}, puerto {{port}}",
+        portRowA11y: "{{name}}, {{protocol}}, port {{port}}",
       },
       toasts: {
         copyFailed: "Copia fallida",
@@ -664,6 +676,9 @@ export const es: TranslationResources = {
         failedToCloseAgent: "No se pudo cerrar el agente",
       },
       confirmations: {
+        close: "Cerca",
+        cancel: "Cancelar",
+        archive: "Archivo",
         unsavedTitle: "Cambios sin guardar",
         unsavedMessage:
           "Esta pestaña tiene cambios sin guardar. Al cerrarla se descartará el borrador.",
@@ -671,9 +686,6 @@ export const es: TranslationResources = {
         closePaneTitle: "¿Cerrar panel?",
         bulkUnsaved:
           "{{count}} pestaña(s) tienen cambios sin guardar. Al cerrar se descartarán esos borradores.",
-        close: "Cerca",
-        cancel: "Cancelar",
-        archive: "Archivo",
         closeTerminalTitle: "¿Cerrar terminal?",
         closeTerminalMessage:
           "Cualquier proceso en ejecución en esta terminal se detendrá inmediatamente.",
@@ -702,8 +714,8 @@ export const es: TranslationResources = {
         workspaceActions: "AccionesWorkspace",
         newAgent: "Nuevo agente",
         newTerminal: "Nueva terminal",
-        newCodeServer: "New Code Server",
         newBrowser: "Nueva pestaña del navegador",
+        newCodeServer: "New Code Server",
         importSession: "Importar sesión",
         copyPath: "Copiar ruta del espacio de trabajo",
         copyBranchName: "Copiar nombre de sucursal",
@@ -751,6 +763,10 @@ export const es: TranslationResources = {
         stopFailed: "No se pudo detener{{scriptName}}",
       },
     },
+    tree: {
+      showFolderTree: "Mostrar árbol de carpetas",
+      hideFolderTree: "Ocultar árbol de carpetas",
+    },
     git: {
       actions: {
         moreOptions: "Más opciones",
@@ -776,6 +792,7 @@ export const es: TranslationResources = {
           success: "Tirado y empujado",
         },
         viewPr: "VerPR",
+        viewPr_mr: "Ver MR",
         createPr: {
           label: "CrearPR",
           pending: "CreandoPR...",
@@ -811,7 +828,6 @@ export const es: TranslationResources = {
           pending_mr: "Fusionando MR...",
           success_mr: "MR fusionado",
         },
-        viewPr_mr: "Ver MR",
         autoMerge: {
           enableSquash: "Fusión automática (squash)",
           enableMerge: "Fusión automática (merge)",
@@ -921,23 +937,23 @@ export const es: TranslationResources = {
         split: "Diferencia de lado a lado",
         switchToUnified: "Cambiar a diferencia unificada",
         switchToSplit: "Cambiar a diferencia lado a lado",
-        showTreeView: "Mostrar árbol de carpetas",
-        showFlatView: "Mostrar lista plana de archivos",
         options: "Opciones de diferencia",
         hideWhitespace: "Ocultar espacios en blanco",
         showWhitespace: "Mostrar espacios en blanco",
         scrollLongLines: "Desplazarse por largas filas",
         wrapLongLines: "Envolver largas filas",
-        collapseAll: "Contraer todos los archivos",
-        expandAll: "Expandir todos los archivos",
         collapseAllFolders: "Contraer todas las carpetas",
         expandAllFolders: "Expandir todas las carpetas",
+        collapseAllFiles: "Contraer todos los archivos",
+        expandAllFiles: "Expandir todos los archivos",
         refreshing: "Refrescante",
         refresh: "Refrescar",
         refreshState: "Actualizar el estado de git y {{brand}}",
         failedRefresh: "No se pudo actualizar el estado de git.",
         emptyHiddenWhitespace: "No hay cambios visibles después de ocultar espacios en blanco",
         emptyUncommitted: "Sin cambios no confirmados",
+        seeUncommittedChanges: "Ver cambios no confirmados",
+        seeCommittedChanges: "Ver cambios confirmados",
         emptyAgainstBase: "Sin cambios frente a{{baseRef}}",
         checkingRepository: "Comprobando repositorio...",
         notRepository: "No es un repositorio de git",
@@ -948,6 +964,7 @@ export const es: TranslationResources = {
         base: "base",
         newFile: "Nuevo",
         deletedFile: "Eliminado",
+        modifiedFile: "Modificado",
         commits: {
           title: "Commits",
           countLabel: "{{count}} commits del espacio de trabajo",
@@ -1025,6 +1042,51 @@ export const es: TranslationResources = {
       },
     },
   },
+  workspaceLabels: {
+    title: "Etiquetas",
+    unlabelled: "Sin etiqueta",
+    create: "Crear etiqueta",
+    createConfirm: "Crear",
+    creating: "Creando…",
+    name: "Nombre de la etiqueta",
+    updateHostUse: "Actualiza este host para usar etiquetas.",
+    errors: {
+      update: "No se pudo actualizar la etiqueta",
+      load: "No se pudieron cargar las etiquetas",
+    },
+    colors: {
+      violet: "Violeta",
+      sky: "Celeste",
+      emerald: "Esmeralda",
+      orange: "Naranja",
+      pink: "Rosa",
+      indigo: "Índigo",
+      teal: "Verde azulado",
+      red: "Rojo",
+      amber: "Ámbar",
+      blue: "Azul",
+    },
+    filter: {
+      clear: "Borrar filtro",
+    },
+    manage: {
+      open: "Gestionar etiquetas…",
+      title: "Gestionar etiquetas",
+      search: "Buscar etiquetas",
+      empty: "No hay etiquetas en este host.",
+      edit: "Editar etiqueta",
+      editLabel: "Editar {{name}}",
+      name: "Nombre",
+      color: "Color",
+      save: "Guardar",
+      delete: "Eliminar",
+      deleteTitle: "¿Eliminar {{name}}?",
+      deleteMessage_one: "Esto quita la etiqueta de {{count}} espacio de trabajo en este host.",
+      deleteMessage_other: "Esto quita la etiqueta de {{count}} espacios de trabajo en este host.",
+      offline: "Este host está desconectado.",
+      updateHost: "Actualiza este host para gestionar etiquetas.",
+    },
+  },
   sidebar: {
     display: {
       trigger: "Preferencias de visualización",
@@ -1033,6 +1095,7 @@ export const es: TranslationResources = {
         label: "Agrupación",
         project: "Proyecto",
         status: "Estado",
+        labels: "Etiquetas",
       },
       titleSource: {
         label: "Título",
@@ -1041,11 +1104,14 @@ export const es: TranslationResources = {
       },
       show: {
         label: "Mostrar",
+        branch: "Rama",
+        project: "Proyecto",
         host: "Host",
         changeRequest: "Pull request",
         checks: "Comprobaciones",
         services: "Servicios",
         identityIcon: "Identity icon",
+        labels: "Etiquetas",
         diff: "Estadísticas de cambios",
         timestamp: "Última actividad",
       },
@@ -1063,6 +1129,15 @@ export const es: TranslationResources = {
         label: "Host",
         all: "Todos los hosts",
       },
+      projectFilter: {
+        label: "Proyecto",
+        all: "Todos los proyectos",
+      },
+    },
+    filterEmpty: {
+      title: "Ningún espacio de trabajo coincide",
+      description: "Cambia o borra los filtros de la barra lateral para ver espacios de trabajo.",
+      clear: "Borrar filtros",
     },
     pinned: {
       title: "Anclados",
@@ -1381,13 +1456,6 @@ export const es: TranslationResources = {
         statusFailed: "No se puede verificar el estado de instalación deCLI.",
         installFailed: "No se puede instalar elPaseoCLI.",
       },
-      skills: {
-        statusFailed: "No se puede comprobar el estado de las habilidades de orquestación.",
-        installFailed: "No se pueden instalar habilidades de orquestación.",
-        updateFailed: "No se pueden actualizar las habilidades de orquestación.",
-        uninstallFailed: "No se pueden desinstalar las habilidades de orquestación.",
-        saveSelectionFailed: "No se puede guardar la selección de habilidades de orquestación.",
-      },
     },
   },
   rootError: {
@@ -1438,6 +1506,7 @@ export const es: TranslationResources = {
     openPath: "Abrir ruta",
   },
   branchSwitcher: {
+    triggerTooltip: "Cambiar rama del espacio de trabajo",
     currentBranch: "Sucursal actual:{{branchName}}. Presione para cambiar de rama.",
     placeholder: "Cambiar de rama...",
     searchPlaceholder: "Filtrar ramas...",
@@ -1502,9 +1571,13 @@ export const es: TranslationResources = {
     defaultModel: "Por defecto",
     profiles: "Perfiles",
     providers: "Proveedores",
+    model: "Modelo",
     editProfiles: "Editar",
     editProfilesLabel: "Editar perfiles de agente",
     createProfile: "Crear perfil",
+    createProfileFromModel: "Crear perfil desde este modelo",
+    editProfileLabel: "Editar {{name}}",
+    editProfilesCount: "Editar perfiles ({{count}})",
     modelCount: "{{count}} modelo",
     modelCountPlural: "{{count}} modelos",
     retry: "Rever",
@@ -1657,6 +1730,8 @@ export const es: TranslationResources = {
       updateRequired: "Actualice el host para habilitar el relé desde Paseo Desktop.",
       unavailable: "Oferta de maridaje no disponible.",
       hint: "Escanee este códigoQRconPaseoen su teléfono o copie el enlace a continuación.",
+      securityWarning:
+        "Trata este enlace de emparejamiento como una contraseña. Cualquiera que lo tenga puede acceder a este daemon.",
       qrUnavailable: "CódigoQRno disponible.",
       qrAccessibility: "Código QR de emparejamiento",
       retry: "Rever",
@@ -1703,6 +1778,22 @@ export const es: TranslationResources = {
   },
   menu: {
     backdrop: "Fondo del menú",
+  },
+  subagents: {
+    title: "Subagentes",
+    pillLabelOne: "1 subagente",
+    pillLabelMany: "{{count}} subagentes",
+    pillLabelWorking: "{{count}} en ejecución",
+    pillLabelFailed: "{{count}} con error",
+    pillLabelNeedsInputOne: "1 necesita datos",
+    pillLabelNeedsInputMany: "{{count}} necesitan datos",
+    pillLabelReadyToReview: "{{count}} para revisar",
+    detachAction: "Separar {{label}}",
+    detachTooltip: "Separar subagente",
+    archiveAction: "Archivo{{label}}",
+    archiveTooltip: "Subagente de archivo",
+    archiveFinishedAction: "Archivar subagentes finalizados",
+    archiveFinishedRetry: "Reintentar ({{failed}}/{{total}})",
   },
   loops: {
     header: "Bucles",
@@ -1764,14 +1855,6 @@ export const es: TranslationResources = {
     typeWorkflow: "Workflow",
     typeOther: "Other",
   },
-  subagents: {
-    detachAction: "Separar {{label}}",
-    detachTooltip: "Separar subagente",
-    archiveAction: "Archivo{{label}}",
-    archiveTooltip: "Subagente de archivo",
-    archiveFinishedAction: "Archivar subagentes finalizados",
-    archiveFinishedTooltip: "Archivar finalizados",
-  },
   todos: {
     header: "Todos",
     headerCountRemaining: "Todos ({{count}}) · {{remaining}} abiertos",
@@ -1789,6 +1872,7 @@ export const es: TranslationResources = {
       loading: "Cargando archivo...",
       noPreview: "No hay vista previa disponible",
       binaryPreviewUnavailable: "Vista previa binaria no disponible",
+      tooLargeToDisplay: "Este archivo es demasiado grande para mostrarlo",
       failedToLoad: "No se pudo cargar el archivo",
       failedToLoadPreview: "No se pudo cargar la vista previa del archivo",
       editor: {
@@ -1812,6 +1896,18 @@ export const es: TranslationResources = {
         reloadTitle: "¿Recargar desde el disco?",
         reloadMessage: "Se perderán tus cambios locales.",
       },
+    },
+    files: {
+      label: "Archivos",
+      subtitle: "Archivos del espacio de trabajo",
+      tooltip: "Explorar archivos del espacio de trabajo",
+      chooseFile: "Elige un archivo",
+    },
+    pullRequest: {
+      label: "Solicitud de extracción",
+      subtitle: "Detalles de la solicitud de extracción",
+      emptyTitle: "Aún no hay ninguna solicitud de extracción",
+      emptyDescription: "Crea una solicitud para este checkout y consulta aquí sus detalles.",
     },
     diff: {
       changesLabel: "Cambios",
@@ -1946,8 +2042,10 @@ export const es: TranslationResources = {
       providers: "Proveedores",
       usage: "Uso",
       terminals: "Terminals",
+      plugins: "Plugins",
       host: "Resumen",
     },
+    plugins: pluginSettings.es,
     metadataGeneration: {
       title: "Generación de metadatos",
       description:
@@ -1982,15 +2080,15 @@ export const es: TranslationResources = {
         descriptions: {
           interrupt:
             "Cuando el agente se está ejecutando, Enter interrumpe. Command/Ctrl+Enter pone en cola.",
+          steer:
+            "Cuando el agente se está ejecutando, Enter dirige el turno activo. Command/Ctrl+Enter pone en cola.",
           queue:
             "Cuando el agente se está ejecutando, Enter pone en cola. Command/Ctrl+Enter envía.",
-          steer:
-            "When the agent is running, Enter steers the current turn. Command/Ctrl+Enter queues. Falls back to interrupt if steer is unavailable.",
         },
         options: {
           interrupt: "Interrumpir",
+          steer: "Dirigir",
           queue: "Cola",
-          steer: "Steer",
         },
       },
       serviceUrls: {
@@ -2006,6 +2104,11 @@ export const es: TranslationResources = {
         label: "Historial de terminal",
         description: "Líneas mantenidas en el búfer de terminal incorporado",
         accessibilityLabel: "Líneas del historial de terminal",
+      },
+      sidePanelRouting: {
+        label: "Abrir pestañas de apoyo en el panel lateral",
+        description:
+          "Los enlaces a archivos, las solicitudes de incorporación y el progreso de configuración se abren junto a tu trabajo en lugar del panel enfocado",
       },
       autoExpandReasoning: {
         label: "Siempre expandir razonamiento",
@@ -2123,13 +2226,18 @@ export const es: TranslationResources = {
         interfaceFontHint:
           "Utilizado en toda la aplicación. Déjelo vacío para el valor predeterminado del sistema.",
         interfaceFontAccessibility: "Familia de fuentes de interfaz",
-        interfaceSize: "Tamaño de la interfaz",
-        interfaceSizeAccessibility: "Tamaño de fuente de la interfaz",
+        interfaceSize: "Tamaño de interfaz",
+        interfaceSizeHint: "Se usa en la navegación, los controles y las etiquetas",
+        interfaceSizeAccessibility: "Tamaño de fuente de interfaz",
+        contentSize: "Tamaño de contenido",
+        contentSizeHint: "Se usa en el texto del chat y el Markdown renderizado",
+        contentSizeAccessibility: "Tamaño de fuente de contenido",
         codeFont: "Fuente de código",
         codeFontHint:
           "Se utiliza en código, diferencias y salida del terminal. Déjelo vacío para el valor predeterminado del sistema.",
         codeFontAccessibility: "Familia de fuentes de código",
         codeSize: "Tamaño del código",
+        codeSizeHint: "Se usa en código, diferencias y la salida del terminal",
         codeSizeAccessibility: "Tamaño de fuente del código",
       },
       syntax: {
@@ -2137,7 +2245,9 @@ export const es: TranslationResources = {
         highlightTheme: "Tema destacado",
         highlightThemeHint: "Colores para el código, independientemente del tema de la aplicación.",
         highlightThemeAccessibility: "Tema destacado:{{value}}",
-        previewAccessibility: "Vista previa en vivo del tema de sintaxis y fuente del código",
+        previewAccessibility:
+          "Vista previa en vivo de la tipografía de contenido, el tema de sintaxis y la fuente del código",
+        previewContent: "Vista previa de contenido y código",
       },
     },
     shortcuts: {
@@ -2192,10 +2302,11 @@ export const es: TranslationResources = {
         toggleCommandCenter: "Alternar centro de comando",
         showKeyboardShortcuts: "Mostrar atajos de teclado",
         toggleLeftSidebar: "Alternar barra lateral izquierda",
-        toggleRightSidebar: "Alternar barra lateral derecha",
+        toggleRightSidebar: "Alternar panel lateral",
         toggleBothSidebars: "Alternar ambas barras laterales",
         toggleSettings: "Alternar configuración",
         toggleFocusMode: "Alternar modo de enfoque",
+        toggleExplorerPaneMaximization: "Alternar maximización del panel lateral",
         cycleTheme: "Tema del ciclo",
         findInChat: "Buscar en el chat",
         focusMessageInput: "Entrada de mensaje de enfoque",
@@ -2216,49 +2327,16 @@ export const es: TranslationResources = {
       title: "Integraciones",
       docs: {
         cli: "DocumentosCLI",
-        skills: "Documentos de habilidades",
         openCli: "Abrir la documentación deCLI",
-        openSkills: "Documentación de habilidades abiertas",
       },
       commandLine: {
         title: "línea de comando",
         description: "Agentes de control y script desde tu terminal",
       },
-      skills: {
-        title: "Habilidades de orquestación",
-        description: "Enseñe a sus agentes a orquestar a través delCLI",
-        updateAvailable: "Actualización disponible",
-        updateTitle: "¿Actualizar las habilidades dePaseo?",
-        updateFallback: "Sincronice las habilidades incluidas con su máquina.",
-        uninstallTitle: "¿Desinstalar las habilidadesPaseo?",
-        uninstallMessage:
-          "Elimina todas las habilidades de orquestaciónPaseode ~/.agents, ~/.claude, ~/.codex.",
-        choose: "Elegir habilidades",
-        chooseAll: "Todas las habilidades",
-        chooseAllHint:
-          "Mantén instaladas todas las habilidades incluidas, también las que se agreguen después.",
-        chooseList: "Habilidades incluidas",
-        chooseEmpty: "Esta versión no incluye habilidades.",
-        removeTitle: "¿Eliminar las habilidades deseleccionadas?",
-        removeMessage:
-          "{{skills}} se eliminarán de ~/.agents, ~/.claude y ~/.codex. También se elimina todo lo que hayas añadido dentro de esas carpetas de habilidades.",
-        saveFailed: "No se pudo guardar tu selección de habilidades.",
-      },
       actions: {
         install: "Instalar",
         installing: "Instalando...",
         installed: "Instalado",
-        update: "Actualizar",
-        working: "Laboral...",
-        remove: "Eliminar",
-        uninstall: "Desinstalar",
-        save: "Guardar",
-        saving: "Guardando...",
-      },
-      operations: {
-        add: "Agregar habilidad",
-        update: "Actualizar habilidad",
-        delete: "Eliminar habilidad",
       },
     },
     permissions: {
@@ -2267,6 +2345,11 @@ export const es: TranslationResources = {
       refresh: "Refrescar",
       refreshing: "Refrescante...",
       refreshAccessibility: "Actualizar permisos de escritorio",
+      actions: {
+        granted: "Otorgada",
+        request: "Pedido",
+        requesting: "Solicitando...",
+      },
       attention: {
         title: "Attention",
         intrusive: {
@@ -2352,11 +2435,6 @@ export const es: TranslationResources = {
           copyFailed: "Failed to copy token.",
         },
       },
-      actions: {
-        granted: "Otorgada",
-        request: "Pedido",
-        requesting: "Solicitando...",
-      },
     },
     host: {
       appearance: {
@@ -2412,6 +2490,52 @@ export const es: TranslationResources = {
         title: "Emparejar dispositivos",
         rowTitle: "Emparejar un dispositivo",
         rowHint: "Escanee un códigoQRo copie un enlace para conectar su teléfono a este host",
+      },
+      skills: {
+        sectionTitle: "Habilidades de orquestación",
+        title: "Habilidades de orquestación",
+        description: "Enseñe a sus agentes a orquestar a través delCLI",
+        docs: "Skills",
+        openDocs: "Open skills documentation",
+        unavailable: "Connect to this host to manage orchestration skills",
+        unsupported: "Update this host to manage orchestration skills",
+        statusFailed: "No se puede comprobar el estado de las habilidades de orquestación.",
+        updateFailed: "No se pueden actualizar las habilidades de orquestación.",
+        uninstallFailed: "No se pueden desinstalar las habilidades de orquestación.",
+        saveSelectionFailed: "No se puede guardar la selección de habilidades de orquestación.",
+        updateAvailable: "Actualización disponible",
+        updateTitle: "¿Actualizar las habilidades dePaseo?",
+        updateFallback: "Sincronice las habilidades incluidas con su máquina.",
+        uninstallTitle: "¿Desinstalar las habilidadesPaseo?",
+        uninstallMessage:
+          "Elimina todas las habilidades de orquestaciónPaseode ~/.agents, ~/.claude, ~/.codex.",
+        choose: "Elegir habilidades",
+        chooseAll: "Todas las habilidades",
+        chooseAllHint:
+          "Mantén instaladas todas las habilidades incluidas, también las que se agreguen después.",
+        chooseList: "Habilidades incluidas",
+        chooseEmpty: "Esta versión no incluye habilidades.",
+        removeTitle: "¿Eliminar las habilidades deseleccionadas?",
+        removeMessage:
+          "{{skills}} se eliminarán de ~/.agents, ~/.claude y ~/.codex. También se elimina todo lo que hayas añadido dentro de esas carpetas de habilidades.",
+        saveFailed: "No se pudo guardar tu selección de habilidades.",
+        actions: {
+          install: "Instalar",
+          installing: "Instalando...",
+          installed: "Instalado",
+          update: "Actualizar",
+          working: "Laboral...",
+          remove: "Eliminar",
+          uninstall: "Desinstalar",
+          save: "Guardar",
+          saving: "Guardando...",
+          cancel: "Cancelar",
+        },
+        operations: {
+          add: "Agregar habilidad",
+          update: "Actualizar habilidad",
+          delete: "Eliminar habilidad",
+        },
       },
       orchestration: {
         title: "Orquestación",
@@ -2507,10 +2631,9 @@ export const es: TranslationResources = {
         featuresLabel: "Características",
         featureCount: "{{count}} características",
         featureCountOne: "{{count}} característica",
-        notesLabel: "Notas para los agentes",
+        notesLabel: "Cuándo usarlo",
         notesPlaceholder: "Úselo para trabajo de UI: componentes, diseño y tokens de diseño.",
-        notesHint:
-          'Devuelto por la herramienta MCP "list_profiles". Escríbalo como una instrucción para otro agente.',
+        notesHint: "Ayuda a los agentes a elegir este perfil al iniciar otro agente.",
         save: "Guardar",
         saving: "Guardando...",
         remove: "Eliminar",
@@ -2626,6 +2749,8 @@ export const es: TranslationResources = {
         addCustomTitle: "Agregar modelo personalizado",
         editCustomTitle: "Edit custom model",
         editModel: "Edit {{id}}",
+        modelId: "ModeloID",
+        modelIdPlaceholder: "p.ej. openai/gpt-5",
         label: "Label",
         labelPlaceholder: "Optional display name",
         contextWindow: "Context window (tokens)",
@@ -2654,15 +2779,13 @@ export const es: TranslationResources = {
         lookingUpModel: "Looking up on models.dev…",
         modelsDevNotFound: "Not found on models.dev",
         modelsDevLookupFailed: "Could not reach models.dev",
-        modelsDevChooseSource: "Multiple listings found. Choose a source or use Custom.",
         modelsDevAutofilled: "Filled from models.dev",
+        modelsDevChooseSource: "Multiple listings found. Choose a source or use Custom.",
         duplicateId: "A custom model with this ID already exists",
-        save: "Save",
-        saving: "Saving...",
-        modelId: "ModeloID",
-        modelIdPlaceholder: "p.ej. openai/gpt-5",
         add: "Agregar",
         adding: "Añadiendo...",
+        save: "Save",
+        saving: "Saving...",
         failedToSave: "No se pudo guardar el modelo",
         removeModel: "Quitar{{id}}",
         searchPlaceholder: "Buscar modelos",

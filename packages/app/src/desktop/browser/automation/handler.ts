@@ -37,6 +37,7 @@ interface BrowserAutomationClient {
 export interface BrowserAutomationHandlerOptions {
   client: BrowserAutomationClient;
   serverId?: string;
+  directLoopback?: boolean;
   getHost?: () => DesktopHostBridge | null;
   ensureResidentBrowserWebview?: typeof ensureResidentBrowserWebviewDefault;
   registrationWaitTimeoutMs?: number;
@@ -53,6 +54,7 @@ export function mountBrowserAutomationHandler(
       getHost,
       request,
       serverId: options.serverId,
+      directLoopback: options.directLoopback,
       ensureResidentBrowserWebview:
         options.ensureResidentBrowserWebview ?? ensureResidentBrowserWebviewDefault,
       ...(options.registrationWaitTimeoutMs !== undefined
@@ -70,11 +72,12 @@ export function mountBrowserAutomationHandler(
 
 export function mountBrowserAutomationDaemonClientHandler(
   client: unknown,
-  options?: { serverId?: string },
+  options?: { serverId?: string; directLoopback?: boolean },
 ): () => void {
   return mountBrowserAutomationHandler({
     client: client as BrowserAutomationClient,
     ...(options?.serverId ? { serverId: options.serverId } : {}),
+    ...(options?.directLoopback ? { directLoopback: true } : {}),
   });
 }
 
@@ -83,6 +86,7 @@ async function handleBrowserAutomationRequest(params: {
   getHost: () => DesktopHostBridge | null;
   request: BrowserAutomationExecuteRequest;
   serverId?: string;
+  directLoopback?: boolean;
   ensureResidentBrowserWebview: typeof ensureResidentBrowserWebviewDefault;
   registrationWaitTimeoutMs?: number;
   registrationPollIntervalMs?: number;
@@ -92,6 +96,7 @@ async function handleBrowserAutomationRequest(params: {
     getHost,
     request,
     serverId,
+    directLoopback,
     ensureResidentBrowserWebview,
     registrationWaitTimeoutMs,
     registrationPollIntervalMs,
@@ -106,6 +111,7 @@ async function handleBrowserAutomationRequest(params: {
         payload: await openBrowserTabForRequest({
           request,
           serverId,
+          directLoopback,
           browserHost,
           ensureResidentBrowserWebview,
           ...(registrationWaitTimeoutMs !== undefined ? { registrationWaitTimeoutMs } : {}),
@@ -300,6 +306,7 @@ function findWorkspaceBrowserTab(input: {
 async function openBrowserTabForRequest(params: {
   request: BrowserAutomationExecuteRequest;
   serverId?: string;
+  directLoopback?: boolean;
   browserHost: DesktopHostBridge["browser"] | undefined;
   ensureResidentBrowserWebview: typeof ensureResidentBrowserWebviewDefault;
   registrationWaitTimeoutMs?: number;
@@ -308,6 +315,7 @@ async function openBrowserTabForRequest(params: {
   const {
     request,
     serverId,
+    directLoopback,
     browserHost,
     ensureResidentBrowserWebview,
     registrationWaitTimeoutMs,
@@ -336,12 +344,18 @@ async function openBrowserTabForRequest(params: {
       message: "Cannot create a browser tab without a workspace context.",
     });
   }
-  useWorkspaceLayoutStore.getState().openTabInBackground(workspaceKey, {
-    kind: "browser",
-    browserId,
+  useWorkspaceLayoutStore.getState().openTab({
+    workspaceKey,
+    target: { kind: "browser", browserId },
+    intent: "background",
   });
 
-  await browserHost?.registerWorkspaceBrowser?.({ browserId, serverId, workspaceId });
+  await browserHost?.registerWorkspaceBrowser?.({
+    browserId,
+    serverId,
+    workspaceId,
+    ...(directLoopback ? { directLoopback: true } : {}),
+  });
   if (browserHost?.executeAutomationCommand) {
     ensureResidentBrowserWebview({ browserId, workspaceId, url: normalizedUrl });
     const registered = await waitForBrowserRegistration({

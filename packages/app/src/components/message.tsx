@@ -194,7 +194,7 @@ let webToolCallShimmerRegistered = false;
 const SCROLL_EDGE_EPSILON = 0.5;
 
 // Font size for stream metadata (timestamps, durations, live elapsed timer).
-// Lives between theme.fontSize.xs (12) and theme.fontSize.sm (14); no token.
+// Lives between theme.fontSize.sm (12) and theme.fontSize.base (14); no token.
 export const STREAM_METADATA_FONT_SIZE = 13;
 type ScrollAxis = "x" | "y";
 
@@ -351,6 +351,16 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[4],
     minWidth: 0,
     flexShrink: 1,
+  },
+  text: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.content,
+    ...(isWeb
+      ? {
+          lineHeight: Math.round(theme.fontSize.content * 1.4),
+          overflowWrap: "anywhere" as const,
+        }
+      : {}),
   },
   imagePreviewContainer: {
     flexDirection: "row",
@@ -782,7 +792,7 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
   },
   imageErrorText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     textAlign: "center",
   },
 }));
@@ -1458,7 +1468,7 @@ export const AssistantMessage = memo(function AssistantMessage({
     if (onOpenLocalhostUrl?.(url)) {
       return false;
     }
-    fileLinkActions.open({ href: url }, "main");
+    fileLinkActions.open({ href: url }, "side");
     // react-native-markdown-display opens the link itself when this returns true.
     // We already handled it above, so return false to avoid duplicate opens.
     return false;
@@ -1957,8 +1967,8 @@ const speakMessageStylesheet = StyleSheet.create((theme) => ({
   },
   text: {
     fontFamily: theme.fontFamily.ui,
-    fontSize: theme.fontSize.base,
-    lineHeight: 22,
+    fontSize: theme.fontSize.content,
+    lineHeight: Math.round(theme.fontSize.content * 1.4),
     color: theme.colors.foreground,
   },
 }));
@@ -2043,7 +2053,7 @@ const activityLogStylesheet = StyleSheet.create((theme) => ({
     flex: 1,
   },
   messageText: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     lineHeight: 20,
   },
   detailsRow: {
@@ -2053,7 +2063,7 @@ const activityLogStylesheet = StyleSheet.create((theme) => ({
   },
   detailsText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     marginRight: theme.spacing[1],
   },
   metadataContainer: {

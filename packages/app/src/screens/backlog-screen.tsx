@@ -1367,7 +1367,6 @@ function MasterBacklogProjectFilter({
 }
 
 function BacklogSearchField({
-  value,
   onChangeText,
 }: {
   value: string;
@@ -1377,7 +1376,6 @@ function BacklogSearchField({
     <View style={styles.searchField}>
       <Search size={16} color={styles.searchIcon.color} />
       <AdaptiveTextInput
-        value={value}
         onChangeText={onChangeText}
         placeholder="Search tasks..."
         style={styles.searchInput}
@@ -1981,7 +1979,6 @@ export function TaskFormSheet({
         <AdaptiveTextInput
           initialValue={title}
           resetKey={`task-title-${task?.id ?? "new"}-${resetKey}`}
-          value={title}
           onChangeText={setTitle}
           placeholder="Task title"
           style={styles.input}
@@ -2001,7 +1998,6 @@ export function TaskFormSheet({
         <AdaptiveTextInput
           initialValue={description}
           resetKey={`task-description-${task?.id ?? "new"}-${resetKey}`}
-          value={description}
           onChangeText={setDescription}
           placeholder="Add details"
           style={styles.descriptionInput}
@@ -2400,7 +2396,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   taskContext: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     lineHeight: 16,
   },
   attachmentGrid: {
@@ -2428,11 +2424,11 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minWidth: 0,
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   attachmentOverflow: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   attachmentList: {
     marginTop: "auto",
@@ -2451,11 +2447,11 @@ const styles = StyleSheet.create((theme) => ({
   },
   fileChipText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   fileChipMore: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   panelMessage: {
     flex: 1,
@@ -2549,7 +2545,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   hint: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   optionIconBox: {
     width: 24,
@@ -2593,7 +2589,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   pendingAttachmentMeta: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   errorText: {
     color: theme.colors.destructive,

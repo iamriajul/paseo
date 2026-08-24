@@ -238,7 +238,7 @@ export function TerminalPane({
   const client = useHostRuntimeClient(serverId);
   const isConnected = useHostRuntimeIsConnected(serverId);
   const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(serverId);
-  const isTerminalActive = retainedPanelActive && isWorkspaceFocused;
+  const isTerminalPresented = retainedPanelActive && isWorkspaceFocused;
   const supportsTerminalRestoreModes = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.["terminal-restore-modes"] === true,
   );
@@ -277,8 +277,8 @@ export function TerminalPane({
   useBlockMobilePanelOpenGestures(isMobile && isWorkspaceFocused && isPaneFocused && hasSelection);
   const emulatorRef = useRef<TerminalEmulatorHandle>(null);
   const terminalIdRef = useRef<string>(terminalId);
-  const terminalActiveRef = useRef(isTerminalActive);
-  terminalActiveRef.current = isTerminalActive;
+  const terminalPresentedRef = useRef(isTerminalPresented);
+  terminalPresentedRef.current = isTerminalPresented;
   const inputModeRef = useRef<TerminalInputModeState>(DEFAULT_TERMINAL_INPUT_MODE_STATE);
   const pendingTerminalInputRef = useRef<PendingTerminalInput[]>([]);
   const keyboardRefitTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
@@ -365,7 +365,7 @@ export function TerminalPane({
 
   useEffect(() => {
     const canRequest = canRequestFocusClaim({
-      isWorkspaceFocused: isTerminalActive,
+      isWorkspaceFocused: isTerminalPresented,
       isPaneFocused,
       isAppActivelyVisible,
       isClientReady: client !== null,
@@ -387,7 +387,7 @@ export function TerminalPane({
     isAppActivelyVisible,
     isConnected,
     isPaneFocused,
-    isTerminalActive,
+    isTerminalPresented,
     rendererReadyStreamKey,
     requestTerminalReflow,
     scopeKey,
@@ -459,7 +459,7 @@ export function TerminalPane({
   );
 
   useEffect(() => {
-    if (!client || !isConnected || !isTerminalActive) {
+    if (!client || !isConnected || !isWorkspaceFocused) {
       return;
     }
 
@@ -482,7 +482,7 @@ export function TerminalPane({
       });
       setModifiers({ ...EMPTY_MODIFIERS });
     });
-  }, [client, isConnected, isTerminalActive, workspaceTerminalSession.snapshots]);
+  }, [client, isConnected, isWorkspaceFocused, workspaceTerminalSession.snapshots]);
 
   useEffect(() => {
     measuredTerminalSizeRef.current = null;
@@ -497,7 +497,7 @@ export function TerminalPane({
   const getPreferredStreamSize = useStableEvent(() => {
     if (
       !canRequestFocusClaim({
-        isWorkspaceFocused: terminalActiveRef.current,
+        isWorkspaceFocused: terminalPresentedRef.current,
         isPaneFocused,
         isAppActivelyVisible,
         isClientReady: client !== null,
@@ -512,7 +512,7 @@ export function TerminalPane({
 
   const handleStreamOutput = useStableEvent(
     ({ terminalId: outputTerminalId, data }: { terminalId: string; data: Uint8Array }) => {
-      if (!terminalActiveRef.current || terminalIdRef.current !== outputTerminalId) {
+      if (terminalIdRef.current !== outputTerminalId) {
         return;
       }
       emulatorRef.current?.writeOutput(data);
@@ -522,7 +522,7 @@ export function TerminalPane({
   const handleStreamRestore = useStableEvent(
     ({ terminalId: restoreTerminalId, data }: { terminalId: string; data: Uint8Array }) => {
       workspaceTerminalSession.snapshots.clear({ terminalId: restoreTerminalId });
-      if (!terminalActiveRef.current || terminalIdRef.current !== restoreTerminalId) {
+      if (terminalIdRef.current !== restoreTerminalId) {
         return;
       }
       emulatorRef.current?.restoreOutput(data);
@@ -532,7 +532,7 @@ export function TerminalPane({
   const handleStreamSnapshot = useStableEvent(
     ({ terminalId: snapshotTerminalId, state }: { terminalId: string; state: TerminalState }) => {
       workspaceTerminalSession.snapshots.set({ terminalId: snapshotTerminalId, state });
-      if (!terminalActiveRef.current || terminalIdRef.current !== snapshotTerminalId) {
+      if (terminalIdRef.current !== snapshotTerminalId) {
         return;
       }
       emulatorRef.current?.renderSnapshot(state);
@@ -543,7 +543,7 @@ export function TerminalPane({
     resolveTerminalRestoreOptions({
       supportsTerminalRestoreModes,
       canClaimSize: canRequestFocusClaim({
-        isWorkspaceFocused: terminalActiveRef.current,
+        isWorkspaceFocused: terminalPresentedRef.current,
         isPaneFocused,
         isAppActivelyVisible,
         isClientReady: client !== null,
@@ -599,7 +599,7 @@ export function TerminalPane({
       terminalId,
       terminalStreamKey,
       rendererReadyStreamKey,
-      isWorkspaceFocused: isTerminalActive,
+      isWorkspaceFocused,
     });
     streamControllerRef.current?.setTerminal({
       terminalId: nextTerminalId,
@@ -607,7 +607,7 @@ export function TerminalPane({
   }, [
     client,
     isConnected,
-    isTerminalActive,
+    isWorkspaceFocused,
     rendererReadyStreamKey,
     terminalId,
     terminalStreamKey,
@@ -798,7 +798,7 @@ export function TerminalPane({
       forceClaim: input.forceClaim ?? false,
       supportsTerminalSizeOwnership,
       readiness: {
-        isWorkspaceFocused: isTerminalActive,
+        isWorkspaceFocused: isTerminalPresented,
         isPaneFocused,
         isAppActivelyVisible,
         isClientReady: client !== null,
@@ -1047,7 +1047,7 @@ export function TerminalPane({
     }
   };
   const showLoadingOverlay = shouldShowTerminalLoadingOverlay({
-    isWorkspaceFocused: isTerminalActive,
+    isWorkspaceFocused: isTerminalPresented,
     hasStreamError: Boolean(streamError),
     isAttaching,
     rendererReadyStreamKey,
@@ -1175,7 +1175,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   statusError: {
     color: theme.colors.destructive,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   keyboardContainer: {
     borderTopWidth: 1,
@@ -1213,7 +1213,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   keyButtonText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.medium,
     textAlign: "center",
   },
@@ -1228,7 +1228,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   stateText: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     textAlign: "center",
   },
 }));

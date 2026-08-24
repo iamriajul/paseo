@@ -310,28 +310,15 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
       return unavailableUsage(this);
     }
 
-    const { refresh_token, account_id } = auth.tokens ?? {};
-    let currentAccessToken = accessToken;
-    let resp = await this.callCodexApi(currentAccessToken, account_id);
+    const { account_id } = auth.tokens ?? {};
+    const resp = await this.callCodexApi(accessToken, account_id);
 
     if (resp === "NEEDS_AUTH") {
-      if (!refresh_token) {
-        return unavailableUsage(this);
-      }
-      const refreshed = await this.refreshCodexToken(refresh_token);
-      if (!refreshed?.access_token) {
-        return unavailableUsage(this);
-      }
-
-      await this.saveCodexAuth(authRecord.path, auth, refreshed);
-      currentAccessToken = refreshed.access_token;
-      resp = await this.callCodexApi(currentAccessToken, account_id);
-      if (resp === "NEEDS_AUTH") {
-        return unavailableUsage(this);
-      }
+      // Read-only on credentials for usage reads; the Codex CLI owns refresh.
+      return unavailableUsage(this);
     }
 
-    const resetCredits = await this.tryFetchResetCredits(currentAccessToken, account_id);
+    const resetCredits = await this.tryFetchResetCredits(accessToken, account_id);
     return this.toUsage(resp, resetCredits);
   }
 

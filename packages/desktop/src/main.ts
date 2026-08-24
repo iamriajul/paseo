@@ -24,7 +24,7 @@ import {
   session,
   webContents,
 } from "electron";
-import { registerDaemonManager } from "./daemon/daemon-manager.js";
+import { peekDesktopDaemonServerId, registerDaemonManager } from "./daemon/daemon-manager.js";
 import { parsePassthroughCliArgsFromArgv, runPassthroughCli } from "./daemon/cli/passthrough.js";
 import { closeAllTransportSessions } from "./daemon/local-transport.js";
 import {
@@ -47,6 +47,7 @@ import {
 } from "./features/notifications.js";
 import { registerOpenerHandlers } from "./features/opener.js";
 import { registerEditorTargetHandlers } from "./features/editor-targets/ipc.js";
+import { resolveAppIconPath } from "./features/stamped-icon.js";
 import { setupApplicationMenu } from "./features/menu.js";
 import {
   BROWSER_NEW_TAB_REQUEST_EVENT,
@@ -71,6 +72,7 @@ import {
   handleLoopbackTunnelOpenResult,
   registerBrowserLoopbackProxy,
   resolveBrowserLoopbackProxyCredentials,
+  shouldUseDirectLoopback,
   unregisterBrowserLoopbackProxy,
 } from "./features/browser-loopback-proxy.js";
 import {
@@ -96,7 +98,6 @@ import {
   stopDesktopManagedDaemonOnQuitIfNeeded,
 } from "./daemon/quit-lifecycle.js";
 import { runDesktopStartup } from "./desktop-startup.js";
-import { autoUpdateInstalledSkills } from "./integrations/skills/index.js";
 import { registerBrowserAutomationIpc } from "./features/browser-automation/ipc.js";
 import { BrowserKeyboard } from "./features/browser-keyboard/index.js";
 import { installAppUpdateOnQuit } from "./features/auto-updater.js";
@@ -372,9 +373,12 @@ ipcMain.handle("paseo:agent-navigation:ready", (event) => {
   return agentNavigationInbox.windowReady(event.sender.id);
 });
 
-function readBrowserWorkspaceInput(
-  input: unknown,
-): { browserId: string; serverId: string; workspaceId: string } | null {
+function readBrowserWorkspaceInput(input: unknown): {
+  browserId: string;
+  serverId: string;
+  workspaceId: string;
+  directLoopback: boolean;
+} | null {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return null;
   }
@@ -392,6 +396,7 @@ function readBrowserWorkspaceInput(
     browserId: record.browserId.trim(),
     serverId: record.serverId.trim(),
     workspaceId: record.workspaceId.trim(),
+    directLoopback: record.directLoopback === true,
   };
 }
 
@@ -469,6 +474,12 @@ ipcMain.handle("paseo:browser:register-workspace-browser", async (event, rawInpu
     await registerBrowserLoopbackProxy({
       ...input,
       rendererWebContentsId: event.sender.id,
+      directLoopback:
+        input.directLoopback ||
+        shouldUseDirectLoopback({
+          localDaemonServerId: peekDesktopDaemonServerId(),
+          tabServerId: input.serverId,
+        }),
     });
   }
 });
@@ -724,11 +735,15 @@ function getWindowIconCandidates(): string[] {
   }
   if (process.platform === "win32") {
     return [
+      path.resolve(__dirname, "../assets/icon-dev.png"),
       path.resolve(__dirname, "../assets/icon.ico"),
       path.resolve(__dirname, "../assets/icon.png"),
     ];
   }
-  return [path.resolve(__dirname, "../assets/icon.png")];
+  return [
+    path.resolve(__dirname, "../assets/icon-dev.png"),
+    path.resolve(__dirname, "../assets/icon.png"),
+  ];
 }
 
 function getWindowIconPath(): string | null {
@@ -736,12 +751,40 @@ function getWindowIconPath(): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
-function applyAppIcon(): void {
+function getDevBuildLabel(): string | null {
+  if (app.isPackaged) {
+    return null;
+  }
+  return process.env.EXPO_PUBLIC_PASEO_DEV_BUILD_LABEL?.trim() || null;
+}
+
+let cachedEffectiveIconPath: string | null = null;
+
+async function getEffectiveAppIconPath(): Promise<string | null> {
+  if (cachedEffectiveIconPath !== null) {
+    return cachedEffectiveIconPath;
+  }
+  const baseIconPath = getWindowIconPath();
+  if (app.isPackaged || !baseIconPath) {
+    cachedEffectiveIconPath = baseIconPath;
+    return baseIconPath;
+  }
+  const devLabel = getDevBuildLabel();
+  cachedEffectiveIconPath = await resolveAppIconPath({
+    isPackaged: false,
+    baseIconPath,
+    devLabel,
+    cacheDir: app.getPath("userData"),
+  });
+  return cachedEffectiveIconPath;
+}
+
+async function applyAppIcon(): Promise<void> {
   if (process.platform !== "darwin") {
     return;
   }
 
-  const iconPath = getWindowIconPath();
+  const iconPath = await getEffectiveAppIconPath();
   if (!iconPath) {
     return;
   }
@@ -769,7 +812,7 @@ async function createWindow(
     restoreWindowState?: boolean;
   } = {},
 ): Promise<BrowserWindow> {
-  const iconPath = getWindowIconPath();
+  const iconPath = await getEffectiveAppIconPath();
   const systemTheme = resolveSystemWindowTheme();
 
   // Only the first window of a session restores and persists saved geometry.
@@ -1050,7 +1093,7 @@ async function bootstrap(): Promise<void> {
     return net.fetch(pathToFileURL(filePath).toString());
   });
 
-  applyAppIcon();
+  await applyAppIcon();
   setupApplicationMenu({
     onNewWindow: () => {
       void createWindow().catch((error) => {
@@ -1112,11 +1155,6 @@ void runDesktopStartup({
   runCliPassthroughIfRequested,
   inheritLoginShellEnv,
   bootstrapGui: bootstrap,
-  autoUpdateInstalledSkills: () => {
-    void autoUpdateInstalledSkills().catch((error) => {
-      log.error("[skills] auto-update failed", error);
-    });
-  },
 }).catch((error) => {
   const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`${message}\n`);

@@ -25,6 +25,14 @@ const patchedPackages = [
     patchPrefix: "react-native-webview+",
   },
   {
+    nodeModulesPath: "node_modules/react-native-svg",
+    patchPrefix: "react-native-svg+",
+  },
+  {
+    nodeModulesPath: "node_modules/@mattermost/react-native-paste-input",
+    patchPrefix: "@mattermost+react-native-paste-input+",
+  },
+  {
     nodeModulesPath: "packages/server/node_modules/@opencode-ai/sdk",
     patchPrefix: "@opencode-ai+sdk+",
     cwd: "packages/server",

@@ -332,7 +332,6 @@ function SchedulesScreenBody({
 }
 
 function SchedulesSearchField({
-  value,
   onChangeText,
 }: {
   value: string;
@@ -342,7 +341,6 @@ function SchedulesSearchField({
     <View style={styles.searchField}>
       <Search size={16} color={styles.searchIcon.color} />
       <AdaptiveTextInput
-        value={value}
         onChangeText={onChangeText}
         placeholder="Search schedules..."
         style={styles.searchInput}
@@ -492,7 +490,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   errorsBannerText: {
     color: theme.colors.palette.red[300],
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   filterEmpty: {
     flexGrow: 1,
@@ -523,12 +521,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   emptyDescription: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     textAlign: "center",
   },
   message: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.lg,
+    fontSize: theme.fontSize.base,
     textAlign: "center",
   },
   // Static color holder read by the spinner; keeps the muted token without

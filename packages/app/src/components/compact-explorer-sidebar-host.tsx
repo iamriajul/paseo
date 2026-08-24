@@ -4,12 +4,13 @@ import { GestureDetector } from "react-native-gesture-handler";
 import { useWorkspaceBrowserAvailability } from "@/desktop/browser/workspace-browser-availability";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
-import { CompactExplorerSidebar } from "@/components/explorer-sidebar";
+import { CompactExplorerSidebar } from "@/components/compact-explorer-sidebar";
 import { useOpenFileExplorerGesture } from "@/mobile-panels/gestures";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { selectIsFileExplorerOpen, usePanelStore } from "@/stores/panel-store";
+import { selectIsCompactFileExplorerOpen, usePanelStore } from "@/stores/panel-store";
 import { createWorkspaceBrowser } from "@/desktop/browser/store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { useWorkspaceCheckoutStatus } from "@/screens/workspace/use-workspace-checkout-status";
 import { openWorkspaceFileFromExplorer } from "@/screens/workspace/workspace-file-open-command";
 import { isWeb } from "@/constants/platform";
@@ -48,9 +49,7 @@ function useActiveCompactExplorerSidebarModel(
 ): CompactExplorerSidebarHostModel | null {
   const selection = useActiveWorkspaceSelection();
   const workspace = useWorkspace(selection?.serverId ?? null, selection?.workspaceId ?? null);
-  const isExplorerOpen = usePanelStore((state) =>
-    selectIsFileExplorerOpen(state, { isCompact: true }),
-  );
+  const isExplorerOpen = usePanelStore(selectIsCompactFileExplorerOpen);
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
   const client = useHostRuntimeClient(selection?.serverId ?? "");
   const isConnected = useHostRuntimeIsConnected(selection?.serverId ?? "");
@@ -101,9 +100,14 @@ interface CompactExplorerSidebarHostProps {
 
 export function CompactExplorerSidebarHost({ children, enabled }: CompactExplorerSidebarHostProps) {
   const model = useActiveCompactExplorerSidebarModel(enabled);
-  const openFileExplorerForCheckout = usePanelStore((state) => state.openFileExplorerForCheckout);
+  const openCompactFileExplorer = usePanelStore((state) => state.openCompactFileExplorer);
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
-  const openWorkspaceTabFocused = useWorkspaceLayoutStore((state) => state.openTabFocused);
+  const openTab = useWorkspaceLayoutStore((state) => state.openTab);
+  const openWorkspaceTabInFocusedPane = useCallback(
+    (workspaceKey: string, target: WorkspaceTabTarget) =>
+      openTab({ workspaceKey, target, intent: "reveal" }),
+    [openTab],
+  );
   const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
   const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(model?.serverId ?? "");
 
@@ -111,15 +115,12 @@ export function CompactExplorerSidebarHost({ children, enabled }: CompactExplore
     if (!model?.workspaceRoot) {
       return;
     }
-    openFileExplorerForCheckout({
-      isCompact: true,
-      checkout: {
-        serverId: model.serverId,
-        cwd: model.workspaceRoot,
-        isGit: model.isGit,
-      },
+    openCompactFileExplorer({
+      serverId: model.serverId,
+      cwd: model.workspaceRoot,
+      isGit: model.isGit,
     });
-  }, [model, openFileExplorerForCheckout]);
+  }, [model, openCompactFileExplorer]);
 
   const handleOpenFile = useCallback(
     (filePath: string) => {
@@ -130,11 +131,11 @@ export function CompactExplorerSidebarHost({ children, enabled }: CompactExplore
         filePath,
         persistenceKey: model.persistenceKey,
         showMobileAgent,
-        openWorkspaceTabFocused,
+        openWorkspaceTabInFocusedPane,
         focusWorkspaceTab,
       });
     },
-    [focusWorkspaceTab, model, openWorkspaceTabFocused, showMobileAgent],
+    [focusWorkspaceTab, model, openWorkspaceTabInFocusedPane, showMobileAgent],
   );
 
   const handleOpenUrlInBrowserTab = useCallback(
@@ -143,11 +144,11 @@ export function CompactExplorerSidebarHost({ children, enabled }: CompactExplore
         return false;
       }
       const { browserId } = createWorkspaceBrowser({ initialUrl: url });
-      openWorkspaceTabFocused(model.persistenceKey, { kind: "browser", browserId });
+      openWorkspaceTabInFocusedPane(model.persistenceKey, { kind: "browser", browserId });
       showMobileAgent();
       return true;
     },
-    [hasWorkspaceBrowser, model, openWorkspaceTabFocused, showMobileAgent],
+    [hasWorkspaceBrowser, model, openWorkspaceTabInFocusedPane, showMobileAgent],
   );
 
   return (

@@ -384,10 +384,30 @@ jobs:
         # Successful pre-0.2 fork APKs finished near the old ceiling; leave headroom.
         # Builds have also been cancelled mid-Gradle with no logs; keep a heartbeat so
         # the job is not treated as idle, and build arm64-only to cut wall-clock time.
+        #
+        # OOM guard: this build repeatedly killed the runner agent ~22 min in, right after
+        # Metro finishes bundling (~5.9k modules) + Hermes bytecode compile, BEFORE the native
+        # C++ compile — symptom "The operation was canceled", orphan java pid, no Gradle error.
+        # newArchEnabled + reactCompiler + heavy native modules (skia, pdf, nitro, worklets,
+        # reanimated) spike memory past the 4-vCPU/16GB free runner at the bundle/hermes peak.
+        # Two mitigations, because the peak shifts between the bundle and native-compile phases:
+        #   1. 10G swap so a transient overshoot overflows instead of OOM-killing the agent.
+        #   2. --max-workers=2 to cap concurrent native compile jobs later in the build.
+        # Both stay well under the 90m ceiling. If this still OOMs, the runner is undersized
+        # for the app (use a larger runner) rather than a tuning problem.
         timeout-minutes: 90
         shell: bash
         run: |
           set -euo pipefail
+
+          # Add swap headroom before the memory-heavy assemble (see OOM guard above).
+          if ! swapon --show | grep -q /mnt/paseo-swap; then
+            sudo fallocate -l 10G /mnt/paseo-swap || sudo dd if=/dev/zero of=/mnt/paseo-swap bs=1M count=10240
+            sudo chmod 600 /mnt/paseo-swap
+            sudo mkswap /mnt/paseo-swap
+            sudo swapon /mnt/paseo-swap
+          fi
+          free -h || true
 
           cd packages/app/android
           chmod +x ./gradlew
@@ -403,8 +423,11 @@ jobs:
           trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
 
           # arm64-v8a covers nearly all modern phones and avoids compiling 4 ABIs.
+          # --max-workers=2 caps concurrent native compile jobs to fit runner RAM (OOM guard).
           ./gradlew :app:assembleRelease \
             --console=plain \
+            --max-workers=2 \
+            -Dorg.gradle.parallel=false \
             -PreactNativeArchitectures=arm64-v8a \
             -x lint \
             -x lintVitalAnalyzeRelease \

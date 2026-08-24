@@ -95,6 +95,7 @@ export const backgroundTaskPanelRegistration: PanelRegistration<"background_task
   kind: "background_task",
   component: BackgroundTaskPanel,
   useDescriptor: useBackgroundTaskPanelDescriptor,
+  resourceKey: (target) => `${target.parentAgentId}:${target.taskId}`,
 };
 
 const styles = StyleSheet.create((theme) => ({
@@ -116,12 +117,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   meta: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     textTransform: "capitalize",
   },
   description: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   logScroll: {
     flex: 1,
@@ -131,6 +132,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   logText: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
 }));

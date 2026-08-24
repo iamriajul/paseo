@@ -35,7 +35,7 @@ export function BrowserPane({ browserId }: BrowserPaneProps) {
   );
 }
 
-const styles = StyleSheet.create(() => ({
+const styles = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
     alignItems: "center",
@@ -44,10 +44,10 @@ const styles = StyleSheet.create(() => ({
     padding: 16,
   },
   title: {
-    fontSize: 16,
+    fontSize: theme.fontSize.base,
     fontWeight: "600",
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: theme.fontSize.sm,
   },
 }));

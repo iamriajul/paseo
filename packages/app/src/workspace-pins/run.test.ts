@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
-import type { TerminalProfileInput } from "@/screens/workspace/terminals/use-workspace-terminals";
+import type { TerminalProfileLaunch } from "@getpaseo/protocol/terminal-profiles";
 import { runPinnedTabTarget, type TabTargetHandlers } from "./run";
 
 const PROFILES: readonly TerminalProfile[] = [
@@ -9,7 +9,7 @@ const PROFILES: readonly TerminalProfile[] = [
 
 interface RecordedLaunch {
   action: "draft" | "terminal" | "browser" | "codeServer" | "profile";
-  profile?: TerminalProfileInput;
+  profile?: TerminalProfileLaunch;
 }
 
 function recordingHandlers() {

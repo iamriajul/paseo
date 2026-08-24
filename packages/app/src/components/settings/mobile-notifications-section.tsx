@@ -435,12 +435,12 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "flex-end",
   },
   feedbackMessage: {
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     marginTop: theme.spacing[1],
     color: theme.colors.foregroundMuted,
   },
   feedbackError: {
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     marginTop: theme.spacing[1],
     color: theme.colors.destructive,
   },

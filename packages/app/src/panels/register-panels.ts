@@ -4,12 +4,16 @@ import { codeServerPanelRegistration } from "@/panels/code-server-panel";
 import { commitDiffPanelRegistration, workingDiffPanelRegistration } from "@/panels/diff-panel";
 import { draftPanelRegistration } from "@/panels/draft-panel";
 import { filePanelRegistration } from "@/panels/file-panel";
+import { filesPanelRegistration } from "@/panels/files-panel";
 import { registerPanel } from "@/panels/panel-registry";
 import { setupPanelRegistration } from "@/panels/setup-panel";
 import { terminalPanelRegistration } from "@/panels/terminal-panel";
 import { providerSubagentPanelRegistration } from "@/panels/provider-subagent-panel";
 import { backgroundTaskPanelRegistration } from "@/panels/background-task-panel";
 import { loopPanelRegistration } from "@/panels/loop-panel";
+import { pullRequestPanelRegistration } from "@/panels/pull-request-panel";
+import { pluginPanelRegistration } from "@/plugins/workspace-panels/panel";
+import { newTabPanelRegistration } from "@/panels/new-tab-panel";
 
 let panelsRegistered = false;
 
@@ -18,6 +22,7 @@ export function ensurePanelsRegistered(): void {
     return;
   }
   registerPanel(draftPanelRegistration);
+  registerPanel(newTabPanelRegistration);
   registerPanel(agentPanelRegistration);
   registerPanel(providerSubagentPanelRegistration);
   registerPanel(backgroundTaskPanelRegistration);
@@ -27,7 +32,10 @@ export function ensurePanelsRegistered(): void {
   registerPanel(browserPanelRegistration);
   registerPanel(codeServerPanelRegistration);
   registerPanel(filePanelRegistration);
+  registerPanel(filesPanelRegistration);
+  registerPanel(pullRequestPanelRegistration);
   registerPanel(commitDiffPanelRegistration);
   registerPanel(workingDiffPanelRegistration);
+  registerPanel(pluginPanelRegistration);
   panelsRegistered = true;
 }

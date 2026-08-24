@@ -1,4 +1,5 @@
 import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
+import type { ActiveTurnBehavior } from "@getpaseo/protocol/messages";
 import type {
   AttachmentMetadata,
   ComposerAttachment,
@@ -48,6 +49,7 @@ export interface ComposerSendClient {
     text: string,
     options: {
       messageId: string;
+      activeTurnBehavior?: ActiveTurnBehavior;
       images: Array<{ data: string; mimeType: string }>;
       attachments: ReturnType<typeof splitComposerAttachmentsForSubmit>["attachments"];
       steer?: boolean;
@@ -177,8 +179,10 @@ export interface DispatchComposerAgentMessageInput {
     images: AttachmentMetadata[],
   ) => Promise<Array<{ data: string; mimeType: string }> | undefined>;
   submission: MessageSubmissionWriter;
-  /** Explicit mid-turn redirect (interrupt + send). */
+  /** Explicit mid-turn redirect (interrupt + send). COMPAT(promptSteer). */
   steer?: boolean;
+  activeTurnBehavior?: ActiveTurnBehavior;
+  activeTurnId?: string;
 }
 
 export async function dispatchComposerAgentMessage(
@@ -194,20 +198,23 @@ export async function dispatchComposerAgentMessage(
     timestamp: new Date(),
     images: wirePayload.images,
     attachments: wirePayload.attachments,
+    ...(input.activeTurnBehavior === "steer" && input.activeTurnId
+      ? { turnId: input.activeTurnId }
+      : {}),
   });
   input.submission.begin(input.agentId, userMessage);
   try {
     const imagesData = await input.encodeImages(wirePayload.images);
     await input.client.sendAgentMessage(input.agentId, input.text, {
       messageId: clientMessageId,
+      ...(input.activeTurnBehavior ? { activeTurnBehavior: input.activeTurnBehavior } : {}),
       images: imagesData ?? [],
       attachments: wirePayload.attachments,
       ...(input.steer ? { steer: true } : {}),
     });
     input.submission.accept(input.agentId, clientMessageId);
   } catch (error) {
-    const outcome = input.submission.reject(input.agentId, clientMessageId);
-    if (outcome === "accepted") return;
+    input.submission.reject(input.agentId, clientMessageId);
     throw error;
   }
 }

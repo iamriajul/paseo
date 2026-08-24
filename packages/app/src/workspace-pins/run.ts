@@ -1,6 +1,8 @@
-import { resolveTerminalProfileLaunch } from "@getpaseo/protocol/terminal-profiles";
+import {
+  resolveTerminalProfileLaunch,
+  type TerminalProfileLaunch,
+} from "@getpaseo/protocol/terminal-profiles";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
-import type { TerminalProfileInput } from "@/screens/workspace/terminals/use-workspace-terminals";
 import type { PinnedTabTarget } from "@/workspace-pins/target";
 
 export interface TabTargetHandlers {
@@ -8,7 +10,7 @@ export interface TabTargetHandlers {
   createTerminal: () => void;
   createBrowser: () => void;
   createCodeServer: () => void;
-  createTerminalWithProfile: (profile: TerminalProfileInput) => void;
+  createTerminalWithProfile: (profile: TerminalProfileLaunch) => void;
 }
 
 export function runPinnedTabTarget(

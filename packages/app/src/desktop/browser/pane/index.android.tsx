@@ -13,6 +13,7 @@ import {
   BackHandler,
   Pressable,
   Text,
+  // oxlint-disable-next-line no-restricted-imports -- URL bar is controlled by navigation; EditingTextInput is uncontrolled
   TextInput,
   View,
   type LayoutChangeEvent,
@@ -1000,7 +1001,7 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.md,
     color: theme.colors.foreground,
     backgroundColor: theme.colors.surface1,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   errorRow: {
     paddingHorizontal: theme.spacing[2],
@@ -1010,7 +1011,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   errorText: {
     color: theme.colors.palette.red[500],
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   viewport: {
     flex: 1,
@@ -1090,7 +1091,7 @@ const styles = StyleSheet.create((theme) => ({
   annotationElement: {
     color: theme.colors.foregroundMuted,
     fontFamily: theme.fontFamily.mono,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   annotationInput: {
     minHeight: 72,

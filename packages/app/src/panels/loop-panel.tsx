@@ -43,6 +43,7 @@ export const loopPanelRegistration: PanelRegistration<"loop"> = {
   kind: "loop",
   component: LoopPanel,
   useDescriptor: useLoopPanelDescriptor,
+  resourceKey: (target) => target.loopId,
 };
 
 const styles = StyleSheet.create((theme) => ({
@@ -64,7 +65,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   meta: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   body: {
     padding: theme.spacing[4],

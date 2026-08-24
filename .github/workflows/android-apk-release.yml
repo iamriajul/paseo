@@ -384,6 +384,14 @@ jobs:
         # Successful pre-0.2 fork APKs finished near the old ceiling; leave headroom.
         # Builds have also been cancelled mid-Gradle with no logs; keep a heartbeat so
         # the job is not treated as idle, and build arm64-only to cut wall-clock time.
+        #
+        # OOM guard: New Architecture (newArchEnabled) compiles a large amount of native
+        # C++ (Fabric/TurboModule codegen). On a 4-vCPU/16GB free runner, Gradle's default
+        # of 4 workers spawns 4 concurrent clang processes whose aggregate RSS, on top of
+        # the 4GB Gradle JVM heap, crosses 16GB near the link phase — the runner agent then
+        # dies mid-assemble ("The operation was canceled", orphan java pid, no Gradle error).
+        # Capping to 2 workers halves peak native-compile memory to fit the runner; the
+        # build runs longer but stays well under the 90m ceiling. Raise cautiously.
         timeout-minutes: 90
         shell: bash
         run: |
@@ -403,8 +411,11 @@ jobs:
           trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
 
           # arm64-v8a covers nearly all modern phones and avoids compiling 4 ABIs.
+          # --max-workers=2 caps concurrent native compile jobs to fit runner RAM (OOM guard).
           ./gradlew :app:assembleRelease \
             --console=plain \
+            --max-workers=2 \
+            -Dorg.gradle.parallel=false \
             -PreactNativeArchitectures=arm64-v8a \
             -x lint \
             -x lintVitalAnalyzeRelease \

@@ -114,8 +114,8 @@ jobs:
           pack_dir="$RUNNER_TEMP/npm-release-assets"
           mkdir -p "$pack_dir"
 
-          # Server imports @getpaseo/plugin/server; prepack tsc needs plugin dist.
-          npm run build:plugin
+          # Server imports @getpaseo/plugin/server; plugin tsc needs client dist.
+          npm run build:server-deps
 
           workspaces=(
             @getpaseo/highlight

@@ -70,7 +70,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   byLabel: {
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
     textTransform: "lowercase",
     flexShrink: 0,

@@ -1,8 +1,16 @@
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import type { ActiveTurnBehavior } from "@getpaseo/protocol/messages";
 import type { MessagePayload } from "@/composer/types";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
 
-export type SendBehavior = "interrupt" | "queue" | "steer";
+export type SendBehavior = ActiveTurnBehavior | "queue";
+
+export function resolveActiveSendBehavior(
+  sendBehavior: SendBehavior,
+  hasPendingPermission: boolean,
+): SendBehavior {
+  return sendBehavior === "queue" && hasPendingPermission ? "interrupt" : sendBehavior;
+}
 
 interface ComposerSurfaceState {
   opacity: 0 | 1;
@@ -41,12 +49,9 @@ interface StopRealtimeVoiceContext {
 interface SendActionContext {
   defaultSendBehavior: SendBehavior;
   isAgentRunning: boolean;
-  /** Provider supports mid-turn steer for the active agent. */
-  canSteer: boolean;
   onQueue: ((payload: MessagePayload) => void) | undefined;
   handleSendMessage: () => void;
   handleQueueMessage: () => void;
-  handleSteerMessage: () => void;
 }
 
 interface DictationTranscriptContext {
@@ -55,7 +60,7 @@ interface DictationTranscriptContext {
   isAgentRunning: boolean;
   onQueue: ((payload: MessagePayload) => void) | undefined;
   onSubmit: (payload: MessagePayload) => void;
-  onChangeText: (text: string) => void;
+  replaceText: (text: string) => void;
   attachments: MessagePayload["attachments"];
   cwd: string;
   autoSend: boolean;
@@ -67,15 +72,15 @@ export function applyDictationTranscript(text: string, ctx: DictationTranscriptC
   const nextValue = `${ctx.value}${shouldPad ? " " : ""}${text}`;
 
   if (!ctx.autoSend) {
-    ctx.onChangeText(nextValue);
+    ctx.replaceText(nextValue);
     return;
   }
 
-  ctx.onChangeText(nextValue);
+  ctx.replaceText(nextValue);
 
   if (ctx.defaultSendBehavior === "queue" && ctx.isAgentRunning && ctx.onQueue) {
     ctx.onQueue({ text: nextValue, attachments: ctx.attachments, cwd: ctx.cwd });
-    ctx.onChangeText("");
+    ctx.replaceText("");
     return;
   }
 
@@ -117,29 +122,11 @@ export function runDefaultSendAction(ctx: SendActionContext): void {
     ctx.handleQueueMessage();
     return;
   }
-  if (ctx.defaultSendBehavior === "steer" && ctx.isAgentRunning && ctx.canSteer) {
-    ctx.handleSteerMessage();
-    return;
-  }
-  // "interrupt", or "steer" when the provider cannot steer → force-send.
   ctx.handleSendMessage();
 }
 
 export function runAlternateSendAction(ctx: SendActionContext): void {
   if (ctx.defaultSendBehavior === "queue") {
-    // Promote: prefer steer when available, otherwise interrupt/send.
-    if (ctx.isAgentRunning && ctx.canSteer) {
-      ctx.handleSteerMessage();
-      return;
-    }
-    ctx.handleSendMessage();
-    return;
-  }
-  if (ctx.defaultSendBehavior === "steer") {
-    if (ctx.isAgentRunning && ctx.onQueue) {
-      ctx.handleQueueMessage();
-      return;
-    }
     ctx.handleSendMessage();
     return;
   }

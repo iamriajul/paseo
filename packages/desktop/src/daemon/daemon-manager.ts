@@ -23,7 +23,6 @@ import {
   getCliInstallStatus,
   installCli,
 } from "../integrations/cli-install/index.js";
-import { createSkillsCommandHandlers, getSkillsController } from "../integrations/skills/index.js";
 import {
   openLocalTransportSession,
   sendLocalTransportMessage,
@@ -39,12 +38,18 @@ import type { DesktopSettings } from "../settings/desktop-settings.js";
 import { getDesktopSettingsStore } from "../settings/desktop-settings-electron.js";
 import { isRunningUnderARM64Translation } from "../system/arm64-translation.js";
 import { getDesktopAppLogs } from "../diagnostics/app-logs.js";
+import {
+  deleteLegacySkillSelection,
+  readLegacySkillSelection,
+} from "../integrations/legacy-skill-selection.js";
 import { tailFile } from "../diagnostics/tail-file.js";
 
 const DAEMON_LOG_FILENAME = "daemon.log";
 const STARTUP_POLL_INTERVAL_MS = 200;
 const STARTUP_POLL_MAX_ATTEMPTS = 150;
 const DETACHED_STARTUP_GRACE_MS = 1200;
+
+let lastKnownDesktopDaemonServerId = "";
 
 type DesktopDaemonState = "starting" | "running" | "stopped" | "errored";
 const DESKTOP_DAEMON_STOP_REASON_VALUES = [
@@ -237,6 +242,21 @@ function resolveDesktopAppVersion(): string {
 // Daemon lifecycle
 // ---------------------------------------------------------------------------
 
+export function peekDesktopDaemonServerId(): string {
+  return lastKnownDesktopDaemonServerId;
+}
+
+export function resetDesktopDaemonServerIdCache(): void {
+  lastKnownDesktopDaemonServerId = "";
+}
+
+function rememberDesktopDaemonServerId(serverId: string): void {
+  const trimmed = serverId.trim();
+  if (trimmed.length > 0) {
+    lastKnownDesktopDaemonServerId = trimmed;
+  }
+}
+
 export async function resolveDesktopDaemonStatus(): Promise<DesktopDaemonStatus> {
   const home = getPaseoHome();
 
@@ -259,8 +279,10 @@ export async function resolveDesktopDaemonStatus(): Promise<DesktopDaemonStatus>
       status = "errored";
     }
 
+    const serverId = typeof payload.serverId === "string" ? payload.serverId : "";
+    rememberDesktopDaemonServerId(serverId);
     return {
-      serverId: typeof payload.serverId === "string" ? payload.serverId : "",
+      serverId,
       status,
       listen: typeof payload.listen === "string" ? payload.listen : null,
       hostname:
@@ -569,7 +591,8 @@ export function createDaemonCommandHandlers(): Record<string, DesktopCommandHand
     get_local_daemon_version: () => getLocalDaemonVersion(),
     install_cli: () => installCli(),
     get_cli_install_status: () => getCliInstallStatus(),
-    ...createSkillsCommandHandlers({ controller: getSkillsController() }),
+    read_legacy_skill_selection: () => readLegacySkillSelection(),
+    delete_legacy_skill_selection: () => deleteLegacySkillSelection(),
   };
 }
 

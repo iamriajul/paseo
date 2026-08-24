@@ -15,7 +15,6 @@ const RESIDENT_VIEWPORT_HEIGHT = 800;
 const residentWebviewsByBrowserId = new Map<string, HTMLElement>();
 const residentSurfacesByBrowserId = new Map<string, HTMLElement>();
 const residentWebviewSizesByBrowserId = new Map<string, { width: number; height: number }>();
-const readyResidentWebviews = new WeakSet<HTMLElement>();
 
 interface BrowserWebviewElement extends HTMLElement {
   src: string;
@@ -75,21 +74,25 @@ function registerBrowserWhenAttached(
   });
 }
 
-function registerBrowserReadiness(webview: HTMLElement): void {
-  webview.addEventListener("did-start-loading", () => {
-    readyResidentWebviews.delete(webview);
-  });
-  webview.addEventListener("dom-ready", () => {
-    readyResidentWebviews.add(webview);
-  });
-}
-
 function trimNonEmpty(value: string | null | undefined): string | null {
   if (typeof value !== "string") {
     return null;
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function assignBlankWebviewUrl(webview: HTMLElement, url: string): void {
+  const nextUrl = trimNonEmpty(url);
+  if (!nextUrl) {
+    return;
+  }
+  const element = webview as BrowserWebviewElement;
+  const current = trimNonEmpty(element.getAttribute("src") ?? element.src) ?? "";
+  if (current === nextUrl || (current.length > 0 && current !== "about:blank")) {
+    return;
+  }
+  element.src = nextUrl;
 }
 
 function readDocument(): Document | null {
@@ -324,11 +327,6 @@ export function prepareBrowserWebview(
     (webview as BrowserWebviewElement).src = input.initialUrl;
   }
   registerBrowserWhenAttached(webview as BrowserWebviewElement, input, browser);
-  registerBrowserReadiness(webview);
-}
-
-export function isResidentBrowserWebviewReady(webview: HTMLElement): boolean {
-  return readyResidentWebviews.has(webview);
 }
 
 export function ensureResidentBrowserWebview(input: {
@@ -348,12 +346,14 @@ export function ensureResidentBrowserWebview(input: {
 
   const resident = residentWebviewsByBrowserId.get(browserId) ?? null;
   if (resident?.isConnected) {
+    assignBlankWebviewUrl(resident, input.url);
     releaseResidentBrowserWebview(browserId, resident);
     return resident;
   }
 
   const existing = findBrowserWebview(browserId, ownerDocument);
   if (existing) {
+    assignBlankWebviewUrl(existing, input.url);
     if (existing.parentElement?.id === RESIDENT_BROWSER_HOST_ID) {
       releaseResidentBrowserWebview(browserId, existing);
     }

@@ -1,8 +1,10 @@
 import { Check, ChevronDown, ChevronUp, RotateCw, X, type LucideIcon } from "lucide-react-native";
 import { forwardRef, useCallback, useMemo } from "react";
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
+import { AdaptiveTextInput } from "@/components/adaptive-text-input";
+import type { EditingTextInputHandle } from "@/components/ui/text-input";
 
 interface ChatHistorySearchBarProps {
   query: string;
@@ -22,7 +24,7 @@ interface ChatHistorySearchBarProps {
   onClose: () => void;
 }
 
-export const ChatHistorySearchBar = forwardRef<TextInput, ChatHistorySearchBarProps>(
+export const ChatHistorySearchBar = forwardRef<EditingTextInputHandle, ChatHistorySearchBarProps>(
   function ChatHistorySearchBar(
     {
       query,
@@ -71,9 +73,9 @@ export const ChatHistorySearchBar = forwardRef<TextInput, ChatHistorySearchBarPr
     return (
       <View style={styles.root} testID="chat-history-search">
         <View style={styles.inputRow}>
-          <TextInput
+          <AdaptiveTextInput
             ref={ref}
-            value={query}
+            initialValue={query}
             onChangeText={onQueryChange}
             placeholder={t("agentStream.search.placeholder")}
             placeholderTextColor={styles.placeholder.color}

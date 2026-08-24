@@ -67,4 +67,5 @@ export const codeServerPanelRegistration: PanelRegistration<"codeServer"> = {
   kind: "codeServer",
   component: CodeServerPanel,
   useDescriptor: useCodeServerPanelDescriptor,
+  resourceKey: (target) => target.codeServerId,
 };

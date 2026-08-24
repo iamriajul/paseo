@@ -814,7 +814,6 @@ function CustomModelFormSubSheet({
         <AdaptiveTextInput
           initialValue={modelId}
           resetKey={`custom-model-id-${visible}-${originalId ?? "add"}`}
-          value={modelId}
           onChangeText={setModelId}
           onBlur={handleModelIdLookup}
           onSubmitEditing={handleModelIdLookup}
@@ -831,7 +830,6 @@ function CustomModelFormSubSheet({
         <AdaptiveTextInput
           initialValue={label}
           resetKey={`custom-model-label-${visible}-${originalId ?? "add"}`}
-          value={label}
           onChangeText={setLabel}
           placeholder={t("settings.providers.models.labelPlaceholder")}
           placeholderTextColor={theme.colors.foregroundMuted}
@@ -898,7 +896,6 @@ function CustomModelFormSubSheet({
         <AdaptiveTextInput
           initialValue={contextWindow}
           resetKey={`custom-model-window-${visible}-${originalId ?? "add"}`}
-          value={contextWindow}
           onChangeText={setContextWindow}
           placeholder={t("settings.providers.models.contextWindowPlaceholder")}
           placeholderTextColor={theme.colors.foregroundMuted}
@@ -943,7 +940,6 @@ function CustomModelFormSubSheet({
         <AdaptiveTextInput
           initialValue={maxOutput}
           resetKey={`custom-model-max-output-${visible}-${originalId ?? "add"}`}
-          value={maxOutput}
           onChangeText={setMaxOutput}
           onSubmitEditing={handleSave}
           placeholder={t("settings.providers.models.maxOutputPlaceholder")}
@@ -1502,7 +1498,7 @@ export function ProviderDiagnosticSheet({
 
 const sheetStyles = StyleSheet.create((theme) => ({
   mutedText: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     color: theme.colors.foregroundMuted,
   },
   monoHint: {
@@ -1513,7 +1509,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
   },
   descriptionInline: {
     flex: 1,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
   },
   tooltipText: {
@@ -1522,7 +1518,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
     lineHeight: theme.fontSize.sm * 1.4,
   },
   errorText: {
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.destructive,
   },
   formInput: {
@@ -1533,7 +1529,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
   },
   iconButton: {
     width: 28,
@@ -1580,7 +1576,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
   },
   modelTitle: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     flexShrink: 0,
   },
   modelRowFiller: {
@@ -1619,7 +1615,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
   },
   footerMeta: {
     flex: 1,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
   },
   compactFooterMeta: {
@@ -1640,7 +1636,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
     gap: theme.spacing[3],
   },
   formLabel: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.medium,
     color: theme.colors.foreground,
   },
@@ -1719,7 +1715,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
   },
   summaryLabel: {
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
     textTransform: "uppercase",
   },
@@ -1752,7 +1748,7 @@ const sheetStyles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface1,
   },
   capabilityText: {
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
   },
   codeBlockLoading: {

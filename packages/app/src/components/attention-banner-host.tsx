@@ -224,7 +224,7 @@ const styles = StyleSheet.create((theme) => ({
   body: {
     marginTop: theme.spacing[1],
     color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
   },
   peekBody: {
     gap: theme.spacing[4],

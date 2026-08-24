@@ -119,6 +119,7 @@ import {
   resolveNewWorkspaceAutomaticServerId,
   resolveNewWorkspaceInitialServerId,
 } from "./new-workspace-initial-context";
+import { buildNewWorkspaceProjectIconTargets } from "./new-workspace/project-icon-targets";
 import { useNewWorkspaceProjectPicker } from "./new-workspace/project-picker";
 
 const ThemedFolderPlus = withUnistyles(FolderPlus);
@@ -746,7 +747,7 @@ function normalizeBranchDetails(
 
 interface SubmitDraftInput {
   serverId: string;
-  draftKey: string;
+  clearDraft: (lifecycle: "sent" | "abandoned") => void;
   draftId?: string;
   initialSetup?: WorkspaceDraftTabSetup;
   workspaceId: string;
@@ -857,7 +858,7 @@ interface CreateChatAgentInput {
     withInitialAgent: boolean;
   }) => Promise<ReturnType<typeof normalizeWorkspaceDescriptor>>;
   serverId: string;
-  draftKey: string;
+  clearDraft: (lifecycle: "sent" | "abandoned") => void;
   draftId?: string;
   supportsForgeSearch: boolean;
   labels: {
@@ -921,7 +922,7 @@ function buildComposerInitialValues(input: {
 }
 
 async function runCreateChatAgent(input: CreateChatAgentInput): Promise<void> {
-  const { payload, composerState, ensureWorkspace, serverId, draftKey } = input;
+  const { payload, composerState, ensureWorkspace, serverId, clearDraft } = input;
   const { text, attachments, cwd } = payload;
   if (!composerState) {
     throw new Error(input.labels.composerStateRequired);
@@ -951,7 +952,7 @@ async function runCreateChatAgent(input: CreateChatAgentInput): Promise<void> {
   });
   submitWorkspaceDraft({
     serverId,
-    draftKey,
+    clearDraft,
     draftId: input.draftId,
     initialSetup,
     workspaceId: ensuredWorkspace.id,
@@ -1028,7 +1029,7 @@ function resolveWorkspaceDraftSubmissionConfig(input: {
 function submitWorkspaceDraft(input: SubmitDraftInput): void {
   const {
     serverId,
-    draftKey,
+    clearDraft,
     draftId: draftIdInput,
     workspaceId,
     workspaceDirectory,
@@ -1080,17 +1081,18 @@ function submitWorkspaceDraft(input: SubmitDraftInput): void {
     ...(submission.featureValues ? { featureValues: submission.featureValues } : {}),
     allowEmptyText: true,
   });
+  clearDraft("sent");
   navigateToWorkspace({
     serverId,
     workspaceId,
     target: submission.target,
   });
-  useDraftStore.getState().clearDraftInput({ draftKey, lifecycle: "sent" });
+  useDraftStore.getState().clearDraftInput({ draftKey: draftId, lifecycle: "sent" });
   const serverInfo = useSessionStore.getState().sessions[serverId]?.serverInfo;
   if (hostSupportsFeature(serverInfo, "uiState")) {
     const client = getHostRuntimeStore().getClient(serverId);
     if (client) {
-      void clearComposerOnHost({ client, clientDraftKey: draftKey });
+      void clearComposerOnHost({ client, clientDraftKey: draftId });
     }
   }
 }
@@ -1656,24 +1658,7 @@ export function NewWorkspaceScreen({
     allowAllProjects: supportsWorkspaceMultiplicity,
   });
   const projectIconTargets = useMemo(
-    () =>
-      projects.flatMap((project) => {
-        const iconWorkingDir = getHostProjectSourceDirectory(project, selectedServerId)?.trim();
-        if (!iconWorkingDir) {
-          return [];
-        }
-        const host = project.hosts.find((candidate) => candidate.serverId === selectedServerId);
-        if (!host) return [];
-        return [
-          {
-            projectViewKey: project.viewKey,
-            projectId: host.projectId,
-            serverId: selectedServerId,
-            iconWorkingDir,
-            customIconRevision: host.customIconRevision,
-          },
-        ];
-      }),
+    () => buildNewWorkspaceProjectIconTargets(projects, selectedServerId),
     [projects, selectedServerId],
   );
 
@@ -2080,7 +2065,7 @@ export function NewWorkspaceScreen({
           forkDraftSetup,
           ensureWorkspace,
           serverId: selectedServerId,
-          draftKey,
+          clearDraft: chatDraft.clear,
           draftId,
           supportsForgeSearch,
           labels: {
@@ -2098,7 +2083,7 @@ export function NewWorkspaceScreen({
     [
       composerState,
       draftId,
-      draftKey,
+      chatDraft.clear,
       ensureWorkspace,
       forkDraftSetup,
       launchTarget,
@@ -2318,6 +2303,7 @@ export function NewWorkspaceScreen({
               blurOnSubmit={true}
               value={terminalComposerValue}
               onChangeText={setTerminalPromptText}
+              textReplacementKey={launchFocusKey}
               attachments={NO_TERMINAL_ATTACHMENTS}
               onChangeAttachments={noopChangeAttachments}
               cwd={selectedSourceDirectory ?? ""}
@@ -2341,7 +2327,8 @@ export function NewWorkspaceScreen({
               submitBehavior="preserve-and-lock"
               blurOnSubmit={true}
               value={chatDraft.text}
-              onChangeText={chatDraft.setText}
+              onChangeText={chatDraft.editText}
+              textReplacementKey={chatDraft.textReplacementKey}
               attachments={chatDraft.attachments}
               attachmentScopeKeys={visibleDraftContextScopeKeys}
               onChangeAttachments={chatDraft.setAttachments}
@@ -2393,12 +2380,12 @@ const styles = StyleSheet.create((theme) => ({
     paddingRight: theme.spacing[4],
   },
   composerTitle: {
-    fontSize: theme.fontSize.xl,
+    fontSize: theme.fontSize["2xl"],
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foreground,
   },
   errorText: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     color: theme.colors.destructive,
     lineHeight: 20,
   },
@@ -2461,16 +2448,16 @@ const styles = StyleSheet.create((theme) => ({
   },
   badgeText: {
     minWidth: 0,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     color: theme.colors.foregroundMuted,
     flexShrink: 1,
   },
   tooltipText: {
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     color: theme.colors.popoverForeground,
   },
   refDivergenceLabel: {
-    fontSize: theme.fontSize.xs,
+    fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
     fontVariant: ["tabular-nums"],
   },

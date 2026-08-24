@@ -7,12 +7,15 @@ export interface BrowserLoopbackProxyRegistration {
   serverId: string;
   workspaceId: string;
   rendererWebContentsId: number;
+  /** Local daemon: 127.0.0.1 is this machine, so skip the workspace TCP tunnel. */
+  directLoopback?: boolean;
 }
 
 interface BrowserProxyRecord extends BrowserLoopbackProxyRegistration {
   server: Server;
   port: number;
   auth: BrowserProxyAuth;
+  directLoopback: boolean;
 }
 
 interface BrowserProxyAuth {
@@ -82,6 +85,7 @@ export async function registerBrowserLoopbackProxy(
     existing.serverId = input.serverId;
     existing.workspaceId = input.workspaceId;
     existing.rendererWebContentsId = input.rendererWebContentsId;
+    existing.directLoopback = input.directLoopback === true;
     await applyProxyToBrowserSession(input.browserId, existing.port);
     return;
   }
@@ -157,6 +161,7 @@ async function createBrowserProxyRecord(
 ): Promise<BrowserProxyRecord> {
   const record: BrowserProxyRecord = {
     ...input,
+    directLoopback: input.directLoopback === true,
     auth: createProxyAuth(),
     server: createServer(),
     port: 0,
@@ -270,6 +275,10 @@ async function handleParsedProxyRequest(
 
   const tunnelHost = getLoopbackTunnelHost(parsed.target.host);
   if (tunnelHost) {
+    if (record.directLoopback) {
+      connectDirect(socket, parsed);
+      return;
+    }
     await connectViaWorkspaceTunnel(record, socket, parsed, tunnelHost);
     return;
   }

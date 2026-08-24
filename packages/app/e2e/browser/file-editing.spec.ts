@@ -185,7 +185,7 @@ test.describe("CodeMirror workspace file editing", () => {
     try {
       await openAgentRoute(page, session);
 
-      const fileLink = page.getByText(target, { exact: true });
+      const fileLink = page.getByTestId("user-message").getByText(target, { exact: true });
       await expect(fileLink).toBeVisible({ timeout: 15_000 });
       await fileLink.click();
 
@@ -265,7 +265,7 @@ test.describe("CodeMirror workspace file editing", () => {
 
     try {
       await openAgentRoute(page, session);
-      await page.getByText(target, { exact: true }).click();
+      await page.getByTestId("user-message").getByText(target, { exact: true }).click();
 
       await expectFileTabOpen(page, "plan.html");
       await expect(page.getByTestId("file-source-editor")).toBeVisible();

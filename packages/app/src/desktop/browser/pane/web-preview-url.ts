@@ -20,7 +20,6 @@ export function getUnsupportedIframeProtocol(src: string): string | null {
 export type WebBrowserSrc =
   | { kind: "preview"; src: string }
   | { kind: "direct"; src: string }
-  | { kind: "rejected"; reason: "unspecified-address" }
   | { kind: "no-template" };
 
 export function resolveWebBrowserSrc(input: {
@@ -34,10 +33,12 @@ export function resolveWebBrowserSrc(input: {
     return { kind: "direct", src: input.url };
   }
 
-  if (isUnspecifiedHostname(parsed.hostname)) {
-    return { kind: "rejected", reason: "unspecified-address" };
-  }
-  if (!isStandardLoopbackHostname(parsed.hostname)) {
+  // A server bound to 0.0.0.0/:: is reachable at localhost, so treat the
+  // unspecified addresses as loopback and route them through the template —
+  // matching the desktop browser — rather than refusing them.
+  const isLoopback =
+    isStandardLoopbackHostname(parsed.hostname) || isUnspecifiedHostname(parsed.hostname);
+  if (!isLoopback) {
     return { kind: "direct", src: input.url };
   }
   if (!input.template) {

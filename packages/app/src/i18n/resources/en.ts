@@ -536,10 +536,6 @@ export const en = {
         subtitle:
           "Set browserPreview.urlTemplate on this host to browse its localhost ports from the web app. Browser already works for this workspace in the desktop app.",
       },
-      unspecifiedAddress: {
-        title: "Browser can't open this address",
-        subtitle: "{{address}} is a listen address, not a page you can open.",
-      },
       session: "Browser session {{browserId}}",
       controls: {
         back: "Back",

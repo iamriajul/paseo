@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
+import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { normalizeWorkspaceBrowserUrl, useBrowserStore } from "@/desktop/browser/store";
 import { useBrowserPreviewTemplate } from "@/desktop/browser/workspace-browser-preview";
 import { getUnsupportedIframeProtocol, resolveWebBrowserSrc } from "./web-preview-url";
@@ -38,20 +39,17 @@ export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
   // The address bar shows the URL the user typed (e.g. localhost:5173) while the
   // iframe loads the resolved preview origin. Bumping `reloadKey` remounts the
   // iframe to reload it — a cross-origin frame can't be reloaded through the DOM.
-  const [draft, setDraft] = useState(url);
+  const urlInputRef = useRef<EditingTextInputHandle | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  useEffect(() => {
-    setDraft(url);
-  }, [url]);
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
   const submit = useCallback(() => {
-    const next = normalizeWorkspaceBrowserUrl(draft);
+    const next = normalizeWorkspaceBrowserUrl(urlInputRef.current?.getText() ?? url);
     if (next === url) {
       reload();
     } else {
       updateBrowser(browserId, { url: next });
     }
-  }, [draft, url, reload, updateBrowser, browserId]);
+  }, [url, reload, updateBrowser, browserId]);
 
   const titleStyle = useMemo(
     () => [styles.title, { color: theme.colors.foreground }],
@@ -76,19 +74,47 @@ export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
   const unsupportedProtocol =
     resolved.kind === "direct" ? getUnsupportedIframeProtocol(resolved.src) : null;
 
+  let content: ReactNode;
+  if (unsupportedProtocol) {
+    content = (
+      <View style={styles.container}>
+        <Text style={titleStyle}>
+          {t("workspace.browser.errors.unsupportedProtocol", { protocol: unsupportedProtocol })}
+        </Text>
+      </View>
+    );
+  } else if (!isWeb) {
+    content = null;
+  } else {
+    content = (
+      // Previews the user's own dev server (or an arbitrary site) like a real browser tab;
+      // the daemon already strips X-Frame-Options/CSP so it runs unrestricted, and a sandbox
+      // would break the scripts, forms, and popups a real page needs. Cross-origin isolation
+      // already separates it from the Paseo origin.
+      // oxlint-disable-next-line react/iframe-missing-sandbox
+      <iframe
+        key={reloadKey}
+        src={resolved.src}
+        style={IFRAME_STYLE}
+        title={t("workspace.tabs.fallback.browser")}
+      />
+    );
+  }
+
   return (
     <View style={styles.pane}>
       <View style={[styles.addressBar, { borderBottomColor: theme.colors.border }]}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
+        {/* key remounts the field on url change so it resyncs to the canonical URL. */}
+        <EditingTextInput
+          ref={urlInputRef}
+          key={url}
+          initialValue={url}
           onSubmitEditing={submit}
           placeholder={t("workspace.browser.controls.enterUrl")}
           placeholderTextColor={theme.colors.foregroundMuted}
           accessibilityLabel={t("workspace.browser.controls.browserUrl")}
           autoCapitalize="none"
           autoCorrect={false}
-          spellCheck={false}
           style={[
             styles.urlInput,
             { color: theme.colors.foreground, backgroundColor: theme.colors.input },
@@ -102,25 +128,7 @@ export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
           <Text style={[styles.reloadGlyph, { color: theme.colors.foregroundMuted }]}>↻</Text>
         </Pressable>
       </View>
-      {unsupportedProtocol ? (
-        <View style={styles.container}>
-          <Text style={titleStyle}>
-            {t("workspace.browser.errors.unsupportedProtocol", { protocol: unsupportedProtocol })}
-          </Text>
-        </View>
-      ) : !isWeb ? null : (
-        // Previews the user's own dev server (or an arbitrary site) like a real browser tab;
-        // the daemon already strips X-Frame-Options/CSP so it runs unrestricted, and a sandbox
-        // would break the scripts, forms, and popups a real page needs. Cross-origin isolation
-        // already separates it from the Paseo origin.
-        // oxlint-disable-next-line react/iframe-missing-sandbox
-        <iframe
-          key={reloadKey}
-          src={resolved.src}
-          style={IFRAME_STYLE}
-          title={t("workspace.tabs.fallback.browser")}
-        />
-      )}
+      {content}
     </View>
   );
 }

@@ -28,14 +28,14 @@ describe("resolveWebBrowserSrc", () => {
     });
   });
 
-  it("rejects unspecified addresses as destinations", () => {
+  it("routes unspecified addresses through the template as localhost", () => {
     expect(resolveWebBrowserSrc({ url: "http://0.0.0.0:3000/", template })).toEqual({
-      kind: "rejected",
-      reason: "unspecified-address",
+      kind: "preview",
+      src: "https://3000--daemon-1.studio.example.com/",
     });
     expect(resolveWebBrowserSrc({ url: "http://[::]:3000/", template })).toEqual({
-      kind: "rejected",
-      reason: "unspecified-address",
+      kind: "preview",
+      src: "https://3000--daemon-1.studio.example.com/",
     });
   });
 

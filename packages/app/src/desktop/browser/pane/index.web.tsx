@@ -1,9 +1,9 @@
-import { useMemo } from "react";
-import { Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
-import { useBrowserStore } from "@/desktop/browser/store";
+import { normalizeWorkspaceBrowserUrl, useBrowserStore } from "@/desktop/browser/store";
 import { useBrowserPreviewTemplate } from "@/desktop/browser/workspace-browser-preview";
 import { getUnsupportedIframeProtocol, resolveWebBrowserSrc } from "./web-preview-url";
 
@@ -30,9 +30,29 @@ export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
   const { t } = useTranslation();
   const { theme } = useUnistyles();
   const browser = useBrowserStore((state) => state.browsersById[browserId] ?? null);
+  const updateBrowser = useBrowserStore((state) => state.updateBrowser);
   const template = useBrowserPreviewTemplate(serverId);
   const url = browser?.url ?? "https://example.com";
   const resolved = useMemo(() => resolveWebBrowserSrc({ url, template }), [url, template]);
+
+  // The address bar shows the URL the user typed (e.g. localhost:5173) while the
+  // iframe loads the resolved preview origin. Bumping `reloadKey` remounts the
+  // iframe to reload it — a cross-origin frame can't be reloaded through the DOM.
+  const [draft, setDraft] = useState(url);
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    setDraft(url);
+  }, [url]);
+  const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+  const submit = useCallback(() => {
+    const next = normalizeWorkspaceBrowserUrl(draft);
+    if (next === url) {
+      reload();
+    } else {
+      updateBrowser(browserId, { url: next });
+    }
+  }, [draft, url, reload, updateBrowser, browserId]);
+
   const titleStyle = useMemo(
     () => [styles.title, { color: theme.colors.foreground }],
     [theme.colors.foreground],
@@ -42,61 +62,103 @@ export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
     [theme.colors.foregroundMuted],
   );
 
-  if (resolved.kind === "preview" || resolved.kind === "direct") {
-    const unsupportedProtocol =
-      resolved.kind === "direct" ? getUnsupportedIframeProtocol(resolved.src) : null;
-    if (unsupportedProtocol) {
-      return (
+  // No reachable preview origin for this host — nothing to navigate to, so no
+  // address bar either.
+  if (resolved.kind === "no-template") {
+    return (
+      <View style={styles.container}>
+        <Text style={titleStyle}>{t("workspace.browser.previewNotConfigured.title")}</Text>
+        <Text style={subtitleStyle}>{t("workspace.browser.previewNotConfigured.subtitle")}</Text>
+      </View>
+    );
+  }
+
+  const unsupportedProtocol =
+    resolved.kind === "direct" ? getUnsupportedIframeProtocol(resolved.src) : null;
+
+  return (
+    <View style={styles.pane}>
+      <View style={[styles.addressBar, { borderBottomColor: theme.colors.border }]}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          onSubmitEditing={submit}
+          placeholder={t("workspace.browser.controls.enterUrl")}
+          placeholderTextColor={theme.colors.foregroundMuted}
+          accessibilityLabel={t("workspace.browser.controls.browserUrl")}
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          style={[
+            styles.urlInput,
+            { color: theme.colors.foreground, backgroundColor: theme.colors.input },
+          ]}
+        />
+        <Pressable
+          onPress={reload}
+          accessibilityLabel={t("workspace.browser.controls.refresh")}
+          style={styles.reloadButton}
+        >
+          <Text style={[styles.reloadGlyph, { color: theme.colors.foregroundMuted }]}>↻</Text>
+        </Pressable>
+      </View>
+      {unsupportedProtocol ? (
         <View style={styles.container}>
           <Text style={titleStyle}>
             {t("workspace.browser.errors.unsupportedProtocol", { protocol: unsupportedProtocol })}
           </Text>
         </View>
-      );
-    }
-    if (!isWeb) {
-      return null;
-    }
-    return (
-      // Previews the user's own dev server (or an arbitrary site) like a real browser tab;
-      // the daemon already strips X-Frame-Options/CSP so it runs unrestricted, and a sandbox
-      // would break the scripts, forms, and popups a real page needs. Cross-origin isolation
-      // already separates it from the Paseo origin.
-      // oxlint-disable-next-line react/iframe-missing-sandbox
-      <iframe
-        src={resolved.src}
-        style={IFRAME_STYLE}
-        title={t("workspace.tabs.fallback.browser")}
-      />
-    );
-  }
-
-  if (resolved.kind === "rejected") {
-    return (
-      <View style={styles.container}>
-        <Text style={titleStyle}>{t("workspace.browser.unspecifiedAddress.title")}</Text>
-        <Text style={subtitleStyle}>
-          {t("workspace.browser.unspecifiedAddress.subtitle", { address: url })}
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      <Text style={titleStyle}>{t("workspace.browser.previewNotConfigured.title")}</Text>
-      <Text style={subtitleStyle}>{t("workspace.browser.previewNotConfigured.subtitle")}</Text>
+      ) : !isWeb ? null : (
+        // Previews the user's own dev server (or an arbitrary site) like a real browser tab;
+        // the daemon already strips X-Frame-Options/CSP so it runs unrestricted, and a sandbox
+        // would break the scripts, forms, and popups a real page needs. Cross-origin isolation
+        // already separates it from the Paseo origin.
+        // oxlint-disable-next-line react/iframe-missing-sandbox
+        <iframe
+          key={reloadKey}
+          src={resolved.src}
+          style={IFRAME_STYLE}
+          title={t("workspace.tabs.fallback.browser")}
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
+  pane: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     padding: 16,
+  },
+  addressBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  urlInput: {
+    flex: 1,
+    height: 32,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    fontSize: theme.fontSize.sm,
+  },
+  reloadButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reloadGlyph: {
+    fontSize: theme.fontSize.base,
   },
   title: {
     fontSize: theme.fontSize.base,

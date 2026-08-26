@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import invariant from "tiny-invariant";
 import { BrowserPane } from "@/desktop/browser/pane";
 import { usePaneContext, usePaneFocus } from "@/panels/pane-context";
-import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
+import { definePanel, type PanelDescriptor } from "@/panels/panel-registry";
 import { useCodeServerStore } from "@/stores/code-server-store";
 import { useWorkspaceDirectory } from "@/stores/session-store-hooks";
 
@@ -63,9 +63,7 @@ function CodeServerPanel() {
   );
 }
 
-export const codeServerPanelRegistration: PanelRegistration<"codeServer"> = {
-  kind: "codeServer",
+export const codeServerPanelRegistration = definePanel("codeServer", {
   component: CodeServerPanel,
   useDescriptor: useCodeServerPanelDescriptor,
-  resourceKey: (target) => target.codeServerId,
-};
+});

@@ -1,4 +1,4 @@
-import type { TranslationResources } from "./en";
+import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const fr: TranslationResources = {
@@ -66,7 +66,7 @@ export const fr: TranslationResources = {
       agents: "Agents",
       newAgent: "Nouvel agent",
       open: "Ouvrir {{name}}",
-      openInSidePanel: "Ouvrir {{name}} dans le panneau latéral",
+      openInSidePane: "Ouvrir {{name}} dans le panneau latéral",
       openInFocusedPane: "Ouvrir {{name}} dans le volet actif",
       addProject: "Ajouter un projet",
       home: "Maison",
@@ -440,6 +440,7 @@ export const fr: TranslationResources = {
     },
     fileActions: {
       openFile: "Ouvrir le fichier",
+      openToSide: "Ouvrir sur le côté",
       copyPath: "Copier le chemin",
       copyRelativePath: "Copier le chemin relatif",
       revealIn: "Afficher dans {{target}}",
@@ -618,6 +619,7 @@ export const fr: TranslationResources = {
         closeLeft: "Près de la gauche",
         closeRight: "Près de la droite",
         closeOthers: "Fermer les autres onglets",
+        moveToMain: "Déplacer vers le panneau principal",
         reloadAgent: "Agent de rechargement",
         reloadAgentTooltip:
           "Rechargez l'agent pour mettre à jour les compétences, les MCP ou le statut de connexion.",
@@ -648,7 +650,7 @@ export const fr: TranslationResources = {
         pinTarget: "Épingler",
         unpinTarget: "Détacher",
       },
-      sidePanel: {
+      explorerSidebar: {
         open: "Ouvrir le panneau latéral",
         close: "Fermer le panneau latéral",
         toggle: "Basculer le panneau latéral",
@@ -924,6 +926,7 @@ export const fr: TranslationResources = {
       },
       diff: {
         openChangesTab: "Ouvrir l'onglet Modifications",
+        openDiffTab: "Ouvrir l'onglet Diff",
         closeChangesTab: "Fermer l'onglet Modifications",
         binaryFile: "Fichier binaire",
         tooLarge: "Diff trop grand pour être affiché",
@@ -934,6 +937,7 @@ export const fr: TranslationResources = {
         switchToUnified: "Passer au diff unifié",
         switchToSplit: "Passer au diff côte à côte",
         options: "Options du diff",
+        inlineDiff: "Diff intégré",
         hideWhitespace: "Masquer les espaces",
         showWhitespace: "Afficher les espaces",
         scrollLongLines: "Faire défiler les longues lignes",
@@ -1296,6 +1300,12 @@ export const fr: TranslationResources = {
     },
   },
   desktop: {
+    windowControls: {
+      minimize: "Réduire la fenêtre",
+      maximize: "Agrandir la fenêtre",
+      restore: "Restaurer la fenêtre",
+      close: "Fermer la fenêtre",
+    },
     quitting: {
       title: "QuitterPaseo...",
       detail: "Arrêt du démon local.",
@@ -1913,6 +1923,7 @@ export const fr: TranslationResources = {
     },
     diff: {
       changesLabel: "Modifications",
+      diffLabel: "Diff",
       changesSubtitle: "Différences de l'arbre de travail",
       commitSubtitle: "Différences du commit",
       uncommittedSubtitle: "Modifications non validées",
@@ -2007,6 +2018,7 @@ export const fr: TranslationResources = {
     sections: {
       general: "Général",
       appearance: "Apparence",
+      layout: en.settings.sections.layout,
       editor: "Éditeur",
       shortcuts: "Raccourcis",
       integrations: "Intégrations",
@@ -2015,6 +2027,7 @@ export const fr: TranslationResources = {
       diagnostics: "Diagnostic",
       about: "À propos",
     },
+    layout: en.settings.layout,
     editor: {
       title: "Éditeur",
       vimKeybindings: "Raccourcis Vim",
@@ -2105,11 +2118,6 @@ export const fr: TranslationResources = {
         label: "DéfilementTerminal",
         description: "Lignes conservées dans le tampon du terminal intégré",
         accessibilityLabel: "Lignes de défilementTerminal",
-      },
-      sidePanelRouting: {
-        label: "Ouvrir les onglets d'appoint dans le panneau latéral",
-        description:
-          "Les liens de fichiers, les pull requests et la progression de la configuration s'ouvrent à côté de votre travail plutôt que dans le volet actif",
       },
       autoExpandReasoning: {
         label: "Toujours afficher le raisonnement",
@@ -2307,7 +2315,6 @@ export const fr: TranslationResources = {
         toggleBothSidebars: "Basculer les deux barres latérales",
         toggleSettings: "Basculer les paramètres",
         toggleFocusMode: "Basculer le mode de mise au point",
-        toggleExplorerPaneMaximization: "Basculer l’agrandissement du panneau latéral",
         cycleTheme: "Thème du cycle",
         findInChat: "Rechercher dans le chat",
         focusMessageInput: "Saisie du message de focus",

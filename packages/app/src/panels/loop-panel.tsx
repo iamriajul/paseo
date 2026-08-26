@@ -3,7 +3,7 @@ import { StyleSheet } from "react-native-unistyles";
 import invariant from "tiny-invariant";
 import { RefreshCw } from "lucide-react-native";
 import { usePaneContext } from "@/panels/pane-context";
-import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
+import { definePanel, type PanelDescriptor } from "@/panels/panel-registry";
 
 function useLoopPanelDescriptor(target: { kind: "loop"; loopId: string }): PanelDescriptor {
   const label = target.loopId;
@@ -39,12 +39,10 @@ function LoopPanel() {
   );
 }
 
-export const loopPanelRegistration: PanelRegistration<"loop"> = {
-  kind: "loop",
+export const loopPanelRegistration = definePanel("loop", {
   component: LoopPanel,
   useDescriptor: useLoopPanelDescriptor,
-  resourceKey: (target) => target.loopId,
-};
+});
 
 const styles = StyleSheet.create((theme) => ({
   root: {

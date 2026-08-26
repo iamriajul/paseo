@@ -1,1 +1,8 @@
 claude-custom-context-window.patch
+fork-tracks-in-composer-bar.patch
+find-in-chat-backfill-client.patch
+pdf-preview-persist-and-mount.patch
+attention-window-focus.patch
+macos-attention-focus-steal.patch
+mermaid-neutralize-disallowed-tags.patch
+native-fork-and-localhost-in-stream.patch

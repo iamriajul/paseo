@@ -1,18 +1,18 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Pressable, ScrollView, Text, View, type PressableStateCallbackType } from "react-native";
+import { useCallback, type ReactElement } from "react";
+import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { CalendarClock, ChevronDown, ChevronRight, Pause, Play, Trash2 } from "lucide-react-native";
+import { CalendarClock, Pause, Play, Trash2 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { getProviderIcon } from "@/components/provider-icons";
+import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useIsCompactFormFactor, MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative } from "@/constants/platform";
 import type { Theme } from "@/styles/theme";
 import { formatNextRun } from "@/utils/schedule-format";
 import type { HeartbeatRow } from "./select";
+import { buildHeartbeatPillPresentation } from "./track-presentation";
 
-const ThemedChevronDown = withUnistyles(ChevronDown);
-const ThemedChevronRight = withUnistyles(ChevronRight);
 const ThemedCalendarClock = withUnistyles(CalendarClock);
 const ThemedPause = withUnistyles(Pause);
 const ThemedPlay = withUnistyles(Play);
@@ -33,7 +33,7 @@ export interface HeartbeatsTrackProps {
   pendingIds?: ReadonlySet<string>;
 }
 
-const LIST_MAX_HEIGHT = 200;
+const ROW_ICON_SIZE = 14;
 
 function rowPrimaryLabel(row: HeartbeatRow): string {
   if (row.kind === "paseo") {
@@ -77,80 +77,31 @@ export function HeartbeatsTrack({
   pendingIds,
 }: HeartbeatsTrackProps): ReactElement | null {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-
-  const toggleExpanded = useCallback(() => {
-    setExpanded((current) => !current);
-  }, []);
-
-  const surfaceStyle = useMemo(
-    () => [styles.surface, expanded && styles.surfaceExpanded],
-    [expanded],
-  );
-  const headerStyle = useCallback(
-    ({ hovered, pressed }: PressableStateCallbackType) => [
-      styles.headerToggle,
-      (hovered || pressed) && styles.headerActive,
-    ],
-    [],
-  );
-  const headerContainerStyle = useMemo(
-    () => [styles.header, expanded ? styles.headerDivider : styles.headerCollapsed],
-    [expanded],
-  );
-
   if (rows.length === 0) {
     return null;
   }
 
-  const headerLabel =
-    rows.length > 0 ? t("heartbeats.headerCount", { count: rows.length }) : t("heartbeats.header");
+  const pill = buildHeartbeatPillPresentation(t, rows);
 
   return (
-    <View style={styles.outer} testID="heartbeats-track">
-      <View style={styles.track}>
-        <View style={surfaceStyle}>
-          <View style={headerContainerStyle}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={headerLabel}
-              testID="heartbeats-track-header"
-              onPress={toggleExpanded}
-              style={headerStyle}
-            >
-              {expanded ? (
-                <ThemedChevronDown size={12} uniProps={foregroundMutedColorMapping} />
-              ) : (
-                <ThemedChevronRight size={12} uniProps={foregroundMutedColorMapping} />
-              )}
-              <Text style={styles.headerLabel} numberOfLines={1}>
-                {headerLabel}
-              </Text>
-            </Pressable>
-          </View>
-          {expanded ? (
-            <ScrollView
-              style={styles.scroll}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-            >
-              {rows.map((row) => (
-                <HeartbeatsTrackRow
-                  key={`${row.kind}:${row.id}`}
-                  row={row}
-                  pending={pendingIds?.has(row.id) === true}
-                  onOpenRow={onOpenRow}
-                  onPause={onPause}
-                  onResume={onResume}
-                  onDelete={onDelete}
-                />
-              ))}
-            </ScrollView>
-          ) : null}
-        </View>
-      </View>
-    </View>
+    <ComposerTrackPill
+      testID="heartbeats-track-header"
+      segments={pill.segments}
+      accessibilityLabel={pill.accessibilityLabel}
+      panelTitle={t("heartbeats.header")}
+    >
+      {rows.map((row) => (
+        <HeartbeatsTrackRow
+          key={`${row.kind}:${row.id}`}
+          row={row}
+          pending={pendingIds?.has(row.id) === true}
+          onOpenRow={onOpenRow}
+          onPause={onPause}
+          onResume={onResume}
+          onDelete={onDelete}
+        />
+      ))}
+    </ComposerTrackPill>
   );
 }
 
@@ -171,7 +122,6 @@ function HeartbeatsTrackRow({
 }): ReactElement {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
-  const [hovered, setHovered] = useState(false);
   const label = rowPrimaryLabel(row);
   const meta = rowSecondaryLabel(row, t);
   const handlePress = useCallback(() => {
@@ -186,52 +136,58 @@ function HeartbeatsTrackRow({
   const handleDeletePress = useCallback(() => {
     onDelete(row);
   }, [onDelete, row]);
-  const handlePointerEnter = useCallback(() => setHovered(true), []);
-  const handlePointerLeave = useCallback(() => setHovered(false), []);
   const actionsAlwaysVisible = isNative || isCompact;
-  const actionsVisible = actionsAlwaysVisible || hovered;
+
+  const renderRow = useCallback(
+    ({ active }: { active: boolean }) => (
+      <>
+        <HeartbeatLeadingIcon row={row} />
+        <Text style={styles.rowLabel} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={styles.rowTrailing} numberOfLines={1}>
+          {meta}
+        </Text>
+        <HeartbeatRowActions
+          row={row}
+          label={label}
+          visible={actionsAlwaysVisible || active}
+          pending={pending}
+          onPausePress={handlePausePress}
+          onResumePress={handleResumePress}
+          onDeletePress={handleDeletePress}
+        />
+      </>
+    ),
+    [
+      actionsAlwaysVisible,
+      handleDeletePress,
+      handlePausePress,
+      handleResumePress,
+      label,
+      meta,
+      pending,
+      row,
+    ],
+  );
 
   return (
-    <View onPointerEnter={handlePointerEnter} onPointerLeave={handlePointerLeave}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        testID={`heartbeats-track-row-${row.kind}-${row.id}`}
-        onPress={handlePress}
-      >
-        {({ pressed }) => (
-          <View style={hovered || pressed ? styles.rowActive : styles.row}>
-            <HeartbeatLeadingIcon row={row} />
-            <View style={styles.rowText}>
-              <Text style={styles.rowLabel} numberOfLines={1}>
-                {label}
-              </Text>
-              <Text style={styles.rowMeta} numberOfLines={1}>
-                {meta}
-              </Text>
-            </View>
-            <HeartbeatRowActions
-              row={row}
-              label={label}
-              visible={actionsVisible}
-              pending={pending}
-              onPausePress={handlePausePress}
-              onResumePress={handleResumePress}
-              onDeletePress={handleDeletePress}
-            />
-          </View>
-        )}
-      </Pressable>
-    </View>
+    <ComposerTrackRow
+      accessibilityLabel={label}
+      testID={`heartbeats-track-row-${row.kind}-${row.id}`}
+      onPress={handlePress}
+    >
+      {renderRow}
+    </ComposerTrackRow>
   );
 }
 
 function HeartbeatLeadingIcon({ row }: { row: HeartbeatRow }): ReactElement {
   if (row.kind === "provider") {
     const Icon = getProviderIcon(row.provider);
-    return <Icon size={16} color={styles.providerIcon.color} />;
+    return <Icon size={ROW_ICON_SIZE} color={styles.providerIcon.color} />;
   }
-  return <ThemedCalendarClock size={16} uniProps={foregroundMutedColorMapping} />;
+  return <ThemedCalendarClock size={ROW_ICON_SIZE} uniProps={foregroundMutedColorMapping} />;
 }
 
 function HeartbeatRowActions({
@@ -326,7 +282,7 @@ function HeartbeatActionButton({
             if (icon === "delete") {
               return (
                 <ThemedTrash2
-                  size={14}
+                  size={ROW_ICON_SIZE}
                   uniProps={active ? destructiveColorMapping : foregroundMutedColorMapping}
                 />
               );
@@ -334,14 +290,14 @@ function HeartbeatActionButton({
             if (icon === "play") {
               return (
                 <ThemedPlay
-                  size={14}
+                  size={ROW_ICON_SIZE}
                   uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
                 />
               );
             }
             return (
               <ThemedPause
-                size={14}
+                size={ROW_ICON_SIZE}
                 uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
               />
             );
@@ -356,92 +312,17 @@ function HeartbeatActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  outer: {
-    width: "100%",
-    alignItems: "center",
-    paddingHorizontal: theme.spacing[4],
-  },
-  track: {
-    width: "100%",
-    maxWidth: MAX_CONTENT_WIDTH,
-    marginBottom: -theme.spacing[4],
-  },
-  surface: {
-    alignSelf: "stretch",
-    backgroundColor: theme.colors.surface1,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
-    borderBottomWidth: 0,
-    borderTopLeftRadius: theme.borderRadius["2xl"],
-    borderTopRightRadius: theme.borderRadius["2xl"],
-    overflow: "hidden",
-  },
-  surfaceExpanded: {
-    paddingBottom: theme.spacing[4],
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  headerToggle: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingLeft: theme.spacing[3],
-    paddingRight: theme.spacing[1],
-    paddingVertical: theme.spacing[2],
-  },
-  headerCollapsed: {
-    paddingBottom: theme.spacing[4],
-  },
-  headerActive: {
-    backgroundColor: theme.colors.surface2,
-  },
-  headerDivider: {
-    borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.border,
-  },
-  headerLabel: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
-  },
-  scroll: {
-    maxHeight: LIST_MAX_HEIGHT,
-  },
-  scrollContent: {
-    paddingVertical: theme.spacing[1],
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-  },
-  rowActive: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-    backgroundColor: theme.colors.surface2,
-  },
-  rowText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
   rowLabel: {
+    flexGrow: 1,
     flexShrink: 1,
+    flexBasis: "auto",
     minWidth: 0,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     color: theme.colors.foreground,
   },
-  rowMeta: {
+  rowTrailing: {
+    flexShrink: 2,
+    minWidth: 0,
     fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
   },

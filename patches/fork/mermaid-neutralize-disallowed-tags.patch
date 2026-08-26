@@ -1,0 +1,81 @@
+Subject: neutralize mermaid placeholder tags instead of rejecting the diagram
+Decision: neutralizeDisallowedTags replaces disallowed tag opens with U+2039 before containsUnsafeMermaidSource so prose like <canonical URL> does not discard the whole diagram; real tags still fail closed
+Verify: npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.test.ts --bail=1 -t "neutralizeDisallowedTags"
+Files: packages/app/src/components/markdown/fence/mermaid/source-policy.ts
+Files: packages/app/src/components/markdown/fence/mermaid/use-render-model.ts
+
+diff --git a/packages/app/src/components/markdown/fence/mermaid/source-policy.ts b/packages/app/src/components/markdown/fence/mermaid/source-policy.ts
+index df6ad0312..be88038e8 100644
+--- a/packages/app/src/components/markdown/fence/mermaid/source-policy.ts
++++ b/packages/app/src/components/markdown/fence/mermaid/source-policy.ts
+@@ -12,6 +12,21 @@
+ const UNSAFE_MERMAID_SOURCE =
+   /@\s*\{|url\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
+ 
++// A literal `<placeholder>` in prose (e.g. "<canonical URL>", "<name>") is byte-for-byte
++// indistinguishable from a real tag by shape alone, so the check above can't tell them
++// apart — it has to treat both as unsafe. Rather than discard the whole diagram over a
++// single harmless placeholder, swap just the opening `<` for a lookalike (U+2039) before
++// rendering. No literal `<` survives, so nothing here can ever be interpreted as a tag by
++// Mermaid's SVG output or anything downstream — at least as safe as rejecting outright,
++// without losing the rest of the diagram. Matches on the raw, undecoded source only, so
++// escape-disguised tags (`<img`) still fall through to containsUnsafeMermaidSource's
++// decode-and-reject path below, unchanged.
++const DISALLOWED_TAG_OPEN = /<(?!\/?(?:br|i)\s*\/?>)(?=[a-z!/])/gi;
++
++export function neutralizeDisallowedTags(code: string): string {
++  return code.replace(DISALLOWED_TAG_OPEN, "‹");
++}
++
+ // Mermaid labels can contain escaped text. Decode the escape forms we care
+ // about before running the denylist so disguised HTML still gets caught.
+ // Invalid escape sequences fail closed and fall back to the source block.
+diff --git a/packages/app/src/components/markdown/fence/mermaid/use-render-model.ts b/packages/app/src/components/markdown/fence/mermaid/use-render-model.ts
+index cb35549b1..9d007580a 100644
+--- a/packages/app/src/components/markdown/fence/mermaid/use-render-model.ts
++++ b/packages/app/src/components/markdown/fence/mermaid/use-render-model.ts
+@@ -7,7 +7,7 @@ import {
+   type DiagramDimensions,
+   type RenderedDiagram,
+ } from "./render-model";
+-import { containsUnsafeMermaidSource } from "./source-policy";
++import { containsUnsafeMermaidSource, neutralizeDisallowedTags } from "./source-policy";
+ import type { MarkdownPhase } from "../types";
+ 
+ const renderCache = new Map<string, RenderedDiagram>();
+@@ -40,16 +40,16 @@ export function useMermaidRenderModel({
+   phase: MarkdownPhase;
+   colorScheme: DiagramColorScheme;
+ }) {
+-  const renderInput = useMemo(
+-    () => ({
+-      source,
++  const renderInput = useMemo(() => {
++    const sanitizedSource = neutralizeDisallowedTags(source);
++    return {
++      source: sanitizedSource,
+       phase,
+       colorScheme,
+-      rejected: containsUnsafeMermaidSource(source),
+-      cached: readCachedRender(source, colorScheme),
+-    }),
+-    [colorScheme, phase, source],
+-  );
++      rejected: containsUnsafeMermaidSource(sanitizedSource),
++      cached: readCachedRender(sanitizedSource, colorScheme),
++    };
++  }, [colorScheme, phase, source]);
+   const [state, dispatch] = useReducer(
+     reduceMermaidRenderModel,
+     renderInput,
+@@ -83,8 +83,8 @@ export function useMermaidRenderModel({
+     },
+     [],
+   );
+-  const renderFailed = useCallback((revision: number) => {
+-    dispatch({ type: "renderFailed", revision });
++  const renderFailed = useCallback((revision: number, message?: string) => {
++    dispatch({ type: "renderFailed", revision, message });
+   }, []);
+ 
+   return {

@@ -1,0 +1,183 @@
+Subject: fork tracks as composer pills and remount find in chat
+Decision: ComposerTrackBar is shown when fork extra pills exist; AgentTracks renders heartbeats/background tasks as children; agent-panel remounts find-in-chat via useChatHistorySearch so Cmd/Ctrl+F is not a dead shortcut
+Verify: npx vitest run packages/app/src/panels/agent-tracks.test.ts packages/app/src/heartbeats/track-presentation.test.ts packages/app/src/background-tasks/track-presentation.test.ts packages/app/src/agent-search/chat-history-search.test.ts --bail=1
+Files: packages/app/src/panels/agent-tracks.tsx
+Files: packages/app/src/panels/agent-panel.tsx
+
+diff --git a/packages/app/src/panels/agent-panel.tsx b/packages/app/src/panels/agent-panel.tsx
+index fa2414336..19a16bddb 100644
+--- a/packages/app/src/panels/agent-panel.tsx
++++ b/packages/app/src/panels/agent-panel.tsx
+@@ -20,6 +20,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
+ import invariant from "tiny-invariant";
+ import { shallow, useShallow } from "zustand/shallow";
+ import { useStoreWithEqualityFn } from "zustand/traditional";
++import { useChatHistorySearch } from "@/agent-search/use-chat-history-search";
+ import { AgentStreamView, type AgentStreamViewHandle } from "@/agent-stream/view";
+ import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
+ import { FileDropZone } from "@/components/file-drop/file-drop-zone";
+@@ -85,7 +86,7 @@ import {
+ } from "@/screens/agent/agent-ready-screen-bottom-anchor";
+ import { WorkspaceDraftAgentTab } from "@/composer/draft/workspace-tab";
+ import { AgentTracks, hasAgentTracks } from "@/panels/agent-tracks";
+-import { ForkAgentTracks } from "@/panels/fork-agent-tracks";
++import { ForkAgentTracks, useForkAgentTrackPresence } from "@/panels/fork-agent-tracks";
+ import { useCreateFlowStore } from "@/stores/create-flow-store";
+ import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
+ import {
+@@ -1261,11 +1262,20 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
+     rows: subagentRows,
+   });
+   const hasActiveComposer = !agentState.archivedAt && !isArchivingCurrentAgent;
+-  const hasVisibleAgentTracks = hasAgentTracks({
+-    subagentRows,
+-    tasks,
+-    archiveFinishedStatus: archiveFinishedSubagents.status,
++  const hasForkTracks = useForkAgentTrackPresence({ serverId, agentId });
++  const chatSearch = useChatHistorySearch({
++    serverId,
++    agentId,
++    isPaneFocused,
++    streamViewRef,
++    toast: toastApi,
+   });
++  const hasVisibleAgentTracks =
++    hasAgentTracks({
++      subagentRows,
++      tasks,
++      archiveFinishedStatus: archiveFinishedSubagents.status,
++    }) || hasForkTracks;
+   const rawAgentInputDraft = useAgentInputDraft({
+     draftKey: buildDraftStoreKey({
+       serverId,
+@@ -1345,24 +1355,30 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
+           hasVisibleAgentTracks={hasVisibleAgentTracks}
+           toast={toastApi}
+           onOpenWorkspaceFile={onOpenWorkspaceFile}
++          activeSearchResultId={chatSearch.activeSearchResultId}
+         />
+       </RenderProfile>
+       {hasActiveComposer ? (
+-        <>
+-          <AgentTracks
+-            serverId={serverId}
+-            workspaceId={workspaceId}
+-            subagentRows={subagentRows}
+-            tasks={tasks}
+-            archiveFinishedStatus={archiveFinishedSubagents.status}
+-            onArchiveFinished={archiveFinishedSubagents.archiveFinished}
+-          />
++        <AgentTracks
++          serverId={serverId}
++          workspaceId={workspaceId}
++          subagentRows={subagentRows}
++          tasks={tasks}
++          archiveFinishedStatus={archiveFinishedSubagents.status}
++          onArchiveFinished={archiveFinishedSubagents.archiveFinished}
++          hasExtraPills={hasForkTracks}
++        >
+           <ForkAgentTracks serverId={serverId} agentId={agentId} />
+-        </>
++        </AgentTracks>
+       ) : null}
+     </ReanimatedAnimated.View>
+   );
+-  const contentContainer = <View style={styles.contentContainer}>{streamContent}</View>;
++  const contentContainer = (
++    <View style={styles.contentContainer}>
++      {chatSearch.bar}
++      {streamContent}
++    </View>
++  );
+ 
+   return (
+     <RewindComposerRestoreProvider
+@@ -1431,6 +1447,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
+   hasVisibleAgentTracks,
+   toast,
+   onOpenWorkspaceFile,
++  activeSearchResultId = null,
+ }: {
+   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
+   serverId: string;
+@@ -1443,6 +1460,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
+   hasVisibleAgentTracks: boolean;
+   toast: ReturnType<typeof useToastHost>["api"];
+   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
++  activeSearchResultId?: string | null;
+ }) {
+   const isCompactFormFactor = useIsCompactFormFactor();
+   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
+@@ -1515,6 +1533,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
+       pendingMessageSubmissions={pendingMessageSubmissions}
+       turnPresentation={turnPresentation}
+       onOpenWorkspaceFile={onOpenWorkspaceFile}
++      activeSearchResultId={activeSearchResultId}
+     />
+   );
+ });
+diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/agent-tracks.tsx
+index 4067426a4..cd3ed6566 100644
+--- a/packages/app/src/panels/agent-tracks.tsx
++++ b/packages/app/src/panels/agent-tracks.tsx
+@@ -1,4 +1,4 @@
+-import { memo, useCallback, type ReactElement } from "react";
++import { memo, useCallback, type ReactElement, type ReactNode } from "react";
+ import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
+ import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
+ import { AgentTaskList } from "@/composer/task-list";
+@@ -18,6 +18,7 @@ import type { TodoEntry } from "@/types/stream";
+ import { navigateToAgent } from "@/utils/navigate-to-agent";
+ import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+ import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
++import { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";
+ 
+ /**
+  * The pane's ambient context — workspace changes, subagents, and tasks — as a row of pills above
+@@ -33,6 +34,8 @@ export const AgentTracks = memo(function AgentTracks({
+   tasks,
+   archiveFinishedStatus,
+   onArchiveFinished,
++  hasExtraPills = false,
++  children,
+ }: {
+   serverId: string;
+   workspaceId: string;
+@@ -40,6 +43,8 @@ export const AgentTracks = memo(function AgentTracks({
+   tasks: TodoEntry[] | undefined;
+   archiveFinishedStatus: ArchiveFinishedStatus;
+   onArchiveFinished: () => void;
++  hasExtraPills?: boolean;
++  children?: ReactNode;
+ }): ReactElement | null {
+   const { tabId, openTab } = usePaneContext();
+   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
+@@ -105,7 +110,13 @@ export const AgentTracks = memo(function AgentTracks({
+     });
+   }, [isCompact, openInSidePane, workspaceKey]);
+ 
+-  if (!hasWorkspaceDiffStat && !hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus })) {
++  if (
++    !shouldShowAgentTrackBar({
++      hasOfficialTracks: hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus }),
++      hasWorkspaceDiffStat,
++      hasExtraPills,
++    })
++  ) {
+     return null;
+   }
+ 
+@@ -121,6 +132,7 @@ export const AgentTracks = memo(function AgentTracks({
+         archiveFinishedStatus={archiveFinishedStatus}
+         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
+       />
++      {children}
+       <WorkspaceDiffStatPill
+         serverId={serverId}
+         workspaceId={workspaceId}
+@@ -141,3 +153,5 @@ export function hasAgentTracks({
+ }): boolean {
+   return subagentRows.length > 0 || Boolean(tasks?.length) || archiveFinishedStatus.kind !== "idle";
+ }
++
++export { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";

@@ -31,6 +31,7 @@ import {
   getClaudeModels,
   isClaudeCustomNonFamilyModel,
   normalizeClaudeRuntimeModelId,
+  preferConfiguredClaudeContextWindow,
   resolveClaudeContextWindowMaxTokens,
   resolveObservedClaudeModelId,
 } from "./models.js";
@@ -684,6 +685,20 @@ describe("Claude max context tokens env", () => {
       }),
     ).toBe(500_000);
 
+    expect(
+      resolveClaudeContextWindowMaxTokens({
+        modelId: "z-ai/glm-5.1",
+        profileModels: [{ id: "glm-5.1", contextWindowMaxTokens: 500_000 }],
+      }),
+    ).toBe(500_000);
+
+    expect(
+      resolveClaudeContextWindowMaxTokens({
+        modelId: "GLM-5.1",
+        profileModels: [{ id: "glm-5.1", contextWindowMaxTokens: 500_000 }],
+      }),
+    ).toBe(500_000);
+
     const firstParty = findClaudeModel("claude-sonnet-4-6");
     expect(
       resolveClaudeContextWindowMaxTokens({
@@ -705,6 +720,15 @@ describe("Claude max context tokens env", () => {
       500_000,
     );
     expect(applied[CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY]).toBe("200000");
+  });
+
+  it("applyClaudeMaxContextTokensEnv overwrites when the profile owns the window", () => {
+    const applied = applyClaudeMaxContextTokensEnv(
+      { [CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY]: "200000" },
+      500_000,
+      { overwrite: true },
+    );
+    expect(applied[CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY]).toBe("500000");
   });
 
   it("applyClaudeMaxContextTokensEnv is a no-op without a positive window", () => {
@@ -790,6 +814,33 @@ describe("Claude auto-compact window env", () => {
       450_000,
     );
     expect(applied[CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]).toBe("300000");
+  });
+
+  it("applyClaudeAutoCompactWindowEnv overwrites when the profile owns the window", () => {
+    const applied = applyClaudeAutoCompactWindowEnv(
+      { [CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]: "200000" },
+      450_000,
+      { overwrite: true },
+    );
+    expect(applied[CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]).toBe("450000");
+  });
+});
+
+describe("preferConfiguredClaudeContextWindow", () => {
+  it("keeps the configured window when Claude Code reports a smaller assumed window", () => {
+    expect(preferConfiguredClaudeContextWindow(500_000, 200_000)).toBe(500_000);
+  });
+
+  it("uses the reported window when nothing is configured", () => {
+    expect(preferConfiguredClaudeContextWindow(undefined, 200_000)).toBe(200_000);
+  });
+
+  it("keeps the configured window when usage omits a window", () => {
+    expect(preferConfiguredClaudeContextWindow(500_000, undefined)).toBe(500_000);
+  });
+
+  it("uses a larger reported window than the catalog default", () => {
+    expect(preferConfiguredClaudeContextWindow(200_000, 1_000_000)).toBe(1_000_000);
   });
 });
 

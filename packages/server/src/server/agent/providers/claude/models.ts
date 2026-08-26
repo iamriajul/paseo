@@ -283,14 +283,21 @@ export function resolveClaudeMaxOutputTokens(options: {
 }
 
 /**
- * Fill-if-missing CLAUDE_CODE_MAX_CONTEXT_TOKENS from a configured context window.
- * Claude Code uses this value to calculate its own auto-compact threshold.
+ * Apply CLAUDE_CODE_MAX_CONTEXT_TOKENS from a configured context window.
+ * Fill-if-missing by default; pass `{ overwrite: true }` when a profile/additional
+ * model owns the window so ambient host env cannot keep a 200k assumed limit.
  */
 export function applyClaudeMaxContextTokensEnv(
   env: NodeJS.ProcessEnv,
   contextWindowMaxTokens: number | undefined,
+  options?: { overwrite?: boolean },
 ): NodeJS.ProcessEnv {
-  return applyPositiveTokenEnv(env, CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY, contextWindowMaxTokens);
+  return applyPositiveTokenEnv(
+    env,
+    CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY,
+    contextWindowMaxTokens,
+    options,
+  );
 }
 
 /**
@@ -300,8 +307,9 @@ export function applyClaudeMaxContextTokensEnv(
 export function applyClaudeMaxOutputTokensEnv(
   env: NodeJS.ProcessEnv,
   maxOutputTokens: number | undefined,
+  options?: { overwrite?: boolean },
 ): NodeJS.ProcessEnv {
-  return applyPositiveTokenEnv(env, CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY, maxOutputTokens);
+  return applyPositiveTokenEnv(env, CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY, maxOutputTokens, options);
 }
 
 /**
@@ -351,8 +359,58 @@ export function resolveClaudeAutoCompactWindowTokens(options: {
 export function applyClaudeAutoCompactWindowEnv(
   env: NodeJS.ProcessEnv,
   autoCompactWindowTokens: number | undefined,
+  options?: { overwrite?: boolean },
 ): NodeJS.ProcessEnv {
-  return applyPositiveTokenEnv(env, CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY, autoCompactWindowTokens);
+  return applyPositiveTokenEnv(
+    env,
+    CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY,
+    autoCompactWindowTokens,
+    options,
+  );
+}
+
+/**
+ * Claude Code reports an assumed window (often 200K) for unrecognized custom model IDs.
+ * Never shrink a configured profile window to that guess; still allow a larger reported
+ * window (first-party 1M sessions).
+ */
+export function preferConfiguredClaudeContextWindow(
+  configured: number | undefined,
+  reported: number | undefined,
+): number | undefined {
+  const configuredTokens = positiveTokenCount(configured);
+  const reportedTokens = positiveTokenCount(reported);
+  if (configuredTokens === undefined) {
+    return reportedTokens;
+  }
+  if (reportedTokens === undefined) {
+    return configuredTokens;
+  }
+  return Math.max(configuredTokens, reportedTokens);
+}
+
+function positiveTokenCount(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.trunc(value);
+}
+
+function profileModelIdTail(id: string): string {
+  const slash = id.lastIndexOf("/");
+  return slash === -1 ? id : id.slice(slash + 1);
+}
+
+function profileModelIdsMatch(selected: string, candidate: string): boolean {
+  if (selected === candidate) {
+    return true;
+  }
+  const selectedLower = selected.toLowerCase();
+  const candidateLower = candidate.toLowerCase();
+  if (selectedLower === candidateLower) {
+    return true;
+  }
+  return profileModelIdTail(selectedLower) === profileModelIdTail(candidateLower);
 }
 
 function findProfileModel(
@@ -360,21 +418,25 @@ function findProfileModel(
   profileModels: ClaudeProfileModelLimits[] | undefined,
 ): ClaudeProfileModelLimits | undefined {
   const trimmed = typeof modelId === "string" ? modelId.trim() : "";
-  if (!trimmed) {
+  if (!trimmed || !profileModels || profileModels.length === 0) {
     return undefined;
   }
-  return profileModels?.find((model) => model.id === trimmed);
+  return (
+    profileModels.find((model) => model.id === trimmed) ??
+    profileModels.find((model) => profileModelIdsMatch(trimmed, model.id))
+  );
 }
 
 function applyPositiveTokenEnv(
   env: NodeJS.ProcessEnv,
   key: string,
   value: number | undefined,
+  options?: { overwrite?: boolean },
 ): NodeJS.ProcessEnv {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return env;
   }
-  if (hasNonEmptyEnvValue(env[key])) {
+  if (!options?.overwrite && hasNonEmptyEnvValue(env[key])) {
     return env;
   }
   return {

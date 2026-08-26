@@ -46,6 +46,7 @@ import {
   normalizeClaudeRuntimeModelId,
   resolveConfiguredClaudeModel,
   applyClaudeAutoCompactWindowEnv,
+  preferConfiguredClaudeContextWindow,
   resolveClaudeAutoCompactWindowTokens,
 } from "./models.js";
 import {
@@ -2030,10 +2031,10 @@ class ClaudeContextUsageState {
   }
 
   recordModelUsage(modelUsage: unknown): number | undefined {
-    const contextWindowMaxTokens = extractContextWindowSize(modelUsage);
-    if (contextWindowMaxTokens !== undefined) {
-      this.contextWindowMaxTokens = contextWindowMaxTokens;
-    }
+    this.contextWindowMaxTokens = preferConfiguredClaudeContextWindow(
+      this.contextWindowMaxTokens,
+      extractContextWindowSize(modelUsage),
+    );
     return this.contextWindowMaxTokens;
   }
 
@@ -3557,21 +3558,26 @@ class ClaudeAgentSession implements AgentSession {
       overlays: [this.launchEnv],
     });
     const pinned = applyClaudeCustomModelEnvPins(env, this.config.model);
-    const configuredWindow = resolveClaudeContextWindowMaxTokens({
+    const limitOptions = {
       modelId: this.config.model,
       profileModels: this.profileModels,
+    };
+    const configuredWindow = resolveClaudeContextWindowMaxTokens(limitOptions);
+    const configuredMaxOutput = resolveClaudeMaxOutputTokens(limitOptions);
+    const configuredAutoCompactWindow = resolveClaudeAutoCompactWindowTokens(limitOptions);
+    // Profile/additional-model windows are the source of truth for that model.
+    // Ambient CLAUDE_CODE_* env (shell, Claude user settings leaked into the daemon)
+    // otherwise keeps the assumed 200k window and auto-compact fires too early.
+    const profileOwnsWindow = configuredAutoCompactWindow !== undefined;
+    const withContext = applyClaudeMaxContextTokensEnv(pinned, configuredWindow, {
+      overwrite: profileOwnsWindow,
     });
-    const configuredMaxOutput = resolveClaudeMaxOutputTokens({
-      modelId: this.config.model,
-      profileModels: this.profileModels,
+    const withOutput = applyClaudeMaxOutputTokensEnv(withContext, configuredMaxOutput, {
+      overwrite: configuredMaxOutput !== undefined,
     });
-    const configuredAutoCompactWindow = resolveClaudeAutoCompactWindowTokens({
-      modelId: this.config.model,
-      profileModels: this.profileModels,
+    return applyClaudeAutoCompactWindowEnv(withOutput, configuredAutoCompactWindow, {
+      overwrite: profileOwnsWindow,
     });
-    const withContext = applyClaudeMaxContextTokensEnv(pinned, configuredWindow);
-    const withOutput = applyClaudeMaxOutputTokensEnv(withContext, configuredMaxOutput);
-    return applyClaudeAutoCompactWindowEnv(withOutput, configuredAutoCompactWindow);
   }
 
   private async buildOptions(): Promise<ClaudeOptions> {

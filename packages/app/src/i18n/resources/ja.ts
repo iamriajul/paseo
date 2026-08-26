@@ -1,4 +1,4 @@
-import type { TranslationResources } from "./en";
+import { en, type TranslationResources } from "./en";
 import { pluginSettings } from "./plugin-settings";
 
 export const ja: TranslationResources = {
@@ -65,7 +65,7 @@ export const ja: TranslationResources = {
       agents: "エージェント",
       newAgent: "新しいエージェント",
       open: "{{name}}を開く",
-      openInSidePanel: "{{name}}をサイドパネルで開く",
+      openInSidePane: "{{name}}をサイドパネルで開く",
       openInFocusedPane: "{{name}}をフォーカス中のペインで開く",
       addProject: "プロジェクトを追加",
       home: "ホーム",
@@ -440,6 +440,7 @@ export const ja: TranslationResources = {
     },
     fileActions: {
       openFile: "ファイルを開く",
+      openToSide: "横に開く",
       copyPath: "パスをコピー",
       copyRelativePath: "相対パスをコピー",
       revealIn: "{{target}}で表示",
@@ -618,6 +619,7 @@ export const ja: TranslationResources = {
         closeLeft: "左のタブを閉じる",
         closeRight: "右のタブを閉じる",
         closeOthers: "他のタブを閉じる",
+        moveToMain: "メインパネルへ移動",
         reloadAgent: "エージェントを再読み込み",
         reloadAgentTooltip:
           "スキル、MCP、ログイン状態を更新するためにエージェントを再読み込みします。",
@@ -648,7 +650,7 @@ export const ja: TranslationResources = {
         pinTarget: "ピン留め",
         unpinTarget: "ピン留めを解除",
       },
-      sidePanel: {
+      explorerSidebar: {
         open: "サイドパネルを開く",
         close: "サイドパネルを閉じる",
         toggle: "サイドパネルを切り替え",
@@ -905,6 +907,7 @@ export const ja: TranslationResources = {
       },
       diff: {
         openChangesTab: "変更タブを開く",
+        openDiffTab: "差分タブを開く",
         closeChangesTab: "変更タブを閉じる",
         binaryFile: "バイナリファイル",
         tooLarge: "差分が大きすぎて表示できません",
@@ -915,6 +918,7 @@ export const ja: TranslationResources = {
         switchToUnified: "ユニファイド差分に切り替え",
         switchToSplit: "左右比較差分に切り替え",
         options: "差分オプション",
+        inlineDiff: "インライン差分",
         hideWhitespace: "空白を非表示",
         showWhitespace: "空白を表示",
         scrollLongLines: "長い行をスクロール",
@@ -1277,6 +1281,12 @@ export const ja: TranslationResources = {
     },
   },
   desktop: {
+    windowControls: {
+      minimize: "ウィンドウを最小化",
+      maximize: "ウィンドウを最大化",
+      restore: "ウィンドウを元に戻す",
+      close: "ウィンドウを閉じる",
+    },
     quitting: {
       title: "Paseoを終了中...",
       detail: "ローカルデーモンを停止中。",
@@ -1883,6 +1893,7 @@ export const ja: TranslationResources = {
     },
     diff: {
       changesLabel: "変更",
+      diffLabel: "差分",
       changesSubtitle: "作業ツリーの差分",
       commitSubtitle: "コミット差分",
       uncommittedSubtitle: "未コミットの変更",
@@ -1977,6 +1988,7 @@ export const ja: TranslationResources = {
     sections: {
       general: "一般",
       appearance: "外観",
+      layout: en.settings.sections.layout,
       editor: "エディター",
       shortcuts: "ショートカット",
       integrations: "連携",
@@ -1985,6 +1997,7 @@ export const ja: TranslationResources = {
       diagnostics: "診断",
       about: "アプリ情報",
     },
+    layout: en.settings.layout,
     editor: {
       title: "エディター",
       vimKeybindings: "Vim キーバインド",
@@ -2072,11 +2085,6 @@ export const ja: TranslationResources = {
         label: "ターミナルスクロールバック",
         description: "組み込みターミナルバッファに保持する行数",
         accessibilityLabel: "ターミナルスクロールバック行数",
-      },
-      sidePanelRouting: {
-        label: "補助タブをサイドパネルで開く",
-        description:
-          "ファイルリンク、プルリクエスト、セットアップの進行状況が、フォーカス中のペインではなく作業の横に開きます",
       },
       autoExpandReasoning: {
         label: "常に思考プロセスを展開",
@@ -2273,7 +2281,6 @@ export const ja: TranslationResources = {
         toggleBothSidebars: "両方のサイドバーを切り替え",
         toggleSettings: "設定を切り替え",
         toggleFocusMode: "フォーカスモードを切り替え",
-        toggleExplorerPaneMaximization: "サイドパネルの最大化を切り替え",
         cycleTheme: "テーマを順に切り替え",
         findInChat: "チャット内を検索",
         focusMessageInput: "メッセージ入力にフォーカス",

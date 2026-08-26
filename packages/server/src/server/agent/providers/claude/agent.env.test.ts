@@ -345,7 +345,9 @@ describe("Claude SDK env", () => {
 
     try {
       await preSetSession.run("CPA capacity env preservation check");
-      expect(capturedEnvs[1]?.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("123456");
+      // Profile/additional-model capacity wins over ambient CLAUDE_CODE_* so a
+      // host 200k (or leftover shell export) cannot keep auto-compact firing early.
+      expect(capturedEnvs[1]?.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("500000");
       expect(capturedEnvs[1]?.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("65536");
     } finally {
       await preSetSession.close();

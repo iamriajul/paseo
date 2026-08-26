@@ -5,7 +5,7 @@ import { StyleSheet } from "react-native-unistyles";
 import invariant from "tiny-invariant";
 import { SquareTerminal } from "lucide-react-native";
 import { usePaneContext, usePaneFocus } from "@/panels/pane-context";
-import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
+import { definePanel, type PanelDescriptor } from "@/panels/panel-registry";
 import { useSessionStore } from "@/stores/session-store";
 import {
   backgroundTaskKey,
@@ -91,12 +91,10 @@ function BackgroundTaskPanel() {
   );
 }
 
-export const backgroundTaskPanelRegistration: PanelRegistration<"background_task"> = {
-  kind: "background_task",
+export const backgroundTaskPanelRegistration = definePanel("background_task", {
   component: BackgroundTaskPanel,
   useDescriptor: useBackgroundTaskPanelDescriptor,
-  resourceKey: (target) => `${target.parentAgentId}:${target.taskId}`,
-};
+});
 
 const styles = StyleSheet.create((theme) => ({
   root: {

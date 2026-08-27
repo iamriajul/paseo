@@ -1,0 +1,916 @@
+Subject: Workspaces can be marked as unread
+Decision: workspace menu exposes Mark as unread when a workspace is done; daemon marks non-running agents with attention to surface in attention group
+Verify: npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/server/src/server/session.workspaces.test.ts packages/client/src/daemon-client.test.ts packages/app/src/hooks/use-clear-workspace-attention.test.ts --bail=1
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/agent/agent-manager.ts
+Files: packages/server/src/server/session.ts
+Files: packages/client/src/daemon-client.ts
+Files: packages/app/src/hooks/use-clear-workspace-attention.ts
+Files: packages/app/src/components/sidebar/sidebar-workspace-menu.tsx
+Files: packages/app/src/components/sidebar/sidebar-workspace-row.tsx
+Files: packages/app/src/components/sidebar/sidebar-status-list.tsx
+Files: packages/app/src/components/sidebar-workspace-list.tsx
+Files: packages/app/src/i18n/resources/ar.ts
+Files: packages/app/src/i18n/resources/en.ts
+Files: packages/app/src/i18n/resources/es.ts
+Files: packages/app/src/i18n/resources/fr.ts
+Files: packages/app/src/i18n/resources/ja.ts
+Files: packages/app/src/i18n/resources/ko.ts
+Files: packages/app/src/i18n/resources/pt-BR.ts
+Files: packages/app/src/i18n/resources/ru.ts
+Files: packages/app/src/i18n/resources/zh-CN.ts
+
+diff --git a/packages/app/src/components/sidebar-workspace-list.tsx b/packages/app/src/components/sidebar-workspace-list.tsx
+index ae5e91baf..977a7d807 100644
+--- a/packages/app/src/components/sidebar-workspace-list.tsx
++++ b/packages/app/src/components/sidebar-workspace-list.tsx
+@@ -296,6 +296,7 @@ interface WorkspaceRowInnerProps {
+   onCopyPath?: () => void;
+   onRename?: () => void;
+   onMarkAsRead?: () => void;
++  onMarkAsUnread?: () => void;
+   archiveShortcutKeys?: ShortcutKey[][] | null;
+   isPinned?: boolean;
+   onTogglePin?: () => void;
+@@ -689,6 +690,7 @@ function WorkspaceRowRightGroup({
+   archiveShortcutKeys,
+   onArchive,
+   onMarkAsRead,
++  onMarkAsUnread,
+   onCopyBranchName,
+   onCopyPath,
+   onRename,
+@@ -708,6 +710,7 @@ function WorkspaceRowRightGroup({
+   archiveShortcutKeys?: ShortcutKey[][] | null;
+   onArchive?: () => void;
+   onMarkAsRead?: () => void;
++  onMarkAsUnread?: () => void;
+   onCopyBranchName?: () => void;
+   onCopyPath?: () => void;
+   onRename?: () => void;
+@@ -759,6 +762,7 @@ function WorkspaceRowRightGroup({
+                 onCopyBranchName={onCopyBranchName}
+                 onRename={onRename}
+                 onMarkAsRead={onMarkAsRead}
++                onMarkAsUnread={onMarkAsUnread}
+                 onArchive={onArchive}
+                 archiveLabel={archiveLabel}
+                 archiveStatus={archiveStatus}
+@@ -1163,6 +1167,8 @@ function WorkspaceRowInner({
+   onCopyBranchName,
+   onCopyPath,
+   onRename,
++  onMarkAsRead,
++  onMarkAsUnread,
+   archiveShortcutKeys,
+   isPinned,
+   onTogglePin,
+@@ -1233,6 +1239,8 @@ function WorkspaceRowInner({
+               onCopyPath={onCopyPath}
+               onCopyBranchName={onCopyBranchName}
+               onRename={onRename}
++              onMarkAsRead={onMarkAsRead}
++              onMarkAsUnread={onMarkAsUnread}
+               onArchive={onArchive}
+               archiveLabel={archiveLabel}
+               archiveStatus={archiveStatus}
+@@ -1283,6 +1291,8 @@ function WorkspaceRowInner({
+                   onCopyBranchName={onCopyBranchName}
+                   onCopyPath={onCopyPath}
+                   onRename={onRename}
++                  onMarkAsRead={onMarkAsRead}
++                  onMarkAsUnread={onMarkAsUnread}
+                   isPinned={isPinned}
+                   onTogglePin={onTogglePin}
+                 />
+@@ -1419,15 +1429,21 @@ function WorkspaceRowWithMenu({
+   const onTogglePin = canPin ? handleTogglePin : undefined;
+ 
+   const archiveShortcutKeys = useShortcutKeys("archive-workspace");
+-  const { hasClearableAttention, clearAttention } = useClearWorkspaceAttention({
+-    serverId: workspace.serverId,
+-    workspaceId: workspace.workspaceId,
+-  });
++  const { hasClearableAttention, canMarkUnread, clearAttention, markUnread } =
++    useClearWorkspaceAttention({
++      serverId: workspace.serverId,
++      workspaceId: workspace.workspaceId,
++    });
+   const handleMarkAsRead = useCallback(() => {
+     void clearAttention().catch((error) => {
+       toast.error(error instanceof Error ? error.message : "Failed to mark workspace as read");
+     });
+   }, [clearAttention, toast]);
++  const handleMarkAsUnread = useCallback(() => {
++    void markUnread().catch((error) => {
++      toast.error(error instanceof Error ? error.message : "Failed to mark workspace as unread");
++    });
++  }, [markUnread, toast]);
+ 
+   useKeyboardActionHandler({
+     handlerId: `workspace-archive-${workspace.workspaceKey}`,
+@@ -1465,6 +1481,7 @@ function WorkspaceRowWithMenu({
+         onCopyPath={handleCopyPath}
+         onRename={handleOpenRename}
+         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
++        onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
+         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+         isPinned={isPinned}
+         onTogglePin={onTogglePin}
+diff --git a/packages/app/src/components/sidebar/sidebar-status-list.tsx b/packages/app/src/components/sidebar/sidebar-status-list.tsx
+index ef0e1cb2b..a50ed01d0 100644
+--- a/packages/app/src/components/sidebar/sidebar-status-list.tsx
++++ b/packages/app/src/components/sidebar/sidebar-status-list.tsx
+@@ -671,15 +671,21 @@ function StatusWorkspaceRowWithMenu({
+   const onTogglePin = canPin ? handleTogglePin : undefined;
+ 
+   const archiveShortcutKeys = useShortcutKeys("archive-workspace");
+-  const { hasClearableAttention, clearAttention } = useClearWorkspaceAttention({
+-    serverId: workspace.serverId,
+-    workspaceId: workspace.workspaceId,
+-  });
++  const { hasClearableAttention, canMarkUnread, clearAttention, markUnread } =
++    useClearWorkspaceAttention({
++      serverId: workspace.serverId,
++      workspaceId: workspace.workspaceId,
++    });
+   const handleMarkAsRead = useCallback(() => {
+     void clearAttention().catch((error) => {
+       toast.error(error instanceof Error ? error.message : "Failed to mark workspace as read");
+     });
+   }, [clearAttention, toast]);
++  const handleMarkAsUnread = useCallback(() => {
++    void markUnread().catch((error) => {
++      toast.error(error instanceof Error ? error.message : "Failed to mark workspace as unread");
++    });
++  }, [markUnread, toast]);
+ 
+   useKeyboardActionHandler({
+     handlerId: `workspace-archive-${workspace.workspaceKey}`,
+@@ -712,6 +718,7 @@ function StatusWorkspaceRowWithMenu({
+         onCopyPath={handleCopyPath}
+         onRename={handleOpenRename}
+         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
++        onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
+         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+         isPinned={isPinned}
+         onTogglePin={onTogglePin}
+@@ -753,6 +760,7 @@ interface StatusWorkspaceRowInnerProps {
+   onCopyPath?: () => void;
+   onRename?: () => void;
+   onMarkAsRead?: () => void;
++  onMarkAsUnread?: () => void;
+   archiveShortcutKeys?: ShortcutKey[][] | null;
+   isPinned?: boolean;
+   onTogglePin?: () => void;
+@@ -799,6 +807,7 @@ function StatusWorkspaceRowInnerContent({
+   onCopyPath,
+   onRename,
+   onMarkAsRead,
++  onMarkAsUnread,
+   archiveShortcutKeys,
+   isPinned,
+   onTogglePin,
+@@ -898,6 +907,7 @@ function StatusWorkspaceRowInnerContent({
+               onCopyBranchName={onCopyBranchName}
+               onRename={onRename}
+               onMarkAsRead={onMarkAsRead}
++              onMarkAsUnread={onMarkAsUnread}
+               onArchive={onArchive}
+               archiveLabel={archiveLabel}
+               archiveStatus={archiveStatus}
+@@ -946,6 +956,7 @@ function StatusWorkspaceRowInnerContent({
+                     onCopyBranchName={onCopyBranchName}
+                     onRename={onRename}
+                     onMarkAsRead={onMarkAsRead}
++                    onMarkAsUnread={onMarkAsUnread}
+                     onArchive={onArchive}
+                     archiveLabel={archiveLabel}
+                     archiveStatus={archiveStatus}
+@@ -976,6 +987,7 @@ function StatusWorkspaceActionSlot({
+   onCopyBranchName,
+   onRename,
+   onMarkAsRead,
++  onMarkAsUnread,
+   onArchive,
+   archiveLabel,
+   archiveStatus,
+@@ -995,6 +1007,7 @@ function StatusWorkspaceActionSlot({
+   onCopyBranchName?: () => void;
+   onRename?: () => void;
+   onMarkAsRead?: () => void;
++  onMarkAsUnread?: () => void;
+   onArchive?: () => void;
+   archiveLabel?: string;
+   archiveStatus?: "idle" | "pending" | "success";
+@@ -1022,6 +1035,7 @@ function StatusWorkspaceActionSlot({
+             onCopyBranchName={onCopyBranchName}
+             onRename={onRename}
+             onMarkAsRead={onMarkAsRead}
++            onMarkAsUnread={onMarkAsUnread}
+             onArchive={onArchive}
+             archiveLabel={archiveLabel}
+             archiveStatus={archiveStatus}
+diff --git a/packages/app/src/components/sidebar/sidebar-workspace-menu.tsx b/packages/app/src/components/sidebar/sidebar-workspace-menu.tsx
+index b1b5093ce..21385cad8 100644
+--- a/packages/app/src/components/sidebar/sidebar-workspace-menu.tsx
++++ b/packages/app/src/components/sidebar/sidebar-workspace-menu.tsx
+@@ -11,6 +11,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
+ import {
+   Archive,
+   CircleCheck,
++  CircleDot,
+   Copy,
+   Lock,
+   LockOpen,
+@@ -65,6 +66,7 @@ const ThemedCopy = withUnistyles(Copy);
+ const ThemedArchive = withUnistyles(Archive);
+ const ThemedPencil = withUnistyles(Pencil);
+ const ThemedCircleCheck = withUnistyles(CircleCheck);
++const ThemedCircleDot = withUnistyles(CircleDot);
+ const ThemedPin = withUnistyles(Pin);
+ const ThemedPinOff = withUnistyles(PinOff);
+ const ThemedLock = withUnistyles(Lock);
+@@ -76,6 +78,9 @@ const renameLeadingIcon = <ThemedPencil size={14} uniProps={foregroundMutedColor
+ const markAsReadLeadingIcon = (
+   <ThemedCircleCheck size={14} uniProps={foregroundMutedColorMapping} />
+ );
++const markAsUnreadLeadingIcon = (
++  <ThemedCircleDot size={14} uniProps={foregroundMutedColorMapping} />
++);
+ const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
+ const pinLeadingIcon = <ThemedPin size={14} uniProps={foregroundMutedColorMapping} />;
+ const unpinLeadingIcon = <ThemedPinOff size={14} uniProps={foregroundMutedColorMapping} />;
+@@ -100,6 +105,7 @@ export interface SidebarWorkspaceMenuProps {
+   onCopyBranchName?: () => void;
+   onRename?: () => void;
+   onMarkAsRead?: () => void;
++  onMarkAsUnread?: () => void;
+   onArchive: () => void;
+   archiveLabel?: string;
+   archiveStatus?: "idle" | "pending" | "success";
+@@ -147,6 +153,7 @@ function SidebarWorkspaceMenuItems({
+   onCopyBranchName,
+   onRename,
+   onMarkAsRead,
++  onMarkAsUnread,
+   onArchive,
+   archiveLabel,
+   archiveStatus,
+@@ -222,7 +229,17 @@ function SidebarWorkspaceMenuItems({
+           leading={markAsReadLeadingIcon}
+           onSelect={onMarkAsRead}
+         >
+-          Mark as read
++          {t("sidebar.workspace.actions.markAsRead")}
++        </WorkspaceMenuItem>
++      ) : null}
++      {onMarkAsUnread ? (
++        <WorkspaceMenuItem
++          surface={surface}
++          testID={`sidebar-workspace-menu-mark-as-unread-${workspaceKey}`}
++          leading={markAsUnreadLeadingIcon}
++          onSelect={onMarkAsUnread}
++        >
++          {t("sidebar.workspace.actions.markAsUnread")}
+         </WorkspaceMenuItem>
+       ) : null}
+       {onTogglePin ? (
+@@ -283,6 +300,7 @@ export function SidebarWorkspaceMenu({
+   onCopyBranchName,
+   onRename,
+   onMarkAsRead,
++  onMarkAsUnread,
+   onArchive,
+   archiveLabel,
+   archiveStatus,
+@@ -328,6 +346,7 @@ export function SidebarWorkspaceMenu({
+           onCopyBranchName={onCopyBranchName}
+           onRename={onRename}
+           onMarkAsRead={onMarkAsRead}
++          onMarkAsUnread={onMarkAsUnread}
+           onArchive={onArchive}
+           archiveLabel={archiveLabel}
+           archiveStatus={archiveStatus}
+@@ -360,6 +379,7 @@ export function SidebarWorkspaceContextMenu({
+   onCopyBranchName,
+   onRename,
+   onMarkAsRead,
++  onMarkAsUnread,
+   onArchive,
+   archiveLabel,
+   archiveStatus,
+@@ -439,6 +459,7 @@ export function SidebarWorkspaceContextMenu({
+           onCopyBranchName={onCopyBranchName}
+           onRename={onRename}
+           onMarkAsRead={onMarkAsRead}
++          onMarkAsUnread={onMarkAsUnread}
+           onArchive={onArchive}
+           archiveLabel={archiveLabel}
+           archiveStatus={archiveStatus}
+diff --git a/packages/app/src/components/sidebar/sidebar-workspace-row.tsx b/packages/app/src/components/sidebar/sidebar-workspace-row.tsx
+index 63355ff7f..1479ae014 100644
+--- a/packages/app/src/components/sidebar/sidebar-workspace-row.tsx
++++ b/packages/app/src/components/sidebar/sidebar-workspace-row.tsx
+@@ -161,15 +161,21 @@ export function SidebarWorkspaceRow({
+   );
+ 
+   const archiveShortcutKeys = useShortcutKeys("archive-workspace");
+-  const { hasClearableAttention, clearAttention } = useClearWorkspaceAttention({
+-    serverId: workspace.serverId,
+-    workspaceId: workspace.workspaceId,
+-  });
++  const { hasClearableAttention, canMarkUnread, clearAttention, markUnread } =
++    useClearWorkspaceAttention({
++      serverId: workspace.serverId,
++      workspaceId: workspace.workspaceId,
++    });
+   const handleMarkAsRead = useCallback(() => {
+     void clearAttention().catch((error) => {
+       toast.error(error instanceof Error ? error.message : "Failed to mark workspace as read");
+     });
+   }, [clearAttention, toast]);
++  const handleMarkAsUnread = useCallback(() => {
++    void markUnread().catch((error) => {
++      toast.error(error instanceof Error ? error.message : "Failed to mark workspace as unread");
++    });
++  }, [markUnread, toast]);
+ 
+   useKeyboardActionHandler({
+     handlerId: `workspace-archive-${workspace.workspaceKey}`,
+@@ -204,6 +210,7 @@ export function SidebarWorkspaceRow({
+         onCopyPath={handleCopyPath}
+         onRename={handleOpenRename}
+         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
++        onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
+         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+       />
+       <AdaptiveRenameModal
+@@ -240,6 +247,7 @@ interface WorkspaceRowBodyProps {
+   onCopyPath?: () => void;
+   onRename?: () => void;
+   onMarkAsRead?: () => void;
++  onMarkAsUnread?: () => void;
+   archiveShortcutKeys?: ShortcutKey[][] | null;
+ }
+ 
+@@ -263,6 +271,7 @@ function WorkspaceRowBody({
+   onCopyPath,
+   onRename,
+   onMarkAsRead,
++  onMarkAsUnread,
+   archiveShortcutKeys,
+ }: WorkspaceRowBodyProps) {
+   const isCompact = useIsCompactFormFactor();
+@@ -335,6 +344,7 @@ function WorkspaceRowBody({
+               onCopyBranchName={onCopyBranchName}
+               onRename={onRename}
+               onMarkAsRead={onMarkAsRead}
++              onMarkAsUnread={onMarkAsUnread}
+               onArchive={onArchive}
+               archiveLabel={archiveLabel}
+               archiveStatus={archiveStatus}
+@@ -382,6 +392,7 @@ function WorkspaceRowBody({
+                   onCopyPath={onCopyPath}
+                   onRename={onRename}
+                   onMarkAsRead={onMarkAsRead}
++                  onMarkAsUnread={onMarkAsUnread}
+                 />
+               </SidebarWorkspaceRowContent>
+             </SidebarWorkspaceContextMenu>
+@@ -407,6 +418,7 @@ function WorkspaceRowTrailingActions({
+   archiveShortcutKeys,
+   onArchive,
+   onMarkAsRead,
++  onMarkAsUnread,
+   onCopyBranchName,
+   onCopyPath,
+   onRename,
+@@ -425,6 +437,7 @@ function WorkspaceRowTrailingActions({
+   archiveShortcutKeys?: ShortcutKey[][] | null;
+   onArchive?: () => void;
+   onMarkAsRead?: () => void;
++  onMarkAsUnread?: () => void;
+   onCopyBranchName?: () => void;
+   onCopyPath?: () => void;
+   onRename?: () => void;
+@@ -472,6 +485,7 @@ function WorkspaceRowTrailingActions({
+                 onCopyBranchName={onCopyBranchName}
+                 onRename={onRename}
+                 onMarkAsRead={onMarkAsRead}
++                onMarkAsUnread={onMarkAsUnread}
+                 onArchive={onArchive}
+                 archiveLabel={archiveLabel}
+                 archiveStatus={archiveStatus}
+diff --git a/packages/app/src/hooks/use-clear-workspace-attention.ts b/packages/app/src/hooks/use-clear-workspace-attention.ts
+index 0ba74c97e..7155aca8e 100644
+--- a/packages/app/src/hooks/use-clear-workspace-attention.ts
++++ b/packages/app/src/hooks/use-clear-workspace-attention.ts
+@@ -1,11 +1,22 @@
+ import { useCallback, useMemo } from "react";
+ import { i18n } from "@/i18n/i18next";
+ import { getHostRuntimeStore } from "@/runtime/host-runtime";
+-import { useSessionStore } from "@/stores/session-store";
++import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
+ 
+ export interface ClearWorkspaceAttentionController {
+   hasClearableAttention: boolean;
++  canMarkUnread: boolean;
+   clearAttention: () => Promise<void>;
++  markUnread: () => Promise<void>;
++}
++
++export function selectWorkspaceAttentionStatus(workspace: WorkspaceDescriptor | undefined): {
++  hasClearableAttention: boolean;
++  canMarkUnread: boolean;
++} {
++  const hasClearableAttention = workspace?.status === "attention" || workspace?.status === "failed";
++  const canMarkUnread = workspace?.status === "done";
++  return { hasClearableAttention, canMarkUnread };
+ }
+ 
+ export function useClearWorkspaceAttention({
+@@ -15,9 +26,9 @@ export function useClearWorkspaceAttention({
+   serverId: string;
+   workspaceId: string;
+ }): ClearWorkspaceAttentionController {
+-  const hasClearableAttention = useSessionStore((state) => {
++  const { hasClearableAttention, canMarkUnread } = useSessionStore((state) => {
+     const workspace = state.sessions[serverId]?.workspaces.get(workspaceId);
+-    return workspace?.status === "attention" || workspace?.status === "failed";
++    return selectWorkspaceAttentionStatus(workspace);
+   });
+ 
+   const clearAttention = useCallback(async () => {
+@@ -31,8 +42,19 @@ export function useClearWorkspaceAttention({
+     await client.clearWorkspaceAttention(workspaceId);
+   }, [hasClearableAttention, serverId, workspaceId]);
+ 
++  const markUnread = useCallback(async () => {
++    if (!canMarkUnread) {
++      return;
++    }
++    const client = getHostRuntimeStore().getClient(serverId);
++    if (!client) {
++      throw new Error(i18n.t("workspace.terminal.hostDisconnected"));
++    }
++    await client.markWorkspaceUnread(workspaceId);
++  }, [canMarkUnread, serverId, workspaceId]);
++
+   return useMemo(
+-    () => ({ hasClearableAttention, clearAttention }),
+-    [clearAttention, hasClearableAttention],
++    () => ({ hasClearableAttention, canMarkUnread, clearAttention, markUnread }),
++    [canMarkUnread, clearAttention, hasClearableAttention, markUnread],
+   );
+ }
+diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
+index a29cda97c..a48ab8b7e 100644
+--- a/packages/app/src/i18n/resources/ar.ts
++++ b/packages/app/src/i18n/resources/ar.ts
+@@ -1189,6 +1189,8 @@ export const ar: TranslationResources = {
+         copyPath: "نسخ المسار",
+         copyBranchName: "انسخ اسم الفرع",
+         rename: "إعادة تسمية مساحة العمل",
++        markAsRead: "وضع علامة كمقروء",
++        markAsUnread: "وضع علامة كغير مقروء",
+         pin: "تثبيت في الأعلى",
+         unpin: "إلغاء التثبيت",
+         archive: "أرشيف",
+diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
+index 61f294e33..f2c0b3a7d 100644
+--- a/packages/app/src/i18n/resources/en.ts
++++ b/packages/app/src/i18n/resources/en.ts
+@@ -1195,6 +1195,8 @@ export const en = {
+         copyPath: "Copy path",
+         copyBranchName: "Copy branch name",
+         rename: "Rename workspace",
++        markAsRead: "Mark as read",
++        markAsUnread: "Mark as unread",
+         pin: "Pin to top",
+         unpin: "Unpin",
+         archive: "Archive",
+diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
+index 06780a0f2..8e1bb116e 100644
+--- a/packages/app/src/i18n/resources/es.ts
++++ b/packages/app/src/i18n/resources/es.ts
+@@ -1220,6 +1220,8 @@ export const es: TranslationResources = {
+         copyPath: "Copiar ruta",
+         copyBranchName: "Copiar nombre de sucursal",
+         rename: "Cambiar nombre del espacio de trabajo",
++        markAsRead: "Marcar como leído",
++        markAsUnread: "Marcar como no leído",
+         pin: "Anclar arriba",
+         unpin: "Desanclar",
+         archive: "Archivo",
+diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
+index 9b555a926..51a710902 100644
+--- a/packages/app/src/i18n/resources/fr.ts
++++ b/packages/app/src/i18n/resources/fr.ts
+@@ -1221,6 +1221,8 @@ export const fr: TranslationResources = {
+         copyPath: "Copier le chemin",
+         copyBranchName: "Copier le nom de la branche",
+         rename: "Renommer l'espace de travail",
++        markAsRead: "Marquer comme lu",
++        markAsUnread: "Marquer comme non lu",
+         pin: "Épingler en haut",
+         unpin: "Désépingler",
+         archive: "Archive",
+diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
+index 17bfc3b47..31268a9d7 100644
+--- a/packages/app/src/i18n/resources/ja.ts
++++ b/packages/app/src/i18n/resources/ja.ts
+@@ -1202,6 +1202,8 @@ export const ja: TranslationResources = {
+         copyPath: "パスをコピー",
+         copyBranchName: "ブランチ名をコピー",
+         rename: "ワークスペースの名前を変更",
++        markAsRead: "既読にする",
++        markAsUnread: "未読にする",
+         pin: "上部に固定",
+         unpin: "固定解除",
+         archive: "アーカイブ",
+diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
+index 890f92f19..9d24528d7 100644
+--- a/packages/app/src/i18n/resources/ko.ts
++++ b/packages/app/src/i18n/resources/ko.ts
+@@ -1196,6 +1196,8 @@ export const ko: TranslationResources = {
+         copyPath: "경로 복사",
+         copyBranchName: "브랜치 이름 복사",
+         rename: "워크스페이스 이름 변경",
++        markAsRead: "읽은 상태로 표시",
++        markAsUnread: "읽지 않은 상태로 표시",
+         pin: "상단에 고정",
+         unpin: "고정 해제",
+         archive: "보관",
+diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
+index 448ce3c68..e117751de 100644
+--- a/packages/app/src/i18n/resources/pt-BR.ts
++++ b/packages/app/src/i18n/resources/pt-BR.ts
+@@ -1211,6 +1211,8 @@ export const ptBR: TranslationResources = {
+         copyPath: "Copiar caminho",
+         copyBranchName: "Copiar nome da branch",
+         rename: "Renomear workspace",
++        markAsRead: "Marcar como lido",
++        markAsUnread: "Marcar como não lido",
+         pin: "Fixar no topo",
+         unpin: "Desafixar",
+         archive: "Arquivar",
+diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
+index 405eee05b..d849be871 100644
+--- a/packages/app/src/i18n/resources/ru.ts
++++ b/packages/app/src/i18n/resources/ru.ts
+@@ -1205,6 +1205,8 @@ export const ru: TranslationResources = {
+         copyPath: "Копировать путь",
+         copyBranchName: "Скопировать имя ветки",
+         rename: "Переименовать рабочее пространство",
++        markAsRead: "Пометить как прочитанное",
++        markAsUnread: "Пометить как непрочитанное",
+         pin: "Закрепить вверху",
+         unpin: "Открепить",
+         archive: "Архивировать",
+diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
+index 52a0d94e4..a4efc0766 100644
+--- a/packages/app/src/i18n/resources/zh-CN.ts
++++ b/packages/app/src/i18n/resources/zh-CN.ts
+@@ -1179,6 +1179,8 @@ export const zhCN: TranslationResources = {
+         copyPath: "复制路径",
+         copyBranchName: "复制分支名称",
+         rename: "重命名 workspace",
++        markAsRead: "标记为已读",
++        markAsUnread: "标记为未读",
+         pin: "置顶",
+         unpin: "取消置顶",
+         archive: "归档",
+diff --git a/packages/client/src/daemon-client.ts b/packages/client/src/daemon-client.ts
+index ad50f9b6e..005f0aaf7 100644
+--- a/packages/client/src/daemon-client.ts
++++ b/packages/client/src/daemon-client.ts
+@@ -2024,6 +2024,32 @@ export class DaemonClient {
+     }
+   }
+ 
++  async markWorkspaceUnread(workspaceId: string | string[]): Promise<void> {
++    const requestId = this.createRequestId();
++    const message = SessionInboundMessageSchema.parse({
++      type: "workspace.mark_unread.request",
++      workspaceId,
++      requestId,
++    });
++    const response = await this.sendRequest({
++      requestId,
++      message,
++      options: { skipQueue: true },
++      select: (msg) => {
++        if (msg.type !== "workspace.mark_unread.response") {
++          return null;
++        }
++        if (msg.payload.requestId !== requestId) {
++          return null;
++        }
++        return msg.payload;
++      },
++    });
++    if (!response.success) {
++      throw new Error(response.error ?? "Failed to mark workspace as unread");
++    }
++  }
++
+   sendHeartbeat(params: {
+     deviceType: "web" | "mobile";
+     focusedAgentId: string | null;
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index 03275f193..66be771a5 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -2651,6 +2651,12 @@ export const WorkspaceClearAttentionRequestSchema = z.object({
+   requestId: z.string(),
+ });
+ 
++export const WorkspaceMarkUnreadRequestSchema = z.object({
++  type: z.literal("workspace.mark_unread.request"),
++  workspaceId: z.union([z.string(), z.array(z.string())]),
++  requestId: z.string(),
++});
++
+ // Highlighted diff token schema
+ // Note: style can be a compound class name (e.g., "heading meta") from the syntax highlighter
+ const HighlightTokenSchema = z.object({
+@@ -3246,6 +3252,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   ArchiveWorkspaceRequestSchema,
+   WorkspaceCreateRequestSchema,
+   WorkspaceClearAttentionRequestSchema,
++  WorkspaceMarkUnreadRequestSchema,
+   FileExplorerRequestSchema,
+   FileSubscribeRequestSchema,
+   FileUnsubscribeRequestSchema,
+@@ -4834,6 +4841,25 @@ export const WorkspaceClearAttentionResponseSchema = z.object({
+   }),
+ });
+ 
++export const WorkspaceMarkUnreadResponseSchema = z.object({
++  type: z.literal("workspace.mark_unread.response"),
++  payload: z.object({
++    requestId: z.string(),
++    workspaceId: z.union([z.string(), z.array(z.string())]),
++    markedAgentIds: z.array(z.string()),
++    results: z.array(
++      z.object({
++        workspaceId: z.string(),
++        markedAgentIds: z.array(z.string()),
++        success: z.boolean(),
++        error: z.string().nullable(),
++      }),
++    ),
++    success: z.boolean(),
++    error: z.string().nullable(),
++  }),
++});
++
+ export const SendAgentMessageResponseMessageSchema = z.object({
+   type: z.literal("send_agent_message_response"),
+   payload: z.object({
+@@ -6692,6 +6718,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   ClearAgentAttentionResponseMessageSchema,
+   WorkspaceCreateResponseSchema,
+   WorkspaceClearAttentionResponseSchema,
++  WorkspaceMarkUnreadResponseSchema,
+   SendAgentMessageResponseMessageSchema,
+   SetVoiceModeResponseMessageSchema,
+   DaemonGetStatusResponseSchema,
+@@ -7229,6 +7256,8 @@ export type ProjectGithubCloneRequest = z.infer<typeof ProjectGithubCloneRequest
+ export type ProjectGithubCloneProtocol = z.infer<typeof ProjectGithubCloneProtocolSchema>;
+ export type ArchiveWorkspaceRequest = z.infer<typeof ArchiveWorkspaceRequestSchema>;
+ export type WorkspaceClearAttentionRequest = z.infer<typeof WorkspaceClearAttentionRequestSchema>;
++export type WorkspaceMarkUnreadRequest = z.infer<typeof WorkspaceMarkUnreadRequestSchema>;
++export type WorkspaceMarkUnreadResponse = z.infer<typeof WorkspaceMarkUnreadResponseSchema>;
+ export type FileExplorerRequest = z.infer<typeof FileExplorerRequestSchema>;
+ export type FileExplorerResponse = z.infer<typeof FileExplorerResponseSchema>;
+ export type FileVersion = z.infer<typeof FileVersionSchema>;
+diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
+index fde86191f..9cb55a7d2 100644
+--- a/packages/server/src/server/agent/agent-manager.ts
++++ b/packages/server/src/server/agent/agent-manager.ts
+@@ -2088,6 +2088,20 @@ export class AgentManager {
+     }
+   }
+ 
++  async markAgentAttention(
++    agentId: string,
++    reason: "finished" | "error" = "finished",
++  ): Promise<void> {
++    const agent = this.requireAgent(agentId);
++    agent.attention = {
++      requiresAttention: true,
++      attentionReason: reason,
++      attentionTimestamp: new Date(),
++    };
++    await this.persistSnapshot(agent);
++    this.emitState(agent, { persist: false });
++  }
++
+   async archiveSnapshot(agentId: string, archivedAt: string): Promise<StoredAgentRecord> {
+     const registry = this.requireRegistry();
+     const liveAgent = this.getAgent(agentId);
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index 67e9ba05f..cf0c98de2 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -2614,11 +2614,32 @@ export class Session {
+   private dispatchWorkspaceAndProjectMessage(
+     msg: SessionInboundMessage,
+   ): Promise<void> | undefined {
++    return this.dispatchProjectMessage(msg) ?? this.dispatchWorkspaceMessage(msg);
++  }
++
++  private dispatchProjectMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+     switch (msg.type) {
+-      case "fetch_workspaces_request":
+-        return this.handleFetchWorkspacesRequest(msg);
+       case "project.list.request":
+         return this.handleProjectListRequest(msg);
++      case "open_project_request":
++        return this.handleOpenProjectRequest(msg);
++      case "project.add.request":
++        return this.handleProjectAddRequest(msg);
++      case "project.create_directory.request":
++        return this.handleProjectCreateDirectoryRequest(msg);
++      case "project.github.clone.request":
++        return this.handleProjectGithubCloneRequest(msg);
++      case "project.remove.request":
++        return this.handleProjectRemoveRequest(msg);
++      default:
++        return undefined;
++    }
++  }
++
++  private dispatchWorkspaceMessage(msg: SessionInboundMessage): Promise<void> | undefined {
++    switch (msg.type) {
++      case "fetch_workspaces_request":
++        return this.handleFetchWorkspacesRequest(msg);
+       case "paseo_worktree_list_request":
+         return this.handlePaseoWorktreeListRequest(msg);
+       case "paseo_worktree_archive_request":
+@@ -2632,24 +2653,16 @@ export class Session {
+         return this.handleLegacyListAvailableEditorsRequest(msg);
+       case "open_in_editor_request":
+         return this.handleLegacyOpenInEditorRequest(msg);
+-      case "open_project_request":
+-        return this.handleOpenProjectRequest(msg);
+-      case "project.add.request":
+-        return this.handleProjectAddRequest(msg);
+-      case "project.create_directory.request":
+-        return this.handleProjectCreateDirectoryRequest(msg);
+       case "workspace.github.search_repositories.request":
+         return this.handleWorkspaceGithubSearchRepositoriesRequest(msg);
+-      case "project.github.clone.request":
+-        return this.handleProjectGithubCloneRequest(msg);
+       case "archive_workspace_request":
+         return this.handleArchiveWorkspaceRequest(msg);
+-      case "project.remove.request":
+-        return this.handleProjectRemoveRequest(msg);
+       case "workspace.create.request":
+         return this.handleWorkspaceCreateRequest(msg);
+       case "workspace.clear_attention.request":
+         return this.handleWorkspaceClearAttentionRequest(msg);
++      case "workspace.mark_unread.request":
++        return this.handleWorkspaceMarkUnreadRequest(msg);
+       case "workspace.title.set.request":
+         return this.handleWorkspaceTitleSetRequest(msg.workspaceId, msg.title, msg.requestId);
+       case "workspace.pin.set.request":
+@@ -6981,6 +6994,136 @@ export class Session {
+     });
+   }
+ 
++  private async handleWorkspaceMarkUnreadRequest(
++    request: Extract<SessionInboundMessage, { type: "workspace.mark_unread.request" }>,
++  ): Promise<void> {
++    const { requestId, workspaceId } = request;
++    const requestedWorkspaceIds = Array.isArray(workspaceId) ? workspaceId : [workspaceId];
++    let agents: AgentSnapshotPayload[];
++    try {
++      agents = await this.listAgentPayloads();
++    } catch (error) {
++      const message = getErrorMessage(error);
++      const results = requestedWorkspaceIds.map((requestedWorkspaceId) => ({
++        workspaceId: requestedWorkspaceId,
++        markedAgentIds: [],
++        success: false,
++        error: message,
++      }));
++      this.emit({
++        type: "workspace.mark_unread.response",
++        payload: {
++          requestId,
++          workspaceId,
++          markedAgentIds: [],
++          results,
++          success: false,
++          error: message,
++        },
++      });
++      return;
++    }
++    const results: Array<{
++      workspaceId: string;
++      markedAgentIds: string[];
++      success: boolean;
++      error: string | null;
++    }> = [];
++
++    for (const requestedWorkspaceId of requestedWorkspaceIds) {
++      const markedAgentIds: string[] = [];
++      try {
++        const workspace = await this.workspaceRegistry.get(requestedWorkspaceId);
++        if (!workspace || workspace.archivedAt) {
++          throw new Error(`Workspace not found: ${requestedWorkspaceId}`);
++        }
++
++        const markableAgentIds = agents
++          .filter((agent) => !agent.archivedAt)
++          .filter((agent) => agent.workspaceId === workspace.workspaceId)
++          .filter((agent) => (agent.pendingPermissions?.length ?? 0) === 0)
++          .filter((agent) => agent.status !== "running")
++          .map((agent) => agent.id);
++
++        const now = new Date();
++        const nowIso = now.toISOString();
++
++        for (const agentId of markableAgentIds) {
++          const liveAgent = this.agentManager.getAgent(agentId);
++          if (liveAgent) {
++            await this.agentManager.markAgentAttention(agentId, "finished");
++            markedAgentIds.push(agentId);
++            continue;
++          }
++
++          const record = await this.agentStorage.get(agentId);
++          if (!record || record.internal || record.archivedAt) {
++            continue;
++          }
++          const nextRecord: StoredAgentRecord = {
++            ...record,
++            updatedAt: nowIso,
++            requiresAttention: true,
++            attentionReason: "finished",
++            attentionTimestamp: nowIso,
++          };
++          await this.agentStorage.upsert(nextRecord);
++          const agent = this.buildStoredAgentPayload(nextRecord);
++          const project = await this.buildProjectPlacementForWorkspace(workspace);
++          this.emit({
++            type: "agent_update",
++            payload: {
++              kind: "upsert",
++              agent,
++              project,
++            },
++          });
++          markedAgentIds.push(agentId);
++        }
++
++        await this.emitWorkspaceUpdateForWorkspaceId(workspace.workspaceId);
++        results.push({
++          workspaceId: requestedWorkspaceId,
++          markedAgentIds,
++          success: true,
++          error: null,
++        });
++      } catch (error) {
++        const message = getErrorMessage(error);
++        this.sessionLogger.error(
++          { err: error, workspaceId: requestedWorkspaceId },
++          "Failed to mark workspace as unread",
++        );
++        results.push({
++          workspaceId: requestedWorkspaceId,
++          markedAgentIds,
++          success: false,
++          error: message,
++        });
++      }
++    }
++
++    const markedAgentIds = results.flatMap((result) => result.markedAgentIds);
++    const failedResults = results.filter((result) => !result.success);
++    this.emit({
++      type: "workspace.mark_unread.response",
++      payload: {
++        requestId,
++        workspaceId,
++        markedAgentIds,
++        results,
++        success: failedResults.length === 0,
++        error:
++          failedResults.length === 0
++            ? null
++            : failedResults
++                .map((result) => result.error)
++                .filter((error) => error !== null)
++                .join("; "),
++      },
++    });
++  }
++
+   private async handleFetchAgent(agentIdOrIdentifier: string, requestId: string): Promise<void> {
+     const resolved = await this.resolveAgentIdentifier(agentIdOrIdentifier);
+     if (!resolved.ok) {

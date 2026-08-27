@@ -25,3 +25,4 @@ mermaid-render-error-caption.patch
 ui-state-composer-draft.patch
 mobile-notification-diagnostics.patch
 cliproxy-additional-models-persist.patch
+drop-fork-steer-dual-path.patch

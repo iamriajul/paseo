@@ -25,7 +25,6 @@ const OPTIONAL_AGENT_SESSION_METHOD_NAMES = [
   "revertConversation",
   "revertFiles",
   "revertBoth",
-  "steer",
   "steerActiveTurn",
   "tryHandleOutOfBand",
   "stopBackgroundTask",
@@ -165,13 +164,9 @@ class FakeSession implements AgentSession {
     };
   }
 
-  async steer() {
-    this.recordedCalls.push("steer");
-  }
-
   async steerActiveTurn() {
     this.recordedCalls.push("steerActiveTurn");
-    return { accepted: true as const };
+    return { status: "accepted" as const };
   }
 
   async stopBackgroundTask() {
@@ -209,8 +204,7 @@ describe("wrapSessionProvider", () => {
     await wrapped.revertBoth?.({ messageId: "message-1" });
     const handler = wrapped.tryHandleOutOfBand?.("/compact");
     await handler?.run({ emit: () => {} });
-    await wrapped.steer?.({ text: "nudge" });
-    await wrapped.steerActiveTurn?.({ text: "nudge" }, { turnId: "turn-1" });
+    await wrapped.steerActiveTurn?.("nudge", { expectedTurnId: "turn-1" });
     await wrapped.stopBackgroundTask?.("task-1");
     await wrapped.readBackgroundTaskOutput?.({ outputFile: "/tmp/out" });
     await wrapped.resolveNativeForkUpToMessageId?.("msg_1");
@@ -225,11 +219,21 @@ describe("wrapSessionProvider", () => {
       "revertBoth",
       "tryHandleOutOfBand",
       "tryHandleOutOfBand.run",
-      "steer",
       "steerActiveTurn",
       "stopBackgroundTask",
       "readBackgroundTaskOutput",
       "resolveNativeForkUpToMessageId",
     ]);
+  });
+
+  test("wrapped sessions expose official steerActiveTurn and do not need session.steer", async () => {
+    const session = new FakeSession();
+    const wrapped = wrapSessionProvider("custom-claude", session);
+
+    expect("steer" in wrapped).toBe(false);
+    expect(typeof wrapped.steerActiveTurn).toBe("function");
+
+    await wrapped.steerActiveTurn?.("nudge", { expectedTurnId: "turn-1" });
+    expect(session.recordedCalls).toEqual(["steerActiveTurn"]);
   });
 });

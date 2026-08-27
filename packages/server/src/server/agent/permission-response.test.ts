@@ -44,10 +44,6 @@ class FakePermissionAgentManager {
     return this.hasRunInFlight;
   }
 
-  async steerAgent(): Promise<boolean> {
-    return false;
-  }
-
   streamAgent(
     agentId: string,
     prompt: AgentPromptInput,

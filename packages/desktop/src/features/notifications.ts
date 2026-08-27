@@ -2,6 +2,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { app, BrowserWindow, Notification, ipcMain, nativeImage } from "electron";
 import { getDesktopSettingsStore } from "../settings/desktop-settings-electron.js";
+import { applyOsFocusSteal } from "./window-focus.js";
 
 interface NotificationInput {
   title?: unknown;
@@ -56,6 +57,12 @@ function focusSenderWindow(sender: Electron.WebContents): BrowserWindow | null {
   if (!win || win.isDestroyed()) {
     return null;
   }
+  applyOsFocusSteal({
+    platform: process.platform,
+    focusApp: (options) => {
+      app.focus(options);
+    },
+  });
   win.show();
   if (win.isMinimized()) {
     win.restore();

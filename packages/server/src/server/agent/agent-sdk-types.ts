@@ -677,12 +677,6 @@ export interface AgentSession {
     /** When true, never treat an empty/caught-up tail as permanent EOF. */
     live?: boolean;
   }): Promise<{ text: string; nextCursor: number; eof: boolean; error: string | null }>;
-  /**
-   * Inject user input into the active turn without canceling it.
-   * Providers that support native mid-turn inject (e.g. Codex `turn/steer`)
-   * implement this. Callers must only invoke it while a turn is running.
-   */
-  steer?(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<void>;
   /** Release live runtime resources without archiving or deleting the durable native session. */
   close(): Promise<void>;
   listCommands?(): Promise<AgentSlashCommand[]>;

@@ -1,0 +1,836 @@
+Subject: fork tracks as composer pills
+Decision: ComposerTrackBar is shown when fork extra pills exist; AgentTracks renders heartbeats/background tasks as children
+Verify: npx vitest run packages/app/src/panels/agent-tracks.test.ts packages/app/src/heartbeats/track-presentation.test.ts packages/app/src/background-tasks/track-presentation.test.ts packages/protocol/src/background-tasks-schema.test.ts packages/protocol/src/provider-heartbeats-schema.test.ts --bail=1
+Files: packages/app/src/panels/agent-tracks.tsx
+Files: packages/app/src/panels/agent-panel.tsx
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/session.ts
+
+diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/agent-tracks.tsx
+index 4067426a4..cd3ed6566 100644
+--- a/packages/app/src/panels/agent-tracks.tsx
++++ b/packages/app/src/panels/agent-tracks.tsx
+@@ -1,4 +1,4 @@
+-import { memo, useCallback, type ReactElement } from "react";
++import { memo, useCallback, type ReactElement, type ReactNode } from "react";
+ import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
+ import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
+ import { AgentTaskList } from "@/composer/task-list";
+@@ -18,6 +18,7 @@ import type { TodoEntry } from "@/types/stream";
+ import { navigateToAgent } from "@/utils/navigate-to-agent";
+ import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+ import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
++import { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";
+ 
+ /**
+  * The pane's ambient context — workspace changes, subagents, and tasks — as a row of pills above
+@@ -33,6 +34,8 @@ export const AgentTracks = memo(function AgentTracks({
+   tasks,
+   archiveFinishedStatus,
+   onArchiveFinished,
++  hasExtraPills = false,
++  children,
+ }: {
+   serverId: string;
+   workspaceId: string;
+@@ -40,6 +43,8 @@ export const AgentTracks = memo(function AgentTracks({
+   tasks: TodoEntry[] | undefined;
+   archiveFinishedStatus: ArchiveFinishedStatus;
+   onArchiveFinished: () => void;
++  hasExtraPills?: boolean;
++  children?: ReactNode;
+ }): ReactElement | null {
+   const { tabId, openTab } = usePaneContext();
+   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
+@@ -105,7 +110,13 @@ export const AgentTracks = memo(function AgentTracks({
+     });
+   }, [isCompact, openInSidePane, workspaceKey]);
+ 
+-  if (!hasWorkspaceDiffStat && !hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus })) {
++  if (
++    !shouldShowAgentTrackBar({
++      hasOfficialTracks: hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus }),
++      hasWorkspaceDiffStat,
++      hasExtraPills,
++    })
++  ) {
+     return null;
+   }
+ 
+@@ -121,6 +132,7 @@ export const AgentTracks = memo(function AgentTracks({
+         archiveFinishedStatus={archiveFinishedStatus}
+         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
+       />
++      {children}
+       <WorkspaceDiffStatPill
+         serverId={serverId}
+         workspaceId={workspaceId}
+@@ -141,3 +153,5 @@ export function hasAgentTracks({
+ }): boolean {
+   return subagentRows.length > 0 || Boolean(tasks?.length) || archiveFinishedStatus.kind !== "idle";
+ }
++
++export { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";
+diff --git a/packages/app/src/panels/agent-panel.tsx b/packages/app/src/panels/agent-panel.tsx
+--- a/packages/app/src/panels/agent-panel.tsx
++++ b/packages/app/src/panels/agent-panel.tsx
+@@ -86,6 +86,7 @@ import {
+ } from "@/screens/agent/agent-ready-screen-bottom-anchor";
+ import { WorkspaceDraftAgentTab } from "@/composer/draft/workspace-tab";
+ import { AgentTracks, hasAgentTracks } from "@/panels/agent-tracks";
++import { ForkAgentTracks, useForkAgentTrackPresence } from "@/panels/fork-agent-tracks";
+ import { useCreateFlowStore } from "@/stores/create-flow-store";
+ import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
+ import {
+@@ -1261,6 +1262,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
+     rows: subagentRows,
+   });
+   const hasActiveComposer = !agentState.archivedAt && !isArchivingCurrentAgent;
++  const hasForkTracks = useForkAgentTrackPresence({ serverId, agentId });
+   const chatSearch = useChatHistorySearch({
+     serverId,
+     agentId,
+@@ -1268,11 +1270,12 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
+     streamViewRef,
+     toast: toastApi,
+   });
+-  const hasVisibleAgentTracks = hasAgentTracks({
+-    subagentRows,
+-    tasks,
+-    archiveFinishedStatus: archiveFinishedSubagents.status,
+-  });
++  const hasVisibleAgentTracks =
++    hasAgentTracks({
++      subagentRows,
++      tasks,
++      archiveFinishedStatus: archiveFinishedSubagents.status,
++    }) || hasForkTracks;
+   const rawAgentInputDraft = useAgentInputDraft({
+     draftKey: buildDraftStoreKey({
+       serverId,
+@@ -1363,7 +1366,10 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
+           tasks={tasks}
+           archiveFinishedStatus={archiveFinishedSubagents.status}
+           onArchiveFinished={archiveFinishedSubagents.archiveFinished}
+-        />
++          hasExtraPills={hasForkTracks}
++        >
++          <ForkAgentTracks serverId={serverId} agentId={agentId} />
++        </AgentTracks>
+       ) : null}
+     </ReanimatedAnimated.View>
+   );
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -1744,6 +1846,55 @@ export const ProviderSubagentTimelineRequestMessageSchema = z.object({
+   limit: z.number().int().nonnegative().optional(),
+ });
+ 
++export const BackgroundTasksListRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.list.request"),
++  parentAgentId: z.string(),
++  requestId: z.string(),
++});
++
++export const ProviderHeartbeatsListRequestMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.list.request"),
++  parentAgentId: z.string(),
++  requestId: z.string(),
++});
++
++export const ProviderHeartbeatsDeleteRequestMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.delete.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++});
++
++export const BackgroundTasksStopRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.stop.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++});
++
++export const BackgroundTasksOutputGetRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.get.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++  cursor: z.number().int().nonnegative().optional(),
++  maxBytes: z.number().int().positive().optional(),
++});
++
++export const BackgroundTasksOutputSubscribeRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.subscribe.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++});
++
++export const BackgroundTasksOutputUnsubscribeRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.unsubscribe.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++});
++
+ export const SetAgentTimelineSubscriptionRequestMessageSchema = z.object({
+   type: z.literal("agent.timeline.set_subscription.request"),
+   agentIds: z.array(z.string()),
+@@ -3021,9 +3184,16 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   AgentTimelineListPromptsRequestMessageSchema,
+   ProviderSubagentListRequestMessageSchema,
+   ProviderSubagentTimelineRequestMessageSchema,
++  BackgroundTasksListRequestMessageSchema,
++  BackgroundTasksStopRequestMessageSchema,
++  BackgroundTasksOutputGetRequestMessageSchema,
++  BackgroundTasksOutputSubscribeRequestMessageSchema,
++  BackgroundTasksOutputUnsubscribeRequestMessageSchema,
++  ProviderHeartbeatsListRequestMessageSchema,
++  ProviderHeartbeatsDeleteRequestMessageSchema,
+   SetAgentTimelineSubscriptionRequestMessageSchema,
+   AgentForkContextRequestMessageSchema,
+   AgentNativeForkRequestMessageSchema,
+   SetAgentModeRequestMessageSchema,
+   SetAgentModelRequestMessageSchema,
+   SetAgentThinkingRequestMessageSchema,
+@@ -3369,20 +3573,24 @@ export const ServerInfoStatusPayloadSchema = z
+         daemonSelfUpdate: z.boolean().optional(),
+         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
+         agentForkContext: z.boolean().optional(),
+         // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
+         taskBacklog: z.boolean().optional(),
+         // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
+         taskBacklogListAll: z.boolean().optional(),
+         // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
+         uiState: z.boolean().optional(),
+         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
+         agentNativeFork: z.boolean().optional(),
+         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
+         tcpTunnel: z.boolean().optional(),
+         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
+         agentForkContextCursor: z.boolean().optional(),
+         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
+         providerSubagents: z.boolean().optional(),
++        // COMPAT(backgroundTasks): added in v0.2.x, remove gate after 2027-02-01.
++        backgroundTasks: z.boolean().optional(),
++        // COMPAT(providerHeartbeats): added in v0.2.x, remove gate after 2027-02-02.
++        providerHeartbeats: z.boolean().optional(),
+         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
+         workspacePinning: z.boolean().optional(),
+         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
+@@ -4369,6 +4591,145 @@ export const ProviderSubagentUpdateMessageSchema = z.object({
+   ]),
+ });
+ 
++export const BackgroundTaskStatusSchema = z.enum([
++  "running",
++  "completed",
++  "failed",
++  "stopped",
++  "unknown",
++]);
++export type BackgroundTaskStatus = z.infer<typeof BackgroundTaskStatusSchema>;
++
++export const BackgroundTaskDescriptorPayloadSchema = z.object({
++  taskId: z.string().min(1),
++  parentAgentId: z.string(),
++  type: z.string().min(1),
++  description: z.string(),
++  command: z.string().nullable().optional(),
++  status: BackgroundTaskStatusSchema,
++  outputFile: z.string().nullable().optional(),
++  lastSummary: z.string().nullable().optional(),
++  updatedAt: z.string().min(1),
++});
++export type BackgroundTaskDescriptorPayload = z.infer<typeof BackgroundTaskDescriptorPayloadSchema>;
++
++export const ProviderHeartbeatModeSchema = z.enum(["recurring", "one_shot", "dynamic"]);
++export type ProviderHeartbeatMode = z.infer<typeof ProviderHeartbeatModeSchema>;
++
++export const ProviderHeartbeatDescriptorPayloadSchema = z.object({
++  taskId: z.string().min(1),
++  parentAgentId: z.string().min(1),
++  provider: AgentProviderSchema,
++  prompt: z.string(),
++  mode: ProviderHeartbeatModeSchema,
++  scheduleLabel: z.string(),
++  nextHint: z.string().nullable(),
++  updatedAt: z.string(),
++});
++export type ProviderHeartbeatDescriptorPayload = z.infer<
++  typeof ProviderHeartbeatDescriptorPayloadSchema
++>;
++
++export const BackgroundTasksListResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.list.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    tasks: z.array(BackgroundTaskDescriptorPayloadSchema),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksUpdateMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.update"),
++  payload: z.object({
++    parentAgentId: z.string(),
++    tasks: z.array(BackgroundTaskDescriptorPayloadSchema),
++  }),
++});
++
++export const ProviderHeartbeatsListResponseMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.list.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    heartbeats: z.array(ProviderHeartbeatDescriptorPayloadSchema),
++    error: z.string().nullable(),
++  }),
++});
++
++export const ProviderHeartbeatsUpdateMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.update"),
++  payload: z.object({
++    parentAgentId: z.string(),
++    heartbeats: z.array(ProviderHeartbeatDescriptorPayloadSchema),
++  }),
++});
++
++export const ProviderHeartbeatsDeleteResponseMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.delete.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string(),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksStopResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.stop.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksOutputGetResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.get.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    text: z.string(),
++    nextCursor: z.number().int().nonnegative(),
++    eof: z.boolean(),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksOutputSubscribeResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.subscribe.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksOutputUnsubscribeResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.unsubscribe.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksOutputUpdateMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.update"),
++  payload: z.object({
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    text: z.string(),
++    nextCursor: z.number().int().nonnegative(),
++    eof: z.boolean(),
++  }),
++});
++
+ export const SetAgentTimelineSubscriptionResponseMessageSchema = z.object({
+   type: z.literal("agent.timeline.set_subscription.response"),
+   payload: z.object({
+@@ -6227,10 +6674,20 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   ProviderSubagentListResponseMessageSchema,
+   ProviderSubagentTimelineResponseMessageSchema,
+   ProviderSubagentUpdateMessageSchema,
++  BackgroundTasksListResponseMessageSchema,
++  BackgroundTasksUpdateMessageSchema,
++  BackgroundTasksStopResponseMessageSchema,
++  BackgroundTasksOutputGetResponseMessageSchema,
++  BackgroundTasksOutputSubscribeResponseMessageSchema,
++  BackgroundTasksOutputUnsubscribeResponseMessageSchema,
++  BackgroundTasksOutputUpdateMessageSchema,
++  ProviderHeartbeatsListResponseMessageSchema,
++  ProviderHeartbeatsUpdateMessageSchema,
++  ProviderHeartbeatsDeleteResponseMessageSchema,
+   SetAgentTimelineSubscriptionResponseMessageSchema,
+   AgentAttentionRequiredMessageSchema,
+   AgentForkContextResponseMessageSchema,
+   AgentNativeForkResponseMessageSchema,
+   CancelAgentResponseMessageSchema,
+   ClearAgentAttentionResponseMessageSchema,
+   WorkspaceCreateResponseSchema,
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -288,6 +299,54 @@ function resolveSubscriptionId(
+   return uuidv4();
+ }
+ 
++function createBackgroundTaskOutputSubscriptions() {
++  const subscriptions = new Map<
++    string,
++    {
++      parentAgentId: string;
++      taskId: string;
++      cursor: number;
++      timer: ReturnType<typeof setInterval> | null;
++    }
++  >();
++  const keyOf = (input: { parentAgentId: string; taskId: string }) =>
++    `${input.parentAgentId}\0${input.taskId}`;
++  return {
++    upsert(input: { parentAgentId: string; taskId: string }) {
++      const key = keyOf(input);
++      const existing = subscriptions.get(key);
++      if (existing) return existing;
++      const entry = {
++        parentAgentId: input.parentAgentId,
++        taskId: input.taskId,
++        cursor: 0,
++        timer: null as ReturnType<typeof setInterval> | null,
++      };
++      subscriptions.set(key, entry);
++      return entry;
++    },
++    get(input: { parentAgentId: string; taskId: string }) {
++      return subscriptions.get(keyOf(input)) ?? null;
++    },
++    setCursor(input: { parentAgentId: string; taskId: string }, cursor: number) {
++      const entry = subscriptions.get(keyOf(input));
++      if (entry) entry.cursor = cursor;
++    },
++    remove(input: { parentAgentId: string; taskId: string }) {
++      const key = keyOf(input);
++      const entry = subscriptions.get(key);
++      if (entry?.timer) clearInterval(entry.timer);
++      subscriptions.delete(key);
++    },
++    clearAll() {
++      for (const entry of subscriptions.values()) {
++        if (entry.timer) clearInterval(entry.timer);
++      }
++      subscriptions.clear();
++    },
++  };
++}
++
+ function isAppVersionAtLeast(appVersion: string | null, minVersion: string): boolean {
+   if (!appVersion) return false;
+   // Strip prerelease suffix: "0.1.45-beta.4" -> "0.1.45"
+@@ -728,17 +792,18 @@ export class Session {
+   private readonly voiceSession: VoiceSession;
+   private readonly checkoutSession: CheckoutSession;
+   private readonly scheduleSession: ScheduleSession;
+   private readonly taskSession: TaskSession;
+   private readonly uiStateSession: UiStateSession;
+   private readonly providerCatalogSession: ProviderCatalogSession;
+   private readonly workspaceFilesSession: WorkspaceFilesSession;
+   private readonly tcpTunnelForwarder: TcpTunnelForwarder;
+   private readonly agentConfigSession: AgentConfigSession;
+   private readonly projectConfigSession: ProjectConfigSession;
+   private readonly daemonSession: DaemonSession;
+   private readonly hubExecutionController: HubExecutionController | null;
+   private readonly workspaceScripts: WorkspaceScriptsService;
+   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
++  private readonly backgroundTaskOutputSubscriptions = createBackgroundTaskOutputSubscriptions();
+ 
+   constructor(options: SessionOptions) {
+     const {
+@@ -1673,6 +1836,51 @@ export class Session {
+           return;
+         }
+ 
++        if (event.type === "background_tasks") {
++          this.emit({
++            type: "agent.background_tasks.update",
++            payload: {
++              parentAgentId: event.parentAgentId,
++              tasks: event.tasks.map((task) => ({
++                taskId: task.taskId,
++                parentAgentId: task.parentAgentId,
++                type: task.type,
++                description: task.description,
++                command: task.command,
++                status: task.status,
++                outputFile: task.outputFile,
++                lastSummary: task.lastSummary,
++                updatedAt: task.updatedAt,
++              })),
++            },
++          });
++          return;
++        }
++
++        if (event.type === "provider_heartbeats") {
++          this.emit({
++            type: "agent.provider_heartbeats.update",
++            payload: {
++              parentAgentId: event.parentAgentId,
++              heartbeats: event.heartbeats.map((heartbeat) => ({
++                taskId: heartbeat.taskId,
++                parentAgentId: heartbeat.parentAgentId,
++                provider: heartbeat.provider,
++                prompt: heartbeat.prompt,
++                mode: heartbeat.mode,
++                scheduleLabel: heartbeat.scheduleLabel,
++                nextHint: heartbeat.nextHint,
++                updatedAt: heartbeat.updatedAt,
++              })),
++            },
++          });
++          return;
++        }
++
++        if (event.type !== "agent_stream") {
++          return;
++        }
++
+         if (
+           this.voiceSession.isActiveForAgent(event.agentId) &&
+           event.event.type === "permission_requested" &&
+@@ -2184,6 +2392,20 @@ export class Session {
+         return this.handleProviderSubagentListRequest(msg);
+       case "agent.provider_subagents.timeline.get.request":
+         return this.handleProviderSubagentTimelineRequest(msg);
++      case "agent.background_tasks.list.request":
++        return this.handleBackgroundTasksListRequest(msg);
++      case "agent.background_tasks.stop.request":
++        return this.handleBackgroundTasksStopRequest(msg);
++      case "agent.background_tasks.output.get.request":
++        return this.handleBackgroundTasksOutputGetRequest(msg);
++      case "agent.background_tasks.output.subscribe.request":
++        return this.handleBackgroundTasksOutputSubscribeRequest(msg);
++      case "agent.background_tasks.output.unsubscribe.request":
++        return this.handleBackgroundTasksOutputUnsubscribeRequest(msg);
++      case "agent.provider_heartbeats.list.request":
++        return this.handleProviderHeartbeatsListRequest(msg);
++      case "agent.provider_heartbeats.delete.request":
++        return this.handleProviderHeartbeatsDeleteRequest(msg);
+       case "agent.timeline.set_subscription.request": {
+         const agentIds = [...new Set(msg.agentIds)].sort();
+         if (
+@@ -7000,6 +7278,283 @@ export class Session {
+     }
+   }
+ 
++  private async handleBackgroundTasksListRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.list.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      this.emit({
++        type: "agent.background_tasks.list.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          tasks: this.agentManager.listBackgroundTasks(msg.parentAgentId),
++          error: null,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.background_tasks.list.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          tasks: [],
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleProviderHeartbeatsListRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.provider_heartbeats.list.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      this.emit({
++        type: "agent.provider_heartbeats.list.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          heartbeats: this.agentManager.listProviderHeartbeats(msg.parentAgentId),
++          error: null,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.provider_heartbeats.list.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          heartbeats: [],
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleProviderHeartbeatsDeleteRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.provider_heartbeats.delete.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      const result = await this.agentManager.deleteProviderHeartbeat(msg.parentAgentId, msg.taskId);
++      this.emit({
++        type: "agent.provider_heartbeats.delete.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: result.error,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.provider_heartbeats.delete.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleBackgroundTasksStopRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.stop.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      await this.agentManager.stopBackgroundTask(msg.parentAgentId, msg.taskId);
++      this.emit({
++        type: "agent.background_tasks.stop.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: null,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.background_tasks.stop.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleBackgroundTasksOutputGetRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.output.get.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      const output = await this.agentManager.readBackgroundTaskOutput({
++        parentAgentId: msg.parentAgentId,
++        taskId: msg.taskId,
++        cursor: msg.cursor,
++        maxBytes: msg.maxBytes,
++      });
++      this.emit({
++        type: "agent.background_tasks.output.get.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          text: output.text,
++          nextCursor: output.nextCursor,
++          eof: output.eof,
++          error: output.error,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.background_tasks.output.get.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          text: "",
++          nextCursor: msg.cursor ?? 0,
++          eof: true,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleBackgroundTasksOutputSubscribeRequest(
++    msg: Extract<
++      SessionInboundMessage,
++      { type: "agent.background_tasks.output.subscribe.request" }
++    >,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      this.backgroundTaskOutputSubscriptions.upsert({
++        parentAgentId: msg.parentAgentId,
++        taskId: msg.taskId,
++      });
++      this.emit({
++        type: "agent.background_tasks.output.subscribe.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: null,
++        },
++      });
++      void this.pollBackgroundTaskOutputSubscription({
++        parentAgentId: msg.parentAgentId,
++        taskId: msg.taskId,
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.background_tasks.output.subscribe.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleBackgroundTasksOutputUnsubscribeRequest(
++    msg: Extract<
++      SessionInboundMessage,
++      { type: "agent.background_tasks.output.unsubscribe.request" }
++    >,
++  ): Promise<void> {
++    this.backgroundTaskOutputSubscriptions.remove({
++      parentAgentId: msg.parentAgentId,
++      taskId: msg.taskId,
++    });
++    this.emit({
++      type: "agent.background_tasks.output.unsubscribe.response",
++      payload: {
++        requestId: msg.requestId,
++        parentAgentId: msg.parentAgentId,
++        taskId: msg.taskId,
++        error: null,
++      },
++    });
++  }
++
++  private pollBackgroundTaskOutputSubscription(input: {
++    parentAgentId: string;
++    taskId: string;
++  }): void {
++    const entry = this.backgroundTaskOutputSubscriptions.get(input);
++    if (!entry || entry.timer) return;
++    const tick = async () => {
++      const current = this.backgroundTaskOutputSubscriptions.get(input);
++      if (!current) return;
++      try {
++        const output = await this.agentManager.readBackgroundTaskOutput({
++          parentAgentId: input.parentAgentId,
++          taskId: input.taskId,
++          cursor: current.cursor,
++          maxBytes: 64_000,
++        });
++        if (output.text.length > 0 || output.eof) {
++          this.backgroundTaskOutputSubscriptions.setCursor(input, output.nextCursor);
++          this.emit({
++            type: "agent.background_tasks.output.update",
++            payload: {
++              parentAgentId: input.parentAgentId,
++              taskId: input.taskId,
++              text: output.text,
++              nextCursor: output.nextCursor,
++              eof: output.eof,
++            },
++          });
++        }
++        if (output.eof) {
++          this.backgroundTaskOutputSubscriptions.remove(input);
++        }
++      } catch (error) {
++        this.sessionLogger.warn(
++          { err: error, parentAgentId: input.parentAgentId, taskId: input.taskId },
++          "Failed to poll background task output",
++        );
++      }
++    };
++    void tick();
++    entry.timer = setInterval(() => {
++      void tick();
++    }, 1000);
++  }
++
+   private async handleProviderSubagentListRequest(
+     msg: Extract<SessionInboundMessage, { type: "agent.provider_subagents.list.request" }>,
+   ): Promise<void> {
+@@ -7439,8 +8045,9 @@ export class Session {
+    */
+   public async cleanup(): Promise<void> {
+     this.sessionLogger.trace({}, "agent.session.lifecycle.cleanup");
+     this.tcpTunnelForwarder.dispose();
+     this.isCleanedUp = true;
++    this.backgroundTaskOutputSubscriptions.clearAll();
+ 
+     if (this.unsubscribeAgentEvents) {
+       this.unsubscribeAgentEvents();

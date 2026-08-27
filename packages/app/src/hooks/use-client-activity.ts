@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { getIsElectron, isWeb, isNative } from "@/constants/platform";
+import { getIsAppActivelyVisible } from "@/utils/app-visibility";
 import { readDesktopSystemIdleTimeMs } from "@/desktop/electron/idle";
 import { invokeDesktopCommand } from "@/desktop/electron/invoke";
 import {
@@ -42,7 +43,7 @@ export function useClientActivity({
       deviceType: isWeb ? "web" : "mobile",
       initialFocusedAgentId: focusedAgentId,
       initialFocusedTerminalId: focusedTerminalId,
-      initialAppVisible: AppState.currentState === "active",
+      initialAppVisible: getIsAppActivelyVisible(AppState.currentState),
       now: () => Date.now(),
       onUserActivity,
       onAppResumed: (awayMs) => onAppResumedRef.current?.(awayMs),
@@ -69,24 +70,37 @@ export function useClientActivity({
       tracker.maybeSendImmediateHeartbeat();
     };
 
-    const handleVisibilityChange = () => {
-      const visible = document.visibilityState === "visible";
+    const syncWindowVisibility = () => {
+      // Fullscreen Space swipes keep document.visibilityState === "visible".
+      // Heartbeat appVisible is window focus so attention is not suppressed
+      // while Paseo sits on another Space.
+      const visible = getIsAppActivelyVisible();
       const { changed } = tracker.notifyAppVisibility(visible);
-      if (changed && visible) {
+      if (!changed) return;
+      if (visible) {
         tracker.maybeSendImmediateHeartbeat();
+        return;
       }
+      tracker.sendHeartbeat();
     };
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", handleUserActivity);
+    const handleFocus = () => {
+      handleUserActivity();
+      syncWindowVisibility();
+    };
+
+    document.addEventListener("visibilitychange", syncWindowVisibility);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", syncWindowVisibility);
     window.addEventListener("pointerdown", handleUserActivity, { passive: true });
     window.addEventListener("keydown", handleUserActivity);
     window.addEventListener("wheel", handleUserActivity, { passive: true });
     window.addEventListener("touchstart", handleUserActivity, { passive: true });
 
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", handleUserActivity);
+      document.removeEventListener("visibilitychange", syncWindowVisibility);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", syncWindowVisibility);
       window.removeEventListener("pointerdown", handleUserActivity);
       window.removeEventListener("keydown", handleUserActivity);
       window.removeEventListener("wheel", handleUserActivity);

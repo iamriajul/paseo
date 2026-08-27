@@ -1,0 +1,1148 @@
+Subject: per-browser partitions, tcpTunnel, and localhost links open in workspace Browser
+Decision: each Browser tab uses persist:paseo-browser-${browserId}; daemon advertises tcpTunnel and mounts browser-preview before the service proxy; assistant localhost links open in that workspace Browser instead of the client machine
+Verify: npx vitest run packages/desktop/src/features/browser-profile.test.ts packages/desktop/src/features/browser-webviews/index.test.ts packages/app/src/utils/localhost-url.test.ts --bail=1
+Files: packages/app/src/assistant-file-links/provider.tsx
+Files: packages/app/src/assistant-file-links/use-file-link.ts
+Files: packages/app/src/desktop/browser/resident-webviews.ts
+Files: packages/desktop/src/features/browser-profile.ts
+Files: packages/desktop/src/features/browser-webviews/index.ts
+Files: packages/desktop/src/features/browser-webviews/registry.ts
+Files: packages/desktop/src/main.ts
+Files: packages/desktop/src/preload.ts
+Files: packages/protocol/src/binary-frames/demux.ts
+Files: packages/protocol/src/binary-frames/index.ts
+Files: packages/server/src/server/bootstrap.ts
+Files: packages/server/src/server/websocket-server.ts
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/session.ts
+
+diff --git a/packages/app/src/assistant-file-links/provider.tsx b/packages/app/src/assistant-file-links/provider.tsx
+index 77d0b2e03..16f714f46 100644
+--- a/packages/app/src/assistant-file-links/provider.tsx
++++ b/packages/app/src/assistant-file-links/provider.tsx
+@@ -22,6 +22,7 @@ export interface AssistantFileLinkResolverConfig {
+   serverId?: string;
+   workspaceRoot?: string;
+   onOpenWorkspaceFile?: (target: InlinePathTarget, disposition: OpenFileDisposition) => void;
++  onOpenLocalhostUrl?: (url: string) => boolean;
+   toast?: ToastApi | null;
+ }
+ 
+@@ -42,6 +43,7 @@ export function AssistantFileLinkResolverProvider({
+   serverId,
+   workspaceRoot,
+   onOpenWorkspaceFile,
++  onOpenLocalhostUrl,
+   toast,
+   children,
+ }: AssistantFileLinkResolverProviderProps) {
+@@ -50,9 +52,17 @@ export function AssistantFileLinkResolverProvider({
+     serverId,
+     workspaceRoot,
+     onOpenWorkspaceFile,
++    onOpenLocalhostUrl,
+     toast,
+   });
+-  configRef.current = { client, serverId, workspaceRoot, onOpenWorkspaceFile, toast };
++  configRef.current = {
++    client,
++    serverId,
++    workspaceRoot,
++    onOpenWorkspaceFile,
++    onOpenLocalhostUrl,
++    toast,
++  };
+ 
+   const getDirectorySuggestions = useCallback<GetDirectorySuggestions>(async (input) => {
+     const activeClient = configRef.current.client;
+diff --git a/packages/app/src/assistant-file-links/use-file-link.ts b/packages/app/src/assistant-file-links/use-file-link.ts
+index 2a08594aa..f1527f7c3 100644
+--- a/packages/app/src/assistant-file-links/use-file-link.ts
++++ b/packages/app/src/assistant-file-links/use-file-link.ts
+@@ -161,6 +161,9 @@ function openAssistantFileLink(input: {
+   formatNoFileFoundMessage: (token: string) => string;
+ }): void {
+   const capturedConfig = input.context.configRef.current;
++  if (capturedConfig.onOpenLocalhostUrl?.(input.source.href)) {
++    return;
++  }
+   const capturedResolution = classifyForResolution(input.source, {
+     workspaceRoot: capturedConfig.workspaceRoot,
+   });
+diff --git a/packages/app/src/desktop/browser/resident-webviews.ts b/packages/app/src/desktop/browser/resident-webviews.ts
+index dfce3551e..98347b29c 100644
+--- a/packages/app/src/desktop/browser/resident-webviews.ts
++++ b/packages/app/src/desktop/browser/resident-webviews.ts
+@@ -82,6 +82,19 @@ function trimNonEmpty(value: string | null | undefined): string | null {
+   return trimmed.length > 0 ? trimmed : null;
+ }
+ 
++function assignBlankWebviewUrl(webview: HTMLElement, url: string): void {
++  const nextUrl = trimNonEmpty(url);
++  if (!nextUrl) {
++    return;
++  }
++  const element = webview as BrowserWebviewElement;
++  const current = trimNonEmpty(element.getAttribute("src") ?? element.src) ?? "";
++  if (current === nextUrl || (current.length > 0 && current !== "about:blank")) {
++    return;
++  }
++  element.src = nextUrl;
++}
++
+ function readDocument(): Document | null {
+   return typeof document === "undefined" ? null : document;
+ }
+@@ -304,7 +317,9 @@ export function prepareBrowserWebview(
+ ): void {
+   const browser = getBrowserBridge(input.profileHost);
+   webview.setAttribute(BROWSER_ID_ATTRIBUTE, input.browserId);
+-  webview.setAttribute("partition", browser.profilePartition);
++  // The fork keeps one persistent partition per Browser so its Electron proxy
++  // can route localhost to the correct remote host without affecting other tabs.
++  webview.setAttribute("partition", `${browser.profilePartition}-${input.browserId}`);
+   webview.setAttribute("allowpopups", "true");
+   webview.setAttribute("spellcheck", "false");
+   webview.setAttribute("autosize", "on");
+@@ -331,12 +346,14 @@ export function ensureResidentBrowserWebview(input: {
+ 
+   const resident = residentWebviewsByBrowserId.get(browserId) ?? null;
+   if (resident?.isConnected) {
++    assignBlankWebviewUrl(resident, input.url);
+     releaseResidentBrowserWebview(browserId, resident);
+     return resident;
+   }
+ 
+   const existing = findBrowserWebview(browserId, ownerDocument);
+   if (existing) {
++    assignBlankWebviewUrl(existing, input.url);
+     if (existing.parentElement?.id === RESIDENT_BROWSER_HOST_ID) {
+       releaseResidentBrowserWebview(browserId, existing);
+     }
+diff --git a/packages/desktop/src/features/browser-profile.ts b/packages/desktop/src/features/browser-profile.ts
+index 307567e51..5fc0e909b 100644
+--- a/packages/desktop/src/features/browser-profile.ts
++++ b/packages/desktop/src/features/browser-profile.ts
+@@ -47,8 +47,14 @@ interface ElectronSessions {
+   fromPartition(partition: string): BrowserProfileSession;
+ }
+ 
+-export function getPaseoBrowserProfileSession(sessions: ElectronSessions): BrowserProfileSession {
+-  return sessions.fromPartition(PASEO_BROWSER_PROFILE_PARTITION);
++export function getPaseoBrowserProfileSession(
++  sessions: ElectronSessions,
++  browserId?: string,
++): BrowserProfileSession {
++  const partition = browserId
++    ? `${PASEO_BROWSER_PROFILE_PARTITION}-${browserId}`
++    : PASEO_BROWSER_PROFILE_PARTITION;
++  return sessions.fromPartition(partition);
+ }
+ 
+ export function readLegacyPaseoBrowserIds(input: unknown): string[] {
+diff --git a/packages/desktop/src/features/browser-webviews/index.ts b/packages/desktop/src/features/browser-webviews/index.ts
+index b415f4339..4831c5576 100644
+--- a/packages/desktop/src/features/browser-webviews/index.ts
++++ b/packages/desktop/src/features/browser-webviews/index.ts
+@@ -6,13 +6,14 @@ import {
+   isAllowedBrowserWebviewUrl,
+   PendingBrowserWindowOpenRequests,
+ } from "./window-open.js";
+-import { PaseoBrowserWebviewRegistry } from "./registry.js";
++import { PaseoBrowserWebviewRegistry, type BrowserWorkspaceRegistration } from "./registry.js";
+ 
+ export {
+   BROWSER_NEW_TAB_REQUEST_EVENT,
+   decideBrowserWindowOpenRequest,
+   PendingBrowserWindowOpenRequests,
+ };
++export type { BrowserWorkspaceRegistration };
+ 
+ const browserRegistry = new PaseoBrowserWebviewRegistry();
+ 
+@@ -41,8 +42,13 @@ interface RegisterAttachedBrowserInput extends AttachedBrowserRegistration {
+ }
+ 
+ export function isPaseoBrowserWebviewAttach(input: { src?: string; partition?: string }): boolean {
++  // Fork Browser tabs use one persistent partition per browserId so the loopback
++  // proxy can route localhost to the correct workspace host. Upstream may use the
++  // shared partition; accept both. See docs/browser-localhost-routing.md.
+   return (
+-    isAllowedBrowserWebviewUrl(input.src) && input.partition === PASEO_BROWSER_PROFILE_PARTITION
++    isAllowedBrowserWebviewUrl(input.src) &&
++    (input.partition === PASEO_BROWSER_PROFILE_PARTITION ||
++      input.partition?.startsWith(`${PASEO_BROWSER_PROFILE_PARTITION}-`) === true)
+   );
+ }
+ 
+@@ -110,6 +116,14 @@ export function getPaseoBrowserWorkspaceId(browserId: string): string | null {
+   return browserRegistry.getWorkspaceId(browserId);
+ }
+ 
++export function getPaseoBrowserServerId(browserId: string): string | null {
++  return browserRegistry.getServerId(browserId);
++}
++
++export function registerPaseoBrowserWorkspace(input: BrowserWorkspaceRegistration): void {
++  browserRegistry.registerWorkspace(input);
++}
++
+ export function listRegisteredPaseoBrowserIdsForWorkspace(workspaceId: string): string[] {
+   return browserRegistry.listBrowserIdsForWorkspace(workspaceId);
+ }
+diff --git a/packages/desktop/src/features/browser-webviews/registry.ts b/packages/desktop/src/features/browser-webviews/registry.ts
+index 4fb8381f3..7f45a821c 100644
+--- a/packages/desktop/src/features/browser-webviews/registry.ts
++++ b/packages/desktop/src/features/browser-webviews/registry.ts
+@@ -1,5 +1,6 @@
+ export interface BrowserWorkspaceRegistration {
+   browserId: string;
++  serverId?: string;
+   workspaceId: string;
+ }
+ 
+@@ -11,6 +12,7 @@ export interface BrowserWebContentsRegistration {
+ export class PaseoBrowserWebviewRegistry {
+   private readonly registrationsByWebContentsId = new Map<number, BrowserWebContentsRegistration>();
+   private readonly webContentsIdsByHostAndBrowserId = new Map<string, number>();
++  private readonly serverIdsByBrowserId = new Map<string, string>();
+   private readonly workspaceIdsByBrowserId = new Map<string, string>();
+   private readonly activeBrowserIdsByHostWindow = new Map<number, Map<string, string>>();
+ 
+@@ -79,6 +81,9 @@ export class PaseoBrowserWebviewRegistry {
+   }
+ 
+   public registerWorkspace(input: BrowserWorkspaceRegistration): void {
++    if (input.serverId) {
++      this.serverIdsByBrowserId.set(input.browserId, input.serverId);
++    }
+     this.workspaceIdsByBrowserId.set(input.browserId, input.workspaceId);
+   }
+ 
+@@ -91,10 +96,15 @@ export class PaseoBrowserWebviewRegistry {
+         );
+       }
+     }
++    this.serverIdsByBrowserId.delete(browserId);
+     this.workspaceIdsByBrowserId.delete(browserId);
+     this.deleteActiveBrowserReferences(browserId);
+   }
+ 
++  public getServerId(browserId: string): string | null {
++    return this.serverIdsByBrowserId.get(browserId) ?? null;
++  }
++
+   public unregisterBrowserFromHost(hostWebContentsId: number, browserId: string): void {
+     const webContentsId = this.getWebContentsIdForBrowserInHostWindow(hostWebContentsId, browserId);
+     if (webContentsId !== null) {
+diff --git a/packages/desktop/src/main.ts b/packages/desktop/src/main.ts
+index 6ef3dc14a..c9f6aa6c0 100644
+--- a/packages/desktop/src/main.ts
++++ b/packages/desktop/src/main.ts
+@@ -24,7 +24,7 @@ import {
+   session,
+   webContents,
+ } from "electron";
+-import { registerDaemonManager } from "./daemon/daemon-manager.js";
++import { peekDesktopDaemonServerId, registerDaemonManager } from "./daemon/daemon-manager.js";
+ import { parsePassthroughCliArgsFromArgv, runPassthroughCli } from "./daemon/cli/passthrough.js";
+ import { closeAllTransportSessions } from "./daemon/local-transport.js";
+ import {
+@@ -62,11 +62,21 @@ import {
+   preparePaseoBrowserWebContents,
+   PendingBrowserWindowOpenRequests,
+   registerBrowserWebviewNavigationGuards,
++  registerPaseoBrowserWorkspace,
+   unregisterPaseoBrowserFromHost,
+   registerAttachedPaseoBrowser,
+   setWorkspaceActivePaseoBrowserId,
+   unregisterPaseoBrowserHost,
+ } from "./features/browser-webviews/index.js";
++import {
++  handleLoopbackTunnelClose,
++  handleLoopbackTunnelData,
++  handleLoopbackTunnelOpenResult,
++  registerBrowserLoopbackProxy,
++  resolveBrowserLoopbackProxyCredentials,
++  shouldUseDirectLoopback,
++  unregisterBrowserLoopbackProxy,
++} from "./features/browser-loopback-proxy.js";
+ import {
+   clearPaseoBrowserProfile,
+   getLegacyPaseoBrowserProfileSession,
+@@ -370,6 +380,33 @@ ipcMain.handle("paseo:agent-navigation:ready", (event) => {
+   return agentNavigationInbox.windowReady(event.sender.id);
+ });
+ 
++function readBrowserWorkspaceInput(input: unknown): {
++  browserId: string;
++  serverId: string;
++  workspaceId: string;
++  directLoopback: boolean;
++} | null {
++  if (typeof input !== "object" || input === null || Array.isArray(input)) {
++    return null;
++  }
++  const record = input as Record<string, unknown>;
++  if (typeof record.browserId !== "string" || record.browserId.trim().length === 0) {
++    return null;
++  }
++  if (typeof record.serverId !== "string" || record.serverId.trim().length === 0) {
++    return null;
++  }
++  if (typeof record.workspaceId !== "string" || record.workspaceId.trim().length === 0) {
++    return null;
++  }
++  return {
++    browserId: record.browserId.trim(),
++    serverId: record.serverId.trim(),
++    workspaceId: record.workspaceId.trim(),
++    directLoopback: record.directLoopback === true,
++  };
++}
++
+ function normalizeBrowserCaptureRect(
+   rect: unknown,
+ ): { x: number; y: number; width: number; height: number } | null {
+@@ -411,7 +448,9 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) =>
+   const registered = registerAttachedPaseoBrowser({
+     ...input,
+     sender: event.sender,
+-    profileSession: getPaseoBrowserProfileSession(session),
++    // Match the per-browser webview partition used by the fork's localhost proxy.
++    // Using the shared profile session here rejects registration and breaks proxy auth.
++    profileSession: getPaseoBrowserProfileSession(session, input.browserId),
+     findWebContents: (webContentsId) => webContents.fromId(webContentsId) ?? null,
+   });
+   if (!registered) {
+@@ -435,6 +474,23 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) =>
+   }
+ });
+ 
++ipcMain.handle("paseo:browser:register-workspace-browser", async (event, rawInput: unknown) => {
++  const input = readBrowserWorkspaceInput(rawInput);
++  if (input) {
++    registerPaseoBrowserWorkspace(input);
++    await registerBrowserLoopbackProxy({
++      ...input,
++      rendererWebContentsId: event.sender.id,
++      directLoopback:
++        input.directLoopback ||
++        shouldUseDirectLoopback({
++          localDaemonServerId: peekDesktopDaemonServerId(),
++          tabServerId: input.serverId,
++        }),
++    });
++  }
++});
++
+ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, browserId: unknown) => {
+   if (typeof browserId === "string" && browserId.trim().length > 0) {
+     const normalizedBrowserId = browserId.trim();
+@@ -443,6 +499,9 @@ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, brows
+       normalizedBrowserId,
+     );
+     unregisterPaseoBrowserFromHost(event.sender.id, normalizedBrowserId);
++    if (!hasOtherHost) {
++      await unregisterBrowserLoopbackProxy(normalizedBrowserId);
++    }
+     // COMPAT(browserProfile): added in v0.1.108; remove after 2027-01-15.
+     const legacyProfile = hasOtherHost
+       ? null
+@@ -464,6 +523,35 @@ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, brows
+   }
+ });
+ 
++ipcMain.on("paseo:browser:loopback-tunnel-open-result", (_event, payload: unknown) => {
++  handleLoopbackTunnelOpenResult(payload);
++});
++
++ipcMain.on("paseo:browser:loopback-tunnel-data", (_event, payload: unknown) => {
++  handleLoopbackTunnelData(payload);
++});
++
++ipcMain.on("paseo:browser:loopback-tunnel-close", (_event, payload: unknown) => {
++  handleLoopbackTunnelClose(payload);
++});
++
++app.on("login", (event, contents, _details, authInfo, callback) => {
++  const browserId = getPaseoBrowserIdForWebContents(contents);
++  const credentials = browserId
++    ? resolveBrowserLoopbackProxyCredentials({
++        browserId,
++        isProxy: authInfo.isProxy,
++        host: authInfo.host,
++        port: authInfo.port,
++      })
++    : null;
++  if (!credentials) {
++    return;
++  }
++  event.preventDefault();
++  callback(credentials.username, credentials.password);
++});
++
+ ipcMain.handle("paseo:browser:set-workspace-active-browser", (event, rawInput: unknown) => {
+   const input = readActiveBrowserInput(rawInput);
+   if (input) {
+diff --git a/packages/desktop/src/preload.ts b/packages/desktop/src/preload.ts
+index 6075fbe64..0f6737fe7 100644
+--- a/packages/desktop/src/preload.ts
++++ b/packages/desktop/src/preload.ts
+@@ -57,27 +57,55 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
+   window: {
+     openNew: (options?: { pendingOpenProjectPath?: string | null }) =>
+       ipcRenderer.invoke("paseo:window:openNew", options),
+-    getCurrentWindow: () => ({
+-      minimize: () => ipcRenderer.invoke("paseo:window:minimize"),
+-      close: () => ipcRenderer.invoke("paseo:window:close"),
+-      toggleMaximize: () => ipcRenderer.invoke("paseo:window:toggleMaximize"),
+-      isMaximized: () => ipcRenderer.invoke("paseo:window:isMaximized"),
+-      setFullscreen: (fullscreen: boolean) =>
+-        ipcRenderer.invoke("paseo:window:setFullscreen", fullscreen),
+-      isFullscreen: () => ipcRenderer.invoke("paseo:window:isFullscreen"),
+-      updateChrome: (update: { backgroundColor?: string; trafficLightOffsetY?: number }) =>
+-        ipcRenderer.invoke("paseo:window:updateChrome", update),
+-      onResized: (handler: EventHandler): (() => void) => {
+-        const listener = (_ipcEvent: Electron.IpcRendererEvent, payload: unknown) => {
+-          handler(payload);
+-        };
+-        ipcRenderer.on("paseo:window:resized", listener);
+-        return () => {
+-          ipcRenderer.removeListener("paseo:window:resized", listener);
+-        };
+-      },
+-      setBadgeCount: (count?: number) => ipcRenderer.invoke("paseo:window:setBadgeCount", count),
+-    }),
++    getCurrentWindow: () => {
++      // Cache OS window focus from main. document.hasFocus() is false when an
++      // embedded <webview>/<iframe> (Code Server, Browser) holds focus even though
++      // the Paseo BrowserWindow is still focused.
++      let osWindowFocused = true;
++      const focusListener = (
++        _ipcEvent: Electron.IpcRendererEvent,
++        payload: { focused?: unknown },
++      ) => {
++        if (payload && typeof payload.focused === "boolean") {
++          osWindowFocused = payload.focused;
++        }
++      };
++      ipcRenderer.on("paseo:window:focus-state", focusListener);
++      void ipcRenderer
++        .invoke("paseo:window:isFocused")
++        .then((focused: unknown) => {
++          if (typeof focused === "boolean") {
++            osWindowFocused = focused;
++          }
++          return undefined;
++        })
++        .catch(() => undefined);
++
++      return {
++        minimize: () => ipcRenderer.invoke("paseo:window:minimize"),
++        close: () => ipcRenderer.invoke("paseo:window:close"),
++        toggleMaximize: () => ipcRenderer.invoke("paseo:window:toggleMaximize"),
++        isMaximized: () => ipcRenderer.invoke("paseo:window:isMaximized"),
++        setFullscreen: (fullscreen: boolean) =>
++          ipcRenderer.invoke("paseo:window:setFullscreen", fullscreen),
++        isFullscreen: () => ipcRenderer.invoke("paseo:window:isFullscreen"),
++        updateChrome: (update: { backgroundColor?: string; trafficLightOffsetY?: number }) =>
++          ipcRenderer.invoke("paseo:window:updateChrome", update),
++        onResized: (handler: EventHandler): (() => void) => {
++          const listener = (_ipcEvent: Electron.IpcRendererEvent, payload: unknown) => {
++            handler(payload);
++          };
++          ipcRenderer.on("paseo:window:resized", listener);
++          return () => {
++            ipcRenderer.removeListener("paseo:window:resized", listener);
++          };
++        },
++        setBadgeCount: (count?: number) => ipcRenderer.invoke("paseo:window:setBadgeCount", count),
++        focus: () => ipcRenderer.invoke("paseo:window:focus") as Promise<boolean>,
++        /** Sync: OS BrowserWindow focused (true while Code Server webview has focus). */
++        isFocused: () => osWindowFocused,
++      };
++    },
+   },
+   dialog: {
+     ask: (message: string, options?: Record<string, unknown>) =>
+@@ -88,8 +116,12 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
+   },
+   notification: {
+     isSupported: () => ipcRenderer.invoke("paseo:notification:isSupported"),
+-    sendNotification: (payload: { title: string; body?: string; data?: Record<string, unknown> }) =>
+-      ipcRenderer.invoke("paseo:notification:send", payload),
++    sendNotification: (payload: {
++      title: string;
++      body?: string;
++      data?: Record<string, unknown>;
++      silent?: boolean;
++    }) => ipcRenderer.invoke("paseo:notification:send", payload),
+   },
+   opener: {
+     openUrl: (url: string) => ipcRenderer.invoke("paseo:opener:openUrl", url),
+@@ -119,6 +151,12 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
+     profilePartition: PASEO_BROWSER_PROFILE_PARTITION,
+     registerAttachedBrowser: (input: AttachedBrowserRegistration) =>
+       ipcRenderer.invoke("paseo:browser:register-attached", input),
++    registerWorkspaceBrowser: (input: {
++      browserId: string;
++      serverId: string;
++      workspaceId: string;
++      directLoopback?: boolean;
++    }) => ipcRenderer.invoke("paseo:browser:register-workspace-browser", input),
+     unregisterWorkspaceBrowser: (browserId: string) =>
+       ipcRenderer.invoke("paseo:browser:unregister-workspace-browser", browserId),
+     setWorkspaceActiveBrowser: (input: { workspaceId: string; browserId: string | null }) =>
+@@ -136,5 +174,14 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
+     ) => ipcRenderer.invoke("paseo:browser:capture-element", browserId, rect),
+     copyElement: (payload: { text?: string; imageDataUrl?: string }) =>
+       ipcRenderer.invoke("paseo:browser:copy-element", payload),
++    sendLoopbackTunnelOpenResult: (payload: {
++      tunnelId: string;
++      ok: boolean;
++      reason?: string | null;
++    }) => ipcRenderer.send("paseo:browser:loopback-tunnel-open-result", payload),
++    sendLoopbackTunnelData: (payload: { tunnelId: string; binaryBase64: string }) =>
++      ipcRenderer.send("paseo:browser:loopback-tunnel-data", payload),
++    sendLoopbackTunnelClose: (payload: { tunnelId: string; reason?: string | null }) =>
++      ipcRenderer.send("paseo:browser:loopback-tunnel-close", payload),
+   },
+ });
+diff --git a/packages/protocol/src/binary-frames/demux.ts b/packages/protocol/src/binary-frames/demux.ts
+index 31aca68cc..a1392f3ec 100644
+--- a/packages/protocol/src/binary-frames/demux.ts
++++ b/packages/protocol/src/binary-frames/demux.ts
+@@ -8,10 +8,12 @@ import {
+   TerminalStreamOpcode,
+   type TerminalStreamFrame,
+ } from "./terminal.js";
++import { decodeTcpTunnelFrame, TcpTunnelOpcode, type TcpTunnelFrame } from "./tcp-tunnel.js";
+ 
+ export type BinaryFrame =
+   | { kind: "terminal"; frame: TerminalStreamFrame }
+-  | { kind: "file_transfer"; frame: FileTransferFrame };
++  | { kind: "file_transfer"; frame: FileTransferFrame }
++  | { kind: "tcp_tunnel"; frame: TcpTunnelFrame };
+ 
+ export function decodeBinaryFrame(bytes: Uint8Array): BinaryFrame | null {
+   switch (bytes[0]) {
+@@ -29,6 +31,13 @@ export function decodeBinaryFrame(bytes: Uint8Array): BinaryFrame | null {
+       const frame = decodeFileTransferFrame(bytes);
+       return frame ? { kind: "file_transfer", frame } : null;
+     }
++    case TcpTunnelOpcode.Open:
++    case TcpTunnelOpcode.OpenResult:
++    case TcpTunnelOpcode.Data:
++    case TcpTunnelOpcode.Close: {
++      const frame = decodeTcpTunnelFrame(bytes);
++      return frame ? { kind: "tcp_tunnel", frame } : null;
++    }
+     default:
+       return null;
+   }
+diff --git a/packages/protocol/src/binary-frames/index.ts b/packages/protocol/src/binary-frames/index.ts
+index 533b8fe45..1abbc0106 100644
+--- a/packages/protocol/src/binary-frames/index.ts
++++ b/packages/protocol/src/binary-frames/index.ts
+@@ -1,3 +1,4 @@
+ export * from "./demux.js";
+ export * from "./file-transfer.js";
+ export * from "./terminal.js";
++export * from "./tcp-tunnel.js";
+diff --git a/packages/server/src/server/bootstrap.ts b/packages/server/src/server/bootstrap.ts
+index 50d32b9c1..4ceb4f887 100644
+--- a/packages/server/src/server/bootstrap.ts
++++ b/packages/server/src/server/bootstrap.ts
+@@ -1,5 +1,6 @@
+ import express from "express";
+ import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
++import type { Socket } from "node:net";
+ import { constants, existsSync, unlinkSync } from "fs";
+ import { open, rm } from "fs/promises";
+ import { randomUUID } from "node:crypto";
+@@ -132,12 +133,15 @@ import { AgentManager } from "./agent/agent-manager.js";
+ import { AgentStorage } from "./agent/agent-storage.js";
+ import { attachAgentStoragePersistence } from "./persistence-hooks.js";
+ import { createAgentMcpServer } from "./agent/mcp-server.js";
++import { TaskStore } from "./tasks/task-store.js";
++import { UiStateStore } from "./ui-state/store.js";
+ import {
+   createPaseoToolCatalog,
+   type PaseoToolHostDependencies,
+ } from "./agent/tools/paseo-tools.js";
+ import type { PaseoToolRuntimeContext } from "./agent/tools/types.js";
+ import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
++import { createAdditionalModelLimitsPersistence } from "./agent/additional-model-limits-persister.js";
+ import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
+ import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
+ import {
+@@ -184,6 +188,8 @@ import type {
+ } from "./agent/provider-launch-config.js";
+ import { loadPersistedConfig, type PersistedConfig } from "./persisted-config.js";
+ import { createServiceProxySubsystem, type ServiceProxySubsystem } from "./service-proxy.js";
++import { createBrowserPreviewSubsystem } from "./browser-preview/index.js";
++import { parseBrowserPreviewTemplate } from "./browser-preview/url-template.js";
+ import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
+ import { ScriptHealthMonitor } from "./script-health-monitor.js";
+ import { createScriptStatusEmitter } from "./script-status-projection.js";
+@@ -426,6 +432,7 @@ export interface PaseoDaemonConfig {
+     publicBaseUrl: string | null;
+     standaloneListen: string | null;
+   };
++  browserPreviewUrlTemplate: string | null;
+   webUi?: {
+     enabled: boolean;
+     distDir: string | null;
+@@ -447,6 +454,12 @@ export interface PaseoDaemonConfig {
+       model?: string;
+       thinkingOptionId?: string;
+     }>;
++    customEndpoint?: {
++      enabled?: boolean;
++      baseUrl?: string;
++      apiKey?: string;
++      model?: string;
++    };
+   };
+   providerOverrides?: Record<string, ProviderOverride>;
+   log?: PersistedConfig["log"];
+@@ -527,6 +540,18 @@ function resolveExpressTrustProxySetting(config: PaseoDaemonConfig): true | stri
+   return config.trustedProxies ?? ["loopback"];
+ }
+ 
++function resolveInitialMetadataCustomEndpoint(
++  config: PaseoDaemonConfig["metadataGeneration"],
++): NonNullable<MutableDaemonConfig["metadataGeneration"]["customEndpoint"]> {
++  const customEndpoint = config?.customEndpoint;
++  return {
++    enabled: customEndpoint?.enabled ?? false,
++    baseUrl: customEndpoint?.baseUrl ?? "",
++    apiKey: customEndpoint?.apiKey ?? "",
++    model: customEndpoint?.model ?? "",
++  };
++}
++
+ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDaemonConfig {
+   const providers = config.providerOverrides ?? {};
+ 
+@@ -548,6 +573,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
+     providers,
+     metadataGeneration: {
+       providers: config.metadataGeneration?.providers ?? [],
++      customEndpoint: resolveInitialMetadataCustomEndpoint(config.metadataGeneration),
+     },
+     autoArchiveAfterMerge: config.autoArchiveAfterMerge ?? false,
+     enableTerminalAgentHooks: config.enableTerminalAgentHooks ?? false,
+@@ -659,6 +685,12 @@ export async function createPaseoDaemon(
+     logger,
+     publicBaseUrl: serviceProxyPublicBaseUrl,
+   });
++  const browserPreview = createBrowserPreviewSubsystem({
++    template: config.browserPreviewUrlTemplate
++      ? parseBrowserPreviewTemplate(config.browserPreviewUrlTemplate)
++      : null,
++    logger,
++  });
+   const scriptRuntimeStore = new WorkspaceScriptRuntimeStore();
+   const workspaceSetupRuntime = new WorkspaceSetupRuntime();
+   let configuredHostnames = config.hostnames ?? config.allowedHosts;
+@@ -695,6 +727,12 @@ export async function createPaseoDaemon(
+     logger,
+   });
+ 
++  // Browser preview resolves loopback ports for the web build. It must run
++  // before the service proxy: classifyHost's known-service-miss branches would
++  // otherwise 404 preview hosts under a configured public base. Like service
++  // routes, handled requests never reach the host allowlist below.
++  app.use(browserPreview.middleware());
++
+   // Service proxy classifies service hosts before daemon auth/route fallthrough.
+   // Registered service hosts proxy directly; known service namespaces without a
+   // route return 404 and never reach daemon APIs.
+@@ -846,11 +884,27 @@ export async function createPaseoDaemon(
+ 
+   const httpServer = createHTTPServer(app);
+ 
+-  // Script proxy WebSocket upgrade handler — must be registered before the
+-  // VoiceAssistantWebSocketServer attaches its own "upgrade" listener so that
+-  // script-bound upgrades are forwarded first. The handler is a no-op for
+-  // requests that don't match a registered script route.
+-  httpServer.on("upgrade", serviceProxy.upgradeHandler({ passthroughUnknown: true }));
++  // A single explicit router replaces three independent 'upgrade' listeners.
++  // Each candidate's claim decision — template.matchHost, wss.shouldHandle,
++  // classifyHost — is synchronous, so checking them in priority order here,
++  // before any of them starts async work (a loopback dial, a WS handshake),
++  // is what keeps one candidate's claim from being destroyed by another's
++  // fallback running later on the same 'upgrade' event. `ws`'s own
++  // {server, path} attachment can't coexist with that — see
++  // websocket-server.ts's createWebSocketServer.
++  //
++  // Order: preview (host match) before the daemon's own /ws (path match)
++  // before service proxy (host match, terminal). A preview host must win on
++  // any path per browser-preview/index.ts, and service proxy's
++  // passthroughUnknown:false fallback must run last so it never destroys a
++  // socket the daemon's own control plane or a preview host already claimed.
++  const previewUpgradeHandler = browserPreview.upgradeHandler();
++  const serviceProxyUpgradeHandler = serviceProxy.upgradeHandler({ passthroughUnknown: false });
++  httpServer.on("upgrade", (req: IncomingMessage, socket: Socket, head: Buffer) => {
++    if (previewUpgradeHandler(req, socket, head)) return;
++    if (wsServer?.handleUpgrade(req, socket, head)) return;
++    serviceProxyUpgradeHandler(req, socket, head);
++  });
+ 
+   if (config.serviceProxy?.standaloneListen) {
+     serviceProxyListenTarget = parseListenString(config.serviceProxy.standaloneListen);
+@@ -895,6 +949,7 @@ export async function createPaseoDaemon(
+     managedProcesses,
+     isDev: config.isDev === true,
+     extraClients: config.agentClients,
++    ...createAdditionalModelLimitsPersistence(daemonConfigStore),
+   });
+   daemonConfigStore.onFieldChange("catalogRefreshTimeoutMs", (value) => {
+     providerSnapshotManager.setRefreshTimeoutMs(typeof value === "number" ? value : undefined);
+@@ -1312,6 +1367,9 @@ export async function createPaseoDaemon(
+   );
+   logger.info({ elapsed: elapsed() }, "Preparing voice and MCP runtime");
+ 
++  const taskStore = new TaskStore(config.paseoHome);
++  const uiStateStore = new UiStateStore(config.paseoHome);
++
+   const createAgentToolHostDependencies = (
+     runtime: PaseoToolRuntimeContext,
+   ): PaseoToolHostDependencies => ({
+@@ -1361,6 +1419,7 @@ export async function createPaseoDaemon(
+     clearWorkspaceArchiving: clearWorkspaceArchivingExternal,
+     ensureWorkspaceForCreate: createAgentCommandDependencies.ensureWorkspaceForCreate,
+     createPaseoWorktree: createAgentCommandDependencies.createPaseoWorktree,
++    taskStore,
+     browserToolsEnabled: browserToolsPolicy.isEnabled(),
+     browserToolsBroker,
+     paseoHome: config.paseoHome,
+@@ -1638,6 +1697,7 @@ export async function createPaseoDaemon(
+                   return appBaseUrl;
+                 },
+                 desktopManaged: config.desktopManaged === true,
++                browserPreviewUrlTemplate: config.browserPreviewUrlTemplate,
+                 getRelayConfig: () =>
+                   relayRuntime?.getConfig() ?? {
+                     enabled: daemonConfigStore.get().relay?.enabled ?? relayEnabled,
+@@ -1649,7 +1709,9 @@ export async function createPaseoDaemon(
+               },
+               serviceProxyPublicBaseUrl,
+               browserToolsBroker,
++              taskStore,
+               hubRelationships,
++              uiStateStore,
+               workspaceSetupRuntime,
+               pluginRuntime,
+               orchestrationSkills,
+diff --git a/packages/server/src/server/websocket-server.ts b/packages/server/src/server/websocket-server.ts
+index cad568d33..0960b0e8a 100644
+--- a/packages/server/src/server/websocket-server.ts
++++ b/packages/server/src/server/websocket-server.ts
+@@ -1,5 +1,6 @@
+ import { WebSocket, WebSocketServer } from "ws";
+ import type { IncomingMessage, Server as HTTPServer } from "http";
++import type { Socket } from "node:net";
+ import { join } from "path";
+ import { hostname as getHostname } from "node:os";
+ import { randomUUID } from "node:crypto";
+@@ -96,6 +97,27 @@ import {
+   type BrowserAutomationHostCapability,
+ } from "@getpaseo/protocol/browser-automation/capabilities";
+ import type { BrowserToolsBroker } from "./browser-tools/broker.js";
++import { TaskStore } from "./tasks/task-store.js";
++import { UiStateStore } from "./ui-state/store.js";
++import { buildCodeServerUrlOpeners } from "./code-server-detection.js";
++
++const VSCODE_PROXY_PORT_TOKEN = "{{port}}";
++
++function normalizeVscodeProxyUri(value: string | undefined): string | null {
++  const trimmed = value?.trim();
++  if (!trimmed?.includes(VSCODE_PROXY_PORT_TOKEN)) {
++    return null;
++  }
++  try {
++    const parsed = new URL(trimmed.replaceAll(VSCODE_PROXY_PORT_TOKEN, "5173"));
++    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
++      return null;
++    }
++    return trimmed;
++  } catch {
++    return null;
++  }
++}
+ import type { DaemonRuntimeConfig } from "./session/daemon/daemon-session.js";
+ import { DirectorySyncService } from "./directory-sync/index.js";
+ import type { WorkspaceLabelService } from "./workspace-labels/index.js";
+@@ -514,6 +536,13 @@ export class MissingDaemonVersionError extends Error {
+   }
+ }
+ 
++function requireDaemonVersion(daemonVersion: string | undefined): string {
++  if (typeof daemonVersion !== "string" || daemonVersion.trim().length === 0) {
++    throw new MissingDaemonVersionError();
++  }
++  return daemonVersion.trim();
++}
++
+ interface RequiredWebSocketServices {
+   scheduleService: ScheduleService;
+   checkoutDiffManager: CheckoutDiffManager;
+@@ -595,6 +624,8 @@ export class VoiceAssistantWebSocketServer {
+   private unsubscribeSpeechReadiness: (() => void) | null = null;
+   private unsubscribeDaemonConfigChange: (() => void) | null = null;
+   private readonly providerUsageService: ProviderUsageService;
++  private readonly taskStore: TaskStore;
++  private readonly uiStateStore: UiStateStore;
+   private unsubscribeTerminalActivity: (() => void) | null = null;
+   private readonly browserToolsBroker: BrowserToolsBroker | null;
+   private readonly hubRelationships: HubRelationshipManagement | null;
+@@ -607,7 +638,11 @@ export class VoiceAssistantWebSocketServer {
+   private readonly orchestrationSkills: SessionOptions["orchestrationSkills"];
+ 
+   constructor(
+-    server: HTTPServer,
++    // Unused since createWebSocketServer switched to noServer: true (bootstrap.ts
++    // now routes 'upgrade' events explicitly). Kept as the first positional
++    // parameter rather than removed: this constructor has ~30 positional
++    // arguments across many call sites, and every one after it would shift.
++    _server: HTTPServer,
+     logger: pino.Logger,
+     serverId: string,
+     agentManager: AgentManager,
+@@ -647,7 +682,9 @@ export class VoiceAssistantWebSocketServer {
+     daemonRuntimeConfig?: DaemonRuntimeConfig,
+     serviceProxyPublicBaseUrl?: string | null,
+     browserToolsBroker?: BrowserToolsBroker | null,
++    taskStore?: TaskStore,
+     hubRelationships?: HubRelationshipManagement | null,
++    uiStateStore?: UiStateStore,
+     workspaceSetupRuntime: WorkspaceSetupRuntime = new WorkspaceSetupRuntime(),
+     pluginRuntime?: SessionOptions["pluginRuntime"],
+     orchestrationSkills?: SessionOptions["orchestrationSkills"],
+@@ -659,10 +696,7 @@ export class VoiceAssistantWebSocketServer {
+     this.advertiseRelayConfig = wsConfig.relayConfig !== false;
+     this.connectionLifecycle = wsConfig.startPaused === true ? "starting" : "accepting";
+     this.serverId = serverId;
+-    if (typeof daemonVersion !== "string" || daemonVersion.trim().length === 0) {
+-      throw new MissingDaemonVersionError();
+-    }
+-    this.daemonVersion = daemonVersion.trim();
++    this.daemonVersion = requireDaemonVersion(daemonVersion);
+     this.daemonRuntimeConfig = daemonRuntimeConfig;
+     this.browserToolsBroker = browserToolsBroker ?? null;
+     this.hubRelationships = hubRelationships ?? null;
+@@ -678,6 +712,8 @@ export class VoiceAssistantWebSocketServer {
+       checkoutDiffManager,
+     });
+     this.scheduleService = requiredServices.scheduleService;
++    this.taskStore = taskStore ?? new TaskStore(paseoHome);
++    this.uiStateStore = uiStateStore ?? new UiStateStore(paseoHome);
+     this.checkoutDiffManager = requiredServices.checkoutDiffManager;
+     this.github = github ?? createGitHubService();
+     this.workspaceGitService = workspaceGitService ?? createFallbackWorkspaceGitService();
+@@ -711,18 +747,7 @@ export class VoiceAssistantWebSocketServer {
+       this.speech?.onReadinessChange((snapshot) => {
+         this.publishSpeechReadiness(snapshot);
+       }) ?? null;
+-    const unsubscribeProviderConfig = attachMutableProviderConfigOwner({
+-      store: this.daemonConfigStore,
+-      providerSnapshotManager: this.providerSnapshotManager,
+-      updateProviderRegistry: (state) => this.agentManager.updateProviderRegistry(state),
+-    });
+-    const unsubscribeChange = this.daemonConfigStore.onChange((config) => {
+-      this.broadcastDaemonConfigChanged(config);
+-    });
+-    this.unsubscribeDaemonConfigChange = () => {
+-      unsubscribeProviderConfig();
+-      unsubscribeChange();
+-    };
++    this.unsubscribeDaemonConfigChange = this.bindDaemonConfigListeners();
+ 
+     const pushLogger = this.logger.child({ module: "push" });
+     this.pushNotifications = createPushNotifications({
+@@ -741,13 +766,28 @@ export class VoiceAssistantWebSocketServer {
+       logger: this.logger,
+     });
+ 
+-    this.wss = this.createWebSocketServer(server, wsConfig, auth);
++    this.wss = this.createWebSocketServer(wsConfig, auth);
+     this.startRuntimeMetricsInterval();
+     this.startApplicationSocketLeaseInterval();
+ 
+     this.logger.info("WebSocket server initialized on /ws");
+   }
+ 
++  private bindDaemonConfigListeners(): () => void {
++    const unsubscribeProviderConfig = attachMutableProviderConfigOwner({
++      store: this.daemonConfigStore,
++      providerSnapshotManager: this.providerSnapshotManager,
++      updateProviderRegistry: (state) => this.agentManager.updateProviderRegistry(state),
++    });
++    const unsubscribeChange = this.daemonConfigStore.onChange((config) => {
++      this.broadcastDaemonConfigChanged(config);
++    });
++    return () => {
++      unsubscribeProviderConfig();
++      unsubscribeChange();
++    };
++  }
++
+   private assignOptionalServices(params: {
+     speech: SpeechService | null | undefined;
+     terminalManager: TerminalManager | null | undefined;
+@@ -801,13 +841,19 @@ export class VoiceAssistantWebSocketServer {
+   }
+ 
+   private createWebSocketServer(
+-    server: HTTPServer,
+     wsConfig: WebSocketServerConfig,
+     auth: DaemonAuthConfig | undefined,
+   ): WebSocketServer {
+     const password = auth?.password;
++    // noServer: bootstrap.ts routes 'upgrade' events to handleUpgrade() below
++    // explicitly, in priority order alongside the browser-preview and
++    // service-proxy upgrade handlers. Attaching via `server` here would make
++    // `ws` install its own 'upgrade' listener that synchronously aborts any
++    // request whose path isn't "/ws" — including ones another listener has
++    // already started an async claim on, destroying the socket out from
++    // under it. See browser-preview/index.ts's upgradeHandler.
+     const wss = new WebSocketServer({
+-      server,
++      noServer: true,
+       path: "/ws",
+       handleProtocols: (protocols) => selectWebSocketProtocol(protocols, password),
+       verifyClient: ({ req }, callback) => {
+@@ -825,6 +871,20 @@ export class VoiceAssistantWebSocketServer {
+     return wss;
+   }
+ 
++  // Entry point for bootstrap.ts's explicit upgrade router. shouldHandle()
++  // is the same path check `ws` would otherwise run internally; checking it
++  // first lets the caller try other candidates when this returns false,
++  // instead of the socket being destroyed as a side effect of asking.
++  handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): boolean {
++    if (!this.wss.shouldHandle(req)) {
++      return false;
++    }
++    this.wss.handleUpgrade(req, socket, head, (ws) => {
++      this.wss.emit("connection", ws, req);
++    });
++    return true;
++  }
++
+   private startRuntimeMetricsInterval(): void {
+     this.eventLoopDelayMonitor = monitorEventLoopDelay({ resolution: 10 });
+     this.eventLoopDelayMonitor.enable();
+@@ -1435,6 +1495,16 @@ export class VoiceAssistantWebSocketServer {
+       workspaceLabelService: this.workspaceLabelService ?? undefined,
+       directorySync: this.directorySync,
+       scheduleService: this.scheduleService,
++      taskStore: this.taskStore,
++      uiStateStore: this.uiStateStore,
++      broadcastUiState: (message, exceptClientId) => {
++        for (const session of this.listTrustedSessions()) {
++          if (session.clientId === exceptClientId) {
++            continue;
++          }
++          session.emitOutbound(message);
++        }
++      },
+       checkoutDiffManager: this.checkoutDiffManager,
+       github: this.github,
+       workspaceGitService: this.workspaceGitService,
+@@ -1637,6 +1707,15 @@ export class VoiceAssistantWebSocketServer {
+   }
+ 
+   private buildServerInfoStatusPayload(): ServerInfoStatusPayload {
++    const vscodeProxyUri = normalizeVscodeProxyUri(process.env.VSCODE_PROXY_URI);
++    const codeServer = buildCodeServerUrlOpeners({ env: process.env });
++    const urlOpeners =
++      vscodeProxyUri || codeServer
++        ? {
++            ...(vscodeProxyUri ? { vscodeProxyUri } : {}),
++            ...(codeServer ? { codeServer } : {}),
++          }
++        : null;
+     return {
+       status: "server_info",
+       serverId: this.serverId,
+@@ -1645,6 +1724,11 @@ export class VoiceAssistantWebSocketServer {
+       // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
+       desktopManaged: this.daemonRuntimeConfig?.desktopManaged === true,
+       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
++      ...(urlOpeners ? { urlOpeners } : {}),
++      // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
++      ...(this.daemonRuntimeConfig?.browserPreviewUrlTemplate
++        ? { browserPreview: { urlTemplate: this.daemonRuntimeConfig.browserPreviewUrlTemplate } }
++        : {}),
+       features: {
+         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.
+         directorySync: true,
+@@ -1710,6 +1794,10 @@ export class VoiceAssistantWebSocketServer {
+         workspaceFileEditing: true,
+         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
+         providerUsageList: true,
++        // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
++        providerUsageResetQuota: true,
++        // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
++        providerUsageForceRefresh: true,
+         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
+         agentDetach: true,
+         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
+@@ -1720,10 +1808,24 @@ export class VoiceAssistantWebSocketServer {
+         daemonSelfUpdate: this.daemonRuntimeConfig?.desktopManaged !== true,
+         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
+         agentForkContext: true,
++        // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
++        taskBacklog: true,
++        // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
++        taskBacklogListAll: true,
++        // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
++        uiState: true,
++        // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
++        agentNativeFork: true,
++        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
++        tcpTunnel: true,
+         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
+         agentForkContextCursor: true,
+         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
+         providerSubagents: true,
++        // COMPAT(backgroundTasks): added in v0.2.x, remove gate after 2027-02-01.
++        backgroundTasks: true,
++        // COMPAT(providerHeartbeats): added in v0.2.x, remove gate after 2027-02-02.
++        providerHeartbeats: true,
+         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
+         workspacePinning: true,
+         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
+@@ -1736,6 +1838,10 @@ export class VoiceAssistantWebSocketServer {
+         projectCreateDirectory: true,
+         // COMPAT(commitsList): added in v0.1.110, remove gate after 2027-01-16.
+         commitsList: true,
++        // COMPAT(metadataCustomEndpoint): added 2026-07-28, remove after 2027-01-28.
++        metadataCustomEndpoint: true,
++        // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
++        modelsDevLookup: true,
+         // COMPAT(commitBaseClassification): added in v0.2.0, remove gate after 2027-01-23.
+         commitBaseClassification: true,
+         // COMPAT(providerRemoval): added in v0.1.105, drop the gate when floor >= v0.1.105.
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -3291,17 +3472,25 @@ export const ServerInfoStatusPayloadSchema = z
+     // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
+     desktopManaged: z.boolean().optional(),
+     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
+     urlOpeners: z
+       .object({
+         vscodeProxyUri: z.string().min(1).optional(),
+         codeServer: z
+           .object({
+             localhostUrl: z.string().min(1).optional(),
+             externalUrl: z.string().min(1).optional(),
+           })
+           .optional(),
+       })
+       .optional(),
++    // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
++    // Presence of a valid urlTemplate IS the capability; there is deliberately no
++    // features.browserPreview flag, so the two can never disagree.
++    browserPreview: z
++      .object({
++        urlTemplate: z.string().min(1).optional(),
++      })
++      .optional(),
+     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
+     features: z
+       .object({
+@@ -3369,22 +3573,24 @@ export const ServerInfoStatusPayloadSchema = z
+         daemonSelfUpdate: z.boolean().optional(),
+         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
+         agentForkContext: z.boolean().optional(),
+         // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
+         taskBacklog: z.boolean().optional(),
+         // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
+         taskBacklogListAll: z.boolean().optional(),
+         // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
+         uiState: z.boolean().optional(),
+         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
+         agentNativeFork: z.boolean().optional(),
++        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
++        tcpTunnel: z.boolean().optional(),
+         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
+         agentForkContextCursor: z.boolean().optional(),
+         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
+         providerSubagents: z.boolean().optional(),
+         // COMPAT(backgroundTasks): added in v0.2.x, remove gate after 2027-02-01.
+         backgroundTasks: z.boolean().optional(),
+         // COMPAT(providerHeartbeats): added in v0.2.x, remove gate after 2027-02-02.
+         providerHeartbeats: z.boolean().optional(),
+         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
+         workspacePinning: z.boolean().optional(),
+         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -58,6 +58,7 @@ import {
+   createWorkspaceScriptsService,
+   type WorkspaceScriptsService,
+ } from "./session/workspace-scripts/workspace-scripts-service.js";
++import { TcpTunnelForwarder } from "./tcp-tunnel-forwarder.js";
+ import type { DaemonConfigStore } from "./daemon-config-store.js";
+ import { loadPersistedConfig } from "./persisted-config.js";
+ import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
+@@ -728,17 +792,18 @@ export class Session {
+   private readonly voiceSession: VoiceSession;
+   private readonly checkoutSession: CheckoutSession;
+   private readonly scheduleSession: ScheduleSession;
+   private readonly taskSession: TaskSession;
+   private readonly uiStateSession: UiStateSession;
+   private readonly providerCatalogSession: ProviderCatalogSession;
+   private readonly workspaceFilesSession: WorkspaceFilesSession;
++  private readonly tcpTunnelForwarder: TcpTunnelForwarder;
+   private readonly agentConfigSession: AgentConfigSession;
+   private readonly projectConfigSession: ProjectConfigSession;
+   private readonly daemonSession: DaemonSession;
+   private readonly hubExecutionController: HubExecutionController | null;
+   private readonly workspaceScripts: WorkspaceScriptsService;
+   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
+   private readonly backgroundTaskOutputSubscriptions = createBackgroundTaskOutputSubscriptions();
+ 
+   constructor(options: SessionOptions) {
+     const {
+@@ -828,6 +899,10 @@ export class Session {
+       paseoHome,
+       logger: this.sessionLogger,
+     });
++    this.tcpTunnelForwarder = new TcpTunnelForwarder({
++      emitBinary: (frame) => this.emitBinary(frame),
++      logger: this.sessionLogger,
++    });
+     this.agentManager = agentManager;
+     this.agentStorage = agentStorage;
+     this.projectRegistry = projectRegistry;
+@@ -2592,6 +2866,10 @@ export class Session {
+       await this.workspaceFilesSession.handleFileTransferFrame(binaryFrame.frame);
+       return;
+     }
++    if (binaryFrame.kind === "tcp_tunnel") {
++      this.tcpTunnelForwarder.handleFrame(binaryFrame.frame);
++      return;
++    }
+     this.terminalController.handleBinaryFrame(binaryFrame.frame);
+   }
+ 
+@@ -7439,8 +8045,9 @@ export class Session {
+    */
+   public async cleanup(): Promise<void> {
+     this.sessionLogger.trace({}, "agent.session.lifecycle.cleanup");
++    this.tcpTunnelForwarder.dispose();
+     this.isCleanedUp = true;
+     this.backgroundTaskOutputSubscriptions.clearAll();
+ 
+     if (this.unsubscribeAgentEvents) {
+       this.unsubscribeAgentEvents();

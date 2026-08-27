@@ -52,7 +52,6 @@ export interface ComposerSendClient {
       activeTurnBehavior?: ActiveTurnBehavior;
       images: Array<{ data: string; mimeType: string }>;
       attachments: ReturnType<typeof splitComposerAttachmentsForSubmit>["attachments"];
-      steer?: boolean;
     },
   ) => Promise<void>;
   uploadFile: (input: { fileName: string; mimeType: string; bytes: Uint8Array }) => Promise<{
@@ -179,8 +178,6 @@ export interface DispatchComposerAgentMessageInput {
     images: AttachmentMetadata[],
   ) => Promise<Array<{ data: string; mimeType: string }> | undefined>;
   submission: MessageSubmissionWriter;
-  /** Explicit mid-turn redirect (interrupt + send). COMPAT(promptSteer). */
-  steer?: boolean;
   activeTurnBehavior?: ActiveTurnBehavior;
   activeTurnId?: string;
 }
@@ -210,7 +207,6 @@ export async function dispatchComposerAgentMessage(
       ...(input.activeTurnBehavior ? { activeTurnBehavior: input.activeTurnBehavior } : {}),
       images: imagesData ?? [],
       attachments: wirePayload.attachments,
-      ...(input.steer ? { steer: true } : {}),
     });
     input.submission.accept(input.agentId, clientMessageId);
   } catch (error) {

@@ -1,0 +1,517 @@
+Subject: persist metadata custom endpoint without writing empty default
+Decision: persisted-config keeps metadataGeneration.customEndpoint; daemon-config-store must not persist the default-empty object or a sync/restart wipes a configured URL
+Verify: npx vitest run packages/server/src/server/persisted-config.test.ts packages/server/src/server/daemon-config-store.test.ts --bail=1
+Files: packages/server/src/server/config.ts
+Files: packages/server/src/server/daemon-config-store.ts
+Files: packages/server/src/server/persisted-config.ts
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/session.ts
+
+diff --git a/packages/server/src/server/config.ts b/packages/server/src/server/config.ts
+index 7ed5f1651..98c2707b0 100644
+--- a/packages/server/src/server/config.ts
++++ b/packages/server/src/server/config.ts
+@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
+ import { resolvePaseoNodeEnv } from "./paseo-env.js";
+ import { z } from "zod";
+ import { expandTilde } from "../utils/path.js";
++import { parseBrowserPreviewTemplate } from "./browser-preview/url-template.js";
+ 
+ import type { PaseoDaemonConfig } from "./bootstrap.js";
+ import {
+@@ -367,6 +368,16 @@ function resolveServiceProxyConfig(
+   return { publicBaseUrl, standaloneListen };
+ }
+ 
++export function resolveBrowserPreviewUrlTemplate(
++  env: NodeJS.ProcessEnv,
++  persisted: ReturnType<typeof loadPersistedConfig>,
++): string | null {
++  const raw =
++    env.PASEO_BROWSER_PREVIEW_URL_TEMPLATE ?? persisted.daemon?.browserPreview?.urlTemplate ?? null;
++  if (raw === null) return null;
++  return parseBrowserPreviewTemplate(raw).raw;
++}
++
+ interface ResolvedWebUi {
+   enabled: boolean;
+   distDir: string | null;
+@@ -581,6 +592,7 @@ export function resolveConfigFromPersisted(
+     enabledFallback: relayEnabledFallback,
+   });
+   const serviceProxy = resolveServiceProxyConfig(env, persisted);
++  const browserPreviewUrlTemplate = resolveBrowserPreviewUrlTemplate(env, persisted);
+   const webUi = resolveWebUiConfig(paseoHome, env, cli, persisted);
+ 
+   const { openai, speech } = resolveSpeechConfig({
+@@ -628,6 +640,7 @@ export function resolveConfigFromPersisted(
+     relayUseTls: relay.useTls,
+     relayPublicUseTls: relay.publicUseTls,
+     serviceProxy,
++    browserPreviewUrlTemplate,
+     webUi,
+     appBaseUrl,
+     auth: resolveAuthConfig(env, persisted),
+diff --git a/packages/server/src/server/daemon-config-store.ts b/packages/server/src/server/daemon-config-store.ts
+index 922d0dac1..f60ace59f 100644
+--- a/packages/server/src/server/daemon-config-store.ts
++++ b/packages/server/src/server/daemon-config-store.ts
+@@ -22,7 +22,7 @@ interface SupportedMutableConfigPatch {
+   browserTools?: { enabled?: boolean };
+   providers?: MutableDaemonConfig["providers"];
+   removeProviders?: string[];
+-  metadataGeneration?: MutableDaemonConfig["metadataGeneration"];
++  metadataGeneration?: MutableDaemonConfigPatch["metadataGeneration"];
+   autoArchiveAfterMerge?: boolean;
+   enableTerminalAgentHooks?: boolean;
+   appendSystemPrompt?: string;
+@@ -40,6 +40,11 @@ interface LoggerLike {
+ 
+ export interface DaemonConfigChangeDetails {
+   removedProviders: readonly string[];
++  preserveInFlightProviderLoads?: readonly string[];
++}
++
++export interface DaemonConfigPatchOptions {
++  preserveInFlightProviderLoads?: readonly string[];
+ }
+ 
+ export interface DaemonConfigReloadResult {
+@@ -249,7 +254,66 @@ function compactOwnedPaths(paths: readonly string[], owners: readonly string[]):
+   return Array.from(compacted).sort();
+ }
+ 
++function pickMetadataGenerationPatch(
++  metadataGeneration: MutableDaemonConfigPatch["metadataGeneration"],
++): SupportedMutableConfigPatch["metadataGeneration"] | undefined {
++  if (!metadataGeneration) return undefined;
++  const next: NonNullable<SupportedMutableConfigPatch["metadataGeneration"]> = {};
++  if (metadataGeneration.providers !== undefined) {
++    next.providers = metadataGeneration.providers;
++  }
++  if (metadataGeneration.customEndpoint !== undefined) {
++    next.customEndpoint = metadataGeneration.customEndpoint;
++  }
++  return Object.keys(next).length > 0 ? next : undefined;
++}
++
++function isDefaultCustomEndpoint(
++  endpoint: MutableDaemonConfig["metadataGeneration"]["customEndpoint"] | undefined,
++): boolean {
++  return (
++    endpoint !== undefined &&
++    endpoint.enabled === false &&
++    endpoint.baseUrl === "" &&
++    endpoint.apiKey === "" &&
++    endpoint.model === ""
++  );
++}
++
++function persistMetadataGeneration(input: {
++  merged: MutableDaemonConfig["metadataGeneration"] | undefined;
++  patch: NonNullable<SupportedMutableConfigPatch["metadataGeneration"]>;
++  persisted: PersistedConfig["agents"] extends infer T
++    ? T extends { metadataGeneration?: infer M }
++      ? M
++      : unknown
++    : unknown;
++}): Record<string, unknown> {
++  const persistedRecord =
++    input.persisted && typeof input.persisted === "object"
++      ? (input.persisted as Record<string, unknown>)
++      : {};
++  const next: Record<string, unknown> = { ...persistedRecord };
++  if (input.merged) {
++    Object.assign(next, input.merged);
++  }
++  if (input.patch.providers !== undefined) next["providers"] = input.patch.providers;
++  if (input.patch.customEndpoint !== undefined) next["customEndpoint"] = input.patch.customEndpoint;
++  const endpoint = next["customEndpoint"] as
++    | MutableDaemonConfig["metadataGeneration"]["customEndpoint"]
++    | undefined;
++  if (
++    input.patch.customEndpoint === undefined &&
++    persistedRecord["customEndpoint"] === undefined &&
++    isDefaultCustomEndpoint(endpoint)
++  ) {
++    delete next["customEndpoint"];
++  }
++  return next;
++}
++
+ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMutableConfigPatch {
++  const metadataGeneration = pickMetadataGenerationPatch(patch.metadataGeneration);
+   return {
+     ...(patch.relay?.enabled !== undefined ? { relay: { enabled: patch.relay.enabled } } : {}),
+     ...(patch.mcp?.injectIntoAgents !== undefined
+@@ -260,9 +324,7 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
+       : {}),
+     ...(patch.providers !== undefined ? { providers: patch.providers } : {}),
+     ...(patch.removeProviders !== undefined ? { removeProviders: patch.removeProviders } : {}),
+-    ...(patch.metadataGeneration?.providers !== undefined
+-      ? { metadataGeneration: { providers: patch.metadataGeneration.providers } }
+-      : {}),
++    ...(metadataGeneration ? { metadataGeneration } : {}),
+     ...(patch.autoArchiveAfterMerge !== undefined
+       ? { autoArchiveAfterMerge: patch.autoArchiveAfterMerge }
+       : {}),
+@@ -336,16 +398,22 @@ export class DaemonConfigStore {
+     return this.current;
+   }
+ 
+-  public patch(partial: MutableDaemonConfigPatch): MutableDaemonConfig {
++  public patch(
++    partial: MutableDaemonConfigPatch,
++    options: DaemonConfigPatchOptions = {},
++  ): MutableDaemonConfig {
+     const parsedPatch = pickSupportedPatchFields(MutableDaemonConfigPatchSchema.parse(partial));
+-    return this.applySupportedPatch(parsedPatch);
++    return this.applySupportedPatch(parsedPatch, options);
+   }
+ 
+   public setAgentSkillSelection(selection: AgentSkillSelection): MutableDaemonConfig {
+     return this.applySupportedPatch({ skills: { selection } });
+   }
+ 
+-  private applySupportedPatch(parsedPatch: SupportedMutableConfigPatch): MutableDaemonConfig {
++  private applySupportedPatch(
++    parsedPatch: SupportedMutableConfigPatch,
++    options: DaemonConfigPatchOptions = {},
++  ): MutableDaemonConfig {
+     if (parsedPatch.relay?.enabled !== undefined && !this.relayEnabledMutable) {
+       throw new Error(
+         "Relay is controlled by a daemon launch override. Remove PASEO_RELAY_ENABLED or the relay CLI flag before changing it here.",
+@@ -374,6 +442,7 @@ export class DaemonConfigStore {
+     const { previous: persistedBeforePatch, knownNext } = this.persistConfig(
+       configPatch,
+       removedProviders,
++      next,
+     );
+     if (!configChanged) {
+       this.lastKnownPersisted = knownNext;
+@@ -381,7 +450,10 @@ export class DaemonConfigStore {
+     }
+ 
+     try {
+-      this.applyReplacement(next, { removedProviders });
++      this.applyReplacement(next, {
++        removedProviders,
++        preserveInFlightProviderLoads: options.preserveInFlightProviderLoads,
++      });
+       this.lastKnownPersisted = knownNext;
+     } catch (error) {
+       savePersistedConfig(this.paseoHome, persistedBeforePatch, this.logger);
+@@ -549,6 +621,7 @@ export class DaemonConfigStore {
+   private persistConfig(
+     patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
+     removeProviders: readonly string[],
++    mergedConfig: MutableDaemonConfig,
+   ): { previous: PersistedConfig; knownNext: PersistedConfig } {
+     const persisted = loadPersistedConfig(this.paseoHome, this.logger);
+     const merge = (source: PersistedConfig) =>
+@@ -557,6 +630,8 @@ export class DaemonConfigStore {
+         patch,
+         removeProviders,
+         persistRelayEnabled: this.relayEnabledMutable,
++        mergedMetadataGeneration:
++          patch.metadataGeneration !== undefined ? mergedConfig.metadataGeneration : undefined,
+       });
+     const nextPersisted = merge(persisted);
+     const knownNext = merge(this.lastKnownPersisted);
+@@ -570,10 +645,17 @@ function mergeMutablePatchIntoPersistedConfig(params: {
+   patch: Omit<SupportedMutableConfigPatch, "removeProviders">;
+   removeProviders: readonly string[];
+   persistRelayEnabled: boolean;
++  mergedMetadataGeneration?: MutableDaemonConfig["metadataGeneration"];
+ }): PersistedConfig {
+-  const { persisted, patch, removeProviders, persistRelayEnabled } = params;
++  const { persisted, patch, removeProviders, persistRelayEnabled, mergedMetadataGeneration } =
++    params;
+   const daemon = mergeMutableDaemonPatch(persisted.daemon, patch, persistRelayEnabled);
+-  const agents = mergeMutableAgentPatch(persisted.agents, patch, removeProviders);
++  const agents = mergeMutableAgentPatch(
++    persisted.agents,
++    patch,
++    removeProviders,
++    mergedMetadataGeneration,
++  );
+   return {
+     ...persisted,
+     ...(patch.pluginsEnabled !== undefined ? { pluginsEnabled: patch.pluginsEnabled } : {}),
+@@ -587,6 +669,7 @@ function mergeMutableAgentPatch(
+   persistedAgents: PersistedConfig["agents"],
+   patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
+   removeProviders: readonly string[],
++  mergedMetadataGeneration?: MutableDaemonConfig["metadataGeneration"],
+ ): PersistedConfig["agents"] {
+   if (
+     patch.providers === undefined &&
+@@ -609,11 +692,16 @@ function mergeMutableAgentPatch(
+   if (providerOverrides) next["providers"] = providerOverrides;
+   else delete next["providers"];
+ 
+-  if (patch.metadataGeneration?.providers !== undefined) {
+-    next["metadataGeneration"] = { providers: patch.metadataGeneration.providers };
++  if (patch.metadataGeneration !== undefined) {
++    next["metadataGeneration"] = persistMetadataGeneration({
++      merged: mergedMetadataGeneration,
++      patch: patch.metadataGeneration,
++      persisted: persistedAgents?.metadataGeneration,
++    });
+   } else if (removeProviders.length > 0 && persistedAgents?.metadataGeneration?.providers) {
+     const removed = new Set(removeProviders);
+     next["metadataGeneration"] = {
++      ...persistedAgents.metadataGeneration,
+       providers: persistedAgents.metadataGeneration.providers.filter(
+         (entry) => !removed.has(entry.provider),
+       ),
+diff --git a/packages/server/src/server/persisted-config.ts b/packages/server/src/server/persisted-config.ts
+index 1cdaf209d..6f1fbc39a 100644
+--- a/packages/server/src/server/persisted-config.ts
++++ b/packages/server/src/server/persisted-config.ts
+@@ -171,9 +171,19 @@ const StructuredGenerationProviderConfigSchema = z
+   })
+   .strict();
+ 
++const MetadataCustomEndpointPersistedSchema = z
++  .object({
++    enabled: z.boolean().optional(),
++    baseUrl: z.string().optional(),
++    apiKey: z.string().optional(),
++    model: z.string().optional(),
++  })
++  .strict();
++
+ const AgentMetadataGenerationSchema = z
+   .object({
+     providers: z.array(StructuredGenerationProviderConfigSchema).optional(),
++    customEndpoint: MetadataCustomEndpointPersistedSchema.optional(),
+   })
+   .strict();
+ 
+@@ -293,6 +303,12 @@ export const PersistedConfigSchema = z
+           })
+           .strict()
+           .optional(),
++        browserPreview: z
++          .object({
++            urlTemplate: z.string().optional(),
++          })
++          .strict()
++          .optional(),
+         auth: DaemonAuthSchema.optional(),
+       })
+       .strict()
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -117,9 +144,24 @@ const MutableStructuredGenerationProviderSchema = z
+   })
+   .passthrough();
+ 
++const MetadataCustomEndpointSchema = z
++  .object({
++    enabled: z.boolean().default(false),
++    baseUrl: z.string().default(""),
++    apiKey: z.string().default(""),
++    model: z.string().default(""),
++  })
++  .passthrough();
++
+ const MutableMetadataGenerationConfigSchema = z
+   .object({
+     providers: z.array(MutableStructuredGenerationProviderSchema).default([]),
++    customEndpoint: MetadataCustomEndpointSchema.default({
++      enabled: false,
++      baseUrl: "",
++      apiKey: "",
++      model: "",
++    }),
+   })
+   .passthrough();
+ 
+@@ -223,7 +265,15 @@ export const MutableDaemonConfigSchema = z
+     catalogRefreshTimeoutMs: z.number().int().positive().optional(),
+     browserTools: MutableBrowserToolsConfigSchema.default({ enabled: false }),
+     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
+-    metadataGeneration: MutableMetadataGenerationConfigSchema.default({ providers: [] }),
++    metadataGeneration: MutableMetadataGenerationConfigSchema.default({
++      providers: [],
++      customEndpoint: {
++        enabled: false,
++        baseUrl: "",
++        apiKey: "",
++        model: "",
++      },
++    }),
+     autoArchiveAfterMerge: z.boolean().default(false),
+     enableTerminalAgentHooks: z.boolean().default(false),
+     appendSystemPrompt: z.string().default(""),
+@@ -235,6 +285,24 @@ export const MutableDaemonConfigSchema = z
+   })
+   .passthrough();
+ 
++// Patch schemas must not re-apply .default() for omitted keys — otherwise
++// deepMerge would overwrite live config with empty defaults on partial patches.
++const MetadataCustomEndpointPatchSchema = z
++  .object({
++    enabled: z.boolean().optional(),
++    baseUrl: z.string().optional(),
++    apiKey: z.string().optional(),
++    model: z.string().optional(),
++  })
++  .passthrough();
++
++const MutableMetadataGenerationConfigPatchSchema = z
++  .object({
++    providers: z.array(MutableStructuredGenerationProviderSchema).optional(),
++    customEndpoint: MetadataCustomEndpointPatchSchema.optional(),
++  })
++  .passthrough();
++
+ export const MutableDaemonConfigPatchSchema = z
+   .object({
+     relay: MutableRelayConfigSchema.partial().optional(),
+@@ -1513,12 +1595,19 @@ export const SetDaemonConfigRequestMessageSchema = z.object({
+   config: MutableDaemonConfigPatchSchema,
+ });
+ 
++export const MetadataCustomEndpointListModelsRequestSchema = z.object({
++  type: z.literal("metadataGeneration.customEndpoint.listModels.request"),
++  requestId: z.string(),
++  baseUrl: z.string().optional(),
++  apiKey: z.string().optional(),
++});
++
+ export const ModelsDevLookupModelRequestSchema = z.object({
+   type: z.literal("models.dev.lookup_model.request"),
+   requestId: z.string(),
+   modelId: z.string(),
+ });
+ 
+ export const ReadProjectConfigRequestMessageSchema = z.object({
+   type: z.literal("read_project_config_request"),
+   requestId: z.string(),
+@@ -2995,7 +3155,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   AgentSkillsImportLegacySelectionRequestSchema,
+   GetDaemonConfigRequestMessageSchema,
+   SetDaemonConfigRequestMessageSchema,
++  MetadataCustomEndpointListModelsRequestSchema,
+   ModelsDevLookupModelRequestSchema,
+   ReadProjectConfigRequestMessageSchema,
+   WriteProjectConfigRequestMessageSchema,
+   DictationStreamStartMessageSchema,
+@@ -3407,8 +3625,10 @@ export const ServerInfoStatusPayloadSchema = z
+         stableProjectIdentity: z.boolean().optional(),
+         // COMPAT(workspaceScriptManagement): added in v0.1.105, remove gate after 2027-01-10.
+         workspaceScriptManagement: z.boolean().optional(),
++        // COMPAT(metadataCustomEndpoint): added 2026-07-28, remove after 2027-01-28 once daemon floor advertises it.
++        metadataCustomEndpoint: z.boolean().optional(),
+         // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
+         modelsDevLookup: z.boolean().optional(),
+         // COMPAT(projectCustomIcon): added in v0.2.0, remove after 2027-01-20.
+         projectCustomIcon: z.boolean().optional(),
+         // COMPAT(fsEntryOps): added in v0.3.0, remove gate after 2027-02-08.
+@@ -4492,38 +4865,59 @@ export const GetDaemonConfigResponseMessageSchema = z.object({
+     .passthrough(),
+ });
+ 
++export const MetadataCustomEndpointListModelsResponseSchema = z.object({
++  type: z.literal("metadataGeneration.customEndpoint.listModels.response"),
++  payload: z
++    .object({
++      requestId: z.string(),
++      models: z.array(
++        z.object({
++          id: z.string(),
++          name: z.string().optional(),
++        }),
++      ),
++      error: z
++        .object({
++          code: z.string(),
++          message: z.string(),
++        })
++        .nullable(),
++    })
++    .passthrough(),
++});
++
+ const ModelsDevLookupCandidateSchema = z.object({
+   providerId: z.string(),
+   matchedId: z.string(),
+   name: z.string().optional(),
+   contextWindowMaxTokens: z.number().int().positive(),
+   maxOutputTokens: z.number().int().positive().optional(),
+   inputModalities: z.array(z.string()).optional(),
+   outputModalities: z.array(z.string()).optional(),
+   capabilities: z.array(z.string()).optional(),
+ });
+ 
+ export const ModelsDevLookupModelResponseSchema = z.object({
+   type: z.literal("models.dev.lookup_model.response"),
+   payload: z
+     .object({
+       requestId: z.string(),
+       found: z.boolean(),
+       modelId: z.string(),
+       matchedId: z.string().optional(),
+       name: z.string().optional(),
+       contextWindowMaxTokens: z.number().int().positive().optional(),
+       maxOutputTokens: z.number().int().positive().optional(),
+       providerId: z.string().optional(),
+       inputModalities: z.array(z.string()).optional(),
+       outputModalities: z.array(z.string()).optional(),
+       capabilities: z.array(z.string()).optional(),
+       candidates: z.array(ModelsDevLookupCandidateSchema).optional(),
+       error: z.string().nullable().optional(),
+     })
+     .passthrough(),
+ });
+ 
+ export const DaemonGetStatusResponseSchema = z.object({
+   type: z.literal("daemon.get_status.response"),
+   payload: z
+@@ -6245,7 +6703,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   DiagnosticsResponseSchema,
+   GetDaemonConfigResponseMessageSchema,
+   SetDaemonConfigResponseMessageSchema,
++  MetadataCustomEndpointListModelsResponseSchema,
+   ModelsDevLookupModelResponseSchema,
+   ReadProjectConfigResponseMessageSchema,
+   WriteProjectConfigResponseMessageSchema,
+   SetAgentModeResponseMessageSchema,
+@@ -244,7 +312,7 @@ export const MutableDaemonConfigPatchSchema = z
+       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
+       .optional(),
+     removeProviders: z.array(z.string().min(1)).optional(),
+-    metadataGeneration: MutableMetadataGenerationConfigSchema.partial().optional(),
++    metadataGeneration: MutableMetadataGenerationConfigPatchSchema.optional(),
+     autoArchiveAfterMerge: z.boolean().optional(),
+     enableTerminalAgentHooks: z.boolean().optional(),
+     appendSystemPrompt: z.string().optional(),
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -115,7 +116,8 @@ import {
+ import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
+ import { buildAgentPrompt } from "./agent/prompt-attachments.js";
+ import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
++import { listMetadataOpenAIModels } from "./agent/metadata-openai-client.js";
+ import { lookupModelsDevModel } from "./models-dev/catalog.js";
+ import {
+   getAgentStreamEventTurnId,
+   type AgentPersistenceHandle,
+@@ -2308,8 +2532,10 @@ export class Session {
+           },
+         });
+         return undefined;
++      case "metadataGeneration.customEndpoint.listModels.request":
++        return this.handleMetadataCustomEndpointListModelsRequest(msg);
+       case "models.dev.lookup_model.request":
+         return this.handleModelsDevLookupModelRequest(msg);
+       case "read_project_config_request":
+         return this.projectConfigSession.handleReadProjectConfigRequest(msg);
+       case "write_project_config_request":

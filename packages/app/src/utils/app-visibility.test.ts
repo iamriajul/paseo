@@ -13,6 +13,17 @@ test("a visible desktop app remains visible when another window has focus", () =
   expect(isAppActivelyVisible(input)).toBe(false);
 });
 
+test("fullscreen Space swipe is not actively visible even though the document stays visible", () => {
+  expect(
+    isAppActivelyVisible({
+      appState: "active",
+      native: false,
+      documentVisible: true,
+      windowFocused: false,
+    }),
+  ).toBe(false);
+});
+
 test("a hidden desktop page is neither visible nor actively visible", () => {
   const input = {
     appState: "active",

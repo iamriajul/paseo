@@ -1,0 +1,777 @@
+Subject: Drop fork steer dual-path
+Decision: dispatch uses official steerActiveTurn only; fork session.steer / steerAgent / composer steer flag / unmounted Queue-steer copy are gone; COMPAT wire steer boolean and supportsSteer stay
+Verify: npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts packages/protocol/src/messages.steer.test.ts packages/protocol/src/messages.active-turn-behavior.test.ts packages/app/src/composer/actions.test.ts packages/server/src/server/agent/providers/omp/agent.test.ts --bail=1
+Files: packages/app/src/composer/actions.test.ts
+Files: packages/app/src/composer/actions.ts
+Files: packages/app/src/composer/types.ts
+Files: packages/app/src/i18n/resources/ar.ts
+Files: packages/app/src/i18n/resources/en.ts
+Files: packages/app/src/i18n/resources/es.ts
+Files: packages/app/src/i18n/resources/fr.ts
+Files: packages/app/src/i18n/resources/ja.ts
+Files: packages/app/src/i18n/resources/ko.ts
+Files: packages/app/src/i18n/resources/pt-BR.ts
+Files: packages/app/src/i18n/resources/ru.ts
+Files: packages/app/src/i18n/resources/zh-CN.ts
+Files: packages/client/src/daemon-client.ts
+Files: packages/server/src/server/agent/agent-manager.ts
+Files: packages/server/src/server/agent/agent-sdk-types.ts
+Files: packages/server/src/server/agent/create-agent/create.test.ts
+Files: packages/server/src/server/agent/mcp-server.test.ts
+Files: packages/server/src/server/agent/permission-response.test.ts
+Files: packages/server/src/server/agent/provider-registry-wrap.test.ts
+Files: packages/server/src/server/agent/provider-registry.ts
+Files: packages/server/src/server/agent/providers/claude/agent.redesign.test.ts
+Files: packages/server/src/server/agent/providers/claude/agent.ts
+Files: packages/server/src/server/agent/providers/codex-app-server-agent.ts
+Files: packages/server/src/server/agent/providers/omp/agent.test.ts
+Files: packages/server/src/server/agent/providers/omp/agent.ts
+Files: packages/server/src/server/agent/providers/omp/test-utils/omp-harness.ts
+
+diff --git a/packages/app/src/composer/actions.test.ts b/packages/app/src/composer/actions.test.ts
+index 9727d73e1..68e90b83e 100644
+--- a/packages/app/src/composer/actions.test.ts
++++ b/packages/app/src/composer/actions.test.ts
+@@ -418,7 +418,7 @@ describe("pickAndPersistImages", () => {
+ });
+ 
+ describe("dispatchComposerAgentMessage", () => {
+-  it("forwards the configured active-turn intent without provider capability checks", async () => {
++  it("sends with activeTurnBehavior and does not set the legacy steer flag", async () => {
+     const client = createFakeSendClient();
+     const stream = createFakeStream();
+ 
+@@ -433,6 +433,7 @@ describe("dispatchComposerAgentMessage", () => {
+     });
+ 
+     expect(client.calls[0]?.options.activeTurnBehavior).toBe("steer");
++    expect(client.calls[0]?.options).not.toHaveProperty("steer");
+   });
+ 
+   it("stamps only a steer optimistic row with the daemon active turn ID", async () => {
+diff --git a/packages/app/src/composer/actions.ts b/packages/app/src/composer/actions.ts
+index 1dfc5e459..adf331dfe 100644
+--- a/packages/app/src/composer/actions.ts
++++ b/packages/app/src/composer/actions.ts
+@@ -52,7 +52,6 @@ export interface ComposerSendClient {
+       activeTurnBehavior?: ActiveTurnBehavior;
+       images: Array<{ data: string; mimeType: string }>;
+       attachments: ReturnType<typeof splitComposerAttachmentsForSubmit>["attachments"];
+-      steer?: boolean;
+     },
+   ) => Promise<void>;
+   uploadFile: (input: { fileName: string; mimeType: string; bytes: Uint8Array }) => Promise<{
+@@ -179,8 +178,6 @@ export interface DispatchComposerAgentMessageInput {
+     images: AttachmentMetadata[],
+   ) => Promise<Array<{ data: string; mimeType: string }> | undefined>;
+   submission: MessageSubmissionWriter;
+-  /** Explicit mid-turn redirect (interrupt + send). COMPAT(promptSteer). */
+-  steer?: boolean;
+   activeTurnBehavior?: ActiveTurnBehavior;
+   activeTurnId?: string;
+ }
+@@ -210,7 +207,6 @@ export async function dispatchComposerAgentMessage(
+       ...(input.activeTurnBehavior ? { activeTurnBehavior: input.activeTurnBehavior } : {}),
+       images: imagesData ?? [],
+       attachments: wirePayload.attachments,
+-      ...(input.steer ? { steer: true } : {}),
+     });
+     input.submission.accept(input.agentId, clientMessageId);
+   } catch (error) {
+diff --git a/packages/app/src/composer/types.ts b/packages/app/src/composer/types.ts
+index e68d0a5eb..c266d8cba 100644
+--- a/packages/app/src/composer/types.ts
++++ b/packages/app/src/composer/types.ts
+@@ -7,6 +7,4 @@ export interface MessagePayload {
+   attachments: ComposerAttachment[];
+   cwd: string;
+   forceSend?: boolean;
+-  /** Explicit mid-turn redirect (interrupt + send). Distinct from queue. */
+-  steer?: boolean;
+ }
+diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
+index 6575a4839..a29cda97c 100644
+--- a/packages/app/src/i18n/resources/ar.ts
++++ b/packages/app/src/i18n/resources/ar.ts
+@@ -99,8 +99,6 @@ export const ar: TranslationResources = {
+       addAttachment: "إضافة مرفق",
+       interruptAgent: "عامل المقاطعة",
+       queueMessage: "رسالة قائمة الانتظار",
+-      steer: "توجيه",
+-      steerHint: "يعيد توجيه الدور الحالي بهذه الرسالة",
+       sendAndInterrupt: "إرسال ومقاطعة",
+       sendAndSteer: "إرسال وتوجيه",
+       sendMessage: "أرسل رسالة",
+@@ -135,7 +133,6 @@ export const ar: TranslationResources = {
+       dropFilesHere: "Drop files here",
+       editQueuedMessage: "تحرير الرسالة في قائمة الانتظار",
+       sendQueuedMessageNow: "إرسال رسالة في قائمة الانتظار الآن",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "فتح مرفق الصورة",
+       removeImage: "إزالة مرفق الصورة",
+       removeFile: "Remove file attachment",
+diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
+index e3441e034..61f294e33 100644
+--- a/packages/app/src/i18n/resources/en.ts
++++ b/packages/app/src/i18n/resources/en.ts
+@@ -96,8 +96,6 @@ export const en = {
+       addAttachment: "Add attachment",
+       interruptAgent: "Interrupt agent",
+       queueMessage: "Queue message",
+-      steer: "Steer",
+-      steerHint: "Redirect the current turn with this message",
+       sendAndInterrupt: "Send and interrupt",
+       sendAndSteer: "Send and steer",
+       sendMessage: "Send message",
+@@ -132,7 +130,6 @@ export const en = {
+       dropFilesHere: "Drop files here",
+       editQueuedMessage: "Edit queued message",
+       sendQueuedMessageNow: "Send queued message now",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "Open image attachment",
+       removeImage: "Remove image attachment",
+       removeFile: "Remove file attachment",
+diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
+index e08d32f8a..06780a0f2 100644
+--- a/packages/app/src/i18n/resources/es.ts
++++ b/packages/app/src/i18n/resources/es.ts
+@@ -99,8 +99,6 @@ export const es: TranslationResources = {
+       addAttachment: "Agregar archivo adjunto",
+       interruptAgent: "agente de interrupción",
+       queueMessage: "mensaje de cola",
+-      steer: "Dirigir",
+-      steerHint: "Redirige el turno actual con este mensaje",
+       sendAndInterrupt: "Enviar e interrumpir",
+       sendAndSteer: "Enviar y orientar",
+       sendMessage: "enviar mensaje",
+@@ -135,7 +133,6 @@ export const es: TranslationResources = {
+       dropFilesHere: "Drop files here",
+       editQueuedMessage: "Editar mensaje en cola",
+       sendQueuedMessageNow: "Enviar mensaje en cola ahora",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "Abrir imagen adjunta",
+       removeImage: "Quitar imagen adjunta",
+       removeFile: "Remove file attachment",
+diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
+index c9f9082e8..9b555a926 100644
+--- a/packages/app/src/i18n/resources/fr.ts
++++ b/packages/app/src/i18n/resources/fr.ts
+@@ -101,8 +101,6 @@ export const fr: TranslationResources = {
+       addAttachment: "Ajouter une pièce jointe",
+       interruptAgent: "Agent d'interruption",
+       queueMessage: "Message de file d'attente",
+-      steer: "Orienter",
+-      steerHint: "Réoriente le tour en cours avec ce message",
+       sendAndInterrupt: "Envoyer et interrompre",
+       sendAndSteer: "Envoyer et guider",
+       sendMessage: "Envoyer un message",
+@@ -137,7 +135,6 @@ export const fr: TranslationResources = {
+       dropFilesHere: "Drop files here",
+       editQueuedMessage: "Modifier le message en file d'attente",
+       sendQueuedMessageNow: "Envoyer le message en file d'attente maintenant",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "Ouvrir la pièce jointe de l'image",
+       removeImage: "Supprimer l'image jointe",
+       removeFile: "Remove file attachment",
+diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
+index 404305db6..17bfc3b47 100644
+--- a/packages/app/src/i18n/resources/ja.ts
++++ b/packages/app/src/i18n/resources/ja.ts
+@@ -99,8 +99,6 @@ export const ja: TranslationResources = {
+       addAttachment: "添付ファイルを追加",
+       interruptAgent: "エージェントを中断",
+       queueMessage: "メッセージをキューに追加",
+-      steer: "ステア",
+-      steerHint: "このメッセージで現在のターンをリダイレクトします",
+       sendAndInterrupt: "送信して中断",
+       sendAndSteer: "送信して指示を追加",
+       sendMessage: "メッセージを送信",
+@@ -135,7 +133,6 @@ export const ja: TranslationResources = {
+       dropFilesHere: "ここにファイルをドロップ",
+       editQueuedMessage: "キューに入れたメッセージを編集",
+       sendQueuedMessageNow: "キューに入れたメッセージを今すぐ送信",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "画像添付ファイルを開く",
+       removeImage: "画像添付ファイルを削除",
+       removeFile: "ファイル添付ファイルを削除",
+diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
+index afa68c022..890f92f19 100644
+--- a/packages/app/src/i18n/resources/ko.ts
++++ b/packages/app/src/i18n/resources/ko.ts
+@@ -99,8 +99,6 @@ export const ko: TranslationResources = {
+       addAttachment: "첨부 추가",
+       interruptAgent: "에이전트 중단",
+       queueMessage: "메시지 대기열에 추가",
+-      steer: "Steer",
+-      steerHint: "Redirect the current turn with this message",
+       sendAndInterrupt: "보내고 중단",
+       sendAndSteer: "보내고 지시 추가",
+       sendMessage: "메시지 보내기",
+@@ -135,7 +133,6 @@ export const ko: TranslationResources = {
+       dropFilesHere: "여기에 파일을 끌어다 놓으세요",
+       editQueuedMessage: "대기 중인 메시지 편집",
+       sendQueuedMessageNow: "대기 중인 메시지 지금 보내기",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "이미지 첨부 열기",
+       removeImage: "이미지 첨부 제거",
+       removeFile: "파일 첨부 제거",
+diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
+index a56c4767e..448ce3c68 100644
+--- a/packages/app/src/i18n/resources/pt-BR.ts
++++ b/packages/app/src/i18n/resources/pt-BR.ts
+@@ -99,8 +99,6 @@ export const ptBR: TranslationResources = {
+       addAttachment: "Adicionar anexo",
+       interruptAgent: "Interromper agente",
+       queueMessage: "Enfileirar mensagem",
+-      steer: "Direcionar",
+-      steerHint: "Redireciona o turno atual com esta mensagem",
+       sendAndInterrupt: "Enviar e interromper",
+       sendAndSteer: "Enviar e orientar",
+       sendMessage: "Enviar mensagem",
+@@ -135,7 +133,6 @@ export const ptBR: TranslationResources = {
+       dropFilesHere: "Solte arquivos aqui",
+       editQueuedMessage: "Editar mensagem na fila",
+       sendQueuedMessageNow: "Enviar mensagem da fila agora",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "Abrir anexo de imagem",
+       removeImage: "Remover anexo de imagem",
+       removeFile: "Remover anexo de arquivo",
+diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
+index 10870bf0a..405eee05b 100644
+--- a/packages/app/src/i18n/resources/ru.ts
++++ b/packages/app/src/i18n/resources/ru.ts
+@@ -99,8 +99,6 @@ export const ru: TranslationResources = {
+       addAttachment: "Добавить вложение",
+       interruptAgent: "Прервать агента",
+       queueMessage: "Сообщение в очередь",
+-      steer: "Направить",
+-      steerHint: "Перенаправляет текущий ход этим сообщением",
+       sendAndInterrupt: "Отправить и прервать",
+       sendAndSteer: "Отправить и направить",
+       sendMessage: "Отправить сообщение",
+@@ -135,7 +133,6 @@ export const ru: TranslationResources = {
+       dropFilesHere: "Переместите файлы сюда",
+       editQueuedMessage: "Изменить сообщение из очереди",
+       sendQueuedMessageNow: "Отправить сообщение из очереди сейчас",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "Открыть прикрепленное изображение",
+       removeImage: "Удалить прикрепленное изображение",
+       removeFile: "Удалить прикрепленный файл",
+diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
+index 972cbe37e..52a0d94e4 100644
+--- a/packages/app/src/i18n/resources/zh-CN.ts
++++ b/packages/app/src/i18n/resources/zh-CN.ts
+@@ -99,8 +99,6 @@ export const zhCN: TranslationResources = {
+       addAttachment: "添加附件",
+       interruptAgent: "中断 Agent",
+       queueMessage: "消息排队",
+-      steer: "引导",
+-      steerHint: "用此消息引导当前回合",
+       sendAndInterrupt: "发送并中断",
+       sendAndSteer: "发送并引导",
+       sendMessage: "发送消息",
+@@ -135,7 +133,6 @@ export const zhCN: TranslationResources = {
+       dropFilesHere: "Drop files here",
+       editQueuedMessage: "编辑排队消息",
+       sendQueuedMessageNow: "立即发送排队消息",
+-      steerQueuedMessage: "Steer with queued message",
+       openImage: "打开图片附件",
+       removeImage: "移除图片附件",
+       removeFile: "Remove file attachment",
+diff --git a/packages/client/src/daemon-client.ts b/packages/client/src/daemon-client.ts
+index aae379384..ad50f9b6e 100644
+--- a/packages/client/src/daemon-client.ts
++++ b/packages/client/src/daemon-client.ts
+@@ -349,8 +349,6 @@ export interface SendMessageOptions {
+   activeTurnBehavior?: ActiveTurnBehavior;
+   images?: Array<{ data: string; mimeType: string }>;
+   attachments?: SendAgentMessageRequest["attachments"];
+-  /** Explicit mid-turn redirect (interrupt + send). Requires a running agent. */
+-  steer?: boolean;
+ }
+ 
+ export interface AgentAttentionRequiredNotification {
+@@ -3455,7 +3453,6 @@ export class DaemonClient {
+       ...(options?.activeTurnBehavior ? { activeTurnBehavior: options.activeTurnBehavior } : {}),
+       ...(options?.images ? { images: options.images } : {}),
+       ...(options?.attachments ? { attachments: options.attachments } : {}),
+-      ...(options?.steer ? { steer: true } : {}),
+     });
+     const payload = await this.sendRequest({
+       requestId,
+diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
+index fc42e888c..fde86191f 100644
+--- a/packages/server/src/server/agent/agent-manager.ts
++++ b/packages/server/src/server/agent/agent-manager.ts
+@@ -2253,40 +2253,6 @@ export class AgentManager {
+     };
+   }
+ 
+-  /**
+-   * Inject a prompt into the active turn without canceling it.
+-   * Returns true when the provider accepted a native steer. Returns false when
+-   * the session has no `steer` implementation (caller should fall back to
+-   * interrupt+replace). Throws when steer is attempted without an active turn
+-   * or the provider rejects the inject.
+-   */
+-  async steerAgent(
+-    agentId: string,
+-    prompt: AgentPromptInput,
+-    options?: AgentRunOptions,
+-  ): Promise<boolean> {
+-    const agent = this.requireSessionAgent(agentId);
+-    const steer = agent.session.steer?.bind(agent.session);
+-    if (!steer) {
+-      return false;
+-    }
+-    if (!this.hasInFlightRun(agentId) && agent.lifecycle !== "running") {
+-      throw new Error("Steer is only available while the agent is running");
+-    }
+-    this.logger.trace(
+-      {
+-        agentId,
+-        provider: agent.provider,
+-        sessionId: agent.persistence?.sessionId ?? undefined,
+-        turnId: agent.activeForegroundTurnId ?? undefined,
+-      },
+-      "agent.manager.steer",
+-    );
+-    await steer(prompt, options);
+-    this.touchUpdatedAt(agent);
+-    return true;
+-  }
+-
+   /**
+    * Try to run a prompt out-of-band — i.e. without allocating a foreground turn
+    * and without canceling any active turn. Returns true when the session
+diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
+index 5c4121f6c..50fe6584e 100644
+--- a/packages/server/src/server/agent/agent-sdk-types.ts
++++ b/packages/server/src/server/agent/agent-sdk-types.ts
+@@ -677,12 +677,6 @@ export interface AgentSession {
+     /** When true, never treat an empty/caught-up tail as permanent EOF. */
+     live?: boolean;
+   }): Promise<{ text: string; nextCursor: number; eof: boolean; error: string | null }>;
+-  /**
+-   * Inject user input into the active turn without canceling it.
+-   * Providers that support native mid-turn inject (e.g. Codex `turn/steer`)
+-   * implement this. Callers must only invoke it while a turn is running.
+-   */
+-  steer?(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<void>;
+   /** Release live runtime resources without archiving or deleting the durable native session. */
+   close(): Promise<void>;
+   listCommands?(): Promise<AgentSlashCommand[]>;
+diff --git a/packages/server/src/server/agent/create-agent/create.test.ts b/packages/server/src/server/agent/create-agent/create.test.ts
+index 6907cb83a..e8547d27e 100644
+--- a/packages/server/src/server/agent/create-agent/create.test.ts
++++ b/packages/server/src/server/agent/create-agent/create.test.ts
+@@ -70,7 +70,6 @@ test("session create forwards clientMessageId to the initial prompt run options"
+       getAgent: vi.fn(() => snapshot),
+       tryRunOutOfBand: vi.fn(() => false),
+       hasInFlightRun: vi.fn(() => false),
+-      steerAgent: vi.fn(async () => false),
+       streamAgent,
+       waitForAgentRunStart: vi.fn(async () => undefined),
+     } as unknown as Parameters<typeof createAgentCommand>[0]["agentManager"],
+diff --git a/packages/server/src/server/agent/mcp-server.test.ts b/packages/server/src/server/agent/mcp-server.test.ts
+index f7bc7d0c6..349eb15c5 100644
+--- a/packages/server/src/server/agent/mcp-server.test.ts
++++ b/packages/server/src/server/agent/mcp-server.test.ts
+@@ -220,7 +220,6 @@ function buildAgentManagerSpies() {
+     emitLiveTimelineItem: vi.fn().mockResolvedValue(undefined),
+     hasInFlightRun: vi.fn().mockReturnValue(false),
+     tryRunOutOfBand: vi.fn().mockReturnValue(false),
+-    steerAgent: vi.fn().mockResolvedValue(false),
+     subscribe: vi.fn().mockReturnValue(() => {}),
+     streamAgent: vi.fn(() => (async function* noop() {})()),
+     waitForAgentRunStart: vi.fn().mockResolvedValue(undefined),
+diff --git a/packages/server/src/server/agent/permission-response.test.ts b/packages/server/src/server/agent/permission-response.test.ts
+index 1e21d58ea..a5cf477e6 100644
+--- a/packages/server/src/server/agent/permission-response.test.ts
++++ b/packages/server/src/server/agent/permission-response.test.ts
+@@ -44,10 +44,6 @@ class FakePermissionAgentManager {
+     return this.hasRunInFlight;
+   }
+ 
+-  async steerAgent(): Promise<boolean> {
+-    return false;
+-  }
+-
+   streamAgent(
+     agentId: string,
+     prompt: AgentPromptInput,
+diff --git a/packages/server/src/server/agent/provider-registry-wrap.test.ts b/packages/server/src/server/agent/provider-registry-wrap.test.ts
+index 8ecaad31f..42b223bde 100644
+--- a/packages/server/src/server/agent/provider-registry-wrap.test.ts
++++ b/packages/server/src/server/agent/provider-registry-wrap.test.ts
+@@ -25,7 +25,6 @@ const OPTIONAL_AGENT_SESSION_METHOD_NAMES = [
+   "revertConversation",
+   "revertFiles",
+   "revertBoth",
+-  "steer",
+   "steerActiveTurn",
+   "tryHandleOutOfBand",
+   "stopBackgroundTask",
+@@ -165,13 +164,9 @@ class FakeSession implements AgentSession {
+     };
+   }
+ 
+-  async steer() {
+-    this.recordedCalls.push("steer");
+-  }
+-
+   async steerActiveTurn() {
+     this.recordedCalls.push("steerActiveTurn");
+-    return { accepted: true as const };
++    return { status: "accepted" as const };
+   }
+ 
+   async stopBackgroundTask() {
+@@ -209,8 +204,7 @@ describe("wrapSessionProvider", () => {
+     await wrapped.revertBoth?.({ messageId: "message-1" });
+     const handler = wrapped.tryHandleOutOfBand?.("/compact");
+     await handler?.run({ emit: () => {} });
+-    await wrapped.steer?.({ text: "nudge" });
+-    await wrapped.steerActiveTurn?.({ text: "nudge" }, { turnId: "turn-1" });
++    await wrapped.steerActiveTurn?.("nudge", { expectedTurnId: "turn-1" });
+     await wrapped.stopBackgroundTask?.("task-1");
+     await wrapped.readBackgroundTaskOutput?.({ outputFile: "/tmp/out" });
+     await wrapped.resolveNativeForkUpToMessageId?.("msg_1");
+@@ -225,11 +219,21 @@ describe("wrapSessionProvider", () => {
+       "revertBoth",
+       "tryHandleOutOfBand",
+       "tryHandleOutOfBand.run",
+-      "steer",
+       "steerActiveTurn",
+       "stopBackgroundTask",
+       "readBackgroundTaskOutput",
+       "resolveNativeForkUpToMessageId",
+     ]);
+   });
++
++  test("wrapped sessions expose official steerActiveTurn and do not need session.steer", async () => {
++    const session = new FakeSession();
++    const wrapped = wrapSessionProvider("custom-claude", session);
++
++    expect("steer" in wrapped).toBe(false);
++    expect(typeof wrapped.steerActiveTurn).toBe("function");
++
++    await wrapped.steerActiveTurn?.("nudge", { expectedTurnId: "turn-1" });
++    expect(session.recordedCalls).toEqual(["steerActiveTurn"]);
++  });
+ });
+diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
+index 03c46a83d..452c22965 100644
+--- a/packages/server/src/server/agent/provider-registry.ts
++++ b/packages/server/src/server/agent/provider-registry.ts
+@@ -476,7 +476,6 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
+     respondToPermission: (requestId, response) => inner.respondToPermission(requestId, response),
+     describePersistence: () => mapPersistenceHandle(provider, inner.describePersistence()),
+     interrupt: () => inner.interrupt(),
+-    steer: inner.steer?.bind(inner),
+     steerActiveTurn: inner.steerActiveTurn?.bind(inner),
+     stopBackgroundTask: inner.stopBackgroundTask?.bind(inner),
+     readBackgroundTaskOutput: inner.readBackgroundTaskOutput?.bind(inner),
+diff --git a/packages/server/src/server/agent/providers/claude/agent.redesign.test.ts b/packages/server/src/server/agent/providers/claude/agent.redesign.test.ts
+index 84d72317c..1af10b8a5 100644
+--- a/packages/server/src/server/agent/providers/claude/agent.redesign.test.ts
++++ b/packages/server/src/server/agent/providers/claude/agent.redesign.test.ts
+@@ -409,79 +409,6 @@ test("logs redacted query summary and never leaks sentinel secrets", async () =>
+   }
+ });
+ 
+-test("steer injects into the open streaming input without interrupting", async () => {
+-  const session = await createSession();
+-  const pushed: unknown[] = [];
+-  const interrupt = vi.fn(async () => undefined);
+-  const timeline: AgentStreamEvent[] = [];
+-  session.subscribe((event) => timeline.push(event));
+-
+-  const internal: {
+-    query: {
+-      interrupt: () => Promise<void>;
+-      return?: () => Promise<void>;
+-      close?: () => void;
+-    } | null;
+-    input: { push: (item: unknown) => void; end: () => void } | null;
+-    queryPumpPromise: Promise<void> | null;
+-    activeForegroundTurnId: string | null;
+-    closed: boolean;
+-  } = asInternals(session);
+-
+-  internal.query = {
+-    interrupt,
+-    return: vi.fn(async () => undefined),
+-    close: vi.fn(() => undefined),
+-  };
+-  internal.input = {
+-    push: (item) => {
+-      pushed.push(item);
+-    },
+-    end: vi.fn(() => undefined),
+-  };
+-  internal.queryPumpPromise = Promise.resolve();
+-  internal.activeForegroundTurnId = "foreground-turn-1";
+-  internal.closed = false;
+-
+-  try {
+-    await session.steer?.("focus on failing tests", { clientMessageId: "msg-steer-1" });
+-    await new Promise((resolve) => setTimeout(resolve, 0));
+-
+-    expect(interrupt).not.toHaveBeenCalled();
+-    expect(pushed).toHaveLength(1);
+-    const message = pushed[0] as {
+-      type?: string;
+-      uuid?: string;
+-      message?: { content?: Array<{ type?: string; text?: string }> };
+-    };
+-    expect(message.type).toBe("user");
+-    expect(message.message?.content?.[0]).toEqual({
+-      type: "text",
+-      text: "focus on failing tests",
+-    });
+-    expect(typeof message.uuid).toBe("string");
+-    expect(timeline.some((event) => event.type === "timeline")).toBe(true);
+-  } finally {
+-    await session.close();
+-  }
+-});
+-
+-test("steer rejects when the streaming session is not active", async () => {
+-  const session = await createSession();
+-  const internal: {
+-    input: { push: (item: unknown) => void; end: () => void } | null;
+-  } = asInternals(session);
+-  internal.input = null;
+-
+-  try {
+-    await expect(session.steer?.("too early")).rejects.toThrow(
+-      "Cannot steer Claude before a streaming session is active",
+-    );
+-  } finally {
+-    await session.close();
+-  }
+-});
+-
+ test("interruptActiveTurn only interrupts the active query without info logs", async () => {
+   const spy = createSpyLogger();
+   const session = await createSessionWithLogger(spy.logger);
+diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
+index 2533f00d0..1914d1a0b 100644
+--- a/packages/server/src/server/agent/providers/claude/agent.ts
++++ b/packages/server/src/server/agent/providers/claude/agent.ts
+@@ -2546,44 +2546,6 @@ class ClaudeAgentSession implements AgentSession {
+     await this.interruptActiveTurn();
+   }
+ 
+-  /**
+-   * Inject a user message into the live streaming session without interrupting
+-   * the active turn. Claude Agent SDK queues mid-run user messages on the open
+-   * prompt stream (Claude Code typeahead semantics), then processes them after
+-   * the current generation yields / completes.
+-   */
+-  async steer(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<void> {
+-    if (this.closed) {
+-      throw new Error("Claude session is closed");
+-    }
+-    if (!this.input) {
+-      throw new Error("Cannot steer Claude before a streaming session is active");
+-    }
+-
+-    const sdkMessage = this.toSdkUserMessage(prompt);
+-    const sdkUserMessageId =
+-      typeof sdkMessage.uuid === "string" && sdkMessage.uuid.length > 0 ? sdkMessage.uuid : null;
+-    this.rememberRewindUserAnchor(sdkUserMessageId);
+-
+-    this.startQueryPump();
+-    this.input.push(sdkMessage);
+-
+-    const turnId =
+-      this.activeForegroundTurnId ?? this.autonomousTurn?.id ?? this.createTurnId("foreground");
+-    this.logger.info(
+-      {
+-        agentId: this.agentId,
+-        sessionId: this.claudeSessionId,
+-        turnId,
+-        hasClientMessageId: Boolean(options?.clientMessageId),
+-      },
+-      "Steering Claude streaming session",
+-    );
+-    setTimeout(() => {
+-      this.emitSubmittedUserMessage(sdkMessage, turnId, options?.clientMessageId);
+-    }, 0);
+-  }
+-
+   async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
+     if (
+       !this.historyPending ||
+diff --git a/packages/server/src/server/agent/providers/codex-app-server-agent.ts b/packages/server/src/server/agent/providers/codex-app-server-agent.ts
+index 602a0cdca..3b9a71467 100644
+--- a/packages/server/src/server/agent/providers/codex-app-server-agent.ts
++++ b/packages/server/src/server/agent/providers/codex-app-server-agent.ts
+@@ -4720,40 +4720,6 @@ export class CodexAppServerAgentSession implements AgentSession {
+     }
+   }
+ 
+-  /**
+-   * Inject user input into the active Codex turn via app-server `turn/steer`.
+-   * Does not cancel the turn and does not start a new one.
+-   */
+-  async steer(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<void> {
+-    if (!this.client || !this.currentThreadId) {
+-      throw new Error("Cannot steer Codex before the active thread is initialized");
+-    }
+-    if (!this.currentTurnId) {
+-      throw new Error("Cannot steer Codex before turn/started identifies the active turn");
+-    }
+-    const input = await this.buildUserInput(prompt);
+-    const params: Record<string, unknown> = {
+-      threadId: this.currentThreadId,
+-      expectedTurnId: this.currentTurnId,
+-      input,
+-    };
+-    if (options?.clientMessageId) {
+-      params.clientUserMessageId = options.clientMessageId;
+-      // Correlate the next userMessage item Codex emits for this inject.
+-      this.activeClientMessageId = options.clientMessageId;
+-    }
+-    this.logger.info(
+-      {
+-        threadId: this.currentThreadId,
+-        turnId: this.currentTurnId,
+-        hasClientMessageId: Boolean(options?.clientMessageId),
+-        inputCount: input.length,
+-      },
+-      "Steering Codex app-server turn",
+-    );
+-    await this.client.request("turn/steer", params, TURN_START_TIMEOUT_MS);
+-  }
+-
+   async close(): Promise<void> {
+     this.closed = true;
+     this.clearPendingPermissions();
+diff --git a/packages/server/src/server/agent/providers/omp/agent.test.ts b/packages/server/src/server/agent/providers/omp/agent.test.ts
+index 0556ad720..c35f2a990 100644
+--- a/packages/server/src/server/agent/providers/omp/agent.test.ts
++++ b/packages/server/src/server/agent/providers/omp/agent.test.ts
+@@ -563,12 +563,15 @@ describe("OMP agent client and session", () => {
+     const omp = new OmpHarness();
+     await omp.start();
+ 
+-    await omp.requireStartTurn("working on the suite");
++    const turnId = await omp.requireStartTurn("working on the suite");
+     omp.runtime().beginTurn();
+ 
+-    await omp.steer("focus on failing tests first", {
+-      clientMessageId: "msg-steer-omp-1",
+-    });
++    await expect(
++      omp.steerActiveTurn("focus on failing tests first", {
++        expectedTurnId: turnId,
++        clientMessageId: "msg-steer-omp-1",
++      }),
++    ).resolves.toEqual({ status: "accepted" });
+ 
+     expect(omp.runtime().steerRequests).toEqual([
+       { message: "focus on failing tests first", imageCount: 0 },
+@@ -578,13 +581,13 @@ describe("OMP agent client and session", () => {
+     expect(omp.supportsSteer()).toBe(true);
+   });
+ 
+-  test("rejects steer while no OMP turn is active", async () => {
++  test("reports unavailable when no OMP turn is active", async () => {
+     const omp = new OmpHarness();
+     await omp.start();
+ 
+-    await expect(omp.steer("too early")).rejects.toThrow(
+-      "Cannot steer OMP while no turn is active",
+-    );
++    await expect(
++      omp.steerActiveTurn("too early", { expectedTurnId: "missing-turn" }),
++    ).resolves.toEqual({ status: "unavailable" });
+   });
+ 
+   test("interrupt terminalizes in-flight tool calls and running subagents", async () => {
+diff --git a/packages/server/src/server/agent/providers/omp/agent.ts b/packages/server/src/server/agent/providers/omp/agent.ts
+index 43f238da5..19bc3f449 100644
+--- a/packages/server/src/server/agent/providers/omp/agent.ts
++++ b/packages/server/src/server/agent/providers/omp/agent.ts
+@@ -25,6 +25,8 @@ import {
+   type AgentSession,
+   type AgentSessionConfig,
+   type AgentSlashCommand,
++  type SteerActiveTurnOptions,
++  type SteerResult,
+   type AgentStreamEvent,
+   type AgentTimelineItem,
+   type FetchCatalogOptions,
+@@ -1141,19 +1143,18 @@ export class OmpAgentSession implements AgentSession {
+     }
+   }
+ 
+-  /**
+-   * Inject mid-turn guidance without aborting the active run.
+-   * Mirrors OMP's native `/steer` command path.
+-   */
+-  async steer(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<void> {
+-    if (!this.activeTurnId) {
+-      throw new Error("Cannot steer OMP while no turn is active");
++  async steerActiveTurn(
++    prompt: AgentPromptInput,
++    options: SteerActiveTurnOptions,
++  ): Promise<SteerResult> {
++    if (!this.activeTurnId || this.activeTurnId !== options.expectedTurnId) {
++      return { status: "unavailable" };
+     }
+     const payload = convertPromptInput(prompt, { model: this.state.model });
+     if (!payload.text.trim() && (payload.images?.length ?? 0) === 0) {
+-      throw new Error("Cannot steer OMP with an empty message");
++      return { status: "unavailable" };
+     }
+-    if (options?.clientMessageId) {
++    if (options.clientMessageId) {
+       // Correlate a later runtime user-message event with the client draft id.
+       this.activeClientMessageId = options.clientMessageId;
+     }
+@@ -1161,12 +1162,13 @@ export class OmpAgentSession implements AgentSession {
+       {
+         sessionId: this.state.sessionId,
+         turnId: this.activeTurnId,
+-        hasClientMessageId: Boolean(options?.clientMessageId),
++        hasClientMessageId: Boolean(options.clientMessageId),
+         imageCount: payload.images?.length ?? 0,
+       },
+       "Steering OMP runtime session",
+     );
+     this.runtimeSession.steer(payload.text, payload.images);
++    return { status: "accepted" };
+   }
+ 
+   async revertConversation(input: { messageId: string }): Promise<void> {
+diff --git a/packages/server/src/server/agent/providers/omp/test-utils/omp-harness.ts b/packages/server/src/server/agent/providers/omp/test-utils/omp-harness.ts
+index 439cfb433..fa4077dba 100644
+--- a/packages/server/src/server/agent/providers/omp/test-utils/omp-harness.ts
++++ b/packages/server/src/server/agent/providers/omp/test-utils/omp-harness.ts
+@@ -460,14 +460,18 @@ export class OmpHarness {
+     await this.requireSession().interrupt();
+   }
+ 
+-  async requireStartTurn(message: string): Promise<void> {
++  async requireStartTurn(message: string): Promise<string> {
+     const promptStarted = this.omp.latestSession().nextPrompt();
+-    await this.requireSession().startTurn(message);
++    const { turnId } = await this.requireSession().startTurn(message);
+     await promptStarted;
++    return turnId;
+   }
+ 
+-  async steer(message: string, options?: { clientMessageId?: string }): Promise<void> {
+-    await this.requireSession().steer(message, options);
++  async steerActiveTurn(
++    message: string,
++    options: { expectedTurnId: string; clientMessageId?: string },
++  ) {
++    return await this.requireSession().steerActiveTurn!(message, options);
+   }
+ 
+   supportsSteer(): boolean {

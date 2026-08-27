@@ -1,0 +1,335 @@
+Subject: honor custom-model context window for auto-compact
+Decision: additionalModels/profile contextWindowMaxTokens is source of truth; set CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW with overwrite; match gateway-prefixed and case-insensitive ids; do not shrink the Paseo meter below the configured window
+Verify: npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
+Files: packages/server/src/server/agent/providers/claude/agent.env.test.ts
+Files: packages/server/src/server/agent/providers/claude/agent.ts
+Files: packages/server/src/server/agent/providers/claude/models.test.ts
+Files: packages/server/src/server/agent/providers/claude/models.ts
+Files: packages/protocol/src/messages.ts
+
+diff --git a/packages/server/src/server/agent/providers/claude/agent.env.test.ts b/packages/server/src/server/agent/providers/claude/agent.env.test.ts
+index 0a3fe5f7f..a16f1471d 100644
+--- a/packages/server/src/server/agent/providers/claude/agent.env.test.ts
++++ b/packages/server/src/server/agent/providers/claude/agent.env.test.ts
+@@ -345,7 +345,9 @@ describe("Claude SDK env", () => {
+ 
+     try {
+       await preSetSession.run("CPA capacity env preservation check");
+-      expect(capturedEnvs[1]?.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("123456");
++      // Profile/additional-model capacity wins over ambient CLAUDE_CODE_* so a
++      // host 200k (or leftover shell export) cannot keep auto-compact firing early.
++      expect(capturedEnvs[1]?.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("500000");
+       expect(capturedEnvs[1]?.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe("65536");
+     } finally {
+       await preSetSession.close();
+diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
+index f80d7d9fd..2533f00d0 100644
+--- a/packages/server/src/server/agent/providers/claude/agent.ts
++++ b/packages/server/src/server/agent/providers/claude/agent.ts
+@@ -46,6 +46,7 @@ import {
+   normalizeClaudeRuntimeModelId,
+   resolveConfiguredClaudeModel,
+   applyClaudeAutoCompactWindowEnv,
++  preferConfiguredClaudeContextWindow,
+   resolveClaudeAutoCompactWindowTokens,
+ } from "./models.js";
+ import {
+@@ -2030,10 +2031,10 @@ class ClaudeContextUsageState {
+   }
+ 
+   recordModelUsage(modelUsage: unknown): number | undefined {
+-    const contextWindowMaxTokens = extractContextWindowSize(modelUsage);
+-    if (contextWindowMaxTokens !== undefined) {
+-      this.contextWindowMaxTokens = contextWindowMaxTokens;
+-    }
++    this.contextWindowMaxTokens = preferConfiguredClaudeContextWindow(
++      this.contextWindowMaxTokens,
++      extractContextWindowSize(modelUsage),
++    );
+     return this.contextWindowMaxTokens;
+   }
+ 
+@@ -3557,21 +3558,26 @@ class ClaudeAgentSession implements AgentSession {
+       overlays: [this.launchEnv],
+     });
+     const pinned = applyClaudeCustomModelEnvPins(env, this.config.model);
+-    const configuredWindow = resolveClaudeContextWindowMaxTokens({
++    const limitOptions = {
+       modelId: this.config.model,
+       profileModels: this.profileModels,
++    };
++    const configuredWindow = resolveClaudeContextWindowMaxTokens(limitOptions);
++    const configuredMaxOutput = resolveClaudeMaxOutputTokens(limitOptions);
++    const configuredAutoCompactWindow = resolveClaudeAutoCompactWindowTokens(limitOptions);
++    // Profile/additional-model windows are the source of truth for that model.
++    // Ambient CLAUDE_CODE_* env (shell, Claude user settings leaked into the daemon)
++    // otherwise keeps the assumed 200k window and auto-compact fires too early.
++    const profileOwnsWindow = configuredAutoCompactWindow !== undefined;
++    const withContext = applyClaudeMaxContextTokensEnv(pinned, configuredWindow, {
++      overwrite: profileOwnsWindow,
+     });
+-    const configuredMaxOutput = resolveClaudeMaxOutputTokens({
+-      modelId: this.config.model,
+-      profileModels: this.profileModels,
++    const withOutput = applyClaudeMaxOutputTokensEnv(withContext, configuredMaxOutput, {
++      overwrite: configuredMaxOutput !== undefined,
+     });
+-    const configuredAutoCompactWindow = resolveClaudeAutoCompactWindowTokens({
+-      modelId: this.config.model,
+-      profileModels: this.profileModels,
++    return applyClaudeAutoCompactWindowEnv(withOutput, configuredAutoCompactWindow, {
++      overwrite: profileOwnsWindow,
+     });
+-    const withContext = applyClaudeMaxContextTokensEnv(pinned, configuredWindow);
+-    const withOutput = applyClaudeMaxOutputTokensEnv(withContext, configuredMaxOutput);
+-    return applyClaudeAutoCompactWindowEnv(withOutput, configuredAutoCompactWindow);
+   }
+ 
+   private async buildOptions(): Promise<ClaudeOptions> {
+diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
+index aecb420c3..025703d40 100644
+--- a/packages/server/src/server/agent/providers/claude/models.test.ts
++++ b/packages/server/src/server/agent/providers/claude/models.test.ts
+@@ -31,6 +31,7 @@ import {
+   getClaudeModels,
+   isClaudeCustomNonFamilyModel,
+   normalizeClaudeRuntimeModelId,
++  preferConfiguredClaudeContextWindow,
+   resolveClaudeContextWindowMaxTokens,
+   resolveObservedClaudeModelId,
+ } from "./models.js";
+@@ -684,6 +685,20 @@ describe("Claude max context tokens env", () => {
+       }),
+     ).toBe(500_000);
+ 
++    expect(
++      resolveClaudeContextWindowMaxTokens({
++        modelId: "z-ai/glm-5.1",
++        profileModels: [{ id: "glm-5.1", contextWindowMaxTokens: 500_000 }],
++      }),
++    ).toBe(500_000);
++
++    expect(
++      resolveClaudeContextWindowMaxTokens({
++        modelId: "GLM-5.1",
++        profileModels: [{ id: "glm-5.1", contextWindowMaxTokens: 500_000 }],
++      }),
++    ).toBe(500_000);
++
+     const firstParty = findClaudeModel("claude-sonnet-4-6");
+     expect(
+       resolveClaudeContextWindowMaxTokens({
+@@ -707,6 +722,15 @@ describe("Claude max context tokens env", () => {
+     expect(applied[CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY]).toBe("200000");
+   });
+ 
++  it("applyClaudeMaxContextTokensEnv overwrites when the profile owns the window", () => {
++    const applied = applyClaudeMaxContextTokensEnv(
++      { [CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY]: "200000" },
++      500_000,
++      { overwrite: true },
++    );
++    expect(applied[CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY]).toBe("500000");
++  });
++
+   it("applyClaudeMaxContextTokensEnv is a no-op without a positive window", () => {
+     const base = { PATH: "/usr/bin" };
+     expect(applyClaudeMaxContextTokensEnv(base, undefined)).toEqual(base);
+@@ -791,6 +815,33 @@ describe("Claude auto-compact window env", () => {
+     );
+     expect(applied[CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]).toBe("300000");
+   });
++
++  it("applyClaudeAutoCompactWindowEnv overwrites when the profile owns the window", () => {
++    const applied = applyClaudeAutoCompactWindowEnv(
++      { [CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]: "200000" },
++      450_000,
++      { overwrite: true },
++    );
++    expect(applied[CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY]).toBe("450000");
++  });
++});
++
++describe("preferConfiguredClaudeContextWindow", () => {
++  it("keeps the configured window when Claude Code reports a smaller assumed window", () => {
++    expect(preferConfiguredClaudeContextWindow(500_000, 200_000)).toBe(500_000);
++  });
++
++  it("uses the reported window when nothing is configured", () => {
++    expect(preferConfiguredClaudeContextWindow(undefined, 200_000)).toBe(200_000);
++  });
++
++  it("keeps the configured window when usage omits a window", () => {
++    expect(preferConfiguredClaudeContextWindow(500_000, undefined)).toBe(500_000);
++  });
++
++  it("uses a larger reported window than the catalog default", () => {
++    expect(preferConfiguredClaudeContextWindow(200_000, 1_000_000)).toBe(1_000_000);
++  });
+ });
+ 
+ describe("resolveObservedClaudeModelId", () => {
+diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
+index 04fc29197..f2aa86efe 100644
+--- a/packages/server/src/server/agent/providers/claude/models.ts
++++ b/packages/server/src/server/agent/providers/claude/models.ts
+@@ -283,14 +283,21 @@ export function resolveClaudeMaxOutputTokens(options: {
+ }
+ 
+ /**
+- * Fill-if-missing CLAUDE_CODE_MAX_CONTEXT_TOKENS from a configured context window.
+- * Claude Code uses this value to calculate its own auto-compact threshold.
++ * Apply CLAUDE_CODE_MAX_CONTEXT_TOKENS from a configured context window.
++ * Fill-if-missing by default; pass `{ overwrite: true }` when a profile/additional
++ * model owns the window so ambient host env cannot keep a 200k assumed limit.
+  */
+ export function applyClaudeMaxContextTokensEnv(
+   env: NodeJS.ProcessEnv,
+   contextWindowMaxTokens: number | undefined,
++  options?: { overwrite?: boolean },
+ ): NodeJS.ProcessEnv {
+-  return applyPositiveTokenEnv(env, CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY, contextWindowMaxTokens);
++  return applyPositiveTokenEnv(
++    env,
++    CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY,
++    contextWindowMaxTokens,
++    options,
++  );
+ }
+ 
+ /**
+@@ -300,8 +307,9 @@ export function applyClaudeMaxContextTokensEnv(
+ export function applyClaudeMaxOutputTokensEnv(
+   env: NodeJS.ProcessEnv,
+   maxOutputTokens: number | undefined,
++  options?: { overwrite?: boolean },
+ ): NodeJS.ProcessEnv {
+-  return applyPositiveTokenEnv(env, CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY, maxOutputTokens);
++  return applyPositiveTokenEnv(env, CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY, maxOutputTokens, options);
+ }
+ 
+ /**
+@@ -351,8 +359,58 @@ export function resolveClaudeAutoCompactWindowTokens(options: {
+ export function applyClaudeAutoCompactWindowEnv(
+   env: NodeJS.ProcessEnv,
+   autoCompactWindowTokens: number | undefined,
++  options?: { overwrite?: boolean },
+ ): NodeJS.ProcessEnv {
+-  return applyPositiveTokenEnv(env, CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY, autoCompactWindowTokens);
++  return applyPositiveTokenEnv(
++    env,
++    CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY,
++    autoCompactWindowTokens,
++    options,
++  );
++}
++
++/**
++ * Claude Code reports an assumed window (often 200K) for unrecognized custom model IDs.
++ * Never shrink a configured profile window to that guess; still allow a larger reported
++ * window (first-party 1M sessions).
++ */
++export function preferConfiguredClaudeContextWindow(
++  configured: number | undefined,
++  reported: number | undefined,
++): number | undefined {
++  const configuredTokens = positiveTokenCount(configured);
++  const reportedTokens = positiveTokenCount(reported);
++  if (configuredTokens === undefined) {
++    return reportedTokens;
++  }
++  if (reportedTokens === undefined) {
++    return configuredTokens;
++  }
++  return Math.max(configuredTokens, reportedTokens);
++}
++
++function positiveTokenCount(value: number | undefined): number | undefined {
++  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
++    return undefined;
++  }
++  return Math.trunc(value);
++}
++
++function profileModelIdTail(id: string): string {
++  const slash = id.lastIndexOf("/");
++  return slash === -1 ? id : id.slice(slash + 1);
++}
++
++function profileModelIdsMatch(selected: string, candidate: string): boolean {
++  if (selected === candidate) {
++    return true;
++  }
++  const selectedLower = selected.toLowerCase();
++  const candidateLower = candidate.toLowerCase();
++  if (selectedLower === candidateLower) {
++    return true;
++  }
++  return profileModelIdTail(selectedLower) === profileModelIdTail(candidateLower);
+ }
+ 
+ function findProfileModel(
+@@ -360,21 +418,25 @@ function findProfileModel(
+   profileModels: ClaudeProfileModelLimits[] | undefined,
+ ): ClaudeProfileModelLimits | undefined {
+   const trimmed = typeof modelId === "string" ? modelId.trim() : "";
+-  if (!trimmed) {
++  if (!trimmed || !profileModels || profileModels.length === 0) {
+     return undefined;
+   }
+-  return profileModels?.find((model) => model.id === trimmed);
++  return (
++    profileModels.find((model) => model.id === trimmed) ??
++    profileModels.find((model) => profileModelIdsMatch(trimmed, model.id))
++  );
+ }
+ 
+ function applyPositiveTokenEnv(
+   env: NodeJS.ProcessEnv,
+   key: string,
+   value: number | undefined,
++  options?: { overwrite?: boolean },
+ ): NodeJS.ProcessEnv {
+   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+     return env;
+   }
+-  if (hasNonEmptyEnvValue(env[key])) {
++  if (!options?.overwrite && hasNonEmptyEnvValue(env[key])) {
+     return env;
+   }
+   return {
+-- 
+2.53.0
+
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -99,6 +125,7 @@ const MutableDaemonProviderModelSchema = z
+     label: z.string().min(1),
+     description: z.string().optional(),
+     isDefault: z.boolean().optional(),
++    contextWindowMaxTokens: z.number().int().positive().optional(),
+   })
+   .passthrough();
+ 
+@@ -341,6 +409,19 @@ const AgentModelDefinitionSchema = z.object({
+   isDefault: z.boolean().optional(),
+   metadata: z.record(z.string(), z.unknown()).optional(),
+   contextWindowMaxTokens: z.number().optional(),
++  maxOutputTokens: z.number().optional(),
++  needsCapacityConfig: z.boolean().optional(),
++  modelsDevCandidates: z
++    .array(
++      z.object({
++        providerId: z.string(),
++        matchedId: z.string(),
++        name: z.string().optional(),
++        contextWindowMaxTokens: z.number(),
++        maxOutputTokens: z.number().optional(),
++      }),
++    )
++    .optional(),
+   thinkingOptions: z.array(AgentSelectOptionSchema).optional(),
+   defaultThinkingOptionId: z.string().optional(),
+ }) satisfies z.ZodType<AgentModelDefinition>;

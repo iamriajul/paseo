@@ -349,8 +349,6 @@ export interface SendMessageOptions {
   activeTurnBehavior?: ActiveTurnBehavior;
   images?: Array<{ data: string; mimeType: string }>;
   attachments?: SendAgentMessageRequest["attachments"];
-  /** Explicit mid-turn redirect (interrupt + send). Requires a running agent. */
-  steer?: boolean;
 }
 
 export interface AgentAttentionRequiredNotification {
@@ -3455,7 +3453,6 @@ export class DaemonClient {
       ...(options?.activeTurnBehavior ? { activeTurnBehavior: options.activeTurnBehavior } : {}),
       ...(options?.images ? { images: options.images } : {}),
       ...(options?.attachments ? { attachments: options.attachments } : {}),
-      ...(options?.steer ? { steer: true } : {}),
     });
     const payload = await this.sendRequest({
       requestId,

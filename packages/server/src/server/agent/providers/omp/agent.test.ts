@@ -563,12 +563,15 @@ describe("OMP agent client and session", () => {
     const omp = new OmpHarness();
     await omp.start();
 
-    await omp.requireStartTurn("working on the suite");
+    const turnId = await omp.requireStartTurn("working on the suite");
     omp.runtime().beginTurn();
 
-    await omp.steer("focus on failing tests first", {
-      clientMessageId: "msg-steer-omp-1",
-    });
+    await expect(
+      omp.steerActiveTurn("focus on failing tests first", {
+        expectedTurnId: turnId,
+        clientMessageId: "msg-steer-omp-1",
+      }),
+    ).resolves.toEqual({ status: "accepted" });
 
     expect(omp.runtime().steerRequests).toEqual([
       { message: "focus on failing tests first", imageCount: 0 },
@@ -578,13 +581,13 @@ describe("OMP agent client and session", () => {
     expect(omp.supportsSteer()).toBe(true);
   });
 
-  test("rejects steer while no OMP turn is active", async () => {
+  test("reports unavailable when no OMP turn is active", async () => {
     const omp = new OmpHarness();
     await omp.start();
 
-    await expect(omp.steer("too early")).rejects.toThrow(
-      "Cannot steer OMP while no turn is active",
-    );
+    await expect(
+      omp.steerActiveTurn("too early", { expectedTurnId: "missing-turn" }),
+    ).resolves.toEqual({ status: "unavailable" });
   });
 
   test("interrupt terminalizes in-flight tool calls and running subagents", async () => {

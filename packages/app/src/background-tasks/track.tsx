@@ -1,18 +1,18 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Pressable, ScrollView, Text, View, type PressableStateCallbackType } from "react-native";
+import { useCallback, type ReactElement } from "react";
+import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, Square } from "lucide-react-native";
+import { Square } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { BackgroundTaskDescriptorPayload } from "@getpaseo/protocol/messages";
+import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { useIsCompactFormFactor, MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative } from "@/constants/platform";
 import type { Theme } from "@/styles/theme";
 import { normalizeBackgroundTaskDisplayType, type BackgroundTaskDisplayType } from "./type-badge";
+import { buildBackgroundTaskPillPresentation } from "./track-presentation";
 
-const ThemedChevronDown = withUnistyles(ChevronDown);
-const ThemedChevronRight = withUnistyles(ChevronRight);
 const ThemedSquare = withUnistyles(Square);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
@@ -27,7 +27,7 @@ export interface BackgroundTasksTrackProps {
   stoppingTaskIds?: ReadonlySet<string>;
 }
 
-const LIST_MAX_HEIGHT = 200;
+const ROW_ICON_SIZE = 14;
 
 function rowLabel(row: BackgroundTaskDescriptorPayload): string {
   const command = row.command?.trim();
@@ -77,89 +77,29 @@ export function BackgroundTasksTrack({
   stoppingTaskIds,
 }: BackgroundTasksTrackProps): ReactElement | null {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-
-  const toggleExpanded = useCallback(() => {
-    setExpanded((current) => !current);
-  }, []);
-
-  const surfaceStyle = useMemo(
-    () => [styles.surface, expanded && styles.surfaceExpanded],
-    [expanded],
-  );
-  const headerStyle = useCallback(
-    ({ hovered, pressed }: PressableStateCallbackType) => [
-      styles.headerToggle,
-      (hovered || pressed) && styles.headerActive,
-    ],
-    [],
-  );
-  const headerContainerStyle = useMemo(
-    () => [styles.header, expanded ? styles.headerDivider : styles.headerCollapsed],
-    [expanded],
-  );
-
   if (rows.length === 0) {
     return null;
   }
 
-  const runningCount = rows.reduce(
-    (count, row) => (row.status === "running" ? count + 1 : count),
-    0,
-  );
-  let headerLabel = t("backgroundTasks.headerCount", { count: rows.length });
-  if (rows.length === 0) {
-    headerLabel = t("backgroundTasks.header");
-  } else if (runningCount > 0) {
-    headerLabel = t("backgroundTasks.headerCountRunning", {
-      count: rows.length,
-      running: runningCount,
-    });
-  }
+  const pill = buildBackgroundTaskPillPresentation(t, rows);
 
   return (
-    <View style={styles.outer} testID="background-tasks-track">
-      <View style={styles.track}>
-        <View style={surfaceStyle}>
-          <View style={headerContainerStyle}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={headerLabel}
-              testID="background-tasks-track-header"
-              onPress={toggleExpanded}
-              style={headerStyle}
-            >
-              {expanded ? (
-                <ThemedChevronDown size={12} uniProps={foregroundMutedColorMapping} />
-              ) : (
-                <ThemedChevronRight size={12} uniProps={foregroundMutedColorMapping} />
-              )}
-              <Text style={styles.headerLabel} numberOfLines={1}>
-                {headerLabel}
-              </Text>
-            </Pressable>
-          </View>
-          {expanded ? (
-            <ScrollView
-              style={styles.scroll}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-            >
-              {rows.map((row) => (
-                <BackgroundTasksTrackRow
-                  key={row.taskId}
-                  row={row}
-                  stopping={stoppingTaskIds?.has(row.taskId) === true}
-                  onOpenTask={onOpenTask}
-                  onStopTask={onStopTask}
-                />
-              ))}
-            </ScrollView>
-          ) : null}
-        </View>
-      </View>
-    </View>
+    <ComposerTrackPill
+      testID="background-tasks-track-header"
+      segments={pill.segments}
+      accessibilityLabel={pill.accessibilityLabel}
+      panelTitle={t("backgroundTasks.header")}
+    >
+      {rows.map((row) => (
+        <BackgroundTasksTrackRow
+          key={row.taskId}
+          row={row}
+          stopping={stoppingTaskIds?.has(row.taskId) === true}
+          onOpenTask={onOpenTask}
+          onStopTask={onStopTask}
+        />
+      ))}
+    </ComposerTrackPill>
   );
 }
 
@@ -176,7 +116,6 @@ function BackgroundTasksTrackRow({
 }): ReactElement {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
-  const [hovered, setHovered] = useState(false);
   const label = rowLabel(row);
   const displayType = normalizeBackgroundTaskDisplayType(row.type);
   const typeLabel = typeBadgeLabel(displayType, t);
@@ -186,39 +125,38 @@ function BackgroundTasksTrackRow({
   const handleStopPress = useCallback(() => {
     onStopTask(row.taskId);
   }, [onStopTask, row.taskId]);
-  const handlePointerEnter = useCallback(() => setHovered(true), []);
-  const handlePointerLeave = useCallback(() => setHovered(false), []);
   const actionsAlwaysVisible = isNative || isCompact;
-  const actionsVisible = actionsAlwaysVisible || hovered;
   const canStop = row.status === "running" || row.status === "unknown";
 
+  const renderRow = useCallback(
+    ({ active }: { active: boolean }) => (
+      <>
+        <StatusBadge label={typeLabel} variant="muted" />
+        <Text style={styles.rowLabel} numberOfLines={1}>
+          {label}
+        </Text>
+        {canStop ? (
+          <BackgroundTaskStopButton
+            label={label}
+            taskId={row.taskId}
+            visible={actionsAlwaysVisible || active}
+            stopping={stopping}
+            onPress={handleStopPress}
+          />
+        ) : null}
+      </>
+    ),
+    [actionsAlwaysVisible, canStop, handleStopPress, label, row.taskId, stopping, typeLabel],
+  );
+
   return (
-    <View onPointerEnter={handlePointerEnter} onPointerLeave={handlePointerLeave}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${typeLabel} ${label} · ${statusLabel(row.status, t)}`}
-        testID={`background-tasks-track-row-${row.taskId}`}
-        onPress={handlePress}
-      >
-        {({ pressed }) => (
-          <View style={hovered || pressed ? styles.rowActive : styles.row}>
-            <StatusBadge label={typeLabel} variant="muted" />
-            <Text style={styles.rowLabel} numberOfLines={1}>
-              {label}
-            </Text>
-            {canStop ? (
-              <BackgroundTaskStopButton
-                label={label}
-                taskId={row.taskId}
-                visible={actionsVisible}
-                stopping={stopping}
-                onPress={handleStopPress}
-              />
-            ) : null}
-          </View>
-        )}
-      </Pressable>
-    </View>
+    <ComposerTrackRow
+      accessibilityLabel={`${typeLabel} ${label} · ${statusLabel(row.status, t)}`}
+      testID={`background-tasks-track-row-${row.taskId}`}
+      onPress={handlePress}
+    >
+      {renderRow}
+    </ComposerTrackRow>
   );
 }
 
@@ -254,7 +192,7 @@ function BackgroundTaskStopButton({
           >
             {({ hovered: actionHovered, pressed: actionPressed }) => (
               <ThemedSquare
-                size={14}
+                size={ROW_ICON_SIZE}
                 uniProps={
                   actionHovered || actionPressed
                     ? foregroundColorMapping
@@ -273,85 +211,12 @@ function BackgroundTaskStopButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  outer: {
-    width: "100%",
-    alignItems: "center",
-    paddingHorizontal: theme.spacing[4],
-  },
-  track: {
-    width: "100%",
-    maxWidth: MAX_CONTENT_WIDTH,
-    marginBottom: -theme.spacing[4],
-  },
-  surface: {
-    alignSelf: "stretch",
-    backgroundColor: theme.colors.surface1,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
-    borderBottomWidth: 0,
-    borderTopLeftRadius: theme.borderRadius["2xl"],
-    borderTopRightRadius: theme.borderRadius["2xl"],
-    overflow: "hidden",
-  },
-  surfaceExpanded: {
-    paddingBottom: theme.spacing[4],
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  headerToggle: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingLeft: theme.spacing[3],
-    paddingRight: theme.spacing[1],
-    paddingVertical: theme.spacing[2],
-  },
-  headerCollapsed: {
-    paddingBottom: theme.spacing[4],
-  },
-  headerActive: {
-    backgroundColor: theme.colors.surface2,
-  },
-  headerDivider: {
-    borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.border,
-  },
-  headerLabel: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
-  },
-  scroll: {
-    maxHeight: LIST_MAX_HEIGHT,
-  },
-  scrollContent: {
-    paddingVertical: theme.spacing[1],
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-  },
-  rowActive: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-    backgroundColor: theme.colors.surface2,
-  },
   rowLabel: {
-    flex: 1,
+    flexGrow: 1,
     flexShrink: 1,
+    flexBasis: "auto",
     minWidth: 0,
-    fontSize: theme.fontSize.sm,
+    fontSize: theme.fontSize.base,
     color: theme.colors.foreground,
   },
   actionClusterVisible: {

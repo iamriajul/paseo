@@ -183,9 +183,17 @@ Generic `vX.Y.Z` fork tags skip the hosted web app deploy workflow. That avoids 
 
 Keep a long-lived branch for your fork changes, then regularly merge or rebase upstream `main` into it. After resolving conflicts and pushing the branch, run the desktop and Docker workflows again with a higher version.
 
-Check the sync PR's CI status before merging — don't merge red. Two consecutive syncs ("Sync with Official Paseo v0.3.0" PR #48, and v0.4.0 PR #57) merged with 3-4 failing Playwright shards each, including `chat-outline.spec.ts` timing out because a conflict-resolution hunk had silently dropped a whole feature's wiring from `view.tsx` — no type error, no lint failure, just a missing render that stayed broken for 9 days across two releases. A large sync PR often carries a few pre-existing or flaky failures; the fix is to diff each red job against the previous sync's CI run and triage what's new, not wave off the whole shard because sync PRs are always a little red.
+**Sync agents:** load `.claude/skills/fork-upstream-sync/SKILL.md`. Decisions that edit official files live in `patches/fork/` (not a feature wiki). Name series files `<surface>-<feature>.patch`; qualify provider/surface when a bare noun is ambiguous (`claude-native-fork`, `codex-quota-reset`). After the merge:
 
-`packages/app/src/agent-stream/view.tsx` is a known high-conflict-risk file — fork features (native fork) and upstream's own ongoing work land in the same region repeatedly. After resolving a conflict there, diff it against the new upstream tag (`git diff <previous-sync-tag> <new-tag> -- packages/app/src/agent-stream/view.tsx`) and skim for hooks or JSX that exist upstream but didn't survive the resolution, not just a passing build.
+```bash
+node scripts/fork-patches.mjs check
+```
+
+That job is required CI (`fork-patches`). A failed reverse-apply means official rewrote the site or the hunk was dropped — read the patch `Decision:` / `Verify:` header, re-seat, refresh the patch file, re-run check and the Verify command. Do not merge a sync PR with a red `fork-patches` job or newly-failing Playwright.
+
+Prefer composition (one import of a fork-owned module) over a series entry. `packages/app/src/agent-stream/view.tsx` is still a high-conflict-risk file — native fork and official work land in the same region. After resolving a conflict there, `git diff <previous-sync-tag> <new-tag> -- packages/app/src/agent-stream/view.tsx` and the series check, not just a passing typecheck.
+
+Check the sync PR's CI status before merging — don't merge red. Two consecutive syncs (v0.3.0 PR #48, v0.4.0 PR #57) merged with failing Playwright shards, including `chat-outline.spec.ts`, because a conflict hunk silently dropped wiring from `view.tsx`. Diff each red job against the previous sync's CI; triage what's new.
 
 The Browser localhost routing feature requires both sides to be updated:
 

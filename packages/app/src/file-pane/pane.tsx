@@ -17,6 +17,8 @@ import { useSessionStore, type ExplorerFile } from "@/stores/session-store";
 import { filePreviewRenderKind } from "@/components/file-pane-render-mode";
 import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-url";
 import { getFileNameFromPath } from "@/attachments/utils";
+import { PdfPreview } from "@/components/pdf-preview";
+import { isPdfMimeType } from "@/file-explorer/pdf";
 import { resolveFilePreviewReadTarget } from "@/file-explorer/preview-target";
 import type { WorkspaceFileLocation } from "@/workspace/file-open";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -227,6 +229,21 @@ function FilePreviewBody({
           />
         </RNScrollView>
       </View>
+    );
+  }
+
+  if (preview.kind === "binary" && isPdfMimeType(preview.mimeType)) {
+    if (!imagePreviewUri) {
+      return (
+        <View style={styles.centerState}>
+          <ThemedLoadingSpinner size="small" uniProps={foregroundMutedColorMapping} />
+          <Text style={styles.loadingText}>{t("panels.file.loading")}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <PdfPreview uri={imagePreviewUri} label={getFileNameFromPath(preview.path) ?? preview.path} />
     );
   }
 

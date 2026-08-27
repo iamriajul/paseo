@@ -25,6 +25,8 @@ import {
   type AgentSession,
   type AgentSessionConfig,
   type AgentSlashCommand,
+  type SteerActiveTurnOptions,
+  type SteerResult,
   type AgentStreamEvent,
   type AgentTimelineItem,
   type FetchCatalogOptions,
@@ -1141,19 +1143,18 @@ export class OmpAgentSession implements AgentSession {
     }
   }
 
-  /**
-   * Inject mid-turn guidance without aborting the active run.
-   * Mirrors OMP's native `/steer` command path.
-   */
-  async steer(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<void> {
-    if (!this.activeTurnId) {
-      throw new Error("Cannot steer OMP while no turn is active");
+  async steerActiveTurn(
+    prompt: AgentPromptInput,
+    options: SteerActiveTurnOptions,
+  ): Promise<SteerResult> {
+    if (!this.activeTurnId || this.activeTurnId !== options.expectedTurnId) {
+      return { status: "unavailable" };
     }
     const payload = convertPromptInput(prompt, { model: this.state.model });
     if (!payload.text.trim() && (payload.images?.length ?? 0) === 0) {
-      throw new Error("Cannot steer OMP with an empty message");
+      return { status: "unavailable" };
     }
-    if (options?.clientMessageId) {
+    if (options.clientMessageId) {
       // Correlate a later runtime user-message event with the client draft id.
       this.activeClientMessageId = options.clientMessageId;
     }
@@ -1161,12 +1162,13 @@ export class OmpAgentSession implements AgentSession {
       {
         sessionId: this.state.sessionId,
         turnId: this.activeTurnId,
-        hasClientMessageId: Boolean(options?.clientMessageId),
+        hasClientMessageId: Boolean(options.clientMessageId),
         imageCount: payload.images?.length ?? 0,
       },
       "Steering OMP runtime session",
     );
     this.runtimeSession.steer(payload.text, payload.images);
+    return { status: "accepted" };
   }
 
   async revertConversation(input: { messageId: string }): Promise<void> {

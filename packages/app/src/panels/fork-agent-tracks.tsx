@@ -22,6 +22,45 @@ import type { ScheduleSummary } from "@getpaseo/protocol/schedule/types";
 
 const EMPTY_AGGREGATED_SCHEDULES: AggregatedSchedule[] = [];
 
+export function useForkAgentTrackPresence({
+  serverId,
+  agentId,
+}: {
+  serverId: string;
+  agentId: string;
+}): boolean {
+  const backgroundTaskRows = useBackgroundTasksForParent({
+    serverId,
+    parentAgentId: agentId,
+  });
+  const { loadState: schedulesLoadState } = useSchedules();
+  const schedulesForServer = useMemo(() => {
+    if (schedulesLoadState.status !== "loaded") return EMPTY_AGGREGATED_SCHEDULES;
+    return schedulesLoadState.data.filter((schedule) => schedule.serverId === serverId);
+  }, [schedulesLoadState, serverId]);
+  const paseoHeartbeatRows = useMemo(
+    () =>
+      selectPaseoHeartbeatRows({
+        agentId,
+        serverId,
+        schedules: schedulesForServer,
+      }),
+    [agentId, schedulesForServer, serverId],
+  );
+  const providerHeartbeatRows = useProviderHeartbeatRows({
+    serverId,
+    parentAgentId: agentId,
+  });
+  const supportsBackgroundTasks = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.backgroundTasks === true,
+  );
+  return (
+    paseoHeartbeatRows.length > 0 ||
+    providerHeartbeatRows.length > 0 ||
+    (supportsBackgroundTasks && backgroundTaskRows.length > 0)
+  );
+}
+
 type HeartbeatScheduleFormState =
   | { mode: "closed" }
   | { mode: "create"; serverId: string; agentId: string }

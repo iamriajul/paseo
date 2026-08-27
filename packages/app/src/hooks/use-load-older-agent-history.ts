@@ -174,7 +174,12 @@ export function useLoadOlderAgentHistory({
         getDeps: () => {
           const session = useSessionStore.getState().sessions[serverId];
           return {
-            client: (session?.client ?? null) as LoadOlderAgentHistoryClient | null,
+            client: session?.client
+              ? {
+                  fetchAgentTimeline: (timelineAgentId, request) =>
+                    getHostRuntimeStore().fetchAgentTimeline(serverId, timelineAgentId, request),
+                }
+              : null,
             cursor: session?.agentTimelineCursor.get(agentId),
             hasOlder: session?.agentTimelineHasOlder.get(agentId) === true,
             isLoadingOlder: session?.agentTimelineOlderFetchInFlight.get(agentId) === true,

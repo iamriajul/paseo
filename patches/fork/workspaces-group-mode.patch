@@ -1,0 +1,81 @@
+Subject: Workspaces header keeps inline Project|Status grouping
+Decision: left-sidebar Workspaces header mounts SidebarGroupModeControl and hides it below 300px; Group by stays in the gear menu
+Verify: npx vitest run packages/app/src/components/sidebar/sidebar-group-mode-policy.test.ts --bail=1
+Files: packages/app/src/components/left-sidebar.tsx
+
+diff --git a/packages/app/src/components/left-sidebar.tsx b/packages/app/src/components/left-sidebar.tsx
+index 23e3e2ca8..6b5dc4679 100644
+--- a/packages/app/src/components/left-sidebar.tsx
++++ b/packages/app/src/components/left-sidebar.tsx
+@@ -35,6 +36,7 @@ import {
+ import { HostPicker } from "@/components/hosts/host-picker";
+ import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
+ import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/display-preferences/menu";
++import { SidebarGroupModeControl } from "@/components/sidebar/sidebar-group-mode-control";
+ import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
+ import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
+ import { Shortcut } from "@/components/ui/shortcut";
+@@ -969,8 +1045,13 @@ function DesktopSidebar({
+   );
+ }
+ 
++// Below this header width the inline Project|Status control is hidden; Group by
++// remains available in the gear menu. Sized for "Workspaces by [Project|Status] + icons".
++const WORKSPACES_GROUP_MODE_MIN_WIDTH = 300;
++
+ function WorkspacesSectionHeader() {
+   const { theme } = useUnistyles();
++  const [showGroupMode, setShowGroupMode] = useState(true);
+   const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
+   const commandCenterKeys = useShortcutKeys("toggle-command-center");
+   const handleSearchPress = useCallback(() => setCommandCenterOpen(true), [setCommandCenterOpen]);
+@@ -981,10 +1062,22 @@ function WorkspacesSectionHeader() {
+     ],
+     [],
+   );
++  const handleHeaderLayout = useCallback(
++    (event: { nativeEvent: { layout: { width: number } } }) => {
++      const next = event.nativeEvent.layout.width >= WORKSPACES_GROUP_MODE_MIN_WIDTH;
++      setShowGroupMode((prev) => (prev === next ? prev : next));
++    },
++    [],
++  );
+ 
+   return (
+-    <View style={styles.workspacesSectionHeader}>
+-      <Text style={styles.workspacesSectionTitle}>Workspaces</Text>
++    <View style={styles.workspacesSectionHeader} onLayout={handleHeaderLayout}>
++      <View style={styles.workspacesSectionLeading}>
++        <Text style={styles.workspacesSectionTitle} numberOfLines={1}>
++          Workspaces
++        </Text>
++        <SidebarGroupModeControl visible={showGroupMode} />
++      </View>
+       <View style={styles.workspacesSectionActions}>
+         <Tooltip delayDuration={300}>
+           <TooltipTrigger asChild>
+@@ -1064,15 +1157,24 @@ const styles = StyleSheet.create((theme) => ({
+     paddingTop: theme.spacing[1],
+     paddingBottom: theme.spacing[1],
+   },
++  workspacesSectionLeading: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: theme.spacing[1.5],
++    flex: 1,
++    minWidth: 0,
++  },
+   workspacesSectionTitle: {
+     color: theme.colors.foregroundMuted,
+     fontSize: theme.fontSize.sm,
+     fontWeight: theme.fontWeight.normal,
++    flexShrink: 0,
+   },
+   workspacesSectionActions: {
+     flexDirection: "row",
+     alignItems: "center",
+     gap: theme.spacing[1],
++    flexShrink: 0,
+   },
+   workspacesHeaderIconButton: {
+     width: 28,

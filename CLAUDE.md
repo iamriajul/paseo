@@ -57,7 +57,7 @@ At the start of non-trivial work, list `docs/` and skim anything relevant to the
 | [docs/browser-capture-harness.md](docs/browser-capture-harness.md) | Real-Electron browser screenshot harness and compositor-surface gotcha                                                         |
 | [docs/android.md](docs/android.md)                                 | App variants, local/cloud builds, EAS workflows                                                                                |
 | [docs/docker.md](docs/docker.md)                                   | Running the daemon and bundled web UI in Docker, volumes, agent images, security                                               |
-| [docs/fork-release.md](docs/fork-release.md)                       | Fork-friendly desktop, Docker, and npm global-install release pipeline for personal patched builds                             |
+| [docs/fork-release.md](docs/fork-release.md)                       | Fork-friendly desktop, Docker, npm global-install; official sync uses `patches/fork/`                                          |
 | [docs/release.md](docs/release.md)                                 | Release playbook, draft releases, completion checklist                                                                         |
 | [docs/terminal-activity.md](docs/terminal-activity.md)             | Terminal activity indicators — source-agnostic tracker, agent hook reporting, adding a new hook provider                       |
 | [SECURITY.md](SECURITY.md)                                         | Relay threat model, E2E encryption, DNS rebinding, agent auth                                                                  |
@@ -108,6 +108,7 @@ See [docs/development.md](docs/development.md) for full setup, build sync requir
 ## Critical rules
 
 - **Fork releases are PR → merge → tag on `main`.** Never push a `v*` release tag from an unmerged feature branch. Open a PR, merge it, then tag the merge commit on `main` (or dispatch the fork release workflows with `checkout_ref=main`). See [docs/fork-release.md](docs/fork-release.md).
+- **Syncing official Paseo:** load `.claude/skills/fork-upstream-sync/SKILL.md`. After the merge, `node scripts/fork-patches.mjs check` must be green. Do not treat "the symbol still exists" as preserved — decisions that edit official files live in `patches/fork/`.
 - **NEVER restart the main Paseo daemon on port 6767 without permission** — it manages all running agents. If you're an agent, restarting it kills your own process.
 - **NEVER assume a timeout means the service needs restarting** — timeouts can be transient.
 - **NEVER add auth checks to tests** — agent providers handle their own auth.

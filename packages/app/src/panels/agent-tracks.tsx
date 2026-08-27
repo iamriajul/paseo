@@ -1,4 +1,4 @@
-import { memo, useCallback, type ReactElement } from "react";
+import { memo, useCallback, type ReactElement, type ReactNode } from "react";
 import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
 import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
 import { AgentTaskList } from "@/composer/task-list";
@@ -18,6 +18,7 @@ import type { TodoEntry } from "@/types/stream";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
+import { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";
 
 /**
  * The pane's ambient context — workspace changes, subagents, and tasks — as a row of pills above
@@ -33,6 +34,8 @@ export const AgentTracks = memo(function AgentTracks({
   tasks,
   archiveFinishedStatus,
   onArchiveFinished,
+  hasExtraPills = false,
+  children,
 }: {
   serverId: string;
   workspaceId: string;
@@ -40,6 +43,8 @@ export const AgentTracks = memo(function AgentTracks({
   tasks: TodoEntry[] | undefined;
   archiveFinishedStatus: ArchiveFinishedStatus;
   onArchiveFinished: () => void;
+  hasExtraPills?: boolean;
+  children?: ReactNode;
 }): ReactElement | null {
   const { tabId, openTab } = usePaneContext();
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
@@ -105,7 +110,13 @@ export const AgentTracks = memo(function AgentTracks({
     });
   }, [isCompact, openInSidePane, workspaceKey]);
 
-  if (!hasWorkspaceDiffStat && !hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus })) {
+  if (
+    !shouldShowAgentTrackBar({
+      hasOfficialTracks: hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus }),
+      hasWorkspaceDiffStat,
+      hasExtraPills,
+    })
+  ) {
     return null;
   }
 
@@ -121,6 +132,7 @@ export const AgentTracks = memo(function AgentTracks({
         archiveFinishedStatus={archiveFinishedStatus}
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
+      {children}
       <WorkspaceDiffStatPill
         serverId={serverId}
         workspaceId={workspaceId}
@@ -141,3 +153,5 @@ export function hasAgentTracks({
 }): boolean {
   return subagentRows.length > 0 || Boolean(tasks?.length) || archiveFinishedStatus.kind !== "idle";
 }
+
+export { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";

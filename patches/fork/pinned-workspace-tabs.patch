@@ -1,0 +1,68 @@
+Subject: workspace tab strip can pin Browser and Code Server
+Decision: new-tab menu and desktop tabs row import workspace-pins so pinned targets stay one tap on the strip
+Verify: npx vitest run packages/app/src/workspace-pins/target.test.ts --bail=1
+Files: packages/app/src/screens/workspace/workspace-new-tab-menu.tsx
+Files: packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
+
+diff --git a/packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx b/packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
+index d7284a22c..7a51158b6 100644
+--- a/packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
++++ b/packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
+@@ -81,6 +81,7 @@ import {
+   HorizontalScrollBoundaryShades,
+   useHorizontalScrollBoundary,
+ } from "@/components/ui/horizontal-scroll-boundary";
++import { WorkspacePinnedTargetsRow } from "@/workspace-pins/workspace-pinned-row";
+ 
+ const DROPDOWN_WIDTH = 220;
+ const DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH = 36;
+@@ -196,7 +197,14 @@ function WorkspaceNewTabButton({
+     </DropdownMenu>
+   );
+ 
+-  return placement === "inline" ? <View style={styles.inlineAddButton}>{menu}</View> : menu;
++  return placement === "inline" ? (
++    <View style={styles.inlineAddButton}>
++      {menu}
++      <WorkspacePinnedTargetsRow serverId={serverId} purpose="primary" paneId={paneId} />
++    </View>
++  ) : (
++    menu
++  );
+ }
+ 
+ function WorkspacePaneToolbarActions({
+diff --git a/packages/app/src/screens/workspace/workspace-new-tab-menu.tsx b/packages/app/src/screens/workspace/workspace-new-tab-menu.tsx
+index a8d7c3a43..36f6d7366 100644
+--- a/packages/app/src/screens/workspace/workspace-new-tab-menu.tsx
++++ b/packages/app/src/screens/workspace/workspace-new-tab-menu.tsx
+@@ -16,6 +16,8 @@ import {
+   type WorkspaceTabLaunchItem,
+   type WorkspaceTabLaunchPurpose,
+ } from "@/workspace-tabs/launcher";
++import { launchItemPinTarget } from "@/workspace-pins/launch-item";
++import { PinnableMenuItem } from "@/workspace-pins/pinnable-menu-item";
+ import type { PaneHost } from "@/panels/panel-manifest";
+ import type { PanelIconProps } from "@/panels/panel-registry";
+ 
+@@ -61,6 +63,20 @@ function WorkspaceNewTabMenuItem({
+     [item.shortcutActionId],
+   );
+   const handleSelect = useCallback(() => item.launch({ kind: "open", paneId }), [item, paneId]);
++  const pinTarget = launchItemPinTarget(item.id);
++
++  if (pinTarget && leading) {
++    return (
++      <PinnableMenuItem
++        testID={`workspace-new-tab-menu-${item.id}`}
++        target={pinTarget}
++        label={item.label}
++        leading={leading}
++        disabled={item.disabled}
++        onSelect={handleSelect}
++      />
++    );
++  }
+ 
+   return (
+     <DropdownMenuItem

@@ -1,0 +1,316 @@
+Subject: failed mermaid renders an error caption instead of a blank fence
+Decision: host.web/native and render-model keep errorMessage so a rejected diagram explains why; neutralize patch does not cover host UI
+Verify: npx vitest run packages/app/src/components/markdown/fence/mermaid/render-model.test.ts --bail=1
+Files: packages/app/src/components/markdown/fence/mermaid/host.web.tsx
+Files: packages/app/src/components/markdown/fence/mermaid/host.native.tsx
+Files: packages/app/src/components/markdown/fence/mermaid/render-model.ts
+Files: packages/app/src/components/markdown/fence/mermaid/runtime/entry.ts
+Files: packages/app/src/components/markdown/fence/mermaid/runtime/messages.ts
+
+diff --git a/packages/app/src/components/markdown/fence/mermaid/host.native.tsx b/packages/app/src/components/markdown/fence/mermaid/host.native.tsx
+index 044341f3a..0fd34888b 100644
+--- a/packages/app/src/components/markdown/fence/mermaid/host.native.tsx
++++ b/packages/app/src/components/markdown/fence/mermaid/host.native.tsx
+@@ -4,6 +4,7 @@ import {
+   Pressable,
+   StyleSheet as RNStyleSheet,
+   ScrollView,
++  Text,
+   View,
+   type TextStyle,
+   type ViewStyle,
+@@ -44,7 +45,7 @@ interface MermaidWebViewProps {
+     height: number;
+     width: number;
+   }) => void;
+-  onRenderFailed: (revision: number) => void;
++  onRenderFailed: (revision: number, message?: string) => void;
+   style?: ViewStyle;
+ }
+ 
+@@ -100,7 +101,7 @@ function MermaidWebView({
+         return;
+       }
+       if (message.type === "renderError") {
+-        onRenderFailed(message.revision);
++        onRenderFailed(message.revision, message.message);
+         sendRequest(driverRef.current?.settled(message.revision, false) ?? null);
+         return;
+       }
+@@ -319,11 +320,11 @@ function MermaidFenceHostImpl({
+   return (
+     <>
+       {!canShowDiagram ? (
+-        <HighlightedCodeBlock
++        <MermaidSourceFallback
+           code={code}
+-          language="mermaid"
+           inheritedStyles={inheritedStyles}
+           textStyle={textStyle}
++          errorMessage={state.status === "failed" ? state.errorMessage : null}
+         />
+       ) : null}
+       <Pressable
+@@ -359,6 +360,45 @@ function MermaidFenceHostImpl({
+   );
+ }
+ 
++const diagramFallbackStyles = StyleSheet.create((theme) => ({
++  errorCaption: {
++    color: theme.colors.foregroundMuted,
++    fontSize: 12,
++    paddingBottom: theme.spacing[1],
++  },
++}));
++
++interface MermaidSourceFallbackProps {
++  code: string;
++  inheritedStyles: TextStyle;
++  textStyle: TextStyle;
++  errorMessage: string | null;
++}
++
++function MermaidSourceFallback({
++  code,
++  inheritedStyles,
++  textStyle,
++  errorMessage,
++}: MermaidSourceFallbackProps) {
++  const { t } = useTranslation();
++  return (
++    <>
++      {errorMessage ? (
++        <Text style={diagramFallbackStyles.errorCaption}>
++          {t("message.diagram.renderError", { message: errorMessage })}
++        </Text>
++      ) : null}
++      <HighlightedCodeBlock
++        code={code}
++        language="mermaid"
++        inheritedStyles={inheritedStyles}
++        textStyle={textStyle}
++      />
++    </>
++  );
++}
++
+ const previewStyles = RNStyleSheet.create({
+   measuring: {
+     position: "absolute",
+diff --git a/packages/app/src/components/markdown/fence/mermaid/host.web.tsx b/packages/app/src/components/markdown/fence/mermaid/host.web.tsx
+index c51ab7542..c7fcb3222 100644
+--- a/packages/app/src/components/markdown/fence/mermaid/host.web.tsx
++++ b/packages/app/src/components/markdown/fence/mermaid/host.web.tsx
+@@ -6,7 +6,14 @@ import React, {
+   useState,
+   type ComponentType,
+ } from "react";
+-import { Pressable, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
++import {
++  Pressable,
++  Text,
++  View,
++  type StyleProp,
++  type TextStyle,
++  type ViewStyle,
++} from "react-native";
+ import { useTranslation } from "react-i18next";
+ import { Code, Scan, Workflow, ZoomIn, ZoomOut } from "lucide-react-native";
+ import { StyleSheet, withUnistyles } from "react-native-unistyles";
+@@ -35,7 +42,7 @@ interface MermaidIframeRuntimeProps {
+     height: number;
+     width: number;
+   }) => void;
+-  onRenderFailed: (revision: number) => void;
++  onRenderFailed: (revision: number, message?: string) => void;
+ }
+ 
+ function MermaidIframeRuntime({
+@@ -92,7 +99,7 @@ function MermaidIframeRuntime({
+         return;
+       }
+       if (message.type === "renderError") {
+-        onRenderFailed(message.revision);
++        onRenderFailed(message.revision, message.message);
+         sendRequest(driverRef.current?.settled(message.revision, false) ?? null);
+         return;
+       }
+@@ -341,11 +348,11 @@ function MermaidFenceHostImpl({
+       onBlur={handleBlurWithin}
+     >
+       {sourceVisible ? (
+-        <HighlightedCodeBlock
++        <MermaidSourceFallback
+           code={code}
+-          language="mermaid"
+           inheritedStyles={inheritedStyles}
+           textStyle={sourceTextStyle}
++          errorMessage={state.status === "failed" ? state.errorMessage : null}
+         />
+       ) : null}
+       <div
+@@ -407,6 +414,37 @@ function MermaidFenceHostImpl({
+   );
+ }
+ 
++interface MermaidSourceFallbackProps {
++  code: string;
++  inheritedStyles: TextStyle;
++  textStyle: TextStyle;
++  errorMessage: string | null;
++}
++
++function MermaidSourceFallback({
++  code,
++  inheritedStyles,
++  textStyle,
++  errorMessage,
++}: MermaidSourceFallbackProps) {
++  const { t } = useTranslation();
++  return (
++    <>
++      {errorMessage ? (
++        <Text style={controlStyles.errorCaption}>
++          {t("message.diagram.renderError", { message: errorMessage })}
++        </Text>
++      ) : null}
++      <HighlightedCodeBlock
++        code={code}
++        language="mermaid"
++        inheritedStyles={inheritedStyles}
++        textStyle={textStyle}
++      />
++    </>
++  );
++}
++
+ interface DiagramControlButtonProps {
+   icon: ComponentType<{ size?: number; color?: string }>;
+   label: string;
+@@ -469,6 +507,11 @@ const controlStyles = StyleSheet.create((theme) => ({
+   plainButtonHidden: { padding: theme.spacing[1], opacity: 0, pointerEvents: "none" },
+   icon: { color: theme.colors.foregroundMuted },
+   iconHovered: { color: theme.colors.foreground },
++  errorCaption: {
++    color: theme.colors.foregroundMuted,
++    fontSize: 12,
++    paddingBottom: theme.spacing[1],
++  },
+ }));
+ 
+ const sourceContainerStyle: ViewStyle = { position: "relative" };
+diff --git a/packages/app/src/components/markdown/fence/mermaid/render-model.ts b/packages/app/src/components/markdown/fence/mermaid/render-model.ts
+index da5176dbe..143bc4415 100644
+--- a/packages/app/src/components/markdown/fence/mermaid/render-model.ts
++++ b/packages/app/src/components/markdown/fence/mermaid/render-model.ts
+@@ -33,6 +33,7 @@ export interface MermaidRenderModel {
+   colorScheme: DiagramColorScheme;
+   status: "pending" | "rendered" | "failed" | "rejected";
+   visible: RenderedDiagram | null;
++  errorMessage: string | null;
+ }
+ 
+ export type MermaidRenderAction =
+@@ -44,7 +45,7 @@ export type MermaidRenderAction =
+       colorScheme: DiagramColorScheme;
+       dimensions: DiagramDimensions;
+     }
+-  | { type: "renderFailed"; revision: number };
++  | { type: "renderFailed"; revision: number; message?: string };
+ 
+ function reduceRendered(
+   state: MermaidRenderModel,
+@@ -80,6 +81,7 @@ function reduceRendered(
+       colorScheme: action.colorScheme,
+       ...action.dimensions,
+     },
++    errorMessage: null,
+   };
+ }
+ 
+@@ -92,6 +94,7 @@ export function createMermaidRenderModel(input: MermaidRenderInput): MermaidRend
+       colorScheme: input.colorScheme,
+       status: "rejected",
+       visible: input.phase === "complete" ? null : input.cached,
++      errorMessage: null,
+     };
+   }
+   return {
+@@ -101,6 +104,7 @@ export function createMermaidRenderModel(input: MermaidRenderInput): MermaidRend
+     colorScheme: input.colorScheme,
+     status: "pending",
+     visible: input.cached,
++    errorMessage: null,
+   };
+ }
+ 
+@@ -120,6 +124,7 @@ export function reduceMermaidRenderModel(
+       ...state,
+       status: "failed",
+       visible: state.phase === "complete" ? null : state.visible,
++      errorMessage: action.message ?? null,
+     };
+   }
+ 
+@@ -145,6 +150,7 @@ export function reduceMermaidRenderModel(
+       colorScheme: input.colorScheme,
+       status: "rejected",
+       visible: input.phase === "complete" ? null : (input.cached ?? state.visible),
++      errorMessage: null,
+     };
+   }
+ 
+@@ -155,6 +161,7 @@ export function reduceMermaidRenderModel(
+     colorScheme: input.colorScheme,
+     status: "pending",
+     visible: input.cached ?? state.visible,
++    errorMessage: null,
+   };
+ }
+ 
+diff --git a/packages/app/src/components/markdown/fence/mermaid/runtime/entry.ts b/packages/app/src/components/markdown/fence/mermaid/runtime/entry.ts
+index ec9f88794..b1e9cd7f9 100644
+--- a/packages/app/src/components/markdown/fence/mermaid/runtime/entry.ts
++++ b/packages/app/src/components/markdown/fence/mermaid/runtime/entry.ts
+@@ -81,9 +81,13 @@ async function render(message: MermaidRuntimeRenderMessage): Promise<void> {
+       height: Math.ceil(rect?.height ?? host.scrollHeight),
+       width: Math.ceil(rect?.width ?? host.scrollWidth),
+     });
+-  } catch {
++  } catch (error) {
+     if (message.revision === latestRevision) {
+-      sendToHost({ type: "renderError", revision: message.revision });
++      sendToHost({
++        type: "renderError",
++        revision: message.revision,
++        message: error instanceof Error ? error.message : String(error),
++      });
+     }
+   }
+ }
+diff --git a/packages/app/src/components/markdown/fence/mermaid/runtime/messages.ts b/packages/app/src/components/markdown/fence/mermaid/runtime/messages.ts
+index 99b23f9d6..3246692cd 100644
+--- a/packages/app/src/components/markdown/fence/mermaid/runtime/messages.ts
++++ b/packages/app/src/components/markdown/fence/mermaid/runtime/messages.ts
+@@ -16,7 +16,7 @@ export type MermaidRuntimeMessage =
+       source: string;
+       colorScheme: DiagramColorScheme;
+     } & DiagramDimensions)
+-  | { type: "renderError"; revision: number };
++  | { type: "renderError"; revision: number; message?: string };
+ 
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return typeof value === "object" && value !== null;
+@@ -61,7 +61,11 @@ export function parseMermaidRuntimeMessage(value: unknown): MermaidRuntimeMessag
+     typeof value.revision === "number" &&
+     Number.isInteger(value.revision)
+   ) {
+-    return { type: "renderError", revision: value.revision };
++    return {
++      type: "renderError",
++      revision: value.revision,
++      ...(typeof value.message === "string" ? { message: value.message } : {}),
++    };
+   }
+   if (
+     value.type === "rendered" &&

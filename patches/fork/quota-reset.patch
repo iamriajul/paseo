@@ -1,11 +1,13 @@
-Subject: quota windows expose reset and invalidate in-flight fetches
-Decision: quota-fetcher resetQuota plus generation-aware cache so Settings can show windows and reset Codex credits without serving a stale fetch
+Subject: Settings can reset Codex credits
+Decision: Settings quota card resets Codex credits; resetQuota bumps generation so a pre-reset in-flight list is not shown as current usage
 Verify: npx vitest run packages/server/src/services/quota-fetcher/service.test.ts --bail=1
-Files: packages/server/src/services/quota-fetcher/service.ts
-Files: packages/server/src/services/quota-fetcher/provider.ts
-Files: packages/server/src/services/quota-fetcher/providers/codex.ts
 Files: packages/app/src/provider-usage/settings-section.tsx
 Files: packages/app/src/provider-usage/use-provider-usage.ts
+Files: packages/server/src/services/quota-fetcher/provider.ts
+Files: packages/server/src/services/quota-fetcher/providers/codex.ts
+Files: packages/server/src/services/quota-fetcher/service.ts
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/session.ts
 
 diff --git a/packages/app/src/provider-usage/settings-section.tsx b/packages/app/src/provider-usage/settings-section.tsx
 index cb8e8f6b5..862d6d562 100644
@@ -1023,3 +1025,117 @@ index dde20fb24..349b7c5a1 100644
      return result;
    }
  }
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -1654,6 +1749,13 @@ export const ProviderDiagnosticRequestMessageSchema = z.object({
+ export const ProviderUsageListRequestMessageSchema = z.object({
+   type: z.literal("provider.usage.list.request"),
+   requestId: z.string(),
++  forceRefresh: z.boolean().optional(),
++});
++
++export const ProviderUsageResetQuotaRequestMessageSchema = z.object({
++  type: z.literal("provider.usage.reset_quota.request"),
++  providerId: z.string(),
++  requestId: z.string(),
+ });
+ 
+ export const ResumeAgentRequestMessageSchema = z.object({
+@@ -3010,6 +3172,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   RefreshProvidersSnapshotRequestMessageSchema,
+   ProviderDiagnosticRequestMessageSchema,
+   ProviderUsageListRequestMessageSchema,
++  ProviderUsageResetQuotaRequestMessageSchema,
+   ResumeAgentRequestMessageSchema,
+   ImportAgentRequestMessageSchema,
+   RefreshAgentRequestMessageSchema,
+@@ -3359,6 +3559,10 @@ export const ServerInfoStatusPayloadSchema = z
+         workspaceFileEditing: z.boolean().optional(),
+         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
+         providerUsageList: z.boolean().optional(),
++        // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
++        providerUsageResetQuota: z.boolean().optional(),
++        // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
++        providerUsageForceRefresh: z.boolean().optional(),
+         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
+         agentDetach: z.boolean().optional(),
+         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
+@@ -5735,6 +6161,15 @@ export const ProviderUsageDetailSchema = z.object({
+   tone: ProviderUsageToneSchema.optional(),
+ });
+ 
++export const ProviderUsageResetCreditSchema = z.object({
++  id: z.string(),
++  label: z.string(),
++  status: z.string().optional(),
++  grantedAt: z.string().nullable().optional(),
++  expiresAt: z.string().nullable().optional(),
++  tone: ProviderUsageToneSchema.optional(),
++});
++
+ export const ProviderUsageSchema = z.object({
+   providerId: z.string(),
+   displayName: z.string(),
+@@ -5746,6 +6181,7 @@ export const ProviderUsageSchema = z.object({
+   windows: z.array(ProviderUsageWindowSchema),
+   balances: z.array(ProviderUsageBalanceSchema).optional(),
+   details: z.array(ProviderUsageDetailSchema).optional(),
++  resetCredits: z.array(ProviderUsageResetCreditSchema).optional(),
+   error: z.string().nullable().optional(),
+ });
+ 
+@@ -5758,6 +6194,17 @@ export const ProviderUsageListResponseMessageSchema = z.object({
+   }),
+ });
+ 
++export const ProviderUsageResetQuotaResponseMessageSchema = z.object({
++  type: z.literal("provider.usage.reset_quota.response"),
++  payload: z.object({
++    requestId: z.string(),
++    providerId: z.string(),
++    code: z.string(),
++    windowsReset: z.number().nullable(),
++    message: z.string().nullable(),
++  }),
++});
++
+ const AgentSlashCommandSchema = z.object({
+   name: z.string(),
+   description: z.string(),
+@@ -6324,6 +6784,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   RefreshProvidersSnapshotResponseMessageSchema,
+   ProviderDiagnosticResponseMessageSchema,
+   ProviderUsageListResponseMessageSchema,
++  ProviderUsageResetQuotaResponseMessageSchema,
+   ListCommandsResponseSchema,
+   ListTerminalsResponseSchema,
+   TerminalsChangedSchema,
+@@ -6504,9 +6977,13 @@ export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
+ export type ProviderUsageWindow = z.infer<typeof ProviderUsageWindowSchema>;
+ export type ProviderUsageBalance = z.infer<typeof ProviderUsageBalanceSchema>;
+ export type ProviderUsageDetail = z.infer<typeof ProviderUsageDetailSchema>;
++export type ProviderUsageResetCredit = z.infer<typeof ProviderUsageResetCreditSchema>;
+ export type ProviderUsageListResponseMessage = z.infer<
+   typeof ProviderUsageListResponseMessageSchema
+ >;
++export type ProviderUsageResetQuotaResponseMessage = z.infer<
++  typeof ProviderUsageResetQuotaResponseMessageSchema
++>;
+ export type ChatCreateResponse = z.infer<typeof ChatCreateResponseSchema>;
+ export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
+ export type ChatInspectResponse = z.infer<typeof ChatInspectResponseSchema>;
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -2513,6 +2785,8 @@ export class Session {
+         return this.providerCatalogSession.handleProviderDiagnosticRequest(msg);
+       case "provider.usage.list.request":
+         return this.providerCatalogSession.handleProviderUsageListRequest(msg);
++      case "provider.usage.reset_quota.request":
++        return this.providerCatalogSession.handleProviderUsageResetQuotaRequest(msg);
+       default:
+         return undefined;
+     }

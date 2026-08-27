@@ -1,31 +1,11 @@
 Subject: honor custom-model context window for auto-compact
 Decision: additionalModels/profile contextWindowMaxTokens is source of truth; set CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW with overwrite; match gateway-prefixed and case-insensitive ids; do not shrink the Paseo meter below the configured window
 Verify: npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
-Files: packages/server/src/server/agent/providers/claude/models.ts
+Files: packages/server/src/server/agent/providers/claude/agent.env.test.ts
 Files: packages/server/src/server/agent/providers/claude/agent.ts
 Files: packages/server/src/server/agent/providers/claude/models.test.ts
-Files: packages/server/src/server/agent/providers/claude/agent.env.test.ts
-
-From 8b5a44f04613967b0787cffa1be44be63aab85bd Mon Sep 17 00:00:00 2001
-From: Riajul Islam <kmriajulislami@gmail.com>
-Date: Wed, 26 Aug 2026 17:21:56 +0000
-Subject: [PATCH] fix(claude): honor custom-model context window for
- auto-compact
-
-Profile/additional-model capacity was fill-if-missing, so a host
-CLAUDE_CODE_MAX_CONTEXT_TOKENS (or Claude Code's assumed 200k on
-unrecognized IDs) kept auto-compact firing at the old window. Match
-gateway-prefixed and case-insensitive model ids, overwrite env from
-the configured model, and don't shrink the Paseo meter to the assumed
-window.
-
-Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
----
- .../agent/providers/claude/agent.env.test.ts  |  4 +-
- .../server/agent/providers/claude/agent.ts    | 34 ++++----
- .../agent/providers/claude/models.test.ts     | 51 ++++++++++++
- .../server/agent/providers/claude/models.ts   | 78 +++++++++++++++++--
- 4 files changed, 144 insertions(+), 23 deletions(-)
+Files: packages/server/src/server/agent/providers/claude/models.ts
+Files: packages/protocol/src/messages.ts
 
 diff --git a/packages/server/src/server/agent/providers/claude/agent.env.test.ts b/packages/server/src/server/agent/providers/claude/agent.env.test.ts
 index 0a3fe5f7f..a16f1471d 100644
@@ -321,3 +301,35 @@ index 04fc29197..f2aa86efe 100644
 -- 
 2.53.0
 
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -99,6 +125,7 @@ const MutableDaemonProviderModelSchema = z
+     label: z.string().min(1),
+     description: z.string().optional(),
+     isDefault: z.boolean().optional(),
++    contextWindowMaxTokens: z.number().int().positive().optional(),
+   })
+   .passthrough();
+ 
+@@ -341,6 +409,19 @@ const AgentModelDefinitionSchema = z.object({
+   isDefault: z.boolean().optional(),
+   metadata: z.record(z.string(), z.unknown()).optional(),
+   contextWindowMaxTokens: z.number().optional(),
++  maxOutputTokens: z.number().optional(),
++  needsCapacityConfig: z.boolean().optional(),
++  modelsDevCandidates: z
++    .array(
++      z.object({
++        providerId: z.string(),
++        matchedId: z.string(),
++        name: z.string().optional(),
++        contextWindowMaxTokens: z.number(),
++        maxOutputTokens: z.number().optional(),
++      }),
++    )
++    .optional(),
+   thinkingOptions: z.array(AgentSelectOptionSchema).optional(),
+   defaultThinkingOptionId: z.string().optional(),
+ }) satisfies z.ZodType<AgentModelDefinition>;

@@ -12,8 +12,11 @@ pdf-daemon-mime.patch
 attention-guest-window-focus.patch
 quota-reset.patch
 metadata-custom-endpoint-persist.patch
-sessions-schedules-search.patch
-sidebar-backlog-and-local-host-badge.patch
+sessions-search.patch
+schedules-search.patch
+sidebar-backlog.patch
+host-badge-show-icon.patch
+sidebar-group-mode-control.patch
 workspace-pinned-tab-targets.patch
 claude-dual-context-catalog.patch
 interaction-lock-chrome.patch
@@ -21,5 +24,4 @@ custom-model-picker-ui.patch
 mermaid-render-error-caption.patch
 ui-state-composer-draft.patch
 mobile-notification-diagnostics.patch
-fork-session-protocol-rpcs.patch
 cliproxy-additional-models-persist.patch

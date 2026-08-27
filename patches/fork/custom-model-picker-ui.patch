@@ -1,9 +1,11 @@
 Subject: provider diagnostic sheet can add and edit custom models
 Decision: model-browser and provider-diagnostic-sheet keep add/edit custom model plus models.dev lookup; overwrite env patch does not protect this UI
-Verify: npx vitest run packages/protocol/src/messages.metadata-custom-endpoint.test.ts --bail=1
+Verify: npx vitest run packages/protocol/src/messages.metadata-custom-endpoint.test.ts packages/server/src/server/models-dev/catalog.test.ts --bail=1
 Files: packages/app/src/components/model-browser.tsx
 Files: packages/app/src/components/provider-diagnostic-sheet.tsx
 Files: packages/protocol/src/provider-config.ts
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/session.ts
 
 diff --git a/packages/app/src/components/model-browser.tsx b/packages/app/src/components/model-browser.tsx
 index 422240c21..2cc84e02f 100644
@@ -1314,3 +1316,218 @@ index 2ab879c31..54cd4410b 100644
    thinkingOptions: z.array(ProviderProfileThinkingOptionSchema).optional(),
  });
  
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -1513,13 +1595,19 @@ export const SetDaemonConfigRequestMessageSchema = z.object({
+   config: MutableDaemonConfigPatchSchema,
+ });
+ 
+ export const MetadataCustomEndpointListModelsRequestSchema = z.object({
+   type: z.literal("metadataGeneration.customEndpoint.listModels.request"),
+   requestId: z.string(),
+   baseUrl: z.string().optional(),
+   apiKey: z.string().optional(),
+ });
+ 
++export const ModelsDevLookupModelRequestSchema = z.object({
++  type: z.literal("models.dev.lookup_model.request"),
++  requestId: z.string(),
++  modelId: z.string(),
++});
++
+ export const ReadProjectConfigRequestMessageSchema = z.object({
+   type: z.literal("read_project_config_request"),
+   requestId: z.string(),
+@@ -2995,7 +3155,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   AgentSkillsImportLegacySelectionRequestSchema,
+   GetDaemonConfigRequestMessageSchema,
+   SetDaemonConfigRequestMessageSchema,
+   MetadataCustomEndpointListModelsRequestSchema,
++  ModelsDevLookupModelRequestSchema,
+   ReadProjectConfigRequestMessageSchema,
+   WriteProjectConfigRequestMessageSchema,
+   DictationStreamStartMessageSchema,
+@@ -3407,8 +3625,10 @@ export const ServerInfoStatusPayloadSchema = z
+         stableProjectIdentity: z.boolean().optional(),
+         // COMPAT(workspaceScriptManagement): added in v0.1.105, remove gate after 2027-01-10.
+         workspaceScriptManagement: z.boolean().optional(),
+         // COMPAT(metadataCustomEndpoint): added 2026-07-28, remove after 2027-01-28 once daemon floor advertises it.
+         metadataCustomEndpoint: z.boolean().optional(),
++        // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
++        modelsDevLookup: z.boolean().optional(),
+         // COMPAT(projectCustomIcon): added in v0.2.0, remove after 2027-01-20.
+         projectCustomIcon: z.boolean().optional(),
+         // COMPAT(fsEntryOps): added in v0.3.0, remove gate after 2027-02-08.
+@@ -4492,27 +4865,59 @@ export const GetDaemonConfigResponseMessageSchema = z.object({
+     .passthrough(),
+ });
+ 
+ export const MetadataCustomEndpointListModelsResponseSchema = z.object({
+   type: z.literal("metadataGeneration.customEndpoint.listModels.response"),
+   payload: z
+     .object({
+       requestId: z.string(),
+       models: z.array(
+         z.object({
+           id: z.string(),
+           name: z.string().optional(),
+         }),
+       ),
+       error: z
+         .object({
+           code: z.string(),
+           message: z.string(),
+         })
+         .nullable(),
+     })
+     .passthrough(),
+ });
+ 
++const ModelsDevLookupCandidateSchema = z.object({
++  providerId: z.string(),
++  matchedId: z.string(),
++  name: z.string().optional(),
++  contextWindowMaxTokens: z.number().int().positive(),
++  maxOutputTokens: z.number().int().positive().optional(),
++  inputModalities: z.array(z.string()).optional(),
++  outputModalities: z.array(z.string()).optional(),
++  capabilities: z.array(z.string()).optional(),
++});
++
++export const ModelsDevLookupModelResponseSchema = z.object({
++  type: z.literal("models.dev.lookup_model.response"),
++  payload: z
++    .object({
++      requestId: z.string(),
++      found: z.boolean(),
++      modelId: z.string(),
++      matchedId: z.string().optional(),
++      name: z.string().optional(),
++      contextWindowMaxTokens: z.number().int().positive().optional(),
++      maxOutputTokens: z.number().int().positive().optional(),
++      providerId: z.string().optional(),
++      inputModalities: z.array(z.string()).optional(),
++      outputModalities: z.array(z.string()).optional(),
++      capabilities: z.array(z.string()).optional(),
++      candidates: z.array(ModelsDevLookupCandidateSchema).optional(),
++      error: z.string().nullable().optional(),
++    })
++    .passthrough(),
++});
++
+ export const DaemonGetStatusResponseSchema = z.object({
+   type: z.literal("daemon.get_status.response"),
+   payload: z
+@@ -6245,7 +6703,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   DiagnosticsResponseSchema,
+   GetDaemonConfigResponseMessageSchema,
+   SetDaemonConfigResponseMessageSchema,
+   MetadataCustomEndpointListModelsResponseSchema,
++  ModelsDevLookupModelResponseSchema,
+   ReadProjectConfigResponseMessageSchema,
+   WriteProjectConfigResponseMessageSchema,
+   SetAgentModeResponseMessageSchema,
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -115,7 +116,8 @@ import {
+ import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
+ import { buildAgentPrompt } from "./agent/prompt-attachments.js";
+ import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
+ import { listMetadataOpenAIModels } from "./agent/metadata-openai-client.js";
++import { lookupModelsDevModel } from "./models-dev/catalog.js";
+ import {
+   getAgentStreamEventTurnId,
+   type AgentPersistenceHandle,
+@@ -1375,6 +1467,77 @@ export class Session {
+     };
+   }
+ 
++  private async handleModelsDevLookupModelRequest(
++    msg: Extract<SessionInboundMessage, { type: "models.dev.lookup_model.request" }>,
++  ): Promise<void> {
++    const result = await lookupModelsDevModel(msg.modelId);
++    this.emit({
++      type: "models.dev.lookup_model.response",
++      payload: {
++        requestId: msg.requestId,
++        found: result.found,
++        modelId: result.query,
++        ...(result.found
++          ? {
++              matchedId: result.matchedId,
++              ...(result.name ? { name: result.name } : {}),
++              contextWindowMaxTokens: result.contextWindowMaxTokens,
++              ...(result.maxOutputTokens !== undefined
++                ? { maxOutputTokens: result.maxOutputTokens }
++                : {}),
++              providerId: result.providerId,
++              ...(result.inputModalities ? { inputModalities: result.inputModalities } : {}),
++              ...(result.outputModalities ? { outputModalities: result.outputModalities } : {}),
++              ...(result.capabilities ? { capabilities: result.capabilities } : {}),
++              candidates: result.candidates,
++              error: null,
++            }
++          : {
++              error: result.error ?? null,
++            }),
++      },
++    });
++  }
++
++  private async handleMetadataCustomEndpointListModelsRequest(
++    msg: Extract<
++      SessionInboundMessage,
++      { type: "metadataGeneration.customEndpoint.listModels.request" }
++    >,
++  ): Promise<void> {
++    const saved = this.daemonConfigStore.get().metadataGeneration.customEndpoint;
++    const baseUrl = (msg.baseUrl ?? saved?.baseUrl ?? "").trim();
++    const apiKey = (msg.apiKey ?? saved?.apiKey ?? "").trim();
++    if (!baseUrl) {
++      this.emit({
++        type: "metadataGeneration.customEndpoint.listModels.response",
++        payload: {
++          requestId: msg.requestId,
++          models: [],
++          error: {
++            code: "missing_base_url",
++            message: "Base URL is required",
++          },
++        },
++      });
++      return;
++    }
++
++    const result = await listMetadataOpenAIModels({
++      baseUrl,
++      ...(apiKey ? { apiKey } : {}),
++    });
++
++    this.emit({
++      type: "metadataGeneration.customEndpoint.listModels.response",
++      payload: {
++        requestId: msg.requestId,
++        models: result.models,
++        error: result.error,
++      },
++    });
++  }
++
+   public getRuntimeMetrics(): SessionRuntimeMetrics {
+     const terminalMetrics = this.terminalController.getMetrics();
+     const workspaceGitMetrics = this.workspaceGitObserver.getMetrics();
+@@ -2308,8 +2532,10 @@ export class Session {
+           },
+         });
+         return undefined;
+       case "metadataGeneration.customEndpoint.listModels.request":
+         return this.handleMetadataCustomEndpointListModelsRequest(msg);
++      case "models.dev.lookup_model.request":
++        return this.handleModelsDevLookupModelRequest(msg);
+       case "read_project_config_request":
+         return this.projectConfigSession.handleReadProjectConfigRequest(msg);
+       case "write_project_config_request":

@@ -1,9 +1,11 @@
 Subject: persist metadata custom endpoint without writing empty default
 Decision: persisted-config keeps metadataGeneration.customEndpoint; daemon-config-store must not persist the default-empty object or a sync/restart wipes a configured URL
 Verify: npx vitest run packages/server/src/server/persisted-config.test.ts packages/server/src/server/daemon-config-store.test.ts --bail=1
-Files: packages/server/src/server/persisted-config.ts
-Files: packages/server/src/server/daemon-config-store.ts
 Files: packages/server/src/server/config.ts
+Files: packages/server/src/server/daemon-config-store.ts
+Files: packages/server/src/server/persisted-config.ts
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/session.ts
 
 diff --git a/packages/server/src/server/config.ts b/packages/server/src/server/config.ts
 index 7ed5f1651..98c2707b0 100644
@@ -300,3 +302,216 @@ index 1cdaf209d..6f1fbc39a 100644
          auth: DaemonAuthSchema.optional(),
        })
        .strict()
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -117,9 +144,24 @@ const MutableStructuredGenerationProviderSchema = z
+   })
+   .passthrough();
+ 
++const MetadataCustomEndpointSchema = z
++  .object({
++    enabled: z.boolean().default(false),
++    baseUrl: z.string().default(""),
++    apiKey: z.string().default(""),
++    model: z.string().default(""),
++  })
++  .passthrough();
++
+ const MutableMetadataGenerationConfigSchema = z
+   .object({
+     providers: z.array(MutableStructuredGenerationProviderSchema).default([]),
++    customEndpoint: MetadataCustomEndpointSchema.default({
++      enabled: false,
++      baseUrl: "",
++      apiKey: "",
++      model: "",
++    }),
+   })
+   .passthrough();
+ 
+@@ -223,7 +265,15 @@ export const MutableDaemonConfigSchema = z
+     catalogRefreshTimeoutMs: z.number().int().positive().optional(),
+     browserTools: MutableBrowserToolsConfigSchema.default({ enabled: false }),
+     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
+-    metadataGeneration: MutableMetadataGenerationConfigSchema.default({ providers: [] }),
++    metadataGeneration: MutableMetadataGenerationConfigSchema.default({
++      providers: [],
++      customEndpoint: {
++        enabled: false,
++        baseUrl: "",
++        apiKey: "",
++        model: "",
++      },
++    }),
+     autoArchiveAfterMerge: z.boolean().default(false),
+     enableTerminalAgentHooks: z.boolean().default(false),
+     appendSystemPrompt: z.string().default(""),
+@@ -235,6 +285,24 @@ export const MutableDaemonConfigSchema = z
+   })
+   .passthrough();
+ 
++// Patch schemas must not re-apply .default() for omitted keys — otherwise
++// deepMerge would overwrite live config with empty defaults on partial patches.
++const MetadataCustomEndpointPatchSchema = z
++  .object({
++    enabled: z.boolean().optional(),
++    baseUrl: z.string().optional(),
++    apiKey: z.string().optional(),
++    model: z.string().optional(),
++  })
++  .passthrough();
++
++const MutableMetadataGenerationConfigPatchSchema = z
++  .object({
++    providers: z.array(MutableStructuredGenerationProviderSchema).optional(),
++    customEndpoint: MetadataCustomEndpointPatchSchema.optional(),
++  })
++  .passthrough();
++
+ export const MutableDaemonConfigPatchSchema = z
+   .object({
+     relay: MutableRelayConfigSchema.partial().optional(),
+@@ -1513,12 +1595,19 @@ export const SetDaemonConfigRequestMessageSchema = z.object({
+   config: MutableDaemonConfigPatchSchema,
+ });
+ 
++export const MetadataCustomEndpointListModelsRequestSchema = z.object({
++  type: z.literal("metadataGeneration.customEndpoint.listModels.request"),
++  requestId: z.string(),
++  baseUrl: z.string().optional(),
++  apiKey: z.string().optional(),
++});
++
+ export const ModelsDevLookupModelRequestSchema = z.object({
+   type: z.literal("models.dev.lookup_model.request"),
+   requestId: z.string(),
+   modelId: z.string(),
+ });
+ 
+ export const ReadProjectConfigRequestMessageSchema = z.object({
+   type: z.literal("read_project_config_request"),
+   requestId: z.string(),
+@@ -2995,7 +3155,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   AgentSkillsImportLegacySelectionRequestSchema,
+   GetDaemonConfigRequestMessageSchema,
+   SetDaemonConfigRequestMessageSchema,
++  MetadataCustomEndpointListModelsRequestSchema,
+   ModelsDevLookupModelRequestSchema,
+   ReadProjectConfigRequestMessageSchema,
+   WriteProjectConfigRequestMessageSchema,
+   DictationStreamStartMessageSchema,
+@@ -3407,8 +3625,10 @@ export const ServerInfoStatusPayloadSchema = z
+         stableProjectIdentity: z.boolean().optional(),
+         // COMPAT(workspaceScriptManagement): added in v0.1.105, remove gate after 2027-01-10.
+         workspaceScriptManagement: z.boolean().optional(),
++        // COMPAT(metadataCustomEndpoint): added 2026-07-28, remove after 2027-01-28 once daemon floor advertises it.
++        metadataCustomEndpoint: z.boolean().optional(),
+         // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
+         modelsDevLookup: z.boolean().optional(),
+         // COMPAT(projectCustomIcon): added in v0.2.0, remove after 2027-01-20.
+         projectCustomIcon: z.boolean().optional(),
+         // COMPAT(fsEntryOps): added in v0.3.0, remove gate after 2027-02-08.
+@@ -4492,38 +4865,59 @@ export const GetDaemonConfigResponseMessageSchema = z.object({
+     .passthrough(),
+ });
+ 
++export const MetadataCustomEndpointListModelsResponseSchema = z.object({
++  type: z.literal("metadataGeneration.customEndpoint.listModels.response"),
++  payload: z
++    .object({
++      requestId: z.string(),
++      models: z.array(
++        z.object({
++          id: z.string(),
++          name: z.string().optional(),
++        }),
++      ),
++      error: z
++        .object({
++          code: z.string(),
++          message: z.string(),
++        })
++        .nullable(),
++    })
++    .passthrough(),
++});
++
+ const ModelsDevLookupCandidateSchema = z.object({
+   providerId: z.string(),
+   matchedId: z.string(),
+   name: z.string().optional(),
+   contextWindowMaxTokens: z.number().int().positive(),
+   maxOutputTokens: z.number().int().positive().optional(),
+   inputModalities: z.array(z.string()).optional(),
+   outputModalities: z.array(z.string()).optional(),
+   capabilities: z.array(z.string()).optional(),
+ });
+ 
+ export const ModelsDevLookupModelResponseSchema = z.object({
+   type: z.literal("models.dev.lookup_model.response"),
+   payload: z
+     .object({
+       requestId: z.string(),
+       found: z.boolean(),
+       modelId: z.string(),
+       matchedId: z.string().optional(),
+       name: z.string().optional(),
+       contextWindowMaxTokens: z.number().int().positive().optional(),
+       maxOutputTokens: z.number().int().positive().optional(),
+       providerId: z.string().optional(),
+       inputModalities: z.array(z.string()).optional(),
+       outputModalities: z.array(z.string()).optional(),
+       capabilities: z.array(z.string()).optional(),
+       candidates: z.array(ModelsDevLookupCandidateSchema).optional(),
+       error: z.string().nullable().optional(),
+     })
+     .passthrough(),
+ });
+ 
+ export const DaemonGetStatusResponseSchema = z.object({
+   type: z.literal("daemon.get_status.response"),
+   payload: z
+@@ -6245,7 +6703,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   DiagnosticsResponseSchema,
+   GetDaemonConfigResponseMessageSchema,
+   SetDaemonConfigResponseMessageSchema,
++  MetadataCustomEndpointListModelsResponseSchema,
+   ModelsDevLookupModelResponseSchema,
+   ReadProjectConfigResponseMessageSchema,
+   WriteProjectConfigResponseMessageSchema,
+   SetAgentModeResponseMessageSchema,
+@@ -244,7 +312,7 @@ export const MutableDaemonConfigPatchSchema = z
+       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
+       .optional(),
+     removeProviders: z.array(z.string().min(1)).optional(),
+-    metadataGeneration: MutableMetadataGenerationConfigSchema.partial().optional(),
++    metadataGeneration: MutableMetadataGenerationConfigPatchSchema.optional(),
+     autoArchiveAfterMerge: z.boolean().optional(),
+     enableTerminalAgentHooks: z.boolean().optional(),
+     appendSystemPrompt: z.string().optional(),
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -115,7 +116,8 @@ import {
+ import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
+ import { buildAgentPrompt } from "./agent/prompt-attachments.js";
+ import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
++import { listMetadataOpenAIModels } from "./agent/metadata-openai-client.js";
+ import { lookupModelsDevModel } from "./models-dev/catalog.js";
+ import {
+   getAgentStreamEventTurnId,
+   type AgentPersistenceHandle,
+@@ -2308,8 +2532,10 @@ export class Session {
+           },
+         });
+         return undefined;
++      case "metadataGeneration.customEndpoint.listModels.request":
++        return this.handleMetadataCustomEndpointListModelsRequest(msg);
+       case "models.dev.lookup_model.request":
+         return this.handleModelsDevLookupModelRequest(msg);
+       case "read_project_config_request":
+         return this.projectConfigSession.handleReadProjectConfigRequest(msg);
+       case "write_project_config_request":

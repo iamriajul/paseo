@@ -3,6 +3,7 @@ Decision: panel-manifest and register-panels keep the codeServer tab so a worksp
 Verify: npx vitest run packages/app/src/panels/panel-manifest.test.ts packages/app/src/workspace-tabs/launcher/internal/catalog.test.ts --bail=1
 Files: packages/app/src/panels/panel-manifest.ts
 Files: packages/app/src/panels/register-panels.ts
+Files: packages/protocol/src/messages.ts
 
 diff --git a/packages/app/src/panels/panel-manifest.ts b/packages/app/src/panels/panel-manifest.ts
 index c608340d0..74c0bfc9e 100644
@@ -70,3 +71,33 @@ index 1e91dc040..27af7cf98 100644
    registerPanel(filePanelRegistration);
    registerPanel(filesPanelRegistration);
    registerPanel(pullRequestPanelRegistration);
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -3291,14 +3472,25 @@ export const ServerInfoStatusPayloadSchema = z
+     // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
+     desktopManaged: z.boolean().optional(),
+     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
++    urlOpeners: z
++      .object({
++        vscodeProxyUri: z.string().min(1).optional(),
++        codeServer: z
++          .object({
++            localhostUrl: z.string().min(1).optional(),
++            externalUrl: z.string().min(1).optional(),
++          })
++          .optional(),
++      })
++      .optional(),
+     // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
+     // Presence of a valid urlTemplate IS the capability; there is deliberately no
+     // features.browserPreview flag, so the two can never disagree.
+     browserPreview: z
+       .object({
+         urlTemplate: z.string().min(1).optional(),
+       })
+       .optional(),
+     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
+     features: z
+       .object({

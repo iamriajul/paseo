@@ -1,18 +1,20 @@
 Subject: per-browser partitions, tcpTunnel, and localhost links open in workspace Browser
 Decision: each Browser tab uses persist:paseo-browser-${browserId}; daemon advertises tcpTunnel and mounts browser-preview before the service proxy; assistant localhost links open in that workspace Browser instead of the client machine
 Verify: npx vitest run packages/desktop/src/features/browser-profile.test.ts packages/desktop/src/features/browser-webviews/index.test.ts packages/app/src/utils/localhost-url.test.ts --bail=1
+Files: packages/app/src/assistant-file-links/provider.tsx
+Files: packages/app/src/assistant-file-links/use-file-link.ts
+Files: packages/app/src/desktop/browser/resident-webviews.ts
 Files: packages/desktop/src/features/browser-profile.ts
 Files: packages/desktop/src/features/browser-webviews/index.ts
 Files: packages/desktop/src/features/browser-webviews/registry.ts
-Files: packages/app/src/desktop/browser/resident-webviews.ts
 Files: packages/desktop/src/main.ts
 Files: packages/desktop/src/preload.ts
 Files: packages/protocol/src/binary-frames/demux.ts
 Files: packages/protocol/src/binary-frames/index.ts
-Files: packages/server/src/server/websocket-server.ts
 Files: packages/server/src/server/bootstrap.ts
-Files: packages/app/src/assistant-file-links/provider.tsx
-Files: packages/app/src/assistant-file-links/use-file-link.ts
+Files: packages/server/src/server/websocket-server.ts
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/session.ts
 
 diff --git a/packages/app/src/assistant-file-links/provider.tsx b/packages/app/src/assistant-file-links/provider.tsx
 index 77d0b2e03..16f714f46 100644
@@ -1026,3 +1028,121 @@ index cad568d33..0960b0e8a 100644
          // COMPAT(commitBaseClassification): added in v0.2.0, remove gate after 2027-01-23.
          commitBaseClassification: true,
          // COMPAT(providerRemoval): added in v0.1.105, drop the gate when floor >= v0.1.105.
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -3291,17 +3472,25 @@ export const ServerInfoStatusPayloadSchema = z
+     // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
+     desktopManaged: z.boolean().optional(),
+     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
+     urlOpeners: z
+       .object({
+         vscodeProxyUri: z.string().min(1).optional(),
+         codeServer: z
+           .object({
+             localhostUrl: z.string().min(1).optional(),
+             externalUrl: z.string().min(1).optional(),
+           })
+           .optional(),
+       })
+       .optional(),
++    // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
++    // Presence of a valid urlTemplate IS the capability; there is deliberately no
++    // features.browserPreview flag, so the two can never disagree.
++    browserPreview: z
++      .object({
++        urlTemplate: z.string().min(1).optional(),
++      })
++      .optional(),
+     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
+     features: z
+       .object({
+@@ -3369,22 +3573,24 @@ export const ServerInfoStatusPayloadSchema = z
+         daemonSelfUpdate: z.boolean().optional(),
+         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
+         agentForkContext: z.boolean().optional(),
+         // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
+         taskBacklog: z.boolean().optional(),
+         // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
+         taskBacklogListAll: z.boolean().optional(),
+         // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
+         uiState: z.boolean().optional(),
+         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
+         agentNativeFork: z.boolean().optional(),
++        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
++        tcpTunnel: z.boolean().optional(),
+         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
+         agentForkContextCursor: z.boolean().optional(),
+         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
+         providerSubagents: z.boolean().optional(),
+         // COMPAT(backgroundTasks): added in v0.2.x, remove gate after 2027-02-01.
+         backgroundTasks: z.boolean().optional(),
+         // COMPAT(providerHeartbeats): added in v0.2.x, remove gate after 2027-02-02.
+         providerHeartbeats: z.boolean().optional(),
+         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
+         workspacePinning: z.boolean().optional(),
+         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -58,6 +58,7 @@ import {
+   createWorkspaceScriptsService,
+   type WorkspaceScriptsService,
+ } from "./session/workspace-scripts/workspace-scripts-service.js";
++import { TcpTunnelForwarder } from "./tcp-tunnel-forwarder.js";
+ import type { DaemonConfigStore } from "./daemon-config-store.js";
+ import { loadPersistedConfig } from "./persisted-config.js";
+ import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
+@@ -728,17 +792,18 @@ export class Session {
+   private readonly voiceSession: VoiceSession;
+   private readonly checkoutSession: CheckoutSession;
+   private readonly scheduleSession: ScheduleSession;
+   private readonly taskSession: TaskSession;
+   private readonly uiStateSession: UiStateSession;
+   private readonly providerCatalogSession: ProviderCatalogSession;
+   private readonly workspaceFilesSession: WorkspaceFilesSession;
++  private readonly tcpTunnelForwarder: TcpTunnelForwarder;
+   private readonly agentConfigSession: AgentConfigSession;
+   private readonly projectConfigSession: ProjectConfigSession;
+   private readonly daemonSession: DaemonSession;
+   private readonly hubExecutionController: HubExecutionController | null;
+   private readonly workspaceScripts: WorkspaceScriptsService;
+   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
+   private readonly backgroundTaskOutputSubscriptions = createBackgroundTaskOutputSubscriptions();
+ 
+   constructor(options: SessionOptions) {
+     const {
+@@ -828,6 +899,10 @@ export class Session {
+       paseoHome,
+       logger: this.sessionLogger,
+     });
++    this.tcpTunnelForwarder = new TcpTunnelForwarder({
++      emitBinary: (frame) => this.emitBinary(frame),
++      logger: this.sessionLogger,
++    });
+     this.agentManager = agentManager;
+     this.agentStorage = agentStorage;
+     this.projectRegistry = projectRegistry;
+@@ -2592,6 +2866,10 @@ export class Session {
+       await this.workspaceFilesSession.handleFileTransferFrame(binaryFrame.frame);
+       return;
+     }
++    if (binaryFrame.kind === "tcp_tunnel") {
++      this.tcpTunnelForwarder.handleFrame(binaryFrame.frame);
++      return;
++    }
+     this.terminalController.handleBinaryFrame(binaryFrame.frame);
+   }
+ 
+@@ -7439,8 +8045,9 @@ export class Session {
+    */
+   public async cleanup(): Promise<void> {
+     this.sessionLogger.trace({}, "agent.session.lifecycle.cleanup");
++    this.tcpTunnelForwarder.dispose();
+     this.isCleanedUp = true;
+     this.backgroundTaskOutputSubscriptions.clearAll();
+ 
+     if (this.unsubscribeAgentEvents) {
+       this.unsubscribeAgentEvents();

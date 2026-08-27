@@ -1,8 +1,10 @@
 Subject: composer draft hydrates from host ui_state
 Decision: input-draft keeps host ui_state sync so composer text survives switching devices
-Verify: npx vitest run packages/app/src/composer/draft/input-draft.test.ts packages/app/src/ui-state/composer-host-sync.test.ts --bail=1
+Verify: npx vitest run packages/app/src/composer/draft/input-draft.test.ts packages/app/src/ui-state/composer-host-sync.test.ts packages/protocol/src/ui-state/schemas.test.ts --bail=1
 Files: packages/app/src/composer/draft/input-draft.ts
 Files: packages/app/src/review/surface.tsx
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/session.ts
 
 diff --git a/packages/app/src/composer/draft/input-draft.ts b/packages/app/src/composer/draft/input-draft.ts
 index 78587c95e..a51995d8b 100644
@@ -249,3 +251,232 @@ index 43b6af914..2210d0774 100644
    );
  
    return useMemo<InlineReviewActions>(
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -3123,12 +3294,16 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   ScheduleDeleteRequestSchema,
+   ScheduleRunOnceRequestSchema,
+   ScheduleUpdateRequestSchema,
+   TaskListRequestSchema,
+   TaskListAllRequestSchema,
+   TaskCreateRequestSchema,
+   TaskUpdateRequestSchema,
+   TaskDeleteRequestSchema,
+   TaskAttachmentDownloadTokenRequestSchema,
++  UiStateGetRequestMessageSchema,
++  UiStateUpsertRequestMessageSchema,
++  UiStateClearRequestMessageSchema,
++  UiStateListRequestMessageSchema,
+   LoopRunRequestSchema,
+   LoopListRequestSchema,
+   LoopInspectRequestSchema,
+@@ -3369,22 +3573,24 @@ export const ServerInfoStatusPayloadSchema = z
+         daemonSelfUpdate: z.boolean().optional(),
+         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
+         agentForkContext: z.boolean().optional(),
+         // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
+         taskBacklog: z.boolean().optional(),
+         // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
+         taskBacklogListAll: z.boolean().optional(),
++        // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
++        uiState: z.boolean().optional(),
+         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
+         agentNativeFork: z.boolean().optional(),
+         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
+         tcpTunnel: z.boolean().optional(),
+         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
+         agentForkContextCursor: z.boolean().optional(),
+         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
+         providerSubagents: z.boolean().optional(),
+         // COMPAT(backgroundTasks): added in v0.2.x, remove gate after 2027-02-01.
+         backgroundTasks: z.boolean().optional(),
+         // COMPAT(providerHeartbeats): added in v0.2.x, remove gate after 2027-02-02.
+         providerHeartbeats: z.boolean().optional(),
+         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
+         workspacePinning: z.boolean().optional(),
+         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
+@@ -6350,12 +6811,17 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   ScheduleDeleteResponseSchema,
+   ScheduleRunOnceResponseSchema,
+   ScheduleUpdateResponseSchema,
+   TaskListResponseSchema,
+   TaskListAllResponseSchema,
+   TaskCreateResponseSchema,
+   TaskUpdateResponseSchema,
+   TaskDeleteResponseSchema,
+   TaskAttachmentDownloadTokenResponseSchema,
++  UiStateGetResponseMessageSchema,
++  UiStateUpsertResponseMessageSchema,
++  UiStateClearResponseMessageSchema,
++  UiStateListResponseMessageSchema,
++  UiStateUpdatedMessageSchema,
+   LoopRunResponseSchema,
+   LoopListResponseSchema,
+   LoopInspectResponseSchema,
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -167,8 +170,14 @@ import {
+ import { ScheduleSession } from "./session/schedule/schedule-session.js";
+ import { ProviderCatalogSession } from "./session/provider/provider-catalog-session.js";
+ import { WorkspaceFilesSession } from "./session/files/workspace-files-session.js";
+ import { TaskSession } from "./tasks/task-session.js";
+ import { TaskStore } from "./tasks/task-store.js";
++import { UiStateSession } from "./ui-state/session.js";
++import { UiStateStore } from "./ui-state/store.js";
++
++function resolveUiStateStore(store: UiStateStore | undefined, paseoHome: string): UiStateStore {
++  return store ?? new UiStateStore(paseoHome);
++}
+ import { AgentConfigSession } from "./session/agent-config/agent-config-session.js";
+ import { ProjectConfigSession } from "./session/project-config/project-config-session.js";
+ import { DaemonSession, type DaemonRuntimeConfig } from "./session/daemon/daemon-session.js";
+@@ -457,8 +516,11 @@ export interface SessionOptions {
+   workspaceLabelService?: WorkspaceLabelService;
+   filesystem?: SessionFileSystem;
+   scheduleService: ScheduleService;
+   taskStore: TaskStore;
+   /** Defaults to a store under `paseoHome` when omitted (tests / older constructors). */
++  uiStateStore?: UiStateStore;
++  /** Broadcast a message to all other trusted sessions (not this one). */
++  broadcastUiState?: (message: SessionOutboundMessage, exceptClientId: string) => void;
+   checkoutDiffManager: CheckoutDiffManager;
+   github?: ForgeService;
+   createAgentMcpTransport?: AgentMcpTransportFactory;
+@@ -639,7 +703,7 @@ function workspaceLabelErrorCode(error: unknown): string {
+ }
+ 
+ export class Session {
+-  private readonly clientId: string;
++  readonly clientId: string;
+   private scopes: readonly string[];
+   private appVersion: string | null;
+   private clientCapabilities: ReadonlySet<ClientCapability>;
+@@ -728,17 +792,18 @@ export class Session {
+   private readonly voiceSession: VoiceSession;
+   private readonly checkoutSession: CheckoutSession;
+   private readonly scheduleSession: ScheduleSession;
+   private readonly taskSession: TaskSession;
++  private readonly uiStateSession: UiStateSession;
+   private readonly providerCatalogSession: ProviderCatalogSession;
+   private readonly workspaceFilesSession: WorkspaceFilesSession;
+   private readonly tcpTunnelForwarder: TcpTunnelForwarder;
+   private readonly agentConfigSession: AgentConfigSession;
+   private readonly projectConfigSession: ProjectConfigSession;
+   private readonly daemonSession: DaemonSession;
+   private readonly hubExecutionController: HubExecutionController | null;
+   private readonly workspaceScripts: WorkspaceScriptsService;
+   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
+   private readonly backgroundTaskOutputSubscriptions = createBackgroundTaskOutputSubscriptions();
+ 
+   constructor(options: SessionOptions) {
+     const {
+@@ -763,7 +831,9 @@ export class Session {
+       workspaceLabelService,
+       filesystem,
+       scheduleService,
+       taskStore,
++      uiStateStore,
++      broadcastUiState,
+       checkoutDiffManager,
+       github,
+       renameCurrentBranch,
+@@ -901,14 +976,23 @@ export class Session {
+       scheduleService,
+       logger: this.sessionLogger,
+     });
+     this.taskSession = new TaskSession({
+       host: {
+         emit: (msg) => this.emit(msg),
+       },
+       store: taskStore,
+       projectRegistry: this.projectRegistry,
+       downloadTokenStore,
+     });
++    this.uiStateSession = new UiStateSession({
++      host: {
++        emit: (msg) => this.emit(msg),
++        broadcast: (msg) => {
++          broadcastUiState?.(msg, this.clientId);
++        },
++      },
++      store: resolveUiStateStore(uiStateStore, paseoHome),
++    });
+     this.providerCatalogSession = new ProviderCatalogSession({
+       host: {
+         emit: (msg) => this.emit(msg),
+@@ -1915,7 +2123,7 @@ export class Session {
+       this.dispatchAgentConfigMessage(msg) ??
+       this.dispatchCheckoutMessage(msg) ??
+       this.dispatchWorkspaceRecoveryMessage(msg) ??
+-      this.dispatchWorkspaceLabelMessage(msg) ??
++      this.dispatchTaskUiStateAndLabelMessage(msg) ??
+       this.dispatchWorkspaceAndProjectMessage(msg) ??
+       this.dispatchWorkspaceFileMessage(msg, source) ??
+       this.dispatchProviderMessage(msg) ??
+@@ -2484,6 +2712,50 @@ export class Session {
+     }
+   }
+ 
++  private dispatchTaskUiStateAndLabelMessage(
++    msg: SessionInboundMessage,
++  ): Promise<void> | undefined {
++    return (
++      this.dispatchTaskMessage(msg) ??
++      this.dispatchUiStateMessage(msg) ??
++      this.dispatchWorkspaceLabelMessage(msg)
++    );
++  }
++
++  private dispatchTaskMessage(msg: SessionInboundMessage): Promise<void> | undefined {
++    switch (msg.type) {
++      case "tasks.list.request":
++        return this.taskSession.handleList(msg);
++      case "tasks.list_all.request":
++        return this.taskSession.handleListAll(msg);
++      case "tasks.create.request":
++        return this.taskSession.handleCreate(msg);
++      case "tasks.update.request":
++        return this.taskSession.handleUpdate(msg);
++      case "tasks.delete.request":
++        return this.taskSession.handleDelete(msg);
++      case "tasks.attachment.download_token.request":
++        return this.taskSession.handleAttachmentDownloadToken(msg);
++      default:
++        return undefined;
++    }
++  }
++
++  private dispatchUiStateMessage(msg: SessionInboundMessage): Promise<void> | undefined {
++    switch (msg.type) {
++      case "ui_state.get.request":
++        return this.uiStateSession.handleGet(msg);
++      case "ui_state.upsert.request":
++        return this.uiStateSession.handleUpsert(msg);
++      case "ui_state.clear.request":
++        return this.uiStateSession.handleClear(msg);
++      case "ui_state.list.request":
++        return this.uiStateSession.handleList(msg);
++      default:
++        return undefined;
++    }
++  }
++
+   private dispatchWorkspaceRecoveryMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+     switch (msg.type) {
+       case "workspace.recovery.inspect.request":
+@@ -7388,6 +7989,11 @@ export class Session {
+   /**
+    * Emit a message to the client
+    */
++  /** Public emit for server-side fan-out (e.g. ui_state.updated). */
++  emitOutbound(msg: SessionOutboundMessage): void {
++    this.emit(msg);
++  }
++
+   private emit(msg: SessionOutboundMessage): void {
+     if (msg.type !== "rpc_error" && !isSessionRpcAllowed(this.scopes, msg.type)) {
+       return;

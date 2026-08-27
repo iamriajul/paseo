@@ -69,6 +69,14 @@ describe("containsUnsafeMermaidSource", () => {
     );
     expect(containsUnsafeMermaidSource("flowchart TD\n  A@{ shape: rect }")).toBe(true);
   });
+
+  it("allows identifiers ending in url followed by parentheses", () => {
+    expect(containsUnsafeMermaidSource("Go->>AP: POST waitpoint resumeUrl (output body)")).toBe(
+      false,
+    );
+    expect(containsUnsafeMermaidSource("A->>B: fetchUrl (params)")).toBe(false);
+    expect(containsUnsafeMermaidSource("A->>B: avatar_url (string)")).toBe(false);
+  });
 });
 
 describe("neutralizeDisallowedTags", () => {

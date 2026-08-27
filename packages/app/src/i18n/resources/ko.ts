@@ -1196,6 +1196,8 @@ export const ko: TranslationResources = {
         copyPath: "경로 복사",
         copyBranchName: "브랜치 이름 복사",
         rename: "워크스페이스 이름 변경",
+        markAsRead: "읽은 상태로 표시",
+        markAsUnread: "읽지 않은 상태로 표시",
         pin: "상단에 고정",
         unpin: "고정 해제",
         archive: "보관",

@@ -37,7 +37,7 @@ index 5083d6391..f442c90fb 100644
        if (isRunning) {
          setActionAgent(agent);
 diff --git a/packages/app/src/components/sidebar/sidebar-workspace-menu.tsx b/packages/app/src/components/sidebar/sidebar-workspace-menu.tsx
-index 66df32bdb..b1b5093ce 100644
+index fbcdb4ee9..21385cad8 100644
 --- a/packages/app/src/components/sidebar/sidebar-workspace-menu.tsx
 +++ b/packages/app/src/components/sidebar/sidebar-workspace-menu.tsx
 @@ -1,4 +1,10 @@
@@ -52,16 +52,16 @@ index 66df32bdb..b1b5093ce 100644
  import { useTranslation } from "react-i18next";
  import { type PressableStateCallbackType } from "react-native";
  import { StyleSheet, withUnistyles } from "react-native-unistyles";
-@@ -6,6 +12,8 @@ import {
-   Archive,
+@@ -7,6 +13,8 @@ import {
    CircleCheck,
+   CircleDot,
    Copy,
 +  Lock,
 +  LockOpen,
    MoreVertical,
    Pencil,
    Pin,
-@@ -32,6 +40,9 @@ import {
+@@ -33,6 +41,9 @@ import {
    ContextMenuTrigger,
  } from "@/components/ui/context-menu";
  import { Shortcut } from "@/components/ui/shortcut";
@@ -71,8 +71,8 @@ index 66df32bdb..b1b5093ce 100644
  import { OpenInFileManagerMenuItem } from "@/workspace/open-in-file-manager/menu-item";
  import { resolveSidebarWorkspaceAccessibilityLabel } from "@/components/sidebar/sidebar-workspace-title";
  import {
-@@ -56,6 +67,8 @@ const ThemedPencil = withUnistyles(Pencil);
- const ThemedCircleCheck = withUnistyles(CircleCheck);
+@@ -58,6 +69,8 @@ const ThemedCircleCheck = withUnistyles(CircleCheck);
+ const ThemedCircleDot = withUnistyles(CircleDot);
  const ThemedPin = withUnistyles(Pin);
  const ThemedPinOff = withUnistyles(PinOff);
 +const ThemedLock = withUnistyles(Lock);
@@ -80,7 +80,7 @@ index 66df32bdb..b1b5093ce 100644
  const ThemedTag = withUnistyles(Tag);
  
  const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
-@@ -66,6 +79,8 @@ const markAsReadLeadingIcon = (
+@@ -71,6 +84,8 @@ const markAsUnreadLeadingIcon = (
  const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
  const pinLeadingIcon = <ThemedPin size={14} uniProps={foregroundMutedColorMapping} />;
  const unpinLeadingIcon = <ThemedPinOff size={14} uniProps={foregroundMutedColorMapping} />;
@@ -89,7 +89,7 @@ index 66df32bdb..b1b5093ce 100644
  
  function renderTriggerIcon({ hovered }: { hovered?: boolean }) {
    return (
-@@ -142,6 +157,23 @@ function SidebarWorkspaceMenuItems({
+@@ -149,6 +164,23 @@ function SidebarWorkspaceMenuItems({
    openInFileManagerPath,
  }: SidebarWorkspaceMenuItemsProps & { surface: MenuSurface }): ReactNode {
    const { t } = useTranslation();
@@ -113,7 +113,7 @@ index 66df32bdb..b1b5093ce 100644
    const archiveTrailing = useMemo(
      () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
      [archiveShortcutKeys],
-@@ -203,6 +235,14 @@ function SidebarWorkspaceMenuItems({
+@@ -220,6 +252,14 @@ function SidebarWorkspaceMenuItems({
            {isPinned ? t("sidebar.workspace.actions.unpin") : t("sidebar.workspace.actions.pin")}
          </WorkspaceMenuItem>
        ) : null}

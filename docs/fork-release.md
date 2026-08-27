@@ -183,7 +183,7 @@ Generic `vX.Y.Z` fork tags skip the hosted web app deploy workflow. That avoids 
 
 Keep a long-lived branch for your fork changes, then regularly merge or rebase upstream `main` into it. After resolving conflicts and pushing the branch, run the desktop and Docker workflows again with a higher version.
 
-**Sync agents:** load `.claude/skills/fork-upstream-sync/SKILL.md`. Decisions that edit official files live in `patches/fork/` (not a feature wiki). After the merge:
+**Sync agents:** load `.claude/skills/fork-upstream-sync/SKILL.md`. Decisions that edit official files live in `patches/fork/` (not a feature wiki). Name series files `<surface>-<feature>.patch`; qualify provider/surface when a bare noun is ambiguous (`claude-native-fork`, `codex-quota-reset`). After the merge:
 
 ```bash
 node scripts/fork-patches.mjs check

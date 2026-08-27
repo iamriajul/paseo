@@ -62,7 +62,7 @@ Verify: npx vitest run <file> --bail=1 -t "<test name>"
 Files: <path>
 ```
 
-3. Append the filename to `patches/fork/series`.
+3. Append the filename to `patches/fork/series`. Name it `<surface>-<feature>.patch`; qualify provider/surface when a bare noun is ambiguous (`claude-native-fork`, `codex-quota-reset`). Do not put the Decision in the filename.
 4. `node scripts/fork-patches.mjs check` must pass.
 
 If the change can live in a fork-owned file imported from one official hook, do that instead of a series entry.

@@ -1,17 +1,20 @@
 Subject: neutralize mermaid placeholder tags instead of rejecting the diagram
-Decision: neutralizeDisallowedTags replaces disallowed tag opens with U+2039 before containsUnsafeMermaidSource so prose like <canonical URL> does not discard the whole diagram; real tags still fail closed
-Verify: npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.test.ts --bail=1 -t "neutralizeDisallowedTags"
+Decision: neutralizeDisallowedTags replaces disallowed tag opens with U+2039 before containsUnsafeMermaidSource so prose like <canonical URL> does not discard the whole diagram; real tags still fail closed; url() check requires word boundary
+Verify: npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.test.ts --bail=1
 Files: packages/app/src/components/markdown/fence/mermaid/source-policy.ts
 Files: packages/app/src/components/markdown/fence/mermaid/use-render-model.ts
 
 diff --git a/packages/app/src/components/markdown/fence/mermaid/source-policy.ts b/packages/app/src/components/markdown/fence/mermaid/source-policy.ts
-index df6ad0312..be88038e8 100644
+index df6ad0312..c354f361b 100644
 --- a/packages/app/src/components/markdown/fence/mermaid/source-policy.ts
 +++ b/packages/app/src/components/markdown/fence/mermaid/source-policy.ts
-@@ -12,6 +12,21 @@
+@@ -10,7 +10,22 @@
+ // in generated labels and carry no resource-bearing attributes; all other
+ // tags (and entity-encoded text that could smuggle one) are rejected.
  const UNSAFE_MERMAID_SOURCE =
-   /@\s*\{|url\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
- 
+-  /@\s*\{|url\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
++  /@\s*\{|\burl\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
++
 +// A literal `<placeholder>` in prose (e.g. "<canonical URL>", "<name>") is byte-for-byte
 +// indistinguishable from a real tag by shape alone, so the check above can't tell them
 +// apart — it has to treat both as unsafe. Rather than discard the whole diagram over a
@@ -26,10 +29,9 @@ index df6ad0312..be88038e8 100644
 +export function neutralizeDisallowedTags(code: string): string {
 +  return code.replace(DISALLOWED_TAG_OPEN, "‹");
 +}
-+
+ 
  // Mermaid labels can contain escaped text. Decode the escape forms we care
  // about before running the denylist so disguised HTML still gets caught.
- // Invalid escape sequences fail closed and fall back to the source block.
 diff --git a/packages/app/src/components/markdown/fence/mermaid/use-render-model.ts b/packages/app/src/components/markdown/fence/mermaid/use-render-model.ts
 index cb35549b1..9d007580a 100644
 --- a/packages/app/src/components/markdown/fence/mermaid/use-render-model.ts

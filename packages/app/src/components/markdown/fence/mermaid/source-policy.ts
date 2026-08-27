@@ -10,7 +10,7 @@
 // in generated labels and carry no resource-bearing attributes; all other
 // tags (and entity-encoded text that could smuggle one) are rejected.
 const UNSAFE_MERMAID_SOURCE =
-  /@\s*\{|url\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
+  /@\s*\{|\burl\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
 
 // A literal `<placeholder>` in prose (e.g. "<canonical URL>", "<name>") is byte-for-byte
 // indistinguishable from a real tag by shape alone, so the check above can't tell them

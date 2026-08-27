@@ -1,0 +1,1732 @@
+Subject: session and protocol keep fork RPCs
+Decision: session.ts and messages.ts keep native_fork, provider_heartbeats, background_tasks, ui_state, tasks/backlog, tcp_tunnel, and metadata custom-endpoint RPCs; dropping this file set empties every remounted pill and MCP tool while typecheck still passes
+Verify: npx vitest run packages/protocol/src/messages.metadata-custom-endpoint.test.ts --bail=1
+Files: packages/server/src/server/session.ts
+Files: packages/protocol/src/messages.ts
+Files: packages/server/src/server/agent/tools/paseo-tools.ts
+
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index d7a0011dc..03275f193 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -42,6 +42,32 @@ import {
+   ScheduleRunOnceResponseSchema,
+   ScheduleUpdateResponseSchema,
+ } from "./schedule/rpc-schemas.js";
++import {
++  TaskAttachmentDownloadTokenRequestSchema,
++  TaskAttachmentDownloadTokenResponseSchema,
++  TaskCreateRequestSchema,
++  TaskCreateResponseSchema,
++  TaskDeleteRequestSchema,
++  TaskDeleteResponseSchema,
++  TaskListAllRequestSchema,
++  TaskListAllResponseSchema,
++  TaskListRequestSchema,
++  TaskListResponseSchema,
++  TaskUpdateRequestSchema,
++  TaskUpdateResponseSchema,
++  TaskUploadedFileAttachmentSchema,
++} from "./tasks/rpc-schemas.js";
++import {
++  UiStateClearRequestMessageSchema,
++  UiStateClearResponseMessageSchema,
++  UiStateGetRequestMessageSchema,
++  UiStateGetResponseMessageSchema,
++  UiStateListRequestMessageSchema,
++  UiStateListResponseMessageSchema,
++  UiStateUpdatedMessageSchema,
++  UiStateUpsertRequestMessageSchema,
++  UiStateUpsertResponseMessageSchema,
++} from "./ui-state/schemas.js";
+ import {
+   LoopRunRequestSchema,
+   LoopListRequestSchema,
+@@ -99,6 +125,7 @@ const MutableDaemonProviderModelSchema = z
+     label: z.string().min(1),
+     description: z.string().optional(),
+     isDefault: z.boolean().optional(),
++    contextWindowMaxTokens: z.number().int().positive().optional(),
+   })
+   .passthrough();
+ 
+@@ -117,9 +144,24 @@ const MutableStructuredGenerationProviderSchema = z
+   })
+   .passthrough();
+ 
++const MetadataCustomEndpointSchema = z
++  .object({
++    enabled: z.boolean().default(false),
++    baseUrl: z.string().default(""),
++    apiKey: z.string().default(""),
++    model: z.string().default(""),
++  })
++  .passthrough();
++
+ const MutableMetadataGenerationConfigSchema = z
+   .object({
+     providers: z.array(MutableStructuredGenerationProviderSchema).default([]),
++    customEndpoint: MetadataCustomEndpointSchema.default({
++      enabled: false,
++      baseUrl: "",
++      apiKey: "",
++      model: "",
++    }),
+   })
+   .passthrough();
+ 
+@@ -223,7 +265,15 @@ export const MutableDaemonConfigSchema = z
+     catalogRefreshTimeoutMs: z.number().int().positive().optional(),
+     browserTools: MutableBrowserToolsConfigSchema.default({ enabled: false }),
+     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
+-    metadataGeneration: MutableMetadataGenerationConfigSchema.default({ providers: [] }),
++    metadataGeneration: MutableMetadataGenerationConfigSchema.default({
++      providers: [],
++      customEndpoint: {
++        enabled: false,
++        baseUrl: "",
++        apiKey: "",
++        model: "",
++      },
++    }),
+     autoArchiveAfterMerge: z.boolean().default(false),
+     enableTerminalAgentHooks: z.boolean().default(false),
+     appendSystemPrompt: z.string().default(""),
+@@ -235,6 +285,24 @@ export const MutableDaemonConfigSchema = z
+   })
+   .passthrough();
+ 
++// Patch schemas must not re-apply .default() for omitted keys — otherwise
++// deepMerge would overwrite live config with empty defaults on partial patches.
++const MetadataCustomEndpointPatchSchema = z
++  .object({
++    enabled: z.boolean().optional(),
++    baseUrl: z.string().optional(),
++    apiKey: z.string().optional(),
++    model: z.string().optional(),
++  })
++  .passthrough();
++
++const MutableMetadataGenerationConfigPatchSchema = z
++  .object({
++    providers: z.array(MutableStructuredGenerationProviderSchema).optional(),
++    customEndpoint: MetadataCustomEndpointPatchSchema.optional(),
++  })
++  .passthrough();
++
+ export const MutableDaemonConfigPatchSchema = z
+   .object({
+     relay: MutableRelayConfigSchema.partial().optional(),
+@@ -244,7 +312,7 @@ export const MutableDaemonConfigPatchSchema = z
+       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
+       .optional(),
+     removeProviders: z.array(z.string().min(1)).optional(),
+-    metadataGeneration: MutableMetadataGenerationConfigSchema.partial().optional(),
++    metadataGeneration: MutableMetadataGenerationConfigPatchSchema.optional(),
+     autoArchiveAfterMerge: z.boolean().optional(),
+     enableTerminalAgentHooks: z.boolean().optional(),
+     appendSystemPrompt: z.string().optional(),
+@@ -341,6 +409,19 @@ const AgentModelDefinitionSchema = z.object({
+   isDefault: z.boolean().optional(),
+   metadata: z.record(z.string(), z.unknown()).optional(),
+   contextWindowMaxTokens: z.number().optional(),
++  maxOutputTokens: z.number().optional(),
++  needsCapacityConfig: z.boolean().optional(),
++  modelsDevCandidates: z
++    .array(
++      z.object({
++        providerId: z.string(),
++        matchedId: z.string(),
++        name: z.string().optional(),
++        contextWindowMaxTokens: z.number(),
++        maxOutputTokens: z.number().optional(),
++      }),
++    )
++    .optional(),
+   thinkingOptions: z.array(AgentSelectOptionSchema).optional(),
+   defaultThinkingOptionId: z.string().optional(),
+ }) satisfies z.ZodType<AgentModelDefinition>;
+@@ -397,6 +478,10 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+     supportsRewindFiles: z.boolean().optional().default(false),
+     // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
+     supportsRewindBoth: z.boolean().optional().default(false),
++    // COMPAT(supportsNativeFork): added in v0.2.916, drop when floor >= v0.2.916.
++    supportsNativeFork: z.boolean().optional().default(false),
++    // COMPAT(supportsSteer): added in v0.2.916, drop when floor >= v0.2.916.
++    supportsSteer: z.boolean().optional().default(false),
+   })
+   .catchall(z.boolean());
+ 
+@@ -1146,14 +1231,7 @@ export const ReviewAttachmentSchema = z.object({
+   comments: z.array(ReviewAttachmentCommentSchema),
+ });
+ 
+-export const UploadedFileAttachmentSchema = z.object({
+-  type: z.literal("uploaded_file"),
+-  id: z.string(),
+-  fileName: z.string(),
+-  mimeType: z.string(),
+-  size: z.number().int().nonnegative(),
+-  path: z.string(),
+-});
++export const UploadedFileAttachmentSchema = TaskUploadedFileAttachmentSchema;
+ 
+ export const AgentAttachmentSchema = z.discriminatedUnion("type", [
+   ForgeChangeRequestAttachmentSchema,
+@@ -1357,6 +1435,10 @@ export const SendAgentMessageRequestSchema = z.object({
+   activeTurnBehavior: ActiveTurnBehaviorSchema.optional(),
+   images: z.array(ImageAttachmentSchema).optional(),
+   attachments: AgentAttachmentsSchema,
++  // COMPAT(promptSteer): added in v0.2.916 — explicit mid-turn redirect (interrupt + send).
++  // When true, the agent must already be running; when false/omitted, existing replaceRunning
++  // send semantics are unchanged.
++  steer: z.boolean().optional().default(false),
+ });
+ 
+ export const WaitForFinishRequestSchema = z.object({
+@@ -1513,6 +1595,19 @@ export const SetDaemonConfigRequestMessageSchema = z.object({
+   config: MutableDaemonConfigPatchSchema,
+ });
+ 
++export const MetadataCustomEndpointListModelsRequestSchema = z.object({
++  type: z.literal("metadataGeneration.customEndpoint.listModels.request"),
++  requestId: z.string(),
++  baseUrl: z.string().optional(),
++  apiKey: z.string().optional(),
++});
++
++export const ModelsDevLookupModelRequestSchema = z.object({
++  type: z.literal("models.dev.lookup_model.request"),
++  requestId: z.string(),
++  modelId: z.string(),
++});
++
+ export const ReadProjectConfigRequestMessageSchema = z.object({
+   type: z.literal("read_project_config_request"),
+   requestId: z.string(),
+@@ -1654,6 +1749,13 @@ export const ProviderDiagnosticRequestMessageSchema = z.object({
+ export const ProviderUsageListRequestMessageSchema = z.object({
+   type: z.literal("provider.usage.list.request"),
+   requestId: z.string(),
++  forceRefresh: z.boolean().optional(),
++});
++
++export const ProviderUsageResetQuotaRequestMessageSchema = z.object({
++  type: z.literal("provider.usage.reset_quota.request"),
++  providerId: z.string(),
++  requestId: z.string(),
+ });
+ 
+ export const ResumeAgentRequestMessageSchema = z.object({
+@@ -1744,6 +1846,55 @@ export const ProviderSubagentTimelineRequestMessageSchema = z.object({
+   limit: z.number().int().nonnegative().optional(),
+ });
+ 
++export const BackgroundTasksListRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.list.request"),
++  parentAgentId: z.string(),
++  requestId: z.string(),
++});
++
++export const ProviderHeartbeatsListRequestMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.list.request"),
++  parentAgentId: z.string(),
++  requestId: z.string(),
++});
++
++export const ProviderHeartbeatsDeleteRequestMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.delete.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++});
++
++export const BackgroundTasksStopRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.stop.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++});
++
++export const BackgroundTasksOutputGetRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.get.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++  cursor: z.number().int().nonnegative().optional(),
++  maxBytes: z.number().int().positive().optional(),
++});
++
++export const BackgroundTasksOutputSubscribeRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.subscribe.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++});
++
++export const BackgroundTasksOutputUnsubscribeRequestMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.unsubscribe.request"),
++  parentAgentId: z.string(),
++  taskId: z.string().min(1),
++  requestId: z.string(),
++});
++
+ export const SetAgentTimelineSubscriptionRequestMessageSchema = z.object({
+   type: z.literal("agent.timeline.set_subscription.request"),
+   agentIds: z.array(z.string()),
+@@ -1758,6 +1909,15 @@ export const AgentForkContextRequestMessageSchema = z.object({
+   requestId: z.string(),
+ });
+ 
++export const AgentNativeForkRequestMessageSchema = z.object({
++  type: z.literal("agent.native_fork.request"),
++  requestId: z.string(),
++  agentId: z.string(),
++  boundaryCursor: AgentTimelineCursorSchema.optional(),
++  boundaryMessageId: z.string().optional(),
++  target: z.enum(["tab", "workspace"]).default("tab"),
++});
++
+ export const SetAgentModeRequestMessageSchema = z.object({
+   type: z.literal("set_agent_mode_request"),
+   agentId: z.string(),
+@@ -2995,6 +3155,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   AgentSkillsImportLegacySelectionRequestSchema,
+   GetDaemonConfigRequestMessageSchema,
+   SetDaemonConfigRequestMessageSchema,
++  MetadataCustomEndpointListModelsRequestSchema,
++  ModelsDevLookupModelRequestSchema,
+   ReadProjectConfigRequestMessageSchema,
+   WriteProjectConfigRequestMessageSchema,
+   DictationStreamStartMessageSchema,
+@@ -3010,6 +3172,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   RefreshProvidersSnapshotRequestMessageSchema,
+   ProviderDiagnosticRequestMessageSchema,
+   ProviderUsageListRequestMessageSchema,
++  ProviderUsageResetQuotaRequestMessageSchema,
+   ResumeAgentRequestMessageSchema,
+   ImportAgentRequestMessageSchema,
+   RefreshAgentRequestMessageSchema,
+@@ -3021,8 +3184,16 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   AgentTimelineListPromptsRequestMessageSchema,
+   ProviderSubagentListRequestMessageSchema,
+   ProviderSubagentTimelineRequestMessageSchema,
++  BackgroundTasksListRequestMessageSchema,
++  BackgroundTasksStopRequestMessageSchema,
++  BackgroundTasksOutputGetRequestMessageSchema,
++  BackgroundTasksOutputSubscribeRequestMessageSchema,
++  BackgroundTasksOutputUnsubscribeRequestMessageSchema,
++  ProviderHeartbeatsListRequestMessageSchema,
++  ProviderHeartbeatsDeleteRequestMessageSchema,
+   SetAgentTimelineSubscriptionRequestMessageSchema,
+   AgentForkContextRequestMessageSchema,
++  AgentNativeForkRequestMessageSchema,
+   SetAgentModeRequestMessageSchema,
+   SetAgentModelRequestMessageSchema,
+   SetAgentThinkingRequestMessageSchema,
+@@ -3123,6 +3294,16 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   ScheduleDeleteRequestSchema,
+   ScheduleRunOnceRequestSchema,
+   ScheduleUpdateRequestSchema,
++  TaskListRequestSchema,
++  TaskListAllRequestSchema,
++  TaskCreateRequestSchema,
++  TaskUpdateRequestSchema,
++  TaskDeleteRequestSchema,
++  TaskAttachmentDownloadTokenRequestSchema,
++  UiStateGetRequestMessageSchema,
++  UiStateUpsertRequestMessageSchema,
++  UiStateClearRequestMessageSchema,
++  UiStateListRequestMessageSchema,
+   LoopRunRequestSchema,
+   LoopListRequestSchema,
+   LoopInspectRequestSchema,
+@@ -3291,6 +3472,25 @@ export const ServerInfoStatusPayloadSchema = z
+     // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
+     desktopManaged: z.boolean().optional(),
+     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
++    urlOpeners: z
++      .object({
++        vscodeProxyUri: z.string().min(1).optional(),
++        codeServer: z
++          .object({
++            localhostUrl: z.string().min(1).optional(),
++            externalUrl: z.string().min(1).optional(),
++          })
++          .optional(),
++      })
++      .optional(),
++    // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
++    // Presence of a valid urlTemplate IS the capability; there is deliberately no
++    // features.browserPreview flag, so the two can never disagree.
++    browserPreview: z
++      .object({
++        urlTemplate: z.string().min(1).optional(),
++      })
++      .optional(),
+     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
+     features: z
+       .object({
+@@ -3359,6 +3559,10 @@ export const ServerInfoStatusPayloadSchema = z
+         workspaceFileEditing: z.boolean().optional(),
+         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
+         providerUsageList: z.boolean().optional(),
++        // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
++        providerUsageResetQuota: z.boolean().optional(),
++        // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
++        providerUsageForceRefresh: z.boolean().optional(),
+         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
+         agentDetach: z.boolean().optional(),
+         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
+@@ -3369,10 +3573,24 @@ export const ServerInfoStatusPayloadSchema = z
+         daemonSelfUpdate: z.boolean().optional(),
+         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
+         agentForkContext: z.boolean().optional(),
++        // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
++        taskBacklog: z.boolean().optional(),
++        // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
++        taskBacklogListAll: z.boolean().optional(),
++        // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
++        uiState: z.boolean().optional(),
++        // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
++        agentNativeFork: z.boolean().optional(),
++        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
++        tcpTunnel: z.boolean().optional(),
+         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
+         agentForkContextCursor: z.boolean().optional(),
+         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
+         providerSubagents: z.boolean().optional(),
++        // COMPAT(backgroundTasks): added in v0.2.x, remove gate after 2027-02-01.
++        backgroundTasks: z.boolean().optional(),
++        // COMPAT(providerHeartbeats): added in v0.2.x, remove gate after 2027-02-02.
++        providerHeartbeats: z.boolean().optional(),
+         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
+         workspacePinning: z.boolean().optional(),
+         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
+@@ -3407,6 +3625,10 @@ export const ServerInfoStatusPayloadSchema = z
+         stableProjectIdentity: z.boolean().optional(),
+         // COMPAT(workspaceScriptManagement): added in v0.1.105, remove gate after 2027-01-10.
+         workspaceScriptManagement: z.boolean().optional(),
++        // COMPAT(metadataCustomEndpoint): added 2026-07-28, remove after 2027-01-28 once daemon floor advertises it.
++        metadataCustomEndpoint: z.boolean().optional(),
++        // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
++        modelsDevLookup: z.boolean().optional(),
+         // COMPAT(projectCustomIcon): added in v0.2.0, remove after 2027-01-20.
+         projectCustomIcon: z.boolean().optional(),
+         // COMPAT(fsEntryOps): added in v0.3.0, remove gate after 2027-02-08.
+@@ -4369,6 +4591,145 @@ export const ProviderSubagentUpdateMessageSchema = z.object({
+   ]),
+ });
+ 
++export const BackgroundTaskStatusSchema = z.enum([
++  "running",
++  "completed",
++  "failed",
++  "stopped",
++  "unknown",
++]);
++export type BackgroundTaskStatus = z.infer<typeof BackgroundTaskStatusSchema>;
++
++export const BackgroundTaskDescriptorPayloadSchema = z.object({
++  taskId: z.string().min(1),
++  parentAgentId: z.string(),
++  type: z.string().min(1),
++  description: z.string(),
++  command: z.string().nullable().optional(),
++  status: BackgroundTaskStatusSchema,
++  outputFile: z.string().nullable().optional(),
++  lastSummary: z.string().nullable().optional(),
++  updatedAt: z.string().min(1),
++});
++export type BackgroundTaskDescriptorPayload = z.infer<typeof BackgroundTaskDescriptorPayloadSchema>;
++
++export const ProviderHeartbeatModeSchema = z.enum(["recurring", "one_shot", "dynamic"]);
++export type ProviderHeartbeatMode = z.infer<typeof ProviderHeartbeatModeSchema>;
++
++export const ProviderHeartbeatDescriptorPayloadSchema = z.object({
++  taskId: z.string().min(1),
++  parentAgentId: z.string().min(1),
++  provider: AgentProviderSchema,
++  prompt: z.string(),
++  mode: ProviderHeartbeatModeSchema,
++  scheduleLabel: z.string(),
++  nextHint: z.string().nullable(),
++  updatedAt: z.string(),
++});
++export type ProviderHeartbeatDescriptorPayload = z.infer<
++  typeof ProviderHeartbeatDescriptorPayloadSchema
++>;
++
++export const BackgroundTasksListResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.list.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    tasks: z.array(BackgroundTaskDescriptorPayloadSchema),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksUpdateMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.update"),
++  payload: z.object({
++    parentAgentId: z.string(),
++    tasks: z.array(BackgroundTaskDescriptorPayloadSchema),
++  }),
++});
++
++export const ProviderHeartbeatsListResponseMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.list.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    heartbeats: z.array(ProviderHeartbeatDescriptorPayloadSchema),
++    error: z.string().nullable(),
++  }),
++});
++
++export const ProviderHeartbeatsUpdateMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.update"),
++  payload: z.object({
++    parentAgentId: z.string(),
++    heartbeats: z.array(ProviderHeartbeatDescriptorPayloadSchema),
++  }),
++});
++
++export const ProviderHeartbeatsDeleteResponseMessageSchema = z.object({
++  type: z.literal("agent.provider_heartbeats.delete.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string(),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksStopResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.stop.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksOutputGetResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.get.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    text: z.string(),
++    nextCursor: z.number().int().nonnegative(),
++    eof: z.boolean(),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksOutputSubscribeResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.subscribe.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksOutputUnsubscribeResponseMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.unsubscribe.response"),
++  payload: z.object({
++    requestId: z.string(),
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    error: z.string().nullable(),
++  }),
++});
++
++export const BackgroundTasksOutputUpdateMessageSchema = z.object({
++  type: z.literal("agent.background_tasks.output.update"),
++  payload: z.object({
++    parentAgentId: z.string(),
++    taskId: z.string().min(1),
++    text: z.string(),
++    nextCursor: z.number().int().nonnegative(),
++    eof: z.boolean(),
++  }),
++});
++
+ export const SetAgentTimelineSubscriptionResponseMessageSchema = z.object({
+   type: z.literal("agent.timeline.set_subscription.response"),
+   payload: z.object({
+@@ -4412,6 +4773,18 @@ export const AgentForkContextResponseMessageSchema = z.object({
+   }),
+ });
+ 
++export const AgentNativeForkResponseMessageSchema = z.object({
++  type: z.literal("agent.native_fork.response"),
++  payload: z.object({
++    requestId: z.string(),
++    sourceAgentId: z.string(),
++    accepted: z.boolean(),
++    error: z.string().nullable(),
++    agentId: z.string().optional(),
++    workspaceId: z.string().optional(),
++  }),
++});
++
+ export const CancelAgentResponseMessageSchema = z.object({
+   type: z.literal("cancel_agent_response"),
+   payload: z.object({
+@@ -4492,6 +4865,59 @@ export const GetDaemonConfigResponseMessageSchema = z.object({
+     .passthrough(),
+ });
+ 
++export const MetadataCustomEndpointListModelsResponseSchema = z.object({
++  type: z.literal("metadataGeneration.customEndpoint.listModels.response"),
++  payload: z
++    .object({
++      requestId: z.string(),
++      models: z.array(
++        z.object({
++          id: z.string(),
++          name: z.string().optional(),
++        }),
++      ),
++      error: z
++        .object({
++          code: z.string(),
++          message: z.string(),
++        })
++        .nullable(),
++    })
++    .passthrough(),
++});
++
++const ModelsDevLookupCandidateSchema = z.object({
++  providerId: z.string(),
++  matchedId: z.string(),
++  name: z.string().optional(),
++  contextWindowMaxTokens: z.number().int().positive(),
++  maxOutputTokens: z.number().int().positive().optional(),
++  inputModalities: z.array(z.string()).optional(),
++  outputModalities: z.array(z.string()).optional(),
++  capabilities: z.array(z.string()).optional(),
++});
++
++export const ModelsDevLookupModelResponseSchema = z.object({
++  type: z.literal("models.dev.lookup_model.response"),
++  payload: z
++    .object({
++      requestId: z.string(),
++      found: z.boolean(),
++      modelId: z.string(),
++      matchedId: z.string().optional(),
++      name: z.string().optional(),
++      contextWindowMaxTokens: z.number().int().positive().optional(),
++      maxOutputTokens: z.number().int().positive().optional(),
++      providerId: z.string().optional(),
++      inputModalities: z.array(z.string()).optional(),
++      outputModalities: z.array(z.string()).optional(),
++      capabilities: z.array(z.string()).optional(),
++      candidates: z.array(ModelsDevLookupCandidateSchema).optional(),
++      error: z.string().nullable().optional(),
++    })
++    .passthrough(),
++});
++
+ export const DaemonGetStatusResponseSchema = z.object({
+   type: z.literal("daemon.get_status.response"),
+   payload: z
+@@ -5735,6 +6161,15 @@ export const ProviderUsageDetailSchema = z.object({
+   tone: ProviderUsageToneSchema.optional(),
+ });
+ 
++export const ProviderUsageResetCreditSchema = z.object({
++  id: z.string(),
++  label: z.string(),
++  status: z.string().optional(),
++  grantedAt: z.string().nullable().optional(),
++  expiresAt: z.string().nullable().optional(),
++  tone: ProviderUsageToneSchema.optional(),
++});
++
+ export const ProviderUsageSchema = z.object({
+   providerId: z.string(),
+   displayName: z.string(),
+@@ -5746,6 +6181,7 @@ export const ProviderUsageSchema = z.object({
+   windows: z.array(ProviderUsageWindowSchema),
+   balances: z.array(ProviderUsageBalanceSchema).optional(),
+   details: z.array(ProviderUsageDetailSchema).optional(),
++  resetCredits: z.array(ProviderUsageResetCreditSchema).optional(),
+   error: z.string().nullable().optional(),
+ });
+ 
+@@ -5758,6 +6194,17 @@ export const ProviderUsageListResponseMessageSchema = z.object({
+   }),
+ });
+ 
++export const ProviderUsageResetQuotaResponseMessageSchema = z.object({
++  type: z.literal("provider.usage.reset_quota.response"),
++  payload: z.object({
++    requestId: z.string(),
++    providerId: z.string(),
++    code: z.string(),
++    windowsReset: z.number().nullable(),
++    message: z.string().nullable(),
++  }),
++});
++
+ const AgentSlashCommandSchema = z.object({
+   name: z.string(),
+   description: z.string(),
+@@ -6227,9 +6674,20 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   ProviderSubagentListResponseMessageSchema,
+   ProviderSubagentTimelineResponseMessageSchema,
+   ProviderSubagentUpdateMessageSchema,
++  BackgroundTasksListResponseMessageSchema,
++  BackgroundTasksUpdateMessageSchema,
++  BackgroundTasksStopResponseMessageSchema,
++  BackgroundTasksOutputGetResponseMessageSchema,
++  BackgroundTasksOutputSubscribeResponseMessageSchema,
++  BackgroundTasksOutputUnsubscribeResponseMessageSchema,
++  BackgroundTasksOutputUpdateMessageSchema,
++  ProviderHeartbeatsListResponseMessageSchema,
++  ProviderHeartbeatsUpdateMessageSchema,
++  ProviderHeartbeatsDeleteResponseMessageSchema,
+   SetAgentTimelineSubscriptionResponseMessageSchema,
+   AgentAttentionRequiredMessageSchema,
+   AgentForkContextResponseMessageSchema,
++  AgentNativeForkResponseMessageSchema,
+   CancelAgentResponseMessageSchema,
+   ClearAgentAttentionResponseMessageSchema,
+   WorkspaceCreateResponseSchema,
+@@ -6245,6 +6703,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   DiagnosticsResponseSchema,
+   GetDaemonConfigResponseMessageSchema,
+   SetDaemonConfigResponseMessageSchema,
++  MetadataCustomEndpointListModelsResponseSchema,
++  ModelsDevLookupModelResponseSchema,
+   ReadProjectConfigResponseMessageSchema,
+   WriteProjectConfigResponseMessageSchema,
+   SetAgentModeResponseMessageSchema,
+@@ -6324,6 +6784,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   RefreshProvidersSnapshotResponseMessageSchema,
+   ProviderDiagnosticResponseMessageSchema,
+   ProviderUsageListResponseMessageSchema,
++  ProviderUsageResetQuotaResponseMessageSchema,
+   ListCommandsResponseSchema,
+   ListTerminalsResponseSchema,
+   TerminalsChangedSchema,
+@@ -6350,6 +6811,17 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   ScheduleDeleteResponseSchema,
+   ScheduleRunOnceResponseSchema,
+   ScheduleUpdateResponseSchema,
++  TaskListResponseSchema,
++  TaskListAllResponseSchema,
++  TaskCreateResponseSchema,
++  TaskUpdateResponseSchema,
++  TaskDeleteResponseSchema,
++  TaskAttachmentDownloadTokenResponseSchema,
++  UiStateGetResponseMessageSchema,
++  UiStateUpsertResponseMessageSchema,
++  UiStateClearResponseMessageSchema,
++  UiStateListResponseMessageSchema,
++  UiStateUpdatedMessageSchema,
+   LoopRunResponseSchema,
+   LoopListResponseSchema,
+   LoopInspectResponseSchema,
+@@ -6439,6 +6911,7 @@ export type AgentTimelineListPromptsResponseMessage = z.infer<
+   typeof AgentTimelineListPromptsResponseMessageSchema
+ >;
+ export type AgentForkContextResponseMessage = z.infer<typeof AgentForkContextResponseMessageSchema>;
++export type AgentNativeForkResponseMessage = z.infer<typeof AgentNativeForkResponseMessageSchema>;
+ export type CancelAgentResponseMessage = z.infer<typeof CancelAgentResponseMessageSchema>;
+ export type SendAgentMessageResponseMessage = z.infer<typeof SendAgentMessageResponseMessageSchema>;
+ export type SetVoiceModeResponseMessage = z.infer<typeof SetVoiceModeResponseMessageSchema>;
+@@ -6504,9 +6977,13 @@ export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
+ export type ProviderUsageWindow = z.infer<typeof ProviderUsageWindowSchema>;
+ export type ProviderUsageBalance = z.infer<typeof ProviderUsageBalanceSchema>;
+ export type ProviderUsageDetail = z.infer<typeof ProviderUsageDetailSchema>;
++export type ProviderUsageResetCredit = z.infer<typeof ProviderUsageResetCreditSchema>;
+ export type ProviderUsageListResponseMessage = z.infer<
+   typeof ProviderUsageListResponseMessageSchema
+ >;
++export type ProviderUsageResetQuotaResponseMessage = z.infer<
++  typeof ProviderUsageResetQuotaResponseMessageSchema
++>;
+ export type ChatCreateResponse = z.infer<typeof ChatCreateResponseSchema>;
+ export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
+ export type ChatInspectResponse = z.infer<typeof ChatInspectResponseSchema>;
+@@ -6523,6 +7000,28 @@ export type ScheduleResumeResponse = z.infer<typeof ScheduleResumeResponseSchema
+ export type ScheduleDeleteResponse = z.infer<typeof ScheduleDeleteResponseSchema>;
+ export type ScheduleRunOnceResponse = z.infer<typeof ScheduleRunOnceResponseSchema>;
+ export type ScheduleUpdateResponse = z.infer<typeof ScheduleUpdateResponseSchema>;
++export type TaskListResponse = z.infer<typeof TaskListResponseSchema>;
++export type TaskListAllResponse = z.infer<typeof TaskListAllResponseSchema>;
++export type TaskCreateResponse = z.infer<typeof TaskCreateResponseSchema>;
++export type TaskUpdateResponse = z.infer<typeof TaskUpdateResponseSchema>;
++export type TaskDeleteResponse = z.infer<typeof TaskDeleteResponseSchema>;
++export type TaskAttachmentDownloadTokenResponse = z.infer<
++  typeof TaskAttachmentDownloadTokenResponseSchema
++>;
++export type {
++  UiStateClearRequestMessage,
++  UiStateClearResponseMessage,
++  UiStateGetRequestMessage,
++  UiStateGetResponseMessage,
++  UiStateListRequestMessage,
++  UiStateListResponseMessage,
++  UiStateNamespace,
++  UiStateRecord,
++  UiStateReviewComment,
++  UiStateUpdatedMessage,
++  UiStateUpsertRequestMessage,
++  UiStateUpsertResponseMessage,
++} from "./ui-state/schemas.js";
+ export type LoopRunResponse = z.infer<typeof LoopRunResponseSchema>;
+ export type LoopListResponse = z.infer<typeof LoopListResponseSchema>;
+ export type LoopInspectResponse = z.infer<typeof LoopInspectResponseSchema>;
+@@ -6543,6 +7042,7 @@ export type FetchWorkspacesRequestMessage = z.infer<typeof FetchWorkspacesReques
+ export type ProjectListRequestMessage = z.infer<typeof ProjectListRequestMessageSchema>;
+ export type FetchAgentRequestMessage = z.infer<typeof FetchAgentRequestMessageSchema>;
+ export type AgentForkContextRequestMessage = z.infer<typeof AgentForkContextRequestMessageSchema>;
++export type AgentNativeForkRequestMessage = z.infer<typeof AgentNativeForkRequestMessageSchema>;
+ export type SendAgentMessageRequest = z.infer<typeof SendAgentMessageRequestSchema>;
+ export type WaitForFinishRequest = z.infer<typeof WaitForFinishRequestSchema>;
+ export type DictationStreamStartMessage = z.infer<typeof DictationStreamStartMessageSchema>;
+diff --git a/packages/server/src/server/agent/tools/paseo-tools.ts b/packages/server/src/server/agent/tools/paseo-tools.ts
+index fcc314ac1..a858f11c4 100644
+--- a/packages/server/src/server/agent/tools/paseo-tools.ts
++++ b/packages/server/src/server/agent/tools/paseo-tools.ts
+@@ -84,6 +84,12 @@ import {
+   createPaseoWorktreeCommand,
+ } from "../../worktree/commands.js";
+ import { registerBrowserTools } from "../../browser-tools/tools.js";
++import {
++  mergeBacklogIntoCreateAgentPrompt,
++  registerBacklogTools,
++  resolveBacklogLinkForAgentCreate,
++} from "./backlog-tools.js";
++import type { TaskStore } from "../../tasks/task-store.js";
+ import type { BrowserToolsBroker } from "../../browser-tools/broker.js";
+ import type {
+   PaseoToolCatalog,
+@@ -121,6 +127,7 @@ export interface PaseoToolHostDependencies {
+   markWorkspaceArchiving?: ArchiveDependencies["markWorkspaceArchiving"];
+   clearWorkspaceArchiving?: ArchiveDependencies["clearWorkspaceArchiving"];
+   createPaseoWorktree?: CreatePaseoWorktreeWorkflowFn;
++  taskStore?: TaskStore | null;
+   // Mints a fresh directory workspace for a cwd and returns its id.
+   ensureWorkspaceForCreate?: (
+     cwd: string,
+@@ -991,6 +998,18 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
+       .trim()
+       .min(1, "initialPrompt is required")
+       .describe("Required first task to run immediately after creation."),
++    backlogTaskId: z
++      .string()
++      .min(1)
++      .optional()
++      .describe(
++        "Optional backlog task id to link. Appends the task id to the prompt and labels the agent so it can resolve the task when done.",
++      ),
++    backlogProjectId: z
++      .string()
++      .min(1)
++      .optional()
++      .describe("Optional project id for backlogTaskId when disambiguation is needed."),
+   };
+   const legacyCreateAgentPlacementFields = {
+     relationship: AgentRelationshipInputSchema.describe(
+@@ -1208,6 +1227,17 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
+     });
+   }
+ 
++  if (options.taskStore) {
++    registerBacklogTools({
++      registerTool,
++      taskStore: options.taskStore,
++      projectRegistry: options.projectRegistry,
++      workspaceRegistry: options.workspaceRegistry,
++      callerAgentId,
++      resolveCallerAgent,
++    });
++  }
++
+   registerTool(
+     "create_workspace",
+     {
+@@ -1429,6 +1459,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
+         requestedBackground = resolvedArgs.parsedArgs.background;
+         notifyOnFinish = resolvedArgs.parsedArgs.notifyOnFinish ?? false;
+       }
++      const linkedBacklog = await resolveCreateAgentBacklogLink(parsedArgs);
++      const initialPrompt = linkedBacklog.initialPrompt;
++      const labels = linkedBacklog.labels;
+       const selectedProvider = resolveRequiredProviderModel(parsedArgs.provider).provider;
+       const inheritedConfig = resolveInheritedProviderConfig(selectedProvider);
+       const {
+@@ -1453,13 +1486,13 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
+           kind: "mcp",
+           provider: parsedArgs.provider,
+           title: parsedArgs.title,
+-          initialPrompt: parsedArgs.initialPrompt,
++          initialPrompt,
+           config: inheritedConfig,
+           cwd: resolvedArgs.cwd,
+           workspaceId: resolvedArgs.workspaceId,
+           thinking: parsedArgs.settings?.thinkingOptionId,
+           features: parsedArgs.settings?.features,
+-          labels: parsedArgs.labels,
++          labels,
+           mode: parsedArgs.settings?.modeId,
+           background: requestedBackground,
+           notifyOnFinish,
+@@ -1544,6 +1577,41 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
+         worktree: CreateAgentFromMcpInput["worktree"];
+       };
+ 
++  async function resolveCreateAgentBacklogLink(parsedArgs: {
++    initialPrompt: string;
++    labels?: Record<string, string>;
++    backlogTaskId?: string;
++    backlogProjectId?: string;
++  }): Promise<{ initialPrompt: string; labels: Record<string, string> | undefined }> {
++    const labels = parsedArgs.labels ? { ...parsedArgs.labels } : {};
++    const backlogTaskId = parsedArgs.backlogTaskId?.trim();
++    if (!backlogTaskId) {
++      return {
++        initialPrompt: parsedArgs.initialPrompt,
++        labels: Object.keys(labels).length > 0 ? labels : undefined,
++      };
++    }
++    if (!options.taskStore) {
++      throw new Error("Backlog task store is not configured");
++    }
++    const linked = await resolveBacklogLinkForAgentCreate({
++      taskStore: options.taskStore,
++      projectRegistry: options.projectRegistry,
++      workspaceRegistry: options.workspaceRegistry,
++      callerAgentId,
++      resolveCallerAgent,
++      backlogTaskId,
++      backlogProjectId: parsedArgs.backlogProjectId,
++    });
++    return {
++      initialPrompt: mergeBacklogIntoCreateAgentPrompt({
++        initialPrompt: parsedArgs.initialPrompt,
++        task: linked.task,
++      }),
++      labels: { ...labels, ...linked.labels },
++    };
++  }
++
+   async function resolveCreateAgentToolArgs(args: unknown): Promise<ResolvedCreateAgentToolArgs> {
+     if (callerAgentId) {
+       if (hasLegacyCreateAgentPlacement(args)) {
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index b0ebb7f24..67e9ba05f 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -58,6 +58,7 @@ import {
+   createWorkspaceScriptsService,
+   type WorkspaceScriptsService,
+ } from "./session/workspace-scripts/workspace-scripts-service.js";
++import { TcpTunnelForwarder } from "./tcp-tunnel-forwarder.js";
+ import type { DaemonConfigStore } from "./daemon-config-store.js";
+ import { loadPersistedConfig } from "./persisted-config.js";
+ import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
+@@ -115,6 +116,8 @@ import {
+ import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
+ import { buildAgentPrompt } from "./agent/prompt-attachments.js";
+ import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
++import { listMetadataOpenAIModels } from "./agent/metadata-openai-client.js";
++import { lookupModelsDevModel } from "./models-dev/catalog.js";
+ import {
+   getAgentStreamEventTurnId,
+   type AgentPersistenceHandle,
+@@ -167,6 +170,14 @@ import {
+ import { ScheduleSession } from "./session/schedule/schedule-session.js";
+ import { ProviderCatalogSession } from "./session/provider/provider-catalog-session.js";
+ import { WorkspaceFilesSession } from "./session/files/workspace-files-session.js";
++import { TaskSession } from "./tasks/task-session.js";
++import { TaskStore } from "./tasks/task-store.js";
++import { UiStateSession } from "./ui-state/session.js";
++import { UiStateStore } from "./ui-state/store.js";
++
++function resolveUiStateStore(store: UiStateStore | undefined, paseoHome: string): UiStateStore {
++  return store ?? new UiStateStore(paseoHome);
++}
+ import { AgentConfigSession } from "./session/agent-config/agent-config-session.js";
+ import { ProjectConfigSession } from "./session/project-config/project-config-session.js";
+ import { DaemonSession, type DaemonRuntimeConfig } from "./session/daemon/daemon-session.js";
+@@ -288,6 +299,54 @@ function resolveSubscriptionId(
+   return uuidv4();
+ }
+ 
++function createBackgroundTaskOutputSubscriptions() {
++  const subscriptions = new Map<
++    string,
++    {
++      parentAgentId: string;
++      taskId: string;
++      cursor: number;
++      timer: ReturnType<typeof setInterval> | null;
++    }
++  >();
++  const keyOf = (input: { parentAgentId: string; taskId: string }) =>
++    `${input.parentAgentId}\0${input.taskId}`;
++  return {
++    upsert(input: { parentAgentId: string; taskId: string }) {
++      const key = keyOf(input);
++      const existing = subscriptions.get(key);
++      if (existing) return existing;
++      const entry = {
++        parentAgentId: input.parentAgentId,
++        taskId: input.taskId,
++        cursor: 0,
++        timer: null as ReturnType<typeof setInterval> | null,
++      };
++      subscriptions.set(key, entry);
++      return entry;
++    },
++    get(input: { parentAgentId: string; taskId: string }) {
++      return subscriptions.get(keyOf(input)) ?? null;
++    },
++    setCursor(input: { parentAgentId: string; taskId: string }, cursor: number) {
++      const entry = subscriptions.get(keyOf(input));
++      if (entry) entry.cursor = cursor;
++    },
++    remove(input: { parentAgentId: string; taskId: string }) {
++      const key = keyOf(input);
++      const entry = subscriptions.get(key);
++      if (entry?.timer) clearInterval(entry.timer);
++      subscriptions.delete(key);
++    },
++    clearAll() {
++      for (const entry of subscriptions.values()) {
++        if (entry.timer) clearInterval(entry.timer);
++      }
++      subscriptions.clear();
++    },
++  };
++}
++
+ function isAppVersionAtLeast(appVersion: string | null, minVersion: string): boolean {
+   if (!appVersion) return false;
+   // Strip prerelease suffix: "0.1.45-beta.4" -> "0.1.45"
+@@ -457,6 +516,11 @@ export interface SessionOptions {
+   workspaceLabelService?: WorkspaceLabelService;
+   filesystem?: SessionFileSystem;
+   scheduleService: ScheduleService;
++  taskStore: TaskStore;
++  /** Defaults to a store under `paseoHome` when omitted (tests / older constructors). */
++  uiStateStore?: UiStateStore;
++  /** Broadcast a message to all other trusted sessions (not this one). */
++  broadcastUiState?: (message: SessionOutboundMessage, exceptClientId: string) => void;
+   checkoutDiffManager: CheckoutDiffManager;
+   github?: ForgeService;
+   createAgentMcpTransport?: AgentMcpTransportFactory;
+@@ -639,7 +703,7 @@ function workspaceLabelErrorCode(error: unknown): string {
+ }
+ 
+ export class Session {
+-  private readonly clientId: string;
++  readonly clientId: string;
+   private scopes: readonly string[];
+   private appVersion: string | null;
+   private clientCapabilities: ReadonlySet<ClientCapability>;
+@@ -728,14 +792,18 @@ export class Session {
+   private readonly voiceSession: VoiceSession;
+   private readonly checkoutSession: CheckoutSession;
+   private readonly scheduleSession: ScheduleSession;
++  private readonly taskSession: TaskSession;
++  private readonly uiStateSession: UiStateSession;
+   private readonly providerCatalogSession: ProviderCatalogSession;
+   private readonly workspaceFilesSession: WorkspaceFilesSession;
++  private readonly tcpTunnelForwarder: TcpTunnelForwarder;
+   private readonly agentConfigSession: AgentConfigSession;
+   private readonly projectConfigSession: ProjectConfigSession;
+   private readonly daemonSession: DaemonSession;
+   private readonly hubExecutionController: HubExecutionController | null;
+   private readonly workspaceScripts: WorkspaceScriptsService;
+   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
++  private readonly backgroundTaskOutputSubscriptions = createBackgroundTaskOutputSubscriptions();
+ 
+   constructor(options: SessionOptions) {
+     const {
+@@ -763,6 +831,9 @@ export class Session {
+       workspaceLabelService,
+       filesystem,
+       scheduleService,
++      taskStore,
++      uiStateStore,
++      broadcastUiState,
+       checkoutDiffManager,
+       github,
+       renameCurrentBranch,
+@@ -828,6 +899,10 @@ export class Session {
+       paseoHome,
+       logger: this.sessionLogger,
+     });
++    this.tcpTunnelForwarder = new TcpTunnelForwarder({
++      emitBinary: (frame) => this.emitBinary(frame),
++      logger: this.sessionLogger,
++    });
+     this.agentManager = agentManager;
+     this.agentStorage = agentStorage;
+     this.projectRegistry = projectRegistry;
+@@ -901,6 +976,23 @@ export class Session {
+       scheduleService,
+       logger: this.sessionLogger,
+     });
++    this.taskSession = new TaskSession({
++      host: {
++        emit: (msg) => this.emit(msg),
++      },
++      store: taskStore,
++      projectRegistry: this.projectRegistry,
++      downloadTokenStore,
++    });
++    this.uiStateSession = new UiStateSession({
++      host: {
++        emit: (msg) => this.emit(msg),
++        broadcast: (msg) => {
++          broadcastUiState?.(msg, this.clientId);
++        },
++      },
++      store: resolveUiStateStore(uiStateStore, paseoHome),
++    });
+     this.providerCatalogSession = new ProviderCatalogSession({
+       host: {
+         emit: (msg) => this.emit(msg),
+@@ -1375,6 +1467,77 @@ export class Session {
+     };
+   }
+ 
++  private async handleModelsDevLookupModelRequest(
++    msg: Extract<SessionInboundMessage, { type: "models.dev.lookup_model.request" }>,
++  ): Promise<void> {
++    const result = await lookupModelsDevModel(msg.modelId);
++    this.emit({
++      type: "models.dev.lookup_model.response",
++      payload: {
++        requestId: msg.requestId,
++        found: result.found,
++        modelId: result.query,
++        ...(result.found
++          ? {
++              matchedId: result.matchedId,
++              ...(result.name ? { name: result.name } : {}),
++              contextWindowMaxTokens: result.contextWindowMaxTokens,
++              ...(result.maxOutputTokens !== undefined
++                ? { maxOutputTokens: result.maxOutputTokens }
++                : {}),
++              providerId: result.providerId,
++              ...(result.inputModalities ? { inputModalities: result.inputModalities } : {}),
++              ...(result.outputModalities ? { outputModalities: result.outputModalities } : {}),
++              ...(result.capabilities ? { capabilities: result.capabilities } : {}),
++              candidates: result.candidates,
++              error: null,
++            }
++          : {
++              error: result.error ?? null,
++            }),
++      },
++    });
++  }
++
++  private async handleMetadataCustomEndpointListModelsRequest(
++    msg: Extract<
++      SessionInboundMessage,
++      { type: "metadataGeneration.customEndpoint.listModels.request" }
++    >,
++  ): Promise<void> {
++    const saved = this.daemonConfigStore.get().metadataGeneration.customEndpoint;
++    const baseUrl = (msg.baseUrl ?? saved?.baseUrl ?? "").trim();
++    const apiKey = (msg.apiKey ?? saved?.apiKey ?? "").trim();
++    if (!baseUrl) {
++      this.emit({
++        type: "metadataGeneration.customEndpoint.listModels.response",
++        payload: {
++          requestId: msg.requestId,
++          models: [],
++          error: {
++            code: "missing_base_url",
++            message: "Base URL is required",
++          },
++        },
++      });
++      return;
++    }
++
++    const result = await listMetadataOpenAIModels({
++      baseUrl,
++      ...(apiKey ? { apiKey } : {}),
++    });
++
++    this.emit({
++      type: "metadataGeneration.customEndpoint.listModels.response",
++      payload: {
++        requestId: msg.requestId,
++        models: result.models,
++        error: result.error,
++      },
++    });
++  }
++
+   public getRuntimeMetrics(): SessionRuntimeMetrics {
+     const terminalMetrics = this.terminalController.getMetrics();
+     const workspaceGitMetrics = this.workspaceGitObserver.getMetrics();
+@@ -1673,6 +1836,51 @@ export class Session {
+           return;
+         }
+ 
++        if (event.type === "background_tasks") {
++          this.emit({
++            type: "agent.background_tasks.update",
++            payload: {
++              parentAgentId: event.parentAgentId,
++              tasks: event.tasks.map((task) => ({
++                taskId: task.taskId,
++                parentAgentId: task.parentAgentId,
++                type: task.type,
++                description: task.description,
++                command: task.command,
++                status: task.status,
++                outputFile: task.outputFile,
++                lastSummary: task.lastSummary,
++                updatedAt: task.updatedAt,
++              })),
++            },
++          });
++          return;
++        }
++
++        if (event.type === "provider_heartbeats") {
++          this.emit({
++            type: "agent.provider_heartbeats.update",
++            payload: {
++              parentAgentId: event.parentAgentId,
++              heartbeats: event.heartbeats.map((heartbeat) => ({
++                taskId: heartbeat.taskId,
++                parentAgentId: heartbeat.parentAgentId,
++                provider: heartbeat.provider,
++                prompt: heartbeat.prompt,
++                mode: heartbeat.mode,
++                scheduleLabel: heartbeat.scheduleLabel,
++                nextHint: heartbeat.nextHint,
++                updatedAt: heartbeat.updatedAt,
++              })),
++            },
++          });
++          return;
++        }
++
++        if (event.type !== "agent_stream") {
++          return;
++        }
++
+         if (
+           this.voiceSession.isActiveForAgent(event.agentId) &&
+           event.event.type === "permission_requested" &&
+@@ -1915,7 +2123,7 @@ export class Session {
+       this.dispatchAgentConfigMessage(msg) ??
+       this.dispatchCheckoutMessage(msg) ??
+       this.dispatchWorkspaceRecoveryMessage(msg) ??
+-      this.dispatchWorkspaceLabelMessage(msg) ??
++      this.dispatchTaskUiStateAndLabelMessage(msg) ??
+       this.dispatchWorkspaceAndProjectMessage(msg) ??
+       this.dispatchWorkspaceFileMessage(msg, source) ??
+       this.dispatchProviderMessage(msg) ??
+@@ -2184,6 +2392,20 @@ export class Session {
+         return this.handleProviderSubagentListRequest(msg);
+       case "agent.provider_subagents.timeline.get.request":
+         return this.handleProviderSubagentTimelineRequest(msg);
++      case "agent.background_tasks.list.request":
++        return this.handleBackgroundTasksListRequest(msg);
++      case "agent.background_tasks.stop.request":
++        return this.handleBackgroundTasksStopRequest(msg);
++      case "agent.background_tasks.output.get.request":
++        return this.handleBackgroundTasksOutputGetRequest(msg);
++      case "agent.background_tasks.output.subscribe.request":
++        return this.handleBackgroundTasksOutputSubscribeRequest(msg);
++      case "agent.background_tasks.output.unsubscribe.request":
++        return this.handleBackgroundTasksOutputUnsubscribeRequest(msg);
++      case "agent.provider_heartbeats.list.request":
++        return this.handleProviderHeartbeatsListRequest(msg);
++      case "agent.provider_heartbeats.delete.request":
++        return this.handleProviderHeartbeatsDeleteRequest(msg);
+       case "agent.timeline.set_subscription.request": {
+         const agentIds = [...new Set(msg.agentIds)].sort();
+         if (
+@@ -2203,6 +2425,8 @@ export class Session {
+       }
+       case "agent.fork_context.request":
+         return this.handleAgentForkContextRequest(msg);
++      case "agent.native_fork.request":
++        return this.handleAgentNativeForkRequest(msg);
+       default:
+         return undefined;
+     }
+@@ -2308,6 +2532,10 @@ export class Session {
+           },
+         });
+         return undefined;
++      case "metadataGeneration.customEndpoint.listModels.request":
++        return this.handleMetadataCustomEndpointListModelsRequest(msg);
++      case "models.dev.lookup_model.request":
++        return this.handleModelsDevLookupModelRequest(msg);
+       case "read_project_config_request":
+         return this.projectConfigSession.handleReadProjectConfigRequest(msg);
+       case "write_project_config_request":
+@@ -2484,6 +2712,50 @@ export class Session {
+     }
+   }
+ 
++  private dispatchTaskUiStateAndLabelMessage(
++    msg: SessionInboundMessage,
++  ): Promise<void> | undefined {
++    return (
++      this.dispatchTaskMessage(msg) ??
++      this.dispatchUiStateMessage(msg) ??
++      this.dispatchWorkspaceLabelMessage(msg)
++    );
++  }
++
++  private dispatchTaskMessage(msg: SessionInboundMessage): Promise<void> | undefined {
++    switch (msg.type) {
++      case "tasks.list.request":
++        return this.taskSession.handleList(msg);
++      case "tasks.list_all.request":
++        return this.taskSession.handleListAll(msg);
++      case "tasks.create.request":
++        return this.taskSession.handleCreate(msg);
++      case "tasks.update.request":
++        return this.taskSession.handleUpdate(msg);
++      case "tasks.delete.request":
++        return this.taskSession.handleDelete(msg);
++      case "tasks.attachment.download_token.request":
++        return this.taskSession.handleAttachmentDownloadToken(msg);
++      default:
++        return undefined;
++    }
++  }
++
++  private dispatchUiStateMessage(msg: SessionInboundMessage): Promise<void> | undefined {
++    switch (msg.type) {
++      case "ui_state.get.request":
++        return this.uiStateSession.handleGet(msg);
++      case "ui_state.upsert.request":
++        return this.uiStateSession.handleUpsert(msg);
++      case "ui_state.clear.request":
++        return this.uiStateSession.handleClear(msg);
++      case "ui_state.list.request":
++        return this.uiStateSession.handleList(msg);
++      default:
++        return undefined;
++    }
++  }
++
+   private dispatchWorkspaceRecoveryMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+     switch (msg.type) {
+       case "workspace.recovery.inspect.request":
+@@ -2513,6 +2785,8 @@ export class Session {
+         return this.providerCatalogSession.handleProviderDiagnosticRequest(msg);
+       case "provider.usage.list.request":
+         return this.providerCatalogSession.handleProviderUsageListRequest(msg);
++      case "provider.usage.reset_quota.request":
++        return this.providerCatalogSession.handleProviderUsageResetQuotaRequest(msg);
+       default:
+         return undefined;
+     }
+@@ -2592,6 +2866,10 @@ export class Session {
+       await this.workspaceFilesSession.handleFileTransferFrame(binaryFrame.frame);
+       return;
+     }
++    if (binaryFrame.kind === "tcp_tunnel") {
++      this.tcpTunnelForwarder.handleFrame(binaryFrame.frame);
++      return;
++    }
+     this.terminalController.handleBinaryFrame(binaryFrame.frame);
+   }
+ 
+@@ -7000,6 +7278,283 @@ export class Session {
+     }
+   }
+ 
++  private async handleBackgroundTasksListRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.list.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      this.emit({
++        type: "agent.background_tasks.list.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          tasks: this.agentManager.listBackgroundTasks(msg.parentAgentId),
++          error: null,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.background_tasks.list.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          tasks: [],
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleProviderHeartbeatsListRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.provider_heartbeats.list.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      this.emit({
++        type: "agent.provider_heartbeats.list.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          heartbeats: this.agentManager.listProviderHeartbeats(msg.parentAgentId),
++          error: null,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.provider_heartbeats.list.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          heartbeats: [],
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleProviderHeartbeatsDeleteRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.provider_heartbeats.delete.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      const result = await this.agentManager.deleteProviderHeartbeat(msg.parentAgentId, msg.taskId);
++      this.emit({
++        type: "agent.provider_heartbeats.delete.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: result.error,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.provider_heartbeats.delete.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleBackgroundTasksStopRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.stop.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      await this.agentManager.stopBackgroundTask(msg.parentAgentId, msg.taskId);
++      this.emit({
++        type: "agent.background_tasks.stop.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: null,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.background_tasks.stop.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleBackgroundTasksOutputGetRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.output.get.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      const output = await this.agentManager.readBackgroundTaskOutput({
++        parentAgentId: msg.parentAgentId,
++        taskId: msg.taskId,
++        cursor: msg.cursor,
++        maxBytes: msg.maxBytes,
++      });
++      this.emit({
++        type: "agent.background_tasks.output.get.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          text: output.text,
++          nextCursor: output.nextCursor,
++          eof: output.eof,
++          error: output.error,
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.background_tasks.output.get.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          text: "",
++          nextCursor: msg.cursor ?? 0,
++          eof: true,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleBackgroundTasksOutputSubscribeRequest(
++    msg: Extract<
++      SessionInboundMessage,
++      { type: "agent.background_tasks.output.subscribe.request" }
++    >,
++  ): Promise<void> {
++    try {
++      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      this.backgroundTaskOutputSubscriptions.upsert({
++        parentAgentId: msg.parentAgentId,
++        taskId: msg.taskId,
++      });
++      this.emit({
++        type: "agent.background_tasks.output.subscribe.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: null,
++        },
++      });
++      void this.pollBackgroundTaskOutputSubscription({
++        parentAgentId: msg.parentAgentId,
++        taskId: msg.taskId,
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.background_tasks.output.subscribe.response",
++        payload: {
++          requestId: msg.requestId,
++          parentAgentId: msg.parentAgentId,
++          taskId: msg.taskId,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
++  private async handleBackgroundTasksOutputUnsubscribeRequest(
++    msg: Extract<
++      SessionInboundMessage,
++      { type: "agent.background_tasks.output.unsubscribe.request" }
++    >,
++  ): Promise<void> {
++    this.backgroundTaskOutputSubscriptions.remove({
++      parentAgentId: msg.parentAgentId,
++      taskId: msg.taskId,
++    });
++    this.emit({
++      type: "agent.background_tasks.output.unsubscribe.response",
++      payload: {
++        requestId: msg.requestId,
++        parentAgentId: msg.parentAgentId,
++        taskId: msg.taskId,
++        error: null,
++      },
++    });
++  }
++
++  private pollBackgroundTaskOutputSubscription(input: {
++    parentAgentId: string;
++    taskId: string;
++  }): void {
++    const entry = this.backgroundTaskOutputSubscriptions.get(input);
++    if (!entry || entry.timer) return;
++    const tick = async () => {
++      const current = this.backgroundTaskOutputSubscriptions.get(input);
++      if (!current) return;
++      try {
++        const output = await this.agentManager.readBackgroundTaskOutput({
++          parentAgentId: input.parentAgentId,
++          taskId: input.taskId,
++          cursor: current.cursor,
++          maxBytes: 64_000,
++        });
++        if (output.text.length > 0 || output.eof) {
++          this.backgroundTaskOutputSubscriptions.setCursor(input, output.nextCursor);
++          this.emit({
++            type: "agent.background_tasks.output.update",
++            payload: {
++              parentAgentId: input.parentAgentId,
++              taskId: input.taskId,
++              text: output.text,
++              nextCursor: output.nextCursor,
++              eof: output.eof,
++            },
++          });
++        }
++        if (output.eof) {
++          this.backgroundTaskOutputSubscriptions.remove(input);
++        }
++      } catch (error) {
++        this.sessionLogger.warn(
++          { err: error, parentAgentId: input.parentAgentId, taskId: input.taskId },
++          "Failed to poll background task output",
++        );
++      }
++    };
++    void tick();
++    entry.timer = setInterval(() => {
++      void tick();
++    }, 1000);
++  }
++
+   private async handleProviderSubagentListRequest(
+     msg: Extract<SessionInboundMessage, { type: "agent.provider_subagents.list.request" }>,
+   ): Promise<void> {
+@@ -7156,6 +7711,49 @@ export class Session {
+     }
+   }
+ 
++  private async handleAgentNativeForkRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.native_fork.request" }>,
++  ): Promise<void> {
++    try {
++      await ensureAgentLoaded(msg.agentId, {
++        agentManager: this.agentManager,
++        agentStorage: this.agentStorage,
++        logger: this.sessionLogger,
++      });
++      const result = await this.agentManager.nativeForkAgent({
++        sourceAgentId: msg.agentId,
++        boundaryMessageId: msg.boundaryMessageId,
++        boundaryCursor: msg.boundaryCursor,
++        target: msg.target,
++      });
++      this.emit({
++        type: "agent.native_fork.response",
++        payload: {
++          requestId: msg.requestId,
++          sourceAgentId: msg.agentId,
++          accepted: true,
++          error: null,
++          agentId: result.agentId,
++          workspaceId: result.workspaceId,
++        },
++      });
++    } catch (error) {
++      this.sessionLogger.error(
++        { err: error, agentId: msg.agentId },
++        "Failed to handle agent.native_fork.request",
++      );
++      this.emit({
++        type: "agent.native_fork.response",
++        payload: {
++          requestId: msg.requestId,
++          sourceAgentId: msg.agentId,
++          accepted: false,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
+   private async handleSendAgentMessageRequest(
+     msg: Extract<SessionInboundMessage, { type: "send_agent_message_request" }>,
+   ): Promise<void> {
+@@ -7181,7 +7779,8 @@ export class Session {
+         {
+           agentId,
+           messageId: msg.messageId,
+-          activeTurnBehavior: msg.activeTurnBehavior,
++          steer: msg.steer === true,
++          activeTurnBehavior: msg.activeTurnBehavior ?? (msg.steer === true ? "steer" : undefined),
+           textPrefix: msg.text.slice(0, 80),
+         },
+         "agent.session.send_agent_message",
+@@ -7194,7 +7793,9 @@ export class Session {
+           agentId,
+           prompt,
+           messageId: msg.messageId,
+-          activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
++          steer: msg.steer === true,
++          activeTurnBehavior:
++            msg.activeTurnBehavior ?? (msg.steer === true ? "steer" : "interrupt"),
+           clearPendingPermissions: true,
+           logger: this.sessionLogger,
+         });
+@@ -7388,6 +7989,11 @@ export class Session {
+   /**
+    * Emit a message to the client
+    */
++  /** Public emit for server-side fan-out (e.g. ui_state.updated). */
++  emitOutbound(msg: SessionOutboundMessage): void {
++    this.emit(msg);
++  }
++
+   private emit(msg: SessionOutboundMessage): void {
+     if (msg.type !== "rpc_error" && !isSessionRpcAllowed(this.scopes, msg.type)) {
+       return;
+@@ -7439,7 +8045,9 @@ export class Session {
+    */
+   public async cleanup(): Promise<void> {
+     this.sessionLogger.trace({}, "agent.session.lifecycle.cleanup");
++    this.tcpTunnelForwarder.dispose();
+     this.isCleanedUp = true;
++    this.backgroundTaskOutputSubscriptions.clearAll();
+ 
+     if (this.unsubscribeAgentEvents) {
+       this.unsubscribeAgentEvents();

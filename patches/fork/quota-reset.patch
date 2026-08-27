@@ -1,0 +1,1025 @@
+Subject: quota windows expose reset and invalidate in-flight fetches
+Decision: quota-fetcher resetQuota plus generation-aware cache so Settings can show windows and reset Codex credits without serving a stale fetch
+Verify: npx vitest run packages/server/src/services/quota-fetcher/service.test.ts --bail=1
+Files: packages/server/src/services/quota-fetcher/service.ts
+Files: packages/server/src/services/quota-fetcher/provider.ts
+Files: packages/server/src/services/quota-fetcher/providers/codex.ts
+Files: packages/app/src/provider-usage/settings-section.tsx
+Files: packages/app/src/provider-usage/use-provider-usage.ts
+
+diff --git a/packages/app/src/provider-usage/settings-section.tsx b/packages/app/src/provider-usage/settings-section.tsx
+index cb8e8f6b5..862d6d562 100644
+--- a/packages/app/src/provider-usage/settings-section.tsx
++++ b/packages/app/src/provider-usage/settings-section.tsx
+@@ -8,16 +8,30 @@ import { settingsStyles } from "@/styles/settings";
+ import { SettingsSection } from "@/screens/settings/settings-section";
+ import { providerUsageCopy } from "./copy";
+ import { ProviderUsageList } from "./list";
+-import type { ProviderUsageView } from "./types";
++import type { ProviderUsage, ProviderUsageView } from "./types";
+ 
+ export function ProviderUsageSettingsSection({
+   view,
+   onRefresh,
++  onResetQuota,
++  canResetQuota = false,
++  canForceRefreshQuota = false,
++  resettingProviderId = null,
+ }: {
+   view: ProviderUsageView;
+   onRefresh: () => void;
++  onResetQuota?: (usage: ProviderUsage) => void;
++  canResetQuota?: boolean;
++  canForceRefreshQuota?: boolean;
++  resettingProviderId?: string | null;
+ }) {
+   const busy = view.kind === "loading" || (view.kind === "ready" && view.isRefreshing);
++  const refreshLabel = canForceRefreshQuota
++    ? providerUsageCopy.refreshQuota
++    : providerUsageCopy.refresh;
++  const refreshingLabel = canForceRefreshQuota
++    ? providerUsageCopy.refreshingQuota
++    : providerUsageCopy.refreshing;
+ 
+   const refreshButton = useMemo(
+     () => (
+@@ -27,12 +41,12 @@ export function ProviderUsageSettingsSection({
+         leftIcon={RefreshCw}
+         loading={busy}
+         onPress={onRefresh}
+-        accessibilityLabel={providerUsageCopy.refresh}
++        accessibilityLabel={refreshLabel}
+       >
+-        {busy ? providerUsageCopy.refreshing : providerUsageCopy.refresh}
++        {busy ? refreshingLabel : refreshLabel}
+       </Button>
+     ),
+-    [busy, onRefresh],
++    [busy, onRefresh, refreshLabel, refreshingLabel],
+   );
+ 
+   return (
+@@ -41,7 +55,13 @@ export function ProviderUsageSettingsSection({
+       testID="provider-usage-card"
+       trailing={refreshButton}
+     >
+-      <ProviderUsageBody view={view} onRefresh={onRefresh} />
++      <ProviderUsageBody
++        view={view}
++        onRefresh={onRefresh}
++        onResetQuota={onResetQuota}
++        canResetQuota={canResetQuota}
++        resettingProviderId={resettingProviderId}
++      />
+     </SettingsSection>
+   );
+ }
+@@ -49,9 +69,15 @@ export function ProviderUsageSettingsSection({
+ function ProviderUsageBody({
+   view,
+   onRefresh,
++  onResetQuota,
++  canResetQuota,
++  resettingProviderId,
+ }: {
+   view: ProviderUsageView;
+   onRefresh: () => void;
++  onResetQuota?: (usage: ProviderUsage) => void;
++  canResetQuota: boolean;
++  resettingProviderId: string | null;
+ }) {
+   if (view.kind === "loading") {
+     return (
+@@ -79,7 +105,14 @@ function ProviderUsageBody({
+     );
+   }
+ 
+-  return <ProviderUsageList providers={view.payload.providers} />;
++  return (
++    <ProviderUsageList
++      providers={view.payload.providers}
++      onResetQuota={onResetQuota}
++      canResetQuota={canResetQuota}
++      resettingProviderId={resettingProviderId}
++    />
++  );
+ }
+ 
+ const styles = StyleSheet.create((theme) => ({
+diff --git a/packages/app/src/provider-usage/use-provider-usage.ts b/packages/app/src/provider-usage/use-provider-usage.ts
+index ce133726c..569f7e77c 100644
+--- a/packages/app/src/provider-usage/use-provider-usage.ts
++++ b/packages/app/src/provider-usage/use-provider-usage.ts
+@@ -1,21 +1,59 @@
+ import { useCallback, useMemo } from "react";
+-import { useQuery, useQueryClient } from "@tanstack/react-query";
++import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+ import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
+ import { useSessionStore } from "@/stores/session-store";
+ import { providerUsageCopy } from "./copy";
+-import type { ProviderUsageListPayload, ProviderUsageView } from "./types";
++import type {
++  ProviderUsageListPayload,
++  ProviderUsageResetQuotaPayload,
++  ProviderUsageView,
++} from "./types";
+ 
+ export const PROVIDER_USAGE_STALE_TIME_MS = 5 * 60 * 1000;
+ 
+-type ProviderUsageClient = Pick<DaemonClient, "listProviderUsage">;
++type ProviderUsageClient = Pick<DaemonClient, "listProviderUsage" | "resetProviderUsageQuota">;
++type ProviderUsageQueryKey = ReturnType<typeof providerUsageQueryKey>;
++interface ProviderUsageRefreshOptions {
++  forceRefresh?: boolean;
++}
+ 
+ export function providerUsageQueryKey(serverId: string | null | undefined) {
+   return ["providerUsage", serverId ?? ""] as const;
+ }
+ 
+-async function fetchProviderUsage(client: ProviderUsageClient): Promise<ProviderUsageListPayload> {
+-  return client.listProviderUsage();
++async function fetchProviderUsage(
++  client: ProviderUsageClient,
++  options: ProviderUsageRefreshOptions = {},
++): Promise<ProviderUsageListPayload> {
++  return client.listProviderUsage({ forceRefresh: options.forceRefresh });
++}
++
++export async function refetchProviderUsageAfterReset(input: {
++  queryClient: QueryClient;
++  queryKey: ProviderUsageQueryKey;
++  client: ProviderUsageClient | null;
++  canFetch: boolean;
++  canForceRefreshQuota: boolean;
++}): Promise<void> {
++  await input.queryClient.invalidateQueries({ queryKey: input.queryKey, refetchType: "none" });
++  const client = input.client;
++  if (!input.canFetch || !client) {
++    return;
++  }
++
++  try {
++    await input.queryClient.fetchQuery({
++      queryKey: input.queryKey,
++      queryFn: async () =>
++        fetchProviderUsage(client, {
++          forceRefresh: input.canForceRefreshQuota,
++        }),
++      staleTime: 0,
++    });
++  } catch {
++    await input.queryClient.invalidateQueries({ queryKey: input.queryKey, refetchType: "none" });
++  }
+ }
+ 
+ interface UseProviderUsageOptions {
+@@ -27,8 +65,12 @@ export function useProviderUsage(
+   options: UseProviderUsageOptions = {},
+ ): {
+   view: ProviderUsageView;
+-  refresh: () => Promise<void>;
++  refresh: (options?: ProviderUsageRefreshOptions) => Promise<void>;
++  resetQuota: (providerId: string) => Promise<ProviderUsageResetQuotaPayload>;
+   canFetch: boolean;
++  canResetQuota: boolean;
++  canForceRefreshQuota: boolean;
++  resettingProviderId: string | null;
+ } {
+   const queryClient = useQueryClient();
+   const client = useHostRuntimeClient(serverId ?? "");
+@@ -36,8 +78,18 @@ export function useProviderUsage(
+   const supportsProviderUsage = useSessionStore(
+     (state) => state.sessions[serverId ?? ""]?.serverInfo?.features?.providerUsageList === true,
+   );
++  const supportsProviderUsageResetQuota = useSessionStore(
++    (state) =>
++      state.sessions[serverId ?? ""]?.serverInfo?.features?.providerUsageResetQuota === true,
++  );
++  const supportsProviderUsageForceRefresh = useSessionStore(
++    (state) =>
++      state.sessions[serverId ?? ""]?.serverInfo?.features?.providerUsageForceRefresh === true,
++  );
+   const queryKey = useMemo(() => providerUsageQueryKey(serverId), [serverId]);
+   const canFetch = Boolean(serverId && client && isConnected && supportsProviderUsage);
++  const canResetQuota = Boolean(canFetch && supportsProviderUsageResetQuota);
++  const canForceRefreshQuota = Boolean(canFetch && supportsProviderUsageForceRefresh);
+   const enabled = Boolean((options.enabled ?? true) && canFetch);
+ 
+   const queryFn = useCallback(async () => {
+@@ -57,15 +109,55 @@ export function useProviderUsage(
+     refetchOnWindowFocus: false,
+   });
+ 
+-  const refresh = useCallback(async () => {
+-    if (!canFetch) return;
+-    await queryClient.invalidateQueries({ queryKey });
+-    await queryClient.fetchQuery({
+-      queryKey,
+-      queryFn,
+-      staleTime: PROVIDER_USAGE_STALE_TIME_MS,
+-    });
+-  }, [canFetch, queryClient, queryFn, queryKey]);
++  const resetQuotaMutation = useMutation({
++    mutationFn: async (providerId: string) => {
++      if (!client || !canResetQuota) {
++        throw new Error(providerUsageCopy.clientUnavailable);
++      }
++      return client.resetProviderUsageQuota({ providerId });
++    },
++  });
++  const {
++    mutateAsync: resetQuotaAsync,
++    isPending: isResetQuotaPending,
++    variables: resettingProviderId,
++  } = resetQuotaMutation;
++
++  const refresh = useCallback(
++    async (refreshOptions: ProviderUsageRefreshOptions = {}) => {
++      await queryClient.invalidateQueries({ queryKey, refetchType: "none" });
++      if (!canFetch) {
++        return;
++      }
++      const shouldForceRefresh = refreshOptions.forceRefresh === true && canForceRefreshQuota;
++      await queryClient.fetchQuery({
++        queryKey,
++        queryFn: async () => {
++          if (!client) {
++            throw new Error(providerUsageCopy.clientUnavailable);
++          }
++          return fetchProviderUsage(client, { forceRefresh: shouldForceRefresh });
++        },
++        staleTime: 0,
++      });
++    },
++    [canFetch, canForceRefreshQuota, client, queryClient, queryKey],
++  );
++
++  const resetQuota = useCallback(
++    async (providerId: string) => {
++      const result = await resetQuotaAsync(providerId);
++      await refetchProviderUsageAfterReset({
++        queryClient,
++        queryKey,
++        client,
++        canFetch,
++        canForceRefreshQuota,
++      });
++      return result;
++    },
++    [canFetch, canForceRefreshQuota, client, queryClient, queryKey, resetQuotaAsync],
++  );
+ 
+   const view = useMemo<ProviderUsageView>(() => {
+     if (!serverId || !client || !isConnected) {
+@@ -99,5 +191,13 @@ export function useProviderUsage(
+     supportsProviderUsage,
+   ]);
+ 
+-  return { view, refresh, canFetch };
++  return {
++    view,
++    refresh,
++    resetQuota,
++    canFetch,
++    canResetQuota,
++    canForceRefreshQuota,
++    resettingProviderId: isResetQuotaPending ? (resettingProviderId ?? null) : null,
++  };
+ }
+diff --git a/packages/server/src/services/quota-fetcher/provider.ts b/packages/server/src/services/quota-fetcher/provider.ts
+index c8b6687ce..41b2e7a27 100644
+--- a/packages/server/src/services/quota-fetcher/provider.ts
++++ b/packages/server/src/services/quota-fetcher/provider.ts
+@@ -1,12 +1,20 @@
+ import type { Logger } from "pino";
+-import type { ProviderUsage } from "../../server/messages.js";
++import type {
++  ProviderUsage,
++  ProviderUsageResetQuotaResponseMessage,
++} from "../../server/messages.js";
+ 
+ export type ProviderApiFetch = typeof fetch;
++export type ProviderUsageResetQuotaResult = Omit<
++  ProviderUsageResetQuotaResponseMessage["payload"],
++  "requestId"
++>;
+ 
+ export interface ProviderUsageFetcher {
+   readonly providerId: string;
+   readonly displayName: string;
+   fetchUsage(): Promise<ProviderUsage>;
++  resetQuota?(): Promise<ProviderUsageResetQuotaResult>;
+ }
+ 
+ export interface ProviderUsageFetcherFactoryOptions {
+diff --git a/packages/server/src/services/quota-fetcher/providers/codex.ts b/packages/server/src/services/quota-fetcher/providers/codex.ts
+index 78a1f7d26..e046af837 100644
+--- a/packages/server/src/services/quota-fetcher/providers/codex.ts
++++ b/packages/server/src/services/quota-fetcher/providers/codex.ts
+@@ -1,3 +1,4 @@
++import { randomUUID } from "node:crypto";
+ import { existsSync, promises as fs } from "node:fs";
+ import { homedir } from "node:os";
+ import { join } from "node:path";
+@@ -6,18 +7,26 @@ import { z } from "zod";
+ import type {
+   ProviderUsage,
+   ProviderUsageBalance,
++  ProviderUsageResetCredit,
+   ProviderUsageWindow,
+ } from "../../../server/messages.js";
+-import type { ProviderApiFetch, ProviderUsageFetcher } from "../provider.js";
++import type {
++  ProviderApiFetch,
++  ProviderUsageFetcher,
++  ProviderUsageResetQuotaResult,
++} from "../provider.js";
+ import {
+   ApiNumberSchema,
+   balanceToneFromRemaining,
+-  toneFromUsedPct,
+   fetchProviderApi,
++  toneFromUsedPct,
+   unavailableUsage,
+   windowFromUsedPct,
+ } from "../usage.js";
+ 
++const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
++const CODEX_RESET_CREDITS_TIMEOUT_MS = 2_000;
++
+ const CodexAuthSchema = z.object({
+   tokens: z
+     .object({
+@@ -33,20 +42,27 @@ const CodexWindowSchema = z.object({
+   reset_at: ApiNumberSchema.optional(),
+ });
+ 
++const CodexRateLimitSchema = z.object({
++  primary_window: CodexWindowSchema.nullish(),
++  secondary_window: CodexWindowSchema.nullish(),
++});
++
++const CodexAdditionalRateLimitSchema = z.object({
++  limit_name: z.string().optional(),
++  metered_feature: z.string().optional(),
++  rate_limit: CodexRateLimitSchema.nullish(),
++});
++
+ const CodexUsageResponseSchema = z.object({
+   plan_type: z.string().optional(),
+   email: z.string().optional(),
+-  rate_limit: z
+-    .object({
+-      primary_window: CodexWindowSchema.nullish(),
+-      secondary_window: CodexWindowSchema.nullish(),
+-    })
+-    .nullish(),
++  rate_limit: CodexRateLimitSchema.nullish(),
+   code_review_rate_limit: z
+     .object({
+       primary_window: CodexWindowSchema.nullish(),
+     })
+     .nullish(),
++  additional_rate_limits: z.array(CodexAdditionalRateLimitSchema).optional(),
+   credits: z
+     .object({
+       has_credits: z.boolean().optional(),
+@@ -54,16 +70,57 @@ const CodexUsageResponseSchema = z.object({
+       balance: ApiNumberSchema.optional(),
+     })
+     .nullish(),
++  rate_limit_reset_credits: z
++    .object({
++      available_count: ApiNumberSchema.optional(),
++    })
++    .nullish(),
++});
++
++const CodexResetCreditsResponseSchema = z.object({
++  credits: z
++    .array(
++      z.object({
++        id: z.string().optional(),
++        reset_type: z.string().optional(),
++        status: z.string().optional(),
++        granted_at: z.string().nullable().optional(),
++        expires_at: z.string().nullable().optional(),
++        title: z.string().optional(),
++      }),
++    )
++    .optional(),
++  available_count: ApiNumberSchema.optional(),
++});
++
++const CodexResetQuotaResponseSchema = z.object({
++  code: z.string().optional(),
++  windows_reset: ApiNumberSchema.optional(),
++});
++
++const CodexTokenRefreshSchema = z.object({
++  access_token: z.string().optional(),
++  refresh_token: z.string().optional(),
+ });
+ 
+ type CodexAuth = z.infer<typeof CodexAuthSchema>;
+ type CodexWindow = z.infer<typeof CodexWindowSchema>;
++type CodexAdditionalRateLimit = z.infer<typeof CodexAdditionalRateLimitSchema>;
+ type CodexUsageResponse = z.infer<typeof CodexUsageResponseSchema>;
++type CodexResetCreditsResponse = z.infer<typeof CodexResetCreditsResponseSchema>;
++type CodexResetQuotaResponse = z.infer<typeof CodexResetQuotaResponseSchema>;
++type CodexTokenRefresh = z.infer<typeof CodexTokenRefreshSchema>;
++
++interface CodexAuthRecord {
++  auth: CodexAuth;
++  path: string;
++}
+ 
+ interface CodexQuotaProviderOptions {
+   logger: Logger;
+   codexHome?: string;
+   fetch?: ProviderApiFetch;
++  resetCreditsTimeoutMs?: number;
+ }
+ 
+ function codexWindow(
+@@ -76,22 +133,180 @@ function codexWindow(
+   };
+ }
+ 
++function codexHeaders(token: string, accountId?: string): Record<string, string> {
++  const headers: Record<string, string> = {
++    Authorization: `Bearer ${token}`,
++    Accept: "application/json",
++    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
++  };
++  if (accountId) headers["ChatGPT-Account-Id"] = accountId;
++  return headers;
++}
++
++function limitId(input: { limitName: string; meteredFeature?: string }): string {
++  const raw = input.meteredFeature || input.limitName;
++  return raw
++    .trim()
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, "_")
++    .replace(/^_+|_+$/g, "");
++}
++
++function limitLabel(limitName: string): string {
++  return limitName.replace(/-/g, " ");
++}
++
++function codexPrimaryWindows(resp: CodexUsageResponse): ProviderUsageWindow[] {
++  const session = codexWindow(resp.rate_limit?.primary_window);
++  const weekly = codexWindow(resp.rate_limit?.secondary_window);
++  const codeReview = codexWindow(resp.code_review_rate_limit?.primary_window);
++  const windows: ProviderUsageWindow[] = [];
++
++  if (session) {
++    windows.push(
++      windowFromUsedPct({
++        id: "session",
++        label: "Session",
++        utilizationPct: session.usedPct,
++        resetsAt: session.resetsAt,
++        tone: toneFromUsedPct(session.usedPct),
++      }),
++    );
++  }
++  if (weekly) {
++    windows.push(
++      windowFromUsedPct({
++        id: "weekly",
++        label: "Weekly",
++        utilizationPct: weekly.usedPct,
++        resetsAt: weekly.resetsAt,
++        tone: toneFromUsedPct(weekly.usedPct),
++      }),
++    );
++  }
++  if (codeReview) {
++    windows.push(
++      windowFromUsedPct({
++        id: "code_review",
++        label: "Code review",
++        utilizationPct: codeReview.usedPct,
++        resetsAt: codeReview.resetsAt,
++        tone: toneFromUsedPct(codeReview.usedPct),
++      }),
++    );
++  }
++
++  return windows;
++}
++
++function codexAdditionalWindows(
++  additionalLimits: CodexAdditionalRateLimit[] | undefined,
++): ProviderUsageWindow[] {
++  const windows: ProviderUsageWindow[] = [];
++  for (const additional of additionalLimits ?? []) {
++    const limitName = additional.limit_name?.trim();
++    if (!limitName) continue;
++    const id = limitId({ limitName, meteredFeature: additional.metered_feature });
++    const label = limitLabel(limitName);
++    const primary = codexWindow(additional.rate_limit?.primary_window);
++    const secondary = codexWindow(additional.rate_limit?.secondary_window);
++    if (primary) {
++      windows.push(
++        windowFromUsedPct({
++          id: `${id}_five_hour`,
++          label: `${label} 5 hour`,
++          utilizationPct: primary.usedPct,
++          resetsAt: primary.resetsAt,
++          tone: toneFromUsedPct(primary.usedPct),
++        }),
++      );
++    }
++    if (secondary) {
++      windows.push(
++        windowFromUsedPct({
++          id: `${id}_weekly`,
++          label: `${label} weekly`,
++          utilizationPct: secondary.usedPct,
++          resetsAt: secondary.resetsAt,
++          tone: toneFromUsedPct(secondary.usedPct),
++        }),
++      );
++    }
++  }
++  return windows;
++}
++
++function codexBalances(input: {
++  resp: CodexUsageResponse;
++  resetCredits: ProviderUsageResetCredit[];
++  resetCreditsResponse: CodexResetCreditsResponse | null;
++}): ProviderUsageBalance[] {
++  const balances: ProviderUsageBalance[] = [];
++  if (input.resp.credits?.balance !== undefined) {
++    balances.push({
++      id: "credits",
++      label: "Credits",
++      remaining: input.resp.credits.balance,
++      unit: "usd",
++      tone: balanceToneFromRemaining(input.resp.credits.balance),
++    });
++  }
++
++  const resetCreditCount =
++    input.resetCreditsResponse?.available_count ??
++    input.resp.rate_limit_reset_credits?.available_count ??
++    null;
++  if (input.resetCredits.length === 0 && resetCreditCount != null && resetCreditCount > 0) {
++    balances.push({
++      id: "rate_limit_reset_credits",
++      label: "Banked resets",
++      remaining: resetCreditCount,
++      unit: "requests",
++      tone: "ok",
++    });
++  }
++
++  return balances;
++}
++
++function resetQuotaMessage(code: string, windowsReset: number | null): string {
++  switch (code) {
++    case "reset":
++      return windowsReset && windowsReset > 0
++        ? `Reset quota consumed. Windows reset: ${windowsReset}.`
++        : "Reset quota consumed.";
++    case "nothing_to_reset":
++      return "No reset was consumed because there is nothing to reset.";
++    case "no_credit":
++      return "No reset was consumed because no reset credits are available.";
++    case "already_redeemed":
++      return "This reset request was already redeemed.";
++    default:
++      return `Codex returned reset result: ${code}.`;
++  }
++}
++
+ export class CodexQuotaProvider implements ProviderUsageFetcher {
+   readonly providerId = "codex";
+   readonly displayName = "Codex";
+ 
++  private readonly logger: Logger;
+   private readonly codexHome: string;
+   private readonly fetchApi: ProviderApiFetch;
++  private readonly resetCreditsTimeoutMs: number;
+ 
+   constructor(options: CodexQuotaProviderOptions) {
++    this.logger = options.logger.child({ module: "codex-quota-provider" });
+     this.codexHome = options.codexHome || process.env["CODEX_HOME"] || join(homedir(), ".codex");
+     this.fetchApi = options.fetch ?? fetch;
++    this.resetCreditsTimeoutMs = options.resetCreditsTimeoutMs ?? CODEX_RESET_CREDITS_TIMEOUT_MS;
+   }
+ 
+   async fetchUsage(): Promise<ProviderUsage> {
+-    const auth = await this.readCodexAuth();
++    const authRecord = await this.readCodexAuth();
++    const auth = authRecord?.auth;
+     const accessToken = auth?.tokens?.access_token;
+-    if (!auth || !accessToken) {
++    if (!authRecord || !auth || !accessToken) {
+       return unavailableUsage(this);
+     }
+ 
+@@ -99,64 +314,62 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
+     const resp = await this.callCodexApi(accessToken, account_id);
+ 
+     if (resp === "NEEDS_AUTH") {
+-      // Read-only on credentials; the Codex CLI owns refresh. See docs/providers.md.
++      // Read-only on credentials for usage reads; the Codex CLI owns refresh.
+       return unavailableUsage(this);
+     }
+ 
+-    return this.toUsage(resp);
++    const resetCredits = await this.tryFetchResetCredits(accessToken, account_id);
++    return this.toUsage(resp, resetCredits);
+   }
+ 
+-  private toUsage(resp: CodexUsageResponse): ProviderUsage {
+-    const session = codexWindow(resp.rate_limit?.primary_window);
+-    const weekly = codexWindow(resp.rate_limit?.secondary_window);
+-    const codeReview = codexWindow(resp.code_review_rate_limit?.primary_window);
+-    const windows: ProviderUsageWindow[] = [];
+-
+-    if (session) {
+-      windows.push(
+-        windowFromUsedPct({
+-          id: "session",
+-          label: "Session",
+-          utilizationPct: session.usedPct,
+-          resetsAt: session.resetsAt,
+-          tone: toneFromUsedPct(session.usedPct),
+-        }),
+-      );
+-    }
+-    if (weekly) {
+-      windows.push(
+-        windowFromUsedPct({
+-          id: "weekly",
+-          label: "Weekly",
+-          utilizationPct: weekly.usedPct,
+-          resetsAt: weekly.resetsAt,
+-          tone: toneFromUsedPct(weekly.usedPct),
+-        }),
+-      );
+-    }
+-    if (codeReview) {
+-      windows.push(
+-        windowFromUsedPct({
+-          id: "code_review",
+-          label: "Code review",
+-          utilizationPct: codeReview.usedPct,
+-          resetsAt: codeReview.resetsAt,
+-          tone: toneFromUsedPct(codeReview.usedPct),
+-        }),
+-      );
++  async resetQuota(): Promise<ProviderUsageResetQuotaResult> {
++    const authRecord = await this.readCodexAuth();
++    const auth = authRecord?.auth;
++    const accessToken = auth?.tokens?.access_token;
++    if (!authRecord || !auth || !accessToken) {
++      throw new Error("Codex auth is unavailable");
+     }
+ 
+-    const balances: ProviderUsageBalance[] = [];
+-    if (resp.credits?.balance !== undefined) {
+-      balances.push({
+-        id: "credits",
+-        label: "Credits",
+-        remaining: resp.credits.balance,
+-        unit: "usd",
+-        tone: balanceToneFromRemaining(resp.credits.balance),
+-      });
++    const { refresh_token, account_id } = auth.tokens ?? {};
++    let resp = await this.callResetQuotaApi(accessToken, account_id);
++
++    if (resp === "NEEDS_AUTH") {
++      if (!refresh_token) {
++        throw new Error("Codex auth expired");
++      }
++      const refreshed = await this.refreshCodexToken(refresh_token);
++      if (!refreshed?.access_token) {
++        throw new Error("Unable to refresh Codex auth");
++      }
++
++      await this.saveCodexAuth(authRecord.path, auth, refreshed);
++      resp = await this.callResetQuotaApi(refreshed.access_token, account_id);
++      if (resp === "NEEDS_AUTH") {
++        throw new Error("Codex auth expired");
++      }
+     }
+ 
++    const code = resp.code ?? "unknown";
++    const windowsReset = resp.windows_reset ?? null;
++    return {
++      providerId: this.providerId,
++      code,
++      windowsReset,
++      message: resetQuotaMessage(code, windowsReset),
++    };
++  }
++
++  private toUsage(
++    resp: CodexUsageResponse,
++    resetCreditsResponse: CodexResetCreditsResponse | null,
++  ): ProviderUsage {
++    const windows = [
++      ...codexPrimaryWindows(resp),
++      ...codexAdditionalWindows(resp.additional_rate_limits),
++    ];
++    const resetCredits = this.toResetCredits(resetCreditsResponse);
++    const balances = codexBalances({ resp, resetCredits, resetCreditsResponse });
++
+     return {
+       providerId: this.providerId,
+       displayName: this.displayName,
+@@ -165,11 +378,31 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
+       windows,
+       balances,
+       details: [],
++      resetCredits,
+       error: null,
+     };
+   }
+ 
+-  private async readCodexAuth(): Promise<CodexAuth | null> {
++  private toResetCredits(response: CodexResetCreditsResponse | null): ProviderUsageResetCredit[] {
++    const credits = response?.credits ?? [];
++    return credits
++      .filter((credit) => credit.status?.toLowerCase() === "available")
++      .sort((a, b) => {
++        const left = a.expires_at ? new Date(a.expires_at).getTime() : Number.POSITIVE_INFINITY;
++        const right = b.expires_at ? new Date(b.expires_at).getTime() : Number.POSITIVE_INFINITY;
++        return left - right;
++      })
++      .map((credit, index) => ({
++        id: credit.id ?? `codex_reset_credit_${index + 1}`,
++        label: credit.title?.trim() || `Reset ${index + 1}`,
++        status: "available",
++        grantedAt: credit.granted_at ?? null,
++        expiresAt: credit.expires_at ?? null,
++        tone: "ok",
++      }));
++  }
++
++  private async readCodexAuth(): Promise<CodexAuthRecord | null> {
+     const candidates = [
+       ...(process.env["CODEX_HOME"] ? [join(process.env["CODEX_HOME"], "auth.json")] : []),
+       join(homedir(), ".config", "codex", "auth.json"),
+@@ -179,7 +412,7 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
+       if (!existsSync(path)) continue;
+       try {
+         const auth = CodexAuthSchema.parse(JSON.parse(await fs.readFile(path, "utf8")));
+-        if (auth.tokens?.access_token) return auth;
++        if (auth.tokens?.access_token) return { auth, path };
+       } catch {
+         continue;
+       }
+@@ -191,18 +424,11 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
+     token: string,
+     accountId?: string,
+   ): Promise<CodexUsageResponse | "NEEDS_AUTH"> {
+-    const headers: Record<string, string> = {
+-      Authorization: `Bearer ${token}`,
+-      Accept: "application/json",
+-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+-    };
+-    if (accountId) headers["ChatGPT-Account-Id"] = accountId;
+-
+     const res = await fetchProviderApi(
+       this.fetchApi,
+       "https://chatgpt.com/backend-api/wham/usage",
+       {
+-        headers,
++        headers: codexHeaders(token, accountId),
+       },
+     );
+     if (res.status === 401 || res.status === 403) return "NEEDS_AUTH";
+@@ -211,4 +437,93 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
+     if (text.trim().startsWith("<")) return "NEEDS_AUTH";
+     return CodexUsageResponseSchema.parse(JSON.parse(text));
+   }
++
++  private async tryFetchResetCredits(
++    token: string,
++    accountId?: string,
++  ): Promise<CodexResetCreditsResponse | null> {
++    try {
++      const headers = {
++        ...codexHeaders(token, accountId),
++        originator: "Codex Desktop",
++        "OAI-Product-Sku": "CODEX",
++      };
++      const res = await fetchProviderApi(
++        this.fetchApi,
++        "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
++        {
++          headers,
++          signal: AbortSignal.timeout(this.resetCreditsTimeoutMs),
++        },
++      );
++      if (!res.ok) return null;
++      const text = await res.text();
++      if (text.trim().startsWith("<")) return null;
++      return CodexResetCreditsResponseSchema.parse(JSON.parse(text));
++    } catch (err) {
++      this.logger.debug({ err }, "Failed to fetch Codex reset credits");
++      return null;
++    }
++  }
++
++  private async callResetQuotaApi(
++    token: string,
++    accountId?: string,
++  ): Promise<CodexResetQuotaResponse | "NEEDS_AUTH"> {
++    const headers = {
++      ...codexHeaders(token, accountId),
++      "Content-Type": "application/json",
++      originator: "Codex Desktop",
++      "OAI-Product-Sku": "CODEX",
++    };
++    const res = await fetchProviderApi(
++      this.fetchApi,
++      "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume",
++      {
++        method: "POST",
++        headers,
++        body: JSON.stringify({ redeem_request_id: randomUUID() }),
++      },
++    );
++    if (res.status === 401 || res.status === 403) return "NEEDS_AUTH";
++    if (!res.ok) throw new Error(`Codex reset quota API returned ${res.status}`);
++    const text = await res.text();
++    if (text.trim().startsWith("<")) return "NEEDS_AUTH";
++    return CodexResetQuotaResponseSchema.parse(JSON.parse(text));
++  }
++
++  private async refreshCodexToken(refreshToken: string): Promise<CodexTokenRefresh | null> {
++    const params = new URLSearchParams({
++      grant_type: "refresh_token",
++      client_id: CODEX_CLIENT_ID,
++      refresh_token: refreshToken,
++    });
++    const res = await fetchProviderApi(this.fetchApi, "https://auth.openai.com/oauth/token", {
++      method: "POST",
++      headers: { "Content-Type": "application/x-www-form-urlencoded" },
++      body: params.toString(),
++    });
++    if (!res.ok) return null;
++    return CodexTokenRefreshSchema.parse(await res.json());
++  }
++
++  private async saveCodexAuth(
++    authPath: string,
++    original: CodexAuth,
++    refreshed: CodexTokenRefresh,
++  ): Promise<void> {
++    try {
++      const updated: CodexAuth = {
++        ...original,
++        tokens: {
++          ...original.tokens,
++          access_token: refreshed.access_token ?? original.tokens?.access_token,
++          refresh_token: refreshed.refresh_token ?? original.tokens?.refresh_token,
++        },
++      };
++      await fs.writeFile(authPath, JSON.stringify(updated, null, 2), { mode: 0o600 });
++    } catch {
++      // Non-fatal; the next call can refresh again.
++    }
++  }
+ }
+diff --git a/packages/server/src/services/quota-fetcher/service.ts b/packages/server/src/services/quota-fetcher/service.ts
+index dde20fb24..349b7c5a1 100644
+--- a/packages/server/src/services/quota-fetcher/service.ts
++++ b/packages/server/src/services/quota-fetcher/service.ts
+@@ -1,7 +1,11 @@
+ import type { Logger } from "pino";
+ import type { ProviderUsage } from "../../server/messages.js";
+ import { createProviderUsageFetchers } from "./manifest.js";
+-import type { ProviderApiFetch, ProviderUsageFetcher } from "./provider.js";
++import type {
++  ProviderApiFetch,
++  ProviderUsageFetcher,
++  ProviderUsageResetQuotaResult,
++} from "./provider.js";
+ import { unavailableUsage } from "./usage.js";
+ 
+ export interface ProviderUsageServiceOptions {
+@@ -19,13 +23,22 @@ export interface ProviderUsageListResult {
+ 
+ const DEFAULT_PROVIDER_USAGE_CACHE_TTL_MS = 5 * 60 * 1000;
+ 
++interface ProviderUsageInFlight {
++  request: Promise<ProviderUsageListResult>;
++  generation: number;
++  epoch: number;
++  forceRefresh: boolean;
++}
++
+ export class ProviderUsageService {
+   private readonly logger: Logger;
+   private readonly fetchers: ProviderUsageFetcher[];
+   private readonly cacheTtlMs: number;
+   private readonly now: () => number;
+   private cached: { fetchedAtMs: number; result: ProviderUsageListResult } | null = null;
+-  private inFlight: Promise<ProviderUsageListResult> | null = null;
++  private inFlight: ProviderUsageInFlight | null = null;
++  private generation = 0;
++  private latestEpoch = 0;
+ 
+   constructor(options: ProviderUsageServiceOptions) {
+     this.logger = options.logger.child({ module: "provider-usage-service" });
+@@ -41,30 +54,61 @@ export class ProviderUsageService {
+ 
+   async listUsage(options?: { forceRefresh?: boolean }): Promise<ProviderUsageListResult> {
+     const nowMs = this.now();
+-    if (
+-      !options?.forceRefresh &&
+-      this.cached &&
+-      nowMs - this.cached.fetchedAtMs < this.cacheTtlMs
+-    ) {
++    const forceRefresh = options?.forceRefresh === true;
++    if (!forceRefresh && this.cached && nowMs - this.cached.fetchedAtMs < this.cacheTtlMs) {
+       return this.cached.result;
+     }
+ 
+-    if (this.inFlight) {
+-      return this.inFlight;
++    if (
++      this.inFlight &&
++      this.inFlight.generation === this.generation &&
++      (!forceRefresh || this.inFlight.forceRefresh)
++    ) {
++      return this.inFlight.request;
+     }
+ 
+-    const request = this.fetchFreshUsage(nowMs);
+-    this.inFlight = request;
++    const epoch = this.latestEpoch + 1;
++    this.latestEpoch = epoch;
++    const inFlight: ProviderUsageInFlight = {
++      request: this.fetchFreshUsage({
++        nowMs,
++        generation: this.generation,
++        epoch,
++      }),
++      generation: this.generation,
++      epoch,
++      forceRefresh,
++    };
++    this.inFlight = inFlight;
+     try {
+-      return await request;
++      return await inFlight.request;
+     } finally {
+-      if (this.inFlight === request) {
++      if (this.inFlight === inFlight) {
+         this.inFlight = null;
+       }
+     }
+   }
+ 
+-  private async fetchFreshUsage(nowMs: number): Promise<ProviderUsageListResult> {
++  async resetQuota(providerId: string): Promise<ProviderUsageResetQuotaResult> {
++    const fetcher = this.fetchers.find((candidate) => candidate.providerId === providerId);
++    if (!fetcher) {
++      throw new Error(`Provider usage fetcher not found: ${providerId}`);
++    }
++    if (!fetcher.resetQuota) {
++      throw new Error(`Provider does not support quota reset: ${providerId}`);
++    }
++
++    const result = await fetcher.resetQuota();
++    this.generation += 1;
++    this.cached = null;
++    return result;
++  }
++
++  private async fetchFreshUsage(input: {
++    nowMs: number;
++    generation: number;
++    epoch: number;
++  }): Promise<ProviderUsageListResult> {
+     const settled = await Promise.allSettled(this.fetchers.map((fetcher) => fetcher.fetchUsage()));
+     const providers = settled.map((result, index) => {
+       const fetcher = this.fetchers[index];
+@@ -82,8 +126,10 @@ export class ProviderUsageService {
+       });
+     });
+ 
+-    const result = { fetchedAt: new Date(nowMs).toISOString(), providers };
+-    this.cached = { fetchedAtMs: nowMs, result };
++    const result = { fetchedAt: new Date(input.nowMs).toISOString(), providers };
++    if (this.generation === input.generation && this.latestEpoch === input.epoch) {
++      this.cached = { fetchedAtMs: input.nowMs, result };
++    }
+     return result;
+   }
+ }

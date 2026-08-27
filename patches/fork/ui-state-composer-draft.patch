@@ -1,0 +1,251 @@
+Subject: composer draft hydrates from host ui_state
+Decision: input-draft keeps host ui_state sync so composer text survives switching devices
+Verify: npx vitest run packages/app/src/composer/draft/input-draft.test.ts packages/app/src/ui-state/composer-host-sync.test.ts --bail=1
+Files: packages/app/src/composer/draft/input-draft.ts
+Files: packages/app/src/review/surface.tsx
+
+diff --git a/packages/app/src/composer/draft/input-draft.ts b/packages/app/src/composer/draft/input-draft.ts
+index 78587c95e..a51995d8b 100644
+--- a/packages/app/src/composer/draft/input-draft.ts
++++ b/packages/app/src/composer/draft/input-draft.ts
+@@ -20,8 +20,17 @@ import {
+   resolveEffectiveComposerThinkingOptionId,
+   type ProviderSelectionState,
+ } from "@/provider-selection/provider-selection";
++import { useHostFeature } from "@/runtime/host-features";
++import { getHostRuntimeStore, useHostRuntimeConnectionStatus } from "@/runtime/host-runtime";
+ import { useDraftStore } from "@/stores/draft-store";
+ import { toDraftInputIfReady } from "@/stores/draft-store/state";
++import {
++  clearComposerOnHost,
++  handleUiStateUpdatedForComposer,
++  hydrateComposerFromHost,
++  scheduleComposerHostUpsert,
++} from "@/ui-state/composer-host-sync";
++import { toWireComposerKey } from "@/ui-state/keys";
+ import { AfterPaintPublication } from "@/composer/after-paint-publication";
+ import { isWeb } from "@/constants/platform";
+ 
+@@ -82,6 +91,21 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
+       }),
+     [formState.selectedServerId, input.draftKey],
+   );
++  const hostServerId = useMemo(() => {
++    // Prefer explicit composer server; fall back to parsing agent:/draft: keys.
++    const fromComposer = composerOptions?.initialServerId?.trim();
++    if (fromComposer) {
++      return fromComposer;
++    }
++    const parts = draftKey.split(":");
++    if ((parts[0] === "agent" || parts[0] === "draft") && parts[1]) {
++      return parts[1];
++    }
++    return formState.selectedServerId?.trim() || null;
++  }, [composerOptions?.initialServerId, draftKey, formState.selectedServerId]);
++  const supportsUiState = useHostFeature(hostServerId, "uiState");
++  const connectionStatus = useHostRuntimeConnectionStatus(hostServerId ?? "");
++  const isHostOnline = connectionStatus === "online";
+   const draftRecord = useDraftStore((state) => state.drafts[draftKey]);
+   const draft = useMemo(() => toDraftInputIfReady(draftRecord), [draftRecord]);
+   const attachmentFocusRequestId = useDraftStore(
+@@ -105,11 +129,28 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
+       const next = update(current);
+       if (!hasDraftContent(next)) {
+         store.clearDraftInput({ draftKey, lifecycle: "abandoned" });
++        if (supportsUiState && hostServerId) {
++          const client = getHostRuntimeStore().getClient(hostServerId);
++          if (client) {
++            void clearComposerOnHost({ client, clientDraftKey: draftKey });
++          }
++        }
+         return;
+       }
+       store.saveDraftInput({ draftKey, draft: next });
++      if (supportsUiState && hostServerId) {
++        const client = getHostRuntimeStore().getClient(hostServerId);
++        if (client) {
++          scheduleComposerHostUpsert({
++            client,
++            clientDraftKey: draftKey,
++            text: next.text,
++            attachments: next.attachments,
++          });
++        }
++      }
+     },
+-    [draftKey],
++    [draftKey, hostServerId, supportsUiState],
+   );
+ 
+   const textPublication = useMemo(
+@@ -154,8 +195,14 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
+     (lifecycle: "sent" | "abandoned") => {
+       textPublication.cancel();
+       useDraftStore.getState().clearDraftInput({ draftKey, lifecycle });
++      if (supportsUiState && hostServerId) {
++        const client = getHostRuntimeStore().getClient(hostServerId);
++        if (client) {
++          void clearComposerOnHost({ client, clientDraftKey: draftKey });
++        }
++      }
+     },
+-    [draftKey, textPublication],
++    [draftKey, hostServerId, supportsUiState, textPublication],
+   );
+ 
+   useEffect(() => {
+@@ -186,6 +233,16 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
+     let cancelled = false;
+     void (async () => {
+       await useDraftStore.getState().hydrateDraftInput({ draftKey });
++      if (supportsUiState && isHostOnline && hostServerId && toWireComposerKey(draftKey)) {
++        const client = getHostRuntimeStore().getClient(hostServerId);
++        if (client) {
++          try {
++            await hydrateComposerFromHost({ client, clientDraftKey: draftKey });
++          } catch (error) {
++            console.warn("[ui-state] composer hydrate failed", error);
++          }
++        }
++      }
+       if (!cancelled) {
+         setTextReplacementRevision((revision) => revision + 1);
+         setHydratedDraftKey(draftKey);
+@@ -195,7 +252,27 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
+     return () => {
+       cancelled = true;
+     };
+-  }, [draftKey]);
++  }, [draftKey, hostServerId, isHostOnline, supportsUiState]);
++
++  useEffect(() => {
++    if (!supportsUiState || !isHostOnline || !hostServerId) {
++      return;
++    }
++    const client = getHostRuntimeStore().getClient(hostServerId);
++    if (!client) {
++      return;
++    }
++    const wireKey = toWireComposerKey(draftKey);
++    if (!wireKey) {
++      return;
++    }
++    return client.on("ui_state.updated", (message) => {
++      handleUiStateUpdatedForComposer({
++        message,
++        resolveClientDraftKeys: (key) => (key === wireKey ? [draftKey] : []),
++      });
++    });
++  }, [draftKey, hostServerId, isHostOnline, supportsUiState]);
+ 
+   const lockedWorkingDir = composerOptions?.lockedWorkingDir?.trim() ?? "";
+   useEffect(() => {
+diff --git a/packages/app/src/review/surface.tsx b/packages/app/src/review/surface.tsx
+index 43b6af914..2210d0774 100644
+--- a/packages/app/src/review/surface.tsx
++++ b/packages/app/src/review/surface.tsx
+@@ -20,6 +20,14 @@ import {
+ import { isWeb } from "@/constants/platform";
+ import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+ import type { Theme } from "@/styles/theme";
++import { useHostFeature } from "@/runtime/host-features";
++import { getHostRuntimeStore, useHostRuntimeConnectionStatus } from "@/runtime/host-runtime";
++import { clientReviewKeyToWireKey } from "@/ui-state/keys";
++import {
++  handleUiStateUpdatedForReview,
++  hydrateReviewFromHost,
++  upsertReviewOnHost,
++} from "@/ui-state/review-host-sync";
+ import { useReviewDraftComments, useReviewDraftStore, type ReviewDraftComment } from "./store";
+ import { buildReviewableDiffTargetKey, type ReviewableDiffTarget } from "@/utils/diff-layout";
+ import {
+@@ -108,11 +116,68 @@ export function useInlineReviewController(input: { reviewDraftKey: string }): In
+   const addComment = useReviewDraftStore((state) => state.addComment);
+   const updateComment = useReviewDraftStore((state) => state.updateComment);
+   const deleteComment = useReviewDraftStore((state) => state.deleteComment);
++  const hostServerId = useMemo(() => {
++    const match = /(?:^|:)server=([^:]+)(?::|$)/.exec(input.reviewDraftKey);
++    return match?.[1] ?? null;
++  }, [input.reviewDraftKey]);
++  const supportsUiState = useHostFeature(hostServerId, "uiState");
++  const connectionStatus = useHostRuntimeConnectionStatus(hostServerId ?? "");
++  const isHostOnline = connectionStatus === "online";
++  const wireKey = useMemo(
++    () => clientReviewKeyToWireKey(input.reviewDraftKey),
++    [input.reviewDraftKey],
++  );
++
++  const syncReviewToHost = useCallback(() => {
++    if (!supportsUiState || !hostServerId) {
++      return;
++    }
++    const client = getHostRuntimeStore().getClient(hostServerId);
++    if (!client) {
++      return;
++    }
++    const comments = useReviewDraftStore.getState().drafts[input.reviewDraftKey] ?? [];
++    void upsertReviewOnHost({
++      client,
++      clientReviewKey: input.reviewDraftKey,
++      comments,
++    });
++  }, [hostServerId, input.reviewDraftKey, supportsUiState]);
+ 
+   useEffect(() => {
+     setEditor(null);
+   }, [input.reviewDraftKey]);
+ 
++  useEffect(() => {
++    if (!supportsUiState || !isHostOnline || !hostServerId || !wireKey) {
++      return;
++    }
++    const client = getHostRuntimeStore().getClient(hostServerId);
++    if (!client) {
++      return;
++    }
++    let cancelled = false;
++    void hydrateReviewFromHost({
++      client,
++      clientReviewKey: input.reviewDraftKey,
++    }).catch((error) => {
++      if (!cancelled) {
++        console.warn("[ui-state] review hydrate failed", error);
++      }
++    });
++    const unsubscribe = client.on("ui_state.updated", (message) => {
++      handleUiStateUpdatedForReview({
++        message,
++        clientReviewKey: input.reviewDraftKey,
++        wireKey,
++      });
++    });
++    return () => {
++      cancelled = true;
++      unsubscribe();
++    };
++  }, [hostServerId, input.reviewDraftKey, isHostOnline, supportsUiState, wireKey]);
++
+   const handleStartComment = useCallback((target: ReviewableDiffTarget) => {
+     setEditor({ target, commentId: null, body: "" });
+   }, []);
+@@ -153,16 +218,18 @@ export function useInlineReviewController(input: { reviewDraftKey: string }): In
+         });
+       }
+       setEditor(null);
++      syncReviewToHost();
+     },
+-    [addComment, editor, input.reviewDraftKey, updateComment],
++    [addComment, editor, input.reviewDraftKey, syncReviewToHost, updateComment],
+   );
+ 
+   const handleDeleteComment = useCallback(
+     (id: string) => {
+       deleteComment({ key: input.reviewDraftKey, id });
+       setEditor((current) => (current?.commentId === id ? null : current));
++      syncReviewToHost();
+     },
+-    [deleteComment, input.reviewDraftKey],
++    [deleteComment, input.reviewDraftKey, syncReviewToHost],
+   );
+ 
+   return useMemo<InlineReviewActions>(

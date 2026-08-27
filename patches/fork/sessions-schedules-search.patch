@@ -1,0 +1,534 @@
+Subject: History and Schedules lists are searchable
+Decision: sessions-screen and schedules-screen keep free-text filter so a long-lived host remains scannable
+Verify: npx vitest run packages/app/src/utils/session-list-search.test.ts packages/app/src/utils/schedule-list-search.test.ts --bail=1
+Files: packages/app/src/screens/sessions-screen.tsx
+Files: packages/app/src/screens/schedules-screen.tsx
+
+diff --git a/packages/app/src/screens/schedules-screen.tsx b/packages/app/src/screens/schedules-screen.tsx
+index ce2f8b9df..33d9d723e 100644
+--- a/packages/app/src/screens/schedules-screen.tsx
++++ b/packages/app/src/screens/schedules-screen.tsx
+@@ -8,8 +8,9 @@ import {
+ } from "react";
+ import { ScrollView, Text, View } from "react-native";
+ import { useIsFocused } from "@react-navigation/native";
+-import { CalendarClock, Plus } from "lucide-react-native";
++import { CalendarClock, Plus, Search } from "lucide-react-native";
+ import { StyleSheet } from "react-native-unistyles";
++import { AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
+ import { MenuHeader } from "@/components/headers/menu-header";
+ import { ExternalLink } from "@/components/ui/external-link";
+ import { HostFilter } from "@/components/hosts/host-filter";
+@@ -38,6 +39,7 @@ import {
+   buildProjectNameByCwd,
+   buildScheduleProjectTargets,
+ } from "@/schedules/schedule-project-targets";
++import { filterScheduleRowsBySearchQuery } from "@/utils/schedule-list-search";
+ import type { ScheduleSummary } from "@getpaseo/protocol/schedule/types";
+ 
+ type FormState =
+@@ -94,6 +96,7 @@ function SchedulesScreenContent(): ReactElement {
+   const [form, setForm] = useState<FormState>({ mode: "closed" });
+   const [selectedHost, setSelectedHost] = useState(ALL_HOSTS_OPTION_ID);
+   const [statusFilter, setStatusFilter] = useState<ScheduleBucket>("runnable");
++  const [searchQuery, setSearchQuery] = useState("");
+ 
+   useEffect(() => {
+     if (
+@@ -141,7 +144,7 @@ function SchedulesScreenContent(): ReactElement {
+     }));
+   }, [schedules, agentsByKey, projectNameByCwd, agentDirReadyHosts]);
+ 
+-  const visibleRows = useMemo<ScheduleRowView[]>(() => {
++  const hostFilteredRows = useMemo<ScheduleRowView[]>(() => {
+     const singleHost = hosts.length <= 1;
+     return resolvedRows
+       .filter(
+@@ -160,6 +163,11 @@ function SchedulesScreenContent(): ReactElement {
+       }));
+   }, [resolvedRows, selectedHost, statusFilter, hosts.length]);
+ 
++  const visibleRows = useMemo(
++    () => filterScheduleRowsBySearchQuery(hostFilteredRows, searchQuery),
++    [hostFilteredRows, searchQuery],
++  );
++
+   const showLoadError = isError && loadState.status !== "loaded";
+   const showHostFilter = hosts.length > 1;
+ 
+@@ -168,6 +176,9 @@ function SchedulesScreenContent(): ReactElement {
+       <MenuHeader title="Schedules" />
+       <SchedulesScreenBody
+         rows={visibleRows}
++        hostFilteredRowCount={hostFilteredRows.length}
++        searchQuery={searchQuery}
++        onSearchQueryChange={setSearchQuery}
+         loadState={loadState}
+         hostErrors={hostErrors}
+         showLoadError={showLoadError}
+@@ -194,6 +205,9 @@ function SchedulesScreenContent(): ReactElement {
+ 
+ function SchedulesScreenBody({
+   rows,
++  hostFilteredRowCount,
++  searchQuery,
++  onSearchQueryChange,
+   loadState,
+   hostErrors,
+   showLoadError,
+@@ -208,6 +222,9 @@ function SchedulesScreenBody({
+   onEdit,
+ }: {
+   rows: ScheduleRowView[];
++  hostFilteredRowCount: number;
++  searchQuery: string;
++  onSearchQueryChange: (value: string) => void;
+   loadState: AggregateLoadState<AggregatedSchedule>;
+   hostErrors: ScheduleHostError[];
+   showLoadError: boolean;
+@@ -222,6 +239,7 @@ function SchedulesScreenBody({
+   onEdit: (schedule: AggregatedSchedule) => void;
+ }): ReactElement {
+   const bodyState = resolveSchedulesScreenBodyState({ loadState, showLoadError });
++  const hasSearchQuery = searchQuery.trim().length > 0;
+ 
+   if (bodyState.kind === "loading") {
+     return (
+@@ -254,6 +272,8 @@ function SchedulesScreenBody({
+   let schedulesContent: ReactElement;
+   if (rows.length > 0) {
+     schedulesContent = <SchedulesTable rows={rows} onEditSchedule={onEdit} />;
++  } else if (hasSearchQuery && hostFilteredRowCount > 0) {
++    schedulesContent = <SchedulesSearchEmptyState />;
+   } else if (statusFilter === "ended") {
+     schedulesContent = <SchedulesEndedEmptyState />;
+   } else {
+@@ -294,6 +314,9 @@ function SchedulesScreenBody({
+           New schedule
+         </Button>
+       </View>
++      <View style={styles.searchRow}>
++        <SchedulesSearchField value={searchQuery} onChangeText={onSearchQueryChange} />
++      </View>
+       <ScrollView
+         style={styles.scroll}
+         contentContainerStyle={styles.scrollContent}
+@@ -308,6 +331,39 @@ function SchedulesScreenBody({
+   );
+ }
+ 
++function SchedulesSearchField({
++  onChangeText,
++}: {
++  value: string;
++  onChangeText: (value: string) => void;
++}): ReactElement {
++  return (
++    <View style={styles.searchField}>
++      <Search size={16} color={styles.searchIcon.color} />
++      <AdaptiveTextInput
++        onChangeText={onChangeText}
++        placeholder="Search schedules..."
++        style={styles.searchInput}
++        autoCapitalize="none"
++        autoCorrect={false}
++        testID="schedules-search"
++      />
++    </View>
++  );
++}
++
++function SchedulesSearchEmptyState(): ReactElement {
++  return (
++    <View style={styles.filterEmpty}>
++      <View style={styles.endedEmptyState}>
++        <CalendarClock size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
++        <Text style={styles.emptyTitle}>No matching schedules</Text>
++        <Text style={styles.emptyDescription}>Try a different search.</Text>
++      </View>
++    </View>
++  );
++}
++
+ function SchedulesEmptyState({
+   onCreate,
+   testID,
+@@ -386,6 +442,32 @@ const styles = StyleSheet.create((theme) => ({
+     flexShrink: 1,
+     flexWrap: "wrap",
+   },
++  searchRow: {
++    paddingHorizontal: { xs: theme.spacing[3], md: theme.spacing[6] },
++    paddingTop: theme.spacing[3],
++  },
++  searchField: {
++    minHeight: 40,
++    borderWidth: 1,
++    borderColor: theme.colors.border,
++    borderRadius: theme.borderRadius.lg,
++    paddingHorizontal: theme.spacing[3],
++    backgroundColor: theme.colors.surface0,
++    flexDirection: "row",
++    alignItems: "center",
++    gap: theme.spacing[2],
++  },
++  searchIcon: {
++    color: theme.colors.foregroundMuted,
++  },
++  searchInput: {
++    flex: 1,
++    minWidth: 0,
++    minHeight: 38,
++    paddingVertical: theme.spacing[2],
++    color: theme.colors.foreground,
++    fontSize: theme.fontSize.sm,
++  },
+   scroll: {
+     flex: 1,
+     minHeight: 0,
+diff --git a/packages/app/src/screens/sessions-screen.tsx b/packages/app/src/screens/sessions-screen.tsx
+index b063e042a..c39cc5cc3 100644
+--- a/packages/app/src/screens/sessions-screen.tsx
++++ b/packages/app/src/screens/sessions-screen.tsx
+@@ -1,13 +1,14 @@
+-import { useMemo, useState, useCallback, useEffect, type ReactElement } from "react";
+-import { View, Text } from "react-native";
++import { useMemo, useState, useCallback, useEffect, useRef, type ReactElement } from "react";
++import { Pressable, View, Text, type PressableStateCallbackType } from "react-native";
+ import { useIsFocused } from "@react-navigation/native";
+ import { router } from "expo-router";
+ import { StyleSheet, useUnistyles } from "react-native-unistyles";
+-import { ChevronLeft } from "lucide-react-native";
++import { ChevronDown, ChevronLeft, Folder } from "lucide-react-native";
+ import { useTranslation } from "react-i18next";
+ import type { TFunction } from "i18next";
+ import { MenuHeader } from "@/components/headers/menu-header";
+ import { Button } from "@/components/ui/button";
++import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+ import { LoadingSpinner } from "@/components/ui/loading-spinner";
+ import { AgentList } from "@/components/agent-list";
+ import { SearchField } from "@/components/ui/search-field";
+@@ -17,6 +18,12 @@ import { type AgentHistoryHostError, useAgentHistory } from "@/hooks/use-agent-h
+ import { useDebouncedValue } from "@/hooks/use-debounced-value";
+ import { useHosts } from "@/runtime/host-runtime";
+ import { buildOpenProjectRoute } from "@/utils/host-routes";
++import {
++  buildSessionProjectFilterOptions,
++  filterAgentsByProject,
++  SESSIONS_ALL_PROJECTS_FILTER_ID,
++  type SessionProjectFilterOption,
++} from "@/utils/session-project-filter";
+ 
+ /** Long enough that a typed word is one request, short enough to feel live. */
+ const SEARCH_DEBOUNCE_MS = 200;
+@@ -53,8 +60,10 @@ function resolveEmptyText(input: {
+   t: TFunction;
+   isSearching: boolean;
+   isAllHosts: boolean;
++  isAllProjects: boolean;
+ }): string {
+   if (input.isSearching) return input.t("sessions.noMatches");
++  if (!input.isAllProjects) return "No sessions for this project";
+   if (input.isAllHosts) return input.t("sessions.empty");
+   return "No sessions for this host";
+ }
+@@ -69,6 +78,33 @@ export function SessionsScreen() {
+   return <SessionsScreenContent />;
+ }
+ 
++function useSessionsProjectFilter(historyAgents: ReturnType<typeof useAgentHistory>["agents"]) {
++  const [projectFilterId, setProjectFilterId] = useState(SESSIONS_ALL_PROJECTS_FILTER_ID);
++  const projectFilterOptions = useMemo(
++    () => buildSessionProjectFilterOptions(historyAgents),
++    [historyAgents],
++  );
++  const resolvedProjectFilterId = useMemo(() => {
++    if (projectFilterId === SESSIONS_ALL_PROJECTS_FILTER_ID) {
++      return SESSIONS_ALL_PROJECTS_FILTER_ID;
++    }
++    if (projectFilterOptions.some((option) => option.id === projectFilterId)) {
++      return projectFilterId;
++    }
++    return SESSIONS_ALL_PROJECTS_FILTER_ID;
++  }, [projectFilterId, projectFilterOptions]);
++  const agents = useMemo(
++    () => filterAgentsByProject(historyAgents, resolvedProjectFilterId),
++    [historyAgents, resolvedProjectFilterId],
++  );
++  return {
++    agents,
++    projectFilterOptions,
++    resolvedProjectFilterId,
++    setProjectFilterId,
++  };
++}
++
+ function SessionsScreenContent() {
+   const { theme } = useUnistyles();
+   const { t } = useTranslation();
+@@ -78,7 +114,7 @@ function SessionsScreenContent() {
+   const search = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS).trim();
+   const historyServerId = selectedHost === ALL_HOSTS_OPTION_ID ? null : selectedHost;
+   const {
+-    agents,
++    agents: historyAgents,
+     hasMore,
+     isInitialLoad,
+     isLoadingMore,
+@@ -94,6 +130,8 @@ function SessionsScreenContent() {
+     search,
+   });
+   const isSearching = isSearchSupported && search.length > 0;
++  const { agents, projectFilterOptions, resolvedProjectFilterId, setProjectFilterId } =
++    useSessionsProjectFilter(historyAgents);
+ 
+   useEffect(() => {
+     if (
+@@ -116,9 +154,11 @@ function SessionsScreenContent() {
+     t,
+     isSearching,
+     isAllHosts: selectedHost === ALL_HOSTS_OPTION_ID,
++    isAllProjects: resolvedProjectFilterId === SESSIONS_ALL_PROJECTS_FILTER_ID,
+   });
+   const showHostFilter = hosts.length > 1;
+-  const showFilterRow = showHostFilter || isSearchSupported;
++  const showProjectFilter = projectFilterOptions.length > 0;
++  const showFilterRow = showHostFilter || showProjectFilter || isSearchSupported;
+   const showLoadError = isError && agents.length === 0;
+ 
+   const handleBack = useCallback(() => {
+@@ -149,6 +189,55 @@ function SessionsScreenContent() {
+     );
+   }, [hasMore, isLoadingMore, isSearchTruncated, loadMore, t]);
+ 
++  const body = (() => {
++    if (isInitialLoad) {
++      return (
++        <View style={styles.loadingContainer}>
++          <LoadingSpinner size="large" color={theme.colors.foregroundMuted} />
++        </View>
++      );
++    }
++    if (showLoadError) {
++      return (
++        <View style={styles.emptyContainer}>
++          <Text style={styles.emptyText}>Unable to load sessions</Text>
++          <Button variant="ghost" onPress={handleRefresh}>
++            Try again
++          </Button>
++        </View>
++      );
++    }
++    if (agents.length === 0) {
++      return (
++        <View style={styles.emptyContainer} testID="sessions-empty">
++          <Text style={styles.emptyText}>{emptyText}</Text>
++          {isSearching ? (
++            <Button variant="ghost" onPress={handleClearSearch}>
++              {t("sessions.actions.clearSearch")}
++            </Button>
++          ) : (
++            <Button variant="ghost" leftIcon={ChevronLeft} onPress={handleBack}>
++              Back
++            </Button>
++          )}
++        </View>
++      );
++    }
++    return (
++      <AgentList
++        agents={agents}
++        showCheckoutInfo={false}
++        isRefreshing={isManualRefresh}
++        onRefresh={handleRefresh}
++        listFooterComponent={listFooterComponent}
++        showAttentionIndicator={false}
++        showHostColumn
++        searchMatchesByAgentKey={isSearching ? searchMatchesByAgentKey : undefined}
++        flat={isSearching}
++      />
++    );
++  })();
++
+   return (
+     <View style={styles.container}>
+       <MenuHeader title={t("sessions.title")} />
+@@ -173,53 +262,95 @@ function SessionsScreenContent() {
+               hostOptionTestID={sessionsHostOptionTestID}
+             />
+           ) : null}
++          {showProjectFilter ? (
++            <SessionsProjectFilter
++              options={projectFilterOptions}
++              value={resolvedProjectFilterId}
++              onSelect={setProjectFilterId}
++            />
++          ) : null}
+         </View>
+       ) : null}
+       {hostErrors.length > 0 ? <SessionHostErrorsBanner errors={hostErrors} t={t} /> : null}
+-      {isInitialLoad ? (
+-        <View style={styles.loadingContainer}>
+-          <LoadingSpinner size="large" color={theme.colors.foregroundMuted} />
+-        </View>
+-      ) : null}
+-      {!isInitialLoad && showLoadError ? (
+-        <View style={styles.emptyContainer}>
+-          <Text style={styles.emptyText}>Unable to load sessions</Text>
+-          <Button variant="ghost" onPress={handleRefresh}>
+-            Try again
+-          </Button>
+-        </View>
+-      ) : null}
+-      {!isInitialLoad && !showLoadError && agents.length === 0 ? (
+-        <View style={styles.emptyContainer} testID="sessions-empty">
+-          <Text style={styles.emptyText}>{emptyText}</Text>
+-          {isSearching ? (
+-            <Button variant="ghost" onPress={handleClearSearch}>
+-              {t("sessions.actions.clearSearch")}
+-            </Button>
+-          ) : (
+-            <Button variant="ghost" leftIcon={ChevronLeft} onPress={handleBack}>
+-              Back
+-            </Button>
+-          )}
+-        </View>
+-      ) : null}
+-      {!isInitialLoad && !showLoadError && agents.length > 0 ? (
+-        <AgentList
+-          agents={agents}
+-          showCheckoutInfo={false}
+-          isRefreshing={isManualRefresh}
+-          onRefresh={handleRefresh}
+-          listFooterComponent={listFooterComponent}
+-          showAttentionIndicator={false}
+-          showHostColumn
+-          searchMatchesByAgentKey={isSearching ? searchMatchesByAgentKey : undefined}
+-          flat={isSearching}
+-        />
+-      ) : null}
++      {body}
+     </View>
+   );
+ }
+ 
++function SessionsProjectFilter({
++  options,
++  value,
++  onSelect,
++}: {
++  options: readonly SessionProjectFilterOption[];
++  value: string;
++  onSelect: (id: string) => void;
++}) {
++  const [open, setOpen] = useState(false);
++  const anchorRef = useRef<View | null>(null);
++  const comboboxOptions = useMemo<ComboboxOption[]>(
++    () => [
++      { id: SESSIONS_ALL_PROJECTS_FILTER_ID, label: "All projects" },
++      ...options.map((option) => ({ id: option.id, label: option.label })),
++    ],
++    [options],
++  );
++  const selectedLabel =
++    value === SESSIONS_ALL_PROJECTS_FILTER_ID
++      ? "All projects"
++      : (options.find((option) => option.id === value)?.label ?? "All projects");
++  const triggerStyle = useCallback(
++    ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
++      styles.projectFilterTrigger,
++      (Boolean(hovered) || pressed || open) && styles.projectFilterTriggerActive,
++    ],
++    [open],
++  );
++  const handlePress = useCallback(() => {
++    setOpen((current) => !current);
++  }, []);
++  const handleSelect = useCallback(
++    (id: string) => {
++      onSelect(id);
++      setOpen(false);
++    },
++    [onSelect],
++  );
++
++  return (
++    <>
++      <View ref={anchorRef} collapsable={false} style={styles.projectFilterWrap}>
++        <Pressable
++          onPress={handlePress}
++          style={triggerStyle}
++          accessibilityRole="button"
++          accessibilityLabel={`Filter by project: ${selectedLabel}`}
++          testID="sessions-project-filter-trigger"
++        >
++          <Folder size={14} color={styles.projectFilterIcon.color} />
++          <Text style={styles.projectFilterTriggerText} numberOfLines={1}>
++            {selectedLabel}
++          </Text>
++          <ChevronDown size={14} color={styles.projectFilterIcon.color} />
++        </Pressable>
++      </View>
++      <Combobox
++        options={comboboxOptions}
++        value={value}
++        onSelect={handleSelect}
++        searchable={options.length > 6}
++        searchPlaceholder="Search projects..."
++        emptyText="No projects found"
++        title="Filter by project"
++        open={open}
++        onOpenChange={setOpen}
++        anchorRef={anchorRef}
++        desktopPlacement="bottom-start"
++      />
++    </>
++  );
++}
++
+ const styles = StyleSheet.create((theme) => ({
+   container: {
+     flex: 1,
+@@ -228,6 +359,7 @@ const styles = StyleSheet.create((theme) => ({
+   filterContainer: {
+     flexDirection: "row",
+     alignItems: "center",
++    flexWrap: "wrap",
+     gap: theme.spacing[2],
+     paddingHorizontal: {
+       xs: theme.spacing[3],
+@@ -235,6 +367,34 @@ const styles = StyleSheet.create((theme) => ({
+     },
+     paddingTop: theme.spacing[4],
+   },
++  projectFilterWrap: {
++    flexShrink: 1,
++    minWidth: 0,
++  },
++  projectFilterTrigger: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: theme.spacing[1.5],
++    paddingHorizontal: theme.spacing[3],
++    paddingVertical: theme.spacing[2],
++    borderRadius: theme.borderRadius.lg,
++    borderWidth: theme.borderWidth[1],
++    borderColor: theme.colors.border,
++    backgroundColor: theme.colors.surface1,
++    maxWidth: 220,
++  },
++  projectFilterTriggerActive: {
++    backgroundColor: theme.colors.surface2,
++  },
++  projectFilterTriggerText: {
++    color: theme.colors.foreground,
++    fontSize: theme.fontSize.sm,
++    flexShrink: 1,
++    minWidth: 0,
++  },
++  projectFilterIcon: {
++    color: theme.colors.foregroundMuted,
++  },
+   emptyContainer: {
+     flex: 1,
+     justifyContent: "center",

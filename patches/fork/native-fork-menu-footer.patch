@@ -1,0 +1,127 @@
+Subject: assistant footer offers experimental native fork
+Decision: AssistantForkMenu native-tab item and turn-footer showNativeForkOption stay wired so the stream view native-fork patch has a control
+Verify: npx vitest run packages/app/src/agent-stream/fork-strategy.test.ts packages/server/src/server/agent/providers/claude/native-fork.test.ts --bail=1
+Files: packages/app/src/components/assistant-fork-menu.tsx
+Files: packages/app/src/agent-stream/turn-footer.tsx
+
+diff --git a/packages/app/src/agent-stream/turn-footer.tsx b/packages/app/src/agent-stream/turn-footer.tsx
+index d1ddd4069..ee26aa025 100644
+--- a/packages/app/src/agent-stream/turn-footer.tsx
++++ b/packages/app/src/agent-stream/turn-footer.tsx
+@@ -48,6 +48,7 @@ export const TurnFooter = memo(function TurnFooter({
+   host,
+   strategy,
+   supportsTimelineCursor,
++  supportsNativeFork = false,
+   onForkAssistantTurn,
+   onForkInFlightTurn,
+ }: {
+@@ -56,6 +57,7 @@ export const TurnFooter = memo(function TurnFooter({
+   host: TurnFooterHost | null;
+   strategy: TurnContentStrategy;
+   supportsTimelineCursor: boolean;
++  supportsNativeFork?: boolean;
+   onForkAssistantTurn?: AssistantTurnForkHandler;
+   onForkInFlightTurn?: InFlightTurnForkHandler;
+ }) {
+@@ -79,6 +81,7 @@ export const TurnFooter = memo(function TurnFooter({
+       timing={host.timing}
+       startIndex={host.startIndex}
+       supportsTimelineCursor={supportsTimelineCursor}
++      supportsNativeFork={supportsNativeFork}
+       onForkAssistantTurn={onForkAssistantTurn}
+     />
+   );
+@@ -90,6 +93,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
+   timing,
+   startIndex,
+   supportsTimelineCursor,
++  supportsNativeFork = false,
+   onForkAssistantTurn,
+ }: {
+   strategy: TurnContentStrategy;
+@@ -97,6 +101,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
+   timing?: TurnTiming;
+   startIndex: number;
+   supportsTimelineCursor: boolean;
++  supportsNativeFork?: boolean;
+   onForkAssistantTurn?: AssistantTurnForkHandler;
+ }) {
+   return (
+@@ -107,6 +112,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
+         timing={timing}
+         startIndex={startIndex}
+         supportsTimelineCursor={supportsTimelineCursor}
++        supportsNativeFork={supportsNativeFork}
+         onForkAssistantTurn={onForkAssistantTurn}
+       />
+     </TurnFooterRow>
+@@ -163,6 +169,7 @@ function CompletedTurnFooter({
+   timing,
+   startIndex,
+   supportsTimelineCursor,
++  supportsNativeFork = false,
+   onForkAssistantTurn,
+ }: {
+   strategy: TurnContentStrategy;
+@@ -170,6 +177,7 @@ function CompletedTurnFooter({
+   timing?: TurnTiming;
+   startIndex: number;
+   supportsTimelineCursor: boolean;
++  supportsNativeFork?: boolean;
+   onForkAssistantTurn?: AssistantTurnForkHandler;
+ }) {
+   const getContent = useCallback(
+@@ -202,6 +210,7 @@ function CompletedTurnFooter({
+         completedAt={timing?.completedAt}
+         durationMs={timing?.durationMs}
+         onFork={boundary && onForkAssistantTurn ? handleFork : undefined}
++        showNativeForkOption={supportsNativeFork}
+       />
+     </View>
+   );
+diff --git a/packages/app/src/components/assistant-fork-menu.tsx b/packages/app/src/components/assistant-fork-menu.tsx
+index b8c2bc0f0..922f423cc 100644
+--- a/packages/app/src/components/assistant-fork-menu.tsx
++++ b/packages/app/src/components/assistant-fork-menu.tsx
+@@ -12,10 +12,12 @@ import {
+ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+ import { ICON_SIZE, type Theme } from "@/styles/theme";
+ 
+-export type AssistantForkTarget = "tab" | "workspace";
++export type AssistantForkTarget = "tab" | "workspace" | "native-tab";
+ 
+ interface AssistantForkMenuProps {
+   onFork: (target: AssistantForkTarget) => Promise<void> | void;
++  /** When true, offer Claude SDK native fork as an experimental menu item. */
++  showNativeTabOption?: boolean;
+   testID?: string;
+ }
+ 
+@@ -26,6 +28,7 @@ const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.for
+ 
+ export const AssistantForkMenu = memo(function AssistantForkMenu({
+   onFork,
++  showNativeTabOption = false,
+   testID = "assistant-fork-menu",
+ }: AssistantForkMenuProps) {
+   const { t } = useTranslation();
+@@ -108,6 +111,18 @@ export const AssistantForkMenu = memo(function AssistantForkMenu({
+         >
+           {t("message.actions.forkInNewTab")}
+         </DropdownMenuItem>
++        {showNativeTabOption ? (
++          <DropdownMenuItem
++            closeOnSelect={false}
++            disabled={isLocked && pendingTarget !== "native-tab"}
++            leading={forkIcon}
++            onSelect={handleSelect("native-tab")}
++            status={pendingTarget === "native-tab" ? "pending" : undefined}
++            testID={`${testID}-native-new-tab`}
++          >
++            {t("message.actions.forkNativelyInNewTab")}
++          </DropdownMenuItem>
++        ) : null}
+         <DropdownMenuItem
+           closeOnSelect={false}
+           disabled={isLocked && pendingTarget !== "workspace"}

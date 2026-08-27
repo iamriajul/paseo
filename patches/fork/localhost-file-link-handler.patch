@@ -1,0 +1,59 @@
+Subject: assistant file links can hand localhost URLs to the workspace Browser
+Decision: onOpenLocalhostUrl short-circuits assistant markdown/file-link clicks so 127.0.0.1 opens in the workspace Browser instead of the client machine
+Verify: npx vitest run packages/app/src/utils/localhost-url.test.ts packages/app/src/desktop/browser/workspace-browser-availability.test.ts --bail=1
+Files: packages/app/src/assistant-file-links/provider.tsx
+Files: packages/app/src/assistant-file-links/use-file-link.ts
+
+diff --git a/packages/app/src/assistant-file-links/provider.tsx b/packages/app/src/assistant-file-links/provider.tsx
+index 77d0b2e03..16f714f46 100644
+--- a/packages/app/src/assistant-file-links/provider.tsx
++++ b/packages/app/src/assistant-file-links/provider.tsx
+@@ -22,6 +22,7 @@ export interface AssistantFileLinkResolverConfig {
+   serverId?: string;
+   workspaceRoot?: string;
+   onOpenWorkspaceFile?: (target: InlinePathTarget, disposition: OpenFileDisposition) => void;
++  onOpenLocalhostUrl?: (url: string) => boolean;
+   toast?: ToastApi | null;
+ }
+ 
+@@ -42,6 +43,7 @@ export function AssistantFileLinkResolverProvider({
+   serverId,
+   workspaceRoot,
+   onOpenWorkspaceFile,
++  onOpenLocalhostUrl,
+   toast,
+   children,
+ }: AssistantFileLinkResolverProviderProps) {
+@@ -50,9 +52,17 @@ export function AssistantFileLinkResolverProvider({
+     serverId,
+     workspaceRoot,
+     onOpenWorkspaceFile,
++    onOpenLocalhostUrl,
+     toast,
+   });
+-  configRef.current = { client, serverId, workspaceRoot, onOpenWorkspaceFile, toast };
++  configRef.current = {
++    client,
++    serverId,
++    workspaceRoot,
++    onOpenWorkspaceFile,
++    onOpenLocalhostUrl,
++    toast,
++  };
+ 
+   const getDirectorySuggestions = useCallback<GetDirectorySuggestions>(async (input) => {
+     const activeClient = configRef.current.client;
+diff --git a/packages/app/src/assistant-file-links/use-file-link.ts b/packages/app/src/assistant-file-links/use-file-link.ts
+index 2a08594aa..f1527f7c3 100644
+--- a/packages/app/src/assistant-file-links/use-file-link.ts
++++ b/packages/app/src/assistant-file-links/use-file-link.ts
+@@ -161,6 +161,9 @@ function openAssistantFileLink(input: {
+   formatNoFileFoundMessage: (token: string) => string;
+ }): void {
+   const capturedConfig = input.context.configRef.current;
++  if (capturedConfig.onOpenLocalhostUrl?.(input.source.href)) {
++    return;
++  }
+   const capturedResolution = classifyForResolution(input.source, {
+     workspaceRoot: capturedConfig.workspaceRoot,
+   });

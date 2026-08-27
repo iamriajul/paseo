@@ -1,0 +1,175 @@
+Subject: compact explorer lists running workspace script ports
+Decision: compact-explorer-sidebar keeps a Ports surface for bound workspace scripts
+Verify: npx vitest run packages/app/src/components/compact-explorer-sidebar-host-state.test.ts --bail=1
+Files: packages/app/src/components/compact-explorer-sidebar.tsx
+Files: packages/app/src/components/compact-explorer-sidebar-host.tsx
+
+diff --git a/packages/app/src/components/compact-explorer-sidebar-host.tsx b/packages/app/src/components/compact-explorer-sidebar-host.tsx
+index c2be2d5a8..648c8066c 100644
+--- a/packages/app/src/components/compact-explorer-sidebar-host.tsx
++++ b/packages/app/src/components/compact-explorer-sidebar-host.tsx
+@@ -1,6 +1,7 @@
+ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { View, type LayoutChangeEvent } from "react-native";
+ import { GestureDetector } from "react-native-gesture-handler";
++import { useWorkspaceBrowserAvailability } from "@/desktop/browser/workspace-browser-availability";
+ import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
+ import { useWorkspace } from "@/stores/session-store-hooks";
+ import {
+@@ -10,6 +11,7 @@ import {
+ import { useOpenFileExplorerGesture } from "@/mobile-panels/gestures";
+ import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
+ import { selectIsCompactFileExplorerOpen, usePanelStore } from "@/stores/panel-store";
++import { createWorkspaceBrowser } from "@/desktop/browser/store";
+ import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+ import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
+ import { useWorkspaceCheckoutStatus } from "@/screens/workspace/use-workspace-checkout-status";
+@@ -117,6 +119,7 @@ export function CompactExplorerSidebarHost({
+     [openTab],
+   );
+   const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
++  const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(model?.serverId ?? "");
+ 
+   const handleOpenExplorer = useCallback(() => {
+     if (!model?.workspaceRoot) {
+@@ -146,6 +149,18 @@ export function CompactExplorerSidebarHost({
+     [focusWorkspaceTab, model, openWorkspaceTabInFocusedPane, presentation, showMobileAgent],
+   );
+ 
++  const handleOpenUrlInBrowserTab = useCallback(
++    (url: string) => {
++      if (!model?.persistenceKey || !hasWorkspaceBrowser) {
++        return false;
++      }
++      const { browserId } = createWorkspaceBrowser({ initialUrl: url });
++      openWorkspaceTabInFocusedPane(model.persistenceKey, { kind: "browser", browserId });
++      showMobileAgent();
++      return true;
++    },
++    [hasWorkspaceBrowser, model, openWorkspaceTabInFocusedPane, showMobileAgent],
++  );
+   const handleContainerLayout = useCallback((event: LayoutChangeEvent) => {
+     const nextWidth = event.nativeEvent.layout.width;
+     setContainerWidth((current) => (current === nextWidth ? current : nextWidth));
+@@ -163,6 +178,7 @@ export function CompactExplorerSidebarHost({
+             persistenceKey={model.persistenceKey}
+             containerWidth={containerWidth}
+             onOpenFile={handleOpenFile}
++            onOpenUrlInBrowserTab={handleOpenUrlInBrowserTab}
+           />
+         ) : (
+           <CompactExplorerSidebar
+@@ -171,6 +187,7 @@ export function CompactExplorerSidebarHost({
+             workspaceRoot={model.workspaceRoot}
+             isGit={model.isGit}
+             onOpenFile={handleOpenFile}
++            onOpenUrlInBrowserTab={handleOpenUrlInBrowserTab}
+           />
+         )}
+       </DiffDocumentWorkspaceCacheProvider>
+diff --git a/packages/app/src/components/compact-explorer-sidebar.tsx b/packages/app/src/components/compact-explorer-sidebar.tsx
+index ea186995b..0207e3c9a 100644
+--- a/packages/app/src/components/compact-explorer-sidebar.tsx
++++ b/packages/app/src/components/compact-explorer-sidebar.tsx
+@@ -23,6 +23,7 @@ import {
+ import { ChangesSurface } from "@/git/diff-pane";
+ import { changesStateSchema, defaultChangesState, type ChangesState } from "@/panels/changes/state";
+ import { FileExplorerPane } from "./file-explorer-pane";
++import { ExplorerPortsPane } from "./explorer-ports-pane";
+ import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
+ import { shouldUseCompactExplorerKeyboardPadding } from "@/hooks/keyboard-shift-policy";
+ import { WindowChromeSafeArea } from "@/utils/desktop-window";
+@@ -48,6 +49,7 @@ interface ExplorerSidebarProps {
+   workspaceRoot: string;
+   isGit: boolean;
+   onOpenFile?: (filePath: string) => void;
++  onOpenUrlInBrowserTab?: (url: string) => boolean;
+ }
+ 
+ interface ExplorerSidebarSharedState {
+@@ -78,6 +80,7 @@ export function CompactExplorerSidebar({
+   workspaceRoot,
+   isGit,
+   onOpenFile,
++  onOpenUrlInBrowserTab,
+ }: ExplorerSidebarProps) {
+   const { theme } = useUnistyles();
+   const insets = useSafeAreaInsets();
+@@ -143,6 +146,7 @@ export function CompactExplorerSidebar({
+           isGit={isGit}
+           isOpen={isOpen}
+           onOpenFile={onOpenFile}
++          onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
+         />
+       </MobilePanelOverlay>
+     </RetainedPanelActivity>
+@@ -160,6 +164,7 @@ export function NativeExplorerSidebarDock({
+   workspaceRoot,
+   isGit,
+   onOpenFile,
++  onOpenUrlInBrowserTab,
+   persistenceKey,
+   containerWidth,
+ }: NativeExplorerSidebarDockProps) {
+@@ -254,6 +259,7 @@ export function NativeExplorerSidebarDock({
+             isGit={isGit}
+             isOpen={isOpen}
+             onOpenFile={onOpenFile}
++            onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
+           />
+         </View>
+       </Animated.View>
+@@ -299,6 +305,7 @@ interface SidebarContentProps {
+   isGit: boolean;
+   isOpen: boolean;
+   onOpenFile?: (filePath: string) => void;
++  onOpenUrlInBrowserTab?: (url: string) => boolean;
+ }
+ 
+ function ExplorerSidebarContent({
+@@ -311,6 +318,7 @@ function ExplorerSidebarContent({
+   isGit,
+   isOpen,
+   onOpenFile,
++  onOpenUrlInBrowserTab,
+ }: SidebarContentProps) {
+   const { theme } = useUnistyles();
+   const { t } = useTranslation();
+@@ -329,6 +337,7 @@ function ExplorerSidebarContent({
+   const availableTabs = useMemo<ExplorerTab[]>(() => {
+     const tabs: ExplorerTab[] = isGit ? ["changes", "files"] : ["files"];
+     if (isGit && showPrTab) tabs.push("pr");
++    tabs.push("ports");
+     return tabs;
+   }, [isGit, showPrTab]);
+   const { mountedTabIds } = useMountedTabSet({
+@@ -364,6 +373,13 @@ function ExplorerSidebarContent({
+             onTabPress={onTabPress}
+             testID="explorer-tab-files"
+           />
++          <ExplorerTabButton
++            tab="ports"
++            active={resolvedTab === "ports"}
++            label={t("workspace.tabs.sidePanel.ports")}
++            onTabPress={onTabPress}
++            testID="explorer-tab-ports"
++          />
+           {isGit && showPrTab && (
+             <ExplorerTabButton
+               tab="pr"
+@@ -436,6 +452,15 @@ function ExplorerSidebarContent({
+             />
+           </RetainedPanel>
+         ) : null}
++        {mountedTabIds.has("ports") ? (
++          <RetainedPanel active={resolvedTab === "ports"}>
++            <ExplorerPortsPane
++              serverId={serverId}
++              workspaceId={workspaceId}
++              onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
++            />
++          </RetainedPanel>
++        ) : null}
+       </View>
+     </View>
+   );

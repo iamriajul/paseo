@@ -1,0 +1,310 @@
+Subject: global Backlog row and hidden local-host badge
+Decision: left-sidebar keeps a Backlog entry; hosts/appearance treats local daemon badgeDisplay null so the machine you are on is not painted as a remote
+Verify: npx vitest run packages/app/src/hosts/appearance.test.ts --bail=1
+Files: packages/app/src/components/left-sidebar.tsx
+Files: packages/app/src/hosts/appearance.ts
+
+diff --git a/packages/app/src/components/left-sidebar.tsx b/packages/app/src/components/left-sidebar.tsx
+index 23e3e2ca8..6b5dc4679 100644
+--- a/packages/app/src/components/left-sidebar.tsx
++++ b/packages/app/src/components/left-sidebar.tsx
+@@ -5,6 +5,7 @@ import {
+   GitBranch,
+   History,
+   Home,
++  ListTodo,
+   Plus,
+   Search,
+   Server,
+@@ -35,6 +36,7 @@ import {
+ import { HostPicker } from "@/components/hosts/host-picker";
+ import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
+ import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/display-preferences/menu";
++import { SidebarGroupModeControl } from "@/components/sidebar/sidebar-group-mode-control";
+ import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
+ import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
+ import { Shortcut } from "@/components/ui/shortcut";
+@@ -64,6 +66,7 @@ import { useCloseAgentListGesture } from "@/mobile-panels/gestures";
+ import { MobilePanelOverlay } from "@/mobile-panels/presentation";
+ import { useIsMobilePanelPresented } from "@/mobile-panels/provider";
+ import {
++  buildBacklogRoute,
+   buildOpenProjectRoute,
+   buildNewWorkspaceRoute,
+   buildSchedulesRoute,
+@@ -73,6 +76,7 @@ import {
+ } from "@/utils/host-routes";
+ import { openHostOverview } from "@/navigation/settings-navigation";
+ import type { ShortcutKey } from "@/utils/format-shortcut";
++import { useCreateBacklogTaskStore } from "@/stores/create-backlog-task-store";
+ import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
+ import { SidebarCalloutSlot } from "./sidebar-callout-slot";
+ import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+@@ -116,6 +120,7 @@ interface SidebarLabels {
+   settings: string;
+   searchHosts: string;
+   sessions: string;
++  backlog: string;
+   schedules: string;
+   closeSidebar: string;
+ }
+@@ -125,6 +130,8 @@ interface MobileSidebarProps extends SidebarSharedProps {
+   insetsBottom: number;
+   closeSidebar: () => void;
+   handleViewMoreNavigate: () => void;
++  handleViewBacklogNavigate: () => void;
++  handleCreateBacklogTask: () => void;
+   handleViewSchedulesNavigate: () => void;
+ }
+ 
+@@ -132,6 +139,8 @@ interface DesktopSidebarProps extends SidebarSharedProps {
+   insetsTop: number;
+   active: boolean;
+   handleViewMore: () => void;
++  handleViewBacklog: () => void;
++  handleCreateBacklogTask: () => void;
+   handleViewSchedules: () => void;
+ }
+ 
+@@ -227,6 +236,15 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
+     router.push(buildSessionsRoute());
+   }, []);
+ 
++  const handleViewBacklogNavigate = useCallback(() => {
++    router.push(buildBacklogRoute());
++  }, []);
++
++  const openCreateBacklogTask = useCreateBacklogTaskStore((state) => state.openCreateBacklogTask);
++  const handleCreateBacklogTask = useCallback(() => {
++    openCreateBacklogTask();
++  }, [openCreateBacklogTask]);
++
+   const handleViewSchedulesNavigate = useCallback(() => {
+     router.push(buildSchedulesRoute());
+   }, []);
+@@ -241,6 +259,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
+       settings: t("sidebar.actions.settings"),
+       searchHosts: t("sidebar.host.searchPlaceholder"),
+       sessions: t("sidebar.sections.sessions"),
++      backlog: t("sidebar.sections.backlog"),
+       schedules: t("sidebar.sections.schedules"),
+       closeSidebar: t("sidebar.actions.closeSidebar"),
+     }),
+@@ -282,6 +301,8 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
+           handleAddHost={handleAddHostMobile}
+           handleOpenHostSettings={handleOpenHostSettingsMobile}
+           handleViewMoreNavigate={handleViewMoreNavigate}
++          handleViewBacklogNavigate={handleViewBacklogNavigate}
++          handleCreateBacklogTask={handleCreateBacklogTask}
+           handleViewSchedulesNavigate={handleViewSchedulesNavigate}
+         />
+       </RetainedPanelActivity>
+@@ -300,6 +321,8 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
+         handleAddHost={handleAddHostDesktop}
+         handleOpenHostSettings={handleOpenHostSettingsDesktop}
+         handleViewMore={handleViewMoreNavigate}
++        handleViewBacklog={handleViewBacklogNavigate}
++        handleCreateBacklogTask={handleCreateBacklogTask}
+         handleViewSchedules={handleViewSchedulesNavigate}
+       />
+     </RetainedPanelActivity>
+@@ -631,11 +654,14 @@ function MobileSidebar({
+   insetsBottom,
+   closeSidebar,
+   handleViewMoreNavigate,
++  handleViewBacklogNavigate,
++  handleCreateBacklogTask,
+   handleViewSchedulesNavigate,
+ }: MobileSidebarProps) {
+   const pathname = usePathname();
+   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
+   const isSessionsActive = pathname.includes("/sessions");
++  const isBacklogActive = pathname.includes("/backlog");
+   const isSchedulesActive = pathname.includes("/schedules");
+   const { gesture: closeGesture, gestureRef: closeGestureRef } = useCloseAgentListGesture();
+   const dragGestureHostPresented = useIsMobilePanelPresented("agent-list");
+@@ -645,6 +671,26 @@ function MobileSidebar({
+     handleViewMoreNavigate();
+   }, [closeSidebar, handleViewMoreNavigate]);
+ 
++  const handleViewBacklog = useCallback(() => {
++    closeSidebar();
++    handleViewBacklogNavigate();
++  }, [closeSidebar, handleViewBacklogNavigate]);
++
++  const handleCreateBacklogTaskPress = useCallback(() => {
++    closeSidebar();
++    handleCreateBacklogTask();
++  }, [closeSidebar, handleCreateBacklogTask]);
++
++  const backlogTrailingAction = useMemo(
++    () => ({
++      icon: Plus,
++      onPress: handleCreateBacklogTaskPress,
++      accessibilityLabel: "Add task",
++      testID: "sidebar-backlog-add",
++    }),
++    [handleCreateBacklogTaskPress],
++  );
++
+   const handleViewSchedules = useCallback(() => {
+     closeSidebar();
+     handleViewSchedulesNavigate();
+@@ -687,6 +733,15 @@ function MobileSidebar({
+             testID="sidebar-sessions"
+             variant="compact"
+           />
++          <SidebarHeaderRow
++            icon={ListTodo}
++            label={labels.backlog}
++            onPress={handleViewBacklog}
++            isActive={isBacklogActive}
++            testID="sidebar-backlog"
++            variant="compact"
++            trailingAction={backlogTrailingAction}
++          />
+           <SidebarHeaderRow
+             icon={CalendarClock}
+             label={labels.schedules}
+@@ -783,13 +838,25 @@ function DesktopSidebar({
+   insetsTop,
+   active,
+   handleViewMore,
++  handleViewBacklog,
++  handleCreateBacklogTask,
+   handleViewSchedules,
+ }: DesktopSidebarProps) {
+   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
+   const pathname = usePathname();
+   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
+   const isSessionsActive = pathname.includes("/sessions");
++  const isBacklogActive = pathname.includes("/backlog");
+   const isSchedulesActive = pathname.includes("/schedules");
++  const backlogTrailingAction = useMemo(
++    () => ({
++      icon: Plus,
++      onPress: handleCreateBacklogTask,
++      accessibilityLabel: "Add task",
++      testID: "sidebar-backlog-add",
++    }),
++    [handleCreateBacklogTask],
++  );
+   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
+   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
+   const { width: viewportWidth } = useWindowDimensions();
+@@ -912,6 +979,15 @@ function DesktopSidebar({
+               testID="sidebar-sessions"
+               variant="compact"
+             />
++            <SidebarHeaderRow
++              icon={ListTodo}
++              label={labels.backlog}
++              onPress={handleViewBacklog}
++              isActive={isBacklogActive}
++              testID="sidebar-backlog"
++              variant="compact"
++              trailingAction={backlogTrailingAction}
++            />
+             <SidebarHeaderRow
+               icon={CalendarClock}
+               label={labels.schedules}
+@@ -969,8 +1045,13 @@ function DesktopSidebar({
+   );
+ }
+ 
++// Below this header width the inline Project|Status control is hidden; Group by
++// remains available in the gear menu. Sized for "Workspaces by [Project|Status] + icons".
++const WORKSPACES_GROUP_MODE_MIN_WIDTH = 300;
++
+ function WorkspacesSectionHeader() {
+   const { theme } = useUnistyles();
++  const [showGroupMode, setShowGroupMode] = useState(true);
+   const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
+   const commandCenterKeys = useShortcutKeys("toggle-command-center");
+   const handleSearchPress = useCallback(() => setCommandCenterOpen(true), [setCommandCenterOpen]);
+@@ -981,10 +1062,22 @@ function WorkspacesSectionHeader() {
+     ],
+     [],
+   );
++  const handleHeaderLayout = useCallback(
++    (event: { nativeEvent: { layout: { width: number } } }) => {
++      const next = event.nativeEvent.layout.width >= WORKSPACES_GROUP_MODE_MIN_WIDTH;
++      setShowGroupMode((prev) => (prev === next ? prev : next));
++    },
++    [],
++  );
+ 
+   return (
+-    <View style={styles.workspacesSectionHeader}>
+-      <Text style={styles.workspacesSectionTitle}>Workspaces</Text>
++    <View style={styles.workspacesSectionHeader} onLayout={handleHeaderLayout}>
++      <View style={styles.workspacesSectionLeading}>
++        <Text style={styles.workspacesSectionTitle} numberOfLines={1}>
++          Workspaces
++        </Text>
++        <SidebarGroupModeControl visible={showGroupMode} />
++      </View>
+       <View style={styles.workspacesSectionActions}>
+         <Tooltip delayDuration={300}>
+           <TooltipTrigger asChild>
+@@ -1064,15 +1157,24 @@ const styles = StyleSheet.create((theme) => ({
+     paddingTop: theme.spacing[1],
+     paddingBottom: theme.spacing[1],
+   },
++  workspacesSectionLeading: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: theme.spacing[1.5],
++    flex: 1,
++    minWidth: 0,
++  },
+   workspacesSectionTitle: {
+     color: theme.colors.foregroundMuted,
+     fontSize: theme.fontSize.sm,
+     fontWeight: theme.fontWeight.normal,
++    flexShrink: 0,
+   },
+   workspacesSectionActions: {
+     flexDirection: "row",
+     alignItems: "center",
+     gap: theme.spacing[1],
++    flexShrink: 0,
+   },
+   workspacesHeaderIconButton: {
+     width: 28,
+diff --git a/packages/app/src/hosts/appearance.ts b/packages/app/src/hosts/appearance.ts
+index e51f4410d..105e0c061 100644
+--- a/packages/app/src/hosts/appearance.ts
++++ b/packages/app/src/hosts/appearance.ts
+@@ -53,6 +53,8 @@ export interface HostBadgeModel {
+   label: string;
+   color: HostColor;
+   showLabel: boolean;
++  /** Server glyph next to the label. Off when the user hides identity icons. */
++  showIcon: boolean;
+ }
+ 
+ export type HostAppearanceSource = Pick<HostProfile, "serverId" | "label" | "appearance">;
+@@ -67,11 +69,14 @@ export function selectHostBadges(input: {
+   localServerId: string | null;
+   localHostResolutionPending?: boolean;
+   enabled: boolean;
++  /** When false, omit the server glyph (label-only host identity). Default true. */
++  showIcon?: boolean;
+ }): ReadonlyMap<string, HostBadgeModel> {
+   const badges = new Map<string, HostBadgeModel>();
+   if (!input.enabled) {
+     return badges;
+   }
++  const showIcon = input.showIcon !== false;
+   for (const host of input.hosts) {
+     const display = resolveHostBadgeDisplay({
+       appearance: host.appearance,
+@@ -86,6 +91,7 @@ export function selectHostBadges(input: {
+       label: host.label.trim() || host.serverId,
+       color: host.appearance.color,
+       showLabel: display === "name",
++      showIcon,
+     });
+   }
+   return badges;

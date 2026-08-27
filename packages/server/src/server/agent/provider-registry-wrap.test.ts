@@ -26,7 +26,11 @@ const OPTIONAL_AGENT_SESSION_METHOD_NAMES = [
   "revertFiles",
   "revertBoth",
   "steer",
+  "steerActiveTurn",
   "tryHandleOutOfBand",
+  "stopBackgroundTask",
+  "readBackgroundTaskOutput",
+  "resolveNativeForkUpToMessageId",
 ] as const satisfies readonly OptionalAgentSessionMethodName[];
 
 type MissingOptionalAgentSessionMethod = Exclude<
@@ -160,6 +164,29 @@ class FakeSession implements AgentSession {
       },
     };
   }
+
+  async steer() {
+    this.recordedCalls.push("steer");
+  }
+
+  async steerActiveTurn() {
+    this.recordedCalls.push("steerActiveTurn");
+    return { accepted: true as const };
+  }
+
+  async stopBackgroundTask() {
+    this.recordedCalls.push("stopBackgroundTask");
+  }
+
+  async readBackgroundTaskOutput() {
+    this.recordedCalls.push("readBackgroundTaskOutput");
+    return { text: "", nextCursor: 0, eof: true, error: null };
+  }
+
+  async resolveNativeForkUpToMessageId() {
+    this.recordedCalls.push("resolveNativeForkUpToMessageId");
+    return "uuid-1";
+  }
 }
 
 async function* emptyHistory(): AsyncGenerator<AgentStreamEvent> {
@@ -182,6 +209,11 @@ describe("wrapSessionProvider", () => {
     await wrapped.revertBoth?.({ messageId: "message-1" });
     const handler = wrapped.tryHandleOutOfBand?.("/compact");
     await handler?.run({ emit: () => {} });
+    await wrapped.steer?.({ text: "nudge" });
+    await wrapped.steerActiveTurn?.({ text: "nudge" }, { turnId: "turn-1" });
+    await wrapped.stopBackgroundTask?.("task-1");
+    await wrapped.readBackgroundTaskOutput?.({ outputFile: "/tmp/out" });
+    await wrapped.resolveNativeForkUpToMessageId?.("msg_1");
 
     expect(session.recordedCalls).toEqual([
       "listCommands",
@@ -193,6 +225,11 @@ describe("wrapSessionProvider", () => {
       "revertBoth",
       "tryHandleOutOfBand",
       "tryHandleOutOfBand.run",
+      "steer",
+      "steerActiveTurn",
+      "stopBackgroundTask",
+      "readBackgroundTaskOutput",
+      "resolveNativeForkUpToMessageId",
     ]);
   });
 });

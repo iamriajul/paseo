@@ -1,9 +1,88 @@
-Subject: native fork and localhost URL handling in the agent stream
-Decision: assistant stream offers experimental Claude native fork when the user picks it, and localhost markdown links open in the workspace browser instead of an external handler
-Verify: npx vitest run packages/server/src/server/agent/providers/claude/native-fork.test.ts --bail=1
+Subject: Claude native fork from a chat message
+Decision: assistant stream/footer/menu can native-fork a Claude session at a boundary; wrapSessionProvider forwards resolveNativeForkUpToMessageId so the live session still resolves transcript UUIDs
+Verify: npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts packages/server/src/server/agent/providers/claude/native-fork.test.ts packages/app/src/agent-stream/fork-strategy.test.ts --bail=1
 Files: packages/app/src/agent-stream/view.tsx
 Files: packages/app/src/components/message.tsx
+Files: packages/app/src/components/assistant-fork-menu.tsx
+Files: packages/app/src/agent-stream/turn-footer.tsx
+Files: packages/server/src/server/agent/provider-registry.ts
 
+diff --git a/packages/app/src/agent-stream/turn-footer.tsx b/packages/app/src/agent-stream/turn-footer.tsx
+index d1ddd4069..ee26aa025 100644
+--- a/packages/app/src/agent-stream/turn-footer.tsx
++++ b/packages/app/src/agent-stream/turn-footer.tsx
+@@ -48,6 +48,7 @@ export const TurnFooter = memo(function TurnFooter({
+   host,
+   strategy,
+   supportsTimelineCursor,
++  supportsNativeFork = false,
+   onForkAssistantTurn,
+   onForkInFlightTurn,
+ }: {
+@@ -56,6 +57,7 @@ export const TurnFooter = memo(function TurnFooter({
+   host: TurnFooterHost | null;
+   strategy: TurnContentStrategy;
+   supportsTimelineCursor: boolean;
++  supportsNativeFork?: boolean;
+   onForkAssistantTurn?: AssistantTurnForkHandler;
+   onForkInFlightTurn?: InFlightTurnForkHandler;
+ }) {
+@@ -79,6 +81,7 @@ export const TurnFooter = memo(function TurnFooter({
+       timing={host.timing}
+       startIndex={host.startIndex}
+       supportsTimelineCursor={supportsTimelineCursor}
++      supportsNativeFork={supportsNativeFork}
+       onForkAssistantTurn={onForkAssistantTurn}
+     />
+   );
+@@ -90,6 +93,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
+   timing,
+   startIndex,
+   supportsTimelineCursor,
++  supportsNativeFork = false,
+   onForkAssistantTurn,
+ }: {
+   strategy: TurnContentStrategy;
+@@ -97,6 +101,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
+   timing?: TurnTiming;
+   startIndex: number;
+   supportsTimelineCursor: boolean;
++  supportsNativeFork?: boolean;
+   onForkAssistantTurn?: AssistantTurnForkHandler;
+ }) {
+   return (
+@@ -107,6 +112,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
+         timing={timing}
+         startIndex={startIndex}
+         supportsTimelineCursor={supportsTimelineCursor}
++        supportsNativeFork={supportsNativeFork}
+         onForkAssistantTurn={onForkAssistantTurn}
+       />
+     </TurnFooterRow>
+@@ -163,6 +169,7 @@ function CompletedTurnFooter({
+   timing,
+   startIndex,
+   supportsTimelineCursor,
++  supportsNativeFork = false,
+   onForkAssistantTurn,
+ }: {
+   strategy: TurnContentStrategy;
+@@ -170,6 +177,7 @@ function CompletedTurnFooter({
+   timing?: TurnTiming;
+   startIndex: number;
+   supportsTimelineCursor: boolean;
++  supportsNativeFork?: boolean;
+   onForkAssistantTurn?: AssistantTurnForkHandler;
+ }) {
+   const getContent = useCallback(
+@@ -202,6 +210,7 @@ function CompletedTurnFooter({
+         completedAt={timing?.completedAt}
+         durationMs={timing?.durationMs}
+         onFork={boundary && onForkAssistantTurn ? handleFork : undefined}
++        showNativeForkOption={supportsNativeFork}
+       />
+     </View>
+   );
 diff --git a/packages/app/src/agent-stream/view.tsx b/packages/app/src/agent-stream/view.tsx
 index 4651710ac..46bc5d3ea 100644
 --- a/packages/app/src/agent-stream/view.tsx
@@ -702,6 +781,51 @@ index 4651710ac..46bc5d3ea 100644
    );
 -  return <View style={wrapperStyle}>{children}</View>;
  }
+diff --git a/packages/app/src/components/assistant-fork-menu.tsx b/packages/app/src/components/assistant-fork-menu.tsx
+index b8c2bc0f0..922f423cc 100644
+--- a/packages/app/src/components/assistant-fork-menu.tsx
++++ b/packages/app/src/components/assistant-fork-menu.tsx
+@@ -12,10 +12,12 @@ import {
+ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+ import { ICON_SIZE, type Theme } from "@/styles/theme";
+ 
+-export type AssistantForkTarget = "tab" | "workspace";
++export type AssistantForkTarget = "tab" | "workspace" | "native-tab";
+ 
+ interface AssistantForkMenuProps {
+   onFork: (target: AssistantForkTarget) => Promise<void> | void;
++  /** When true, offer Claude SDK native fork as an experimental menu item. */
++  showNativeTabOption?: boolean;
+   testID?: string;
+ }
+ 
+@@ -26,6 +28,7 @@ const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.for
+ 
+ export const AssistantForkMenu = memo(function AssistantForkMenu({
+   onFork,
++  showNativeTabOption = false,
+   testID = "assistant-fork-menu",
+ }: AssistantForkMenuProps) {
+   const { t } = useTranslation();
+@@ -108,6 +111,18 @@ export const AssistantForkMenu = memo(function AssistantForkMenu({
+         >
+           {t("message.actions.forkInNewTab")}
+         </DropdownMenuItem>
++        {showNativeTabOption ? (
++          <DropdownMenuItem
++            closeOnSelect={false}
++            disabled={isLocked && pendingTarget !== "native-tab"}
++            leading={forkIcon}
++            onSelect={handleSelect("native-tab")}
++            status={pendingTarget === "native-tab" ? "pending" : undefined}
++            testID={`${testID}-native-new-tab`}
++          >
++            {t("message.actions.forkNativelyInNewTab")}
++          </DropdownMenuItem>
++        ) : null}
+         <DropdownMenuItem
+           closeOnSelect={false}
+           disabled={isLocked && pendingTarget !== "workspace"}
 diff --git a/packages/app/src/components/message.tsx b/packages/app/src/components/message.tsx
 index ac7493b5b..92b7e8120 100644
 --- a/packages/app/src/components/message.tsx
@@ -772,3 +896,127 @@ index ac7493b5b..92b7e8120 100644
      fileLinkActions.open({ href: url }, "preferred");
      // react-native-markdown-display opens the link itself when this returns true.
      // We already handled it above, so return false to avoid duplicate opens.
+diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
+index 58e45d37c..03c46a83d 100644
+--- a/packages/server/src/server/agent/provider-registry.ts
++++ b/packages/server/src/server/agent/provider-registry.ts
+@@ -34,7 +34,8 @@ import type {
+   ProviderProfileModel,
+   ProviderRuntimeSettings,
+ } from "./provider-launch-config.js";
+-import { ClaudeAgentClient } from "./providers/claude/agent.js";
++import { ClaudeAgentClient, type ClaudeAgentClientOptions } from "./providers/claude/agent.js";
++import { enrichClaudeCatalogModel } from "./providers/claude/model-manifest.js";
+ import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
+ import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
+ import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
+@@ -108,13 +109,16 @@ export interface BuildProviderRegistryOptions {
+   managedProcesses?: ManagedProcessRegistry;
+   isDev?: boolean;
+   ompRuntime?: OmpRuntime;
++  persistClaudeAdditionalModelLimits?: ClaudeAgentClientOptions["persistClaudeAdditionalModelLimits"];
+ }
+ 
+ interface ProviderClientFactoryOptions extends Pick<
+   BuildProviderRegistryOptions,
+-  "workspaceGitService" | "managedProcesses" | "ompRuntime"
++  "workspaceGitService" | "managedProcesses" | "ompRuntime" | "persistClaudeAdditionalModelLimits"
+ > {
+   providerParams?: unknown;
++  profileModels?: ProviderProfileModel[];
++  additionalModels?: ProviderProfileModel[];
+   customProvider?: {
+     id: string;
+     label: string;
+@@ -188,10 +192,15 @@ const HUB_E2E_PROVIDER_CONTRACT: ProviderContract = {
+ };
+ 
+ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
+-  claude: (logger, runtimeSettings) =>
++  claude: (logger, runtimeSettings, options) =>
+     new ClaudeAgentClient({
+       logger,
+       runtimeSettings,
++      profileModels: options?.profileModels,
++      additionalModels: options?.additionalModels ?? options?.profileModels,
++      persistClaudeAdditionalModelLimits: options?.customProvider
++        ? undefined
++        : options?.persistClaudeAdditionalModelLimits,
+     }),
+   codex: (logger, runtimeSettings, options) =>
+     new CodexAppServerAgentClient(logger, runtimeSettings, {
+@@ -356,7 +365,11 @@ function mapModel(
+   provider: AgentProvider,
+   model: AgentModelDefinition | ProviderProfileModel,
+ ): AgentModelDefinition {
+-  return normalizeAgentModelDefinition({ ...model, provider });
++  const mapped = normalizeAgentModelDefinition({ ...model, provider });
++  if (provider === "claude") {
++    return enrichClaudeCatalogModel(mapped);
++  }
++  return mapped;
+ }
+ 
+ function resolveConfiguredModels(
+@@ -414,9 +427,14 @@ function mergeModelAdditions(
+     const existingModel = mergedModels[existingIndex];
+     const explicitlyEnablesCompatibilityModel =
+       existingModel?.isSelectable === false && additionalModel.isSelectable === undefined;
++    const preservesConfiguredClaudeLabel =
++      provider === "claude" &&
++      additionalModel.label === additionalModel.id &&
++      existingModel?.label !== additionalModel.id;
+     mergedModels[existingIndex] = {
+       ...existingModel,
+       ...additionalModel,
++      ...(preservesConfiguredClaudeLabel ? { label: existingModel?.label } : {}),
+       ...(explicitlyEnablesCompatibilityModel ? { isSelectable: true } : {}),
+     };
+   }
+@@ -458,6 +476,11 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
+     respondToPermission: (requestId, response) => inner.respondToPermission(requestId, response),
+     describePersistence: () => mapPersistenceHandle(provider, inner.describePersistence()),
+     interrupt: () => inner.interrupt(),
++    steer: inner.steer?.bind(inner),
++    steerActiveTurn: inner.steerActiveTurn?.bind(inner),
++    stopBackgroundTask: inner.stopBackgroundTask?.bind(inner),
++    readBackgroundTaskOutput: inner.readBackgroundTaskOutput?.bind(inner),
++    resolveNativeForkUpToMessageId: inner.resolveNativeForkUpToMessageId?.bind(inner),
+     close: () => inner.close(),
+     listCommands: inner.listCommands?.bind(inner),
+     setModel: inner.setModel?.bind(inner),
+@@ -700,7 +723,7 @@ function buildResolvedBuiltinProviders(
+   runtimeSettings: AgentProviderRuntimeSettingsMap | undefined,
+   options: Pick<
+     BuildProviderRegistryOptions,
+-    "workspaceGitService" | "managedProcesses" | "ompRuntime"
++    "workspaceGitService" | "managedProcesses" | "ompRuntime" | "persistClaudeAdditionalModelLimits"
+   >,
+   isDev: boolean,
+ ): Map<string, ResolvedProvider> {
+@@ -733,6 +756,9 @@ function buildResolvedBuiltinProviders(
+           managedProcesses: options.managedProcesses,
+           ompRuntime: options.ompRuntime,
+           providerParams: override?.params,
++          profileModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
++          additionalModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
++          persistClaudeAdditionalModelLimits: options.persistClaudeAdditionalModelLimits,
+         }),
+       contract: PROVIDER_CONTRACTS[definition.id] ?? UNSUPPORTED_PROVIDER_CONTRACT,
+     });
+@@ -841,6 +867,7 @@ function addDerivedProviders(
+         baseFactory(logger, mergedRuntimeSettings, {
+           managedProcesses: options.managedProcesses,
+           providerParams,
++          profileModels: [...(override.models ?? []), ...(override.additionalModels ?? [])],
+           customProvider: {
+             id: providerId,
+             label: override.label ?? providerId,
+@@ -865,6 +892,7 @@ export function buildProviderRegistry(
+       workspaceGitService: options?.workspaceGitService,
+       managedProcesses: options?.managedProcesses,
+       ompRuntime: options?.ompRuntime,
++      persistClaudeAdditionalModelLimits: options?.persistClaudeAdditionalModelLimits,
+     },
+     options?.isDev === true,
+   );

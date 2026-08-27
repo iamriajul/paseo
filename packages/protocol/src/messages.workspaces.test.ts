@@ -1171,4 +1171,64 @@ describe("workspace message schemas", () => {
     expect(newDirectory.type).toBe("workspace.create.request");
     expect(newDirectory.source.kind).toBe("directory");
   });
+  test("parses workspace.mark_unread.request and workspace.mark_unread.response", () => {
+    const singleRequest = SessionInboundMessageSchema.parse({
+      type: "workspace.mark_unread.request",
+      workspaceId: "ws-1",
+      requestId: "req-mark-unread-1",
+    });
+    expect(singleRequest).toEqual({
+      type: "workspace.mark_unread.request",
+      workspaceId: "ws-1",
+      requestId: "req-mark-unread-1",
+    });
+
+    const multiRequest = SessionInboundMessageSchema.parse({
+      type: "workspace.mark_unread.request",
+      workspaceId: ["ws-1", "ws-2"],
+      requestId: "req-mark-unread-2",
+    });
+    expect(multiRequest).toEqual({
+      type: "workspace.mark_unread.request",
+      workspaceId: ["ws-1", "ws-2"],
+      requestId: "req-mark-unread-2",
+    });
+
+    const response = SessionOutboundMessageSchema.parse({
+      type: "workspace.mark_unread.response",
+      payload: {
+        requestId: "req-mark-unread-1",
+        workspaceId: "ws-1",
+        markedAgentIds: ["agent-1"],
+        results: [
+          {
+            workspaceId: "ws-1",
+            markedAgentIds: ["agent-1"],
+            success: true,
+            error: null,
+          },
+        ],
+        success: true,
+        error: null,
+      },
+    });
+    expect(response).toEqual({
+      type: "workspace.mark_unread.response",
+      payload: {
+        requestId: "req-mark-unread-1",
+        workspaceId: "ws-1",
+        markedAgentIds: ["agent-1"],
+        results: [
+          {
+            workspaceId: "ws-1",
+            markedAgentIds: ["agent-1"],
+            success: true,
+            error: null,
+          },
+        ],
+        success: true,
+        error: null,
+      },
+    });
+  });
 });

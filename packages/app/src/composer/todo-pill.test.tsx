@@ -3,6 +3,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.hoisted(() => {
+  Object.assign(globalThis, { __DEV__: false });
+});
+
 vi.mock("@react-native-async-storage/async-storage", () => ({
   default: {
     getItem: vi.fn(async () => null),
@@ -10,6 +14,18 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
     removeItem: vi.fn(async () => undefined),
   },
 }));
+
+vi.mock("@/runtime/host-runtime", () => {
+  const client = {
+    getWorkspaceTodos: vi.fn(async () => ({ todos: [] })),
+    setWorkspaceTodos: vi.fn(async () => ({ todos: [] })),
+  };
+  return {
+    getHostRuntimeStore: () => ({
+      getClient: () => client,
+    }),
+  };
+});
 
 import { useWorkspaceTodoStore, useWorkspaceTodoSummary } from "@/todos/workspace-todo-store";
 

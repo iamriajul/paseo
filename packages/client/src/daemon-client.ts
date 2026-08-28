@@ -104,6 +104,7 @@ import type {
   PaseoConfigRevision,
   WorkspaceCreateRequest,
   WorkspaceRecoveryState,
+  WorkspaceTodoItem,
   PluginListItem,
   PluginLogEntry,
   AgentSkillSelection,
@@ -2890,6 +2891,44 @@ export class DaemonClient {
       throw new Error(payload.error ?? "setWorkspaceTitle rejected");
     }
     return { title: payload.title };
+  }
+
+  async getWorkspaceTodos(
+    workspaceId: string,
+    requestId?: string,
+  ): Promise<{ todos: WorkspaceTodoItem[] }> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.todos.get.response">({
+        requestId,
+        message: {
+          type: "workspace.todos.get.request",
+          workspaceId,
+        },
+      });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return { todos: payload.todos };
+  }
+
+  async setWorkspaceTodos(
+    workspaceId: string,
+    todos: WorkspaceTodoItem[],
+    requestId?: string,
+  ): Promise<{ todos: WorkspaceTodoItem[] }> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.todos.set.response">({
+        requestId,
+        message: {
+          type: "workspace.todos.set.request",
+          workspaceId,
+          todos,
+        },
+      });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return { todos: payload.todos };
   }
 
   async setWorkspacePinned(

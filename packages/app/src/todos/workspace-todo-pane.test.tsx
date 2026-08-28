@@ -1,12 +1,18 @@
 /**
  * @vitest-environment jsdom
  */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => {
+  Object.assign(globalThis, { __DEV__: false });
+});
+
 import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EditingTextInputHandle } from "@/components/ui/text-input";
 
 vi.mock("react-native", () => ({
+  NativeModules: {},
   Platform: {
     OS: "web",
     select: (map: Record<string, unknown>) => map.web ?? map.default ?? map.ios,
@@ -111,6 +117,18 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
   },
 }));
 
+vi.mock("@/runtime/host-runtime", () => {
+  const client = {
+    getWorkspaceTodos: vi.fn(async () => ({ todos: [] })),
+    setWorkspaceTodos: vi.fn(async () => ({ todos: [] })),
+  };
+  return {
+    getHostRuntimeStore: () => ({
+      getClient: () => client,
+    }),
+  };
+});
+
 vi.mock("react-native-unistyles", () => ({
   StyleSheet: {
     create: (factory: unknown) => (typeof factory === "function" ? factory(theme) : factory),
@@ -122,6 +140,7 @@ vi.mock("react-native-unistyles", () => ({
 }));
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 

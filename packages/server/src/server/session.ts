@@ -491,6 +491,15 @@ const nodeSessionFileSystem: SessionFileSystem = {
 // Stub types for features under development (modules not yet available)
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
+import { WorkspaceTodoStore } from "./workspace-todos/store.js";
+
+function resolveWorkspaceTodoStore(
+  store: WorkspaceTodoStore | undefined,
+  paseoHome: string,
+): WorkspaceTodoStore {
+  return store ?? new WorkspaceTodoStore(paseoHome);
+}
+
 export interface SessionOptions {
   clientId: string;
   scopes: readonly string[];
@@ -588,6 +597,8 @@ export interface SessionOptions {
   daemonVersion?: string;
   daemonRuntimeConfig?: DaemonRuntimeConfig;
   getWebSocketRuntimeMetrics?: () => DaemonWebSocketRuntimeDiagnosticSnapshot | null;
+  workspaceTodoStore?: WorkspaceTodoStore;
+  broadcastWorkspaceTodos?: (message: SessionOutboundMessage, exceptClientId: string) => void;
 }
 
 export type SessionLifecycleIntent =
@@ -789,6 +800,11 @@ export class Session {
   private readonly workspaceSetupRuntime: WorkspaceSetupRuntime;
   private readonly workspaceGitObserver: WorkspaceGitObserverService;
   private readonly workspaceDirectory: WorkspaceDirectory;
+  private readonly workspaceTodoStore: WorkspaceTodoStore;
+  private readonly broadcastWorkspaceTodos?: (
+    message: SessionOutboundMessage,
+    exceptClientId: string,
+  ) => void;
   private readonly voiceSession: VoiceSession;
   private readonly checkoutSession: CheckoutSession;
   private readonly scheduleSession: ScheduleSession;
@@ -1154,6 +1170,9 @@ export class Session {
       isProviderVisibleToClient: (provider) => this.isProviderVisibleToClient(provider),
       buildWorkspaceDescriptor: (input) => this.buildWorkspaceDescriptor(input),
     });
+
+    this.workspaceTodoStore = resolveWorkspaceTodoStore(options.workspaceTodoStore, this.paseoHome);
+    this.broadcastWorkspaceTodos = options.broadcastWorkspaceTodos;
 
     this.voiceSession = new VoiceSession({
       host: {
@@ -2667,6 +2686,10 @@ export class Session {
         return this.handleWorkspaceTitleSetRequest(msg.workspaceId, msg.title, msg.requestId);
       case "workspace.pin.set.request":
         return this.handleWorkspacePinSetRequest(msg.workspaceId, msg.pinned, msg.requestId);
+      case "workspace.todos.get.request":
+        return this.handleWorkspaceTodosGetRequest(msg);
+      case "workspace.todos.set.request":
+        return this.handleWorkspaceTodosSetRequest(msg);
       default:
         return undefined;
     }
@@ -3528,6 +3551,70 @@ export class Session {
           accepted: false,
           title: null,
           error: getErrorMessageOr(error, "Failed to set workspace title"),
+        },
+      });
+    }
+  }
+
+  private async handleWorkspaceTodosGetRequest(
+    msg: Extract<SessionInboundMessage, { type: "workspace.todos.get.request" }>,
+  ): Promise<void> {
+    try {
+      const todos = await this.workspaceTodoStore.get(msg.workspaceId);
+      this.emit({
+        type: "workspace.todos.get.response",
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          todos,
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "workspace.todos.get.response",
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          todos: [],
+          error: getErrorMessage(error),
+        },
+      });
+    }
+  }
+
+  private async handleWorkspaceTodosSetRequest(
+    msg: Extract<SessionInboundMessage, { type: "workspace.todos.set.request" }>,
+  ): Promise<void> {
+    try {
+      const todos = await this.workspaceTodoStore.set(msg.workspaceId, msg.todos);
+      this.emit({
+        type: "workspace.todos.set.response",
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          todos,
+          error: null,
+        },
+      });
+      this.broadcastWorkspaceTodos?.(
+        {
+          type: "workspace.todos.update",
+          payload: {
+            workspaceId: msg.workspaceId,
+            todos,
+          },
+        },
+        this.clientId,
+      );
+    } catch (error) {
+      this.emit({
+        type: "workspace.todos.set.response",
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          todos: [],
+          error: getErrorMessage(error),
         },
       });
     }

@@ -121,6 +121,7 @@ function normalizeVscodeProxyUri(value: string | undefined): string | null {
 import type { DaemonRuntimeConfig } from "./session/daemon/daemon-session.js";
 import { DirectorySyncService } from "./directory-sync/index.js";
 import type { WorkspaceLabelService } from "./workspace-labels/index.js";
+import { WorkspaceTodoStore } from "./workspace-todos/store.js";
 import {
   APPLICATION_SOCKET_LEASE_CHECK_INTERVAL_MS,
   ApplicationSocketLease,
@@ -631,6 +632,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly hubRelationships: HubRelationshipManagement | null;
   private readonly browserToolsRegistrations = new Map<string, BrowserToolsRegistration>();
   private connectionLifecycle: "starting" | "accepting" | "stopping" = "accepting";
+  private readonly workspaceTodoStore: WorkspaceTodoStore;
   private readonly advertiseDaemonStatusRpc: boolean;
   private readonly advertiseRelayConfig: boolean;
   private readonly directorySync = new DirectorySyncService();
@@ -723,6 +725,7 @@ export class VoiceAssistantWebSocketServer {
     this.worktreesRoot = daemonRuntimeConfig?.worktreesRoot;
     this.daemonConfigStore = daemonConfigStore;
     this.mcpBaseUrl = mcpBaseUrl;
+    this.workspaceTodoStore = new WorkspaceTodoStore(paseoHome);
     this.assignOptionalServices({
       speech,
       terminalManager,
@@ -1560,6 +1563,15 @@ export class VoiceAssistantWebSocketServer {
       daemonVersion: this.daemonVersion,
       daemonRuntimeConfig: this.daemonRuntimeConfig,
       getWebSocketRuntimeMetrics: () => this.lastRuntimeMetricsSnapshot,
+      workspaceTodoStore: this.workspaceTodoStore,
+      broadcastWorkspaceTodos: (message, exceptClientId) => {
+        for (const session of this.listTrustedSessions()) {
+          if (session.clientId === exceptClientId) {
+            continue;
+          }
+          session.emitOutbound(message);
+        }
+      },
     });
   }
 

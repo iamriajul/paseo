@@ -74,6 +74,8 @@ import { useProviderSubagentStore } from "@/subagents/provider-store";
 import { useBackgroundTaskStore } from "@/background-tasks/store";
 import { useProviderHeartbeatStore } from "@/heartbeats/provider-store";
 import { revalidateSessionAfterResume } from "@/contexts/session-resume-revalidation";
+import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+import { useWorkspaceTodoStore } from "@/todos/workspace-todo-store";
 
 type TimelineResponsePayload = Extract<
   SessionOutboundMessage,
@@ -820,6 +822,17 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       applyCheckoutStatusUpdateFromEvent({ queryClient, serverId, message });
     });
 
+    const unsubWorkspaceTodosUpdate = client.on("workspace.todos.update", (message) => {
+      if (message.type !== "workspace.todos.update") return;
+      const workspaceKey = buildWorkspaceTabPersistenceKey({
+        serverId,
+        workspaceId: message.payload.workspaceId,
+      });
+      if (workspaceKey) {
+        useWorkspaceTodoStore.getState().setTodos(workspaceKey, message.payload.todos);
+      }
+    });
+
     const unsubWorkspaceSetupProgress = client.on("workspace_setup_progress", (message) => {
       if (message.type !== "workspace_setup_progress") return;
       applyWorkspaceSetupProgress(message.payload);
@@ -1006,6 +1019,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       unsubAgentAttention();
       unsubScriptStatusUpdate();
       unsubCheckoutStatusUpdate();
+      unsubWorkspaceTodosUpdate();
       unsubWorkspaceSetupProgress();
       unsubWorkspaceSetupStatusResponse();
       unsubStatus();

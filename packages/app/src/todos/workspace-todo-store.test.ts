@@ -9,11 +9,26 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 }));
 
 import {
+  fetchWorkspaceTodos,
   migrateWorkspaceTodoState,
   selectWorkspaceTodos,
   selectWorkspaceTodoSummary,
   useWorkspaceTodoStore,
 } from "./workspace-todo-store";
+
+vi.mock("@/runtime/host-runtime", () => {
+  const client = {
+    getWorkspaceTodos: vi.fn(async () => ({
+      todos: [{ id: "daemon-1", text: "Synced task", completed: true, createdAt: 1 }],
+    })),
+    setWorkspaceTodos: vi.fn(async () => ({ todos: [] })),
+  };
+  return {
+    getHostRuntimeStore: () => ({
+      getClient: () => client,
+    }),
+  };
+});
 
 const WS_1 = "server-1:ws-1";
 const WS_2 = "server-1:ws-2";
@@ -130,6 +145,30 @@ describe("workspace-todo-store", () => {
       total: 3,
       completed: 1,
     });
+  });
+
+  it("fetches and syncs todos from daemon client", async () => {
+    await fetchWorkspaceTodos("server-1", "ws-1");
+    const todos = useWorkspaceTodoStore.getState().getTodos("server-1:ws-1");
+    expect(todos).toHaveLength(1);
+    expect(todos[0].id).toBe("daemon-1");
+    expect(todos[0].text).toBe("Synced task");
+  });
+
+  it("updates state when setTodos is called from broadcast update", () => {
+    useWorkspaceTodoStore
+      .getState()
+      .setTodos(WS_1, [
+        { id: "device2-1", text: "Created on other device", completed: false, createdAt: 5000 },
+      ]);
+    const todos = useWorkspaceTodoStore.getState().getTodos(WS_1);
+    expect(todos).toHaveLength(1);
+    expect(todos[0].id).toBe("device2-1");
+    expect(todos[0].text).toBe("Created on other device");
+
+    useWorkspaceTodoStore.getState().setTodos(WS_1, []);
+    expect(useWorkspaceTodoStore.getState().getTodos(WS_1)).toHaveLength(0);
+    expect(useWorkspaceTodoStore.getState().todosByWorkspace[WS_1]).toBeUndefined();
   });
 
   it("migrates persisted state properly", () => {

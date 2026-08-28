@@ -1,12 +1,15 @@
 import { memo, useCallback, type ReactElement, type ReactNode } from "react";
 import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
+import { WorkspaceTodoPill } from "@/composer/todo-pill";
 import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
+import { useWorkspaceTodoSummary } from "@/todos/workspace-todo-store";
 import { AgentTaskList } from "@/composer/task-list";
 import { ComposerTrackBar } from "@/composer/tracks";
 import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/layout";
 import { usePaneContext } from "@/panels/pane-context";
 import { useSettings } from "@/hooks/use-settings";
 import { useSessionStore } from "@/stores/session-store";
+import { useWorkspaceDirectory } from "@/stores/session-store-hooks";
 import {
   type ArchiveFinishedStatus,
   useArchiveSubagent,
@@ -18,6 +21,7 @@ import type { TodoEntry } from "@/types/stream";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
+import { openExplorerSidebarView } from "@/workspace-tabs/explorer-sidebar";
 import { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";
 
 /**
@@ -48,6 +52,9 @@ export const AgentTracks = memo(function AgentTracks({
 }): ReactElement | null {
   const { tabId, openTab } = usePaneContext();
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
+  const todoSummary = useWorkspaceTodoSummary(serverId, workspaceId);
+  const hasWorkspaceTodos = Boolean(todoSummary && todoSummary.total > 0);
+  const workspaceDirectory = useWorkspaceDirectory(serverId, workspaceId);
   const isCompact = useIsCompactFormFactor();
   const canSplit = supportsDesktopPaneSplits() && !isCompact;
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
@@ -110,10 +117,20 @@ export const AgentTracks = memo(function AgentTracks({
     });
   }, [isCompact, openInSidePane, workspaceKey]);
 
+  const handleOpenTodo = useCallback(() => {
+    openExplorerSidebarView({
+      isCompact,
+      workspaceKey,
+      checkout: { serverId, cwd: workspaceDirectory ?? "", isGit: true },
+      view: "todo",
+    });
+  }, [isCompact, serverId, workspaceDirectory, workspaceKey]);
+
   if (
     !shouldShowAgentTrackBar({
       hasOfficialTracks: hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus }),
       hasWorkspaceDiffStat,
+      hasWorkspaceTodos,
       hasExtraPills,
     })
   ) {
@@ -133,6 +150,7 @@ export const AgentTracks = memo(function AgentTracks({
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
       {children}
+      <WorkspaceTodoPill serverId={serverId} workspaceId={workspaceId} onPress={handleOpenTodo} />
       <WorkspaceDiffStatPill
         serverId={serverId}
         workspaceId={workspaceId}

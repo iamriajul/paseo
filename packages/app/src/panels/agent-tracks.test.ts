@@ -12,11 +12,23 @@ describe("shouldShowAgentTrackBar", () => {
     ).toBe(true);
   });
 
-  it("hides the bar when official tracks, diff, and fork pills are all empty", () => {
+  it("shows the bar when workspace todos exist", () => {
     expect(
       shouldShowAgentTrackBar({
         hasOfficialTracks: false,
         hasWorkspaceDiffStat: false,
+        hasWorkspaceTodos: true,
+        hasExtraPills: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("hides the bar when official tracks, diff, todos, and fork pills are all empty", () => {
+    expect(
+      shouldShowAgentTrackBar({
+        hasOfficialTracks: false,
+        hasWorkspaceDiffStat: false,
+        hasWorkspaceTodos: false,
         hasExtraPills: false,
       }),
     ).toBe(false);

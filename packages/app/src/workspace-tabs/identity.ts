@@ -70,6 +70,7 @@ function normalizeSimpleWorkspaceTabTarget(value: WorkspaceTabTarget): Workspace
       return codeServerId ? { kind: "codeServer", codeServerId } : null;
     }
     case "changes_tree":
+    case "todo":
     case "files":
     case "pull_request":
       return { kind: value.kind };
@@ -173,6 +174,9 @@ function supportingWorkspaceTabTargetsEqual(
   if (left.kind === "files" && right.kind === "files") {
     return true;
   }
+  if (left.kind === "todo" && right.kind === "todo") {
+    return true;
+  }
   if (left.kind === "changes_tree" && right.kind === "changes_tree") {
     return true;
   }
@@ -258,7 +262,12 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   if (target.kind === "working_diff") {
     return "working_diff";
   }
-  if (target.kind === "changes_tree" || target.kind === "files" || target.kind === "pull_request") {
+  if (
+    target.kind === "changes_tree" ||
+    target.kind === "todo" ||
+    target.kind === "files" ||
+    target.kind === "pull_request"
+  ) {
     return target.kind;
   }
   if (target.kind === "plugin") {

@@ -80,6 +80,7 @@ const BUILT_IN_SELECTIONS: Record<BuiltInLaunchItemId, NewTabSelection> = {
   agent: { kind: "agent" },
   terminal: { kind: "terminal" },
   changes: { kind: "target", target: { kind: "changes_tree" } },
+  todo: { kind: "target", target: { kind: "todo" } },
   diff: { kind: "target", target: { kind: "working_diff" } },
   files: { kind: "target", target: { kind: "files" } },
   browser: { kind: "browser" },
@@ -119,6 +120,7 @@ export function useWorkspaceTabLaunchCatalog(input: {
 
   return useMemo(() => {
     const changesPresentation = getLaunchPresentation("changes_tree");
+    const todoPresentation = getLaunchPresentation("todo");
     const diffPresentation = getLaunchPresentation("working_diff");
     const filesPresentation = getLaunchPresentation("files");
     const pullRequestPresentation = getLaunchPresentation("pull_request");
@@ -149,6 +151,14 @@ export function useWorkspaceTabLaunchCatalog(input: {
         panelKind: "changes_tree",
         hidden: !launcher.showChanges,
         launch: launchSelection(BUILT_IN_SELECTIONS.changes),
+      },
+      todo: {
+        id: "todo",
+        label: todoPresentation.label(t),
+        Icon: todoPresentation.icon,
+        disabled: false,
+        panelKind: "todo",
+        launch: launchSelection(BUILT_IN_SELECTIONS.todo),
       },
       diff: {
         id: "diff",

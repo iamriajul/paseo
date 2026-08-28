@@ -2,7 +2,7 @@ import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View, type GestureResponderEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { ExternalLink, Folder, GitBranch, Globe } from "lucide-react-native";
+import { ExternalLink, Folder, GitBranch, Globe, ListTodo } from "lucide-react-native";
 import {
   workspaceLabelKey,
   type WorkspaceLabelDefinition,
@@ -16,6 +16,7 @@ import { openExternalUrl } from "@/utils/open-external-url";
 import { useSidebarMetaPreferences } from "@/components/sidebar/display-preferences/model";
 import type { Theme } from "@/styles/theme";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
+import type { WorkspaceTodoSummary } from "@/todos/workspace-todo-store";
 import { CheckIndicator } from "./check-indicator";
 import type { CheckSummary, CheckSummaryState } from "./check-summary";
 import { selectMetaRowItems, type MetaRowItem } from "./meta-items";
@@ -38,6 +39,7 @@ const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedFolder = withUnistyles(Folder);
 const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedGlobe = withUnistyles(Globe);
+const ThemedListTodo = withUnistyles(ListTodo);
 
 /** Stable identity so a row without labels doesn't re-select its items on every render. */
 const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
@@ -45,6 +47,8 @@ const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
 const foregroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const dangerMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
+const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
+const warningMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
 
 /**
  * The subtitle under a workspace title: which host it lives on, its change request, that
@@ -67,6 +71,7 @@ export function WorkspaceMetaRow({
   projectSubtitle = null,
   prHint,
   serviceSummary,
+  todoSummary = null,
   labels = EMPTY_LABELS,
 }: {
   currentBranch: string | null;
@@ -76,6 +81,7 @@ export function WorkspaceMetaRow({
   projectSubtitle?: string | null;
   prHint: PrHint | null;
   serviceSummary: WorkspaceServiceSummary | null;
+  todoSummary?: WorkspaceTodoSummary | null;
   labels?: readonly WorkspaceLabelDefinition[];
 }) {
   const { rowItems, checksDisplay } = useSidebarMetaPreferences();
@@ -86,6 +92,7 @@ export function WorkspaceMetaRow({
     projectSubtitle,
     prHint,
     serviceSummary,
+    todoSummary,
     labels,
     visible: rowItems,
     checksDisplay,
@@ -130,6 +137,9 @@ function MetaItemNode({
   if (item.kind === "checks") {
     return <ChecksItem summary={item.summary} label={item.label} />;
   }
+  if (item.kind === "todos") {
+    return <TodosItem summary={item.summary} />;
+  }
   if (item.kind === "labels") {
     return <LabelsItem labels={item.labels} leading={leading} />;
   }
@@ -145,6 +155,40 @@ function IdentityItem({ kind, name }: { kind: "branch" | "project"; name: string
       </View>
       <Text style={styles.identityText} numberOfLines={1}>
         {name}
+      </Text>
+    </View>
+  );
+}
+
+function resolveTodoIconMapping(summary: WorkspaceTodoSummary) {
+  if (summary.completed === summary.total) return successMapping;
+  if (summary.completed > 0) return warningMapping;
+  return mutedMapping;
+}
+
+function resolveTodoTextStyle(summary: WorkspaceTodoSummary) {
+  if (summary.completed === summary.total) return styles.todosTextDone;
+  if (summary.completed > 0) return styles.todosTextInProgress;
+  return styles.todosTextOpen;
+}
+
+function TodosItem({ summary }: { summary: WorkspaceTodoSummary }) {
+  const { t } = useTranslation();
+  const iconMapping = resolveTodoIconMapping(summary);
+  const textStyle = resolveTodoTextStyle(summary);
+
+  return (
+    <View
+      style={styles.item}
+      accessibilityLabel={t("workspace.todos.summaryAccessible", {
+        completed: summary.completed,
+        total: summary.total,
+      })}
+      testID="sidebar-workspace-todos"
+    >
+      <ThemedListTodo size={META_ICON_SIZE} uniProps={iconMapping} />
+      <Text style={textStyle} numberOfLines={1}>
+        {`${summary.completed}/${summary.total}`}
       </Text>
     </View>
   );
@@ -302,8 +346,6 @@ function ServiceItem({ summary }: { summary: WorkspaceServiceSummary }) {
   );
 }
 
-const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
-
 const PR_STATE_LABEL_KEYS = {
   merged: "workspace.git.pr.states.merged",
   closed: "workspace.git.pr.states.closed",
@@ -417,6 +459,24 @@ const styles = StyleSheet.create((theme) => ({
   },
   checksTextRunning: {
     color: theme.colors.statusWarning,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  todosTextDone: {
+    color: theme.colors.statusSuccess,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  todosTextInProgress: {
+    color: theme.colors.statusWarning,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  todosTextOpen: {
+    color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,

@@ -1193,7 +1193,7 @@ export function createDefaultLayout(): WorkspaceLayout {
 
 function createDefaultExplorerSidebarTabs(): WorkspaceTab[] {
   const createdAt = Date.now();
-  const targets = [{ kind: "files" }, { kind: "changes_tree" }] as const;
+  const targets = [{ kind: "changes_tree" }, { kind: "todo" }, { kind: "files" }] as const;
   return targets.map((target) => ({
     tabId: buildDeterministicWorkspaceTabId(target),
     target,

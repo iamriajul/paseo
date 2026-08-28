@@ -541,6 +541,7 @@ function getFallbackTabLabel(
     terminal: string;
     agent: string;
     changes: string;
+    todo: string;
     files: string;
     pullRequest: string;
   },
@@ -562,6 +563,9 @@ function getFallbackTabLabel(
   }
   if (tab.target.kind === "working_diff" || tab.target.kind === "changes_tree") {
     return labels.changes;
+  }
+  if (tab.target.kind === "todo") {
+    return labels.todo;
   }
   if (tab.target.kind === "files") {
     return labels.files;
@@ -1020,6 +1024,7 @@ function ResolvedWorkspaceDesktopTabsRow({
       terminal: t("workspace.tabs.fallback.terminal"),
       agent: t("workspace.tabs.fallback.agent"),
       changes: t("panels.diff.changesLabel"),
+      todo: t("panels.todo.label"),
       files: t("panels.files.label"),
       pullRequest: t("panels.pullRequest.label"),
     }),

@@ -312,6 +312,7 @@ function getFallbackTabOptionLabel(
     browser: string;
     agent: string;
     changes: string;
+    todo: string;
     files: string;
     pullRequest: string;
   },
@@ -337,6 +338,9 @@ function getFallbackTabOptionLabel(
   if (tab.target.kind === "working_diff" || tab.target.kind === "changes_tree") {
     return labels.changes;
   }
+  if (tab.target.kind === "todo") {
+    return labels.todo;
+  }
   if (tab.target.kind === "files") {
     return labels.files;
   }
@@ -359,6 +363,7 @@ function getFallbackTabOptionDescription(
     terminal: string;
     browser: string;
     changes: string;
+    todo: string;
     files: string;
     pullRequest: string;
   },
@@ -389,6 +394,9 @@ function getFallbackTabOptionDescription(
   }
   if (tab.target.kind === "working_diff" || tab.target.kind === "changes_tree") {
     return labels.changes;
+  }
+  if (tab.target.kind === "todo") {
+    return labels.todo;
   }
   if (tab.target.kind === "files") {
     return labels.files;
@@ -599,6 +607,7 @@ function MobileWorkspaceTabOption({
       browser: t("workspace.tabs.fallback.browser"),
       agent: t("workspace.tabs.fallback.agent"),
       changes: t("panels.diff.changesLabel"),
+      todo: t("panels.todo.label"),
       files: t("panels.files.label"),
       pullRequest: t("panels.pullRequest.label"),
     }),
@@ -2331,6 +2340,7 @@ function WorkspaceScreenContent({
       browser: t("workspace.tabs.fallback.browser"),
       agent: t("workspace.tabs.fallback.agent"),
       changes: t("panels.diff.changesLabel"),
+      todo: t("panels.todo.label"),
       files: t("panels.files.label"),
       pullRequest: t("panels.pullRequest.label"),
     }),

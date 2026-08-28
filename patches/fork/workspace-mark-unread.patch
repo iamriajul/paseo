@@ -406,7 +406,7 @@ diff --git a/packages/app/src/hooks/use-clear-workspace-attention.ts b/packages/
 index 0ba74c97e..32fb198ab 100644
 --- a/packages/app/src/hooks/use-clear-workspace-attention.ts
 +++ b/packages/app/src/hooks/use-clear-workspace-attention.ts
-@@ -1,11 +1,21 @@
+@@ -1,11 +1,22 @@
  import { useCallback, useMemo } from "react";
  import { i18n } from "@/i18n/i18next";
  import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -420,9 +420,10 @@ index 0ba74c97e..32fb198ab 100644
 +  markUnread: () => Promise<void>;
 +}
 +
-+export function selectWorkspaceAttentionStatus(
-+  status: WorkspaceDescriptor["status"] | undefined,
-+): { hasClearableAttention: boolean; canMarkUnread: boolean } {
++export function selectWorkspaceAttentionStatus(status: WorkspaceDescriptor["status"] | undefined): {
++  hasClearableAttention: boolean;
++  canMarkUnread: boolean;
++} {
 +  const hasClearableAttention = status === "attention" || status === "failed";
 +  const canMarkUnread = status === "done";
 +  return { hasClearableAttention, canMarkUnread };

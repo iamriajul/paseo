@@ -646,6 +646,7 @@ export const ar: TranslationResources = {
         close: "إغلاق اللوحة الجانبية",
         toggle: "تبديل اللوحة الجانبية",
         changes: "التغييرات",
+        todo: "المهام",
         files: "ملفات",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -755,6 +756,12 @@ export const ar: TranslationResources = {
     tree: {
       showFolderTree: "إظهار شجرة المجلدات",
       hideFolderTree: "إخفاء شجرة المجلدات",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "تم إكمال {{completed}} من {{total}} مهمة",
+      openTodoTab: "فتح تبويب المهام",
+      pillAccessible: "مهام مساحة العمل: تم إكمال {{completed}} من {{total}}",
     },
     git: {
       actions: {
@@ -1074,6 +1081,7 @@ export const ar: TranslationResources = {
         project: "المشروع",
         host: "المضيف",
         changeRequest: "طلب السحب",
+        todos: "المهام",
         checks: "الفحوصات",
         services: "الخدمات",
         identityIcon: "Identity icon",
@@ -1858,6 +1866,16 @@ export const ar: TranslationResources = {
         reloadTitle: "إعادة التحميل من القرص؟",
         reloadMessage: "ستفقد تغييراتك المحلية.",
       },
+    },
+    todo: {
+      label: "المهام",
+      subtitle: "قائمة مهام مساحة العمل",
+      tooltip: "قائمة مهام مساحة العمل",
+      emptyTitle: "لا توجد مهام بعد",
+      emptyDescription: "أضف مهام لتتبع العمل في مساحة العمل هذه.",
+      addPlaceholder: "إضافة مهمة...",
+      clearCompleted: "مسح المكتملة",
+      deleteItem: "حذف المهمة",
     },
     files: {
       label: "الملفات",

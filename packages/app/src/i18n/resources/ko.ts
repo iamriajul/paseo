@@ -648,6 +648,7 @@ export const ko: TranslationResources = {
         close: "사이드 패널 닫기",
         toggle: "사이드 패널 토글",
         changes: "변경 사항",
+        todo: "할 일",
         files: "파일",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -755,6 +756,12 @@ export const ko: TranslationResources = {
     tree: {
       showFolderTree: "폴더 트리 표시",
       hideFolderTree: "폴더 트리 숨기기",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "{{completed}}/{{total}}개 할 일 완료됨",
+      openTodoTab: "할 일 탭 열기",
+      pillAccessible: "워크스페이스 할 일: {{completed}}/{{total}}개 완료됨",
     },
     git: {
       actions: {
@@ -1081,6 +1088,7 @@ export const ko: TranslationResources = {
         project: "프로젝트",
         host: "호스트",
         changeRequest: "풀 리퀘스트",
+        todos: "할 일",
         checks: "검사",
         services: "서비스",
         identityIcon: "Identity icon",
@@ -1868,6 +1876,16 @@ export const ko: TranslationResources = {
         reloadTitle: "디스크에서 다시 로드하시겠습니까?",
         reloadMessage: "로컬 변경사항이 손실됩니다.",
       },
+    },
+    todo: {
+      label: "할 일",
+      subtitle: "워크스페이스 할 일 목록",
+      tooltip: "워크스페이스 할 일 목록",
+      emptyTitle: "아직 할 일이 없습니다",
+      emptyDescription: "이 워크스페이스의 작업을 추가하여 추적하세요.",
+      addPlaceholder: "할 일 추가...",
+      clearCompleted: "완료된 항목 지우기",
+      deleteItem: "할 일 삭제",
     },
     files: {
       label: "파일",

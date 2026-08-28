@@ -652,6 +652,7 @@ export const ja: TranslationResources = {
         close: "サイドパネルを閉じる",
         toggle: "サイドパネルを切り替え",
         changes: "変更",
+        todo: "ToDo",
         files: "ファイル",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -758,6 +759,12 @@ export const ja: TranslationResources = {
     tree: {
       showFolderTree: "フォルダツリーを表示",
       hideFolderTree: "フォルダツリーを非表示",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "{{completed}} / {{total}} 件のToDoが完了",
+      openTodoTab: "ToDoタブを開く",
+      pillAccessible: "ワークスペースのToDo: {{completed}} / {{total}} 件完了",
     },
     git: {
       actions: {
@@ -1086,6 +1093,7 @@ export const ja: TranslationResources = {
         project: "プロジェクト",
         host: "ホスト",
         changeRequest: "プルリクエスト",
+        todos: "ToDo",
         checks: "チェック",
         services: "サービス",
         identityIcon: "Identity icon",
@@ -1876,6 +1884,16 @@ export const ja: TranslationResources = {
         reloadTitle: "ディスクから再読み込みしますか？",
         reloadMessage: "ローカルの変更は失われます。",
       },
+    },
+    todo: {
+      label: "ToDo",
+      subtitle: "ワークスペースのToDoリスト",
+      tooltip: "ワークスペースのToDoリスト",
+      emptyTitle: "ToDoはまだありません",
+      emptyDescription: "このワークスペースのタスクを追加して追跡しましょう。",
+      addPlaceholder: "ToDoを追加...",
+      clearCompleted: "完了済みをクリア",
+      deleteItem: "ToDoを削除",
     },
     files: {
       label: "ファイル",

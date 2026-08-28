@@ -63,6 +63,11 @@ const manifests = {
     supportedHosts: ["explorer"],
     resourceKey: () => "changes_tree",
   },
+  todo: {
+    kind: "todo",
+    supportedHosts: ["explorer", "main"],
+    resourceKey: () => "todo",
+  },
   files: {
     kind: "files",
     supportedHosts: ["explorer"],

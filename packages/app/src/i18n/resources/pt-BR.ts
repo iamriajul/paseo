@@ -650,6 +650,7 @@ export const ptBR: TranslationResources = {
         close: "Fechar painel lateral",
         toggle: "Alternar painel lateral",
         changes: "Alterações",
+        todo: "Tarefas",
         files: "Arquivos",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -758,6 +759,12 @@ export const ptBR: TranslationResources = {
     tree: {
       showFolderTree: "Mostrar árvore de pastas",
       hideFolderTree: "Ocultar árvore de pastas",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "{{completed}} de {{total}} tarefas concluídas",
+      openTodoTab: "Abrir aba de tarefas",
+      pillAccessible: "Tarefas do espaço: {{completed}} de {{total}} concluídas",
     },
     git: {
       actions: {
@@ -1096,6 +1103,7 @@ export const ptBR: TranslationResources = {
         project: "Projeto",
         host: "Host",
         changeRequest: "Pull request",
+        todos: "Tarefas",
         checks: "Verificações",
         services: "Serviços",
         identityIcon: "Identity icon",
@@ -1887,6 +1895,16 @@ export const ptBR: TranslationResources = {
         reloadTitle: "Recarregar do disco?",
         reloadMessage: "Suas alterações locais serão perdidas.",
       },
+    },
+    todo: {
+      label: "Tarefas",
+      subtitle: "Lista de tarefas do espaço de trabalho",
+      tooltip: "Lista de tarefas do espaço de trabalho",
+      emptyTitle: "Nenhuma tarefa ainda",
+      emptyDescription: "Adicione tarefas para acompanhar o trabalho neste espaço.",
+      addPlaceholder: "Adicionar uma tarefa...",
+      clearCompleted: "Limpar concluídas",
+      deleteItem: "Excluir tarefa",
     },
     files: {
       label: "Arquivos",

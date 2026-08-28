@@ -7,24 +7,15 @@ Files: packages/protocol/src/messages.ts
 Files: packages/server/src/server/session.ts
 
 diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/agent-tracks.tsx
-index 4067426a4..cd3ed6566 100644
 --- a/packages/app/src/panels/agent-tracks.tsx
 +++ b/packages/app/src/panels/agent-tracks.tsx
 @@ -1,4 +1,4 @@
 -import { memo, useCallback, type ReactElement } from "react";
 +import { memo, useCallback, type ReactElement, type ReactNode } from "react";
  import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
+ import { WorkspaceTodoPill } from "@/composer/todo-pill";
  import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
- import { AgentTaskList } from "@/composer/task-list";
-@@ -18,6 +18,7 @@ import type { TodoEntry } from "@/types/stream";
- import { navigateToAgent } from "@/utils/navigate-to-agent";
- import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
- import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
-+import { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";
- 
- /**
-  * The pane's ambient context — workspace changes, subagents, and tasks — as a row of pills above
-@@ -33,6 +34,8 @@ export const AgentTracks = memo(function AgentTracks({
+@@ -37,6 +37,8 @@ export const AgentTracks = memo(function AgentTracks({
    tasks,
    archiveFinishedStatus,
    onArchiveFinished,
@@ -33,7 +24,7 @@ index 4067426a4..cd3ed6566 100644
  }: {
    serverId: string;
    workspaceId: string;
-@@ -40,6 +43,8 @@ export const AgentTracks = memo(function AgentTracks({
+@@ -44,6 +46,8 @@ export const AgentTracks = memo(function AgentTracks({
    tasks: TodoEntry[] | undefined;
    archiveFinishedStatus: ArchiveFinishedStatus;
    onArchiveFinished: () => void;
@@ -42,30 +33,31 @@ index 4067426a4..cd3ed6566 100644
  }): ReactElement | null {
    const { tabId, openTab } = usePaneContext();
    const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
-@@ -105,7 +110,13 @@ export const AgentTracks = memo(function AgentTracks({
+@@ -129,7 +133,14 @@ export const AgentTracks = memo(function AgentTracks({
      });
-   }, [isCompact, openInSidePane, workspaceKey]);
+   }, [isCompact, serverId, workspaceDirectory, workspaceKey]);
  
 -  if (!hasWorkspaceDiffStat && !hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus })) {
 +  if (
 +    !shouldShowAgentTrackBar({
 +      hasOfficialTracks: hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus }),
 +      hasWorkspaceDiffStat,
++      hasWorkspaceTodos,
 +      hasExtraPills,
 +    })
 +  ) {
      return null;
    }
  
-@@ -121,6 +132,7 @@ export const AgentTracks = memo(function AgentTracks({
+@@ -145,6 +156,7 @@ export const AgentTracks = memo(function AgentTracks({
          archiveFinishedStatus={archiveFinishedStatus}
          onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
        />
 +      {children}
+       <WorkspaceTodoPill serverId={serverId} workspaceId={workspaceId} onPress={handleOpenTodo} />
        <WorkspaceDiffStatPill
          serverId={serverId}
-         workspaceId={workspaceId}
-@@ -141,3 +153,5 @@ export function hasAgentTracks({
+@@ -165,3 +177,5 @@ export function hasAgentTracks({
  }): boolean {
    return subagentRows.length > 0 || Boolean(tasks?.length) || archiveFinishedStatus.kind !== "idle";
  }

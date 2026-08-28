@@ -644,6 +644,7 @@ export const en = {
         close: "Close Explorer sidebar",
         toggle: "Toggle Explorer sidebar",
         changes: "Changes",
+        todo: "Todo",
         files: "Files",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -751,6 +752,12 @@ export const en = {
     tree: {
       showFolderTree: "Show folder tree",
       hideFolderTree: "Hide folder tree",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "{{completed}} of {{total}} todos completed",
+      openTodoTab: "Open Todo tab",
+      pillAccessible: "Workspace todos: {{completed}} of {{total}} completed",
     },
     git: {
       actions: {
@@ -1080,6 +1087,7 @@ export const en = {
         project: "Project",
         host: "Host",
         changeRequest: "Pull request",
+        todos: "Todos",
         checks: "Checks",
         services: "Services",
         identityIcon: "Identity icon",
@@ -1865,6 +1873,16 @@ export const en = {
         reloadTitle: "Reload from disk?",
         reloadMessage: "Your local changes will be lost.",
       },
+    },
+    todo: {
+      label: "Todo",
+      subtitle: "Workspace todo list",
+      tooltip: "Workspace todo list",
+      emptyTitle: "No todos yet",
+      emptyDescription: "Add tasks to keep track of work in this workspace.",
+      addPlaceholder: "Add a todo...",
+      clearCompleted: "Clear completed",
+      deleteItem: "Delete todo",
     },
     files: {
       label: "Files",

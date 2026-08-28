@@ -6168,3 +6168,59 @@ test("waitForFinish with timeout=0 omits timeoutMs and has no client deadline", 
     vi.useRealTimers();
   }
 });
+
+test("DaemonClient gets and sets workspace todos", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const getPromise = client.getWorkspaceTodos("ws-123");
+  const getRequest = parseSentFrame(mock.sent[0]);
+  expect(getRequest.type).toBe("workspace.todos.get.request");
+  expect(getRequest.workspaceId).toBe("ws-123");
+
+  const todoItems = [{ id: "t-1", text: "Buy milk", completed: false, createdAt: 12345 }];
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.todos.get.response",
+      payload: {
+        requestId: getRequest.requestId,
+        workspaceId: "ws-123",
+        todos: todoItems,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(getPromise).resolves.toEqual({ todos: todoItems });
+
+  mock.sent.length = 0;
+  const setPromise = client.setWorkspaceTodos("ws-123", todoItems);
+  const setRequest = parseSentFrame(mock.sent[0]);
+  expect(setRequest.type).toBe("workspace.todos.set.request");
+  expect(setRequest.todos).toEqual(todoItems);
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.todos.set.response",
+      payload: {
+        requestId: setRequest.requestId,
+        workspaceId: "ws-123",
+        todos: todoItems,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(setPromise).resolves.toEqual({ todos: todoItems });
+});

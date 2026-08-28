@@ -1,11 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { z } from "zod";
 import { createValidatedPersistStorage } from "@/storage/validated-persist-storage";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+import { getHostRuntimeStore } from "@/runtime/host-runtime";
 
 export interface WorkspaceTodoItem {
   id: string;
@@ -52,6 +53,43 @@ function generateTodoId(): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2, 8);
   return `todo_${timestamp}_${random}`;
+}
+
+export function parseWorkspacePersistenceKey(
+  workspaceKey: string,
+): { serverId: string; workspaceId: string } | null {
+  const index = workspaceKey.indexOf(":");
+  if (index < 0) return null;
+  const serverId = workspaceKey.slice(0, index).trim();
+  const workspaceId = workspaceKey.slice(index + 1).trim();
+  if (!serverId || !workspaceId) return null;
+  return { serverId, workspaceId };
+}
+
+function syncToDaemon(workspaceKey: string, todos: WorkspaceTodoItem[]): void {
+  const parsed = parseWorkspacePersistenceKey(workspaceKey);
+  if (!parsed) return;
+  try {
+    const client = getHostRuntimeStore().getClient(parsed.serverId);
+    if (client) {
+      void client.setWorkspaceTodos(parsed.workspaceId, todos).catch(() => undefined);
+    }
+  } catch {
+    // Client unavailable or test environment without runtime store
+  }
+}
+
+export async function fetchWorkspaceTodos(serverId: string, workspaceId: string): Promise<void> {
+  const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
+  if (!workspaceKey) return;
+  try {
+    const client = getHostRuntimeStore().getClient(serverId);
+    if (!client) return;
+    const { todos } = await client.getWorkspaceTodos(workspaceId);
+    useWorkspaceTodoStore.getState().setTodos(workspaceKey, todos);
+  } catch {
+    // Keep local cache if offline or daemon call fails
+  }
 }
 
 export function selectWorkspaceTodos(
@@ -113,26 +151,30 @@ export const useWorkspaceTodoStore = create<WorkspaceTodoStoreState>()(
           completedAt: null,
         };
 
+        let nextTodos: WorkspaceTodoItem[] = [];
         set((state) => {
           const current = state.todosByWorkspace[key] ?? [];
+          nextTodos = [...current, newItem];
           return {
             todosByWorkspace: {
               ...state.todosByWorkspace,
-              [key]: [...current, newItem],
+              [key]: nextTodos,
             },
           };
         });
 
+        syncToDaemon(key, nextTodos);
         return newItem;
       },
       toggleTodo: (workspaceKey: string, id: string) => {
         const key = workspaceKey.trim();
         if (!key || !id) return;
 
+        let nextTodos: WorkspaceTodoItem[] = [];
         set((state) => {
           const current = state.todosByWorkspace[key];
           if (!current) return state;
-          const next = current.map((item) => {
+          nextTodos = current.map((item) => {
             if (item.id !== id) return item;
             const nextCompleted = !item.completed;
             return Object.assign({}, item, {
@@ -143,38 +185,48 @@ export const useWorkspaceTodoStore = create<WorkspaceTodoStoreState>()(
           return {
             todosByWorkspace: {
               ...state.todosByWorkspace,
-              [key]: next,
+              [key]: nextTodos,
             },
           };
         });
+
+        if (nextTodos.length > 0) {
+          syncToDaemon(key, nextTodos);
+        }
       },
       updateTodoText: (workspaceKey: string, id: string, text: string) => {
         const key = workspaceKey.trim();
         if (!key || !id) return;
 
+        let nextTodos: WorkspaceTodoItem[] = [];
         set((state) => {
           const current = state.todosByWorkspace[key];
           if (!current) return state;
-          const next = current.map((item) =>
+          nextTodos = current.map((item) =>
             item.id === id ? Object.assign({}, item, { text }) : item,
           );
           return {
             todosByWorkspace: {
               ...state.todosByWorkspace,
-              [key]: next,
+              [key]: nextTodos,
             },
           };
         });
+
+        if (nextTodos.length > 0) {
+          syncToDaemon(key, nextTodos);
+        }
       },
       deleteTodo: (workspaceKey: string, id: string) => {
         const key = workspaceKey.trim();
         if (!key || !id) return;
 
+        let nextTodos: WorkspaceTodoItem[] = [];
         set((state) => {
           const current = state.todosByWorkspace[key];
           if (!current) return state;
-          const next = current.filter((item) => item.id !== id);
-          if (next.length === 0) {
+          nextTodos = current.filter((item) => item.id !== id);
+          if (nextTodos.length === 0) {
             const copy = { ...state.todosByWorkspace };
             delete copy[key];
             return { todosByWorkspace: copy };
@@ -182,15 +234,18 @@ export const useWorkspaceTodoStore = create<WorkspaceTodoStoreState>()(
           return {
             todosByWorkspace: {
               ...state.todosByWorkspace,
-              [key]: next,
+              [key]: nextTodos,
             },
           };
         });
+
+        syncToDaemon(key, nextTodos);
       },
       reorderTodos: (workspaceKey: string, todoIds: string[]) => {
         const key = workspaceKey.trim();
         if (!key) return;
 
+        let nextTodos: WorkspaceTodoItem[] = [];
         set((state) => {
           const current = state.todosByWorkspace[key];
           if (!current) return state;
@@ -206,6 +261,7 @@ export const useWorkspaceTodoStore = create<WorkspaceTodoStoreState>()(
           for (const remaining of byId.values()) {
             next.push(remaining);
           }
+          nextTodos = next;
           return {
             todosByWorkspace: {
               ...state.todosByWorkspace,
@@ -213,16 +269,21 @@ export const useWorkspaceTodoStore = create<WorkspaceTodoStoreState>()(
             },
           };
         });
+
+        if (nextTodos.length > 0) {
+          syncToDaemon(key, nextTodos);
+        }
       },
       clearCompleted: (workspaceKey: string) => {
         const key = workspaceKey.trim();
         if (!key) return;
 
+        let nextTodos: WorkspaceTodoItem[] = [];
         set((state) => {
           const current = state.todosByWorkspace[key];
           if (!current) return state;
-          const next = current.filter((item) => !item.completed);
-          if (next.length === 0) {
+          nextTodos = current.filter((item) => !item.completed);
+          if (nextTodos.length === 0) {
             const copy = { ...state.todosByWorkspace };
             delete copy[key];
             return { todosByWorkspace: copy };
@@ -230,10 +291,12 @@ export const useWorkspaceTodoStore = create<WorkspaceTodoStoreState>()(
           return {
             todosByWorkspace: {
               ...state.todosByWorkspace,
-              [key]: next,
+              [key]: nextTodos,
             },
           };
         });
+
+        syncToDaemon(key, nextTodos);
       },
       setTodos: (workspaceKey: string, todos: WorkspaceTodoItem[]) => {
         const key = workspaceKey.trim();
@@ -273,6 +336,15 @@ export function useWorkspaceTodos(workspaceKey: string | null | undefined): Work
     (state: WorkspaceTodoStoreState) => selectWorkspaceTodos(state, workspaceKey),
     [workspaceKey],
   );
+
+  useEffect(() => {
+    if (!workspaceKey) return;
+    const parsed = parseWorkspacePersistenceKey(workspaceKey);
+    if (parsed) {
+      void fetchWorkspaceTodos(parsed.serverId, parsed.workspaceId);
+    }
+  }, [workspaceKey]);
+
   return useStoreWithEqualityFn(useWorkspaceTodoStore, selector);
 }
 
@@ -292,6 +364,15 @@ export function useWorkspaceTodoSummaryByKey(
     (state: WorkspaceTodoStoreState) => selectWorkspaceTodoSummary(state, workspaceKey),
     [workspaceKey],
   );
+
+  useEffect(() => {
+    if (!workspaceKey) return;
+    const parsed = parseWorkspacePersistenceKey(workspaceKey);
+    if (parsed) {
+      void fetchWorkspaceTodos(parsed.serverId, parsed.workspaceId);
+    }
+  }, [workspaceKey]);
+
   return useStoreWithEqualityFn(
     useWorkspaceTodoStore,
     selector,

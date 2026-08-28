@@ -3210,6 +3210,99 @@ test("omitting create_paseo_worktree_request worktree base-ref fields preserves 
   });
 });
 
+test("sends workspace.mark_unread.request and resolves on success", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const markUnreadPromise = client.markWorkspaceUnread("ws-unread-test");
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "workspace.mark_unread.request",
+    workspaceId: "ws-unread-test",
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.mark_unread.response",
+      payload: {
+        requestId: request.requestId,
+        workspaceId: "ws-unread-test",
+        markedAgentIds: ["agent-1"],
+        results: [
+          {
+            workspaceId: "ws-unread-test",
+            markedAgentIds: ["agent-1"],
+            success: true,
+            error: null,
+          },
+        ],
+        success: true,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(markUnreadPromise).resolves.toBeUndefined();
+});
+
+test("throws error when workspace.mark_unread.response fails", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const markUnreadPromise = client.markWorkspaceUnread("ws-missing");
+  const request = parseSentFrame(mock.sent[0]);
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.mark_unread.response",
+      payload: {
+        requestId: request.requestId,
+        workspaceId: "ws-missing",
+        markedAgentIds: [],
+        results: [
+          {
+            workspaceId: "ws-missing",
+            markedAgentIds: [],
+            success: false,
+            error: "Workspace not found: ws-missing",
+          },
+        ],
+        success: false,
+        error: "Workspace not found: ws-missing",
+      },
+    }),
+  );
+
+  await expect(markUnreadPromise).rejects.toThrow("Workspace not found: ws-missing");
+});
+
 test("sends explicit shutdown_server_request via shutdownServer", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

@@ -40,6 +40,7 @@ import {
   applyClaudeCustomModelEnvPins,
   applyClaudeMaxContextTokensEnv,
   applyClaudeMaxOutputTokensEnv,
+  applyClaudePromptCacheTtlEnv,
   resolveClaudeMaxOutputTokens,
   resolveClaudeContextWindowMaxTokens,
   getClaudeModelsWithSettings,
@@ -83,7 +84,13 @@ import {
   parseClaudeWorkflowRun,
 } from "./subagents/workflow-replay-source.js";
 import { readClaudeWorkflowResultFile } from "./subagents/workflow-output.js";
-import { buildClaudeFeatures, claudeModelSupportsFastMode } from "./feature-definitions.js";
+import {
+  CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
+  CLAUDE_PROMPT_CACHE_TTL_VALUES,
+  buildClaudeFeatures,
+  claudeModelSupportsFastMode,
+  resolveClaudePromptCacheTtl,
+} from "./feature-definitions.js";
 import {
   buildBinaryDiagnosticRows,
   buildCommandResolutionDiagnosticRows,
@@ -1726,6 +1733,7 @@ export class ClaudeAgentClient implements AgentClient {
     return buildClaudeFeatures({
       modelId: claudeConfig.model,
       fastModeEnabled: claudeConfig.featureValues?.fast_mode === true,
+      promptCacheTtl: claudeConfig.featureValues?.prompt_cache_ttl,
     });
   }
 
@@ -2288,6 +2296,7 @@ class ClaudeAgentSession implements AgentSession {
     return buildClaudeFeatures({
       modelId: this.config.model,
       fastModeEnabled: this.config.featureValues?.fast_mode === true,
+      promptCacheTtl: this.config.featureValues?.prompt_cache_ttl,
     });
   }
 
@@ -2665,6 +2674,21 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   async setFeature(featureId: string, value: unknown): Promise<void> {
+    if (featureId === CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID) {
+      const ttl = resolveClaudePromptCacheTtl(value);
+      if (ttl === undefined) {
+        throw new Error(
+          `Invalid prompt_cache_ttl value: expected one of ${CLAUDE_PROMPT_CACHE_TTL_VALUES.join(", ")}`,
+        );
+      }
+      this.config.featureValues = {
+        ...this.config.featureValues,
+        prompt_cache_ttl: ttl,
+      };
+      this.cachedRuntimeInfo = null;
+      return;
+    }
+
     if (featureId !== "fast_mode") {
       throw new Error(`Unknown Claude feature: ${featureId}`);
     }
@@ -3552,6 +3576,7 @@ class ClaudeAgentSession implements AgentSession {
     const settingsOptions = this.buildSettingsOptions(providerOptions, { ultracode });
     const sdkEnv = this.buildSdkEnv();
     assertClaudeAutoModeEligible(this.currentMode, sdkEnv);
+    const envWithCacheTtl = applyClaudePromptCacheTtlEnv(sdkEnv, this.config.featureValues);
 
     const claudeBinary = await this.resolveBinary();
     this.logger.debug(
@@ -3607,7 +3632,7 @@ class ClaudeAgentSession implements AgentSession {
       forwardSubagentText: true,
       hooks: this.buildSubagentEffortHooks(),
       ...(this.persistSession === undefined ? {} : { persistSession: this.persistSession }),
-      env: sdkEnv,
+      env: envWithCacheTtl,
     };
 
     if (this.config.mcpServers) {

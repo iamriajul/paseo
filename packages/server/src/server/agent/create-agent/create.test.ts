@@ -471,3 +471,133 @@ test("session create keeps an explicit title after the initial prompt settles", 
     await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
   }
 });
+
+test("mcp create defaults prompt_cache_ttl to 5m for parented claude agents", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "create-agent-cache-ttl-test-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+
+  try {
+    const { snapshot: parent } = await createAgentCommand(
+      {
+        agentManager,
+        agentStorage: storage,
+        logger,
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      },
+      {
+        kind: "session",
+        config: { provider: "claude", cwd: workdir },
+        workspaceId: "ws-ttl-parent",
+        labels: {},
+        provisionalTitle: null,
+        firstAgentContext: { attachments: [] },
+        buildSessionConfig: async (config) => ({ sessionConfig: config }),
+      },
+    );
+
+    const { snapshot: child } = await createAgentCommand(
+      {
+        agentManager,
+        agentStorage: storage,
+        logger,
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      },
+      {
+        kind: "mcp",
+        provider: "claude",
+        title: "subagent",
+        initialPrompt: "do the thing",
+        background: true,
+        notifyOnFinish: false,
+        callerAgentId: parent.id,
+      },
+    );
+
+    const storedChild = await storage.get(child.id);
+    expect(storedChild?.config.featureValues?.prompt_cache_ttl).toBe("5m");
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
+test("mcp create leaves prompt_cache_ttl unset for non-parented claude agents", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "create-agent-cache-ttl-test-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+
+  try {
+    const { snapshot } = await createAgentCommand(
+      {
+        agentManager,
+        agentStorage: storage,
+        logger,
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      },
+      {
+        kind: "mcp",
+        provider: "claude",
+        title: "standalone",
+        initialPrompt: "do the thing",
+        background: true,
+        notifyOnFinish: false,
+        workspaceId: "ws-standalone",
+      },
+    );
+
+    const stored = await storage.get(snapshot.id);
+    expect(stored?.config.featureValues?.prompt_cache_ttl).toBeUndefined();
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
+test("mcp create respects an explicit prompt_cache_ttl feature from the caller", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "create-agent-cache-ttl-test-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+
+  try {
+    const { snapshot: parent } = await createAgentCommand(
+      {
+        agentManager,
+        agentStorage: storage,
+        logger,
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      },
+      {
+        kind: "session",
+        config: { provider: "claude", cwd: workdir },
+        workspaceId: "ws-ttl-parent",
+        labels: {},
+        provisionalTitle: null,
+        firstAgentContext: { attachments: [] },
+        buildSessionConfig: async (config) => ({ sessionConfig: config }),
+      },
+    );
+
+    const { snapshot: child } = await createAgentCommand(
+      {
+        agentManager,
+        agentStorage: storage,
+        logger,
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      },
+      {
+        kind: "mcp",
+        provider: "claude",
+        title: "subagent-explicit",
+        initialPrompt: "do the thing",
+        background: true,
+        notifyOnFinish: false,
+        callerAgentId: parent.id,
+        features: { prompt_cache_ttl: "1h" },
+      },
+    );
+
+    const storedChild = await storage.get(child.id);
+    expect(storedChild?.config.featureValues?.prompt_cache_ttl).toBe("1h");
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});

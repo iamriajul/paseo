@@ -224,6 +224,7 @@ export function applyClaudeCustomModelEnvPins(
   return changed ? next : env;
 }
 
+export const CLAUDE_PROMPT_CACHE_TTL_ENV_KEY = "CLAUDE_CODE_PROMPT_CACHE_TTL";
 export const CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY = "CLAUDE_CODE_MAX_CONTEXT_TOKENS";
 export const CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY = "CLAUDE_CODE_MAX_OUTPUT_TOKENS";
 export const CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
@@ -280,6 +281,24 @@ export function resolveClaudeMaxOutputTokens(options: {
     return Math.trunc(profileMatch.maxOutputTokens);
   }
   return undefined;
+}
+
+/**
+ * Apply CLAUDE_CODE_PROMPT_CACHE_TTL from the prompt_cache_ttl feature value.
+ * "5m" and "1h" set the var; "default", missing, or invalid values leave it
+ * unset so Claude Code applies its automatic TTL. User-provided env wins —
+ * the var is only filled when absent.
+ */
+export function applyClaudePromptCacheTtlEnv(
+  env: NodeJS.ProcessEnv,
+  featureValues: Record<string, unknown> | undefined,
+): NodeJS.ProcessEnv {
+  const raw = featureValues?.["prompt_cache_ttl"];
+  const ttl = raw === "5m" || raw === "1h" ? raw : undefined;
+  if (ttl === undefined || hasNonEmptyEnvValue(env[CLAUDE_PROMPT_CACHE_TTL_ENV_KEY])) {
+    return env;
+  }
+  return { ...env, [CLAUDE_PROMPT_CACHE_TTL_ENV_KEY]: ttl };
 }
 
 /**

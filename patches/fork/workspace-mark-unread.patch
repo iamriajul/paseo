@@ -403,10 +403,10 @@ index 63355ff7f..1479ae014 100644
                  archiveLabel={archiveLabel}
                  archiveStatus={archiveStatus}
 diff --git a/packages/app/src/hooks/use-clear-workspace-attention.ts b/packages/app/src/hooks/use-clear-workspace-attention.ts
-index 0ba74c97e..7155aca8e 100644
+index 0ba74c97e..32fb198ab 100644
 --- a/packages/app/src/hooks/use-clear-workspace-attention.ts
 +++ b/packages/app/src/hooks/use-clear-workspace-attention.ts
-@@ -1,11 +1,22 @@
+@@ -1,11 +1,21 @@
  import { useCallback, useMemo } from "react";
  import { i18n } from "@/i18n/i18next";
  import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -420,29 +420,31 @@ index 0ba74c97e..7155aca8e 100644
 +  markUnread: () => Promise<void>;
 +}
 +
-+export function selectWorkspaceAttentionStatus(workspace: WorkspaceDescriptor | undefined): {
-+  hasClearableAttention: boolean;
-+  canMarkUnread: boolean;
-+} {
-+  const hasClearableAttention = workspace?.status === "attention" || workspace?.status === "failed";
-+  const canMarkUnread = workspace?.status === "done";
++export function selectWorkspaceAttentionStatus(
++  status: WorkspaceDescriptor["status"] | undefined,
++): { hasClearableAttention: boolean; canMarkUnread: boolean } {
++  const hasClearableAttention = status === "attention" || status === "failed";
++  const canMarkUnread = status === "done";
 +  return { hasClearableAttention, canMarkUnread };
  }
  
  export function useClearWorkspaceAttention({
-@@ -15,9 +26,9 @@ export function useClearWorkspaceAttention({
+@@ -15,10 +25,10 @@ export function useClearWorkspaceAttention({
    serverId: string;
    workspaceId: string;
  }): ClearWorkspaceAttentionController {
 -  const hasClearableAttention = useSessionStore((state) => {
-+  const { hasClearableAttention, canMarkUnread } = useSessionStore((state) => {
-     const workspace = state.sessions[serverId]?.workspaces.get(workspaceId);
+-    const workspace = state.sessions[serverId]?.workspaces.get(workspaceId);
 -    return workspace?.status === "attention" || workspace?.status === "failed";
-+    return selectWorkspaceAttentionStatus(workspace);
-   });
+-  });
++  const status = useSessionStore(
++    (state) => state.sessions[serverId]?.workspaces.get(workspaceId)?.status,
++  );
++  const { hasClearableAttention, canMarkUnread } = selectWorkspaceAttentionStatus(status);
  
    const clearAttention = useCallback(async () => {
-@@ -31,8 +42,19 @@ export function useClearWorkspaceAttention({
+     if (!hasClearableAttention) {
+@@ -31,8 +41,19 @@ export function useClearWorkspaceAttention({
      await client.clearWorkspaceAttention(workspaceId);
    }, [hasClearableAttention, serverId, workspaceId]);
  

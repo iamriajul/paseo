@@ -10,12 +10,12 @@ export interface ClearWorkspaceAttentionController {
   markUnread: () => Promise<void>;
 }
 
-export function selectWorkspaceAttentionStatus(workspace: WorkspaceDescriptor | undefined): {
+export function selectWorkspaceAttentionStatus(status: WorkspaceDescriptor["status"] | undefined): {
   hasClearableAttention: boolean;
   canMarkUnread: boolean;
 } {
-  const hasClearableAttention = workspace?.status === "attention" || workspace?.status === "failed";
-  const canMarkUnread = workspace?.status === "done";
+  const hasClearableAttention = status === "attention" || status === "failed";
+  const canMarkUnread = status === "done";
   return { hasClearableAttention, canMarkUnread };
 }
 
@@ -26,10 +26,10 @@ export function useClearWorkspaceAttention({
   serverId: string;
   workspaceId: string;
 }): ClearWorkspaceAttentionController {
-  const { hasClearableAttention, canMarkUnread } = useSessionStore((state) => {
-    const workspace = state.sessions[serverId]?.workspaces.get(workspaceId);
-    return selectWorkspaceAttentionStatus(workspace);
-  });
+  const status = useSessionStore(
+    (state) => state.sessions[serverId]?.workspaces.get(workspaceId)?.status,
+  );
+  const { hasClearableAttention, canMarkUnread } = selectWorkspaceAttentionStatus(status);
 
   const clearAttention = useCallback(async () => {
     if (!hasClearableAttention) {

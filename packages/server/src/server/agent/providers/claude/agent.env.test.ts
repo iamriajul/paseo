@@ -466,4 +466,216 @@ describe("Claude SDK env", () => {
       await session.close();
     }
   });
+
+  test("sets CLAUDE_CODE_PROMPT_CACHE_TTL from prompt_cache_ttl feature value", async () => {
+    let capturedEnv: Record<string, string | undefined> | undefined;
+    const queryFactory = vi.fn(({ options }: ClaudeQueryInput) => {
+      capturedEnv = options.env;
+      return createQueryMock([
+        {
+          type: "system",
+          subtype: "init",
+          session_id: "prompt-cache-ttl-session",
+          permissionMode: "default",
+          model: "opus",
+        },
+        { type: "assistant", message: { content: "done" } },
+        {
+          type: "result",
+          subtype: "success",
+          usage: { input_tokens: 1, cache_read_input_tokens: 0, output_tokens: 1 },
+          total_cost_usd: 0,
+        },
+      ]);
+    });
+
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      featureValues: { prompt_cache_ttl: "5m" },
+    });
+
+    try {
+      await session.run("cache ttl check");
+      expect(capturedEnv?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("forwards 1h prompt_cache_ttl feature value to the SDK env", async () => {
+    let capturedEnv: Record<string, string | undefined> | undefined;
+    const queryFactory = vi.fn(({ options }: ClaudeQueryInput) => {
+      capturedEnv = options.env;
+      return createQueryMock([
+        {
+          type: "system",
+          subtype: "init",
+          session_id: "prompt-cache-ttl-1h-session",
+          permissionMode: "default",
+          model: "opus",
+        },
+        { type: "assistant", message: { content: "done" } },
+        {
+          type: "result",
+          subtype: "success",
+          usage: { input_tokens: 1, cache_read_input_tokens: 0, output_tokens: 1 },
+          total_cost_usd: 0,
+        },
+      ]);
+    });
+
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      featureValues: { prompt_cache_ttl: "1h" },
+    });
+
+    try {
+      await session.run("cache ttl 1h check");
+      expect(capturedEnv?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("leaves CLAUDE_CODE_PROMPT_CACHE_TTL unset for default or missing feature value", async () => {
+    let capturedEnv: Record<string, string | undefined> | undefined;
+    const queryFactory = vi.fn(({ options }: ClaudeQueryInput) => {
+      capturedEnv = options.env;
+      return createQueryMock([
+        {
+          type: "system",
+          subtype: "init",
+          session_id: "prompt-cache-ttl-default-session",
+          permissionMode: "default",
+          model: "opus",
+        },
+        { type: "assistant", message: { content: "done" } },
+        {
+          type: "result",
+          subtype: "success",
+          usage: { input_tokens: 1, cache_read_input_tokens: 0, output_tokens: 1 },
+          total_cost_usd: 0,
+        },
+      ]);
+    });
+
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      featureValues: { prompt_cache_ttl: "default" },
+    });
+
+    try {
+      await session.run("cache ttl default check");
+      expect(capturedEnv?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("does not overwrite user-provided CLAUDE_CODE_PROMPT_CACHE_TTL from provider env", async () => {
+    let capturedEnv: Record<string, string | undefined> | undefined;
+    const queryFactory = vi.fn(({ options }: ClaudeQueryInput) => {
+      capturedEnv = options.env;
+      return createQueryMock([
+        {
+          type: "system",
+          subtype: "init",
+          session_id: "prompt-cache-ttl-user-env-session",
+          permissionMode: "default",
+          model: "opus",
+        },
+        { type: "assistant", message: { content: "done" } },
+        {
+          type: "result",
+          subtype: "success",
+          usage: { input_tokens: 1, cache_read_input_tokens: 0, output_tokens: 1 },
+          total_cost_usd: 0,
+        },
+      ]);
+    });
+
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession(
+      {
+        provider: "claude",
+        cwd: process.cwd(),
+        featureValues: { prompt_cache_ttl: "5m" },
+      },
+      {
+        env: {
+          CLAUDE_CODE_PROMPT_CACHE_TTL: "1h",
+        },
+      },
+    );
+
+    try {
+      await session.run("user cache ttl check");
+      expect(capturedEnv?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("ignores invalid prompt_cache_ttl feature values", async () => {
+    let capturedEnv: Record<string, string | undefined> | undefined;
+    const queryFactory = vi.fn(({ options }: ClaudeQueryInput) => {
+      capturedEnv = options.env;
+      return createQueryMock([
+        {
+          type: "system",
+          subtype: "init",
+          session_id: "prompt-cache-ttl-invalid-session",
+          permissionMode: "default",
+          model: "opus",
+        },
+        { type: "assistant", message: { content: "done" } },
+        {
+          type: "result",
+          subtype: "success",
+          usage: { input_tokens: 1, cache_read_input_tokens: 0, output_tokens: 1 },
+          total_cost_usd: 0,
+        },
+      ]);
+    });
+
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      featureValues: { prompt_cache_ttl: "30m" },
+    });
+
+    try {
+      await session.run("invalid cache ttl check");
+      expect(capturedEnv?.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
+    } finally {
+      await session.close();
+    }
+  });
 });

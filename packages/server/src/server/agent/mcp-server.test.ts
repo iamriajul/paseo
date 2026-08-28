@@ -3537,7 +3537,7 @@ describe("create_agent MCP tool", () => {
     expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         modeId: "resolver-mode",
-        featureValues: { resolver_feature: true },
+        featureValues: { resolver_feature: true, prompt_cache_ttl: "5m" },
       }),
       undefined,
       expect.any(Object),

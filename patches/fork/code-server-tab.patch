@@ -70,6 +70,7 @@ index 1e91dc040..27af7cf98 100644
 +  registerPanel(codeServerPanelRegistration);
    registerPanel(filePanelRegistration);
    registerPanel(filesPanelRegistration);
+   registerPanel(todoPanelRegistration);
    registerPanel(pullRequestPanelRegistration);
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
 index d7a0011dc..03275f193 100644

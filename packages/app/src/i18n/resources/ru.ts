@@ -651,6 +651,7 @@ export const ru: TranslationResources = {
         close: "Закрыть боковую панель",
         toggle: "Переключить боковую панель",
         changes: "Изменения",
+        todo: "Задачи",
         files: "Файлы",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -761,6 +762,12 @@ export const ru: TranslationResources = {
     tree: {
       showFolderTree: "Показать дерево папок",
       hideFolderTree: "Скрыть дерево папок",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "{{completed}} из {{total}} задач выполнено",
+      openTodoTab: "Открыть вкладку задач",
+      pillAccessible: "Задачи рабочей области: {{completed}} из {{total}} выполнено",
     },
     git: {
       actions: {
@@ -1089,6 +1096,7 @@ export const ru: TranslationResources = {
         project: "Проект",
         host: "Хост",
         changeRequest: "PR",
+        todos: "Задачи",
         checks: "Проверки",
         services: "Сервисы",
         identityIcon: "Identity icon",
@@ -1887,6 +1895,16 @@ export const ru: TranslationResources = {
         reloadTitle: "Перезагрузить с диска?",
         reloadMessage: "Локальные изменения будут потеряны.",
       },
+    },
+    todo: {
+      label: "Задачи",
+      subtitle: "Список задач рабочей области",
+      tooltip: "Список задач рабочей области",
+      emptyTitle: "Пока нет задач",
+      emptyDescription: "Добавьте задачи для отслеживания работы в этой области.",
+      addPlaceholder: "Добавить задачу...",
+      clearCompleted: "Очистить выполненные",
+      deleteItem: "Удалить задачу",
     },
     files: {
       label: "Файлы",

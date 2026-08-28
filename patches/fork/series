@@ -26,3 +26,4 @@ composer-draft-sync.patch
 mobile-push-diagnostics.patch
 cliproxy-model-windows.patch
 steer-official-only.patch
+workspace-todo-sidebar.patch

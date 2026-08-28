@@ -2,6 +2,7 @@ import type { WorkspaceLabelDefinition } from "@getpaseo/protocol/workspace-labe
 import type { PrHint } from "@/git/pr-hint";
 import type { SidebarChecksDisplay } from "@/components/sidebar/display-preferences/checks-display";
 import type { SidebarRowItems } from "@/components/sidebar/display-preferences/row-items";
+import type { WorkspaceTodoSummary } from "@/todos/workspace-todo-store";
 import { selectCheckSummary, type CheckSummary } from "./check-summary";
 import type { WorkspaceServiceSummary } from "./service-summary";
 
@@ -19,9 +20,9 @@ export type MetaRowItem =
   | { kind: "branch"; name: string }
   | { kind: "project"; name: string }
   | { kind: "host" }
-  | { kind: "project"; name: string }
   | { kind: "changeRequest"; hint: PrHint }
   | { kind: "checks"; summary: CheckSummary; label: boolean }
+  | { kind: "todos"; summary: WorkspaceTodoSummary }
   | { kind: "services"; summary: WorkspaceServiceSummary }
   | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] };
 
@@ -44,6 +45,7 @@ export function selectMetaRowItems(input: {
   projectSubtitle?: string | null;
   prHint: PrHint | null;
   serviceSummary: WorkspaceServiceSummary | null;
+  todoSummary?: WorkspaceTodoSummary | null;
   labels: readonly WorkspaceLabelDefinition[];
   visible: SidebarRowItems;
   checksDisplay: SidebarChecksDisplay;
@@ -55,6 +57,7 @@ export function selectMetaRowItems(input: {
     projectSubtitle,
     prHint,
     serviceSummary,
+    todoSummary,
     labels,
     visible,
     checksDisplay,
@@ -86,6 +89,10 @@ export function selectMetaRowItems(input: {
     if (summary) {
       items.push({ kind: "checks", summary, label: checksDisplay === "iconAndText" });
     }
+  }
+
+  if (todoSummary && todoSummary.total > 0 && visible.todos) {
+    items.push({ kind: "todos", summary: todoSummary });
   }
 
   if (serviceSummary && visible.services) {

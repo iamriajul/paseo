@@ -651,6 +651,7 @@ export const es: TranslationResources = {
         close: "Cerrar panel lateral",
         toggle: "Alternar panel lateral",
         changes: "Cambios",
+        todo: "Tareas",
         files: "Archivos",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -761,6 +762,12 @@ export const es: TranslationResources = {
     tree: {
       showFolderTree: "Mostrar árbol de carpetas",
       hideFolderTree: "Ocultar árbol de carpetas",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "{{completed}} de {{total}} tareas completadas",
+      openTodoTab: "Abrir pestaña de tareas",
+      pillAccessible: "Tareas del espacio: {{completed}} de {{total}} completadas",
     },
     git: {
       actions: {
@@ -1105,6 +1112,7 @@ export const es: TranslationResources = {
         project: "Proyecto",
         host: "Host",
         changeRequest: "Pull request",
+        todos: "Tareas",
         checks: "Comprobaciones",
         services: "Servicios",
         identityIcon: "Identity icon",
@@ -1899,6 +1907,16 @@ export const es: TranslationResources = {
         reloadTitle: "¿Recargar desde el disco?",
         reloadMessage: "Se perderán tus cambios locales.",
       },
+    },
+    todo: {
+      label: "Tareas",
+      subtitle: "Lista de tareas del espacio de trabajo",
+      tooltip: "Lista de tareas del espacio de trabajo",
+      emptyTitle: "Sin tareas aún",
+      emptyDescription: "Añade tareas para hacer seguimiento del trabajo en este espacio.",
+      addPlaceholder: "Añadir una tarea...",
+      clearCompleted: "Limpiar completadas",
+      deleteItem: "Eliminar tarea",
     },
     files: {
       label: "Archivos",

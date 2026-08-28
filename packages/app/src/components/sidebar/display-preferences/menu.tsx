@@ -21,6 +21,7 @@ import {
   GitBranch,
   GitPullRequest,
   Globe,
+  ListTodo,
   Server,
   Settings2,
   Tag,
@@ -104,6 +105,7 @@ const ROW_ITEM_ICONS: Record<SidebarRowItem, OptionIcon> = {
   project: withUnistyles(Folder),
   host: withUnistyles(Server),
   changeRequest: withUnistyles(GitPullRequest),
+  todos: withUnistyles(ListTodo),
   services: withUnistyles(Globe),
   labels: withUnistyles(Tag),
 };
@@ -140,6 +142,7 @@ const ROW_ITEM_LABEL_KEYS: Record<SidebarRowItem, string> = {
   project: "sidebar.display.show.project",
   host: "sidebar.display.show.host",
   changeRequest: "sidebar.display.show.changeRequest",
+  todos: "sidebar.display.show.todos",
   services: "sidebar.display.show.services",
   labels: "sidebar.display.show.labels",
 };

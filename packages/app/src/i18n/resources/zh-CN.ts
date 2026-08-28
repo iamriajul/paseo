@@ -646,6 +646,7 @@ export const zhCN: TranslationResources = {
         close: "关闭侧边面板",
         toggle: "切换侧边面板",
         changes: "变更",
+        todo: "待办",
         files: "文件",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -751,6 +752,12 @@ export const zhCN: TranslationResources = {
     tree: {
       showFolderTree: "显示文件夹树",
       hideFolderTree: "隐藏文件夹树",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "已完成 {{completed}}/{{total}} 个待办事项",
+      openTodoTab: "打开待办标签页",
+      pillAccessible: "工作区待办：已完成 {{completed}}/{{total}} 个",
     },
     git: {
       actions: {
@@ -1066,6 +1073,7 @@ export const zhCN: TranslationResources = {
         project: "项目",
         host: "主机",
         changeRequest: "拉取请求",
+        todos: "待办事项",
         checks: "检查",
         services: "服务",
         identityIcon: "Identity icon",
@@ -1835,6 +1843,16 @@ export const zhCN: TranslationResources = {
         reloadTitle: "从磁盘重新加载？",
         reloadMessage: "本地更改将丢失。",
       },
+    },
+    todo: {
+      label: "待办",
+      subtitle: "工作区待办事项清单",
+      tooltip: "工作区待办事项清单",
+      emptyTitle: "暂无待办事项",
+      emptyDescription: "添加任务以跟踪此工作区中的工作。",
+      addPlaceholder: "添加待办事项...",
+      clearCompleted: "清除已完成",
+      deleteItem: "删除待办",
     },
     files: {
       label: "文件",

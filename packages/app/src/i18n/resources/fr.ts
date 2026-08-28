@@ -652,6 +652,7 @@ export const fr: TranslationResources = {
         close: "Fermer le panneau latéral",
         toggle: "Basculer le panneau latéral",
         changes: "Changements",
+        todo: "Tâches",
         files: "Fichiers",
         ports: "Ports",
         portsEmpty: "No ports from workspace scripts yet.",
@@ -762,6 +763,12 @@ export const fr: TranslationResources = {
     tree: {
       showFolderTree: "Afficher l'arborescence des dossiers",
       hideFolderTree: "Masquer l'arborescence des dossiers",
+    },
+    todos: {
+      summary: "{{completed}}/{{total}}",
+      summaryAccessible: "{{completed}} sur {{total}} tâches terminées",
+      openTodoTab: "Ouvrir l'onglet Tâches",
+      pillAccessible: "Tâches de l'espace : {{completed}} sur {{total}} terminées",
     },
     git: {
       actions: {
@@ -1105,6 +1112,7 @@ export const fr: TranslationResources = {
         project: "Projet",
         host: "Hôte",
         changeRequest: "Pull request",
+        todos: "Tâches",
         checks: "Vérifications",
         services: "Services",
         identityIcon: "Identity icon",
@@ -1904,6 +1912,16 @@ export const fr: TranslationResources = {
         reloadTitle: "Recharger depuis le disque ?",
         reloadMessage: "Vos modifications locales seront perdues.",
       },
+    },
+    todo: {
+      label: "Tâches",
+      subtitle: "Liste de tâches de l'espace de travail",
+      tooltip: "Liste de tâches de l'espace de travail",
+      emptyTitle: "Aucune tâche pour le moment",
+      emptyDescription: "Ajoutez des tâches pour suivre le travail dans cet espace.",
+      addPlaceholder: "Ajouter une tâche...",
+      clearCompleted: "Effacer les tâches terminées",
+      deleteItem: "Supprimer la tâche",
     },
     files: {
       label: "Fichiers",

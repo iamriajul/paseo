@@ -23,6 +23,7 @@ import {
 import { ChangesSurface } from "@/git/diff-pane";
 import { changesStateSchema, defaultChangesState, type ChangesState } from "@/panels/changes/state";
 import { FileExplorerPane } from "./file-explorer-pane";
+import { WorkspaceTodoPane } from "@/todos/workspace-todo-pane";
 import { ExplorerPortsPane } from "./explorer-ports-pane";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { shouldUseCompactExplorerKeyboardPadding } from "@/hooks/keyboard-shift-policy";
@@ -335,7 +336,7 @@ function ExplorerSidebarContent({
   const resolvedTab: ExplorerTab = requestedTab === "pr" && !showPrTab ? "changes" : requestedTab;
   const prTabLabel = formatPrTabLabel(prPane.prNumber);
   const availableTabs = useMemo<ExplorerTab[]>(() => {
-    const tabs: ExplorerTab[] = isGit ? ["changes", "files"] : ["files"];
+    const tabs: ExplorerTab[] = isGit ? ["changes", "todo", "files"] : ["todo", "files"];
     if (isGit && showPrTab) tabs.push("pr");
     tabs.push("ports");
     return tabs;
@@ -366,6 +367,13 @@ function ExplorerSidebarContent({
               testID="explorer-tab-changes"
             />
           )}
+          <ExplorerTabButton
+            tab="todo"
+            active={resolvedTab === "todo"}
+            label={t("workspace.tabs.explorerSidebar.todo")}
+            onTabPress={onTabPress}
+            testID="explorer-tab-todo"
+          />
           <ExplorerTabButton
             tab="files"
             active={resolvedTab === "files"}
@@ -430,6 +438,11 @@ function ExplorerSidebarContent({
               isOpen={isOpen}
               onOpenFile={onOpenFile}
             />
+          </RetainedPanel>
+        ) : null}
+        {mountedTabIds.has("todo") ? (
+          <RetainedPanel active={resolvedTab === "todo"}>
+            <WorkspaceTodoPane serverId={serverId} workspaceId={workspaceId ?? ""} />
           </RetainedPanel>
         ) : null}
         {mountedTabIds.has("files") ? (

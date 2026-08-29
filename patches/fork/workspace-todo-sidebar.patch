@@ -852,7 +852,7 @@ index 6d533fb68..65fccc5e9 100644
 +  return hasOfficialTracks || hasWorkspaceDiffStat || hasWorkspaceTodos || hasExtraPills;
  }
 diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/agent-tracks.tsx
-index cd3ed6566..4ddcdebf6 100644
+index 6f80e7b..237c8e0 100644
 --- a/packages/app/src/panels/agent-tracks.tsx
 +++ b/packages/app/src/panels/agent-tracks.tsx
 @@ -1,12 +1,15 @@
@@ -910,10 +910,10 @@ index cd3ed6566..4ddcdebf6 100644
        hasExtraPills,
      })
    ) {
-@@ -133,6 +150,7 @@ export const AgentTracks = memo(function AgentTracks({
+@@ -132,6 +149,7 @@ export const AgentTracks = memo(function AgentTracks({
+         archiveFinishedStatus={archiveFinishedStatus}
          onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
        />
-       {children}
 +      <WorkspaceTodoPill serverId={serverId} workspaceId={workspaceId} onPress={handleOpenTodo} />
        <WorkspaceDiffStatPill
          serverId={serverId}

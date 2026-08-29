@@ -5,8 +5,137 @@ Files: packages/app/src/panels/agent-tracks.tsx
 Files: packages/app/src/panels/agent-panel.tsx
 Files: packages/protocol/src/messages.ts
 Files: packages/server/src/server/session.ts
+Files: packages/app/src/composer/tracks.tsx
+Files: packages/app/src/i18n/resources/ar.ts
+Files: packages/app/src/i18n/resources/en.ts
+Files: packages/app/src/i18n/resources/es.ts
+Files: packages/app/src/i18n/resources/fr.ts
+Files: packages/app/src/i18n/resources/ja.ts
+Files: packages/app/src/i18n/resources/ko.ts
+Files: packages/app/src/i18n/resources/pt-BR.ts
+Files: packages/app/src/i18n/resources/ru.ts
+Files: packages/app/src/i18n/resources/zh-CN.ts
 
+diff --git a/packages/app/src/composer/tracks.tsx b/packages/app/src/composer/tracks.tsx
+index 7e9a8b1..d43320c 100644
+--- a/packages/app/src/composer/tracks.tsx
++++ b/packages/app/src/composer/tracks.tsx
+@@ -1,5 +1,12 @@
+-import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
+-import { Pressable, Text, View } from "react-native";
++import {
++  useCallback,
++  useMemo,
++  useState,
++  type ComponentType,
++  type ReactElement,
++  type ReactNode,
++} from "react";
++import { Pressable, ScrollView, Text, View } from "react-native";
+ import { StyleSheet } from "react-native-unistyles";
+ import {
+   MenuRoot,
+@@ -34,9 +41,16 @@ import { COMPOSER_PILL_CLEARANCE, composerPillStyles } from "./pill-styles";
+ export function ComposerTrackBar({ children }: { children: ReactNode }): ReactElement {
+   return (
+     <View style={styles.bar} pointerEvents="box-none">
+-      <View style={styles.track} pointerEvents="box-none">
++      <ScrollView
++        style={styles.scroller}
++        contentContainerStyle={styles.track}
++        horizontal
++        showsHorizontalScrollIndicator={false}
++        keyboardShouldPersistTaps="handled"
++        pointerEvents="box-none"
++      >
+         {children}
+-      </View>
++      </ScrollView>
+     </View>
+   );
+ }
+@@ -55,6 +69,12 @@ export interface ComposerTrackPillProps {
+    * of them is hidden behind the others.
+    */
+   segments: readonly ComposerTrackPillSegment[];
++  /**
++   * Leading icon, same family as the todo pill's: a glyph that names the tracker even when its
++   * label is just a count. Pass the component, not JSX — the trigger renders it at its natural
++   * size and the prop stays referentially stable.
++   */
++  icon?: ComponentType<Record<string, never>>;
+   /** Sheet header on compact. Popovers never show one. */
+   panelTitle: string;
+   testID: string;
+@@ -82,6 +102,7 @@ const PANEL_OFFSET = 12;
+ 
+ export function ComposerTrackPill({
+   segments,
++  icon,
+   panelTitle,
+   testID,
+   accessibilityLabel,
+@@ -91,6 +112,7 @@ export function ComposerTrackPill({
+     <MenuRoot compactMode="sheet">
+       <ComposerTrackPillTrigger
+         segments={segments}
++        icon={icon}
+         testID={testID}
+         accessibilityLabel={accessibilityLabel ?? segments.map((segment) => segment.text).join(" ")}
+       />
+@@ -113,10 +135,12 @@ export function ComposerTrackPill({
+ 
+ function ComposerTrackPillTrigger({
+   segments,
++  icon: Icon,
+   testID,
+   accessibilityLabel,
+ }: {
+   segments: readonly ComposerTrackPillSegment[];
++  icon?: ComponentType<Record<string, never>>;
+   testID: string;
+   accessibilityLabel: string;
+ }): ReactElement {
+@@ -147,6 +171,7 @@ function ComposerTrackPillTrigger({
+       style={pillStyle}
+     >
+       <View style={styles.segments}>
++        {Icon ? <Icon /> : null}
+         {segments.map((segment, index) => (
+           <View
+             key={segment.bucket ?? "plain"}
+@@ -327,12 +352,17 @@ const styles = StyleSheet.create((theme) => {
+         md: COMPOSER_PILL_CLEARANCE.wide,
+       },
+     },
+-    track: {
++    // Full width so a short row of pills still centers under the content rail; the pills
++    // themselves align to the end so they sit next to the composer, and overflow scrolls.
++    scroller: {
+       width: "100%",
+       maxWidth: MAX_CONTENT_WIDTH,
+-      flexDirection: "row",
++    },
++    track: {
+       alignItems: "center",
+       gap: theme.spacing[1],
++      alignSelf: "flex-end",
++      paddingHorizontal: theme.spacing[1],
+     },
+     // The rail every panel row sits on: inset from the panel edge so the fill is a rounded block
+     // inside it, and tall enough that revealing an action button cannot resize the row.
+@@ -364,7 +394,8 @@ const styles = StyleSheet.create((theme) => {
+       alignItems: "center",
+       flexShrink: 1,
+       minWidth: 0,
+-      gap: theme.spacing[4],
++      // The icon is one of those marks — the same gap separates it from the first segment.
++      gap: theme.spacing[2],
+     },
+     segment: {
+       flexDirection: "row",
 diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/agent-tracks.tsx
+index 235eb1e..237c8e0 100644
 --- a/packages/app/src/panels/agent-tracks.tsx
 +++ b/packages/app/src/panels/agent-tracks.tsx
 @@ -1,4 +1,4 @@
@@ -15,7 +144,7 @@ diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/
  import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
  import { WorkspaceTodoPill } from "@/composer/todo-pill";
  import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
-@@ -37,6 +37,8 @@ export const AgentTracks = memo(function AgentTracks({
+@@ -38,6 +38,8 @@ export const AgentTracks = memo(function AgentTracks({
    tasks,
    archiveFinishedStatus,
    onArchiveFinished,
@@ -24,7 +153,7 @@ diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/
  }: {
    serverId: string;
    workspaceId: string;
-@@ -44,6 +46,8 @@ export const AgentTracks = memo(function AgentTracks({
+@@ -45,6 +47,8 @@ export const AgentTracks = memo(function AgentTracks({
    tasks: TodoEntry[] | undefined;
    archiveFinishedStatus: ArchiveFinishedStatus;
    onArchiveFinished: () => void;
@@ -33,36 +162,249 @@ diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/
  }): ReactElement | null {
    const { tabId, openTab } = usePaneContext();
    const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
-@@ -129,7 +133,14 @@ export const AgentTracks = memo(function AgentTracks({
-     });
-   }, [isCompact, serverId, workspaceDirectory, workspaceKey]);
+@@ -124,7 +128,11 @@ export const AgentTracks = memo(function AgentTracks({
  
--  if (!hasWorkspaceDiffStat && !hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus })) {
-+  if (
-+    !shouldShowAgentTrackBar({
+   if (
+     !shouldShowAgentTrackBar({
+-      hasWorkspaceDiffStat && hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus })
 +      hasOfficialTracks: hasAgentTracks({ subagentRows, tasks, archiveFinishedStatus }),
 +      hasWorkspaceDiffStat,
 +      hasWorkspaceTodos,
 +      hasExtraPills,
 +    })
-+  ) {
+   ) {
      return null;
    }
- 
-@@ -145,6 +156,7 @@ export const AgentTracks = memo(function AgentTracks({
-         archiveFinishedStatus={archiveFinishedStatus}
-         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
+@@ -147,6 +155,7 @@ export const AgentTracks = memo(function AgentTracks({
+         workspaceId={workspaceId}
+         onPress={handleOpenChanges}
        />
 +      {children}
-       <WorkspaceTodoPill serverId={serverId} workspaceId={workspaceId} onPress={handleOpenTodo} />
-       <WorkspaceDiffStatPill
-         serverId={serverId}
-@@ -165,3 +177,5 @@ export function hasAgentTracks({
+     </ComposerTrackBar>
+   );
+ });
+@@ -162,3 +171,5 @@ export function hasAgentTracks({
  }): boolean {
    return subagentRows.length > 0 || Boolean(tasks?.length) || archiveFinishedStatus.kind !== "idle";
  }
 +
 +export { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";
+diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
+index 802c265..e34e3eb 100644
+--- a/packages/app/src/i18n/resources/ar.ts
++++ b/packages/app/src/i18n/resources/ar.ts
+@@ -1782,6 +1782,9 @@ export const ar: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} متوقفة مؤقتًا",
++    pillNextRunAccessible: "{{count}} نبضات، التالي {{when}}",
++    pillPausedAccessible: "{{count}} نبضات، متوقفة مؤقتًا",
+     statusPaused: "متوقف مؤقتًا",
+     nextRun: "التالي {{when}}",
+     pauseAction: "إيقاف مؤقت {{label}}",
+@@ -1811,6 +1814,9 @@ export const ar: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} أصداف",
++    pillCountAccessible: "{{count}} مهام خلفية",
++    pillCountRunningAccessible: "{{count}} مهام خلفية، {{running}} قيد التشغيل",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
+index 3af86da..bd9e5c1 100644
+--- a/packages/app/src/i18n/resources/en.ts
++++ b/packages/app/src/i18n/resources/en.ts
+@@ -1789,6 +1789,9 @@ export const en = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} paused",
++    pillNextRunAccessible: "{{count}} heartbeats, next {{when}}",
++    pillPausedAccessible: "{{count}} heartbeats, paused",
+     statusPaused: "Paused",
+     nextRun: "Next {{when}}",
+     pauseAction: "Pause {{label}}",
+@@ -1818,6 +1821,9 @@ export const en = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} shells",
++    pillCountAccessible: "{{count}} background tasks",
++    pillCountRunningAccessible: "{{count}} background tasks, {{running}} running",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
+index 4a8a8a8..96a505f 100644
+--- a/packages/app/src/i18n/resources/es.ts
++++ b/packages/app/src/i18n/resources/es.ts
+@@ -1825,6 +1825,9 @@ export const es: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} en pausa",
++    pillNextRunAccessible: "{{count}} heartbeats, próximo {{when}}",
++    pillPausedAccessible: "{{count}} heartbeats, en pausa",
+     statusPaused: "Pausado",
+     nextRun: "Próximo {{when}}",
+     pauseAction: "Pausar {{label}}",
+@@ -1854,6 +1857,9 @@ export const es: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} shells",
++    pillCountAccessible: "{{count}} tareas en segundo plano",
++    pillCountRunningAccessible: "{{count}} tareas en segundo plano, {{running}} en ejecución",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
+index ada7891..c1ecbf3 100644
+--- a/packages/app/src/i18n/resources/fr.ts
++++ b/packages/app/src/i18n/resources/fr.ts
+@@ -1830,6 +1830,9 @@ export const fr: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} en pause",
++    pillNextRunAccessible: "{{count}} heartbeats, prochain {{when}}",
++    pillPausedAccessible: "{{count}} heartbeats, en pause",
+     statusPaused: "En pause",
+     nextRun: "Prochain {{when}}",
+     pauseAction: "Mettre en pause {{label}}",
+@@ -1859,6 +1862,9 @@ export const fr: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} shells",
++    pillCountAccessible: "{{count}} tâches d'arrière-plan",
++    pillCountRunningAccessible: "{{count}} tâches d'arrière-plan, {{running}} en cours",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
+index e7e415c..6c984f1 100644
+--- a/packages/app/src/i18n/resources/ja.ts
++++ b/packages/app/src/i18n/resources/ja.ts
+@@ -1800,6 +1800,9 @@ export const ja: TranslationResources = {
+   heartbeats: {
+     header: "ハートビート",
+     headerCount: "ハートビート ({{count}})",
++    pillPaused: "{{count}} 一時停止中",
++    pillNextRunAccessible: "ハートビート {{count}} 件、次回 {{when}}",
++    pillPausedAccessible: "ハートビート {{count}} 件、一時停止中",
+     statusPaused: "一時停止",
+     nextRun: "次回 {{when}}",
+     pauseAction: "{{label}} を一時停止",
+@@ -1829,6 +1832,9 @@ export const ja: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "シェル {{count}} 件",
++    pillCountAccessible: "バックグラウンドタスク {{count}} 件",
++    pillCountRunningAccessible: "バックグラウンドタスク {{count}} 件、{{running}} 件実行中",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
+index 54ad2dc..45c0a9e 100644
+--- a/packages/app/src/i18n/resources/ko.ts
++++ b/packages/app/src/i18n/resources/ko.ts
+@@ -1792,6 +1792,9 @@ export const ko: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}}개 일시중지",
++    pillNextRunAccessible: "하트비트 {{count}}개, 다음 {{when}}",
++    pillPausedAccessible: "하트비트 {{count}}개, 일시중지",
+     statusPaused: "Paused",
+     nextRun: "Next {{when}}",
+     pauseAction: "Pause {{label}}",
+@@ -1821,6 +1824,9 @@ export const ko: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "셸 {{count}}개",
++    pillCountAccessible: "백그라운드 작업 {{count}}개",
++    pillCountRunningAccessible: "백그라운드 작업 {{count}}개, {{running}}개 실행 중",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
+index e79427c..38b9889 100644
+--- a/packages/app/src/i18n/resources/pt-BR.ts
++++ b/packages/app/src/i18n/resources/pt-BR.ts
+@@ -1811,6 +1811,9 @@ export const ptBR: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} pausados",
++    pillNextRunAccessible: "{{count}} heartbeats, próximo {{when}}",
++    pillPausedAccessible: "{{count}} heartbeats, pausados",
+     statusPaused: "Pausado",
+     nextRun: "Próximo {{when}}",
+     pauseAction: "Pausar {{label}}",
+@@ -1840,6 +1843,9 @@ export const ptBR: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} shells",
++    pillCountAccessible: "{{count}} tarefas em segundo plano",
++    pillCountRunningAccessible: "{{count}} tarefas em segundo plano, {{running}} em execução",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
+index 5ce2f9e..f00330a 100644
+--- a/packages/app/src/i18n/resources/ru.ts
++++ b/packages/app/src/i18n/resources/ru.ts
+@@ -1812,6 +1812,9 @@ export const ru: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} на паузе",
++    pillNextRunAccessible: "Пульсаций: {{count}}, следующий {{when}}",
++    pillPausedAccessible: "Пульсаций: {{count}}, на паузе",
+     statusPaused: "На паузе",
+     nextRun: "Следующий {{when}}",
+     pauseAction: "Приостановить {{label}}",
+@@ -1841,6 +1844,9 @@ export const ru: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "Оболочек: {{count}}",
++    pillCountAccessible: "Фоновых задач: {{count}}",
++    pillCountRunningAccessible: "Фоновых задач: {{count}}, {{running}} выполняется",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
+index 4e23765..1b4e131 100644
+--- a/packages/app/src/i18n/resources/zh-CN.ts
++++ b/packages/app/src/i18n/resources/zh-CN.ts
+@@ -1761,6 +1761,9 @@ export const zhCN: TranslationResources = {
+   heartbeats: {
+     header: "心跳",
+     headerCount: "心跳 ({{count}})",
++    pillPaused: "{{count}} 个已暂停",
++    pillNextRunAccessible: "{{count}} 个心跳，下次 {{when}}",
++    pillPausedAccessible: "{{count}} 个心跳，已暂停",
+     statusPaused: "已暂停",
+     nextRun: "下次 {{when}}",
+     pauseAction: "暂停 {{label}}",
+@@ -1790,6 +1793,9 @@ export const zhCN: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} 个 Shell",
++    pillCountAccessible: "{{count}} 个后台任务",
++    pillCountRunningAccessible: "{{count}} 个后台任务，{{running}} 个运行中",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
 diff --git a/packages/app/src/panels/agent-panel.tsx b/packages/app/src/panels/agent-panel.tsx
 --- a/packages/app/src/panels/agent-panel.tsx
 +++ b/packages/app/src/panels/agent-panel.tsx

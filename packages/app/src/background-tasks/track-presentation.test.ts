@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { BackgroundTaskDescriptorPayload } from "@getpaseo/protocol/messages";
 import { buildBackgroundTaskPillPresentation } from "./track-presentation";
 
-const t = ((key: string, options?: { count?: number; running?: number }) => {
-  if (key === "backgroundTasks.headerCountRunning") {
-    return `Background Tasks (${options?.count ?? 0}) · ${options?.running ?? 0} running`;
+const t = ((key: string, options?: Record<string, string | number>) => {
+  switch (key) {
+    case "backgroundTasks.pillCount":
+      return `${options?.count ?? 0} shells`;
+    case "backgroundTasks.pillCountAccessible":
+      return `${options?.count ?? 0} background tasks`;
+    case "backgroundTasks.pillCountRunningAccessible":
+      return `${options?.count ?? 0} background tasks, ${options?.running ?? 0} running`;
+    default:
+      return key;
   }
-  if (key === "backgroundTasks.headerCount") {
-    return `Background Tasks (${options?.count ?? 0})`;
-  }
-  return key;
 }) as never;
 
 function row(status: BackgroundTaskDescriptorPayload["status"]): BackgroundTaskDescriptorPayload {
@@ -27,13 +30,13 @@ function row(status: BackgroundTaskDescriptorPayload["status"]): BackgroundTaskD
 describe("background task pill presentation", () => {
   it("marks the pill running when any task is running", () => {
     const pill = buildBackgroundTaskPillPresentation(t, [row("running"), row("completed")]);
-    expect(pill.segments).toEqual([
-      { bucket: "running", text: "Background Tasks (2) · 1 running" },
-    ]);
+    expect(pill.segments).toEqual([{ bucket: "running", text: "2 shells" }]);
+    expect(pill.accessibilityLabel).toBe("2 background tasks, 1 running");
   });
 
   it("draws no running mark when nothing is in flight", () => {
-    const pill = buildBackgroundTaskPillPresentation(t, [row("completed")]);
-    expect(pill.segments).toEqual([{ bucket: null, text: "Background Tasks (1)" }]);
+    const pill = buildBackgroundTaskPillPresentation(t, [row("completed"), row("failed")]);
+    expect(pill.segments).toEqual([{ bucket: null, text: "2 shells" }]);
+    expect(pill.accessibilityLabel).toBe("2 background tasks");
   });
 });

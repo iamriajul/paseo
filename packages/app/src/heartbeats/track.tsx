@@ -1,4 +1,4 @@
-import { useCallback, type ReactElement } from "react";
+import { memo, useCallback, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { CalendarClock, Pause, Play, Trash2 } from "lucide-react-native";
@@ -34,6 +34,14 @@ export interface HeartbeatsTrackProps {
 }
 
 const ROW_ICON_SIZE = 14;
+const PILL_ICON_SIZE = 14;
+
+const pillIconColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+
+/** Compact pill lead icon — always the heartbeat clock, never a provider glyph. */
+const HeartbeatPillIcon = memo(function HeartbeatPillIcon(): ReactElement {
+  return <ThemedCalendarClock size={PILL_ICON_SIZE} uniProps={pillIconColorMapping} />;
+});
 
 function rowPrimaryLabel(row: HeartbeatRow): string {
   if (row.kind === "paseo") {
@@ -87,6 +95,7 @@ export function HeartbeatsTrack({
     <ComposerTrackPill
       testID="heartbeats-track-header"
       segments={pill.segments}
+      icon={HeartbeatPillIcon}
       accessibilityLabel={pill.accessibilityLabel}
       panelTitle={t("heartbeats.header")}
     >

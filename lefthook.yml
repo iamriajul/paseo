@@ -12,3 +12,7 @@ pre-commit:
       run: npm run lint -- {staged_files}
     - name: typecheck
       run: npm run typecheck
+    # Runs on every commit (not just sync merges): ~0.3s, and it is the only gate that catches a
+    # decision hunk gone stale in the same commit that broke it, while the agent still has context.
+    - name: fork-patches
+      run: node scripts/fork-patches.mjs check

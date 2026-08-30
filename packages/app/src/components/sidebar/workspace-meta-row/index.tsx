@@ -2,7 +2,14 @@ import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View, type GestureResponderEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { ExternalLink, Folder, GitBranch, Globe, ListTodo } from "lucide-react-native";
+import {
+  CalendarClock,
+  ExternalLink,
+  Folder,
+  GitBranch,
+  Globe,
+  ListTodo,
+} from "lucide-react-native";
 import {
   workspaceLabelKey,
   type WorkspaceLabelDefinition,
@@ -40,6 +47,7 @@ const ThemedFolder = withUnistyles(Folder);
 const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedListTodo = withUnistyles(ListTodo);
+const ThemedCalendarClock = withUnistyles(CalendarClock);
 
 /** Stable identity so a row without labels doesn't re-select its items on every render. */
 const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
@@ -73,6 +81,7 @@ export function WorkspaceMetaRow({
   serviceSummary,
   todoSummary = null,
   labels = EMPTY_LABELS,
+  heartbeatText = null,
 }: {
   currentBranch: string | null;
   projectName: string | null;
@@ -83,6 +92,7 @@ export function WorkspaceMetaRow({
   serviceSummary: WorkspaceServiceSummary | null;
   todoSummary?: WorkspaceTodoSummary | null;
   labels?: readonly WorkspaceLabelDefinition[];
+  heartbeatText?: string | null;
 }) {
   const { rowItems, checksDisplay } = useSidebarMetaPreferences();
   const items = selectMetaRowItems({
@@ -96,6 +106,7 @@ export function WorkspaceMetaRow({
     labels,
     visible: rowItems,
     checksDisplay,
+    heartbeatText,
   });
 
   if (items.length === 0) return null;
@@ -142,6 +153,9 @@ function MetaItemNode({
   }
   if (item.kind === "labels") {
     return <LabelsItem labels={item.labels} leading={leading} />;
+  }
+  if (item.kind === "heartbeat") {
+    return <HeartbeatItem text={item.text} />;
   }
   return <ServiceItem summary={item.summary} />;
 }
@@ -321,6 +335,17 @@ const CHECK_STATE_ACCESSIBLE_KEYS = {
   running: "workspace.git.pr.checksSummary.runningAccessible",
 } as const;
 
+function HeartbeatItem({ text }: { text: string }) {
+  return (
+    <View style={styles.item} accessibilityLabel={text} testID="sidebar-workspace-heartbeat">
+      <ThemedCalendarClock size={META_ICON_SIZE} uniProps={mutedMapping} />
+      <Text style={styles.heartbeatText} numberOfLines={1}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
 /**
  * A running service, named. It is the one item on the line whose text is arbitrary — everything
  * else is a number, a short word, or a host label the user already picked — so it is also the
@@ -476,6 +501,12 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   todosTextOpen: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  heartbeatText: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,

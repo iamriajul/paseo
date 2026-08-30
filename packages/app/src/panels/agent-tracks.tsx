@@ -149,13 +149,13 @@ export const AgentTracks = memo(function AgentTracks({
         archiveFinishedStatus={archiveFinishedStatus}
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
-      {children}
       <WorkspaceTodoPill serverId={serverId} workspaceId={workspaceId} onPress={handleOpenTodo} />
       <WorkspaceDiffStatPill
         serverId={serverId}
         workspaceId={workspaceId}
         onPress={handleOpenChanges}
       />
+      {children}
     </ComposerTrackBar>
   );
 });

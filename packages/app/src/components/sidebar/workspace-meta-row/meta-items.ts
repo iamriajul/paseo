@@ -24,7 +24,8 @@ export type MetaRowItem =
   | { kind: "checks"; summary: CheckSummary; label: boolean }
   | { kind: "todos"; summary: WorkspaceTodoSummary }
   | { kind: "services"; summary: WorkspaceServiceSummary }
-  | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] };
+  | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] }
+  | { kind: "heartbeat"; text: string };
 
 /**
  * Which peers a row should draw, given what it knows and what the user left switched on.
@@ -38,6 +39,7 @@ export type MetaRowItem =
  *
  * Status grouping can swap host identity for a plain project name via `projectSubtitle`.
  */
+// oxlint-disable-next-line complexity
 export function selectMetaRowItems(input: {
   currentBranch: string | null;
   projectName: string | null;
@@ -49,6 +51,7 @@ export function selectMetaRowItems(input: {
   labels: readonly WorkspaceLabelDefinition[];
   visible: SidebarRowItems;
   checksDisplay: SidebarChecksDisplay;
+  heartbeatText?: string | null;
 }): MetaRowItem[] {
   const {
     currentBranch,
@@ -61,6 +64,7 @@ export function selectMetaRowItems(input: {
     labels,
     visible,
     checksDisplay,
+    heartbeatText,
   } = input;
   const items: MetaRowItem[] = [];
 
@@ -101,6 +105,15 @@ export function selectMetaRowItems(input: {
 
   if (labels.length > 0 && visible.labels) {
     items.push({ kind: "labels", labels });
+  }
+
+  // Heartbeat sits last, after every other peer — including labels — so the
+  // cadence reads as an ambient signal rather than competing for rank with
+  // operational metadata. It is not gated by rowItems; a scheduled run is
+  // state you asked for, not chrome you can hide without losing the schedule.
+  const trimmedHeartbeat = heartbeatText?.trim() ?? "";
+  if (trimmedHeartbeat.length > 0) {
+    items.push({ kind: "heartbeat", text: trimmedHeartbeat });
   }
 
   return items;

@@ -17,6 +17,7 @@ import { z } from "zod";
 import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
 import { createTestLogger } from "../test-utils/test-logger.js";
 import { Session } from "./session.js";
+import { WorkspaceTodoStore } from "./workspace-todos/store.js";
 import type { SessionOptions } from "./session.js";
 import type { AgentUpdatesService } from "./session/agent-updates/agent-updates-service.js";
 import type { AgentSnapshotPayload, SessionOutboundMessage } from "@getpaseo/protocol/messages";
@@ -559,6 +560,8 @@ function createSessionForWorkspaceTests(
       newName: string,
     ) => Promise<{ previousBranch: string | null; currentBranch: string | null }>;
     generateWorkspaceName?: () => Promise<GeneratedWorkspaceName | null>;
+    workspaceTodoStore?: WorkspaceTodoStore;
+    broadcastWorkspaceTodos?: SessionOptions["broadcastWorkspaceTodos"];
   } = {},
 ): TestSession {
   const logger = {
@@ -730,6 +733,8 @@ function createSessionForWorkspaceTests(
       stt: null,
       tts: null,
       providerSnapshotManager,
+      workspaceTodoStore: options.workspaceTodoStore,
+      broadcastWorkspaceTodos: options.broadcastWorkspaceTodos,
       terminalManager: options.terminalManager ?? null,
     }),
   );
@@ -9673,4 +9678,63 @@ test("workspace.create.request reports an archived explicit project", async () =
     workspace: null,
     errorCode: "archived_project",
   });
+});
+
+test("workspace.todos.get.request and workspace.todos.set.request store and broadcast todos", async () => {
+  const emitted: SessionOutboundMessage[] = [];
+  const broadcasted: Array<{ message: SessionOutboundMessage; exceptClientId: string }> = [];
+  const tempHome = mkdtempSync(path.join(tmpdir(), "session-todos-test-"));
+  const workspaceTodoStore = new WorkspaceTodoStore(tempHome);
+
+  try {
+    const session = createSessionForWorkspaceTests({
+      onMessage: (message) => emitted.push(message),
+      workspaceTodoStore,
+      broadcastWorkspaceTodos: (message, exceptClientId) => {
+        broadcasted.push({ message, exceptClientId });
+      },
+    });
+
+    await session.handleMessage({
+      type: "workspace.todos.get.request",
+      workspaceId: "ws-test-todos",
+      requestId: "req-get-todos-1",
+    });
+
+    expect(findByType(emitted, "workspace.todos.get.response")?.payload).toMatchObject({
+      requestId: "req-get-todos-1",
+      workspaceId: "ws-test-todos",
+      todos: [],
+      error: null,
+    });
+
+    const todoItems = [
+      { id: "todo-1", text: "Cross-device sync task", completed: false, createdAt: 12345 },
+    ];
+
+    await session.handleMessage({
+      type: "workspace.todos.set.request",
+      workspaceId: "ws-test-todos",
+      todos: todoItems,
+      requestId: "req-set-todos-1",
+    });
+
+    expect(findByType(emitted, "workspace.todos.set.response")?.payload).toMatchObject({
+      requestId: "req-set-todos-1",
+      workspaceId: "ws-test-todos",
+      todos: todoItems,
+      error: null,
+    });
+
+    expect(broadcasted).toHaveLength(1);
+    expect(broadcasted[0].message).toEqual({
+      type: "workspace.todos.update",
+      payload: {
+        workspaceId: "ws-test-todos",
+        todos: todoItems,
+      },
+    });
+  } finally {
+    rmSync(tempHome, { recursive: true, force: true });
+  }
 });

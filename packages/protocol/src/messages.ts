@@ -1055,6 +1055,65 @@ export const ProjectRemoveRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const WorkspaceTodoItemSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  completed: z.boolean(),
+  createdAt: z.number(),
+  completedAt: z.number().nullable().optional(),
+});
+export type WorkspaceTodoItem = z.infer<typeof WorkspaceTodoItemSchema>;
+
+export const WorkspaceTodosGetRequestSchema = z.object({
+  type: z.literal("workspace.todos.get.request"),
+  workspaceId: z.string(),
+  requestId: z.string(),
+});
+export type WorkspaceTodosGetRequest = z.infer<typeof WorkspaceTodosGetRequestSchema>;
+
+export const WorkspaceTodosSetRequestSchema = z.object({
+  type: z.literal("workspace.todos.set.request"),
+  workspaceId: z.string(),
+  todos: z.array(WorkspaceTodoItemSchema),
+  requestId: z.string(),
+});
+export type WorkspaceTodosSetRequest = z.infer<typeof WorkspaceTodosSetRequestSchema>;
+
+export const WorkspaceTodosGetResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  workspaceId: z.string(),
+  todos: z.array(WorkspaceTodoItemSchema),
+  error: z.string().nullable().optional(),
+});
+
+export const WorkspaceTodosGetResponseSchema = z.object({
+  type: z.literal("workspace.todos.get.response"),
+  payload: WorkspaceTodosGetResponsePayloadSchema,
+});
+export type WorkspaceTodosGetResponse = z.infer<typeof WorkspaceTodosGetResponseSchema>;
+
+export const WorkspaceTodosSetResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  workspaceId: z.string(),
+  todos: z.array(WorkspaceTodoItemSchema),
+  error: z.string().nullable().optional(),
+});
+
+export const WorkspaceTodosSetResponseSchema = z.object({
+  type: z.literal("workspace.todos.set.response"),
+  payload: WorkspaceTodosSetResponsePayloadSchema,
+});
+export type WorkspaceTodosSetResponse = z.infer<typeof WorkspaceTodosSetResponseSchema>;
+
+export const WorkspaceTodosUpdateMessageSchema = z.object({
+  type: z.literal("workspace.todos.update"),
+  payload: z.object({
+    workspaceId: z.string(),
+    todos: z.array(WorkspaceTodoItemSchema),
+  }),
+});
+export type WorkspaceTodosUpdateMessage = z.infer<typeof WorkspaceTodosUpdateMessageSchema>;
+
 export const WorkspaceTitleSetRequestSchema = z.object({
   type: z.literal("workspace.title.set.request"),
   workspaceId: z.string(),
@@ -3126,6 +3185,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProjectIconSetRequestSchema,
   ProjectRemoveRequestSchema,
   WorkspaceTitleSetRequestSchema,
+  WorkspaceTodosGetRequestSchema,
+  WorkspaceTodosSetRequestSchema,
   WorkspacePinSetRequestSchema,
   WorkspaceLabelListRequestSchema,
   WorkspaceLabelAssignmentSetRequestSchema,
@@ -6746,6 +6807,9 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProjectIconSetResponseSchema,
   ProjectRemoveResponseSchema,
   WorkspaceTitleSetResponseSchema,
+  WorkspaceTodosGetResponseSchema,
+  WorkspaceTodosSetResponseSchema,
+  WorkspaceTodosUpdateMessageSchema,
   WorkspacePinSetResponseSchema,
   WorkspaceRecoveryInspectResponseSchema,
   WorkspaceRecoveryRestoreResponseSchema,

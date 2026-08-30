@@ -3127,3 +3127,75 @@ describe("Claude question permission notifications", () => {
     expect(request.description).toBeUndefined();
   });
 });
+
+describe("prompt_cache_ttl feature", () => {
+  const logger = createTestLogger();
+
+  function createIsolatedQueryMock() {
+    const queryMock = {
+      close: vi.fn(),
+      return: vi.fn(async () => ({ value: undefined, done: true })),
+      applyFlagSettings: vi.fn(async () => undefined),
+      setModel: vi.fn(async () => undefined),
+      [Symbol.asyncIterator](): AsyncIterator<SDKMessage, void> {
+        return {
+          next: async () => ({ value: undefined, done: true }),
+        };
+      },
+    };
+    const queryFactory = vi.fn(() => queryMock);
+    return { queryFactory, queryMock };
+  }
+
+  test("lists the select only when the feature value is stamped", async () => {
+    const client = new ClaudeAgentClient({ logger, resolveBinary: async () => "/test/claude/bin" });
+
+    await expect(
+      client.listFeatures({
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-opus-4-8",
+        featureValues: { prompt_cache_ttl: "5m" },
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "prompt_cache_ttl", value: "5m" })]),
+    );
+
+    await expect(
+      client.listFeatures({
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-opus-4-8",
+      }),
+    ).resolves.toEqual([expect.objectContaining({ id: "fast_mode" })]);
+  });
+
+  test("setFeature accepts only prompt_cache_ttl select values", async () => {
+    const { queryFactory, queryMock } = createIsolatedQueryMock();
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "claude-opus-4-8",
+      featureValues: { prompt_cache_ttl: "5m" },
+    });
+
+    try {
+      await session.setFeature?.("prompt_cache_ttl", "1h");
+      expect(session.features.find((f) => f.id === "prompt_cache_ttl")?.value).toBe("1h");
+      await expect(session.setFeature?.("prompt_cache_ttl", "30m")).rejects.toThrow(
+        "Invalid prompt_cache_ttl value",
+      );
+      await expect(session.setFeature?.("unknown_feature", true)).rejects.toThrow(
+        "Unknown Claude feature",
+      );
+      expect(queryMock.applyFlagSettings).not.toHaveBeenCalled();
+    } finally {
+      await session.close();
+    }
+  });
+});

@@ -7,6 +7,11 @@ export interface BackgroundTaskPillPresentation {
   accessibilityLabel: string;
 }
 
+/**
+ * The pill stays compact — "[ring] 3 shells" — and the ring appears only while something is
+ * actually running. The panel behind it carries per-task detail; the accessibility label spells
+ * the count out instead of leaving a bare number.
+ */
 export function buildBackgroundTaskPillPresentation(
   t: TFunction,
   rows: readonly BackgroundTaskDescriptorPayload[],
@@ -15,12 +20,16 @@ export function buildBackgroundTaskPillPresentation(
     (count, row) => (row.status === "running" ? count + 1 : count),
     0,
   );
-  const label =
+  const text = t("backgroundTasks.pillCount", { count: rows.length });
+  const accessibilityLabel =
     runningCount > 0
-      ? t("backgroundTasks.headerCountRunning", { count: rows.length, running: runningCount })
-      : t("backgroundTasks.headerCount", { count: rows.length });
+      ? t("backgroundTasks.pillCountRunningAccessible", {
+          count: rows.length,
+          running: runningCount,
+        })
+      : t("backgroundTasks.pillCountAccessible", { count: rows.length });
   return {
-    segments: [{ bucket: runningCount > 0 ? "running" : null, text: label }],
-    accessibilityLabel: label,
+    segments: [{ bucket: runningCount > 0 ? "running" : null, text }],
+    accessibilityLabel,
   };
 }

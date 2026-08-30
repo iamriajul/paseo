@@ -51,6 +51,7 @@ export const WorkspaceTodoPane = memo(function WorkspaceTodoPane({
   const todos = useWorkspaceTodos(workspaceKey);
   const summary = useWorkspaceTodoSummaryByKey(workspaceKey);
   const [hasText, setHasText] = useState(false);
+  const [isAddFocused, setIsAddFocused] = useState(false);
   const inputRef = useRef<EditingTextInputHandle>(null);
 
   const handleTextChange = useCallback((text: string) => {
@@ -75,6 +76,9 @@ export const WorkspaceTodoPane = memo(function WorkspaceTodoPane({
   const handleFocusInput = useCallback(() => {
     inputRef.current?.focus();
   }, []);
+
+  const handleAddFocus = useCallback(() => setIsAddFocused(true), []);
+  const handleAddBlur = useCallback(() => setIsAddFocused(false), []);
 
   const progressStatus = useMemo(() => {
     if (!summary || summary.total === 0) return "empty";
@@ -162,7 +166,7 @@ export const WorkspaceTodoPane = memo(function WorkspaceTodoPane({
         )}
 
         <View style={styles.addSection}>
-          <View style={styles.addInputContainer}>
+          <View style={[styles.addInputContainer, isAddFocused && styles.addInputContainerFocused]}>
             <View style={styles.addIconSlot}>
               <ThemedPlus size={16} uniProps={extraMutedColorMapping} />
             </View>
@@ -170,6 +174,8 @@ export const WorkspaceTodoPane = memo(function WorkspaceTodoPane({
               ref={inputRef}
               style={styles.addInput}
               onChangeText={handleTextChange}
+              onFocus={handleAddFocus}
+              onBlur={handleAddBlur}
               placeholder={t("panels.todo.addPlaceholder")}
               placeholderTextColor={styles.placeholder.color}
               onSubmitEditing={handleAddTodo}
@@ -402,6 +408,10 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     padding: 0,
     margin: 0,
+    // RN-web inputs keep the browser's default focus outline otherwise — the caret and the row
+    // hover are the focus feedback, same as every other input in the app.
+    outlineColor: "transparent",
+    outlineWidth: 0,
   },
   todoInputCompleted: {
     color: theme.colors.foregroundMuted,
@@ -431,9 +441,11 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[1.5],
     paddingHorizontal: theme.spacing[2],
     borderRadius: theme.borderRadius.md,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+  },
+  addInputContainerFocused: {
     backgroundColor: theme.colors.surface0,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
   },
   addIconSlot: {
     width: 18,
@@ -448,6 +460,8 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     padding: 0,
     margin: 0,
+    outlineColor: "transparent",
+    outlineWidth: 0,
   },
   addButton: {
     paddingHorizontal: theme.spacing[2],

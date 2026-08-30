@@ -1,7 +1,9 @@
 import { memo, useMemo, useCallback, useState, type ReactNode } from "react";
 import { Text, View, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { CircleAlert, Folder, FolderGit2, Monitor } from "lucide-react-native";
+import { CircleAlert, Folder, FolderGit2, Monitor, Terminal } from "lucide-react-native";
+import { useTranslation } from "react-i18next";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { ProjectStatusIndicator } from "@/components/sidebar/project-leading-visual";
 import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
@@ -26,10 +28,19 @@ import {
 } from "@/utils/status-indicator-geometry";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { StatusRing } from "@/components/status-ring";
+import {
+  StatusRingFrame,
+  rotatorStyles,
+  styles as statusRingStyles,
+} from "@/components/status-ring/frame";
+import { useStatusRingRotation } from "@/components/status-ring/clock";
 import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
 import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
 import { useWorkspaceLabelDefinitions } from "@/workspace-labels";
 import { useWorkspaceTodoSummary } from "@/todos/workspace-todo-store";
+import { useWorkspaceHasRunningBackgroundTasks } from "@/hooks/use-workspace-background-tasks";
+import { useWorkspaceHeartbeatRows } from "@/hooks/use-workspace-heartbeat";
+import { buildHeartbeatPillPresentation } from "@/heartbeats/track-presentation";
 
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const needsInputColorMapping = (theme: Theme) => ({
@@ -41,6 +52,7 @@ const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedMonitor = withUnistyles(Monitor);
 const ThemedFolder = withUnistyles(Folder);
 const ThemedFolderGit2 = withUnistyles(FolderGit2);
+const ThemedTerminal = withUnistyles(Terminal);
 
 export function SidebarWorkspaceRowFrame({
   workspace,
@@ -131,6 +143,20 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   // where the two meet — the meta line is handed finished definitions.
   const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
   const todoSummary = useWorkspaceTodoSummary(workspace.serverId, workspace.workspaceId);
+  const hasRunningBackgroundTasks = useWorkspaceHasRunningBackgroundTasks({
+    serverId: workspace.serverId,
+    workspaceId: workspace.workspaceId,
+  });
+  const heartbeatRows = useWorkspaceHeartbeatRows({
+    serverId: workspace.serverId,
+    workspaceId: workspace.workspaceId,
+  });
+  const { t } = useTranslation();
+  const heartbeatText = useMemo(() => {
+    if (heartbeatRows.length === 0) return null;
+    const pill = buildHeartbeatPillPresentation(t, heartbeatRows);
+    return pill.segments[0]?.text ?? null;
+  }, [heartbeatRows, t]);
   const workspaceBranchTextStyle = useMemo(
     () => [
       styles.workspaceBranchText,
@@ -139,6 +165,16 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     ],
     [isHovered, isCreating],
   );
+  const effectiveProjectStatusBucket = useMemo(() => {
+    if (isLoading) return workspace.statusBucket;
+    if (shouldRenderSyncedStatusLoader({ bucket: workspace.statusBucket })) {
+      return workspace.statusBucket;
+    }
+    if (hasRunningBackgroundTasks) {
+      return "running" as const;
+    }
+    return workspace.statusBucket;
+  }, [hasRunningBackgroundTasks, isLoading, workspace.statusBucket]);
 
   return (
     <View style={styles.workspaceRowContent}>
@@ -148,7 +184,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             iconDataUri={leadingProjectIconDataUri}
             displayName={leadingProjectName}
             projectViewKey={workspace.projectViewKey}
-            statusBucket={workspace.statusBucket}
+            statusBucket={effectiveProjectStatusBucket}
             backdrop={backdrop}
             loading={isLoading}
             testID={`sidebar-row-project-icon-${workspace.workspaceKey}`}
@@ -159,6 +195,8 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             workspaceKind={workspace.workspaceKind}
             loading={isLoading}
             reserveIdleSpace={reserveIdleStatusIndicatorSpace}
+            hasRunningBackgroundTasks={hasRunningBackgroundTasks}
+            backdrop={backdrop}
           />
         )}
         <View style={styles.workspaceContentColumn}>
@@ -177,6 +215,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             serviceSummary={serviceSummary}
             todoSummary={todoSummary}
             labels={labels}
+            heartbeatText={heartbeatText}
           />
         </View>
       </View>
@@ -189,16 +228,38 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   );
 });
 
+function BackgroundTaskRunningRing({ backdrop }: { backdrop: SidebarSurfaceBackdrop | null }) {
+  const rotation = useStatusRingRotation();
+  const rotatorStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+  const centerNode = useMemo(
+    () => <ThemedTerminal size={10} uniProps={foregroundMutedColorMapping} />,
+    [],
+  );
+  return (
+    <StatusRingFrame backdrop={backdrop} center={centerNode}>
+      <Animated.View style={[rotatorStyles.rotator, rotatorStyle]}>
+        <View style={statusRingStyles.arc} />
+      </Animated.View>
+    </StatusRingFrame>
+  );
+}
+
 function WorkspaceStatusIndicator({
   bucket,
   workspaceKind,
   loading = false,
   reserveIdleSpace = true,
+  hasRunningBackgroundTasks = false,
+  backdrop = null,
 }: {
   bucket: SidebarWorkspaceEntry["statusBucket"];
   workspaceKind: SidebarWorkspaceEntry["workspaceKind"];
   loading?: boolean;
   reserveIdleSpace?: boolean;
+  hasRunningBackgroundTasks?: boolean;
+  backdrop?: SidebarSurfaceBackdrop | null;
 }) {
   // Busy is the only status that moves, and it is the ring rather than a dot for the same
   // reason it is a dot elsewhere: every status in the sidebar sits in this one slot, so busy
@@ -207,15 +268,30 @@ function WorkspaceStatusIndicator({
   if (loading) {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-loading">
-        <StatusRing />
+        <StatusRing backdrop={backdrop} />
       </View>
     );
   }
 
-  if (shouldRenderSyncedStatusLoader({ bucket })) {
+  const isAgentRunning = shouldRenderSyncedStatusLoader({ bucket });
+  const isBackgroundOnlyRunning = hasRunningBackgroundTasks && !isAgentRunning;
+
+  if (isAgentRunning) {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-running">
-        <StatusRing />
+        <StatusRing backdrop={backdrop} />
+      </View>
+    );
+  }
+
+  if (isBackgroundOnlyRunning) {
+    return (
+      <View
+        style={styles.workspaceStatusDot}
+        testID="workspace-status-indicator-background-running"
+        accessibilityLabel="background tasks running"
+      >
+        <BackgroundTaskRunningRing backdrop={backdrop} />
       </View>
     );
   }

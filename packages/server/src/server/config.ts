@@ -518,6 +518,26 @@ function resolveBrowserToolsEnabled(persisted: ReturnType<typeof loadPersistedCo
   return persisted.daemon?.browserTools?.enabled ?? false;
 }
 
+function resolveAutoResumeRunningAgentsConfig(
+  env: NodeJS.ProcessEnv,
+  persisted: ReturnType<typeof loadPersistedConfig>,
+): { enabled: boolean; prompt: string } {
+  const envEnabled = parseBooleanEnv(env.PASEO_AUTO_RESUME_ENABLED);
+  const envPrompt = env.PASEO_AUTO_RESUME_PROMPT?.trim();
+  const persistedEnabled = persisted.daemon?.autoResumeRunningAgents?.enabled;
+  const persistedPrompt = persisted.daemon?.autoResumeRunningAgents?.prompt?.trim();
+  let prompt = "Resume - there was a power cut";
+  if (envPrompt && envPrompt.length > 0) {
+    prompt = envPrompt;
+  } else if (persistedPrompt && persistedPrompt.length > 0) {
+    prompt = persistedPrompt;
+  }
+  return {
+    enabled: envEnabled ?? persistedEnabled ?? true,
+    prompt,
+  };
+}
+
 /**
  * Both profile lists stay `undefined` when absent rather than defaulting to an
  * empty array: for terminal profiles that is what selects the built-in
@@ -606,6 +626,8 @@ export function resolveConfigFromPersisted(
     persisted.agents?.providers as Record<string, unknown> | undefined,
   );
 
+  const autoResumeRunningAgents = resolveAutoResumeRunningAgentsConfig(env, persisted);
+
   const overrideControlledPaths = resolveOverrideControlledPaths(env, cli, speech.providers);
 
   return {
@@ -653,6 +675,7 @@ export function resolveConfigFromPersisted(
     providerCatalogRefreshTimeoutMs: persisted.agents?.catalogRefreshTimeoutMs,
     metadataGeneration: persisted.agents?.metadataGeneration,
     providerOverrides,
+    autoResumeRunningAgents,
     log: resolveLogConfigFromEnv(env, persisted),
     configReload: {
       env: { ...env },
@@ -728,6 +751,12 @@ function resolveCoreDaemonOverridePaths(
   }
   if (env.PASEO_APP_BASE_URL !== undefined) paths.push("app.baseUrl");
   if (env.PASEO_PASSWORD?.trim()) paths.push("daemon.auth.password");
+  if (parseBooleanEnv(env.PASEO_AUTO_RESUME_ENABLED) !== undefined) {
+    paths.push("daemon.autoResumeRunningAgents.enabled");
+  }
+  if (env.PASEO_AUTO_RESUME_PROMPT?.trim()) {
+    paths.push("daemon.autoResumeRunningAgents.prompt");
+  }
   return paths;
 }
 

@@ -132,6 +132,10 @@ import { createSpeechService } from "./speech/speech-runtime.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
+import {
+  autoResumeRunningAgents,
+  captureRunningAgentsForShutdown,
+} from "./agent/agent-auto-resume.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import { TaskStore } from "./tasks/task-store.js";
 import { UiStateStore } from "./ui-state/store.js";
@@ -462,6 +466,10 @@ export interface PaseoDaemonConfig {
     };
   };
   providerOverrides?: Record<string, ProviderOverride>;
+  autoResumeRunningAgents?: {
+    enabled: boolean;
+    prompt: string;
+  };
   log?: PersistedConfig["log"];
   onLifecycleIntent?: (intent: DaemonLifecycleIntent) => void;
   pushNotificationSender?: PushNotificationSender;
@@ -484,7 +492,7 @@ export interface PaseoDaemon {
   scriptRuntimeStore: WorkspaceScriptRuntimeStore;
   browserToolsBroker: BrowserToolsBroker;
   start(): Promise<void>;
-  stop(): Promise<void>;
+  stop(reason?: string): Promise<void>;
   getListenTarget(): ListenTarget | null;
 }
 
@@ -594,6 +602,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
   return initialConfig;
 }
 
+// eslint-disable-next-line complexity
 export async function createPaseoDaemon(
   config: PaseoDaemonConfig,
   rootLogger: Logger,
@@ -1362,6 +1371,19 @@ export async function createPaseoDaemon(
     { elapsed: elapsed() },
     `Agent registry loaded (${persistedRecords.length} record${persistedRecords.length === 1 ? "" : "s"}); agents will initialize on demand`,
   );
+  // Backstop for power-loss / UPS / manual shutdown without heartbeat:
+  // resume every agent that was still running when the daemon went down
+  // by sending a lightweight "resume" turn after the registry is available.
+  void autoResumeRunningAgents({
+    paseoHome: config.paseoHome,
+    agentManager,
+    agentStorage,
+    logger,
+    enabled: config.autoResumeRunningAgents?.enabled ?? true,
+    prompt: config.autoResumeRunningAgents?.prompt ?? "Resume - there was a power cut",
+  }).catch((error) => {
+    logger.warn({ err: error }, "Auto-resume for running agents failed");
+  });
   logger.info(
     "Voice mode configured for agent-scoped resume flow (no dedicated voice assistant provider)",
   );
@@ -1772,7 +1794,7 @@ export async function createPaseoDaemon(
     }
   };
 
-  const stop = async () => {
+  const stop = async (reason?: string) => {
     await pluginRuntime.stopAllPlugins();
     await hubRelationships.stop();
     workspaceReconciliation.dispose();
@@ -1780,6 +1802,11 @@ export async function createPaseoDaemon(
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();
     agentManager.prepareForShutdown();
+    try {
+      await captureRunningAgentsForShutdown(config.paseoHome, agentManager, logger, reason);
+    } catch (error) {
+      logger.warn({ err: error }, "Failed to capture running agents for auto-resume");
+    }
     await closeAllAgents(logger, agentManager);
     await agentManager.flushForShutdown().catch(() => undefined);
     detachAgentStoragePersistence();

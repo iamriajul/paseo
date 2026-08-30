@@ -30,3 +30,4 @@ workspace-mark-unread.patch
 workspace-todo-sidebar.patch
 paseo-backed-claude-subagent-prompt-cache-ttl.patch
 sidebar-background-heartbeat-indicators.patch
+agent-auto-resume.patch

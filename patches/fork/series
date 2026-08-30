@@ -28,3 +28,4 @@ cliproxy-model-windows.patch
 steer-official-only.patch
 workspace-mark-unread.patch
 workspace-todo-sidebar.patch
+sidebar-background-heartbeat-indicators.patch

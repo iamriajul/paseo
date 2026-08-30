@@ -130,47 +130,209 @@ index bd1886111..4630b7901 100644
    labels: true,
  };
 diff --git a/packages/app/src/components/sidebar/sidebar-workspace-row-content.tsx b/packages/app/src/components/sidebar/sidebar-workspace-row-content.tsx
-index 1f5ff3df4..c5fbea070 100644
+index 1f5ff3df4..439f1d76f 100644
 --- a/packages/app/src/components/sidebar/sidebar-workspace-row-content.tsx
 +++ b/packages/app/src/components/sidebar/sidebar-workspace-row-content.tsx
-@@ -29,6 +29,7 @@ import { StatusRing } from "@/components/status-ring";
+@@ -1,7 +1,9 @@
+ import { memo, useMemo, useCallback, useState, type ReactNode } from "react";
+ import { Text, View, type ViewStyle } from "react-native";
+ import { StyleSheet, withUnistyles } from "react-native-unistyles";
+-import { CircleAlert, Folder, FolderGit2, Monitor } from "lucide-react-native";
++import { CircleAlert, Folder, FolderGit2, Monitor, Terminal } from "lucide-react-native";
++import { useTranslation } from "react-i18next";
++import Animated, { useAnimatedStyle } from "react-native-reanimated";
+ import { ProjectStatusIndicator } from "@/components/sidebar/project-leading-visual";
+ import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
+ import {
+@@ -26,9 +28,19 @@ import {
+ } from "@/utils/status-indicator-geometry";
+ import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
+ import { StatusRing } from "@/components/status-ring";
++import {
++  StatusRingFrame,
++  rotatorStyles,
++  styles as statusRingStyles,
++} from "@/components/status-ring/frame";
++import { useStatusRingRotation } from "@/components/status-ring/clock";
  import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
  import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
  import { useWorkspaceLabelDefinitions } from "@/workspace-labels";
 +import { useWorkspaceTodoSummary } from "@/todos/workspace-todo-store";
++import { useWorkspaceHasRunningBackgroundTasks } from "@/hooks/use-workspace-background-tasks";
++import { useWorkspaceHeartbeatRows } from "@/hooks/use-workspace-heartbeat";
++import { buildHeartbeatPillPresentation } from "@/heartbeats/track-presentation";
  
  const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
  const needsInputColorMapping = (theme: Theme) => ({
-@@ -129,6 +130,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
+@@ -40,6 +52,7 @@ const ThemedCircleAlert = withUnistyles(CircleAlert);
+ const ThemedMonitor = withUnistyles(Monitor);
+ const ThemedFolder = withUnistyles(Folder);
+ const ThemedFolderGit2 = withUnistyles(FolderGit2);
++const ThemedTerminal = withUnistyles(Terminal);
+ 
+ export function SidebarWorkspaceRowFrame({
+   workspace,
+@@ -129,6 +142,21 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
    // The workspace carries label names; their colors live in its host's catalog, so the row is
    // where the two meet — the meta line is handed finished definitions.
    const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
 +  const todoSummary = useWorkspaceTodoSummary(workspace.serverId, workspace.workspaceId);
++  const hasRunningBackgroundTasks = useWorkspaceHasRunningBackgroundTasks({
++    serverId: workspace.serverId,
++    workspaceId: workspace.workspaceId,
++  });
++  const heartbeatRows = useWorkspaceHeartbeatRows({
++    serverId: workspace.serverId,
++    workspaceId: workspace.workspaceId,
++  });
++  const { t } = useTranslation();
++  const heartbeatText = useMemo(() => {
++    if (heartbeatRows.length === 0) return null;
++    const pill = buildHeartbeatPillPresentation(t, heartbeatRows);
++    return pill.segments[0]?.text ?? null;
++  }, [heartbeatRows, t]);
    const workspaceBranchTextStyle = useMemo(
      () => [
        styles.workspaceBranchText,
-@@ -173,6 +175,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
+@@ -137,6 +165,16 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
+     ],
+     [isHovered, isCreating],
+   );
++  const effectiveProjectStatusBucket = useMemo(() => {
++    if (isLoading) return workspace.statusBucket;
++    if (shouldRenderSyncedStatusLoader({ bucket: workspace.statusBucket })) {
++      return workspace.statusBucket;
++    }
++    if (hasRunningBackgroundTasks) {
++      return "running" as const;
++    }
++    return workspace.statusBucket;
++  }, [hasRunningBackgroundTasks, isLoading, workspace.statusBucket]);
+ 
+   return (
+     <View style={styles.workspaceRowContent}>
+@@ -146,7 +184,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
+             iconDataUri={leadingProjectIconDataUri}
+             displayName={leadingProjectName}
+             projectViewKey={workspace.projectViewKey}
+-            statusBucket={workspace.statusBucket}
++            statusBucket={effectiveProjectStatusBucket}
+             backdrop={backdrop}
+             loading={isLoading}
+             testID={`sidebar-row-project-icon-${workspace.workspaceKey}`}
+@@ -157,6 +195,8 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
+             workspaceKind={workspace.workspaceKind}
+             loading={isLoading}
+             reserveIdleSpace={reserveIdleStatusIndicatorSpace}
++            hasRunningBackgroundTasks={hasRunningBackgroundTasks}
++            backdrop={backdrop}
+           />
+         )}
+         <View style={styles.workspaceContentColumn}>
+@@ -173,7 +213,9 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
              projectSubtitle={projectSubtitle}
              prHint={workspace.prHint}
              serviceSummary={serviceSummary}
 +            todoSummary={todoSummary}
              labels={labels}
++            heartbeatText={heartbeatText}
            />
          </View>
+       </View>
+@@ -186,16 +228,38 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
+   );
+ });
+ 
++function BackgroundTaskRunningRing({ backdrop }: { backdrop: SidebarSurfaceBackdrop | null }) {
++  const rotation = useStatusRingRotation();
++  const rotatorStyle = useAnimatedStyle(() => ({
++    transform: [{ rotate: `${rotation.value}deg` }],
++  }));
++  const centerNode = useMemo(
++    () => <ThemedTerminal size={10} uniProps={foregroundMutedColorMapping} />,
++    [],
++  );
++  return (
++    <StatusRingFrame backdrop={backdrop} center={centerNode}>
++      <Animated.View style={[rotatorStyles.rotator, rotatorStyle]}>
++        <View style={statusRingStyles.arc} />
++      </Animated.View>
++    </StatusRingFrame>
++  );
++}
++
+ function WorkspaceStatusIndicator({
+   bucket,
+   workspaceKind,
+   loading = false,
+   reserveIdleSpace = true,
++  hasRunningBackgroundTasks = false,
++  backdrop = null,
+ }: {
+   bucket: SidebarWorkspaceEntry["statusBucket"];
+   workspaceKind: SidebarWorkspaceEntry["workspaceKind"];
+   loading?: boolean;
+   reserveIdleSpace?: boolean;
++  hasRunningBackgroundTasks?: boolean;
++  backdrop?: SidebarSurfaceBackdrop | null;
+ }) {
+   // Busy is the only status that moves, and it is the ring rather than a dot for the same
+   // reason it is a dot elsewhere: every status in the sidebar sits in this one slot, so busy
+@@ -204,15 +268,30 @@ function WorkspaceStatusIndicator({
+   if (loading) {
+     return (
+       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-loading">
+-        <StatusRing />
++        <StatusRing backdrop={backdrop} />
+       </View>
+     );
+   }
+ 
+-  if (shouldRenderSyncedStatusLoader({ bucket })) {
++  const isAgentRunning = shouldRenderSyncedStatusLoader({ bucket });
++  const isBackgroundOnlyRunning = hasRunningBackgroundTasks && !isAgentRunning;
++
++  if (isAgentRunning) {
+     return (
+       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-running">
+-        <StatusRing />
++        <StatusRing backdrop={backdrop} />
++      </View>
++    );
++  }
++
++  if (isBackgroundOnlyRunning) {
++    return (
++      <View
++        style={styles.workspaceStatusDot}
++        testID="workspace-status-indicator-background-running"
++        accessibilityLabel="background tasks running"
++      >
++        <BackgroundTaskRunningRing backdrop={backdrop} />
+       </View>
+     );
+   }
 diff --git a/packages/app/src/components/sidebar/workspace-meta-row/index.tsx b/packages/app/src/components/sidebar/workspace-meta-row/index.tsx
-index 0a556c809..60d09453f 100644
+index 0a556c809..87bdff3d5 100644
 --- a/packages/app/src/components/sidebar/workspace-meta-row/index.tsx
 +++ b/packages/app/src/components/sidebar/workspace-meta-row/index.tsx
-@@ -2,7 +2,7 @@ import { Fragment, useCallback, useState, type ReactNode } from "react";
+@@ -2,7 +2,14 @@ import { Fragment, useCallback, useState, type ReactNode } from "react";
  import { useTranslation } from "react-i18next";
  import { Pressable, Text, View, type GestureResponderEvent } from "react-native";
  import { StyleSheet, withUnistyles } from "react-native-unistyles";
 -import { ExternalLink, Folder, GitBranch, Globe } from "lucide-react-native";
-+import { ExternalLink, Folder, GitBranch, Globe, ListTodo } from "lucide-react-native";
++import {
++  CalendarClock,
++  ExternalLink,
++  Folder,
++  GitBranch,
++  Globe,
++  ListTodo,
++} from "lucide-react-native";
  import {
    workspaceLabelKey,
    type WorkspaceLabelDefinition,
-@@ -16,6 +16,7 @@ import { openExternalUrl } from "@/utils/open-external-url";
+@@ -16,6 +23,7 @@ import { openExternalUrl } from "@/utils/open-external-url";
  import { useSidebarMetaPreferences } from "@/components/sidebar/display-preferences/model";
  import type { Theme } from "@/styles/theme";
  import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
@@ -178,15 +340,16 @@ index 0a556c809..60d09453f 100644
  import { CheckIndicator } from "./check-indicator";
  import type { CheckSummary, CheckSummaryState } from "./check-summary";
  import { selectMetaRowItems, type MetaRowItem } from "./meta-items";
-@@ -38,6 +39,7 @@ const ThemedExternalLink = withUnistyles(ExternalLink);
+@@ -38,6 +46,8 @@ const ThemedExternalLink = withUnistyles(ExternalLink);
  const ThemedFolder = withUnistyles(Folder);
  const ThemedGitBranch = withUnistyles(GitBranch);
  const ThemedGlobe = withUnistyles(Globe);
 +const ThemedListTodo = withUnistyles(ListTodo);
++const ThemedCalendarClock = withUnistyles(CalendarClock);
  
  /** Stable identity so a row without labels doesn't re-select its items on every render. */
  const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
-@@ -45,6 +47,8 @@ const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
+@@ -45,6 +55,8 @@ const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
  const foregroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
  const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
  const dangerMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
@@ -195,23 +358,27 @@ index 0a556c809..60d09453f 100644
  
  /**
   * The subtitle under a workspace title: which host it lives on, its change request, that
-@@ -67,6 +71,7 @@ export function WorkspaceMetaRow({
+@@ -67,7 +79,9 @@ export function WorkspaceMetaRow({
    projectSubtitle = null,
    prHint,
    serviceSummary,
 +  todoSummary = null,
    labels = EMPTY_LABELS,
++  heartbeatText = null,
  }: {
    currentBranch: string | null;
-@@ -76,6 +81,7 @@ export function WorkspaceMetaRow({
+   projectName: string | null;
+@@ -76,7 +90,9 @@ export function WorkspaceMetaRow({
    projectSubtitle?: string | null;
    prHint: PrHint | null;
    serviceSummary: WorkspaceServiceSummary | null;
 +  todoSummary?: WorkspaceTodoSummary | null;
    labels?: readonly WorkspaceLabelDefinition[];
++  heartbeatText?: string | null;
  }) {
    const { rowItems, checksDisplay } = useSidebarMetaPreferences();
-@@ -86,6 +92,7 @@ export function WorkspaceMetaRow({
+   const items = selectMetaRowItems({
+@@ -86,9 +102,11 @@ export function WorkspaceMetaRow({
      projectSubtitle,
      prHint,
      serviceSummary,
@@ -219,7 +386,11 @@ index 0a556c809..60d09453f 100644
      labels,
      visible: rowItems,
      checksDisplay,
-@@ -130,6 +137,9 @@ function MetaItemNode({
++    heartbeatText,
+   });
+ 
+   if (items.length === 0) return null;
+@@ -130,9 +148,15 @@ function MetaItemNode({
    if (item.kind === "checks") {
      return <ChecksItem summary={item.summary} label={item.label} />;
    }
@@ -229,7 +400,13 @@ index 0a556c809..60d09453f 100644
    if (item.kind === "labels") {
      return <LabelsItem labels={item.labels} leading={leading} />;
    }
-@@ -150,6 +160,40 @@ function IdentityItem({ kind, name }: { kind: "branch" | "project"; name: string
++  if (item.kind === "heartbeat") {
++    return <HeartbeatItem text={item.text} />;
++  }
+   return <ServiceItem summary={item.summary} />;
+ }
+ 
+@@ -150,6 +174,40 @@ function IdentityItem({ kind, name }: { kind: "branch" | "project"; name: string
    );
  }
  
@@ -270,7 +447,25 @@ index 0a556c809..60d09453f 100644
  /**
   * Every label on the workspace, in one run. The chips sit closer to each other than the line's
   * items do to each other, so several labels still read as one item rather than as new peers,
-@@ -302,8 +346,6 @@ function ServiceItem({ summary }: { summary: WorkspaceServiceSummary }) {
+@@ -277,6 +335,17 @@ const CHECK_STATE_ACCESSIBLE_KEYS = {
+   running: "workspace.git.pr.checksSummary.runningAccessible",
+ } as const;
+ 
++function HeartbeatItem({ text }: { text: string }) {
++  return (
++    <View style={styles.item} accessibilityLabel={text} testID="sidebar-workspace-heartbeat">
++      <ThemedCalendarClock size={META_ICON_SIZE} uniProps={mutedMapping} />
++      <Text style={styles.heartbeatText} numberOfLines={1}>
++        {text}
++      </Text>
++    </View>
++  );
++}
++
+ /**
+  * A running service, named. It is the one item on the line whose text is arbitrary — everything
+  * else is a number, a short word, or a host label the user already picked — so it is also the
+@@ -302,8 +371,6 @@ function ServiceItem({ summary }: { summary: WorkspaceServiceSummary }) {
    );
  }
  
@@ -279,7 +474,7 @@ index 0a556c809..60d09453f 100644
  const PR_STATE_LABEL_KEYS = {
    merged: "workspace.git.pr.states.merged",
    closed: "workspace.git.pr.states.closed",
-@@ -421,6 +463,24 @@ const styles = StyleSheet.create((theme) => ({
+@@ -421,6 +488,30 @@ const styles = StyleSheet.create((theme) => ({
      lineHeight: 16,
      flexShrink: 0,
    },
@@ -301,11 +496,17 @@ index 0a556c809..60d09453f 100644
 +    lineHeight: 16,
 +    flexShrink: 0,
 +  },
++  heartbeatText: {
++    color: theme.colors.foregroundMuted,
++    fontSize: theme.fontSize.sm,
++    lineHeight: 16,
++    flexShrink: 0,
++  },
  }));
  
  // Read inside render, never into a module-scope table: touching `styles.x` at module load
 diff --git a/packages/app/src/components/sidebar/workspace-meta-row/meta-items.ts b/packages/app/src/components/sidebar/workspace-meta-row/meta-items.ts
-index b7d6c04a7..a2e5a1327 100644
+index b7d6c04a7..d0d5f30d7 100644
 --- a/packages/app/src/components/sidebar/workspace-meta-row/meta-items.ts
 +++ b/packages/app/src/components/sidebar/workspace-meta-row/meta-items.ts
 @@ -2,6 +2,7 @@ import type { WorkspaceLabelDefinition } from "@getpaseo/protocol/workspace-labe
@@ -316,7 +517,7 @@ index b7d6c04a7..a2e5a1327 100644
  import { selectCheckSummary, type CheckSummary } from "./check-summary";
  import type { WorkspaceServiceSummary } from "./service-summary";
  
-@@ -19,9 +20,9 @@ export type MetaRowItem =
+@@ -19,11 +20,12 @@ export type MetaRowItem =
    | { kind: "branch"; name: string }
    | { kind: "project"; name: string }
    | { kind: "host" }
@@ -325,9 +526,21 @@ index b7d6c04a7..a2e5a1327 100644
    | { kind: "checks"; summary: CheckSummary; label: boolean }
 +  | { kind: "todos"; summary: WorkspaceTodoSummary }
    | { kind: "services"; summary: WorkspaceServiceSummary }
-   | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] };
+-  | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] };
++  | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] }
++  | { kind: "heartbeat"; text: string };
  
-@@ -44,6 +45,7 @@ export function selectMetaRowItems(input: {
+ /**
+  * Which peers a row should draw, given what it knows and what the user left switched on.
+@@ -37,6 +39,7 @@ export type MetaRowItem =
+  *
+  * Status grouping can swap host identity for a plain project name via `projectSubtitle`.
+  */
++// oxlint-disable-next-line complexity
+ export function selectMetaRowItems(input: {
+   currentBranch: string | null;
+   projectName: string | null;
+@@ -44,9 +47,11 @@ export function selectMetaRowItems(input: {
    projectSubtitle?: string | null;
    prHint: PrHint | null;
    serviceSummary: WorkspaceServiceSummary | null;
@@ -335,7 +548,11 @@ index b7d6c04a7..a2e5a1327 100644
    labels: readonly WorkspaceLabelDefinition[];
    visible: SidebarRowItems;
    checksDisplay: SidebarChecksDisplay;
-@@ -55,6 +57,7 @@ export function selectMetaRowItems(input: {
++  heartbeatText?: string | null;
+ }): MetaRowItem[] {
+   const {
+     currentBranch,
+@@ -55,9 +60,11 @@ export function selectMetaRowItems(input: {
      projectSubtitle,
      prHint,
      serviceSummary,
@@ -343,7 +560,11 @@ index b7d6c04a7..a2e5a1327 100644
      labels,
      visible,
      checksDisplay,
-@@ -88,6 +91,10 @@ export function selectMetaRowItems(input: {
++    heartbeatText,
+   } = input;
+   const items: MetaRowItem[] = [];
+ 
+@@ -88,6 +95,10 @@ export function selectMetaRowItems(input: {
      }
    }
  
@@ -354,6 +575,21 @@ index b7d6c04a7..a2e5a1327 100644
    if (serviceSummary && visible.services) {
      items.push({ kind: "services", summary: serviceSummary });
    }
+@@ -96,5 +107,14 @@ export function selectMetaRowItems(input: {
+     items.push({ kind: "labels", labels });
+   }
+ 
++  // Heartbeat sits last, after every other peer — including labels — so the
++  // cadence reads as an ambient signal rather than competing for rank with
++  // operational metadata. It is not gated by rowItems; a scheduled run is
++  // state you asked for, not chrome you can hide without losing the schedule.
++  const trimmedHeartbeat = heartbeatText?.trim() ?? "";
++  if (trimmedHeartbeat.length > 0) {
++    items.push({ kind: "heartbeat", text: trimmedHeartbeat });
++  }
++
+   return items;
+ }
 diff --git a/packages/app/src/hooks/keyboard-shift-policy.ts b/packages/app/src/hooks/keyboard-shift-policy.ts
 index 789fe9026..e5c9b73af 100644
 --- a/packages/app/src/hooks/keyboard-shift-policy.ts
@@ -383,7 +619,7 @@ index a5e120551..d345685b9 100644
      labels: z.boolean().catch(DEFAULT_SIDEBAR_ROW_ITEMS.labels),
      // COMPAT(sidebarRowItemsChecks): migrated in v0.3.0, remove after 2027-08-05.
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index a29cda97c..e414ca8e9 100644
+index a48ab8b7e..e34e3ebaf 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
 @@ -646,6 +646,7 @@ export const ar: TranslationResources = {
@@ -415,7 +651,27 @@ index a29cda97c..e414ca8e9 100644
          checks: "الفحوصات",
          services: "الخدمات",
          identityIcon: "Identity icon",
-@@ -1857,6 +1865,16 @@ export const ar: TranslationResources = {
+@@ -1774,6 +1782,9 @@ export const ar: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} متوقفة مؤقتًا",
++    pillNextRunAccessible: "{{count}} نبضات، التالي {{when}}",
++    pillPausedAccessible: "{{count}} نبضات، متوقفة مؤقتًا",
+     statusPaused: "متوقف مؤقتًا",
+     nextRun: "التالي {{when}}",
+     pauseAction: "إيقاف مؤقت {{label}}",
+@@ -1803,6 +1814,9 @@ export const ar: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} أصداف",
++    pillCountAccessible: "{{count}} مهام خلفية",
++    pillCountRunningAccessible: "{{count}} مهام خلفية، {{running}} قيد التشغيل",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1859,6 +1873,16 @@ export const ar: TranslationResources = {
          reloadMessage: "ستفقد تغييراتك المحلية.",
        },
      },
@@ -433,7 +689,7 @@ index a29cda97c..e414ca8e9 100644
        label: "الملفات",
        subtitle: "ملفات مساحة العمل",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index 61f294e33..96c51bd7d 100644
+index f2c0b3a7d..bd9e5c19a 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
 @@ -644,6 +644,7 @@ export const en = {
@@ -465,7 +721,27 @@ index 61f294e33..96c51bd7d 100644
          checks: "Checks",
          services: "Services",
          identityIcon: "Identity icon",
-@@ -1864,6 +1872,16 @@ export const en = {
+@@ -1781,6 +1789,9 @@ export const en = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} paused",
++    pillNextRunAccessible: "{{count}} heartbeats, next {{when}}",
++    pillPausedAccessible: "{{count}} heartbeats, paused",
+     statusPaused: "Paused",
+     nextRun: "Next {{when}}",
+     pauseAction: "Pause {{label}}",
+@@ -1810,6 +1821,9 @@ export const en = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} shells",
++    pillCountAccessible: "{{count}} background tasks",
++    pillCountRunningAccessible: "{{count}} background tasks, {{running}} running",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1866,6 +1880,16 @@ export const en = {
          reloadMessage: "Your local changes will be lost.",
        },
      },
@@ -483,7 +759,7 @@ index 61f294e33..96c51bd7d 100644
        label: "Files",
        subtitle: "Workspace files",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 06780a0f2..fc46ee3c0 100644
+index 8e1bb116e..96a505ff9 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
 @@ -651,6 +651,7 @@ export const es: TranslationResources = {
@@ -515,7 +791,27 @@ index 06780a0f2..fc46ee3c0 100644
          checks: "Comprobaciones",
          services: "Servicios",
          identityIcon: "Identity icon",
-@@ -1900,6 +1908,16 @@ export const es: TranslationResources = {
+@@ -1817,6 +1825,9 @@ export const es: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} en pausa",
++    pillNextRunAccessible: "{{count}} heartbeats, próximo {{when}}",
++    pillPausedAccessible: "{{count}} heartbeats, en pausa",
+     statusPaused: "Pausado",
+     nextRun: "Próximo {{when}}",
+     pauseAction: "Pausar {{label}}",
+@@ -1846,6 +1857,9 @@ export const es: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} shells",
++    pillCountAccessible: "{{count}} tareas en segundo plano",
++    pillCountRunningAccessible: "{{count}} tareas en segundo plano, {{running}} en ejecución",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1902,6 +1916,16 @@ export const es: TranslationResources = {
          reloadMessage: "Se perderán tus cambios locales.",
        },
      },
@@ -533,7 +829,7 @@ index 06780a0f2..fc46ee3c0 100644
        label: "Archivos",
        subtitle: "Archivos del espacio de trabajo",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index 9b555a926..1d123c48a 100644
+index 51a710902..c1ecbf344 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
 @@ -652,6 +652,7 @@ export const fr: TranslationResources = {
@@ -565,7 +861,27 @@ index 9b555a926..1d123c48a 100644
          checks: "Vérifications",
          services: "Services",
          identityIcon: "Identity icon",
-@@ -1905,6 +1913,16 @@ export const fr: TranslationResources = {
+@@ -1822,6 +1830,9 @@ export const fr: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} en pause",
++    pillNextRunAccessible: "{{count}} heartbeats, prochain {{when}}",
++    pillPausedAccessible: "{{count}} heartbeats, en pause",
+     statusPaused: "En pause",
+     nextRun: "Prochain {{when}}",
+     pauseAction: "Mettre en pause {{label}}",
+@@ -1851,6 +1862,9 @@ export const fr: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} shells",
++    pillCountAccessible: "{{count}} tâches d'arrière-plan",
++    pillCountRunningAccessible: "{{count}} tâches d'arrière-plan, {{running}} en cours",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1907,6 +1921,16 @@ export const fr: TranslationResources = {
          reloadMessage: "Vos modifications locales seront perdues.",
        },
      },
@@ -583,7 +899,7 @@ index 9b555a926..1d123c48a 100644
        label: "Fichiers",
        subtitle: "Fichiers de l’espace de travail",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index 17bfc3b47..f39baace7 100644
+index 31268a9d7..6c984f1a7 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
 @@ -652,6 +652,7 @@ export const ja: TranslationResources = {
@@ -615,7 +931,27 @@ index 17bfc3b47..f39baace7 100644
          checks: "チェック",
          services: "サービス",
          identityIcon: "Identity icon",
-@@ -1875,6 +1883,16 @@ export const ja: TranslationResources = {
+@@ -1792,6 +1800,9 @@ export const ja: TranslationResources = {
+   heartbeats: {
+     header: "ハートビート",
+     headerCount: "ハートビート ({{count}})",
++    pillPaused: "{{count}} 一時停止中",
++    pillNextRunAccessible: "ハートビート {{count}} 件、次回 {{when}}",
++    pillPausedAccessible: "ハートビート {{count}} 件、一時停止中",
+     statusPaused: "一時停止",
+     nextRun: "次回 {{when}}",
+     pauseAction: "{{label}} を一時停止",
+@@ -1821,6 +1832,9 @@ export const ja: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "シェル {{count}} 件",
++    pillCountAccessible: "バックグラウンドタスク {{count}} 件",
++    pillCountRunningAccessible: "バックグラウンドタスク {{count}} 件、{{running}} 件実行中",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1877,6 +1891,16 @@ export const ja: TranslationResources = {
          reloadMessage: "ローカルの変更は失われます。",
        },
      },
@@ -633,7 +969,7 @@ index 17bfc3b47..f39baace7 100644
        label: "ファイル",
        subtitle: "ワークスペースのファイル",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index 890f92f19..4d858b8e8 100644
+index 9d24528d7..45c0a9e17 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
 @@ -648,6 +648,7 @@ export const ko: TranslationResources = {
@@ -665,7 +1001,27 @@ index 890f92f19..4d858b8e8 100644
          checks: "검사",
          services: "서비스",
          identityIcon: "Identity icon",
-@@ -1867,6 +1875,16 @@ export const ko: TranslationResources = {
+@@ -1784,6 +1792,9 @@ export const ko: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}}개 일시중지",
++    pillNextRunAccessible: "하트비트 {{count}}개, 다음 {{when}}",
++    pillPausedAccessible: "하트비트 {{count}}개, 일시중지",
+     statusPaused: "Paused",
+     nextRun: "Next {{when}}",
+     pauseAction: "Pause {{label}}",
+@@ -1813,6 +1824,9 @@ export const ko: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "셸 {{count}}개",
++    pillCountAccessible: "백그라운드 작업 {{count}}개",
++    pillCountRunningAccessible: "백그라운드 작업 {{count}}개, {{running}}개 실행 중",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1869,6 +1883,16 @@ export const ko: TranslationResources = {
          reloadMessage: "로컬 변경사항이 손실됩니다.",
        },
      },
@@ -683,7 +1039,7 @@ index 890f92f19..4d858b8e8 100644
        label: "파일",
        subtitle: "워크스페이스 파일",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index 448ce3c68..2bcd0d91a 100644
+index e117751de..38b98896c 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
 @@ -650,6 +650,7 @@ export const ptBR: TranslationResources = {
@@ -715,7 +1071,27 @@ index 448ce3c68..2bcd0d91a 100644
          checks: "Verificações",
          services: "Serviços",
          identityIcon: "Identity icon",
-@@ -1886,6 +1894,16 @@ export const ptBR: TranslationResources = {
+@@ -1803,6 +1811,9 @@ export const ptBR: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} pausados",
++    pillNextRunAccessible: "{{count}} heartbeats, próximo {{when}}",
++    pillPausedAccessible: "{{count}} heartbeats, pausados",
+     statusPaused: "Pausado",
+     nextRun: "Próximo {{when}}",
+     pauseAction: "Pausar {{label}}",
+@@ -1832,6 +1843,9 @@ export const ptBR: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} shells",
++    pillCountAccessible: "{{count}} tarefas em segundo plano",
++    pillCountRunningAccessible: "{{count}} tarefas em segundo plano, {{running}} em execução",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1888,6 +1902,16 @@ export const ptBR: TranslationResources = {
          reloadMessage: "Suas alterações locais serão perdidas.",
        },
      },
@@ -733,7 +1109,7 @@ index 448ce3c68..2bcd0d91a 100644
        label: "Arquivos",
        subtitle: "Arquivos do espaço de trabalho",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index 405eee05b..319665991 100644
+index d849be871..f00330ae0 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
 @@ -651,6 +651,7 @@ export const ru: TranslationResources = {
@@ -765,7 +1141,27 @@ index 405eee05b..319665991 100644
          checks: "Проверки",
          services: "Сервисы",
          identityIcon: "Identity icon",
-@@ -1888,6 +1896,16 @@ export const ru: TranslationResources = {
+@@ -1804,6 +1812,9 @@ export const ru: TranslationResources = {
+   heartbeats: {
+     header: "Heartbeats",
+     headerCount: "Heartbeats ({{count}})",
++    pillPaused: "{{count}} на паузе",
++    pillNextRunAccessible: "Пульсаций: {{count}}, следующий {{when}}",
++    pillPausedAccessible: "Пульсаций: {{count}}, на паузе",
+     statusPaused: "На паузе",
+     nextRun: "Следующий {{when}}",
+     pauseAction: "Приостановить {{label}}",
+@@ -1833,6 +1844,9 @@ export const ru: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "Оболочек: {{count}}",
++    pillCountAccessible: "Фоновых задач: {{count}}",
++    pillCountRunningAccessible: "Фоновых задач: {{count}}, {{running}} выполняется",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1890,6 +1904,16 @@ export const ru: TranslationResources = {
          reloadMessage: "Локальные изменения будут потеряны.",
        },
      },
@@ -783,7 +1179,7 @@ index 405eee05b..319665991 100644
        label: "Файлы",
        subtitle: "Файлы рабочего пространства",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index 52a0d94e4..57f224881 100644
+index a4efc0766..1b4e1316f 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
 @@ -646,6 +646,7 @@ export const zhCN: TranslationResources = {
@@ -815,7 +1211,27 @@ index 52a0d94e4..57f224881 100644
          checks: "检查",
          services: "服务",
          identityIcon: "Identity icon",
-@@ -1836,6 +1844,16 @@ export const zhCN: TranslationResources = {
+@@ -1753,6 +1761,9 @@ export const zhCN: TranslationResources = {
+   heartbeats: {
+     header: "心跳",
+     headerCount: "心跳 ({{count}})",
++    pillPaused: "{{count}} 个已暂停",
++    pillNextRunAccessible: "{{count}} 个心跳，下次 {{when}}",
++    pillPausedAccessible: "{{count}} 个心跳，已暂停",
+     statusPaused: "已暂停",
+     nextRun: "下次 {{when}}",
+     pauseAction: "暂停 {{label}}",
+@@ -1782,6 +1793,9 @@ export const zhCN: TranslationResources = {
+     header: "Background Tasks",
+     headerCount: "Background Tasks ({{count}})",
+     headerCountRunning: "Background Tasks ({{count}}) · {{running}} running",
++    pillCount: "{{count}} 个 Shell",
++    pillCountAccessible: "{{count}} 个后台任务",
++    pillCountRunningAccessible: "{{count}} 个后台任务，{{running}} 个运行中",
+     stopAction: "Stop {{label}}",
+     stopTooltip: "Stop",
+     stopFailed: "Failed to stop background task",
+@@ -1838,6 +1852,16 @@ export const zhCN: TranslationResources = {
          reloadMessage: "本地更改将丢失。",
        },
      },
@@ -852,7 +1268,7 @@ index 6d533fb68..65fccc5e9 100644
 +  return hasOfficialTracks || hasWorkspaceDiffStat || hasWorkspaceTodos || hasExtraPills;
  }
 diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/agent-tracks.tsx
-index 6f80e7b..237c8e0 100644
+index cd3ed6566..237c8e067 100644
 --- a/packages/app/src/panels/agent-tracks.tsx
 +++ b/packages/app/src/panels/agent-tracks.tsx
 @@ -1,12 +1,15 @@
@@ -910,14 +1326,21 @@ index 6f80e7b..237c8e0 100644
        hasExtraPills,
      })
    ) {
-@@ -132,6 +149,7 @@ export const AgentTracks = memo(function AgentTracks({
+@@ -132,12 +149,13 @@ export const AgentTracks = memo(function AgentTracks({
          archiveFinishedStatus={archiveFinishedStatus}
          onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
        />
+-      {children}
 +      <WorkspaceTodoPill serverId={serverId} workspaceId={workspaceId} onPress={handleOpenTodo} />
        <WorkspaceDiffStatPill
          serverId={serverId}
          workspaceId={workspaceId}
+         onPress={handleOpenChanges}
+       />
++      {children}
+     </ComposerTrackBar>
+   );
+ });
 diff --git a/packages/app/src/panels/panel-manifest.ts b/packages/app/src/panels/panel-manifest.ts
 index 74c0bfc9e..b5cfa1439 100644
 --- a/packages/app/src/panels/panel-manifest.ts

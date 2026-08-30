@@ -310,6 +310,13 @@ export const PersistedConfigSchema = z
           .strict()
           .optional(),
         auth: DaemonAuthSchema.optional(),
+        autoResumeRunningAgents: z
+          .object({
+            enabled: z.boolean().optional(),
+            prompt: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .transform(({ allowedHosts, ...daemon }) => {

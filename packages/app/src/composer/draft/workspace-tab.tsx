@@ -551,12 +551,17 @@ export function WorkspaceDraftAgentTab({
     actions: draftModelActions,
   });
 
-  // The fork owns model choices via the registration directly above, so this
-  // registration passes no providers: it exists to restore thinking, modes, and
-  // features, which the custom-model-picker change dropped along with upstream's
-  // registration. A non-empty list here would double every model row.
+  // The fork owns model choices via the registration directly above, so this one
+  // passes no providers: it exists to restore thinking, modes and features, which the
+  // custom-model-picker change dropped along with upstream's registration. A non-empty
+  // list here would double every model row.
+  //
+  // The sourceId MUST differ from the model registration's. The registry is a Map keyed
+  // by sourceId (command-center/registry.ts:77) -- the owner Symbol only short-circuits
+  // same-owner replaces -- so sharing one makes the two clobber each other, last write
+  // wins, non-deterministically.
   useAgentControlCommandCenterActions({
-    sourceId: `draft:${serverId}:${tabId}`,
+    sourceId: `draft-controls:${serverId}:${tabId}`,
     enabled: isPaneFocused && !isSubmitting,
     controls: {
       serverId,

@@ -81,6 +81,7 @@ import {
   type InFlightTurnForkHandler,
   type TurnContentStrategy,
 } from "./turn-footer";
+import { AssistantSelectionCopySurface } from "@/assistant-selection-copy/surface";
 import { resolveAssistantForkStrategy } from "./fork-strategy";
 import { resolveBottomOverlayTailInset } from "./bottom-overlay-inset";
 import { layoutStream, type StreamLayoutItem } from "./layout";
@@ -1330,7 +1331,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     return (
       <ToolCallSheetProvider>
-        <View style={stylesheet.container}>
+        <AssistantSelectionCopySurface style={stylesheet.container}>
           <MessageOuterSpacingProvider disableOuterSpacing>
             {streamRenderStrategy.render({
               agentId,
@@ -1375,7 +1376,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               </Animated.View>
             </View>
           )}
-        </View>
+        </AssistantSelectionCopySurface>
       </ToolCallSheetProvider>
     );
   },

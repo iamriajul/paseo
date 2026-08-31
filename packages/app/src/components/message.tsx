@@ -533,7 +533,11 @@ export const UserMessage = memo(function UserMessage({
               })}
             </View>
           ) : null}
-          {hasText ? <MarkdownRenderer text={message} enableHtmlish={false} /> : null}
+          {hasText ? (
+            <Text selectable style={userMessageStylesheet.text}>
+              {message}
+            </Text>
+          ) : null}
         </View>
         {hasText ? (
           <View

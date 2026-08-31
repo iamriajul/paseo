@@ -181,17 +181,9 @@ Generic `vX.Y.Z` fork tags skip the hosted web app deploy workflow. That avoids 
 
 ## Keeping Up With Upstream
 
-This fork is a rebase queue: `main` is the upstream stable release tag we track plus one commit per fork change. Syncing means rebasing that stack onto the next release tag, not merging. After the rebase and a green `fork:verify`, run the desktop and Docker workflows again with a higher version.
+[fork-sync.md](fork-sync.md) owns the sync procedure. In short: this fork is a rebase queue, so syncing replays the fork commits onto the next upstream stable release tag rather than merging. Once the rebase is done and `npm run fork:verify` is green, run the desktop and Docker workflows again with a higher version.
 
-**Sync agents:** load `.claude/skills/fork-upstream-sync/SKILL.md`. Every behaviour that changes an official file has a section in [fork-decisions.md](fork-decisions.md) holding its policy and its proof command. After the rebase:
-
-```bash
-npm run fork:verify
-```
-
-A failure means the decision no longer works — either upstream absorbed it (drop the commit and its section) or the rebase broke it (fix the commit). Do not force-push with a red `fork:verify` or newly-failing Playwright.
-
-Prefer composition (one import of a fork-owned module) over editing an official file at all; a change that touches no official file cannot conflict. `packages/app/src/agent-stream/view.tsx` is still the highest-conflict file — native fork and official work land in the same region. After resolving a conflict there, diff it against the previous release tag and run `fork:verify`, not just typecheck.
+`packages/app/src/agent-stream/view.tsx` is the highest-conflict file — native fork and official work land in the same region. After resolving a conflict there, diff it against the previous release tag and run `fork:verify`, not just typecheck.
 
 Check the sync PR's CI status before merging — don't merge red. Two consecutive syncs (v0.3.0 PR #48, v0.4.0 PR #57) merged with failing Playwright shards, including `chat-outline.spec.ts`, because a conflict hunk silently dropped wiring from `view.tsx`. Diff each red job against the previous sync's CI; triage what's new.
 

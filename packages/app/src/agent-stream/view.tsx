@@ -78,6 +78,7 @@ import {
   TurnFooter,
   TURN_FOOTER_BOTTOM_SPACING,
   type AssistantTurnForkHandler,
+  type InFlightTurnForkHandler,
   type TurnContentStrategy,
 } from "./turn-footer";
 import { resolveAssistantForkStrategy } from "./fork-strategy";
@@ -739,6 +740,30 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       },
     );
 
+    // The in-flight turn forks with no boundary at all: `selectForkContextRows`
+    // projects the whole timeline when neither boundary field is given, so the
+    // fork carries everything up to now, including the response still streaming
+    // in front of the user.
+    const handleForkInFlightTurn: InFlightTurnForkHandler = useStableEvent(async (target) => {
+      if (!client) {
+        toast?.error(t("workspace.terminal.hostDisconnected"));
+        return;
+      }
+      await runAssistantTurnFork({
+        target,
+        boundary: {},
+        client,
+        agentId,
+        resolvedServerId,
+        context,
+        supportsNativeFork,
+        supportsAgentForkContext,
+        router,
+        toast,
+        t,
+      });
+    });
+
     // Freeze stream presentation while this tab slot is hidden to prevent offscreen
     // cell-window and turn-lifecycle renders from background agents.
     // When isActive flips back to true, the context change triggers a re-render and
@@ -1171,10 +1196,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             supportsTimelineCursor={supportsAgentForkContextCursor}
             supportsNativeFork={supportsNativeFork}
             onForkAssistantTurn={readOnly ? undefined : handleForkAssistantTurn}
+            onForkInFlightTurn={readOnly ? undefined : handleForkInFlightTurn}
           />
         ) : null,
       [
         handleForkAssistantTurn,
+        handleForkInFlightTurn,
         readOnly,
         isTurnActive,
         baseRenderModel.turnTiming.runningStartedAt,

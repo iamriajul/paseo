@@ -110,6 +110,13 @@ function isResumablePersistedRecord(record: StoredAgentRecord): boolean {
   if (record.archivedAt) return false;
   if (record.internal) return false;
   if (!RESUMABLE_PERSISTED_STATUSES.has(record.lastStatus)) return false;
+  // A record with no provider session has nothing to resume into. Prompting it does not
+  // continue anything -- it starts a fresh turn on a dead agent, which throws inside
+  // AgentManager.startTurn, emits turn_failed, and leaves the agent (and its workspace)
+  // reporting "failed". A stale lastStatus of "running" is common: nothing reconciles
+  // persisted statuses at shutdown, so a hard crash leaves that value behind forever.
+  // Only records that actually carry a session are resumable.
+  if (!record.persistence?.sessionId) return false;
   return true;
 }
 

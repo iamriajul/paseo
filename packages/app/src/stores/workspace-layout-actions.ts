@@ -1193,7 +1193,7 @@ export function createDefaultLayout(): WorkspaceLayout {
 
 function createDefaultExplorerSidebarTabs(): WorkspaceTab[] {
   const createdAt = Date.now();
-  const targets = [{ kind: "changes_tree" }, { kind: "todo" }, { kind: "files" }] as const;
+  const targets = [{ kind: "changes_tree" }, { kind: "files" }, { kind: "todo" }] as const;
   return targets.map((target) => ({
     tabId: buildDeterministicWorkspaceTabId(target),
     target,
@@ -1203,6 +1203,8 @@ function createDefaultExplorerSidebarTabs(): WorkspaceTab[] {
 
 /** The desktop companion pane exists before it is first shown. */
 export function createWorkspaceLayoutWithExplorerSidebar(): WorkspaceLayout {
+  const explorerTabs = createDefaultExplorerSidebarTabs();
+  const filesTabId = explorerTabs.find((tab) => tab.target.kind === "files")?.tabId ?? null;
   return {
     root: createGroupNode({
       id: DEFAULT_LAYOUT_GROUP_ID,
@@ -1211,7 +1213,8 @@ export function createWorkspaceLayoutWithExplorerSidebar(): WorkspaceLayout {
         createPaneNode({ id: DEFAULT_PANE_ID, tabs: [createNewWorkspaceTab()] }),
         createPaneNode({
           id: EXPLORER_SIDEBAR_PANE_ID,
-          tabs: createDefaultExplorerSidebarTabs(),
+          tabs: explorerTabs,
+          focusedTabId: filesTabId,
           hidden: true,
         }),
       ],

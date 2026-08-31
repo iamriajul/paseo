@@ -12,6 +12,7 @@ describe("getBuiltInLaunchOrder", () => {
       "browser",
       "codeServer",
       "pullRequest",
+      "todo",
     ]);
   });
 
@@ -25,6 +26,7 @@ describe("getBuiltInLaunchOrder", () => {
       "browser",
       "codeServer",
       "pullRequest",
+      "todo",
     ]);
   });
 });

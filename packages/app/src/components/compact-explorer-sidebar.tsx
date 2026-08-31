@@ -336,7 +336,7 @@ function ExplorerSidebarContent({
   const resolvedTab: ExplorerTab = requestedTab === "pr" && !showPrTab ? "changes" : requestedTab;
   const prTabLabel = formatPrTabLabel(prPane.prNumber);
   const availableTabs = useMemo<ExplorerTab[]>(() => {
-    const tabs: ExplorerTab[] = isGit ? ["changes", "todo", "files"] : ["todo", "files"];
+    const tabs: ExplorerTab[] = isGit ? ["changes", "files", "todo"] : ["files", "todo"];
     if (isGit && showPrTab) tabs.push("pr");
     tabs.push("ports");
     return tabs;
@@ -368,18 +368,18 @@ function ExplorerSidebarContent({
             />
           )}
           <ExplorerTabButton
-            tab="todo"
-            active={resolvedTab === "todo"}
-            label={t("workspace.tabs.explorerSidebar.todo")}
-            onTabPress={onTabPress}
-            testID="explorer-tab-todo"
-          />
-          <ExplorerTabButton
             tab="files"
             active={resolvedTab === "files"}
             label={t("workspace.tabs.explorerSidebar.files")}
             onTabPress={onTabPress}
             testID="explorer-tab-files"
+          />
+          <ExplorerTabButton
+            tab="todo"
+            active={resolvedTab === "todo"}
+            label={t("workspace.tabs.explorerSidebar.todo")}
+            onTabPress={onTabPress}
+            testID="explorer-tab-todo"
           />
           <ExplorerTabButton
             tab="ports"

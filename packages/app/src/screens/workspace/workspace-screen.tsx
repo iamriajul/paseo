@@ -2446,6 +2446,7 @@ function WorkspaceScreenContent({
         }
         const { codeServerId } = createWorkspaceCodeServer({
           initialUrl: codeServerLaunchUrl,
+          workspaceKey: persistenceKey,
         });
         openTarget({ kind: "codeServer", codeServerId });
         return;

@@ -2,17 +2,16 @@ export const PRIMARY_LAUNCH_ORDER = [
   "agent",
   "terminal",
   "changes",
-  "todo",
   "diff",
   "files",
   "browser",
   "codeServer",
   "pullRequest",
+  "todo",
 ] as const;
 
 export const SUPPORTING_LAUNCH_ORDER = [
   "changes",
-  "todo",
   "diff",
   "files",
   "terminal",
@@ -20,6 +19,7 @@ export const SUPPORTING_LAUNCH_ORDER = [
   "browser",
   "codeServer",
   "pullRequest",
+  "todo",
 ] as const;
 
 export type BuiltInLaunchItemId = (typeof PRIMARY_LAUNCH_ORDER)[number];

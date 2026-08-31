@@ -26,6 +26,7 @@ import type { Agent } from "@/stores/session-store";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { useWorkspaceDraftSubmissionStore } from "@/stores/workspace-draft-submission-store";
 import { useCommandCenterActions } from "@/command-center/provider";
+import { useAgentControlCommandCenterActions } from "@/command-center/agent-control-registration";
 import { buildModelChoiceContributions } from "@/command-center/model-contributions";
 import { getCommandCenterProviderIcon } from "@/command-center/provider-icon";
 import { encodeImages } from "@/utils/encode-images";
@@ -407,6 +408,7 @@ export function WorkspaceDraftAgentTab({
       t,
     ],
   );
+
   const clearDraftInput = draftInput.clear;
   const replaceDraftText = draftInput.replaceText;
   const setDraftAttachments = draftInput.setAttachments;
@@ -547,6 +549,41 @@ export function WorkspaceDraftAgentTab({
     sourceId: `draft:${serverId}:${tabId}`,
     enabled: isPaneFocused && !isSubmitting,
     actions: draftModelActions,
+  });
+
+  // The fork owns model choices via the registration directly above, so this
+  // registration passes no providers: it exists to restore thinking, modes, and
+  // features, which the custom-model-picker change dropped along with upstream's
+  // registration. A non-empty list here would double every model row.
+  useAgentControlCommandCenterActions({
+    sourceId: `draft:${serverId}:${tabId}`,
+    enabled: isPaneFocused && !isSubmitting,
+    controls: {
+      serverId,
+      ownerKey: tabId,
+      provider: composerState.selectedProvider,
+      providerDefinitions: composerState.providerDefinitions,
+      models: {
+        providers: [],
+        selectedProvider: composerState.selectedProvider,
+        selectedModelId: composerState.effectiveModelId,
+        select: composerState.setProviderAndModelFromUser,
+      },
+      thinking: {
+        options: composerState.availableThinkingOptions,
+        selectedId: composerState.selectedThinkingOptionId,
+        select: composerState.setThinkingOptionFromUser,
+      },
+      modes: {
+        options: composerState.modeOptions,
+        selectedId: composerState.selectedMode,
+        select: composerState.setModeFromUser,
+      },
+      features: {
+        list: composerState.agentControls.features,
+        set: composerState.agentControls.onSetFeature,
+      },
+    },
   });
   const turnPresentation = useMemo(
     () => resolveTurnPresentation(TURN_LIVENESS_IDLE, pendingMessageSubmissions.length > 0),

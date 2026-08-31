@@ -57,7 +57,8 @@ At the start of non-trivial work, list `docs/` and skim anything relevant to the
 | [docs/browser-capture-harness.md](docs/browser-capture-harness.md) | Real-Electron browser screenshot harness and compositor-surface gotcha                                                         |
 | [docs/android.md](docs/android.md)                                 | App variants, local/cloud builds, EAS workflows                                                                                |
 | [docs/docker.md](docs/docker.md)                                   | Running the daemon and bundled web UI in Docker, volumes, agent images, security                                               |
-| [docs/fork-release.md](docs/fork-release.md)                       | Fork-friendly desktop, Docker, npm global-install; official sync uses `patches/fork/`                                          |
+| [docs/fork-release.md](docs/fork-release.md)                       | Fork-friendly desktop, Docker, npm global-install; official sync rebases onto release tags                                     |
+| [docs/fork-decisions.md](docs/fork-decisions.md)                   | Every behaviour this fork changes inside official files, and the command that proves each one                                  |
 | [docs/release.md](docs/release.md)                                 | Release playbook, draft releases, completion checklist                                                                         |
 | [docs/terminal-activity.md](docs/terminal-activity.md)             | Terminal activity indicators — source-agnostic tracker, agent hook reporting, adding a new hook provider                       |
 | [SECURITY.md](SECURITY.md)                                         | Relay threat model, E2E encryption, DNS rebinding, agent auth                                                                  |
@@ -108,8 +109,8 @@ See [docs/development.md](docs/development.md) for full setup, build sync requir
 ## Critical rules
 
 - **Fork releases are PR → merge → tag on `main`.** Never push a `v*` release tag from an unmerged feature branch. Open a PR, merge it, then tag the merge commit on `main` (or dispatch the fork release workflows with `checkout_ref=main`). See [docs/fork-release.md](docs/fork-release.md).
-- **Any edit to a file covered by `patches/fork/` must keep the series reverse-applying — not just sync merges.** Before editing, grep the patch `Files:` headers for the path (`grep -rl "<path>" patches/fork/*.patch`); after editing, `node scripts/fork-patches.mjs check` must be green (the pre-commit hook runs it too). A FAIL means the decision hunk no longer matches the tree: re-seat it per `.claude/skills/fork-upstream-sync/SKILL.md` ("New fork decision" / refresh procedure). A new edit to an official file that no patch covers needs a new series entry.
-- **Syncing official Paseo:** load `.claude/skills/fork-upstream-sync/SKILL.md`. After the merge, `node scripts/fork-patches.mjs check` must be green. Do not treat "the symbol still exists" as preserved — decisions that edit official files live in `patches/fork/`.
+- **This fork is a rebase queue.** `main` is the upstream release tag we track plus one commit per fork change — no merge commits. Changing an official file means adding a section to [docs/fork-decisions.md](docs/fork-decisions.md) with a command that fails without your change. CI (`fork-decisions`) rejects a documented decision that has no proof command.
+- **Syncing official Paseo:** load `.claude/skills/fork-upstream-sync/SKILL.md`. Rebase onto the new stable release tag — never merge, never track `upstream/main`. Afterwards `npm run fork:verify` must be green. Do not treat "the symbol still exists" as preserved; fill-if-missing versus overwrite is a decision grep cannot see.
 - **NEVER restart the main Paseo daemon on port 6767 without permission** — it manages all running agents. If you're an agent, restarting it kills your own process.
 - **NEVER assume a timeout means the service needs restarting** — timeouts can be transient.
 - **NEVER add auth checks to tests** — agent providers handle their own auth.

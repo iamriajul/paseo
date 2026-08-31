@@ -181,17 +181,17 @@ Generic `vX.Y.Z` fork tags skip the hosted web app deploy workflow. That avoids 
 
 ## Keeping Up With Upstream
 
-Keep a long-lived branch for your fork changes, then regularly merge or rebase upstream `main` into it. After resolving conflicts and pushing the branch, run the desktop and Docker workflows again with a higher version.
+This fork is a rebase queue: `main` is the upstream stable release tag we track plus one commit per fork change. Syncing means rebasing that stack onto the next release tag, not merging. After the rebase and a green `fork:verify`, run the desktop and Docker workflows again with a higher version.
 
-**Sync agents:** load `.claude/skills/fork-upstream-sync/SKILL.md`. Decisions that edit official files live in `patches/fork/` (not a feature wiki). Name series files `<surface>-<feature>.patch`; qualify provider/surface when a bare noun is ambiguous (`claude-native-fork`, `codex-quota-reset`). After the merge:
+**Sync agents:** load `.claude/skills/fork-upstream-sync/SKILL.md`. Every behaviour that changes an official file has a section in [fork-decisions.md](fork-decisions.md) holding its policy and its proof command. After the rebase:
 
 ```bash
-node scripts/fork-patches.mjs check
+npm run fork:verify
 ```
 
-That job is required CI (`fork-patches`). A failed reverse-apply means official rewrote the site or the hunk was dropped — read the patch `Decision:` / `Verify:` header, re-seat, refresh the patch file, re-run check and the Verify command. Do not merge a sync PR with a red `fork-patches` job or newly-failing Playwright.
+A failure means the decision no longer works — either upstream absorbed it (drop the commit and its section) or the rebase broke it (fix the commit). Do not force-push with a red `fork:verify` or newly-failing Playwright.
 
-Prefer composition (one import of a fork-owned module) over a series entry. `packages/app/src/agent-stream/view.tsx` is still a high-conflict-risk file — native fork and official work land in the same region. After resolving a conflict there, `git diff <previous-sync-tag> <new-tag> -- packages/app/src/agent-stream/view.tsx` and the series check, not just a passing typecheck.
+Prefer composition (one import of a fork-owned module) over editing an official file at all; a change that touches no official file cannot conflict. `packages/app/src/agent-stream/view.tsx` is still the highest-conflict file — native fork and official work land in the same region. After resolving a conflict there, diff it against the previous release tag and run `fork:verify`, not just typecheck.
 
 Check the sync PR's CI status before merging — don't merge red. Two consecutive syncs (v0.3.0 PR #48, v0.4.0 PR #57) merged with failing Playwright shards, including `chat-outline.spec.ts`, because a conflict hunk silently dropped wiring from `view.tsx`. Diff each red job against the previous sync's CI; triage what's new.
 

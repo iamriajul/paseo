@@ -43,7 +43,7 @@
     "test:e2e:mobile": "./scripts/test-mobile-agent-device.sh",
     "dev:website": "npm run dev --workspace=@getpaseo/website",
     "postinstall": "node scripts/postinstall-patches.mjs",
-    "fork-patches": "node scripts/fork-patches.mjs",
+    "fork:verify": "node scripts/fork-verify.mjs",
     "prepare": "lefthook install --force",
     "build": "npm run build --workspaces --if-present",
     "build:highlight": "npm run build --workspace=@getpaseo/highlight",

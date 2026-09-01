@@ -25,6 +25,8 @@ import {
 import { ChangesSurface } from "@/git/diff-pane";
 import { changesStateSchema, defaultChangesState, type ChangesState } from "@/panels/changes/state";
 import { FileExplorerPane } from "./file-explorer-pane";
+import { WorkspaceTodoPane } from "@/todos/workspace-todo-pane";
+import { ExplorerPortsPane } from "./explorer-ports-pane";
 import { useKeyboardShiftStyle } from "@/keyboard/shift";
 import { shouldUseCompactExplorerKeyboardPadding } from "@/keyboard/shift";
 import { WindowChromeSafeArea } from "@/utils/desktop-window";
@@ -58,6 +60,7 @@ interface ExplorerSidebarProps {
   workspaceRoot: string;
   isGit: boolean;
   onOpenFile?: (filePath: string) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }
 
 interface ExplorerSidebarSharedState {
@@ -88,6 +91,7 @@ export function CompactExplorerSidebar({
   workspaceRoot,
   isGit,
   onOpenFile,
+  onOpenUrlInBrowserTab,
 }: ExplorerSidebarProps) {
   const { theme } = useUnistyles();
   const insets = useSafeAreaInsets();
@@ -153,6 +157,7 @@ export function CompactExplorerSidebar({
           isGit={isGit}
           isOpen={isActive}
           onOpenFile={onOpenFile}
+          onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
         />
       </MobilePanelOverlay>
     </RetainedPanelActivity>
@@ -170,6 +175,7 @@ export function NativeExplorerSidebarDock({
   workspaceRoot,
   isGit,
   onOpenFile,
+  onOpenUrlInBrowserTab,
   persistenceKey,
   containerWidth,
 }: NativeExplorerSidebarDockProps) {
@@ -264,6 +270,7 @@ export function NativeExplorerSidebarDock({
             isGit={isGit}
             isOpen={isOpen}
             onOpenFile={onOpenFile}
+            onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
           />
         </View>
       </Animated.View>
@@ -313,6 +320,7 @@ interface SidebarContentProps {
   isGit: boolean;
   isOpen: boolean;
   onOpenFile?: (filePath: string) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }
 
 function ExplorerSidebarContent({
@@ -325,6 +333,7 @@ function ExplorerSidebarContent({
   isGit,
   isOpen,
   onOpenFile,
+  onOpenUrlInBrowserTab,
 }: SidebarContentProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
@@ -352,8 +361,9 @@ function ExplorerSidebarContent({
   const resolvedTab: ExplorerTab = requestedTab === "pr" && !showPrTab ? "changes" : requestedTab;
   const prTabLabel = formatPrTabLabel(prPane.prNumber);
   const availableTabs = useMemo<ExplorerTab[]>(() => {
-    const tabs: ExplorerTab[] = isGit ? ["changes", "files"] : ["files"];
+    const tabs: ExplorerTab[] = isGit ? ["changes", "files", "todo"] : ["files", "todo"];
     if (isGit && showPrTab) tabs.push("pr");
+    tabs.push("ports");
     return tabs;
   }, [isGit, showPrTab]);
   const { mountedTabIds } = useMountedTabSet({
@@ -383,6 +393,20 @@ function ExplorerSidebarContent({
             label={t("workspace.tabs.explorerSidebar.files")}
             onTabPress={onTabPress}
             testID="explorer-tab-files"
+          />
+          <ExplorerTabButton
+            tab="todo"
+            active={resolvedTab === "todo"}
+            label={t("workspace.tabs.explorerSidebar.todo")}
+            onTabPress={onTabPress}
+            testID="explorer-tab-todo"
+          />
+          <ExplorerTabButton
+            tab="ports"
+            active={resolvedTab === "ports"}
+            label={t("workspace.tabs.sidePanel.ports")}
+            onTabPress={onTabPress}
+            testID="explorer-tab-ports"
           />
           {isGit && showPrTab && (
             <ExplorerTabButton
@@ -430,6 +454,11 @@ function ExplorerSidebarContent({
             />
           </RetainedPanel>
         ) : null}
+        {mountedTabIds.has("todo") ? (
+          <RetainedPanel active={resolvedTab === "todo"}>
+            <WorkspaceTodoPane serverId={serverId} workspaceId={workspaceId ?? ""} />
+          </RetainedPanel>
+        ) : null}
         {mountedTabIds.has("files") ? (
           <RetainedPanel active={resolvedTab === "files"}>
             <FilesPane
@@ -447,6 +476,15 @@ function ExplorerSidebarContent({
               workspaceId={workspaceId}
               cwd={workspaceRoot}
               prPane={prPane}
+            />
+          </RetainedPanel>
+        ) : null}
+        {mountedTabIds.has("ports") ? (
+          <RetainedPanel active={resolvedTab === "ports"}>
+            <ExplorerPortsPane
+              serverId={serverId}
+              workspaceId={workspaceId}
+              onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
             />
           </RetainedPanel>
         ) : null}

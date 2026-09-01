@@ -184,6 +184,7 @@ interface WorkspaceFocusRestorationState {
 // Preserve four user-created split levels beneath that bookkeeping node.
 const MAX_TREE_DEPTH = 5;
 
+
 const LEGACY_EXPLORER_SIDEBAR_REFERENCE_WIDTH = 1440;
 const WORKSPACE_LAYOUT_PERSIST_VERSION = 2;
 
@@ -304,7 +305,8 @@ function migrateVersionOneWorkspaceLayout(input: {
     (tab) =>
       legacyExplorerPane.tabIds.includes(tab.tabId) &&
       tab.target.kind !== "files" &&
-      tab.target.kind !== "changes_tree",
+      tab.target.kind !== "changes_tree" &&
+      tab.target.kind !== "todo",
   );
   const preservedSide = preserveVersionOneSideTabs({
     layout: strippedLayout,

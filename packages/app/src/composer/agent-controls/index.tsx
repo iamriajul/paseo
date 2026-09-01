@@ -166,6 +166,7 @@ interface AgentControlsProps {
   serverId: string;
   onDropdownClose?: () => void;
   isCompactLayout?: boolean;
+  disabled?: boolean;
 }
 
 function AgentControlCommandCenterRegistration({
@@ -1549,11 +1550,13 @@ function ThinkingComboboxOption({
   );
 }
 
+// oxlint-disable-next-line complexity -- live agent controls orchestration (modes/models/thinking/features)
 export const AgentControls = memo(function AgentControls({
   agentId,
   serverId,
   onDropdownClose,
   isCompactLayout,
+  disabled = false,
 }: AgentControlsProps) {
   const { updatePreferences } = useFormPreferences();
   const agent = useSessionStore(
@@ -1814,7 +1817,7 @@ export const AgentControls = memo(function AgentControls({
         onRetryModelProvider={handleRetryModelProvider}
         isRetryingModelProvider={snapshotIsRefreshing}
         onDropdownClose={onDropdownClose}
-        disabled={!client}
+        disabled={disabled || !client}
         modeControl={modeControl}
         modelSelectorServerId={serverId}
         isCompactLayout={isCompactLayout}

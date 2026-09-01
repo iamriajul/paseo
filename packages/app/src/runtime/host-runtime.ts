@@ -559,6 +559,22 @@ function probeIntervalForConnection(
   return PROBE_MAX_BACKOFF_MS;
 }
 
+function connectionUsesThisMachine(connection: HostConnection): boolean {
+  if (connection.type === "directSocket" || connection.type === "directPipe") {
+    return true;
+  }
+  if (connection.type !== "directTcp") {
+    return false;
+  }
+  const endpoint = connection.endpoint.trim().toLowerCase();
+  return (
+    endpoint.startsWith("127.") ||
+    endpoint.startsWith("localhost") ||
+    endpoint.startsWith("[::1]") ||
+    endpoint.startsWith("::1")
+  );
+}
+
 function createDefaultDeps(
   resolveOrigin: (serverId: string) => DaemonClient | null = () => null,
 ): HostRuntimeControllerDeps {
@@ -687,7 +703,7 @@ function createDefaultDeps(
       });
     },
     getClientId: () => getOrCreateClientId(),
-    mountClientHandlers: ({ client, host }) => {
+    mountClientHandlers: ({ client, host, connection }) => {
       const unmountServerData = mountServerDataPushRouter({
         client,
         queryClient,
@@ -698,6 +714,7 @@ function createDefaultDeps(
       }
       const unmountBrowserAutomation = mountBrowserAutomationDaemonClientHandler(client, {
         serverId: host.serverId,
+        ...(connectionUsesThisMachine(connection) ? { directLoopback: true } : {}),
       });
       return () => {
         unmountBrowserAutomation();

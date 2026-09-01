@@ -13,6 +13,7 @@ import { isElectronRuntime } from "@/desktop/host";
 import {
   APP_SETTINGS_KEY,
   APP_SETTINGS_QUERY_KEY,
+  ATTENTION_SOUND_PRESETS,
   DEFAULT_APP_SETTINGS,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_CODE_FONT_SIZE,
@@ -43,6 +44,7 @@ import {
   type AppSettings,
   type AppSettingsUpdate,
   type ChatDisplay,
+  type AttentionSoundPreset,
   type OpenInSidePanePreferences,
   type PullRequestOpenLocation,
   type DesktopSettingsBridge,
@@ -60,6 +62,7 @@ import {
 export {
   APP_SETTINGS_KEY,
   DEFAULT_APP_SETTINGS,
+  ATTENTION_SOUND_PRESETS,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_CODE_FONT_SIZE,
   DEFAULT_CONTENT_FONT_SIZE,
@@ -88,6 +91,7 @@ export type {
   AppSettingsUpdate,
   ChatDisplay,
   AppLanguage,
+  AttentionSoundPreset,
   OpenInSidePanePreferences,
   PullRequestOpenLocation,
   DesktopSettingsBridge,

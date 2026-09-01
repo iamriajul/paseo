@@ -123,8 +123,7 @@ export function SidebarWorkspaceRow({
 
   const archiveShortcutKeys = useShortcutKeys("archive-workspace");
   const { hasClearableAttention, canMarkUnread, clearAttention, markUnread } =
-    useWorkspaceReadState({
-      serverId: workspace.serverId,
+    useWorkspaceReadState({      serverId: workspace.serverId,
       workspaceId: workspace.workspaceId,
     });
   const handleMarkAsRead = useCallback(() => {

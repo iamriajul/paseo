@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { PermissionResult, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Logger } from "pino";
 
 import { createTestLogger } from "../../../../test-utils/test-logger.js";
 import * as executableUtils from "../../../../executable-resolution/executable-resolution.js";
@@ -32,7 +33,20 @@ function isPermissionResolvedEvent(
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
+
+function createCapturingLogger(): { logger: Logger; warnings: unknown[][] } {
+  const warnings: unknown[][] = [];
+  const logger = {
+    child: () => ({
+      debug: () => undefined,
+      warn: (...args: unknown[]) => warnings.push(args),
+    }),
+  } as unknown as Logger;
+  return { logger, warnings };
+}
 
 describe("convertClaudeHistoryEntry", () => {
   test("maps user tool results to timeline items", () => {
@@ -424,9 +438,10 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
       });
 
       expect(models.map((m) => m.id)).toEqual([
+        "claude-opus-5[1m]",
         "claude-opus-5",
-        "claude-fable-5",
         "claude-fable-5[1m]",
+        "claude-fable-5",
         "claude-opus-4-8[1m]",
         "claude-opus-4-8",
         "claude-sonnet-5",
@@ -439,7 +454,6 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
       ]);
-      expect(models.find((model) => model.id === "claude-fable-5[1m]")?.isSelectable).toBe(false);
 
       for (const model of models) {
         expect(model.provider).toBe("claude");
@@ -447,7 +461,7 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
       }
 
       const defaultModel = models.find((m) => m.isDefault);
-      expect(defaultModel?.id).toBe("claude-opus-5");
+      expect(defaultModel?.id).toBe("claude-opus-5[1m]");
     } finally {
       await fs.rm(emptyConfigDir, { recursive: true, force: true });
     }
@@ -469,7 +483,7 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
         force: false,
       });
 
-      expect(models.find((model) => model.isDefault)?.id).toBe("claude-opus-5");
+      expect(models.find((model) => model.isDefault)?.id).toBe("claude-opus-5[1m]");
       expect(models.map((model) => model.id)).toContain("claude-fable-5");
     } finally {
       await fs.rm(emptyConfigDir, { recursive: true, force: true });
@@ -502,7 +516,99 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
       expect(getThinkingIds("claude-sonnet-5")).toContain("ultracode");
       expect(getThinkingIds("claude-opus-4-7[1m]")).toContain("ultracode");
       expect(getThinkingIds("claude-opus-4-7")).toContain("ultracode");
-      expect(getThinkingIds("claude-sonnet-4-6")).not.toContain("ultracode");
+      // Fork policy: full Effort parity with the Claude Code TUI on every
+      // catalog model, including older generations.
+      expect(getThinkingIds("claude-sonnet-4-6")).toContain("ultracode");
+    } finally {
+      await fs.rm(emptyConfigDir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not publish auto-persisted capacity after persistence fails", async () => {
+    const emptyConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-models-persist-"));
+    const { logger: capturedLogger, warnings } = createCapturingLogger();
+    vi.stubEnv("ANTHROPIC_BASE_URL", "http://cpa.example");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "secret-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "claude-fable-5-dd-5.4-korg",
+                  display_name: "Grok 4.5",
+                  owned_by: "xai",
+                  max_input_tokens: 500_000,
+                  max_tokens: 65_536,
+                },
+              ],
+              has_more: false,
+            }),
+            { status: 200, headers: { "x-cpa-version": "1" } },
+          ),
+      ),
+    );
+
+    try {
+      const client = new ClaudeAgentClient({
+        logger: capturedLogger,
+        resolveVersion: async () => "2.1.219",
+        configDir: emptyConfigDir,
+        persistClaudeAdditionalModelLimits: async () => {
+          throw new Error("config store unavailable");
+        },
+      });
+      const { models } = await client.fetchCatalog({
+        scope: "global",
+        force: true,
+      });
+      const grok = models.find((model) => model.id === "grok-4.5");
+
+      expect(grok).toMatchObject({
+        id: "grok-4.5",
+        needsCapacityConfig: true,
+        metadata: { needsCapacityConfig: true },
+      });
+      expect(grok?.isSelectable).not.toBe(false);
+      expect(grok?.contextWindowMaxTokens).toBeUndefined();
+      expect(grok?.maxOutputTokens).toBeUndefined();
+      expect(JSON.stringify(warnings)).toContain("cliproxy_auto_persist");
+    } finally {
+      await fs.rm(emptyConfigDir, { recursive: true, force: true });
+    }
+  });
+
+  test("surfaces first-page CPA discovery failures through a safe warning", async () => {
+    const emptyConfigDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "paseo-claude-models-discovery-"),
+    );
+    const { logger: capturedLogger, warnings } = createCapturingLogger();
+    vi.stubEnv("ANTHROPIC_BASE_URL", "http://cpa.example");
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "secret-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("request failed for Bearer secret-token");
+      }),
+    );
+
+    try {
+      const client = new ClaudeAgentClient({
+        logger: capturedLogger,
+        resolveVersion: async () => "2.1.219",
+        configDir: emptyConfigDir,
+      });
+      const { models } = await client.fetchCatalog({
+        scope: "global",
+        force: true,
+      });
+
+      expect(models.find((model) => model.id === "grok-4.5")).toBeUndefined();
+      expect(JSON.stringify(warnings)).toContain("request_failed");
+      expect(JSON.stringify(warnings)).not.toContain("secret-token");
+      expect(JSON.stringify(warnings)).not.toContain("Authorization");
     } finally {
       await fs.rm(emptyConfigDir, { recursive: true, force: true });
     }
@@ -3099,5 +3205,77 @@ describe("Claude question permission notifications", () => {
 
     expect(request.title).toBeUndefined();
     expect(request.description).toBeUndefined();
+  });
+});
+
+describe("prompt_cache_ttl feature", () => {
+  const logger = createTestLogger();
+
+  function createIsolatedQueryMock() {
+    const queryMock = {
+      close: vi.fn(),
+      return: vi.fn(async () => ({ value: undefined, done: true })),
+      applyFlagSettings: vi.fn(async () => undefined),
+      setModel: vi.fn(async () => undefined),
+      [Symbol.asyncIterator](): AsyncIterator<SDKMessage, void> {
+        return {
+          next: async () => ({ value: undefined, done: true }),
+        };
+      },
+    };
+    const queryFactory = vi.fn(() => queryMock);
+    return { queryFactory, queryMock };
+  }
+
+  test("lists the select only when the feature value is stamped", async () => {
+    const client = new ClaudeAgentClient({ logger, resolveBinary: async () => "/test/claude/bin" });
+
+    await expect(
+      client.listFeatures({
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-opus-4-8",
+        featureValues: { prompt_cache_ttl: "5m" },
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "prompt_cache_ttl", value: "5m" })]),
+    );
+
+    await expect(
+      client.listFeatures({
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-opus-4-8",
+      }),
+    ).resolves.toEqual([expect.objectContaining({ id: "fast_mode" })]);
+  });
+
+  test("setFeature accepts only prompt_cache_ttl select values", async () => {
+    const { queryFactory, queryMock } = createIsolatedQueryMock();
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "claude-opus-4-8",
+      featureValues: { prompt_cache_ttl: "5m" },
+    });
+
+    try {
+      await session.setFeature?.("prompt_cache_ttl", "1h");
+      expect(session.features.find((f) => f.id === "prompt_cache_ttl")?.value).toBe("1h");
+      await expect(session.setFeature?.("prompt_cache_ttl", "30m")).rejects.toThrow(
+        "Invalid prompt_cache_ttl value",
+      );
+      await expect(session.setFeature?.("unknown_feature", true)).rejects.toThrow(
+        "Unknown Claude feature",
+      );
+      expect(queryMock.applyFlagSettings).not.toHaveBeenCalled();
+    } finally {
+      await session.close();
+    }
   });
 });

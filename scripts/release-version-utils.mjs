@@ -51,6 +51,21 @@ export function parseReleaseVersion(version) {
   };
 }
 
+export function computeAndroidVersionCode(version) {
+  const parsed = typeof version === "string" ? parseReleaseVersion(version) : version;
+  const prereleaseOffset = parsed.isBeta && parsed.betaNumber !== null ? parsed.betaNumber : 999;
+  const versionCode =
+    parsed.major * 100_000_000 + parsed.minor * 1_000_000 + parsed.patch * 1_000 + prereleaseOffset;
+
+  if (versionCode > 2_100_000_000) {
+    throw new Error(
+      `Android versionCode ${versionCode} is too large for version ${parsed.version}`,
+    );
+  }
+
+  return versionCode;
+}
+
 export function formatReleaseVersion({ major, minor, patch, prerelease = null }) {
   assertInteger(major, "major version");
   assertInteger(minor, "minor version");

@@ -65,6 +65,10 @@ const patchedPackages = [
   // Android resize: retain until upstream clears descendant geometry when the SVG canvas resizes.
   // The native pixel regression is included in the patch; preserve the separate transform hunks.
   {
+    nodeModulesPath: "node_modules/react-native-webview",
+    patchPrefix: "react-native-webview+",
+  },
+  {
     nodeModulesPath: "packages/app/node_modules/react-native-svg",
     patchPrefix: "react-native-svg+",
     cwd: "packages/app",

@@ -21,6 +21,13 @@ type SidebarHeaderRowVariant = "header" | "compact" | "inline";
 
 export type SidebarRowIcon = ComponentType<{ size: number; color: string }>;
 
+interface SidebarHeaderRowAction {
+  icon: LucideIcon;
+  onPress: () => void;
+  accessibilityLabel: string;
+  testID?: string;
+}
+
 interface SidebarHeaderRowProps {
   icon: SidebarRowIcon | null;
   label: string;
@@ -174,6 +181,18 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[1],
     paddingRight: theme.spacing[2],
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  trailingAction: {
+    minWidth: 28,
+    minHeight: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.md,
   },
 }));
 

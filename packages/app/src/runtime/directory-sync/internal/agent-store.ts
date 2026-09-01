@@ -9,6 +9,9 @@ import { clearArchiveAgentPending } from "@/hooks/use-archive-agent";
 import { queryClient } from "@/data/query-client";
 import { buildDraftStoreKey } from "@/stores/draft-keys";
 import { useDraftStore } from "@/stores/draft-store";
+import { hostSupportsFeature } from "@/runtime/host-features";
+import { getHostRuntimeStore } from "@/runtime/host-runtime";
+import { clearComposerOnHost } from "@/ui-state/composer-host-sync";
 import { getInitDeferred, getInitKey, rejectInitDeferred } from "@/utils/agent-initialization";
 import { reduceTurnLiveness, type TurnLivenessTransition } from "@/timeline/turn-liveness";
 
@@ -169,9 +172,18 @@ export class AgentStoreProjection {
       agentLastActivity.delete(agentId);
       return { ...state, agentLastActivity };
     });
-    useDraftStore.getState().clearDraftInput({
-      draftKey: buildDraftStoreKey({ serverId: this.serverId, agentId }),
-    });
+    {
+      const draftKey = buildDraftStoreKey({ serverId: this.serverId, agentId });
+      useDraftStore.getState().clearDraftInput({ draftKey });
+      // Best-effort host clear so removed agents do not leave zombie composer drafts on other devices.
+      const serverInfo = useSessionStore.getState().sessions[this.serverId]?.serverInfo;
+      if (hostSupportsFeature(serverInfo, "uiState")) {
+        const client = getHostRuntimeStore().getClient(this.serverId);
+        if (client) {
+          void clearComposerOnHost({ client, clientDraftKey: draftKey });
+        }
+      }
+    }
     const initKey = getInitKey(this.serverId, agentId);
     if (getInitDeferred(initKey)) {
       rejectInitDeferred(initKey, new Error("Agent was removed during initialization"));

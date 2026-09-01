@@ -168,9 +168,19 @@ const StructuredGenerationProviderConfigSchema = z
   })
   .strict();
 
+const MetadataCustomEndpointPersistedSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    baseUrl: z.string().optional(),
+    apiKey: z.string().optional(),
+    model: z.string().optional(),
+  })
+  .strict();
+
 const AgentMetadataGenerationSchema = z
   .object({
     providers: z.array(StructuredGenerationProviderConfigSchema).optional(),
+    customEndpoint: MetadataCustomEndpointPersistedSchema.optional(),
   })
   .strict();
 
@@ -290,7 +300,20 @@ export const PersistedConfigSchema = z
           })
           .strict()
           .optional(),
+        browserPreview: z
+          .object({
+            urlTemplate: z.string().optional(),
+          })
+          .strict()
+          .optional(),
         auth: DaemonAuthSchema.optional(),
+        autoResumeRunningAgents: z
+          .object({
+            enabled: z.boolean().optional(),
+            prompt: z.string().min(1).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .transform(({ allowedHosts, ...daemon }) => {

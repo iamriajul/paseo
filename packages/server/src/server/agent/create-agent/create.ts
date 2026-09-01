@@ -390,14 +390,49 @@ async function resolveMcpProviderCreateConfig(params: {
   parentAgent: ManagedAgent | null;
 }): Promise<{ modeId?: string; featureValues?: Record<string, unknown> }> {
   const passthroughConfig = params.input.config;
-  return params.dependencies.providerSnapshotManager.resolveCreateConfig({
+  const requestedFeatureValues = params.input.features ?? passthroughConfig?.featureValues;
+  const resolved = await params.dependencies.providerSnapshotManager.resolveCreateConfig({
     cwd: params.resolvedCwd,
     provider: params.provider,
     requestedMode: params.input.mode ?? passthroughConfig?.modeId,
-    featureValues: params.input.features ?? passthroughConfig?.featureValues,
+    featureValues: requestedFeatureValues,
     parent: params.parentAgent,
     unattended: params.input.unattended ?? false,
   });
+  return {
+    ...resolved,
+    featureValues: applyOrchestratorSubagentDefaults({
+      provider: params.provider,
+      parentAgent: params.parentAgent,
+      requestedFeatureValues,
+      resolvedFeatureValues: resolved.featureValues,
+    }),
+  };
+}
+
+// Orchestrator-spawned Claude agents run short-lived turns, so the 1-hour prompt
+// cache write premium rarely pays off. Stamp a 5-minute TTL unless the caller
+// chose a value; user-opened agents keep Claude Code's automatic behavior.
+function applyOrchestratorSubagentDefaults(input: {
+  provider: string;
+  parentAgent: ManagedAgent | null;
+  requestedFeatureValues: Record<string, unknown> | undefined;
+  resolvedFeatureValues: Record<string, unknown> | undefined;
+}): Record<string, unknown> | undefined {
+  const hasExplicitValue = Object.prototype.hasOwnProperty.call(
+    input.requestedFeatureValues ?? {},
+    "prompt_cache_ttl",
+  );
+  if (hasExplicitValue) {
+    return input.requestedFeatureValues;
+  }
+  if (input.provider !== "claude" || input.parentAgent === null) {
+    return input.resolvedFeatureValues;
+  }
+  return {
+    ...input.resolvedFeatureValues,
+    prompt_cache_ttl: "5m",
+  };
 }
 
 function buildMcpSessionConfig(params: {

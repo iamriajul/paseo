@@ -58,6 +58,7 @@ import {
   createWorkspaceScriptsService,
   type WorkspaceScriptsService,
 } from "./session/workspace-scripts/workspace-scripts-service.js";
+import { TcpTunnelForwarder } from "./tcp-tunnel-forwarder.js";
 import type { DaemonConfigStore } from "./daemon-config-store.js";
 import { loadPersistedConfig } from "./persisted-config.js";
 import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
@@ -115,6 +116,8 @@ import {
 import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
 import { buildAgentPrompt } from "./agent/prompt-attachments.js";
 import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
+import { listMetadataOpenAIModels } from "./agent/metadata-openai-client.js";
+import { lookupModelsDevModel } from "./models-dev/catalog.js";
 import {
   getAgentStreamEventTurnId,
   type AgentPersistenceHandle,
@@ -167,6 +170,14 @@ import {
 import { ScheduleSession } from "./session/schedule/schedule-session.js";
 import { ProviderCatalogSession } from "./session/provider/provider-catalog-session.js";
 import { WorkspaceFilesSession } from "./session/files/workspace-files-session.js";
+import { TaskSession } from "./tasks/task-session.js";
+import { TaskStore } from "./tasks/task-store.js";
+import { UiStateSession } from "./ui-state/session.js";
+import { UiStateStore } from "./ui-state/store.js";
+
+function resolveUiStateStore(store: UiStateStore | undefined, paseoHome: string): UiStateStore {
+  return store ?? new UiStateStore(paseoHome);
+}
 import { AgentConfigSession } from "./session/agent-config/agent-config-session.js";
 import { ProjectConfigSession } from "./session/project-config/project-config-session.js";
 import { DaemonSession, type DaemonRuntimeConfig } from "./session/daemon/daemon-session.js";
@@ -286,6 +297,54 @@ function resolveSubscriptionId(
     return requestedSubscriptionId;
   }
   return uuidv4();
+}
+
+function createBackgroundTaskOutputSubscriptions() {
+  const subscriptions = new Map<
+    string,
+    {
+      parentAgentId: string;
+      taskId: string;
+      cursor: number;
+      timer: ReturnType<typeof setInterval> | null;
+    }
+  >();
+  const keyOf = (input: { parentAgentId: string; taskId: string }) =>
+    `${input.parentAgentId}\0${input.taskId}`;
+  return {
+    upsert(input: { parentAgentId: string; taskId: string }) {
+      const key = keyOf(input);
+      const existing = subscriptions.get(key);
+      if (existing) return existing;
+      const entry = {
+        parentAgentId: input.parentAgentId,
+        taskId: input.taskId,
+        cursor: 0,
+        timer: null as ReturnType<typeof setInterval> | null,
+      };
+      subscriptions.set(key, entry);
+      return entry;
+    },
+    get(input: { parentAgentId: string; taskId: string }) {
+      return subscriptions.get(keyOf(input)) ?? null;
+    },
+    setCursor(input: { parentAgentId: string; taskId: string }, cursor: number) {
+      const entry = subscriptions.get(keyOf(input));
+      if (entry) entry.cursor = cursor;
+    },
+    remove(input: { parentAgentId: string; taskId: string }) {
+      const key = keyOf(input);
+      const entry = subscriptions.get(key);
+      if (entry?.timer) clearInterval(entry.timer);
+      subscriptions.delete(key);
+    },
+    clearAll() {
+      for (const entry of subscriptions.values()) {
+        if (entry.timer) clearInterval(entry.timer);
+      }
+      subscriptions.clear();
+    },
+  };
 }
 
 function isAppVersionAtLeast(appVersion: string | null, minVersion: string): boolean {
@@ -432,6 +491,15 @@ const nodeSessionFileSystem: SessionFileSystem = {
 // Stub types for features under development (modules not yet available)
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
+import { WorkspaceTodoStore } from "./workspace-todos/store.js";
+
+function resolveWorkspaceTodoStore(
+  store: WorkspaceTodoStore | undefined,
+  paseoHome: string,
+): WorkspaceTodoStore {
+  return store ?? new WorkspaceTodoStore(paseoHome);
+}
+
 export interface SessionOptions {
   clientId: string;
   scopes: readonly string[];
@@ -457,6 +525,11 @@ export interface SessionOptions {
   workspaceLabelService?: WorkspaceLabelService;
   filesystem?: SessionFileSystem;
   scheduleService: ScheduleService;
+  taskStore: TaskStore;
+  /** Defaults to a store under `paseoHome` when omitted (tests / older constructors). */
+  uiStateStore?: UiStateStore;
+  /** Broadcast a message to all other trusted sessions (not this one). */
+  broadcastUiState?: (message: SessionOutboundMessage, exceptClientId: string) => void;
   checkoutDiffManager: CheckoutDiffManager;
   github?: ForgeService;
   createAgentMcpTransport?: AgentMcpTransportFactory;
@@ -524,6 +597,8 @@ export interface SessionOptions {
   daemonVersion?: string;
   daemonRuntimeConfig?: DaemonRuntimeConfig;
   getWebSocketRuntimeMetrics?: () => DaemonWebSocketRuntimeDiagnosticSnapshot | null;
+  workspaceTodoStore?: WorkspaceTodoStore;
+  broadcastWorkspaceTodos?: (message: SessionOutboundMessage, exceptClientId: string) => void;
 }
 
 export type SessionLifecycleIntent =
@@ -639,7 +714,7 @@ function workspaceLabelErrorCode(error: unknown): string {
 }
 
 export class Session {
-  private readonly clientId: string;
+  readonly clientId: string;
   private scopes: readonly string[];
   private appVersion: string | null;
   private clientCapabilities: ReadonlySet<ClientCapability>;
@@ -725,17 +800,26 @@ export class Session {
   private readonly workspaceSetupRuntime: WorkspaceSetupRuntime;
   private readonly workspaceGitObserver: WorkspaceGitObserverService;
   private readonly workspaceDirectory: WorkspaceDirectory;
+  private readonly workspaceTodoStore: WorkspaceTodoStore;
+  private readonly broadcastWorkspaceTodos?: (
+    message: SessionOutboundMessage,
+    exceptClientId: string,
+  ) => void;
   private readonly voiceSession: VoiceSession;
   private readonly checkoutSession: CheckoutSession;
   private readonly scheduleSession: ScheduleSession;
+  private readonly taskSession: TaskSession;
+  private readonly uiStateSession: UiStateSession;
   private readonly providerCatalogSession: ProviderCatalogSession;
   private readonly workspaceFilesSession: WorkspaceFilesSession;
+  private readonly tcpTunnelForwarder: TcpTunnelForwarder;
   private readonly agentConfigSession: AgentConfigSession;
   private readonly projectConfigSession: ProjectConfigSession;
   private readonly daemonSession: DaemonSession;
   private readonly hubExecutionController: HubExecutionController | null;
   private readonly workspaceScripts: WorkspaceScriptsService;
   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
+  private readonly backgroundTaskOutputSubscriptions = createBackgroundTaskOutputSubscriptions();
 
   constructor(options: SessionOptions) {
     const {
@@ -763,6 +847,9 @@ export class Session {
       workspaceLabelService,
       filesystem,
       scheduleService,
+      taskStore,
+      uiStateStore,
+      broadcastUiState,
       checkoutDiffManager,
       github,
       renameCurrentBranch,
@@ -826,6 +913,10 @@ export class Session {
       },
       downloadTokenStore,
       paseoHome,
+      logger: this.sessionLogger,
+    });
+    this.tcpTunnelForwarder = new TcpTunnelForwarder({
+      emitBinary: (frame) => this.emitBinary(frame),
       logger: this.sessionLogger,
     });
     this.agentManager = agentManager;
@@ -900,6 +991,23 @@ export class Session {
       host: { emit: (msg) => this.emit(msg) },
       scheduleService,
       logger: this.sessionLogger,
+    });
+    this.taskSession = new TaskSession({
+      host: {
+        emit: (msg) => this.emit(msg),
+      },
+      store: taskStore,
+      projectRegistry: this.projectRegistry,
+      downloadTokenStore,
+    });
+    this.uiStateSession = new UiStateSession({
+      host: {
+        emit: (msg) => this.emit(msg),
+        broadcast: (msg) => {
+          broadcastUiState?.(msg, this.clientId);
+        },
+      },
+      store: resolveUiStateStore(uiStateStore, paseoHome),
     });
     this.providerCatalogSession = new ProviderCatalogSession({
       host: {
@@ -1062,6 +1170,9 @@ export class Session {
       isProviderVisibleToClient: (provider) => this.isProviderVisibleToClient(provider),
       buildWorkspaceDescriptor: (input) => this.buildWorkspaceDescriptor(input),
     });
+
+    this.workspaceTodoStore = resolveWorkspaceTodoStore(options.workspaceTodoStore, this.paseoHome);
+    this.broadcastWorkspaceTodos = options.broadcastWorkspaceTodos;
 
     this.voiceSession = new VoiceSession({
       host: {
@@ -1375,6 +1486,77 @@ export class Session {
     };
   }
 
+  private async handleModelsDevLookupModelRequest(
+    msg: Extract<SessionInboundMessage, { type: "models.dev.lookup_model.request" }>,
+  ): Promise<void> {
+    const result = await lookupModelsDevModel(msg.modelId);
+    this.emit({
+      type: "models.dev.lookup_model.response",
+      payload: {
+        requestId: msg.requestId,
+        found: result.found,
+        modelId: result.query,
+        ...(result.found
+          ? {
+              matchedId: result.matchedId,
+              ...(result.name ? { name: result.name } : {}),
+              contextWindowMaxTokens: result.contextWindowMaxTokens,
+              ...(result.maxOutputTokens !== undefined
+                ? { maxOutputTokens: result.maxOutputTokens }
+                : {}),
+              providerId: result.providerId,
+              ...(result.inputModalities ? { inputModalities: result.inputModalities } : {}),
+              ...(result.outputModalities ? { outputModalities: result.outputModalities } : {}),
+              ...(result.capabilities ? { capabilities: result.capabilities } : {}),
+              candidates: result.candidates,
+              error: null,
+            }
+          : {
+              error: result.error ?? null,
+            }),
+      },
+    });
+  }
+
+  private async handleMetadataCustomEndpointListModelsRequest(
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "metadataGeneration.customEndpoint.listModels.request" }
+    >,
+  ): Promise<void> {
+    const saved = this.daemonConfigStore.get().metadataGeneration.customEndpoint;
+    const baseUrl = (msg.baseUrl ?? saved?.baseUrl ?? "").trim();
+    const apiKey = (msg.apiKey ?? saved?.apiKey ?? "").trim();
+    if (!baseUrl) {
+      this.emit({
+        type: "metadataGeneration.customEndpoint.listModels.response",
+        payload: {
+          requestId: msg.requestId,
+          models: [],
+          error: {
+            code: "missing_base_url",
+            message: "Base URL is required",
+          },
+        },
+      });
+      return;
+    }
+
+    const result = await listMetadataOpenAIModels({
+      baseUrl,
+      ...(apiKey ? { apiKey } : {}),
+    });
+
+    this.emit({
+      type: "metadataGeneration.customEndpoint.listModels.response",
+      payload: {
+        requestId: msg.requestId,
+        models: result.models,
+        error: result.error,
+      },
+    });
+  }
+
   public getRuntimeMetrics(): SessionRuntimeMetrics {
     const terminalMetrics = this.terminalController.getMetrics();
     const workspaceGitMetrics = this.workspaceGitObserver.getMetrics();
@@ -1673,6 +1855,51 @@ export class Session {
           return;
         }
 
+        if (event.type === "background_tasks") {
+          this.emit({
+            type: "agent.background_tasks.update",
+            payload: {
+              parentAgentId: event.parentAgentId,
+              tasks: event.tasks.map((task) => ({
+                taskId: task.taskId,
+                parentAgentId: task.parentAgentId,
+                type: task.type,
+                description: task.description,
+                command: task.command,
+                status: task.status,
+                outputFile: task.outputFile,
+                lastSummary: task.lastSummary,
+                updatedAt: task.updatedAt,
+              })),
+            },
+          });
+          return;
+        }
+
+        if (event.type === "provider_heartbeats") {
+          this.emit({
+            type: "agent.provider_heartbeats.update",
+            payload: {
+              parentAgentId: event.parentAgentId,
+              heartbeats: event.heartbeats.map((heartbeat) => ({
+                taskId: heartbeat.taskId,
+                parentAgentId: heartbeat.parentAgentId,
+                provider: heartbeat.provider,
+                prompt: heartbeat.prompt,
+                mode: heartbeat.mode,
+                scheduleLabel: heartbeat.scheduleLabel,
+                nextHint: heartbeat.nextHint,
+                updatedAt: heartbeat.updatedAt,
+              })),
+            },
+          });
+          return;
+        }
+
+        if (event.type !== "agent_stream") {
+          return;
+        }
+
         if (
           this.voiceSession.isActiveForAgent(event.agentId) &&
           event.event.type === "permission_requested" &&
@@ -1915,7 +2142,7 @@ export class Session {
       this.dispatchAgentConfigMessage(msg) ??
       this.dispatchCheckoutMessage(msg) ??
       this.dispatchWorkspaceRecoveryMessage(msg) ??
-      this.dispatchWorkspaceLabelMessage(msg) ??
+      this.dispatchTaskUiStateAndLabelMessage(msg) ??
       this.dispatchWorkspaceAndProjectMessage(msg) ??
       this.dispatchWorkspaceFileMessage(msg, source) ??
       this.dispatchProviderMessage(msg) ??
@@ -2184,6 +2411,20 @@ export class Session {
         return this.handleProviderSubagentListRequest(msg);
       case "agent.provider_subagents.timeline.get.request":
         return this.handleProviderSubagentTimelineRequest(msg);
+      case "agent.background_tasks.list.request":
+        return this.handleBackgroundTasksListRequest(msg);
+      case "agent.background_tasks.stop.request":
+        return this.handleBackgroundTasksStopRequest(msg);
+      case "agent.background_tasks.output.get.request":
+        return this.handleBackgroundTasksOutputGetRequest(msg);
+      case "agent.background_tasks.output.subscribe.request":
+        return this.handleBackgroundTasksOutputSubscribeRequest(msg);
+      case "agent.background_tasks.output.unsubscribe.request":
+        return this.handleBackgroundTasksOutputUnsubscribeRequest(msg);
+      case "agent.provider_heartbeats.list.request":
+        return this.handleProviderHeartbeatsListRequest(msg);
+      case "agent.provider_heartbeats.delete.request":
+        return this.handleProviderHeartbeatsDeleteRequest(msg);
       case "agent.timeline.set_subscription.request": {
         const agentIds = [...new Set(msg.agentIds)].sort();
         if (
@@ -2203,6 +2444,8 @@ export class Session {
       }
       case "agent.fork_context.request":
         return this.handleAgentForkContextRequest(msg);
+      case "agent.native_fork.request":
+        return this.handleAgentNativeForkRequest(msg);
       default:
         return undefined;
     }
@@ -2308,6 +2551,10 @@ export class Session {
           },
         });
         return undefined;
+      case "metadataGeneration.customEndpoint.listModels.request":
+        return this.handleMetadataCustomEndpointListModelsRequest(msg);
+      case "models.dev.lookup_model.request":
+        return this.handleModelsDevLookupModelRequest(msg);
       case "read_project_config_request":
         return this.projectConfigSession.handleReadProjectConfigRequest(msg);
       case "write_project_config_request":
@@ -2386,11 +2633,32 @@ export class Session {
   private dispatchWorkspaceAndProjectMessage(
     msg: SessionInboundMessage,
   ): Promise<void> | undefined {
+    return this.dispatchProjectMessage(msg) ?? this.dispatchWorkspaceMessage(msg);
+  }
+
+  private dispatchProjectMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "project.list.request":
+        return this.handleProjectListRequest(msg);
+      case "open_project_request":
+        return this.handleOpenProjectRequest(msg);
+      case "project.add.request":
+        return this.handleProjectAddRequest(msg);
+      case "project.create_directory.request":
+        return this.handleProjectCreateDirectoryRequest(msg);
+      case "project.github.clone.request":
+        return this.handleProjectGithubCloneRequest(msg);
+      case "project.remove.request":
+        return this.handleProjectRemoveRequest(msg);
+      default:
+        return undefined;
+    }
+  }
+
+  private dispatchWorkspaceMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "fetch_workspaces_request":
         return this.handleFetchWorkspacesRequest(msg);
-      case "project.list.request":
-        return this.handleProjectListRequest(msg);
       case "paseo_worktree_list_request":
         return this.handlePaseoWorktreeListRequest(msg);
       case "paseo_worktree_archive_request":
@@ -2404,28 +2672,24 @@ export class Session {
         return this.handleLegacyListAvailableEditorsRequest(msg);
       case "open_in_editor_request":
         return this.handleLegacyOpenInEditorRequest(msg);
-      case "open_project_request":
-        return this.handleOpenProjectRequest(msg);
-      case "project.add.request":
-        return this.handleProjectAddRequest(msg);
-      case "project.create_directory.request":
-        return this.handleProjectCreateDirectoryRequest(msg);
       case "workspace.github.search_repositories.request":
         return this.handleWorkspaceGithubSearchRepositoriesRequest(msg);
-      case "project.github.clone.request":
-        return this.handleProjectGithubCloneRequest(msg);
       case "archive_workspace_request":
         return this.handleArchiveWorkspaceRequest(msg);
-      case "project.remove.request":
-        return this.handleProjectRemoveRequest(msg);
       case "workspace.create.request":
         return this.handleWorkspaceCreateRequest(msg);
       case "workspace.clear_attention.request":
         return this.handleWorkspaceClearAttentionRequest(msg);
+      case "workspace.mark_unread.request":
+        return this.handleWorkspaceMarkUnreadRequest(msg);
       case "workspace.title.set.request":
         return this.handleWorkspaceTitleSetRequest(msg.workspaceId, msg.title, msg.requestId);
       case "workspace.pin.set.request":
         return this.handleWorkspacePinSetRequest(msg.workspaceId, msg.pinned, msg.requestId);
+      case "workspace.todos.get.request":
+        return this.handleWorkspaceTodosGetRequest(msg);
+      case "workspace.todos.set.request":
+        return this.handleWorkspaceTodosSetRequest(msg);
       default:
         return undefined;
     }
@@ -2484,6 +2748,50 @@ export class Session {
     }
   }
 
+  private dispatchTaskUiStateAndLabelMessage(
+    msg: SessionInboundMessage,
+  ): Promise<void> | undefined {
+    return (
+      this.dispatchTaskMessage(msg) ??
+      this.dispatchUiStateMessage(msg) ??
+      this.dispatchWorkspaceLabelMessage(msg)
+    );
+  }
+
+  private dispatchTaskMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "tasks.list.request":
+        return this.taskSession.handleList(msg);
+      case "tasks.list_all.request":
+        return this.taskSession.handleListAll(msg);
+      case "tasks.create.request":
+        return this.taskSession.handleCreate(msg);
+      case "tasks.update.request":
+        return this.taskSession.handleUpdate(msg);
+      case "tasks.delete.request":
+        return this.taskSession.handleDelete(msg);
+      case "tasks.attachment.download_token.request":
+        return this.taskSession.handleAttachmentDownloadToken(msg);
+      default:
+        return undefined;
+    }
+  }
+
+  private dispatchUiStateMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "ui_state.get.request":
+        return this.uiStateSession.handleGet(msg);
+      case "ui_state.upsert.request":
+        return this.uiStateSession.handleUpsert(msg);
+      case "ui_state.clear.request":
+        return this.uiStateSession.handleClear(msg);
+      case "ui_state.list.request":
+        return this.uiStateSession.handleList(msg);
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchWorkspaceRecoveryMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "workspace.recovery.inspect.request":
@@ -2513,6 +2821,8 @@ export class Session {
         return this.providerCatalogSession.handleProviderDiagnosticRequest(msg);
       case "provider.usage.list.request":
         return this.providerCatalogSession.handleProviderUsageListRequest(msg);
+      case "provider.usage.reset_quota.request":
+        return this.providerCatalogSession.handleProviderUsageResetQuotaRequest(msg);
       default:
         return undefined;
     }
@@ -2590,6 +2900,10 @@ export class Session {
   public async handleBinaryFrame(binaryFrame: BinaryFrame): Promise<void> {
     if (binaryFrame.kind === "file_transfer") {
       await this.workspaceFilesSession.handleFileTransferFrame(binaryFrame.frame);
+      return;
+    }
+    if (binaryFrame.kind === "tcp_tunnel") {
+      this.tcpTunnelForwarder.handleFrame(binaryFrame.frame);
       return;
     }
     this.terminalController.handleBinaryFrame(binaryFrame.frame);
@@ -3237,6 +3551,70 @@ export class Session {
           accepted: false,
           title: null,
           error: getErrorMessageOr(error, "Failed to set workspace title"),
+        },
+      });
+    }
+  }
+
+  private async handleWorkspaceTodosGetRequest(
+    msg: Extract<SessionInboundMessage, { type: "workspace.todos.get.request" }>,
+  ): Promise<void> {
+    try {
+      const todos = await this.workspaceTodoStore.get(msg.workspaceId);
+      this.emit({
+        type: "workspace.todos.get.response",
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          todos,
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "workspace.todos.get.response",
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          todos: [],
+          error: getErrorMessage(error),
+        },
+      });
+    }
+  }
+
+  private async handleWorkspaceTodosSetRequest(
+    msg: Extract<SessionInboundMessage, { type: "workspace.todos.set.request" }>,
+  ): Promise<void> {
+    try {
+      const todos = await this.workspaceTodoStore.set(msg.workspaceId, msg.todos);
+      this.emit({
+        type: "workspace.todos.set.response",
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          todos,
+          error: null,
+        },
+      });
+      this.broadcastWorkspaceTodos?.(
+        {
+          type: "workspace.todos.update",
+          payload: {
+            workspaceId: msg.workspaceId,
+            todos,
+          },
+        },
+        this.clientId,
+      );
+    } catch (error) {
+      this.emit({
+        type: "workspace.todos.set.response",
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          todos: [],
+          error: getErrorMessage(error),
         },
       });
     }
@@ -6703,6 +7081,136 @@ export class Session {
     });
   }
 
+  private async handleWorkspaceMarkUnreadRequest(
+    request: Extract<SessionInboundMessage, { type: "workspace.mark_unread.request" }>,
+  ): Promise<void> {
+    const { requestId, workspaceId } = request;
+    const requestedWorkspaceIds = Array.isArray(workspaceId) ? workspaceId : [workspaceId];
+    let agents: AgentSnapshotPayload[];
+    try {
+      agents = await this.listAgentPayloads();
+    } catch (error) {
+      const message = getErrorMessage(error);
+      const results = requestedWorkspaceIds.map((requestedWorkspaceId) => ({
+        workspaceId: requestedWorkspaceId,
+        markedAgentIds: [],
+        success: false,
+        error: message,
+      }));
+      this.emit({
+        type: "workspace.mark_unread.response",
+        payload: {
+          requestId,
+          workspaceId,
+          markedAgentIds: [],
+          results,
+          success: false,
+          error: message,
+        },
+      });
+      return;
+    }
+    const results: Array<{
+      workspaceId: string;
+      markedAgentIds: string[];
+      success: boolean;
+      error: string | null;
+    }> = [];
+
+    for (const requestedWorkspaceId of requestedWorkspaceIds) {
+      const markedAgentIds: string[] = [];
+      try {
+        const workspace = await this.workspaceRegistry.get(requestedWorkspaceId);
+        if (!workspace || workspace.archivedAt) {
+          throw new Error(`Workspace not found: ${requestedWorkspaceId}`);
+        }
+
+        const markableAgentIds = agents
+          .filter((agent) => !agent.archivedAt)
+          .filter((agent) => agent.workspaceId === workspace.workspaceId)
+          .filter((agent) => (agent.pendingPermissions?.length ?? 0) === 0)
+          .filter((agent) => agent.status !== "running")
+          .map((agent) => agent.id);
+
+        const now = new Date();
+        const nowIso = now.toISOString();
+
+        for (const agentId of markableAgentIds) {
+          const liveAgent = this.agentManager.getAgent(agentId);
+          if (liveAgent) {
+            await this.agentManager.markAgentAttention(agentId, "finished");
+            markedAgentIds.push(agentId);
+            continue;
+          }
+
+          const record = await this.agentStorage.get(agentId);
+          if (!record || record.internal || record.archivedAt) {
+            continue;
+          }
+          const nextRecord: StoredAgentRecord = {
+            ...record,
+            updatedAt: nowIso,
+            requiresAttention: true,
+            attentionReason: "finished",
+            attentionTimestamp: nowIso,
+          };
+          await this.agentStorage.upsert(nextRecord);
+          const agent = this.buildStoredAgentPayload(nextRecord);
+          const project = await this.buildProjectPlacementForWorkspace(workspace);
+          this.emit({
+            type: "agent_update",
+            payload: {
+              kind: "upsert",
+              agent,
+              project,
+            },
+          });
+          markedAgentIds.push(agentId);
+        }
+
+        await this.emitWorkspaceUpdateForWorkspaceId(workspace.workspaceId);
+        results.push({
+          workspaceId: requestedWorkspaceId,
+          markedAgentIds,
+          success: true,
+          error: null,
+        });
+      } catch (error) {
+        const message = getErrorMessage(error);
+        this.sessionLogger.error(
+          { err: error, workspaceId: requestedWorkspaceId },
+          "Failed to mark workspace as unread",
+        );
+        results.push({
+          workspaceId: requestedWorkspaceId,
+          markedAgentIds,
+          success: false,
+          error: message,
+        });
+      }
+    }
+
+    const markedAgentIds = results.flatMap((result) => result.markedAgentIds);
+    const failedResults = results.filter((result) => !result.success);
+    this.emit({
+      type: "workspace.mark_unread.response",
+      payload: {
+        requestId,
+        workspaceId,
+        markedAgentIds,
+        results,
+        success: failedResults.length === 0,
+        error:
+          failedResults.length === 0
+            ? null
+            : failedResults
+                .map((result) => result.error)
+                .filter((error) => error !== null)
+                .join("; "),
+      },
+    });
+  }
+
   private async handleFetchAgent(agentIdOrIdentifier: string, requestId: string): Promise<void> {
     const resolved = await this.resolveAgentIdentifier(agentIdOrIdentifier);
     if (!resolved.ok) {
@@ -7000,6 +7508,283 @@ export class Session {
     }
   }
 
+  private async handleBackgroundTasksListRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.list.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      this.emit({
+        type: "agent.background_tasks.list.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          tasks: this.agentManager.listBackgroundTasks(msg.parentAgentId),
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.background_tasks.list.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          tasks: [],
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleProviderHeartbeatsListRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.provider_heartbeats.list.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      this.emit({
+        type: "agent.provider_heartbeats.list.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          heartbeats: this.agentManager.listProviderHeartbeats(msg.parentAgentId),
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.provider_heartbeats.list.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          heartbeats: [],
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleProviderHeartbeatsDeleteRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.provider_heartbeats.delete.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const result = await this.agentManager.deleteProviderHeartbeat(msg.parentAgentId, msg.taskId);
+      this.emit({
+        type: "agent.provider_heartbeats.delete.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          taskId: msg.taskId,
+          error: result.error,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.provider_heartbeats.delete.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          taskId: msg.taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleBackgroundTasksStopRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.stop.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      await this.agentManager.stopBackgroundTask(msg.parentAgentId, msg.taskId);
+      this.emit({
+        type: "agent.background_tasks.stop.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          taskId: msg.taskId,
+          error: null,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.background_tasks.stop.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          taskId: msg.taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleBackgroundTasksOutputGetRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.background_tasks.output.get.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const output = await this.agentManager.readBackgroundTaskOutput({
+        parentAgentId: msg.parentAgentId,
+        taskId: msg.taskId,
+        cursor: msg.cursor,
+        maxBytes: msg.maxBytes,
+      });
+      this.emit({
+        type: "agent.background_tasks.output.get.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          taskId: msg.taskId,
+          text: output.text,
+          nextCursor: output.nextCursor,
+          eof: output.eof,
+          error: output.error,
+        },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.background_tasks.output.get.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          taskId: msg.taskId,
+          text: "",
+          nextCursor: msg.cursor ?? 0,
+          eof: true,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleBackgroundTasksOutputSubscribeRequest(
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "agent.background_tasks.output.subscribe.request" }
+    >,
+  ): Promise<void> {
+    try {
+      await ensureUnarchivedAgentLoaded(msg.parentAgentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      this.backgroundTaskOutputSubscriptions.upsert({
+        parentAgentId: msg.parentAgentId,
+        taskId: msg.taskId,
+      });
+      this.emit({
+        type: "agent.background_tasks.output.subscribe.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          taskId: msg.taskId,
+          error: null,
+        },
+      });
+      void this.pollBackgroundTaskOutputSubscription({
+        parentAgentId: msg.parentAgentId,
+        taskId: msg.taskId,
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.background_tasks.output.subscribe.response",
+        payload: {
+          requestId: msg.requestId,
+          parentAgentId: msg.parentAgentId,
+          taskId: msg.taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleBackgroundTasksOutputUnsubscribeRequest(
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "agent.background_tasks.output.unsubscribe.request" }
+    >,
+  ): Promise<void> {
+    this.backgroundTaskOutputSubscriptions.remove({
+      parentAgentId: msg.parentAgentId,
+      taskId: msg.taskId,
+    });
+    this.emit({
+      type: "agent.background_tasks.output.unsubscribe.response",
+      payload: {
+        requestId: msg.requestId,
+        parentAgentId: msg.parentAgentId,
+        taskId: msg.taskId,
+        error: null,
+      },
+    });
+  }
+
+  private pollBackgroundTaskOutputSubscription(input: {
+    parentAgentId: string;
+    taskId: string;
+  }): void {
+    const entry = this.backgroundTaskOutputSubscriptions.get(input);
+    if (!entry || entry.timer) return;
+    const tick = async () => {
+      const current = this.backgroundTaskOutputSubscriptions.get(input);
+      if (!current) return;
+      try {
+        const output = await this.agentManager.readBackgroundTaskOutput({
+          parentAgentId: input.parentAgentId,
+          taskId: input.taskId,
+          cursor: current.cursor,
+          maxBytes: 64_000,
+        });
+        if (output.text.length > 0 || output.eof) {
+          this.backgroundTaskOutputSubscriptions.setCursor(input, output.nextCursor);
+          this.emit({
+            type: "agent.background_tasks.output.update",
+            payload: {
+              parentAgentId: input.parentAgentId,
+              taskId: input.taskId,
+              text: output.text,
+              nextCursor: output.nextCursor,
+              eof: output.eof,
+            },
+          });
+        }
+        if (output.eof) {
+          this.backgroundTaskOutputSubscriptions.remove(input);
+        }
+      } catch (error) {
+        this.sessionLogger.warn(
+          { err: error, parentAgentId: input.parentAgentId, taskId: input.taskId },
+          "Failed to poll background task output",
+        );
+      }
+    };
+    void tick();
+    entry.timer = setInterval(() => {
+      void tick();
+    }, 1000);
+  }
+
   private async handleProviderSubagentListRequest(
     msg: Extract<SessionInboundMessage, { type: "agent.provider_subagents.list.request" }>,
   ): Promise<void> {
@@ -7156,6 +7941,49 @@ export class Session {
     }
   }
 
+  private async handleAgentNativeForkRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.native_fork.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const result = await this.agentManager.nativeForkAgent({
+        sourceAgentId: msg.agentId,
+        boundaryMessageId: msg.boundaryMessageId,
+        boundaryCursor: msg.boundaryCursor,
+        target: msg.target,
+      });
+      this.emit({
+        type: "agent.native_fork.response",
+        payload: {
+          requestId: msg.requestId,
+          sourceAgentId: msg.agentId,
+          accepted: true,
+          error: null,
+          agentId: result.agentId,
+          workspaceId: result.workspaceId,
+        },
+      });
+    } catch (error) {
+      this.sessionLogger.error(
+        { err: error, agentId: msg.agentId },
+        "Failed to handle agent.native_fork.request",
+      );
+      this.emit({
+        type: "agent.native_fork.response",
+        payload: {
+          requestId: msg.requestId,
+          sourceAgentId: msg.agentId,
+          accepted: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
   private async handleSendAgentMessageRequest(
     msg: Extract<SessionInboundMessage, { type: "send_agent_message_request" }>,
   ): Promise<void> {
@@ -7181,7 +8009,8 @@ export class Session {
         {
           agentId,
           messageId: msg.messageId,
-          activeTurnBehavior: msg.activeTurnBehavior,
+          steer: msg.steer === true,
+          activeTurnBehavior: msg.activeTurnBehavior ?? (msg.steer === true ? "steer" : undefined),
           textPrefix: msg.text.slice(0, 80),
         },
         "agent.session.send_agent_message",
@@ -7194,7 +8023,9 @@ export class Session {
           agentId,
           prompt,
           messageId: msg.messageId,
-          activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+          steer: msg.steer === true,
+          activeTurnBehavior:
+            msg.activeTurnBehavior ?? (msg.steer === true ? "steer" : "interrupt"),
           clearPendingPermissions: true,
           logger: this.sessionLogger,
         });
@@ -7388,6 +8219,11 @@ export class Session {
   /**
    * Emit a message to the client
    */
+  /** Public emit for server-side fan-out (e.g. ui_state.updated). */
+  emitOutbound(msg: SessionOutboundMessage): void {
+    this.emit(msg);
+  }
+
   private emit(msg: SessionOutboundMessage): void {
     if (msg.type !== "rpc_error" && !isSessionRpcAllowed(this.scopes, msg.type)) {
       return;
@@ -7439,7 +8275,9 @@ export class Session {
    */
   public async cleanup(): Promise<void> {
     this.sessionLogger.trace({}, "agent.session.lifecycle.cleanup");
+    this.tcpTunnelForwarder.dispose();
     this.isCleanedUp = true;
+    this.backgroundTaskOutputSubscriptions.clearAll();
 
     if (this.unsubscribeAgentEvents) {
       this.unsubscribeAgentEvents();

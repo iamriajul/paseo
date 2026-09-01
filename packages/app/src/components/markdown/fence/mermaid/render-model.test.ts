@@ -160,4 +160,31 @@ describe("Mermaid render model", () => {
     expect(rejected.status).toBe("rejected");
     expect(rejected.visible).toBeNull();
   });
+
+  it("records the render error message on failure", () => {
+    const pending = createMermaidRenderModel(input());
+    const failed = reduceMermaidRenderModel(pending, {
+      type: "renderFailed",
+      revision: pending.revision,
+      message: "Parse error on line 2",
+    });
+
+    expect(failed.status).toBe("failed");
+    expect(failed.errorMessage).toBe("Parse error on line 2");
+  });
+
+  it("clears a stale error message once a new revision comes in", () => {
+    const pending = createMermaidRenderModel(input());
+    const failed = reduceMermaidRenderModel(pending, {
+      type: "renderFailed",
+      revision: pending.revision,
+      message: "Parse error on line 2",
+    });
+    const nextPending = reduceMermaidRenderModel(failed, {
+      type: "inputChanged",
+      input: input({ source: "flowchart TD\nA --> B\nB --> C" }),
+    });
+
+    expect(nextPending.errorMessage).toBeNull();
+  });
 });

@@ -8,6 +8,8 @@ import { ExternalCliCommandError } from "./cli/external";
 import {
   createDaemonCommandHandlers,
   keepsTerminalsOnStop,
+  peekDesktopDaemonServerId,
+  resetDesktopDaemonServerIdCache,
   stopCapturedDaemon,
   type DesktopDaemonStopReason,
 } from "./daemon-manager";
@@ -102,6 +104,9 @@ describe("daemon-manager commands", () => {
     mocks.logError.mockReset();
     mocks.getElectronLogFile.mockReset();
     mocks.getElectronLogFile.mockReturnValue({ path: mocks.appLogPath });
+    resetDesktopDaemonServerIdCache();
+    rmSync(mocks.paseoHome, { recursive: true, force: true });
+    rmSync(mocks.appLogPath, { force: true });
   });
 
   afterEach(() => {
@@ -182,6 +187,40 @@ describe("daemon-manager commands", () => {
     writeFileSync(lockPath, JSON.stringify({ ...lock, desktopManaged: false }));
     expect(await handler({ listen: "localhost:6799" })).toBeNull();
   });
+  it("remembers the local daemon serverId so Browser registration can skip CLI", async () => {
+    mocks.runExternalCliJsonCommand.mockResolvedValue({
+      localDaemon: "running",
+      connectedDaemon: "reachable",
+      serverId: "local-daemon-1",
+      listen: "127.0.0.1:6767",
+      desktopManaged: true,
+    });
+    const handlers = createDaemonCommandHandlers();
+
+    await handlers.desktop_daemon_status();
+
+    expect(peekDesktopDaemonServerId()).toBe("local-daemon-1");
+    mocks.runExternalCliJsonCommand.mockClear();
+    expect(peekDesktopDaemonServerId()).toBe("local-daemon-1");
+    expect(mocks.runExternalCliJsonCommand).not.toHaveBeenCalled();
+  });
+
+  it("keeps the last known daemon serverId when a later status probe fails", async () => {
+    mocks.runExternalCliJsonCommand
+      .mockResolvedValueOnce({
+        localDaemon: "running",
+        connectedDaemon: "reachable",
+        serverId: "local-daemon-1",
+        listen: "127.0.0.1:6767",
+        desktopManaged: true,
+      })
+      .mockRejectedValueOnce(new Error("status command failed"));
+    const handlers = createDaemonCommandHandlers();
+
+    await handlers.desktop_daemon_status();
+    await handlers.desktop_daemon_status();
+
+    expect(peekDesktopDaemonServerId()).toBe("local-daemon-1");  });
 });
 
 describe("desktop stops and terminals", () => {

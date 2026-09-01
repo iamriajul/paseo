@@ -81,6 +81,15 @@ export interface AgentModelDefinition {
   isDefault?: boolean;
   metadata?: AgentMetadata;
   contextWindowMaxTokens?: number;
+  maxOutputTokens?: number;
+  needsCapacityConfig?: boolean;
+  modelsDevCandidates?: Array<{
+    providerId: string;
+    matchedId: string;
+    name?: string;
+    contextWindowMaxTokens: number;
+    maxOutputTokens?: number;
+  }>;
   thinkingOptions?: AgentSelectOption[];
   defaultThinkingOptionId?: string;
 }
@@ -151,6 +160,10 @@ export interface AgentCapabilityFlags {
   supportsRewindConversation?: boolean;
   supportsRewindFiles?: boolean;
   supportsRewindBoth?: boolean;
+  // COMPAT(supportsNativeFork): added in v0.2.916
+  supportsNativeFork?: boolean;
+  // COMPAT(supportsSteer): added in v0.2.916
+  supportsSteer?: boolean;
 }
 
 export interface AgentPersistenceHandle {

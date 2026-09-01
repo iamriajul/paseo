@@ -42,14 +42,12 @@ export function useSchedules(): UseSchedulesResult {
   );
   const serverIds = useMemo(() => hostInputs.map((host) => host.serverId), [hostInputs]);
   const connectionStatuses = useHostRuntimeConnectionStatuses(serverIds);
-  const connectionStatusKey = useMemo(
-    () => serverIds.map((serverId) => connectionStatuses.get(serverId) ?? "connecting").join("|"),
-    [connectionStatuses, serverIds],
-  );
+  const anyHostOnline = serverIds.some((serverId) => connectionStatuses.get(serverId) === "online");
 
   const query = useFetchQuery({
-    queryKey: [...schedulesQueryKey(serverIds), connectionStatusKey],
+    queryKey: schedulesQueryKey(serverIds),
     queryFn: () => fetchAggregatedSchedules({ hosts: hostInputs, runtime }),
+    enabled: anyHostOnline,
     dataShape: "list",
     staleTimeMs: 5_000,
   });

@@ -30,12 +30,16 @@ export interface StatusRingProps {
  * site, outside anything Unistyles tracks, and leave the mark in the old theme until something
  * incidental re-rendered the row.
  */
-export function StatusRingFrame({ backdrop, children }: StatusRingProps & { children: ReactNode }) {
+export function StatusRingFrame({
+  backdrop,
+  children,
+  center,
+}: StatusRingProps & { children: ReactNode; center?: ReactNode }) {
   return (
     <View style={[styles.frame, getBackdropStyle(backdrop)]}>
       <View style={styles.track} />
       {children}
-      <View style={styles.centerDot} />
+      {center ?? <View style={styles.centerDot} />}
     </View>
   );
 }

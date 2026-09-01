@@ -33,7 +33,7 @@ npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts 
 
 **fork tracks as composer pills**
 
-ComposerTrackBar is shown when fork extra pills exist; AgentTracks renders heartbeats/background tasks as children. The chat mounts the schedules query to find heartbeat rows, so that query key is host identity only — putting connection status in the key refetches on drop and fights the official working-indicator test.
+ComposerTrackBar is shown when fork extra pills exist; AgentTracks renders heartbeats/background tasks as children. Schedules query key is host identity only.
 
 ```bash
 npx vitest run packages/app/src/panels/agent-tracks.test.ts packages/app/src/heartbeats/track-presentation.test.ts packages/app/src/background-tasks/track-presentation.test.ts packages/protocol/src/background-tasks-schema.test.ts packages/protocol/src/provider-heartbeats-schema.test.ts packages/app/src/hooks/use-schedules.test.ts --bail=1
@@ -335,12 +335,12 @@ npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src
 
 **commit provider user_message acks before the stream coalescer frame**
 
-a live user_message that acknowledges a pending submission is flushed immediately; disconnect flushes those pending events so a websocket drop cannot strand the working indicator. The live clientMessageId still settles the submission when sequencing drops the row (gap/stale), the viewed timeline is detached, or apply inserts because the snapshot missed the optimistic row. An unreconciled local row also settles by matching text when the live event omits clientMessageId.
-
-v0.8.0 upstream removed the session-store turn-liveness map (turns now live on the Agent record via directory-sync) and stopped clearing liveness on disconnect, so the clear/pause half of this series has no target: the disconnect effect flushes pending acks only, and liveness persists until authoritative catch-up reconciles it. The chat also hides live-turn chrome and pending-send busy state unless the host is online, so Reconnecting cannot sit next to a working timer.
+flush live user_message through the stream coalescer in the same turn as onmessage; disconnect flushes pending acks and the chat hides live-turn chrome while the host is offline. (v0.8.0 upstream removed the session-store liveness map, so there is no store clearing to do; turns live on the Agent record and reconcile on catch-up.)
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/timeline/ingest-agent-stream-event.test.ts src/timeline/turn-liveness.test.ts --bail=1
+```
+
 ## paseo-backed-claude-subagent-prompt-cache-ttl
 
 **5m prompt cache TTL for orchestrator-spawned Claude agents**

@@ -37,9 +37,13 @@ export type WorkspaceTabTarget =
   | { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup }
   | { kind: "agent"; agentId: string }
   | { kind: "provider_subagent"; parentAgentId: string; subagentId: string }
+  | { kind: "background_task"; parentAgentId: string; taskId: string }
+  | { kind: "loop"; loopId: string }
   | { kind: "terminal"; terminalId: string }
   | { kind: "browser"; browserId: string }
+  | { kind: "codeServer"; codeServerId: string }
   | { kind: "changes_tree" }
+  | { kind: "todo" }
   | { kind: "files" }
   | { kind: "pull_request" }
   | WorkspaceFileTabTarget

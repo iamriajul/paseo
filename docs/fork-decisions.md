@@ -323,7 +323,7 @@ npx vitest run packages/server/src/server/authorization/index.test.ts --bail=1 -
 
 **per-workspace todo list in explorer sidebar, left sidebar, and composer**
 
-workspace-scoped todo checklist with Apple Notes style UI, Explorer sidebar tab, left sidebar progress indicator, and composer pill
+workspace-scoped todo checklist with Apple Notes style UI, Explorer sidebar tab, left sidebar progress indicator, and composer pill. Default Explorer focus stays Changes so Cmd+E matches official; the extra Todo tab would otherwise become the last-tab default.
 
 v0.7.0 plugin navigation imports expo-router from the registry. Root `npx vitest` does not apply the app vitest config (JSX transform, `__DEV__`, expo-router mock), so run these through the app workspace.
 

@@ -793,3 +793,31 @@ describe("updateSessionServerInfo", () => {
     });
   });
 });
+
+describe("pending submission after disconnect", () => {
+  it("goes idle once a live user_message is committed and turn liveness is cleared", () => {
+    initializeTestSession();
+    const store = useSessionStore.getState();
+    const agentId = "agent-1";
+    const clientMessageId = "client-1";
+    store.beginAgentMessageSubmission("test-server", agentId, submittedMessage(clientMessageId));
+    store.applyAgentTurnLiveness("test-server", agentId, {
+      type: "stream_open",
+      turn: { turnId: "turn-1", startedAt: new Date("2026-09-01T00:00:01.000Z") },
+    });
+    expect(
+      selectAgentTurnPresentation(useSessionStore.getState().sessions["test-server"], agentId)
+        .isActive,
+    ).toBe(true);
+
+    store.setAgentStreamState("test-server", agentId, {
+      acknowledgedClientMessageIds: [clientMessageId],
+    });
+    store.clearAgentTurnLiveness("test-server");
+
+    expect(
+      selectAgentTurnPresentation(useSessionStore.getState().sessions["test-server"], agentId)
+        .isActive,
+    ).toBe(false);
+  });
+});

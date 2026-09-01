@@ -61,6 +61,14 @@ the anchored page still leaves the viewport at history start, as with short or c
 that case pagination continues as one loading operation until the page fills the viewport or history
 is exhausted.
 
+Conversation search is the other intentional older-history consumer. While a non-empty user or
+assistant search is open, the app walks older projected timeline pages sequentially using the same
+100-item `direction: "before"` requests as scroll pagination. Scroll and search share a per-agent
+single-flight coordinator, so they never overlap a cursor request. Search stops scheduling pages
+when it closes or the agent changes, but an already in-flight bounded page is allowed to finish.
+Loaded matches remain usable after a fetch error and the result count stays explicitly incomplete
+until `hasOlder` is false.
+
 ## Durable item anchors
 
 Provider message IDs are not guaranteed for every displayed item. Paseo-generated system errors are one example. Rendered item indices are not durable either because pagination and projection can merge source rows.

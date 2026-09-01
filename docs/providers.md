@@ -57,6 +57,16 @@ Existing direct providers: `claude` (in `providers/claude/agent.ts`), `codex` (`
 
 Claude first-party model metadata lives in `packages/server/src/server/agent/providers/claude/model-manifest.ts`. When adding or updating a Claude model, update that manifest only; the model picker thinking options and Claude-specific feature gates are derived from the manifest. Do not add model-specific Claude capability lists in feature code.
 
+For every Claude catalog entry, set the full capability surface Claude Code exposes for that model:
+
+- `contextWindowMaxTokens` and a separate `[1m]` row when 200k/1M are distinct launch IDs
+- `effortLevels` (CC TUI: low/medium/high/xhigh/max)
+- `supportsThinkingDisabled` when Off is allowed
+- `supportsFastMode` for Opus models that support Fast in Claude Code
+- `minimumClaudeCodeVersion` when the model needs a newer CLI
+
+Keep the capability matrix test in `models.test.ts` in sync. Until `fetchCatalog` consumes Claude Agent SDK `supportedModels()`, this table is the source of truth and will lag the TUI if left incomplete.
+
 Paseo tools are not implemented as MCP tools internally. They live in a shared tool catalog under `packages/server/src/server/agent/tools/`; MCP is only the fallback adapter. The daemon resolves `agents.providers.<provider>.paseoTools` by the exact provider ID. The catalog policy belongs to the caller: it filters the tools exposed to the current agent. When that agent calls `create_agent`, the child receives the policy for the child provider ID; the caller's policy is not inherited.
 
 A provider that can register runtime tools directly should set `supportsNativePaseoTools: true` and consume the already-filtered `launchContext.paseoTools` in `createSession`/`resumeSession`. When native tools are present, `AgentManager` strips the internal Paseo MCP server from the provider launch config so the provider does not receive the same tools twice. Providers that only know MCP should keep `supportsMcpServers: true` and let the daemon inject `/mcp/agents`; the MCP server builds the same policy-filtered catalog for that caller. Filtering is enforced at catalog registration in both paths. Browser tools remain subject to the daemon browser-tools setting and browser-host availability.

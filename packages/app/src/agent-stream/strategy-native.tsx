@@ -340,6 +340,9 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
           reason,
         });
       },
+      scrollToItem: () => {
+        // Native history search uses message-id scrolling when available; no-op fallback.
+      },
       prepareForViewportChange: () => {
         bottomAnchorController.prepareForStickyViewportChange();
         markNativeViewportSettling();

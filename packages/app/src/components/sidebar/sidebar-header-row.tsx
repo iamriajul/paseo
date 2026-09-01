@@ -104,7 +104,7 @@ export function SidebarHeaderRow({
         </>
       );
     },
-    [ThemedIcon, isActive, label, shortcutKeys],
+    [ThemedIcon, isActive, label, shortcutKeys, trailingAction],
   );
 
   return (
@@ -178,6 +178,11 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
     userSelect: "none",
   },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
   button: {
     flexDirection: "row",
     alignItems: "center",
@@ -188,6 +193,12 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
     borderRadius: theme.borderRadius.lg,
+    flex: 1,
+    minWidth: 0,
+  },
+  buttonWithTrailingAction: {
+    // Keep room for the trailing action without shifting the label under it.
+    paddingRight: theme.spacing[1],
   },
   // Compact header entries (New workspace / History) sit tighter than the
   // workspace-row shape the base button mirrors.
@@ -209,6 +220,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foregroundMuted,
+    flexShrink: 1,
   },
   labelHighlighted: {
     color: theme.colors.foreground,
@@ -220,8 +232,7 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
-  },
-  trailingAction: {
+  },  trailingAction: {
     minWidth: 28,
     minHeight: 28,
     alignItems: "center",

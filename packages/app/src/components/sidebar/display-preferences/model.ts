@@ -11,6 +11,7 @@ import {
 } from "@/stores/sidebar-view-store";
 import { DEFAULT_SIDEBAR_CHECKS_DISPLAY, type SidebarChecksDisplay } from "./checks-display";
 import { DEFAULT_SIDEBAR_ROW_ITEMS, type SidebarRowItem, type SidebarRowItems } from "./row-items";
+import { DEFAULT_SIDEBAR_STATUS_SUBTITLE, type SidebarStatusSubtitle } from "./workspace-subtitle";
 
 /** The trailing slot holds one thing, so these are a choice rather than toggles. */
 export type SidebarTrailingChoice = Exclude<SidebarWorkspaceTrailing, "none">;
@@ -24,6 +25,10 @@ export interface SidebarDisplayPreferences {
   toggleRowItem: (item: SidebarRowItem) => void;
   checksDisplay: SidebarChecksDisplay;
   setChecksDisplay: (display: SidebarChecksDisplay) => void;
+  statusSubtitle: SidebarStatusSubtitle;
+  setStatusSubtitle: (value: SidebarStatusSubtitle) => void;
+  identityIcon: boolean;
+  setIdentityIcon: (value: boolean) => void;
   trailing: SidebarWorkspaceTrailing;
   /** Picking the choice that is already showing clears the slot. */
   toggleTrailing: (choice: SidebarTrailingChoice) => void;
@@ -66,6 +71,8 @@ export function useSidebarDisplayPreferences(): SidebarDisplayPreferences {
       sidebarWorkspaceTrailing,
       sidebarRowItems,
       sidebarChecksDisplay,
+      sidebarStatusSubtitle,
+      sidebarIdentityIcon,
     },
     updateSettings,
   } = useAppSettings();
@@ -93,6 +100,20 @@ export function useSidebarDisplayPreferences(): SidebarDisplayPreferences {
     [updateSettings],
   );
 
+  const setStatusSubtitle = useCallback(
+    (value: SidebarStatusSubtitle) => {
+      void updateSettings({ sidebarStatusSubtitle: value });
+    },
+    [updateSettings],
+  );
+
+  const setIdentityIcon = useCallback(
+    (value: boolean) => {
+      void updateSettings({ sidebarIdentityIcon: value });
+    },
+    [updateSettings],
+  );
+
   const toggleTrailing = useCallback(
     (choice: SidebarTrailingChoice) => {
       void updateSettings({
@@ -112,6 +133,10 @@ export function useSidebarDisplayPreferences(): SidebarDisplayPreferences {
       toggleRowItem,
       checksDisplay: sidebarChecksDisplay,
       setChecksDisplay,
+      statusSubtitle: sidebarStatusSubtitle,
+      setStatusSubtitle,
+      identityIcon: sidebarIdentityIcon,
+      setIdentityIcon,
       trailing: sidebarWorkspaceTrailing,
       toggleTrailing,
       hostFilters,
@@ -133,6 +158,10 @@ export function useSidebarDisplayPreferences(): SidebarDisplayPreferences {
       toggleRowItem,
       sidebarChecksDisplay,
       setChecksDisplay,
+      sidebarStatusSubtitle,
+      setStatusSubtitle,
+      sidebarIdentityIcon,
+      setIdentityIcon,
       sidebarWorkspaceTrailing,
       toggleTrailing,
       hostFilters,
@@ -167,15 +196,19 @@ export function useSidebarRowItems(): SidebarRowItems {
 export function useSidebarMetaPreferences(): {
   rowItems: SidebarRowItems;
   checksDisplay: SidebarChecksDisplay;
+  statusSubtitle: SidebarStatusSubtitle;
+  identityIcon: boolean;
 } {
   const {
-    settings: { sidebarRowItems, sidebarChecksDisplay },
+    settings: { sidebarRowItems, sidebarChecksDisplay, sidebarStatusSubtitle, sidebarIdentityIcon },
   } = useAppSettings();
   return useMemo(
     () => ({
       rowItems: sidebarRowItems ?? DEFAULT_SIDEBAR_ROW_ITEMS,
       checksDisplay: sidebarChecksDisplay ?? DEFAULT_SIDEBAR_CHECKS_DISPLAY,
+      statusSubtitle: sidebarStatusSubtitle ?? DEFAULT_SIDEBAR_STATUS_SUBTITLE,
+      identityIcon: sidebarIdentityIcon ?? true,
     }),
-    [sidebarRowItems, sidebarChecksDisplay],
+    [sidebarRowItems, sidebarChecksDisplay, sidebarStatusSubtitle, sidebarIdentityIcon],
   );
 }

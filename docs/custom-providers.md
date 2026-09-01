@@ -76,6 +76,14 @@ Required fields for custom providers:
 
 See [Codex with a custom OpenAI-compatible endpoint](#codex-with-a-custom-openai-compatible-endpoint) below for the dedicated Codex example.
 
+### CLIProxyAPI model discovery
+
+When `ANTHROPIC_BASE_URL` points to [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), Paseo confirms the endpoint from its `X-CPA-*` response headers. On a Claude catalog refresh, it decodes CLIProxyAPI's rewritten model IDs to raw IDs and appends the discovered models to the existing catalog.
+
+Use the existing provider models `Refresh` button to run discovery. Paseo trusts capacity reported by CPA for official `owned_by` brands. For OpenAI-compatible and other non-official owners, it uses models.dev; unresolved capacity leaves the model selectable with a soft configuration warning.
+
+When capacity resolves, Paseo fills only missing fields in `additionalModels`, so the saved limits are available for Claude launch environment pins. See the [CLIProxyAPI Claude model discovery design](superpowers/specs/2026-08-11-cliproxyapi-claude-code-models-design.md) for the protocol and precedence details.
+
 ---
 
 ## Z.AI (Zhipu) coding plan
@@ -689,15 +697,30 @@ Every entry under `agents.providers` accepts these fields:
 
 ### Model definition
 
-Each entry in the `models` array:
+Each entry in the `models` / `additionalModels` array:
 
-| Field             | Type               | Required | Description                           |
-| ----------------- | ------------------ | -------- | ------------------------------------- |
-| `id`              | `string`           | Yes      | Model identifier sent to the provider |
-| `label`           | `string`           | Yes      | Display name in the UI                |
-| `description`     | `string`           | No       | Short description                     |
-| `isDefault`       | `boolean`          | No       | Mark as the default model selection   |
-| `thinkingOptions` | `ThinkingOption[]` | No       | Available thinking/reasoning levels   |
+| Field                         | Type               | Required | Description                                                                                                                                           |
+| ----------------------------- | ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                          | `string`           | Yes      | Model identifier sent to the provider                                                                                                                 |
+| `label`                       | `string`           | Yes      | Display name in the UI                                                                                                                                |
+| `description`                 | `string`           | No       | Short description                                                                                                                                     |
+| `isDefault`                   | `boolean`          | No       | Mark as the default model selection                                                                                                                   |
+| `contextWindowMaxTokens`      | `number`           | No       | Context window size in tokens (usage meter + Claude capacity override)                                                                                |
+| `maxOutputTokens`             | `number`           | No       | Max single-response tokens (Claude `CLAUDE_CODE_MAX_OUTPUT_TOKENS` when set)                                                                          |
+| `autoCompactThresholdPercent` | `number` (50–99)   | No       | Percent of `contextWindowMaxTokens` used for Claude auto-compact. Default `90`. Seeds `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when a context window is set. |
+| `modelsDevProviderId`         | `string`           | No       | models.dev provider id used for metadata, or `custom` for fully manual values                                                                         |
+| `modelsDevMatchedId`          | `string`           | No       | Exact models.dev model id selected for metadata                                                                                                       |
+| `inputModalities`             | `string[]`         | No       | Snapshot of accepted input types from models.dev                                                                                                      |
+| `outputModalities`            | `string[]`         | No       | Snapshot of output types from models.dev                                                                                                              |
+| `capabilities`                | `string[]`         | No       | Snapshot of capability chips from models.dev                                                                                                          |
+| `thinkingOptions`             | `ThinkingOption[]` | No       | Available thinking/reasoning levels                                                                                                                   |
+
+In Settings → Providers → a provider sheet, custom models can be **added and edited**. The form accepts Model ID, optional Label, Context Window, Auto-Compact Threshold (50–99%, default 90%), and Max Output. The threshold shows the computed token target (`contextWindow × percent`) and is written to config with the model. On Model ID blur, the daemon looks up [models.dev](https://models.dev) when `server_info.features.modelsDevLookup` is present and returns every matching host listing (`limit.context`, `limit.output`, modalities, capabilities). models.dev only publishes a full catalog (`api.json`); the daemon caches it in memory and on disk under `$PASEO_HOME/cache/models-dev/`, serves stale data while refreshing, and surfaces transport failures separately from true misses.
+
+- One clear listing: autofill Context Window, Max Output, and label when empty.
+- Multiple listings: show a searchable **Metadata Source** dropdown (always includes **Custom**). Changing the source updates only fields still empty or previously autofilled.
+- Not found / lookup failed: save still works; leave fields blank or set them manually.
+- Manual values always win over autofill.
 
 ### Thinking option
 
@@ -710,9 +733,40 @@ Each entry in the `models` array:
 
 ### Claude settings.json model discovery
 
-The built-in `claude` provider appends concrete model IDs from `~/.claude/settings.json` to its first-party Claude model list. Paseo reads the top-level `model` field and these `env` keys: `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, and `ANTHROPIC_DEFAULT_HAIKU_MODEL`.
+The built-in `claude` provider appends concrete model IDs from `~/.claude/settings.json` to its first-party Claude model list. Paseo reads the top-level `model` field and these `env` keys: `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, and `ANTHROPIC_DEFAULT_FABLE_MODEL`.
 
 This lets users who already configured Claude Code for Bedrock, OpenRouter, ollama, Z.AI, or another Anthropic-compatible gateway select the exact model ID in Paseo. Explicit model IDs are passed unchanged to Claude Code, even when the same string is a compatibility alias for a built-in model. When `agents.providers.claude.models` is set it **replaces** both the hardcoded first-party Claude list and any settings.json-discovered entries; use `agents.providers.claude.additionalModels` to keep the first-party list and append curated entries on top.
+
+### Custom model family/subagent env pins
+
+When a Claude session's selected model is a **custom non-family** model ID (not a first-party Claude catalog model and not a bare family alias like `opus`/`sonnet`/`haiku`/`fable`), Paseo pins Claude Code's internal model resolution env vars to that selected model:
+
+- `ANTHROPIC_DEFAULT_OPUS_MODEL`
+- `ANTHROPIC_DEFAULT_SONNET_MODEL`
+- `ANTHROPIC_DEFAULT_HAIKU_MODEL`
+- `ANTHROPIC_DEFAULT_FABLE_MODEL`
+- `CLAUDE_CODE_SUBAGENT_MODEL`
+
+This is session-local (recomputed at launch via the Claude Agent SDK `env`) and exists so Claude Code subagents and family aliases do not fall back to Anthropic defaults when you are on a third-party/custom model.
+
+Rules:
+
+- First-party Claude models and family aliases are unchanged.
+- User-provided values win: if a pin key is already set in process env, `agents.providers.*.env`, or launch env, Paseo leaves it alone.
+- The main chat model is still enforced separately via the Claude Agent SDK `model` option.
+
+### Custom model context window + max output
+
+When a Claude model entry under `agents.providers.claude.models` / `additionalModels` sets capacity fields, Paseo:
+
+1. Merges `contextWindowMaxTokens` into the runtime model catalog and seeds the composer context-window meter max for sessions on that model.
+2. Fill-if-missing sets session env `CLAUDE_CODE_MAX_CONTEXT_TOKENS` from `contextWindowMaxTokens` so Claude Code treats the custom model as that capacity.
+3. Fill-if-missing sets session env `CLAUDE_CODE_MAX_OUTPUT_TOKENS` from `maxOutputTokens` when present. Leave it unset when unknown so Claude Code keeps its custom-model default (32k).
+4. When `contextWindowMaxTokens` is set, fill-if-missing sets session env `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to `floor(contextWindowMaxTokens * autoCompactThresholdPercent / 100)`. Missing percent defaults to `90`. Range is 50–99.
+
+Only profile-configured context windows get this auto-compact seed. First-party catalog models keep Claude Code’s own threshold math unless you override them with profile entries.
+
+User/provider process env still wins for all three keys. Runtime Claude-reported windows may still update the meter max after usage events.
 
 ### Gotcha: `extends: "claude"` with third-party endpoints
 

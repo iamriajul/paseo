@@ -112,6 +112,7 @@ Cross-platform React Native app that connects to one or more daemons.
 - Timeline reducers in `timeline/session-stream-reducers.ts` handle compaction, gap detection, sequence-based deduplication
 - Timeline sync correctness is documented in [docs/timeline-sync.md](timeline-sync.md): live streams are for immediacy, `fetch_agent_timeline_request` is authoritative, and catch-up is paged but complete.
 - Voice features: dictation (STT) and voice agent (realtime)
+- Android workspace Browser panes use `react-native-webview` plus one app-level tunnel controller. An app-local Expo module owns an authenticated loopback HTTP proxy and a process-wide reverse-bypass WebView proxy override; JavaScript maps each accepted loopback connection onto the selected host's existing direct or encrypted-relay `DaemonClient.openTcpTunnel` stream. Public HTTP/HTTPS bypasses this proxy. See [browser-localhost-routing.md](browser-localhost-routing.md).
 
 The replica cache paints stale data immediately while the host connects. Directory cursors are
 reconciliation checkpoints; cached entities remain non-authoritative until the daemon answers.
@@ -179,6 +180,7 @@ Electron wrapper for macOS, Linux, and Windows.
 - Can spawn the daemon as a managed subprocess
 - Native file access for workspace integration
 - Same WebSocket client as mobile app
+- Electron-only Browser panes use per-webview session proxying for workspace localhost routing. Each Browser registers `{ browserId, serverId, workspaceId }`; loopback requests inside that Browser are tunneled over the selected host's daemon WebSocket to `127.0.0.1:<port>` or `::1:<port>` on that host. See [browser-localhost-routing.md](browser-localhost-routing.md).
 
 The desktop does not manage agent skills. It retains one compatibility reader for the old
 `skill-selection.json`, imports that preference into its managed local daemon, then deletes the old
@@ -214,7 +216,7 @@ TanStack Router + Cloudflare Workers. Serves paseo.sh.
 
 ## WebSocket protocol
 
-All clients speak the same WebSocket protocol over a single connection that mixes JSON text frames and a small binary framing for terminal streams. Schemas live in `packages/protocol/src/messages.ts`.
+All clients speak the same WebSocket protocol over a single connection that mixes JSON text frames and small binary frame families for terminal streams, file transfer, and daemon TCP tunnels. Schemas live in `packages/protocol/src/messages.ts`.
 
 **Handshake:**
 
@@ -271,7 +273,7 @@ typed `entries` list.
 
 **Binary frames (terminal stream protocol):**
 
-Terminal I/O is sent as binary WebSocket frames decoded by `decodeTerminalStreamFrame` in `shared/binary-frames/terminal.ts`. The layout is:
+Terminal I/O is sent as binary WebSocket frames decoded by `decodeTerminalStreamFrame` in `packages/protocol/src/binary-frames/terminal.ts`. The layout is:
 
 - 1-byte opcode: `Output (0x01)`, `Input (0x02)`, `Resize (0x03)`, `Snapshot (0x04)`
 - 1-byte slot: terminal slot id
@@ -279,7 +281,7 @@ Terminal I/O is sent as binary WebSocket frames decoded by `decodeTerminalStream
 
 Terminal PTY size is last-interacting-client-wins. A client claims the PTY size only when its terminal viewport genuinely changes size or the user focuses/taps the terminal. Passive rendering work — attaching, restoring visibility, font settling, renderer refits, or just looking at a visible terminal — must not send a resize frame. The server does not broadcast resize ownership; the resized PTY redraws through normal output, and every attached client renders that output in its own local viewport.
 
-There is also a separate file-transfer binary frame format in the same directory, used for download/upload streams.
+There are also separate binary frame formats in the same directory for file-transfer streams and Browser localhost TCP tunnels. TCP tunnel support is advertised as `server_info.features.tcpTunnel`; new clients must check that feature before opening tunnel frames.
 File downloads keep the existing `FileBegin`/`FileChunk`/`FileEnd` framing and stream 256 KiB chunks
 from one stable file handle. Each transfer awaits completion of its own physical WebSocket send before
 reading the next chunk; it is scoped to the requesting physical socket and does not queue unrelated

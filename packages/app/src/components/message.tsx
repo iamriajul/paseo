@@ -580,6 +580,8 @@ interface AssistantTurnFooterProps {
   completedAt?: Date;
   durationMs?: number | null;
   onFork?: (target: AssistantForkTarget) => Promise<void> | void;
+  /** Offer experimental Claude native fork in the fork menu. */
+  showNativeForkOption?: boolean;
 }
 
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
@@ -624,6 +626,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   completedAt,
   durationMs,
   onFork,
+  showNativeForkOption = false,
 }: AssistantTurnFooterProps) {
   const [hovered, setHovered] = useState(false);
   const [pressedReveal, setPressedReveal] = useState(false);
@@ -681,7 +684,9 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
         getContent={getContent}
         containerStyle={assistantTurnFooterStylesheet.copyButton}
       />
-      {canFork ? <AssistantForkMenu onFork={handleFork} /> : null}
+      {canFork ? (
+        <AssistantForkMenu onFork={handleFork} showNativeTabOption={showNativeForkOption} />
+      ) : null}
       {primaryLabel ? (
         <Pressable
           onPress={handlePress}
@@ -753,6 +758,7 @@ interface AssistantMessageProps {
   serverId?: string;
   client?: DaemonClient | null;
   spacing?: "default" | "compactTop" | "compactBottom" | "compactBoth";
+  onOpenLocalhostUrl?: (url: string) => boolean;
   phase: MarkdownPhase;
 }
 
@@ -1497,6 +1503,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   serverId,
   client,
   spacing = "default",
+  onOpenLocalhostUrl,
   phase,
 }: AssistantMessageProps) {
   const { t } = useTranslation();
@@ -1512,6 +1519,9 @@ export const AssistantMessage = memo(function AssistantMessage({
 
   const fileLinkActions = useAssistantFileLinkActions();
   const handleMarkdownLinkPress = useStableEvent((url: string) => {
+    if (onOpenLocalhostUrl?.(url)) {
+      return false;
+    }
     fileLinkActions.open({ href: url }, "preferred");
     // react-native-markdown-display opens the link itself when this returns true.
     // We already handled it above, so return false to avoid duplicate opens.

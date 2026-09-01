@@ -34,7 +34,8 @@ import type {
   ProviderProfileModel,
   ProviderRuntimeSettings,
 } from "./provider-launch-config.js";
-import { ClaudeAgentClient } from "./providers/claude/agent.js";
+import { ClaudeAgentClient, type ClaudeAgentClientOptions } from "./providers/claude/agent.js";
+import { enrichClaudeCatalogModel } from "./providers/claude/model-manifest.js";
 import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
 import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
 import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
@@ -112,15 +113,18 @@ export interface BuildProviderRegistryOptions {
   managedProcesses?: ManagedProcessRegistry;
   isDev?: boolean;
   ompRuntime?: OmpRuntime;
+  persistClaudeAdditionalModelLimits?: ClaudeAgentClientOptions["persistClaudeAdditionalModelLimits"];
   openCodeBridge?: OpenCodeBridge;
 }
 
 interface ProviderClientFactoryOptions extends Pick<
   BuildProviderRegistryOptions,
-  "workspaceGitService" | "managedProcesses" | "ompRuntime"
+  "workspaceGitService" | "managedProcesses" | "ompRuntime" | "persistClaudeAdditionalModelLimits"
 > {
   openCodeBridge?: OpenCodeBridge;
   providerParams?: unknown;
+  profileModels?: ProviderProfileModel[];
+  additionalModels?: ProviderProfileModel[];
   customProvider?: {
     id: string;
     label: string;
@@ -194,10 +198,15 @@ const HUB_E2E_PROVIDER_CONTRACT: ProviderContract = {
 };
 
 const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
-  claude: (logger, runtimeSettings) =>
+  claude: (logger, runtimeSettings, options) =>
     new ClaudeAgentClient({
       logger,
       runtimeSettings,
+      profileModels: options?.profileModels,
+      additionalModels: options?.additionalModels ?? options?.profileModels,
+      persistClaudeAdditionalModelLimits: options?.customProvider
+        ? undefined
+        : options?.persistClaudeAdditionalModelLimits,
     }),
   codex: (logger, runtimeSettings, options) =>
     new CodexAppServerAgentClient(logger, runtimeSettings, {
@@ -363,7 +372,11 @@ function mapModel(
   provider: AgentProvider,
   model: AgentModelDefinition | ProviderProfileModel,
 ): AgentModelDefinition {
-  return normalizeAgentModelDefinition({ ...model, provider });
+  const mapped = normalizeAgentModelDefinition({ ...model, provider });
+  if (provider === "claude") {
+    return enrichClaudeCatalogModel(mapped);
+  }
+  return mapped;
 }
 
 function resolveConfiguredModels(
@@ -421,9 +434,14 @@ function mergeModelAdditions(
     const existingModel = mergedModels[existingIndex];
     const explicitlyEnablesCompatibilityModel =
       existingModel?.isSelectable === false && additionalModel.isSelectable === undefined;
+    const preservesConfiguredClaudeLabel =
+      provider === "claude" &&
+      additionalModel.label === additionalModel.id &&
+      existingModel?.label !== additionalModel.id;
     mergedModels[existingIndex] = {
       ...existingModel,
       ...additionalModel,
+      ...(preservesConfiguredClaudeLabel ? { label: existingModel?.label } : {}),
       ...(explicitlyEnablesCompatibilityModel ? { isSelectable: true } : {}),
     };
   }
@@ -465,6 +483,10 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
     respondToPermission: (requestId, response) => inner.respondToPermission(requestId, response),
     describePersistence: () => mapPersistenceHandle(provider, inner.describePersistence()),
     interrupt: () => inner.interrupt(),
+    steerActiveTurn: inner.steerActiveTurn?.bind(inner),
+    stopBackgroundTask: inner.stopBackgroundTask?.bind(inner),
+    readBackgroundTaskOutput: inner.readBackgroundTaskOutput?.bind(inner),
+    resolveNativeForkUpToMessageId: inner.resolveNativeForkUpToMessageId?.bind(inner),
     close: () => inner.close(),
     listCommands: inner.listCommands?.bind(inner),
     setModel: inner.setModel?.bind(inner),
@@ -710,7 +732,11 @@ function buildResolvedBuiltinProviders(
   runtimeSettings: AgentProviderRuntimeSettingsMap | undefined,
   options: Pick<
     BuildProviderRegistryOptions,
-    "workspaceGitService" | "managedProcesses" | "ompRuntime" | "openCodeBridge"
+    | "workspaceGitService"
+    | "managedProcesses"
+    | "ompRuntime"
+    | "persistClaudeAdditionalModelLimits"
+    | "openCodeBridge"
   >,
   isDev: boolean,
 ): Map<string, ResolvedProvider> {
@@ -744,6 +770,9 @@ function buildResolvedBuiltinProviders(
           ompRuntime: options.ompRuntime,
           openCodeBridge: options.openCodeBridge,
           providerParams: override?.params,
+          profileModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
+          additionalModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
+          persistClaudeAdditionalModelLimits: options.persistClaudeAdditionalModelLimits,
         }),
       contract: PROVIDER_CONTRACTS[definition.id] ?? UNSUPPORTED_PROVIDER_CONTRACT,
     });
@@ -853,6 +882,7 @@ function addDerivedProviders(
           managedProcesses: options.managedProcesses,
           openCodeBridge: options.openCodeBridge,
           providerParams,
+          profileModels: [...(override.models ?? []), ...(override.additionalModels ?? [])],
           customProvider: {
             id: providerId,
             label: override.label ?? providerId,
@@ -877,6 +907,7 @@ export function buildProviderRegistry(
       workspaceGitService: options?.workspaceGitService,
       managedProcesses: options?.managedProcesses,
       ompRuntime: options?.ompRuntime,
+      persistClaudeAdditionalModelLimits: options?.persistClaudeAdditionalModelLimits,
       openCodeBridge: options?.openCodeBridge,
     },
     options?.isDev === true,

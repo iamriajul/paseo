@@ -1,4 +1,10 @@
-import { useMemo, type ComponentProps, type PropsWithChildren, type ReactNode } from "react";
+import {
+  useCallback,
+  useMemo,
+  type ComponentProps,
+  type PropsWithChildren,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -7,6 +13,8 @@ import {
   Circle,
   CircleCheck,
   Copy,
+  Lock,
+  LockOpen,
   MoreVertical,
   Pencil,
   Pin,
@@ -34,6 +42,9 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Shortcut } from "@/components/ui/shortcut";
+import { useToast } from "@/contexts/toast-context";
+import { lockInteractionScreen, unlockInteractionScreen } from "@/interaction-lock/actions";
+import { useInteractionLocked } from "@/stores/interaction-lock-store";
 import { OpenInFileManagerMenuItem } from "@/workspace/open-in-file-manager/menu-item";
 import { resolveSidebarWorkspaceAccessibilityLabel } from "@/components/sidebar/sidebar-workspace-title";
 import {
@@ -59,6 +70,8 @@ const ThemedPencil = withUnistyles(Pencil);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedPin = withUnistyles(Pin);
 const ThemedPinOff = withUnistyles(PinOff);
+const ThemedLock = withUnistyles(Lock);
+const ThemedLockOpen = withUnistyles(LockOpen);
 const ThemedTag = withUnistyles(Tag);
 
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
@@ -70,6 +83,8 @@ const markAsUnreadLeadingIcon = <ThemedCircle size={14} uniProps={foregroundMute
 const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
 const pinLeadingIcon = <ThemedPin size={14} uniProps={foregroundMutedColorMapping} />;
 const unpinLeadingIcon = <ThemedPinOff size={14} uniProps={foregroundMutedColorMapping} />;
+const lockLeadingIcon = <ThemedLock size={14} uniProps={foregroundMutedColorMapping} />;
+const unlockLeadingIcon = <ThemedLockOpen size={14} uniProps={foregroundMutedColorMapping} />;
 
 const triggerIconProps = densityIconProps("sm", foregroundMutedColorMapping);
 const triggerIconHoveredProps = densityIconProps("sm", foregroundColorMapping);
@@ -146,6 +161,23 @@ function SidebarWorkspaceMenuItems({
   openInFileManagerPath,
 }: SidebarWorkspaceMenuItemsProps & { surface: MenuSurface }): ReactNode {
   const { t } = useTranslation();
+  const toast = useToast();
+  const interactionLocked = useInteractionLocked();
+  const handleToggleInteractionLock = useCallback(() => {
+    if (interactionLocked) {
+      void unlockInteractionScreen({
+        promptMessage: t("interactionLock.authPrompt"),
+        cancelLabel: t("common.actions.cancel"),
+      }).then((result) => {
+        if (result.status === "failed") {
+          toast.error(t("interactionLock.unlockFailed"));
+        }
+        return undefined;
+      });
+      return;
+    }
+    lockInteractionScreen();
+  }, [interactionLocked, t, toast]);
   const archiveTrailing = useMemo(
     () => (archiveShortcutKeys ? <Shortcut chord={archiveShortcutKeys} /> : null),
     [archiveShortcutKeys],
@@ -194,7 +226,7 @@ function SidebarWorkspaceMenuItems({
           leading={markAsReadLeadingIcon}
           onSelect={onMarkAsRead}
         >
-          Mark as read
+          {t("sidebar.workspace.actions.markAsRead")}
         </WorkspaceMenuItem>
       ) : null}
       {onMarkAsUnread ? (
@@ -204,7 +236,7 @@ function SidebarWorkspaceMenuItems({
           leading={markAsUnreadLeadingIcon}
           onSelect={onMarkAsUnread}
         >
-          Mark as unread
+          {t("sidebar.workspace.actions.markAsUnread")}
         </WorkspaceMenuItem>
       ) : null}
       {onTogglePin ? (
@@ -217,6 +249,14 @@ function SidebarWorkspaceMenuItems({
           {isPinned ? t("sidebar.workspace.actions.unpin") : t("sidebar.workspace.actions.pin")}
         </WorkspaceMenuItem>
       ) : null}
+      <WorkspaceMenuItem
+        surface={surface}
+        testID={`sidebar-workspace-menu-interaction-lock-${workspaceKey}`}
+        leading={interactionLocked ? unlockLeadingIcon : lockLeadingIcon}
+        onSelect={handleToggleInteractionLock}
+      >
+        {interactionLocked ? t("interactionLock.unlockMenu") : t("interactionLock.lock")}
+      </WorkspaceMenuItem>
       {serverId && workspaceId ? (
         <DropdownMenuSubTrigger
           id={WORKSPACE_LABEL_PAGE_ID}

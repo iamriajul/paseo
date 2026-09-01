@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 import type { IncomingMessage, Server as HTTPServer } from "http";
+import type { Socket } from "node:net";
 import { join } from "path";
 import { hostname as getHostname } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -96,10 +97,32 @@ import {
   type BrowserAutomationHostCapability,
 } from "@getpaseo/protocol/browser-automation/capabilities";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
+import { TaskStore } from "./tasks/task-store.js";
+import { UiStateStore } from "./ui-state/store.js";
+import { buildCodeServerUrlOpeners } from "./code-server-detection.js";
+
+const VSCODE_PROXY_PORT_TOKEN = "{{port}}";
+
+function normalizeVscodeProxyUri(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed?.includes(VSCODE_PROXY_PORT_TOKEN)) {
+    return null;
+  }
+  try {
+    const parsed = new URL(trimmed.replaceAll(VSCODE_PROXY_PORT_TOKEN, "5173"));
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
 import type { DaemonRuntimeConfig } from "./session/daemon/daemon-session.js";
 import { DirectorySyncService } from "./directory-sync/index.js";
 import { OWNER_PERMISSIONS, type DaemonPermission } from "./authorization/index.js";
 import type { WorkspaceLabelService } from "./workspace-labels/index.js";
+import { WorkspaceTodoStore } from "./workspace-todos/store.js";
 import {
   APPLICATION_SOCKET_LEASE_CHECK_INTERVAL_MS,
   ApplicationSocketLease,
@@ -509,6 +532,13 @@ export class MissingDaemonVersionError extends Error {
   }
 }
 
+function requireDaemonVersion(daemonVersion: string | undefined): string {
+  if (typeof daemonVersion !== "string" || daemonVersion.trim().length === 0) {
+    throw new MissingDaemonVersionError();
+  }
+  return daemonVersion.trim();
+}
+
 interface RequiredWebSocketServices {
   scheduleService: ScheduleService;
   checkoutDiffManager: CheckoutDiffManager;
@@ -590,11 +620,14 @@ export class VoiceAssistantWebSocketServer {
   private unsubscribeSpeechReadiness: (() => void) | null = null;
   private unsubscribeDaemonConfigChange: (() => void) | null = null;
   private readonly providerUsageService: ProviderUsageService;
+  private readonly taskStore: TaskStore;
+  private readonly uiStateStore: UiStateStore;
   private unsubscribeTerminalActivity: (() => void) | null = null;
   private readonly browserToolsBroker: BrowserToolsBroker | null;
   private readonly hubRelationships: HubRelationshipManagement | null;
   private readonly browserToolsRegistrations = new Map<string, BrowserToolsRegistration>();
   private connectionLifecycle: "starting" | "accepting" | "stopping" = "accepting";
+  private readonly workspaceTodoStore: WorkspaceTodoStore;
   private readonly advertiseDaemonStatusRpc: boolean;
   private readonly advertiseRelayConfig: boolean;
   private readonly directorySync = new DirectorySyncService();
@@ -602,7 +635,11 @@ export class VoiceAssistantWebSocketServer {
   private readonly orchestrationSkills: SessionOptions["orchestrationSkills"];
 
   constructor(
-    server: HTTPServer,
+    // Unused since createWebSocketServer switched to noServer: true (bootstrap.ts
+    // now routes 'upgrade' events explicitly). Kept as the first positional
+    // parameter rather than removed: this constructor has ~30 positional
+    // arguments across many call sites, and every one after it would shift.
+    _server: HTTPServer,
     logger: pino.Logger,
     serverId: string,
     agentManager: AgentManager,
@@ -642,7 +679,9 @@ export class VoiceAssistantWebSocketServer {
     daemonRuntimeConfig?: DaemonRuntimeConfig,
     serviceProxyPublicBaseUrl?: string | null,
     browserToolsBroker?: BrowserToolsBroker | null,
+    taskStore?: TaskStore,
     hubRelationships?: HubRelationshipManagement | null,
+    uiStateStore?: UiStateStore,
     workspaceSetupRuntime: WorkspaceSetupRuntime = new WorkspaceSetupRuntime(),
     pluginRuntime?: SessionOptions["pluginRuntime"],
     orchestrationSkills?: SessionOptions["orchestrationSkills"],
@@ -654,10 +693,7 @@ export class VoiceAssistantWebSocketServer {
     this.advertiseRelayConfig = wsConfig.relayConfig !== false;
     this.connectionLifecycle = wsConfig.startPaused === true ? "starting" : "accepting";
     this.serverId = serverId;
-    if (typeof daemonVersion !== "string" || daemonVersion.trim().length === 0) {
-      throw new MissingDaemonVersionError();
-    }
-    this.daemonVersion = daemonVersion.trim();
+    this.daemonVersion = requireDaemonVersion(daemonVersion);
     this.daemonRuntimeConfig = daemonRuntimeConfig;
     this.browserToolsBroker = browserToolsBroker ?? null;
     this.hubRelationships = hubRelationships ?? null;
@@ -673,6 +709,8 @@ export class VoiceAssistantWebSocketServer {
       checkoutDiffManager,
     });
     this.scheduleService = requiredServices.scheduleService;
+    this.taskStore = taskStore ?? new TaskStore(paseoHome);
+    this.uiStateStore = uiStateStore ?? new UiStateStore(paseoHome);
     this.checkoutDiffManager = requiredServices.checkoutDiffManager;
     this.github = github ?? createGitHubService();
     this.workspaceGitService = workspaceGitService ?? createFallbackWorkspaceGitService();
@@ -682,6 +720,7 @@ export class VoiceAssistantWebSocketServer {
     this.worktreesRoot = daemonRuntimeConfig?.worktreesRoot;
     this.daemonConfigStore = daemonConfigStore;
     this.mcpBaseUrl = mcpBaseUrl;
+    this.workspaceTodoStore = new WorkspaceTodoStore(paseoHome);
     this.assignOptionalServices({
       speech,
       terminalManager,
@@ -706,18 +745,7 @@ export class VoiceAssistantWebSocketServer {
       this.speech?.onReadinessChange((snapshot) => {
         this.publishSpeechReadiness(snapshot);
       }) ?? null;
-    const unsubscribeProviderConfig = attachMutableProviderConfigOwner({
-      store: this.daemonConfigStore,
-      providerSnapshotManager: this.providerSnapshotManager,
-      updateProviderRegistry: (state) => this.agentManager.updateProviderRegistry(state),
-    });
-    const unsubscribeChange = this.daemonConfigStore.onChange((config) => {
-      this.broadcastDaemonConfigChanged(config);
-    });
-    this.unsubscribeDaemonConfigChange = () => {
-      unsubscribeProviderConfig();
-      unsubscribeChange();
-    };
+    this.unsubscribeDaemonConfigChange = this.bindDaemonConfigListeners();
 
     const pushLogger = this.logger.child({ module: "push" });
     this.pushNotifications = createPushNotifications({
@@ -736,11 +764,26 @@ export class VoiceAssistantWebSocketServer {
       logger: this.logger,
     });
 
-    this.wss = this.createWebSocketServer(server, wsConfig, auth);
+    this.wss = this.createWebSocketServer(wsConfig, auth);
     this.startRuntimeMetricsInterval();
     this.startApplicationSocketLeaseInterval();
 
     this.logger.info("WebSocket server initialized on /ws");
+  }
+
+  private bindDaemonConfigListeners(): () => void {
+    const unsubscribeProviderConfig = attachMutableProviderConfigOwner({
+      store: this.daemonConfigStore,
+      providerSnapshotManager: this.providerSnapshotManager,
+      updateProviderRegistry: (state) => this.agentManager.updateProviderRegistry(state),
+    });
+    const unsubscribeChange = this.daemonConfigStore.onChange((config) => {
+      this.broadcastDaemonConfigChanged(config);
+    });
+    return () => {
+      unsubscribeProviderConfig();
+      unsubscribeChange();
+    };
   }
 
   private assignOptionalServices(params: {
@@ -796,13 +839,19 @@ export class VoiceAssistantWebSocketServer {
   }
 
   private createWebSocketServer(
-    server: HTTPServer,
     wsConfig: WebSocketServerConfig,
     auth: DaemonAuthConfig | undefined,
   ): WebSocketServer {
     const password = auth?.password;
+    // noServer: bootstrap.ts routes 'upgrade' events to handleUpgrade() below
+    // explicitly, in priority order alongside the browser-preview and
+    // service-proxy upgrade handlers. Attaching via `server` here would make
+    // `ws` install its own 'upgrade' listener that synchronously aborts any
+    // request whose path isn't "/ws" — including ones another listener has
+    // already started an async claim on, destroying the socket out from
+    // under it. See browser-preview/index.ts's upgradeHandler.
     const wss = new WebSocketServer({
-      server,
+      noServer: true,
       path: "/ws",
       handleProtocols: (protocols) => selectWebSocketProtocol(protocols, password),
       verifyClient: ({ req }, callback) => {
@@ -818,6 +867,20 @@ export class VoiceAssistantWebSocketServer {
       void this.attachAuthenticatedSocket(ws, request, password);
     });
     return wss;
+  }
+
+  // Entry point for bootstrap.ts's explicit upgrade router. shouldHandle()
+  // is the same path check `ws` would otherwise run internally; checking it
+  // first lets the caller try other candidates when this returns false,
+  // instead of the socket being destroyed as a side effect of asking.
+  handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): boolean {
+    if (!this.wss.shouldHandle(req)) {
+      return false;
+    }
+    this.wss.handleUpgrade(req, socket, head, (ws) => {
+      this.wss.emit("connection", ws, req);
+    });
+    return true;
   }
 
   private startRuntimeMetricsInterval(): void {
@@ -1413,6 +1476,16 @@ export class VoiceAssistantWebSocketServer {
       workspaceLabelService: this.workspaceLabelService ?? undefined,
       directorySync: this.directorySync,
       scheduleService: this.scheduleService,
+      taskStore: this.taskStore,
+      uiStateStore: this.uiStateStore,
+      broadcastUiState: (message, exceptClientId) => {
+        for (const session of this.listSessions()) {
+          if (session.clientId === exceptClientId) {
+            continue;
+          }
+          session.emitOutbound(message);
+        }
+      },
       checkoutDiffManager: this.checkoutDiffManager,
       github: this.github,
       workspaceGitService: this.workspaceGitService,
@@ -1468,6 +1541,15 @@ export class VoiceAssistantWebSocketServer {
       daemonVersion: this.daemonVersion,
       daemonRuntimeConfig: this.daemonRuntimeConfig,
       getWebSocketRuntimeMetrics: () => this.lastRuntimeMetricsSnapshot,
+      workspaceTodoStore: this.workspaceTodoStore,
+      broadcastWorkspaceTodos: (message, exceptClientId) => {
+        for (const session of this.listSessions()) {
+          if (session.clientId === exceptClientId) {
+            continue;
+          }
+          session.emitOutbound(message);
+        }
+      },
     });
   }
 
@@ -1617,6 +1699,15 @@ export class VoiceAssistantWebSocketServer {
   }
 
   private buildServerInfoStatusPayload(session: Session): ServerInfoStatusPayload {
+    const vscodeProxyUri = normalizeVscodeProxyUri(process.env.VSCODE_PROXY_URI);
+    const codeServer = buildCodeServerUrlOpeners({ env: process.env });
+    const urlOpeners =
+      vscodeProxyUri || codeServer
+        ? {
+            ...(vscodeProxyUri ? { vscodeProxyUri } : {}),
+            ...(codeServer ? { codeServer } : {}),
+          }
+        : null;
     return {
       status: "server_info",
       serverId: this.serverId,
@@ -1626,6 +1717,11 @@ export class VoiceAssistantWebSocketServer {
       // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
       desktopManaged: this.daemonRuntimeConfig?.desktopManaged === true,
       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
+      ...(urlOpeners ? { urlOpeners } : {}),
+      // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
+      ...(this.daemonRuntimeConfig?.browserPreviewUrlTemplate
+        ? { browserPreview: { urlTemplate: this.daemonRuntimeConfig.browserPreviewUrlTemplate } }
+        : {}),
       features: {
         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.
         directorySync: true,
@@ -1702,6 +1798,10 @@ export class VoiceAssistantWebSocketServer {
         workspaceFileEditing: true,
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
         providerUsageList: true,
+        // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
+        providerUsageResetQuota: true,
+        // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
+        providerUsageForceRefresh: true,
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
@@ -1712,10 +1812,24 @@ export class VoiceAssistantWebSocketServer {
         daemonSelfUpdate: this.daemonRuntimeConfig?.desktopManaged !== true,
         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
         agentForkContext: true,
+        // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
+        taskBacklog: true,
+        // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
+        taskBacklogListAll: true,
+        // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
+        uiState: true,
+        // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
+        agentNativeFork: true,
+        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
+        tcpTunnel: true,
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: true,
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
         providerSubagents: true,
+        // COMPAT(backgroundTasks): added in v0.2.x, remove gate after 2027-02-01.
+        backgroundTasks: true,
+        // COMPAT(providerHeartbeats): added in v0.2.x, remove gate after 2027-02-02.
+        providerHeartbeats: true,
         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
         workspacePinning: true,
         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
@@ -1728,6 +1842,10 @@ export class VoiceAssistantWebSocketServer {
         projectCreateDirectory: true,
         // COMPAT(commitsList): added in v0.1.110, remove gate after 2027-01-16.
         commitsList: true,
+        // COMPAT(metadataCustomEndpoint): added 2026-07-28, remove after 2027-01-28.
+        metadataCustomEndpoint: true,
+        // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
+        modelsDevLookup: true,
         // COMPAT(commitBaseClassification): added in v0.2.0, remove gate after 2027-01-23.
         commitBaseClassification: true,
         // COMPAT(providerRemoval): added in v0.1.105, drop the gate when floor >= v0.1.105.

@@ -103,7 +103,7 @@ export function SidebarHeaderRow({
         </>
       );
     },
-    [ThemedIcon, isActive, label, shortcutKeys, variant],
+    [ThemedIcon, isActive, label, shortcutKeys, trailingAction, variant],
   );
 
   return (
@@ -177,6 +177,11 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
     userSelect: "none",
   },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
   button: {
     flexDirection: "row",
     alignItems: "center",
@@ -194,6 +199,9 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surfaceSidebarHover,
   },
   buttonWithTrailingAction: {
+    // Button fills the row so the trailing action sits at the row end.
+    flex: 1,
+    minWidth: 0,
     // Keep room for the trailing action without shifting the label under it.
     paddingRight: theme.spacing[1],
   },
@@ -201,17 +209,13 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foregroundMuted,
+    flexShrink: 1,
   },
   labelHighlighted: {
     color: theme.colors.foreground,
   },
   shortcut: {
     marginLeft: "auto",
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
   },
   trailingAction: {
     minWidth: 28,

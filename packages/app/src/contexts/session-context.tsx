@@ -13,6 +13,7 @@ import {
 } from "@/hooks/use-agent-initialization";
 import type { StreamItem } from "@/types/stream";
 import { deriveAgentStreamTurnLiveness } from "@/timeline/session-stream-reducers";
+import { ingestAgentStreamEvent } from "@/timeline/ingest-agent-stream-event";
 import { planTimelineTailFetch } from "@/timeline/timeline-sync-plan";
 import { requestTimelineReplacement } from "@/timeline/timeline-replacement";
 import { type ViewedTimelineOwner } from "@/timeline/viewed-timeline-sync";
@@ -382,6 +383,21 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
     }
   }, [flushAgentLastActivity, serverId, isConnected, setInitializingAgents]);
 
+  useEffect(
+    () =>
+      client.subscribeConnectionStatus((connection) => {
+        if (connection.status === "connected") return;
+        // Flush coalesced user_message acks so pending submissions settle
+        // instead of hanging. Turn liveness itself persists across drops and
+        // is reconciled by authoritative catch-up after reconnect.
+        const owner = viewedTimelineSyncRef.current;
+        const session = useSessionStore.getState().sessions[serverId];
+        for (const agentId of session?.messageSubmissions.keys() ?? []) {
+          owner?.flushStreamAgent(agentId);
+        }
+      }),
+    [client, serverId],
+  );
   const applyWorkspaceSetupProgress = useCallback(
     (payload: WorkspaceSetupProgressPayload) => {
       upsertWorkspaceSetupProgress({ serverId, payload });
@@ -410,11 +426,16 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       if (turnLiveness.length > 0) {
         getHostRuntimeStore().applyAgentTurnLiveness(serverId, agentId, turnLiveness);
       }
-      sync.enqueueStreamEvent(agentId, {
-        event: streamEvent,
-        seq,
-        epoch,
-        timestamp: parsedTimestamp,
+      ingestAgentStreamEvent({
+        enqueue: (id, queued) => sync.enqueueStreamEvent(id, queued),
+        flushAgent: (id) => sync.flushStreamAgent(id),
+        agentId,
+        event: {
+          event: streamEvent,
+          seq,
+          epoch,
+          timestamp: parsedTimestamp,
+        },
       });
 
       // NOTE: We don't update lastActivityAt on every stream event to prevent

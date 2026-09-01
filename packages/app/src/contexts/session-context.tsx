@@ -251,6 +251,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   const setAgentStreamHead = useSessionStore((state) => state.setAgentStreamHead);
   const applyAgentTurnLiveness = useSessionStore((state) => state.applyAgentTurnLiveness);
   const clearAgentTurnLiveness = useSessionStore((state) => state.clearAgentTurnLiveness);
+  const resumeRemoteTurnLiveness = useSessionStore((state) => state.resumeRemoteTurnLiveness);
   const clearAgentStreamHead = useSessionStore((state) => state.clearAgentStreamHead);
   const setInitializingAgents = useSessionStore((state) => state.setInitializingAgents);
   const bumpHistorySyncGeneration = useSessionStore((state) => state.bumpHistorySyncGeneration);
@@ -427,7 +428,10 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   useEffect(
     () =>
       client.subscribeConnectionStatus((connection) => {
-        if (connection.status === "connected") return;
+        if (connection.status === "connected") {
+          resumeRemoteTurnLiveness(serverId);
+          return;
+        }
         const owner = viewedTimelineSyncRef.current;
         const session = useSessionStore.getState().sessions[serverId];
         try {
@@ -440,7 +444,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
           clearAgentTurnLiveness(serverId);
         }
       }),
-    [clearAgentTurnLiveness, client, serverId],
+    [clearAgentTurnLiveness, client, resumeRemoteTurnLiveness, serverId],
   );
 
   const applyWorkspaceSetupProgress = useCallback(

@@ -335,7 +335,7 @@ npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src
 
 **commit provider user_message acks before the stream coalescer frame**
 
-a live user_message that acknowledges a pending submission is flushed immediately; disconnect flushes those pending events before clearing turn liveness so a websocket drop cannot strand the working indicator. The live clientMessageId still settles the submission when sequencing drops the row (gap/stale), the viewed timeline is detached, or apply inserts because the snapshot missed the optimistic row. An unreconciled local row also settles by matching text when the live event omits clientMessageId. Disconnect always clears turn liveness even if flush throws, and remote stream/snapshot opens are ignored while the client is disconnected so a queued turn_started or directory snapshot cannot reopen the working indicator.
+a live user_message that acknowledges a pending submission is flushed immediately; disconnect flushes those pending events before clearing turn liveness so a websocket drop cannot strand the working indicator. The live clientMessageId still settles the submission when sequencing drops the row (gap/stale), the viewed timeline is detached, or apply inserts because the snapshot missed the optimistic row. An unreconciled local row also settles by matching text when the live event omits clientMessageId. Disconnect clears turn liveness and rejects further remote opens until reconnect, so a queued turn_started or directory snapshot cannot reopen the working indicator.
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/timeline/ingest-agent-stream-event.test.ts src/stores/session-store.test.ts --bail=1

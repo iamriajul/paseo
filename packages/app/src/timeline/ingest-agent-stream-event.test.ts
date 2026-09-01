@@ -148,6 +148,56 @@ describe("live user_message acknowledgement", () => {
     expect(result.changedTail).toBe(false);
   });
 
+  it("acknowledges the live clientMessageId even when the snapshot has no pending row", () => {
+    const result = processAgentStreamEvent({
+      event: liveUserMessage(),
+      seq: 1,
+      epoch: "epoch-1",
+      currentTail: [],
+      currentHead: [],
+      currentCursor: undefined,
+      hasAuthoritativeBaseline: true,
+      timestamp: new Date("2026-09-01T00:00:01.000Z"),
+    });
+    expect(result.acknowledgedClientMessageIds).toEqual([clientMessageId]);
+  });
+
+  it("acknowledges an unreconciled local row by text when the live event omits clientMessageId", () => {
+    const result = processAgentStreamEvent({
+      event: {
+        type: "timeline",
+        provider: "mock",
+        item: { type: "user_message", text: prompt, messageId: "provider-1" },
+      },
+      seq: 1,
+      epoch: "epoch-1",
+      currentTail: [submitted()],
+      currentHead: [],
+      currentCursor: undefined,
+      hasAuthoritativeBaseline: true,
+      timestamp: new Date("2026-09-01T00:00:01.000Z"),
+    });
+    expect(result.acknowledgedClientMessageIds).toEqual([clientMessageId]);
+  });
+
+  it("acknowledges a pending head row when the live event omits clientMessageId", () => {
+    const result = processAgentStreamEvent({
+      event: {
+        type: "timeline",
+        provider: "mock",
+        item: { type: "user_message", text: prompt, messageId: "provider-1" },
+      },
+      seq: 1,
+      epoch: "epoch-1",
+      currentTail: [],
+      currentHead: [submitted()],
+      currentCursor: undefined,
+      hasAuthoritativeBaseline: false,
+      timestamp: new Date("2026-09-01T00:00:01.000Z"),
+    });
+    expect(result.acknowledgedClientMessageIds).toEqual([clientMessageId]);
+  });
+
   it("settles a store submission when a live user_message is flushed immediately", () => {
     const store = useSessionStore.getState();
     store.initializeSession("test-server", null as unknown as DaemonClient);

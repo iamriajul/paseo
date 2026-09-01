@@ -393,8 +393,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         const owner = viewedTimelineSyncRef.current;
         const session = useSessionStore.getState().sessions[serverId];
         for (const agentId of session?.messageSubmissions.keys() ?? []) {
-          owner?.flushStreamAgent(agentId);
-        }
+          owner?.flushStreamAgent(agentId);        }
       }),
     [client, serverId],
   );

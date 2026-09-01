@@ -57,6 +57,10 @@ const patchedPackages = [
     patchPrefix: "@gorhom+bottom-sheet+",
   },
   {
+    nodeModulesPath: "node_modules/react-native-webview",
+    patchPrefix: "react-native-webview+",
+  },
+  {
     nodeModulesPath: "packages/app/node_modules/react-native-svg",
     patchPrefix: "react-native-svg+",
     cwd: "packages/app",

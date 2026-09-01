@@ -54,6 +54,13 @@ export interface TurnPresentation {
   turnId: string | null;
 }
 
+export const TURN_PRESENTATION_IDLE: TurnPresentation = {
+  isActive: false,
+  isCancelling: false,
+  startedAt: null,
+  turnId: null,
+};
+
 export function resolveTurnPresentation(
   liveness: TurnLiveness,
   hasActiveSubmission: boolean,
@@ -72,6 +79,13 @@ export function resolveTurnPresentation(
     startedAt: null,
     turnId: null,
   };
+}
+
+export function resolveVisibleTurnPresentation(
+  presentation: TurnPresentation,
+  hostIsLive: boolean,
+): TurnPresentation {
+  return hostIsLive ? presentation : TURN_PRESENTATION_IDLE;
 }
 
 function closeTurn(current: TurnLiveness, turnId: string | null): TurnLiveness {

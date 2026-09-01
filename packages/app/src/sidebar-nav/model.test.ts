@@ -38,6 +38,7 @@ describe("resolveSidebarNavItems", () => {
       { key: "new-workspace", visible: true },
       { key: "history", visible: true },
       { key: "search", visible: true },
+      { key: "backlog", visible: true },
       { key: "schedules", visible: true },
       { key: kanbanKey, visible: true },
       { key: notesKey, visible: true },
@@ -67,6 +68,7 @@ describe("resolveSidebarNavItems", () => {
       { key: "new-workspace", visible: false },
       { key: "history", visible: true },
       { key: "search", visible: true },
+      { key: "backlog", visible: true },
       { key: notesKey, visible: true },
     ]);
   });
@@ -85,6 +87,7 @@ describe("resolveSidebarNavItems", () => {
       "history",
       "new-workspace",
       "search",
+      "backlog",
       "schedules",
     ]);
   });
@@ -102,6 +105,7 @@ describe("resolveSidebarNavItems", () => {
       { key: "history", visible: false },
       { key: "new-workspace", visible: true },
       { key: "search", visible: true },
+      { key: "backlog", visible: true },
       { key: "schedules", visible: true },
     ]);
   });
@@ -117,6 +121,7 @@ describe("setSidebarNavItemVisible", () => {
       { key: "new-workspace", visible: true },
       { key: "history", visible: true },
       { key: "search", visible: false },
+      { key: "backlog", visible: true },
       { key: "schedules", visible: true },
       { key: kanbanKey, visible: true },
     ]);
@@ -136,6 +141,7 @@ describe("setSidebarNavItemVisible", () => {
       { key: "history", visible: false },
       { key: "new-workspace", visible: true },
       { key: "search", visible: true },
+      { key: "backlog", visible: true },
       { key: "schedules", visible: true },
     ]);
   });
@@ -157,6 +163,7 @@ describe("setSidebarNavItemVisible", () => {
       { key: notesKey, visible: false },
       { key: "history", visible: false },
       { key: "search", visible: true },
+      { key: "backlog", visible: true },
       { key: "schedules", visible: true },
     ]);
     expect(summarize(resolveSidebarNavItems({ pluginGroups: [notes], preferences: next }))).toEqual(
@@ -182,6 +189,7 @@ describe("moveSidebarNavItem", () => {
     expect(next.map((preference) => preference.key)).toEqual([
       "new-workspace",
       "search",
+      "backlog",
       "history",
       "schedules",
       kanbanKey,
@@ -195,6 +203,7 @@ describe("moveSidebarNavItem", () => {
       "new-workspace",
       "history",
       "search",
+      "backlog",
       kanbanKey,
       "schedules",
     ]);

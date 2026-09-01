@@ -1,5 +1,11 @@
 import { useCallback, useMemo } from "react";
-import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import {
+  Pressable,
+  Text,
+  View,
+  type GestureResponderEvent,
+  type PressableStateCallbackType,
+} from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { LucideIcon } from "lucide-react-native";
 import { HEADER_INNER_HEIGHT, HEADER_INNER_HEIGHT_MOBILE } from "@/constants/layout";
@@ -12,6 +18,13 @@ const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foregrou
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 type SidebarHeaderRowVariant = "header" | "compact";
+
+interface SidebarHeaderRowAction {
+  icon: LucideIcon;
+  onPress: () => void;
+  accessibilityLabel: string;
+  testID?: string;
+}
 
 interface SidebarHeaderRowProps {
   icon: LucideIcon;
@@ -29,6 +42,7 @@ interface SidebarHeaderRowProps {
    */
   variant?: SidebarHeaderRowVariant;
   shortcutKeys?: ShortcutKey[][] | null;
+  trailingAction?: SidebarHeaderRowAction | null;
 }
 
 export function SidebarHeaderRow({
@@ -41,8 +55,13 @@ export function SidebarHeaderRow({
   accessibilityLabel,
   variant = "header",
   shortcutKeys = null,
+  trailingAction = null,
 }: SidebarHeaderRowProps) {
   const ThemedIcon = useMemo(() => withUnistyles(Icon), [Icon]);
+  const ThemedTrailingIcon = useMemo(
+    () => (trailingAction ? withUnistyles(trailingAction.icon) : null),
+    [trailingAction],
+  );
 
   const containerStyle = useMemo(
     () => (variant === "compact" ? styles.containerCompact : styles.container),
@@ -53,9 +72,20 @@ export function SidebarHeaderRow({
     ({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.button,
       variant === "compact" && styles.buttonCompact,
+      trailingAction ? styles.buttonWithTrailingAction : null,
       (Boolean(hovered) || isActive) && styles.buttonHovered,
     ],
-    [isActive, variant],
+    [isActive, trailingAction, variant],
+  );
+
+  const handleTrailingPress = useCallback(
+    (event: GestureResponderEvent) => {
+      // Trailing action is a sibling of the row press target, but still stop
+      // propagation so nested gesture handlers never treat this as a row press.
+      event.stopPropagation();
+      trailingAction?.onPress();
+    },
+    [trailingAction],
   );
 
   const renderChildren = useCallback(
@@ -68,7 +98,7 @@ export function SidebarHeaderRow({
             uniProps={isHighlighted ? foregroundColorMapping : foregroundMutedColorMapping}
           />
           <SidebarHeaderRowLabel label={label} isHighlighted={isHighlighted} />
-          {shortcutKeys && Boolean(state.hovered) ? (
+          {shortcutKeys && Boolean(state.hovered) && !trailingAction ? (
             <Shortcut chord={shortcutKeys} style={styles.shortcut} />
           ) : null}
         </>
@@ -79,17 +109,40 @@ export function SidebarHeaderRow({
 
   return (
     <View style={containerStyle}>
-      <Pressable
-        onPress={onPress}
-        testID={testID}
-        nativeID={nativeID}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel ?? label}
-        style={buttonStyle}
-      >
-        {renderChildren}
-      </Pressable>
+      <View style={styles.row}>
+        <Pressable
+          onPress={onPress}
+          testID={testID}
+          nativeID={nativeID}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel ?? label}
+          style={buttonStyle}
+        >
+          {renderChildren}
+        </Pressable>
+        {trailingAction && ThemedTrailingIcon ? (
+          <Pressable
+            onPress={handleTrailingPress}
+            accessibilityRole="button"
+            accessibilityLabel={trailingAction.accessibilityLabel}
+            testID={trailingAction.testID}
+            hitSlop={8}
+            style={styles.trailingAction}
+          >
+            {({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => (
+              <ThemedTrailingIcon
+                size={ICON_SIZE.sm}
+                uniProps={
+                  Boolean(hovered) || isActive
+                    ? foregroundColorMapping
+                    : foregroundMutedColorMapping
+                }
+              />
+            )}
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -148,6 +201,10 @@ const styles = StyleSheet.create((theme) => ({
   buttonHovered: {
     backgroundColor: theme.colors.surfaceSidebarHover,
   },
+  buttonWithTrailingAction: {
+    // Keep room for the trailing action without shifting the label under it.
+    paddingRight: theme.spacing[1],
+  },
   label: {
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
@@ -158,5 +215,17 @@ const styles = StyleSheet.create((theme) => ({
   },
   shortcut: {
     marginLeft: "auto",
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  trailingAction: {
+    minWidth: 28,
+    minHeight: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.md,
   },
 }));

@@ -460,10 +460,22 @@ export class OmpHarness {
     await this.requireSession().interrupt();
   }
 
-  async requireStartTurn(message: string): Promise<void> {
+  async requireStartTurn(message: string): Promise<string> {
     const promptStarted = this.omp.latestSession().nextPrompt();
-    await this.requireSession().startTurn(message);
+    const { turnId } = await this.requireSession().startTurn(message);
     await promptStarted;
+    return turnId;
+  }
+
+  async steerActiveTurn(
+    message: string,
+    options: { expectedTurnId: string; clientMessageId?: string },
+  ) {
+    return await this.requireSession().steerActiveTurn!(message, options);
+  }
+
+  supportsSteer(): boolean {
+    return this.requireSession().capabilities.supportsSteer === true;
   }
 
   async interrupt(): Promise<void> {

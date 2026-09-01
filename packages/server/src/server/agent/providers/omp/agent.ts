@@ -25,6 +25,8 @@ import {
   type AgentSession,
   type AgentSessionConfig,
   type AgentSlashCommand,
+  type SteerActiveTurnOptions,
+  type SteerResult,
   type AgentStreamEvent,
   type AgentTimelineItem,
   type FetchCatalogOptions,
@@ -126,6 +128,8 @@ const OMP_CORE_CAPABILITIES: AgentCapabilityFlags = {
   supportsRewindConversation: true,
   supportsRewindFiles: false,
   supportsRewindBoth: false,
+  // COMPAT(supportsSteer): added in v0.2.916 — native runtime steer (+ /steer slash).
+  supportsSteer: true,
 };
 
 export interface OmpAgentClientOptions {
@@ -1139,6 +1143,34 @@ export class OmpAgentSession implements AgentSession {
         turnId,
       });
     }
+  }
+
+  async steerActiveTurn(
+    prompt: AgentPromptInput,
+    options: SteerActiveTurnOptions,
+  ): Promise<SteerResult> {
+    if (!this.activeTurnId || this.activeTurnId !== options.expectedTurnId) {
+      return { status: "unavailable" };
+    }
+    const payload = convertPromptInput(prompt, { model: this.state.model });
+    if (!payload.text.trim() && (payload.images?.length ?? 0) === 0) {
+      return { status: "unavailable" };
+    }
+    if (options.clientMessageId) {
+      // Correlate a later runtime user-message event with the client draft id.
+      this.activeClientMessageId = options.clientMessageId;
+    }
+    this.logger.info(
+      {
+        sessionId: this.state.sessionId,
+        turnId: this.activeTurnId,
+        hasClientMessageId: Boolean(options.clientMessageId),
+        imageCount: payload.images?.length ?? 0,
+      },
+      "Steering OMP runtime session",
+    );
+    this.runtimeSession.steer(payload.text, payload.images);
+    return { status: "accepted" };
   }
 
   async revertConversation(input: { messageId: string }): Promise<void> {

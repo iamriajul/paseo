@@ -81,6 +81,23 @@ import {
   type ProviderSubagentDescriptor,
   type ProviderSubagentStoreEvent,
 } from "./provider-subagents/store.js";
+import { applyBackgroundTaskInputEvent } from "./providers/claude/background-tasks.js";
+import { applyProviderHeartbeatInputEvent } from "./providers/claude/provider-heartbeats.js";
+import {
+  BackgroundTaskStore,
+  isTerminalBackgroundTaskStatus,
+  type BackgroundTaskDescriptor,
+} from "./background-tasks/store.js";
+import { resolveBackgroundTaskOutputEof } from "./background-tasks/output-eof.js";
+import {
+  ProviderHeartbeatStore,
+  type ProviderHeartbeatDescriptor,
+} from "./provider-heartbeats/store.js";
+import {
+  forkClaudeSessionAtMessage,
+  resolveNativeForkTarget,
+} from "./providers/claude/native-fork.js";
+import { realClaudeRewindSdk } from "./providers/claude/rewind.js";
 
 const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
 const INTERRUPT_SESSION_TIMEOUT_MS = 2_000;
@@ -94,6 +111,8 @@ const STORED_AGENT_CAPABILITIES: AgentCapabilityFlags = {
   supportsRewindConversation: false,
   supportsRewindFiles: false,
   supportsRewindBoth: false,
+  supportsNativeFork: false,
+  supportsSteer: false,
 };
 
 type TimeoutResult = "completed" | "timed_out";
@@ -190,6 +209,16 @@ export type AgentManagerEvent =
   | { type: "agent_state"; agent: ManagedAgent }
   | { type: "provider_subagent"; event: ProviderSubagentStoreEvent }
   | { type: "timeline_replacement"; agentId: string; epoch: string }
+  | {
+      type: "background_tasks";
+      parentAgentId: string;
+      tasks: BackgroundTaskDescriptor[];
+    }
+  | {
+      type: "provider_heartbeats";
+      parentAgentId: string;
+      heartbeats: ProviderHeartbeatDescriptor[];
+    }
   | {
       type: "agent_stream";
       agentId: string;
@@ -675,6 +704,8 @@ export class AgentManager {
   private readonly agents = new Map<string, LiveManagedAgent>();
   private readonly timelineStore = new InMemoryAgentTimelineStore();
   private readonly providerSubagents = new ProviderSubagentStore();
+  private readonly backgroundTaskStore = new BackgroundTaskStore();
+  private readonly providerHeartbeatStore = new ProviderHeartbeatStore();
   private readonly agentsAwaitingInitialSnapshotPersist = new Set<string>();
   private readonly sessionEventTails = new Map<string, Promise<void>>();
   private readonly steerEventBarriers = new Map<string, SteerEventBarrier>();
@@ -1130,6 +1161,152 @@ export class AgentManager {
     return this.providerSubagents.fetchTimeline(parentAgentId, subagentId, options);
   }
 
+  listBackgroundTasks(parentAgentId: string): BackgroundTaskDescriptor[] {
+    this.requirePublicAgent(parentAgentId);
+    return this.backgroundTaskStore.list(parentAgentId);
+  }
+
+  getBackgroundTask(parentAgentId: string, taskId: string): BackgroundTaskDescriptor | null {
+    this.requirePublicAgent(parentAgentId);
+    return this.backgroundTaskStore.get(parentAgentId, taskId);
+  }
+
+  async stopBackgroundTask(parentAgentId: string, taskId: string): Promise<void> {
+    const agent = this.requireSessionAgent(parentAgentId);
+    if (agent.internal) {
+      throw new Error(`Unknown agent '${agent.id}'`);
+    }
+    if (typeof agent.session.stopBackgroundTask !== "function") {
+      throw new Error("Background task stop is not supported for this agent");
+    }
+    await agent.session.stopBackgroundTask(taskId);
+  }
+
+  listProviderHeartbeats(parentAgentId: string): ProviderHeartbeatDescriptor[] {
+    this.requirePublicAgent(parentAgentId);
+    return this.providerHeartbeatStore.list(parentAgentId);
+  }
+
+  /**
+   * Best-effort delete for provider session schedules.
+   * Claude has no public CronDelete API on the session object in v1, so we remove
+   * the row from the Paseo live set (UI honesty) and return an error explaining
+   * that provider-side cancel is view-only for now.
+   */
+  async deleteProviderHeartbeat(
+    parentAgentId: string,
+    taskId: string,
+  ): Promise<{ error: string | null }> {
+    this.requirePublicAgent(parentAgentId);
+    const existing = this.providerHeartbeatStore.get(parentAgentId, taskId);
+    if (!existing) {
+      return { error: "Provider heartbeat not found" };
+    }
+    const removed = this.providerHeartbeatStore.remove(parentAgentId, taskId);
+    if (removed) {
+      this.dispatch({
+        type: "provider_heartbeats",
+        parentAgentId,
+        heartbeats: this.providerHeartbeatStore.list(parentAgentId),
+      });
+    }
+    // No Claude runtime CronDelete injection in v1 — keep UI honest by dropping
+    // the live row, but surface that the provider schedule may still fire.
+    return {
+      error: "Provider cancel is not available; removed from Paseo view only",
+    };
+  }
+
+  async readBackgroundTaskOutput(input: {
+    parentAgentId: string;
+    taskId: string;
+    cursor?: number;
+    maxBytes?: number;
+  }): Promise<{ text: string; nextCursor: number; eof: boolean; error: string | null }> {
+    this.requirePublicAgent(input.parentAgentId);
+    const task = this.backgroundTaskStore.get(input.parentAgentId, input.taskId);
+    const cursor = Math.max(0, input.cursor ?? 0);
+    if (!task) {
+      return {
+        text: "",
+        nextCursor: cursor,
+        eof: true,
+        error: "Background task not found",
+      };
+    }
+    if (!task.outputFile) {
+      return {
+        text: "",
+        nextCursor: cursor,
+        eof: resolveBackgroundTaskOutputEof({
+          taskStatus: task.status,
+          hasOutputFile: false,
+          caughtUp: true,
+        }),
+        error: isTerminalBackgroundTaskStatus(task.status) ? null : "No live log available",
+      };
+    }
+    const live = !isTerminalBackgroundTaskStatus(task.status);
+    const agent = this.agents.get(input.parentAgentId);
+    if (agent?.session && typeof agent.session.readBackgroundTaskOutput === "function") {
+      return agent.session.readBackgroundTaskOutput({
+        outputFile: task.outputFile,
+        cursor: input.cursor,
+        maxBytes: input.maxBytes,
+        live,
+      });
+    }
+    const { promises } = await import("node:fs");
+    const maxBytes = Math.min(Math.max(1, input.maxBytes ?? 64_000), 256_000);
+    try {
+      const handle = await promises.open(task.outputFile, "r");
+      try {
+        const fileStat = await handle.stat();
+        if (cursor >= fileStat.size) {
+          return {
+            text: "",
+            nextCursor: fileStat.size,
+            eof: resolveBackgroundTaskOutputEof({
+              taskStatus: task.status,
+              hasOutputFile: true,
+              caughtUp: true,
+            }),
+            error: null,
+          };
+        }
+        const length = Math.min(maxBytes, fileStat.size - cursor);
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buffer, 0, length, cursor);
+        const nextCursor = cursor + bytesRead;
+        return {
+          text: buffer.subarray(0, bytesRead).toString("utf8"),
+          nextCursor,
+          eof: resolveBackgroundTaskOutputEof({
+            taskStatus: task.status,
+            hasOutputFile: true,
+            caughtUp: nextCursor >= fileStat.size,
+          }),
+          error: null,
+        };
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        text: "",
+        nextCursor: cursor,
+        eof: resolveBackgroundTaskOutputEof({
+          taskStatus: task.status,
+          hasOutputFile: true,
+          // Keep polling while live even if the file is briefly unreadable.
+          caughtUp: !live,
+        }),
+        error: message,
+      };
+    }
+  }
+
   createAgent(
     config: AgentSessionConfig,
     agentId: string | undefined,
@@ -1372,8 +1549,15 @@ export class AgentManager {
     const launchContext = await this.buildLaunchContext(agentId, client, storedConfig.cwd);
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
 
+    // Hot reloads (voice toggle, config swap) must not park Codex Goals.
+    // Full disk rehydrate (user "Reload agent") keeps the default pause-on-resume.
     const session = handle
-      ? await client.resumeSession(handle, providerLaunchConfig, launchContext)
+      ? await client.resumeSession(
+          handle,
+          providerLaunchConfig,
+          launchContext,
+          rehydrateFromDisk ? undefined : { pauseActiveGoals: false },
+        )
       : await client.createSession(providerLaunchConfig, launchContext);
     await this.requireExternalMcpSupport(session, storedConfig);
 
@@ -1396,6 +1580,10 @@ export class AgentManager {
         for (const event of this.providerSubagents.deleteParent(agentId)) {
           this.dispatch({ type: "provider_subagent", event });
         }
+        this.backgroundTaskStore.deleteParent(agentId);
+        this.dispatch({ type: "background_tasks", parentAgentId: agentId, tasks: [] });
+        this.providerHeartbeatStore.deleteParent(agentId);
+        this.dispatch({ type: "provider_heartbeats", parentAgentId: agentId, heartbeats: [] });
       }
 
       // Preserve existing labels and timeline during reload.
@@ -1900,6 +2088,20 @@ export class AgentManager {
       await this.persistSnapshot(agent);
       this.emitState(agent, { persist: false });
     }
+  }
+
+  async markAgentAttention(
+    agentId: string,
+    reason: "finished" | "error" = "finished",
+  ): Promise<void> {
+    const agent = this.requireAgent(agentId);
+    agent.attention = {
+      requiresAttention: true,
+      attentionReason: reason,
+      attentionTimestamp: new Date(),
+    };
+    await this.persistSnapshot(agent);
+    this.emitState(agent, { persist: false });
   }
 
   async archiveSnapshot(agentId: string, archivedAt: string): Promise<StoredAgentRecord> {
@@ -2899,6 +3101,103 @@ export class AgentManager {
     }
   }
 
+  /**
+   * Create a new agent whose provider session is a Claude SDK fork of the source
+   * agent's session at the given boundary. Does not mutate the source agent.
+   * v1 supports tab target only (same workspace).
+   */
+  async nativeForkAgent(input: {
+    sourceAgentId: string;
+    boundaryMessageId?: string;
+    boundaryCursor?: { epoch: string; seq: number };
+    target?: "tab" | "workspace";
+  }): Promise<{ agentId: string; workspaceId: string }> {
+    const source = this.requireSessionAgent(input.sourceAgentId);
+    if (source.provider !== "claude") {
+      throw new Error("Native fork is only supported for Claude agents");
+    }
+    if (source.capabilities.supportsNativeFork !== true) {
+      throw new Error("Provider does not support native fork");
+    }
+    if (input.target === "workspace") {
+      throw new Error("Native fork to a new workspace is not supported yet; use tab target");
+    }
+
+    const sourceSessionId =
+      source.persistence?.sessionId?.trim() || source.runtimeInfo?.sessionId?.trim() || "";
+    if (!sourceSessionId) {
+      throw new Error("Source Claude agent has no provider session id to fork");
+    }
+
+    const timeline = this.fetchTimeline(input.sourceAgentId, {
+      direction: "tail",
+      limit: 0,
+    });
+    const boundaryMessageId = resolveNativeForkBoundaryMessageId({
+      rows: timeline.rows,
+      timelineEpoch: timeline.epoch,
+      boundaryMessageId: input.boundaryMessageId,
+      boundaryCursor: input.boundaryCursor,
+    });
+
+    const upToMessageId = await resolveNativeForkTarget({
+      session: source.session,
+      boundaryMessageId,
+    });
+
+    const { forkedSessionId } = await forkClaudeSessionAtMessage({
+      sdk: realClaudeRewindSdk,
+      sessionId: sourceSessionId,
+      upToMessageId,
+      dir: source.cwd,
+    });
+
+    if (source.persistence?.sessionId === forkedSessionId) {
+      throw new Error("Native fork produced the same session id as the source agent");
+    }
+
+    const workspaceId = source.workspaceId?.trim();
+    if (!workspaceId) {
+      throw new Error("Source agent has no workspace; cannot native-fork into a tab");
+    }
+
+    const forked = await this.resumeAgentFromPersistence(
+      {
+        provider: "claude",
+        sessionId: forkedSessionId,
+        metadata: {
+          ...source.config,
+          provider: "claude",
+          cwd: source.cwd,
+        },
+      },
+      {
+        ...source.config,
+        provider: "claude",
+        cwd: source.cwd,
+      },
+      undefined,
+      {
+        workspaceId,
+        labels: {
+          ...source.labels,
+          nativeForkOf: source.id,
+        },
+      },
+    );
+
+    try {
+      await this.hydrateTimelineFromProvider(forked.id, { force: true, broadcast: true });
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId: forked.id, sourceAgentId: source.id },
+        "agent.native_fork.hydrate_failed",
+      );
+    }
+
+    return { agentId: forked.id, workspaceId };
+  }
+
   async deleteAgentState(agentId: string): Promise<void> {
     this.discardRetainedAgentState(agentId);
     await this.deleteCommittedTimeline(agentId);
@@ -3405,6 +3704,10 @@ export class AgentManager {
     for (const event of this.providerSubagents.deleteParent(agentId)) {
       this.dispatch({ type: "provider_subagent", event });
     }
+    this.backgroundTaskStore.deleteParent(agentId);
+    this.dispatch({ type: "background_tasks", parentAgentId: agentId, tasks: [] });
+    this.providerHeartbeatStore.deleteParent(agentId);
+    this.dispatch({ type: "provider_heartbeats", parentAgentId: agentId, heartbeats: [] });
   }
 
   private emitClosedAgent(agent: ManagedAgentClosed, options?: { persist?: boolean }): void {
@@ -3507,6 +3810,37 @@ export class AgentManager {
     if (event.type === "provider_subagent") {
       const update = this.providerSubagents.apply(agent.id, event.provider, event.event);
       this.dispatch({ type: "provider_subagent", event: update });
+      return;
+    }
+    if (event.type === "background_tasks") {
+      const result = applyBackgroundTaskInputEvent(
+        this.backgroundTaskStore,
+        agent.id,
+        event.event,
+        new Date().toISOString(),
+      );
+      if (result.changed) {
+        this.dispatch({
+          type: "background_tasks",
+          parentAgentId: agent.id,
+          tasks: result.tasks,
+        });
+      }
+      return;
+    }
+    if (event.type === "provider_heartbeats") {
+      const result = applyProviderHeartbeatInputEvent(
+        this.providerHeartbeatStore,
+        agent.id,
+        event.event,
+      );
+      if (result.changed) {
+        this.dispatch({
+          type: "provider_heartbeats",
+          parentAgentId: agent.id,
+          heartbeats: result.heartbeats,
+        });
+      }
       return;
     }
     const turnId = getAgentStreamEventTurnId(event);
@@ -3690,6 +4024,14 @@ export class AgentManager {
       if (broadcast) {
         this.dispatch({ type: "provider_subagent", event });
       }
+    }
+    this.backgroundTaskStore.deleteParent(agent.id);
+    if (broadcast) {
+      this.dispatch({ type: "background_tasks", parentAgentId: agent.id, tasks: [] });
+    }
+    this.providerHeartbeatStore.deleteParent(agent.id);
+    if (broadcast) {
+      this.dispatch({ type: "provider_heartbeats", parentAgentId: agent.id, heartbeats: [] });
     }
     for (const event of providerSubagentEvents) {
       const update = this.providerSubagents.apply(agent.id, event.provider, event.event);
@@ -4970,4 +5312,28 @@ export function commandMayHaveChangedExternalState(command: string): boolean {
     // ahead/behind counts can drift stale until the next refresh.
     /\bgit\s+fetch\b/.test(normalized)
   );
+}
+
+function resolveNativeForkBoundaryMessageId(input: {
+  rows: readonly AgentTimelineRow[];
+  timelineEpoch: string;
+  boundaryMessageId?: string;
+  boundaryCursor?: { epoch: string; seq: number };
+}): string {
+  const explicit = input.boundaryMessageId?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const cursor = input.boundaryCursor;
+  if (!cursor) {
+    throw new Error("Native fork requires a boundary message id or timeline cursor");
+  }
+  if (cursor.epoch !== input.timelineEpoch) {
+    throw new Error("Selected timeline position is no longer available.");
+  }
+  const row = input.rows.find((entry) => entry.seq === cursor.seq);
+  if (!row || row.item.type !== "assistant_message" || !row.item.messageId?.trim()) {
+    throw new Error("Selected timeline position is no longer available.");
+  }
+  return row.item.messageId.trim();
 }

@@ -35,6 +35,7 @@ import type {
 import {
   buildProviderRegistry,
   shutdownAgentClients,
+  type BuildProviderRegistryOptions,
   type ProviderDefinition,
 } from "./provider-registry.js";
 import { BUILTIN_PROVIDER_IDS } from "@getpaseo/protocol/provider-manifest";
@@ -119,6 +120,7 @@ export interface ProviderSnapshotManagerOptions {
   managedProcesses?: ManagedProcessRegistry;
   isDev?: boolean;
   extraClients?: Partial<Record<AgentProvider, AgentClient>>;
+  persistClaudeAdditionalModelLimits?: BuildProviderRegistryOptions["persistClaudeAdditionalModelLimits"];
   refreshTimeoutMs?: number;
   diagnosticTimeoutMs?: number;
   openCodeBridge?: OpenCodeBridge;
@@ -142,6 +144,7 @@ interface ProviderSnapshotReadOptions {
 
 interface ApplyMutableProviderConfigOptions {
   removeProviders?: readonly string[];
+  preserveInFlightProviderLoads?: readonly string[];
   replace?: boolean;
 }
 
@@ -249,6 +252,7 @@ export class ProviderSnapshotManager {
   private readonly openCodeBridge?: OpenCodeBridge;
   private readonly isDev: boolean;
   private readonly extraClients: Partial<Record<AgentProvider, AgentClient>>;
+  private readonly persistClaudeAdditionalModelLimits?: BuildProviderRegistryOptions["persistClaudeAdditionalModelLimits"];
   private runtimeSettings: AgentProviderRuntimeSettingsMap | undefined;
   private providerOverrides: Record<string, ProviderOverride> | undefined;
   private baseProviderOverrides: Record<string, ProviderOverride> | undefined;
@@ -267,6 +271,7 @@ export class ProviderSnapshotManager {
     this.openCodeBridge = options.openCodeBridge;
     this.isDev = options.isDev === true;
     this.extraClients = options.extraClients ?? {};
+    this.persistClaudeAdditionalModelLimits = options.persistClaudeAdditionalModelLimits;
     this.runtimeSettings = options.runtimeSettings;
     this.providerOverrides = options.providerOverrides;
     this.baseProviderOverrides = options.providerOverrides;
@@ -693,6 +698,7 @@ export class ProviderSnapshotManager {
       managedProcesses: this.managedProcesses,
       openCodeBridge: this.openCodeBridge,
       isDev: this.isDev,
+      persistClaudeAdditionalModelLimits: this.persistClaudeAdditionalModelLimits,
     });
 
     for (const [provider, definition] of Object.entries(this.pluginProviders.definitions())) {
@@ -775,6 +781,12 @@ export class ProviderSnapshotManager {
   ): Promise<ProviderSnapshotEntry> {
     try {
       const target = createGlobalSnapshotTarget();
+      // Reuse a ready snapshot instead of forcing a catalog refresh: the entry
+      // already carries the model list and status the diagnostic reports.
+      const existing = await this.getProvider({ provider, wait: false });
+      if (existing.status === "ready") {
+        return existing;
+      }
       await this.refreshProviders(target, [provider]);
       return await this.getProvider({ provider, wait: false });
     } catch (error) {

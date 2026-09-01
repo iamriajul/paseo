@@ -226,6 +226,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   const setIsPlayingAudio = useSessionStore((state) => state.setIsPlayingAudio);
   const setAgentStreamTail = useSessionStore((state) => state.setAgentStreamTail);
   const setAgentStreamHead = useSessionStore((state) => state.setAgentStreamHead);
+
   const clearAgentStreamHead = useSessionStore((state) => state.clearAgentStreamHead);
   const setInitializingAgents = useSessionStore((state) => state.setInitializingAgents);
   const setAgents = useSessionStore((state) => state.setAgents);
@@ -387,7 +388,8 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         const owner = viewedTimelineSyncRef.current;
         const session = useSessionStore.getState().sessions[serverId];
         for (const agentId of session?.messageSubmissions.keys() ?? []) {
-          owner?.flushStreamAgent(agentId);        }
+          owner?.flushStreamAgent(agentId);
+        }
       }),
     [client, serverId],
   );

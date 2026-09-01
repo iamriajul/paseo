@@ -36,11 +36,12 @@ import { getSidebarRowBackdrop } from "@/components/sidebar/sidebar-row-backdrop
 import { type GestureType } from "react-native-gesture-handler";
 import { WorkspaceRenameModal } from "@/components/workspace-rename-modal";
 import { useWorkspaceClipboardActions } from "@/hooks/use-workspace-clipboard-actions";
-import { ExternalLink, Settings, MoreVertical, Plus, Trash2 } from "lucide-react-native";
+import { ExternalLink, ListTodo, Settings, MoreVertical, Plus, Trash2 } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
 import type { DraggableListDragHandleProps } from "./draggable-list.types";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
+import { useCreateBacklogTaskStore } from "@/stores/create-backlog-task-store";
 import type { PinnedSidebarGroups } from "@/hooks/use-sidebar-pins";
 import {
   useSidebarWorkspacePinController,
@@ -52,6 +53,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { useProjectIcons } from "@/projects/icons";
 import {
   buildNewWorkspaceRoute,
+  buildBacklogRoute,
   buildProjectSettingsRoute,
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
@@ -149,6 +151,7 @@ import { OpenInFileManagerMenuItem } from "@/workspace/open-in-file-manager/menu
 import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
 import type { HostBadgeModel } from "@/hosts/appearance";
 import { useHostBadges } from "@/hosts/use-host-badges";
+import { useAppSettings } from "@/hooks/use-settings";
 import { useSidebarRowItems } from "@/components/sidebar/display-preferences/model";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
 
@@ -160,6 +163,7 @@ const WORKSPACE_STATUS_DOT_WIDTH = 14;
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const ThemedPlus = withUnistyles(Plus);
+const ThemedListTodo = withUnistyles(ListTodo);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
@@ -249,6 +253,7 @@ interface ProjectHeaderRowProps {
   isProjectActive?: boolean;
   onWorkspacePress?: () => void;
   onWorktreeCreated?: (workspaceId: string) => void;
+  backlogTarget: ProjectBacklogTarget | null;
   shortcutNumber?: number | null;
   showShortcutBadge?: boolean;
   drag: () => void;
@@ -258,6 +263,12 @@ interface ProjectHeaderRowProps {
   onRemoveProject?: () => void;
   removeProjectStatus?: "idle" | "pending";
   dragHandleProps?: DraggableListDragHandleProps;
+}
+
+interface ProjectBacklogTarget {
+  serverId: string;
+  /** Host-local project FK used by task RPCs; not the mutable viewKey. */
+  projectId: string;
 }
 
 interface WorkspaceRowInnerProps {
@@ -283,6 +294,7 @@ interface WorkspaceRowInnerProps {
   onCopyPath?: () => void;
   onRename?: () => void;
   onMarkAsRead?: () => void;
+  onMarkAsUnread?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   isPinned?: boolean;
   onTogglePin?: () => void;
@@ -379,6 +391,18 @@ function getProjectWorkspaceRowStyle({
 
 function noop() {}
 
+function resolveProjectBacklogTarget(
+  project: SidebarProjectEntry,
+  supportsBacklogByServerId: ReadonlyMap<string, boolean>,
+): ProjectBacklogTarget | null {
+  for (const host of project.hosts) {
+    if (supportsBacklogByServerId.get(host.serverId)) {
+      return { serverId: host.serverId, projectId: host.projectId };
+    }
+  }
+  return null;
+}
+
 const prBadgeStyles = StyleSheet.create((theme) => ({
   badge: {
     flexDirection: "row",
@@ -405,10 +429,12 @@ function ProjectRowTrailingActions({
   worktreeTarget,
   settingsTarget,
   projectPath,
+  backlogTarget,
   isHovered,
   isMobileBreakpoint,
   isProjectActive,
   onBeginWorkspaceSetup,
+  onOpenBacklog,
   onRemoveProject,
   removeProjectStatus,
 }: {
@@ -417,10 +443,12 @@ function ProjectRowTrailingActions({
   worktreeTarget: SidebarProjectHostTarget | null;
   settingsTarget: { serverId: string; projectId: string } | null;
   projectPath: string;
+  backlogTarget: ProjectBacklogTarget | null;
   isHovered: boolean;
   isMobileBreakpoint: boolean;
   isProjectActive: boolean;
   onBeginWorkspaceSetup: () => void;
+  onOpenBacklog: () => void;
   onRemoveProject?: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
@@ -443,8 +471,11 @@ function ProjectRowTrailingActions({
         >
           <ProjectKebabMenu
             projectViewKey={projectViewKey}
+            displayName={displayName}
             settingsTarget={settingsTarget}
             projectPath={projectPath}
+            backlogTarget={backlogTarget}
+            onOpenBacklog={onOpenBacklog}
             onRemoveProject={onRemoveProject}
             removeProjectStatus={removeProjectStatus}
           />
@@ -456,6 +487,8 @@ function ProjectRowTrailingActions({
 
 const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColorMapping} />;
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
+const listTodoLeadingIcon = <ThemedListTodo size={14} uniProps={foregroundMutedColorMapping} />;
+const plusLeadingIcon = <ThemedPlus size={14} uniProps={foregroundMutedColorMapping} />;
 const openInNewWindowLeadingIcon = (
   <ThemedExternalLink size={14} uniProps={foregroundMutedColorMapping} />
 );
@@ -471,14 +504,20 @@ function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
 
 function ProjectKebabMenu({
   projectViewKey,
+  displayName,
   settingsTarget,
   projectPath,
+  backlogTarget,
+  onOpenBacklog,
   onRemoveProject,
   removeProjectStatus,
 }: {
   projectViewKey: string;
+  displayName: string;
   settingsTarget: { serverId: string; projectId: string } | null;
   projectPath: string;
+  backlogTarget: ProjectBacklogTarget | null;
+  onOpenBacklog: () => void;
   onRemoveProject: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
@@ -498,8 +537,11 @@ function ProjectKebabMenu({
         <ProjectMenuItems
           surface="dropdown"
           projectViewKey={projectViewKey}
+          displayName={displayName}
           settingsTarget={settingsTarget}
           projectPath={projectPath}
+          backlogTarget={backlogTarget}
+          onOpenBacklog={onOpenBacklog}
           onRemoveProject={onRemoveProject}
           removeProjectStatus={removeProjectStatus}
         />
@@ -526,20 +568,27 @@ function ProjectMenuItem({
 function ProjectMenuItems({
   surface,
   projectViewKey,
+  displayName,
   settingsTarget,
   projectPath,
+  backlogTarget,
+  onOpenBacklog,
   onRemoveProject,
   removeProjectStatus,
 }: {
   surface: ProjectMenuSurface;
   projectViewKey: string;
+  displayName: string;
   settingsTarget: { serverId: string; projectId: string } | null;
   projectPath: string;
+  backlogTarget: ProjectBacklogTarget | null;
+  onOpenBacklog: () => void;
   onRemoveProject: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
   const { t } = useTranslation();
   const toast = useToast();
+  const openCreateBacklogTask = useCreateBacklogTaskStore((state) => state.openCreateBacklogTask);
   const handleOpenProjectSettings = useCallback(() => {
     if (!settingsTarget) return;
     router.navigate(buildProjectSettingsRoute(settingsTarget.serverId, settingsTarget.projectId));
@@ -555,9 +604,37 @@ function ProjectMenuItems({
         toast.error(t("sidebar.project.actions.openNewWindowFailed"));
       });
   }, [projectPath, t, toast]);
+  const handleCreateBacklogTask = useCallback(() => {
+    if (!backlogTarget) return;
+    openCreateBacklogTask({
+      preferredServerId: backlogTarget.serverId,
+      preferredProjectId: projectViewKey,
+      preferredProjectName: displayName,
+    });
+  }, [backlogTarget, displayName, openCreateBacklogTask, projectViewKey]);
 
   return (
     <>
+      {backlogTarget ? (
+        <>
+          <ProjectMenuItem
+            surface={surface}
+            testID={`sidebar-project-menu-open-backlog-${projectViewKey}`}
+            leading={listTodoLeadingIcon}
+            onSelect={onOpenBacklog}
+          >
+            {t("sidebar.project.actions.openBacklog")}
+          </ProjectMenuItem>
+          <ProjectMenuItem
+            surface={surface}
+            testID={`sidebar-project-menu-new-backlog-item-${projectViewKey}`}
+            leading={plusLeadingIcon}
+            onSelect={handleCreateBacklogTask}
+          >
+            {t("sidebar.project.actions.newBacklogItem")}
+          </ProjectMenuItem>
+        </>
+      ) : null}
       {settingsTarget ? (
         <ProjectMenuItem
           surface={surface}
@@ -611,6 +688,7 @@ function WorkspaceRowRightGroup({
   archiveShortcutKeys,
   onArchive,
   onMarkAsRead,
+  onMarkAsUnread,
   onCopyBranchName,
   onCopyPath,
   onRename,
@@ -630,6 +708,7 @@ function WorkspaceRowRightGroup({
   archiveShortcutKeys?: ShortcutKey[][] | null;
   onArchive?: () => void;
   onMarkAsRead?: () => void;
+  onMarkAsUnread?: () => void;
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
   onRename?: () => void;
@@ -681,6 +760,7 @@ function WorkspaceRowRightGroup({
                 onCopyBranchName={onCopyBranchName}
                 onRename={onRename}
                 onMarkAsRead={onMarkAsRead}
+                onMarkAsUnread={onMarkAsUnread}
                 onArchive={onArchive}
                 archiveLabel={archiveLabel}
                 archiveStatus={archiveStatus}
@@ -854,6 +934,7 @@ function ProjectHeaderRow({
   isProjectActive = false,
   onWorkspacePress,
   onWorktreeCreated: _onWorktreeCreated,
+  backlogTarget,
   shortcutNumber = null,
   showShortcutBadge = false,
   drag,
@@ -885,6 +966,21 @@ function ProjectHeaderRow({
       }) as Href,
     );
   }, [displayName, onWorkspacePress, worktreeTarget]);
+  const handleOpenBacklog = useCallback(() => {
+    if (!backlogTarget) {
+      return;
+    }
+    onWorkspacePress?.();
+    router.navigate(
+      buildBacklogRoute({
+        serverId: backlogTarget.serverId,
+        // Host-local projectId is the task FK; viewKey is only for grouping
+        // and can diverge after a remote transfer.
+        projectId: backlogTarget.projectId,
+        displayName,
+      }) as Href,
+    );
+  }, [backlogTarget, displayName, onWorkspacePress]);
   const interaction = useLongPressDragInteraction({
     drag,
     menuController,
@@ -961,10 +1057,12 @@ function ProjectHeaderRow({
         worktreeTarget={worktreeTarget}
         settingsTarget={settingsTarget}
         projectPath={projectPath}
+        backlogTarget={backlogTarget}
         isHovered={isHovered}
         isMobileBreakpoint={isMobileBreakpoint}
         isProjectActive={isProjectActive}
         onBeginWorkspaceSetup={handleBeginWorkspaceSetup}
+        onOpenBacklog={handleOpenBacklog}
         onRemoveProject={onRemoveProject}
         removeProjectStatus={removeProjectStatus}
       />
@@ -1032,8 +1130,11 @@ function ProjectHeaderRow({
         <ProjectMenuItems
           surface="context"
           projectViewKey={project.viewKey}
+          displayName={displayName}
           settingsTarget={settingsTarget}
           projectPath={projectPath}
+          backlogTarget={backlogTarget}
+          onOpenBacklog={handleOpenBacklog}
           onRemoveProject={onRemoveProject}
           removeProjectStatus={removeProjectStatus}
         />
@@ -1064,6 +1165,8 @@ function WorkspaceRowInner({
   onCopyBranchName,
   onCopyPath,
   onRename,
+  onMarkAsRead,
+  onMarkAsUnread,
   archiveShortcutKeys,
   isPinned,
   onTogglePin,
@@ -1134,6 +1237,8 @@ function WorkspaceRowInner({
               onCopyPath={onCopyPath}
               onCopyBranchName={onCopyBranchName}
               onRename={onRename}
+              onMarkAsRead={onMarkAsRead}
+              onMarkAsUnread={onMarkAsUnread}
               onArchive={onArchive}
               archiveLabel={archiveLabel}
               archiveStatus={archiveStatus}
@@ -1184,6 +1289,8 @@ function WorkspaceRowInner({
                   onCopyBranchName={onCopyBranchName}
                   onCopyPath={onCopyPath}
                   onRename={onRename}
+                  onMarkAsRead={onMarkAsRead}
+                  onMarkAsUnread={onMarkAsUnread}
                   isPinned={isPinned}
                   onTogglePin={onTogglePin}
                 />
@@ -1285,15 +1392,21 @@ function WorkspaceRowWithMenu({
   const onTogglePin = canPin ? handleTogglePin : undefined;
 
   const archiveShortcutKeys = useShortcutKeys("archive-workspace");
-  const { hasClearableAttention, clearAttention } = useClearWorkspaceAttention({
-    serverId: workspace.serverId,
-    workspaceId: workspace.workspaceId,
-  });
+  const { hasClearableAttention, canMarkUnread, clearAttention, markUnread } =
+    useClearWorkspaceAttention({
+      serverId: workspace.serverId,
+      workspaceId: workspace.workspaceId,
+    });
   const handleMarkAsRead = useCallback(() => {
     void clearAttention().catch((error) => {
       toast.error(error instanceof Error ? error.message : "Failed to mark workspace as read");
     });
   }, [clearAttention, toast]);
+  const handleMarkAsUnread = useCallback(() => {
+    void markUnread().catch((error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to mark workspace as unread");
+    });
+  }, [markUnread, toast]);
 
   useKeyboardActionHandler({
     handlerId: `workspace-archive-${workspace.workspaceKey}`,
@@ -1331,6 +1444,7 @@ function WorkspaceRowWithMenu({
         onCopyPath={handleCopyPath}
         onRename={handleOpenRename}
         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+        onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
         isPinned={isPinned}
         onTogglePin={onTogglePin}
@@ -1545,6 +1659,7 @@ function ProjectBlock({
   activeWorkspaceSelection,
   hostBadgeByServerId,
   supportsMultiplicityByServerId,
+  supportsBacklogByServerId,
   supportsPinningByServerId,
   onToggleWorkspacePin,
 }: {
@@ -1570,6 +1685,7 @@ function ProjectBlock({
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
   hostBadgeByServerId: ReadonlyMap<string, HostBadgeModel>;
   supportsMultiplicityByServerId: ReadonlyMap<string, boolean>;
+  supportsBacklogByServerId: ReadonlyMap<string, boolean>;
   supportsPinningByServerId: ReadonlyMap<string, boolean>;
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
 }) {
@@ -1587,6 +1703,10 @@ function ProjectBlock({
         supportsMultiplicityByServerId,
       }),
     [collapsed, project, supportsMultiplicityByServerId],
+  );
+  const backlogTarget = useMemo(
+    () => resolveProjectBacklogTarget(project, supportsBacklogByServerId),
+    [project, supportsBacklogByServerId],
   );
 
   // Collapsed rows hide their workspace rows, so the project row carries the most urgent
@@ -1789,6 +1909,7 @@ function ProjectBlock({
         isProjectActive={active}
         onWorkspacePress={onWorkspacePress}
         onWorktreeCreated={onWorktreeCreated}
+        backlogTarget={backlogTarget}
         drag={drag}
         isDragging={isDragging}
         isArchiving={isRemovingProject}
@@ -1818,6 +1939,7 @@ function areProjectBlockPropsEqual(previous: ProjectBlockProps, next: ProjectBlo
     previous.shortcutIndexByWorkspaceKey === next.shortcutIndexByWorkspaceKey &&
     previous.hostBadgeByServerId === next.hostBadgeByServerId &&
     previous.supportsMultiplicityByServerId === next.supportsMultiplicityByServerId &&
+    previous.supportsBacklogByServerId === next.supportsBacklogByServerId &&
     previous.supportsPinningByServerId === next.supportsPinningByServerId &&
     previous.onToggleWorkspacePin === next.onToggleWorkspacePin &&
     previous.parentGestureRef === next.parentGestureRef &&
@@ -1891,11 +2013,16 @@ export function SidebarWorkspaceList({
   // "off", `shouldShowSidebarHostLabels` is the automatic "there is only one host so it says
   // nothing", and each host's own `badgeDisplay` decides name vs icon vs hidden. Turning the
   // item off here removes the badge everywhere; leaving it on defers to the per-host setting.
+  const {
+    settings: { sidebarIdentityIcon },
+  } = useAppSettings();
   const hostBadgeByServerId = useHostBadges({
     enabled: rowItems.host && shouldShowSidebarHostLabels(projects),
+    showIcon: sidebarIdentityIcon,
   });
   const serverIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
   const supportsMultiplicityByServerId = useHostFeatureMap(serverIds, "workspaceMultiplicity");
+  const supportsBacklogByServerId = useHostFeatureMap(serverIds, "taskBacklog");
   const supportsPinningByServerId = useHostFeatureMap(serverIds, "workspacePinning");
   const onToggleWorkspacePin = useSidebarWorkspacePinController();
   const getPinnedWorkspaceOrder = useSidebarOrderStore((state) => state.getPinnedWorkspaceOrder);
@@ -1981,6 +2108,7 @@ export function SidebarWorkspaceList({
         pathname={pathname}
         hostBadgeByServerId={hostBadgeByServerId}
         supportsMultiplicityByServerId={supportsMultiplicityByServerId}
+        supportsBacklogByServerId={supportsBacklogByServerId}
         supportsPinningByServerId={supportsPinningByServerId}
         onToggleWorkspacePin={onToggleWorkspacePin}
         onPinnedWorkspaceReorder={handlePinnedWorkspaceReorder}
@@ -2076,6 +2204,7 @@ function ProjectModeList({
   pathname,
   hostBadgeByServerId,
   supportsMultiplicityByServerId,
+  supportsBacklogByServerId,
   supportsPinningByServerId,
   onToggleWorkspacePin,
   onPinnedWorkspaceReorder,
@@ -2094,6 +2223,7 @@ function ProjectModeList({
   pathname: string;
   hostBadgeByServerId: ReadonlyMap<string, HostBadgeModel>;
   supportsMultiplicityByServerId: ReadonlyMap<string, boolean>;
+  supportsBacklogByServerId: ReadonlyMap<string, boolean>;
   supportsPinningByServerId: ReadonlyMap<string, boolean>;
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
   onPinnedWorkspaceReorder: (workspaces: SidebarWorkspacePlacement[]) => void;
@@ -2294,6 +2424,7 @@ function ProjectModeList({
           activeWorkspaceSelection={activeWorkspaceSelection}
           hostBadgeByServerId={hostBadgeByServerId}
           supportsMultiplicityByServerId={supportsMultiplicityByServerId}
+          supportsBacklogByServerId={supportsBacklogByServerId}
           supportsPinningByServerId={supportsPinningByServerId}
           onToggleWorkspacePin={onToggleWorkspacePin}
         />
@@ -2306,6 +2437,7 @@ function ProjectModeList({
       handleWorkspaceReorder,
       hostBadgeByServerId,
       supportsMultiplicityByServerId,
+      supportsBacklogByServerId,
       supportsPinningByServerId,
       onToggleWorkspacePin,
       onWorkspacePress,

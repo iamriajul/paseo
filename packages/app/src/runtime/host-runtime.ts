@@ -483,6 +483,22 @@ function probeIntervalForConnection(
   return PROBE_MAX_BACKOFF_MS;
 }
 
+function connectionUsesThisMachine(connection: HostConnection): boolean {
+  if (connection.type === "directSocket" || connection.type === "directPipe") {
+    return true;
+  }
+  if (connection.type !== "directTcp") {
+    return false;
+  }
+  const endpoint = connection.endpoint.trim().toLowerCase();
+  return (
+    endpoint.startsWith("127.") ||
+    endpoint.startsWith("localhost") ||
+    endpoint.startsWith("[::1]") ||
+    endpoint.startsWith("::1")
+  );
+}
+
 function createDefaultDeps(): HostRuntimeControllerDeps {
   const browserHostAvailable =
     typeof getDesktopHost()?.browser?.executeAutomationCommand === "function";
@@ -570,7 +586,7 @@ function createDefaultDeps(): HostRuntimeControllerDeps {
         trace: nativePerformanceTrace,
       }),
     getClientId: () => getOrCreateClientId(),
-    mountClientHandlers: ({ client, host }) => {
+    mountClientHandlers: ({ client, host, connection }) => {
       const unmountServerData = mountServerDataPushRouter({
         client,
         queryClient,
@@ -581,6 +597,7 @@ function createDefaultDeps(): HostRuntimeControllerDeps {
       }
       const unmountBrowserAutomation = mountBrowserAutomationDaemonClientHandler(client, {
         serverId: host.serverId,
+        ...(connectionUsesThisMachine(connection) ? { directLoopback: true } : {}),
       });
       return () => {
         unmountBrowserAutomation();
@@ -2437,21 +2454,27 @@ export function useHostRuntimeConnectionStatuses(
   serverIds: readonly string[],
 ): ReadonlyMap<string, HostRuntimeConnectionStatus> {
   const store = getHostRuntimeStore();
-  const version = useSyncExternalStore(
+  const serializedStatuses = useSyncExternalStore(
     (onStoreChange) => store.subscribeAll(onStoreChange),
-    () => store.getVersion(),
-    () => store.getVersion(),
+    () =>
+      JSON.stringify(
+        serverIds.map(
+          (serverId) =>
+            [serverId, store.getSnapshot(serverId)?.connectionStatus ?? "connecting"] as const,
+        ),
+      ),
+    () =>
+      JSON.stringify(
+        serverIds.map(
+          (serverId) =>
+            [serverId, store.getSnapshot(serverId)?.connectionStatus ?? "connecting"] as const,
+        ),
+      ),
   );
 
-  return useMemo(() => {
-    // The aggregate version is the reactivity trigger; re-read snapshots on every host tick.
-    void version;
-    const entries: Array<[string, HostRuntimeConnectionStatus]> = serverIds.map((serverId) => [
-      serverId,
-      store.getSnapshot(serverId)?.connectionStatus ?? "connecting",
-    ]);
-    return new Map(entries);
-  }, [serverIds, store, version]);
+  // Make the external-store snapshot contain the statuses themselves. Using only the store's
+  // aggregate version here lets React Compiler retain a Map built from an older runtime snapshot.
+  return new Map(JSON.parse(serializedStatuses) as Array<[string, HostRuntimeConnectionStatus]>);
 }
 
 export function useHostRuntimeLastError(serverId: string): string | null {

@@ -11,6 +11,7 @@ import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
+import type { Socket } from "node:net";
 import { constants, existsSync, unlinkSync } from "fs";
 import { open, rm, stat } from "fs/promises";
 import { randomUUID } from "node:crypto";
@@ -145,6 +146,8 @@ import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
+import { TaskStore } from "./tasks/task-store.js";
+import { UiStateStore } from "./ui-state/store.js";
 import {
   createPaseoToolCatalog,
   createPaseoAgentToolManifest,
@@ -152,6 +155,7 @@ import {
 } from "./agent/tools/paseo-tools.js";
 import type { PaseoToolRuntimeContext } from "./agent/tools/types.js";
 import { createAgentProviderRuntime } from "./agent/provider-runtime.js";
+import { createAdditionalModelLimitsPersistence } from "./agent/additional-model-limits-persister.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
@@ -204,6 +208,8 @@ import type {
 } from "./agent/provider-launch-config.js";
 import { type PersistedConfig } from "./persisted-config.js";
 import { createServiceProxySubsystem, type ServiceProxySubsystem } from "./service-proxy.js";
+import { createBrowserPreviewSubsystem } from "./browser-preview/index.js";
+import { parseBrowserPreviewTemplate } from "./browser-preview/url-template.js";
 import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
 import { ScriptHealthMonitor } from "./script-health-monitor.js";
 import { createScriptStatusEmitter } from "./script-status-projection.js";
@@ -452,6 +458,7 @@ export interface PaseoDaemonConfig {
     publicBaseUrl: string | null;
     standaloneListen: string | null;
   };
+  browserPreviewUrlTemplate: string | null;
   webUi?: {
     enabled: boolean;
     distDir: string | null;
@@ -476,6 +483,12 @@ export interface PaseoDaemonConfig {
       model?: string;
       thinkingOptionId?: string;
     }>;
+    customEndpoint?: {
+      enabled?: boolean;
+      baseUrl?: string;
+      apiKey?: string;
+      model?: string;
+    };
   };
   providerOverrides?: Record<string, ProviderOverride>;
   log?: PersistedConfig["log"];
@@ -574,6 +587,18 @@ function resolveReloadEnv(config: PaseoDaemonConfig): NodeJS.ProcessEnv {
   return config.configReload?.env ?? process.env;
 }
 
+function resolveInitialMetadataCustomEndpoint(
+  config: PaseoDaemonConfig["metadataGeneration"],
+): NonNullable<MutableDaemonConfig["metadataGeneration"]["customEndpoint"]> {
+  const customEndpoint = config?.customEndpoint;
+  return {
+    enabled: customEndpoint?.enabled ?? false,
+    baseUrl: customEndpoint?.baseUrl ?? "",
+    apiKey: customEndpoint?.apiKey ?? "",
+    model: customEndpoint?.model ?? "",
+  };
+}
+
 function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): MutableDaemonConfig {
   const providers = config.providerOverrides ?? {};
 
@@ -596,6 +621,7 @@ function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): Mutab
     providers,
     metadataGeneration: {
       providers: config.metadataGeneration?.providers ?? [],
+      customEndpoint: resolveInitialMetadataCustomEndpoint(config.metadataGeneration),
     },
     autoArchiveAfterMerge: config.autoArchiveAfterMerge ?? false,
     enableTerminalAgentHooks: config.enableTerminalAgentHooks ?? false,
@@ -619,6 +645,7 @@ function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): Mutab
   return initialConfig;
 }
 
+// eslint-disable-next-line complexity
 export async function createPaseoDaemon(
   config: PaseoDaemonConfig,
   rootLogger: Logger,
@@ -735,6 +762,12 @@ export async function createPaseoDaemon(
     logger,
     publicBaseUrl: serviceProxyPublicBaseUrl,
   });
+  const browserPreview = createBrowserPreviewSubsystem({
+    template: config.browserPreviewUrlTemplate
+      ? parseBrowserPreviewTemplate(config.browserPreviewUrlTemplate)
+      : null,
+    logger,
+  });
   const scriptRuntimeStore = new WorkspaceScriptRuntimeStore();
   const workspaceSetupRuntime = new WorkspaceSetupRuntime();
   let configuredHostnames = config.hostnames ?? config.allowedHosts;
@@ -770,6 +803,12 @@ export async function createPaseoDaemon(
     },
     logger,
   });
+
+  // Browser preview resolves loopback ports for the web build. It must run
+  // before the service proxy: classifyHost's known-service-miss branches would
+  // otherwise 404 preview hosts under a configured public base. Like service
+  // routes, handled requests never reach the host allowlist below.
+  app.use(browserPreview.middleware());
 
   // Service proxy classifies service hosts before daemon auth/route fallthrough.
   // Registered service hosts proxy directly; known service namespaces without a
@@ -927,11 +966,27 @@ export async function createPaseoDaemon(
 
   const httpServer = createHTTPServer(app);
 
-  // Script proxy WebSocket upgrade handler — must be registered before the
-  // VoiceAssistantWebSocketServer attaches its own "upgrade" listener so that
-  // script-bound upgrades are forwarded first. The handler is a no-op for
-  // requests that don't match a registered script route.
-  httpServer.on("upgrade", serviceProxy.upgradeHandler({ passthroughUnknown: true }));
+  // A single explicit router replaces three independent 'upgrade' listeners.
+  // Each candidate's claim decision — template.matchHost, wss.shouldHandle,
+  // classifyHost — is synchronous, so checking them in priority order here,
+  // before any of them starts async work (a loopback dial, a WS handshake),
+  // is what keeps one candidate's claim from being destroyed by another's
+  // fallback running later on the same 'upgrade' event. `ws`'s own
+  // {server, path} attachment can't coexist with that — see
+  // websocket-server.ts's createWebSocketServer.
+  //
+  // Order: preview (host match) before the daemon's own /ws (path match)
+  // before service proxy (host match, terminal). A preview host must win on
+  // any path per browser-preview/index.ts, and service proxy's
+  // passthroughUnknown:false fallback must run last so it never destroys a
+  // socket the daemon's own control plane or a preview host already claimed.
+  const previewUpgradeHandler = browserPreview.upgradeHandler();
+  const serviceProxyUpgradeHandler = serviceProxy.upgradeHandler({ passthroughUnknown: false });
+  httpServer.on("upgrade", (req: IncomingMessage, socket: Socket, head: Buffer) => {
+    if (previewUpgradeHandler(req, socket, head)) return;
+    if (wsServer?.handleUpgrade(req, socket, head)) return;
+    serviceProxyUpgradeHandler(req, socket, head);
+  });
 
   if (config.serviceProxy?.standaloneListen) {
     serviceProxyListenTarget = parseListenString(config.serviceProxy.standaloneListen);
@@ -996,6 +1051,7 @@ export async function createPaseoDaemon(
       managedProcesses,
       isDev: config.isDev === true,
       extraClients: config.agentClients,
+      ...createAdditionalModelLimitsPersistence(daemonConfigStore),
     },
   });
   const providerSnapshotManager = agentProviderRuntime.snapshotManager;
@@ -1517,6 +1573,8 @@ export async function createPaseoDaemon(
     daemonConfigStore,
     idleRuntimeCleanup,
   );
+  const taskStore = new TaskStore(config.paseoHome);
+  const uiStateStore = new UiStateStore(config.paseoHome);
 
   const createAgentToolHostDependencies = (
     runtime: PaseoToolRuntimeContext,
@@ -1579,6 +1637,7 @@ export async function createPaseoDaemon(
     clearWorkspaceArchiving: clearWorkspaceArchivingExternal,
     ensureWorkspaceForCreate: createAgentCommandDependencies.ensureWorkspaceForCreate,
     createPaseoWorktree: createAgentCommandDependencies.createPaseoWorktree,
+    taskStore,
     browserToolsEnabled: browserToolsPolicy.isEnabled(),
     browserToolsBroker,
     paseoToolPolicy:
@@ -1867,6 +1926,7 @@ export async function createPaseoDaemon(
                   return appBaseUrl;
                 },
                 desktopManaged: config.desktopManaged === true,
+                browserPreviewUrlTemplate: config.browserPreviewUrlTemplate,
                 getRelayConfig: () => ({
                   ...(relayRuntime?.getConfig() ?? {
                     enabled: daemonConfigStore.get().relay?.enabled ?? relayEnabled,
@@ -1881,7 +1941,9 @@ export async function createPaseoDaemon(
               },
               serviceProxyPublicBaseUrl,
               browserToolsBroker,
+              taskStore,
               hubRelationships,
+              uiStateStore,
               workspaceSetupRuntime,
               pluginRuntime,
               orchestrationSkills,

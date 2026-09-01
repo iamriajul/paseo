@@ -1,5 +1,6 @@
 export interface BrowserWorkspaceRegistration {
   browserId: string;
+  serverId?: string;
   workspaceId: string;
 }
 
@@ -11,6 +12,7 @@ export interface BrowserWebContentsRegistration {
 export class PaseoBrowserWebviewRegistry {
   private readonly registrationsByWebContentsId = new Map<number, BrowserWebContentsRegistration>();
   private readonly webContentsIdsByHostAndBrowserId = new Map<string, number>();
+  private readonly serverIdsByBrowserId = new Map<string, string>();
   private readonly workspaceIdsByBrowserId = new Map<string, string>();
   private readonly activeBrowserIdsByHostWindow = new Map<number, Map<string, string>>();
 
@@ -79,6 +81,9 @@ export class PaseoBrowserWebviewRegistry {
   }
 
   public registerWorkspace(input: BrowserWorkspaceRegistration): void {
+    if (input.serverId) {
+      this.serverIdsByBrowserId.set(input.browserId, input.serverId);
+    }
     this.workspaceIdsByBrowserId.set(input.browserId, input.workspaceId);
   }
 
@@ -91,8 +96,13 @@ export class PaseoBrowserWebviewRegistry {
         );
       }
     }
+    this.serverIdsByBrowserId.delete(browserId);
     this.workspaceIdsByBrowserId.delete(browserId);
     this.deleteActiveBrowserReferences(browserId);
+  }
+
+  public getServerId(browserId: string): string | null {
+    return this.serverIdsByBrowserId.get(browserId) ?? null;
   }
 
   public unregisterBrowserFromHost(hostWebContentsId: number, browserId: string): void {

@@ -17,6 +17,8 @@ import {
   type WorkspaceTabLaunchPurpose,
 } from "@/workspace-tabs/launcher";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
+import { launchItemPinTarget } from "@/workspace-pins/launch-item";
+import { PinnableMenuItem } from "@/workspace-pins/pinnable-menu-item";
 import type { PaneHost } from "@/panels/panel-manifest";
 import type { PanelIconProps } from "@/panels/panel-registry";
 
@@ -62,6 +64,20 @@ function WorkspaceNewTabMenuItem({
     [item.shortcutActionId],
   );
   const handleSelect = useCallback(() => item.launch({ kind: "open", paneId }), [item, paneId]);
+  const pinTarget = launchItemPinTarget(item.id);
+
+  if (pinTarget && leading) {
+    return (
+      <PinnableMenuItem
+        testID={`workspace-new-tab-menu-${item.id}`}
+        target={pinTarget}
+        label={item.label}
+        leading={leading}
+        disabled={item.disabled}
+        onSelect={handleSelect}
+      />
+    );
+  }
 
   return (
     <DropdownMenuItem

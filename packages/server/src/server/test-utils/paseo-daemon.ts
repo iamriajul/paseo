@@ -190,6 +190,7 @@ async function prepareTestDaemonConfig(
     daemonVersion: options.daemonVersion,
     desktopManaged: options.desktopManaged,
     corsAllowedOrigins: options.corsAllowedOrigins ?? [],
+    browserPreviewUrlTemplate: null,
     hostnames: true,
     mcpEnabled: options.mcpEnabled ?? true,
     staticDir,

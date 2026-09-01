@@ -296,6 +296,7 @@ describe("ProviderCatalogSession", () => {
     });
   });
 
+
   it("surfaces a feature-list failure inline, not as an rpc_error", async () => {
     const { subsystem, emitted } = makeSubsystem({
       host: {

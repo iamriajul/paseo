@@ -33,6 +33,7 @@ export interface MermaidRenderModel {
   colorScheme: DiagramColorScheme;
   status: "pending" | "rendered" | "failed" | "rejected";
   visible: RenderedDiagram | null;
+  errorMessage: string | null;
 }
 
 export type MermaidRenderAction =
@@ -44,7 +45,7 @@ export type MermaidRenderAction =
       colorScheme: DiagramColorScheme;
       dimensions: DiagramDimensions;
     }
-  | { type: "renderFailed"; revision: number };
+  | { type: "renderFailed"; revision: number; message?: string };
 
 function reduceRendered(
   state: MermaidRenderModel,
@@ -80,6 +81,7 @@ function reduceRendered(
       colorScheme: action.colorScheme,
       ...action.dimensions,
     },
+    errorMessage: null,
   };
 }
 
@@ -92,6 +94,7 @@ export function createMermaidRenderModel(input: MermaidRenderInput): MermaidRend
       colorScheme: input.colorScheme,
       status: "rejected",
       visible: input.phase === "complete" ? null : input.cached,
+      errorMessage: null,
     };
   }
   return {
@@ -101,6 +104,7 @@ export function createMermaidRenderModel(input: MermaidRenderInput): MermaidRend
     colorScheme: input.colorScheme,
     status: "pending",
     visible: input.cached,
+    errorMessage: null,
   };
 }
 
@@ -120,6 +124,7 @@ export function reduceMermaidRenderModel(
       ...state,
       status: "failed",
       visible: state.phase === "complete" ? null : state.visible,
+      errorMessage: action.message ?? null,
     };
   }
 
@@ -145,6 +150,7 @@ export function reduceMermaidRenderModel(
       colorScheme: input.colorScheme,
       status: "rejected",
       visible: input.phase === "complete" ? null : (input.cached ?? state.visible),
+      errorMessage: null,
     };
   }
 
@@ -155,6 +161,7 @@ export function reduceMermaidRenderModel(
     colorScheme: input.colorScheme,
     status: "pending",
     visible: input.cached ?? state.visible,
+    errorMessage: null,
   };
 }
 

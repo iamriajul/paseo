@@ -120,9 +120,13 @@ async function render(message: MermaidRuntimeRenderMessage): Promise<void> {
       height: size.height,
       width: size.width,
     });
-  } catch {
+  } catch (error) {
     if (message.revision === latestRevision) {
-      sendToHost({ type: "renderError", revision: message.revision });
+      sendToHost({
+        type: "renderError",
+        revision: message.revision,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

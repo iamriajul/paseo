@@ -170,6 +170,7 @@ export default function WebViewTerminalEmulator({
   onInputModeChange,
   onResolveLocalFileLink,
   onOpenLocalFileLink,
+  onOpenExternalUrl = openExternalUrl,
   onRendererReadyChange,
   pendingModifiers = { ctrl: false, shift: false, alt: false },
   focusRequestToken = 0,
@@ -218,6 +219,7 @@ export default function WebViewTerminalEmulator({
     onRendererReadyChange,
     onResolveLocalFileLink,
     onOpenLocalFileLink,
+    onOpenExternalUrl,
     onSwipeLeft,
     onSwipeRight,
   });
@@ -231,6 +233,7 @@ export default function WebViewTerminalEmulator({
     onRendererReadyChange,
     onResolveLocalFileLink,
     onOpenLocalFileLink,
+    onOpenExternalUrl,
     onSwipeLeft,
     onSwipeRight,
   };
@@ -488,6 +491,7 @@ export default function WebViewTerminalEmulator({
   );
 
   const handleTerminalMessage = useCallback(
+    // oxlint-disable-next-line complexity -- bridge message fan-out for terminal webview events
     (
       message: Exclude<BridgeOutboundMessage, { type: "bridgeReady" } | { type: "rendererReady" }>,
     ) => {
@@ -527,7 +531,7 @@ export default function WebViewTerminalEmulator({
           callbacksRef.current.onInputModeChange?.(message.state);
           break;
         case "openExternalUrl":
-          void openExternalUrl(message.url);
+          void callbacksRef.current.onOpenExternalUrl?.(message.url);
           break;
         case "swipeLeft":
           callbacksRef.current.onSwipeLeft?.();

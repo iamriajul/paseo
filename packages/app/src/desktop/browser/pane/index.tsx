@@ -9,7 +9,10 @@ interface BrowserPaneProps {
   workspaceId: string;
   cwd: string | null;
   isInteractive?: boolean;
+  isWorkspaceFocused?: boolean;
   onFocusPane?: () => void;
+  onOpenUrlInBrowserTab?: (url: string) => void;
+  chrome?: "visible" | "hidden";
 }
 
 export function BrowserPane({ browserId }: BrowserPaneProps) {

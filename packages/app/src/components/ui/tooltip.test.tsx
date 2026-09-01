@@ -8,7 +8,7 @@ import { Tooltip, TooltipTrigger } from "./tooltip";
 
 vi.mock("@/constants/platform", () => ({
   isWeb: true,
-  isNative: false,
+  isNative: true,
 }));
 
 vi.mock("@/constants/layout", () => ({
@@ -69,13 +69,15 @@ afterEach(() => {
 function renderTrigger({
   childDisabled,
   onPress,
+  onOpenChange,
 }: {
   childDisabled: boolean;
   onPress: () => void;
+  onOpenChange?: (open: boolean) => void;
 }): void {
   act(() => {
     root?.render(
-      <Tooltip>
+      <Tooltip onOpenChange={onOpenChange}>
         <TooltipTrigger asChild>
           <Pressable disabled={childDisabled} onPress={onPress} testID="trigger">
             <Text>Send</Text>
@@ -112,5 +114,14 @@ describe("TooltipTrigger", () => {
     pressTrigger();
 
     expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens an enabled tooltip on native press at a non-compact breakpoint", () => {
+    const onOpenChange = vi.fn();
+
+    renderTrigger({ childDisabled: false, onPress: vi.fn(), onOpenChange });
+    pressTrigger();
+
+    expect(onOpenChange).toHaveBeenCalledWith(true);
   });
 });

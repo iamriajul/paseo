@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import {
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -87,6 +88,7 @@ import { DesktopPermissionsSection } from "@/desktop/components/desktop-permissi
 import { DesktopNotificationsSection } from "@/desktop/components/desktop-notifications-section";
 import { BrowserDataSection } from "@/desktop/browser/settings/browser-data-section";
 import { IntegrationsSection } from "@/desktop/components/integrations-section";
+import { MobileNotificationsSection } from "@/components/settings/mobile-notifications-section";
 import { isElectronRuntime } from "@/desktop/host";
 import { useDesktopAppUpdater } from "@/desktop/updates/use-desktop-app-updater";
 import { formatVersionWithPrefix } from "@/desktop/updates/desktop-updates";
@@ -171,7 +173,7 @@ const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
     id: "permissions",
     labelKey: "settings.sections.permissions",
     icon: Shield,
-    desktopOnly: true,
+    // Desktop: OS permission + attention settings. Mobile: push diagnostics / test.
   },
   { id: "diagnostics", labelKey: "settings.sections.diagnostics", icon: Stethoscope },
   { id: "about", labelKey: "settings.sections.about", icon: Info },
@@ -506,6 +508,16 @@ function GeneralSection({
       </View>
     </SettingsSection>
   );
+}
+
+function renderPermissionsSection(isDesktopApp: boolean): ReactNode {
+  if (isDesktopApp) {
+    return <DesktopPermissionsSection />;
+  }
+  if (isNative) {
+    return <MobileNotificationsSection />;
+  }
+  return null;
 }
 
 interface DiagnosticsSectionProps {
@@ -1477,7 +1489,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
                   handleLanguageChange={handleLanguageChange}
                   handleTerminalScrollbackLinesChange={handleTerminalScrollbackLinesChange}
                 />
-                {isDesktopApp ? <BrowserDataSection /> : null}
+                {isDesktopApp || Platform.OS === "android" ? <BrowserDataSection /> : null}
               </>
             );
           case "appearance":
@@ -1491,7 +1503,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
           case "notifications":
             return isDesktopApp ? <DesktopNotificationsSection /> : null;
           case "permissions":
-            return isDesktopApp ? <DesktopPermissionsSection /> : null;
+            return renderPermissionsSection(isDesktopApp);
           case "diagnostics":
             return (
               <DiagnosticsSection

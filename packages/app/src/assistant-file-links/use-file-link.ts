@@ -177,6 +177,9 @@ function openAssistantFileLink(input: {
   formatNoFileFoundMessage: (token: string) => string;
 }): void {
   const capturedConfig = input.context.configRef.current;
+  if (capturedConfig.onOpenLocalhostUrl?.(input.source.href)) {
+    return;
+  }
   const capturedResolution = classifyForResolution(input.source, {
     workspaceRoot: capturedConfig.workspaceRoot,
     relativePathBase: capturedConfig.relativePathBase,

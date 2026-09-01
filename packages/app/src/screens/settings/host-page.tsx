@@ -69,6 +69,7 @@ import { PaseoToolsCard } from "./paseo-tools-card";
 import { RestartRecoveryCard } from "./restart-recovery-card";
 import { IdleRuntimeCleanupCard } from "./idle-runtime-cleanup-card";
 import { restartDaemonFromSettings, updateDaemonFromSettings } from "./daemon-lifecycle";
+import { MetadataCustomEndpointCard } from "./metadata-custom-endpoint-card";
 
 const ThemedRestart = withUnistyles(RotateCw);
 const ThemedUpdate = withUnistyles(ArrowUpToLine);
@@ -107,6 +108,7 @@ const moveDownIcon = <ThemedArrowDown size={ICON_SIZE.sm} uniProps={mutedColorMa
 const editProfileIcon = <ThemedProfilePencil size={ICON_SIZE.sm} uniProps={mutedColorMapping} />;
 const removeProfileIcon = <ThemedTrash2 size={ICON_SIZE.sm} uniProps={destructiveColorMapping} />;
 const addProfileIcon = <ThemedPlus size={ICON_SIZE.sm} uniProps={mutedColorMapping} />;
+const providerUsageResetCreditBalanceId = "rate_limit_reset_credits";
 
 function formatHostConnectionLabel(connection: HostConnection, t: TFunction): string {
   if (connection.type === "routed") return `Via ${connection.originServerId}`;
@@ -120,6 +122,17 @@ function formatHostConnectionLabel(connection: HostConnection, t: TFunction): st
     return `${t("settings.host.badges.remoteSsh")} (${connection.host})`;
   }
   return `TCP (${connection.endpoint})`;
+}
+
+function resetCreditCountForConfirmation(usage: ProviderUsage): number {
+  const resetCredits = usage.resetCredits ?? [];
+  if (resetCredits.length > 0) {
+    return resetCredits.length;
+  }
+  return (
+    usage.balances?.find((balance) => balance.id === providerUsageResetCreditBalanceId)
+      ?.remaining ?? 0
+  );
 }
 
 function formatActiveConnectionBadge(
@@ -293,6 +306,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
         <SettingsSection title={t("settings.hostSections.agents")}>
           <PaseoToolsCard serverId={serverId} />
           <BrowserToolsOptInCard serverId={serverId} />
+          <MetadataCustomEndpointCard serverId={serverId} />
           <AppendSystemPromptCard serverId={serverId} />
           <RestartRecoveryCard serverId={serverId} />
           <IdleRuntimeCleanupCard serverId={serverId} />
@@ -348,6 +362,7 @@ export function HostProvidersPage({ serverId }: { serverId: string }) {
 
 export function HostUsagePage({ serverId }: { serverId: string }) {
   const host = useHostProfile(serverId);
+
 
   if (!host) {
     return <HostNotFound />;

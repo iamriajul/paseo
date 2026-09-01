@@ -25,7 +25,11 @@ const OPTIONAL_AGENT_SESSION_METHOD_NAMES = [
   "revertConversation",
   "revertFiles",
   "revertBoth",
+  "steerActiveTurn",
   "tryHandleOutOfBand",
+  "stopBackgroundTask",
+  "readBackgroundTaskOutput",
+  "resolveNativeForkUpToMessageId",
 ] as const satisfies readonly OptionalAgentSessionMethodName[];
 
 type MissingOptionalAgentSessionMethod = Exclude<
@@ -159,6 +163,25 @@ class FakeSession implements AgentSession {
       },
     };
   }
+
+  async steerActiveTurn() {
+    this.recordedCalls.push("steerActiveTurn");
+    return { status: "accepted" as const };
+  }
+
+  async stopBackgroundTask() {
+    this.recordedCalls.push("stopBackgroundTask");
+  }
+
+  async readBackgroundTaskOutput() {
+    this.recordedCalls.push("readBackgroundTaskOutput");
+    return { text: "", nextCursor: 0, eof: true, error: null };
+  }
+
+  async resolveNativeForkUpToMessageId() {
+    this.recordedCalls.push("resolveNativeForkUpToMessageId");
+    return "uuid-1";
+  }
 }
 
 async function* emptyHistory(): AsyncGenerator<AgentStreamEvent> {
@@ -181,6 +204,10 @@ describe("wrapSessionProvider", () => {
     await wrapped.revertBoth?.({ messageId: "message-1" });
     const handler = wrapped.tryHandleOutOfBand?.("/compact");
     await handler?.run({ emit: () => {} });
+    await wrapped.steerActiveTurn?.("nudge", { expectedTurnId: "turn-1" });
+    await wrapped.stopBackgroundTask?.("task-1");
+    await wrapped.readBackgroundTaskOutput?.({ outputFile: "/tmp/out" });
+    await wrapped.resolveNativeForkUpToMessageId?.("msg_1");
 
     expect(session.recordedCalls).toEqual([
       "listCommands",
@@ -192,6 +219,21 @@ describe("wrapSessionProvider", () => {
       "revertBoth",
       "tryHandleOutOfBand",
       "tryHandleOutOfBand.run",
+      "steerActiveTurn",
+      "stopBackgroundTask",
+      "readBackgroundTaskOutput",
+      "resolveNativeForkUpToMessageId",
     ]);
+  });
+
+  test("wrapped sessions expose official steerActiveTurn and do not need session.steer", async () => {
+    const session = new FakeSession();
+    const wrapped = wrapSessionProvider("custom-claude", session);
+
+    expect("steer" in wrapped).toBe(false);
+    expect(typeof wrapped.steerActiveTurn).toBe("function");
+
+    await wrapped.steerActiveTurn?.("nudge", { expectedTurnId: "turn-1" });
+    expect(session.recordedCalls).toEqual(["steerActiveTurn"]);
   });
 });

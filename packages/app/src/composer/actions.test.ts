@@ -419,7 +419,7 @@ describe("pickAndPersistImages", () => {
 });
 
 describe("dispatchComposerAgentMessage", () => {
-  it("forwards the configured active-turn intent without provider capability checks", async () => {
+  it("sends with activeTurnBehavior and does not set the legacy steer flag", async () => {
     const client = createFakeSendClient();
     const stream = createFakeStream();
 
@@ -434,6 +434,7 @@ describe("dispatchComposerAgentMessage", () => {
     });
 
     expect(client.calls[0]?.options.activeTurnBehavior).toBe("steer");
+    expect(client.calls[0]?.options).not.toHaveProperty("steer");
   });
 
   it("stamps only a steer optimistic row with the daemon active turn ID", async () => {

@@ -2,6 +2,7 @@ import { useWorkspace, useFileUrl, type PluginFilePanelProps } from "@getpaseo/p
 import { useCallback, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { PdfPreview } from "@/components/pdf-preview";
 import { ZoomableImage } from "@/components/zoomable-viewport/image";
 import { useSessionStore } from "@/stores/session-store";
 import { FileHtmlPreview } from "./html-preview";
@@ -65,6 +66,13 @@ function ImagePanel({ file }: PluginFilePanelProps) {
   return <ZoomableImage uri={url.url} testID="image-file-preview" />;
 }
 
+function PdfPanel({ file, params }: PluginFilePanelProps) {
+  const url = useFileUrl(file);
+  if (url.status === "loading") return <FilePanelLoading />;
+  if (url.status === "error") return <FilePanelError message={url.error.message} />;
+  return <PdfPreview uri={url.url} label={params.path.split(/[\\/]/).pop() ?? params.path} />;
+}
+
 function FilePanelError({ message }: { message: string }) {
   return (
     <View style={styles.centerState}>
@@ -77,6 +85,7 @@ const components = {
   "builtin:markdown": MarkdownPanel,
   "builtin:html": HtmlPanel,
   "builtin:image": ImagePanel,
+  "builtin:pdf": PdfPanel,
   "builtin:source": SourcePanel,
 };
 

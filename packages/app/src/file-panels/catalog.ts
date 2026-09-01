@@ -19,6 +19,12 @@ const renderingPanels = [
     files: { extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] },
     fileKind: "image",
   },
+  {
+    id: "builtin:pdf",
+    builtin: true,
+    files: { extensions: ["pdf"] },
+    fileKind: "binary",
+  },
 ] as const satisfies readonly FilePanelCandidate[];
 
 /**

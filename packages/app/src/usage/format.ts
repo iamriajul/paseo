@@ -34,6 +34,30 @@ export function formatResetLabel(iso: string | null | undefined): string | null 
   return rel === "now" ? "resetting now" : `resets ${rel}`;
 }
 
+export function formatAgo(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(diffMs)) return null;
+  if (diffMs < 60_000) return "just now";
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays > 0) return `${diffDays}d ago`;
+  if (diffHours > 0) return `${diffHours}h ago`;
+  return `${diffMinutes}m ago`;
+}
+
+export function formatDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
 /** A balance amount as the app's language writes it: "$1,234.50", "12,345". */
 export function formatAmount(value: number, unit: UsageBalanceUnit, locale: string): string {
   switch (unit) {

@@ -7,7 +7,7 @@ import {
   type DiagramDimensions,
   type RenderedDiagram,
 } from "./render-model";
-import { containsUnsafeMermaidSource } from "./source-policy";
+import { containsUnsafeMermaidSource, neutralizeDisallowedTags } from "./source-policy";
 import type { MarkdownPhase } from "../types";
 
 const renderCache = new Map<string, RenderedDiagram>();
@@ -40,16 +40,16 @@ export function useMermaidRenderModel({
   phase: MarkdownPhase;
   colorScheme: DiagramColorScheme;
 }) {
-  const renderInput = useMemo(
-    () => ({
-      source,
+  const renderInput = useMemo(() => {
+    const sanitizedSource = neutralizeDisallowedTags(source);
+    return {
+      source: sanitizedSource,
       phase,
       colorScheme,
-      rejected: containsUnsafeMermaidSource(source),
-      cached: readCachedRender(source, colorScheme),
-    }),
-    [colorScheme, phase, source],
-  );
+      rejected: containsUnsafeMermaidSource(sanitizedSource),
+      cached: readCachedRender(sanitizedSource, colorScheme),
+    };
+  }, [colorScheme, phase, source]);
   const [state, dispatch] = useReducer(
     reduceMermaidRenderModel,
     renderInput,
@@ -83,8 +83,8 @@ export function useMermaidRenderModel({
     },
     [],
   );
-  const renderFailed = useCallback((revision: number) => {
-    dispatch({ type: "renderFailed", revision });
+  const renderFailed = useCallback((revision: number, message?: string) => {
+    dispatch({ type: "renderFailed", revision, message });
   }, []);
 
   return {

@@ -62,6 +62,9 @@ import { HorizontalScrollProvider } from "@/contexts/horizontal-scroll-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { SidebarCalloutProvider } from "@/contexts/sidebar-callout-context";
 import { ToastProvider } from "@/contexts/toast-context";
+import { AttentionBannerHost } from "@/components/attention-banner-host";
+import { CreateBacklogTaskHost } from "@/components/create-backlog-task-host";
+import { InteractionLockBanner } from "@/interaction-lock/banner";
 import { VoiceProvider } from "@/contexts/voice-context";
 import {
   resolveStartupBlocker,
@@ -80,6 +83,8 @@ import { listenToDesktopEvent } from "@/desktop/electron/events";
 import { updateDesktopWindowChrome } from "@/desktop/electron/window";
 import { getDesktopHost } from "@/desktop/host";
 import { loadDesktopSettings } from "@/desktop/settings/desktop-settings";
+import { BrowserLoopbackTunnelController } from "@/desktop/browser-loopback-tunnel-controller";
+import { MobileBrowserTunnelController } from "@/desktop/browser/mobile-browser-tunnel-controller";
 import { RosettaCalloutSource } from "@/desktop/updates/rosetta-callout-source";
 import { UpdateCalloutSource } from "@/desktop/updates/update-callout-source";
 import { useActiveWorktreeNewAction } from "@/hooks/use-active-worktree-new-action";
@@ -860,6 +865,7 @@ function AppWithSidebar({ children }: { children: ReactNode }) {
     storeReady &&
     (pathname === "/open-project" ||
       pathname === "/new" ||
+      pathname === "/backlog" ||
       pathname === "/sessions" ||
       pathname === "/schedules" ||
       routeHasKnownHost);
@@ -887,6 +893,7 @@ function RootStack() {
         <Stack.Screen name="settings/index" />
         <Stack.Screen name="settings/[section]" />
         <Stack.Screen name="new" />
+        <Stack.Screen name="backlog" />
         <Stack.Screen name="open-project" />
         <Stack.Screen name="sessions" />
         <Stack.Screen name="schedules" />
@@ -916,6 +923,8 @@ function AppShell() {
     <MobilePanelsProvider>
       <HorizontalScrollProvider>
         <OpenProjectListener />
+        <BrowserLoopbackTunnelController />
+        <MobileBrowserTunnelController />
         <AgentNavigationListener />
         <AppWithSidebar>
           <WorkspaceRouteNavigationBridge />
@@ -931,18 +940,17 @@ function RuntimeProviders({ children }: { children: ReactNode }) {
     <HostRuntimeBootstrapProvider>
       <PushNotificationRouter />
       <SidebarCalloutProvider>
-        <ProvidersWrapper>{children}</ProvidersWrapper>
+        <ToastProvider>
+          <ProvidersWrapper>{children}</ProvidersWrapper>
+          <AttentionBannerHost />
+          <CreateBacklogTaskHost />
+          <InteractionLockBanner />
+        </ToastProvider>
       </SidebarCalloutProvider>
     </HostRuntimeBootstrapProvider>
   );
 }
 
-// PortalProvider must stay inside normal app-wide context providers.
-// `@gorhom/portal` renders portaled children at the host's location in the
-// tree, so any context a portaled sheet might consume (QueryClient, theme,
-// auth, settings, ...) must wrap PortalProvider, not be wrapped by it.
-// BottomSheetModalProvider is the exception: Gorhom modals consume portal
-// context and need one shared provider for sibling sheets to stack.
 function RootProviders({ children }: { children: ReactNode }) {
   return (
     <KeyboardActionDispatcherProvider>

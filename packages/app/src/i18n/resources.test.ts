@@ -289,7 +289,7 @@ describe("translation resources", () => {
     expect(en.workspace.fileExplorer.empty.noVisibleFiles).toBe("No visible files");
     expect(en.workspace.setup.status.running).toBe("Running");
     expect(en.workspace.setup.empty.noCommands).toBe("No setup commands ran for this workspace.");
-    expect(en.workspace.browser.unavailable.title).toBe("Browser is desktop-only");
+    expect(en.workspace.browser.unavailable.title).toBe("Browser isn't available here");
     expect(en.workspace.browser.controls.enterUrl).toBe("Enter URL");
     expect(en.workspace.terminal.hostDisconnected).toBe("Host is not connected");
     expect(en.panels.file.directoryMissing).toBe("Workspace directory not found.");

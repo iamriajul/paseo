@@ -39,7 +39,10 @@ const daemonConfig: MutableDaemonConfig = {
   mcp: { injectIntoAgents: true },
   browserTools: { enabled: false },
   providers: {},
-  metadataGeneration: { providers: [] },
+  metadataGeneration: {
+    providers: [],
+    customEndpoint: { enabled: false, baseUrl: "", apiKey: "", model: "" },
+  },
   autoArchiveAfterMerge: false,
   enableTerminalAgentHooks: false,
   appendSystemPrompt: "",

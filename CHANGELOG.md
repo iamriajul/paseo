@@ -347,6 +347,239 @@
 - Sidebar shortcuts leave focus mode ([#2717](https://github.com/getpaseo/paseo/pull/2717))
 - Agents started by the NixOS service no longer run in production mode ([#2697](https://github.com/getpaseo/paseo/pull/2697) by [@shin-sakata](https://github.com/shin-sakata))
 
+## 0.2.924 - 2026-08-07
+
+### Fixed
+
+- Claude native fork maps timeline/API message ids (`msg_…`) to transcript UUIDs before `forkSession`, and passes project `dir` so the session file is found
+- Default **Fork in a new tab** uses the reliable context/draft path again; native fork is opt-in via **Fork natively in a new tab (experimental)**
+
+## 0.2.923 - 2026-08-07
+
+### Added
+
+- Queue row **Send now** (interrupt + send) alongside Edit and optional Steer
+- Explorer **Ports** tab: workspace service/script ports with open-in-browser
+- Per-agent read-only **Todos** track from the latest stream `todo_list`
+- Composer **+ → Heartbeat** create for the current agent (prompt required)
+- Compact track headers: `N · M running` for loops and background tasks
+
+### Changed
+
+- Interaction lock unlocks from the locked banner only (no floating Android FAB)
+- History / user prompts always render as markdown (no plain-text toggle)
+
+## 0.2.922 - 2026-08-06
+
+### Fixed
+
+- Android release APK no longer crashes on startup after the interaction lock landed: pin `expo-local-authentication` to Expo SDK 54 (`~17.0.8`) instead of the SDK 57 package, which failed native module registration with `ClassNotFoundException: expo.modules.kotlin.types.AnyTypeCache`
+
+## 0.2.921 - 2026-08-05
+
+### Features
+
+- Custom model settings: edit existing models, set context window tokens, and autofill from models.dev via the daemon
+- Claude Code sessions use configured custom-model context windows for `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and the composer context meter max
+
+## 0.2.920 - 2026-08-03
+
+### Added
+
+- **Steer** mid-turn redirects for Claude, Codex, and OMP (`supportsSteer`), with composer send behavior that can inject without canceling the active turn
+- **Claude native fork**: fork a session at a message into a new agent tab (`agent.native_fork` / `supportsNativeFork`)
+- **Host ui_state**: sync composer and review drafts across clients (protocol + store + app rehydrate)
+- **Interaction lock**: read-only monitoring mode, with Android whole-app lock and biometric unlock
+- Claude custom-model family/subagent env pins for non-family models (#43)
+
+### Notes
+
+- Ships the unshipped P0/P1 train that lived on `backlog-sync-and-release-resolution` (ui_state, lock, native fork, steer), rebased onto main after Background Tasks / Heartbeats / Loops
+
+## 0.2.918 - 2026-08-02
+
+### Fixed
+
+- History and Backlog screens no longer full-screen crash on compact native with `useBottomSheetInternal cannot be used without BottomSheet` — search fields reused `AdaptiveTextInput`, which always mounted `BottomSheetTextInput` outside a Gorhom sheet; inputs now use `BottomSheetTextInput` only under `IsolatedBottomSheetModal`
+
+## 0.2.917 - 2026-08-02
+
+### Added
+
+- Agent pane **Heartbeats** track: Paseo agent-target schedules plus provider session schedules (Claude `CronCreate` / fixed and dynamic `/loop`) with Subagents-style `paseo` | `provider` rows
+- Agent pane **Loops** track: running Paseo loops where this agent is active worker or verifier, with inspect tab and Stop
+- Background Tasks expansion beyond shell-only: live **monitor**, **workflow**, and other non-subagent types with type badges (Shell / Monitor / Workflow / Other)
+- Protocol/feature surface for provider heartbeats (`server_info.features.providerHeartbeats`, list/update/delete RPCs) and loop list optional `activeWorkerAgentId` / `activeVerifierAgentId`
+
+### Improved
+
+- Stack above the composer is now Queue → Subagents → Heartbeats → Loops → Background Tasks (each track still hides when empty)
+- Glossary: Heartbeat includes provider session schedules; Claude `/loop` maps to Heartbeats (not Paseo Loops); Background Tasks is non-subagent live work
+
+### Notes
+
+- Provider heartbeat delete is view-only when Claude does not expose an in-process CronDelete API (row removed from Paseo with an advisory error; the session schedule may still fire until Claude cancels it)
+- Claude session-schedule membership is tool-correlation-first in v1; focus-time CronList refresh remains a follow-up
+
+## 0.2.916 - 2026-08-01
+
+### Added
+
+- Claude Code **Background Tasks** track under Subagents: see long-running shell processes (e.g. `npm run dev`) without leaving the agent pane ([#39](https://github.com/iamriajul/paseo/pull/39))
+- Icon-only **Stop** on Background Tasks rows (track only)
+- Background Task workspace tab with focus-gated live log tailing (polls only while that tab is focused)
+- Daemon live set from Claude SDK membership signals (`background_tasks_changed` and related), with list/stop/output RPCs and `server_info.features.backgroundTasks`
+
+### Fixed
+
+- Live log subscription no longer permanently ends when a running task has no `outputFile` yet or the file is only caught up mid-run
+- Finished background tasks are removed from the live set on terminal notifications so the track does not keep stale rows
+- Bash `backgroundTaskId` correlation unwraps nested tool-result shapes so command labels can appear on rows
+
+## 0.2.915 - 2026-07-31
+
+### Fixed
+
+- Host settings metadata custom endpoint fields keep their saved values after save (seed via `initialValue`/`resetKey` for uncontrolled AdaptiveTextInput)
+- Metadata custom endpoint inputs, model chips, and refresh stay disabled while a save is in flight so save-echo remounts cannot wipe post-click keystrokes
+- Codex Goals: pause active goals after interactive resume so daemon restart / cold agent load does not auto-continue Goal work outside Paseo turns
+- Codex Goals: hot reloads (voice toggle / config swap) do not silently pause Goals; user "Reload agent" still pauses on rehydrate
+- Codex Goals: bound pause-on-resume RPC to 10s and fail open so a hung or missing `thread/goal/set` cannot block agent connect
+
+### Notes
+
+- Codex Goal auto-continue after daemon restart is a **mitigation**, not a full lifecycle fix. Residuals remain: status projection for native Goal turns, mid-turn Goal not cancelled by pause, Full Access not re-applied to Goal-driven turns.
+
+## 0.2.914 - 2026-07-31
+
+### Added
+
+- Sync the fork with official Paseo v0.2.5 (Linux Debian package startup fix) while keeping fork-only features ([#36](https://github.com/iamriajul/paseo/pull/36) by [@iamriajul](https://github.com/iamriajul))
+
+### Improved
+
+- Preserve custom metadata endpoint, intrusive desktop attention, Browser localhost tunneling, Android push credentials, PDF preview, backlog, and related fork work on top of the official 0.2.5 line
+
+## 0.2.913 - 2026-07-30
+
+### Added
+
+- Free-text search on Sessions (History) and Schedules screens
+- Plus control on the sidebar Backlog row that opens the add-task form immediately
+- Peek button on in-app attention notifications for a read-only modal without navigating away or clearing attention
+
+### Fixed
+
+- Code Server default title numbering is scoped per workspace instead of global
+- Sessions search empty state still offers Load more when more history is available
+- Sidebar Backlog plus no longer also triggers the row navigation press
+- Closing an add-task form opened via `?create=1` clears the create intent so a later plus can reopen it
+- Attention peek pauses banner auto-dismiss so details stay available while reading
+
+## 0.2.912 - 2026-07-30
+
+### Fixed
+
+- Restore Claude Opus 5 as separate 200K and 1M catalog entries so 1M context is selectable again
+- Show Effort on custom Claude models (settings/gateway/manual additional models), not only first-party catalog IDs
+
+### Improved
+
+- Claude Effort selector matches Claude Code TUI levels for every catalog model, including Haiku and custom models: Low, Medium, High, Extra High, Max
+
+## 0.2.911 - 2026-07-30
+
+### Improved
+
+- Backlog remembers your grid or list preference, and phones default to list
+- Master Backlog can filter the task list by project
+
+### Fixed
+
+- Adding a task no longer clears the form when a host comes online or offline
+- Create workspace from a task sheet closes the sheet instead of leaving it open
+
+## 0.2.910 - 2026-07-30
+
+### Added
+
+- Agent backlog MCP tools: list/search, get, create, update, resolve, and delete project backlog tasks
+- Backlog task ID is injected into agent prompts (and optional `create_agent` `backlogTaskId` linkage) so agents can mark work resolved
+- Search field on project and master Backlog screens
+
+## 0.2.909 - 2026-07-30
+
+### Added
+
+- Sync the fork with official Paseo v0.2.4 (CLI thinking level, project switcher, open folder from sidebar, keyboard dismiss flick, multi-host project grouping, idle agent keep-alive, and related fixes) while keeping fork-only features ([#28](https://github.com/iamriajul/paseo/pull/28) by [@iamriajul](https://github.com/iamriajul))
+
+### Fixed
+
+- Schedules no longer spins forever on desktop when there are no schedules and another host is still connecting; show the empty state once any online host answers
+
+### Improved
+
+- Preserve custom metadata endpoint, intrusive desktop attention, Browser localhost tunneling, Android push credentials, PDF preview, backlog, and related fork work on top of the official 0.2.4 line
+
+## 0.2.908 - 2026-07-28
+
+### Added
+
+- Sync the fork with official Paseo v0.2.3 (workspace scripts CLI/MCP, terminal ID copy, chat history load-on-top, encrypted traffic savings, and related fixes) while keeping fork-only features ([#27](https://github.com/iamriajul/paseo/pull/27) by [@iamriajul](https://github.com/iamriajul))
+
+### Improved
+
+- Preserve custom metadata endpoint, intrusive desktop attention, Browser localhost tunneling, Android push credentials, PDF preview, and related fork work on top of the official 0.2.3 line
+
+## 0.2.907 - 2026-07-28
+
+### Added
+
+- Optional daemon-scoped OpenAI-compatible endpoint for AI metadata (commit messages, PR title/body, workspace titles, branch names), configurable in Host settings → Agents
+- When enabled, the custom endpoint is tried first; failures fall back to the existing agent-provider chain
+- Model discovery via `/models`, with free-text model input when discovery fails
+
+## 0.2.906 - 2026-07-27
+
+### Fixed
+
+- Prevent New Workspace from creating two agents for one prompt (race in draft auto-submit)
+
+## 0.2.905 - 2026-07-27
+
+### Fixed
+
+- Restore upstream agent chat layout styles (undo fork-only centering overrides that made the column look wrong)
+- Includes the intrusive-attention webview/OS-window focus fix from 0.2.904 so in-Paseo guests (Code Server, Browser) get a banner instead of auto-navigation
+
+## 0.2.904 - 2026-07-27
+
+### Fixed
+
+- Intrusive attention no longer auto-navigates while you are already in Paseo (Code Server, Browser, or any embedded webview/iframe guest); show a banner instead and only focus-steal when another app or Space has focus
+
+## 0.2.903 - 2026-07-27
+
+### Added
+
+- Sync the fork with official Paseo v0.2.2 (Claude 5 context-window fixes) while keeping fork-only desktop attention, Android push, Browser localhost tunneling, and mobile notification diagnostics ([#21](https://github.com/iamriajul/paseo/pull/21) by [@iamriajul](https://github.com/iamriajul))
+
+## 0.2.901 - 2026-07-26
+
+### Fixed
+
+- Restore desktop Browser localhost tunneling after the official v0.2.1 sync by accepting per-browser webview partitions and matching attached registration to those sessions again
+
+## 0.2.900 - 2026-07-25
+
+### Added
+
+- Sync the fork with official Paseo v0.2.1, including Claude Opus 5, in-app file editing, Changes as a workspace tab, Oh My Pi, multi-forge PR/MR support, and the rest of the official 0.2.0/0.2.1 line ([#14](https://github.com/iamriajul/paseo/pull/14) by [@iamriajul](https://github.com/iamriajul))
+
+### Improved
+
+- Keep the fork's Code Server tabs, Browser localhost/loopback tunneling, PDF preview, task backlog, provider quota resets, and original Android package ID while adopting the official 0.2 release line ([#14](https://github.com/iamriajul/paseo/pull/14))
+
 ## 0.2.5 - 2026-07-30
 
 ### Fixed
@@ -490,6 +723,89 @@
 - Archived workspaces now show the correct Unarchive or Restore action ([#2002](https://github.com/getpaseo/paseo/pull/2002))
 - Archived sessions can be reimported into the current workspace ([#2123](https://github.com/getpaseo/paseo/pull/2123), [#2265](https://github.com/getpaseo/paseo/pull/2265) by [@nikuscs](https://github.com/nikuscs))
 - Browser shortcuts no longer appear where browser tabs are unavailable ([#2116](https://github.com/getpaseo/paseo/pull/2116) by [@jasonhnd](https://github.com/jasonhnd))
+
+## 0.1.908 - 2026-07-18
+
+### Added
+
+- Search the full history of the current chat on desktop and mobile ([#9](https://github.com/iamriajul/paseo/pull/9) by [@iamriajul](https://github.com/iamriajul))
+
+### Fixed
+
+- Workspace localhost sites now open reliably in the Android Browser ([#10](https://github.com/iamriajul/paseo/pull/10) by [@iamriajul](https://github.com/iamriajul))
+
+## 0.1.907 - 2026-07-17
+
+### Added
+
+- Preview PDF files directly in the file explorer ([#7](https://github.com/iamriajul/paseo/pull/7) by [@iamriajul](https://github.com/iamriajul))
+- Open workspace localhost sites in the Android Browser ([#8](https://github.com/iamriajul/paseo/pull/8) by [@iamriajul](https://github.com/iamriajul))
+
+## 0.1.906 - 2026-07-17
+
+### Fixed
+
+- Sync the fork with official Paseo v0.1.110 so Kimi and other ACP agents stay marked as running while streaming responses ([#6](https://github.com/iamriajul/paseo/pull/6), [#2148](https://github.com/getpaseo/paseo/pull/2148))
+
+## 0.1.905 - 2026-07-16
+
+### Added
+
+- Sync the fork with official Paseo v0.1.109, including the keyboard-driven Add Project flow for existing directories, new folders, and GitHub repositories ([#5](https://github.com/iamriajul/paseo/pull/5), [#2097](https://github.com/getpaseo/paseo/pull/2097))
+- Search for and open workspaces from the search menu ([#2096](https://github.com/getpaseo/paseo/pull/2096))
+- Preserve browser cookies and site data across tabs and restarts ([#2089](https://github.com/getpaseo/paseo/pull/2089))
+- Fork chats from failed turns ([#2063](https://github.com/getpaseo/paseo/pull/2063))
+
+### Improved
+
+- Keep the fork's Backlog, Code Server, provider quota, and remote Browser localhost routing features while adopting official Browser profile and desktop window-chrome hardening ([#5](https://github.com/iamriajul/paseo/pull/5))
+
+### Fixed
+
+- Paseo Desktop no longer gets stuck connecting or loses native window controls after updating ([#2111](https://github.com/getpaseo/paseo/pull/2111) by [@cleiter](https://github.com/cleiter))
+- Add Project now recognizes a host that finishes connecting after the flow opens ([#5](https://github.com/iamriajul/paseo/pull/5))
+
+## 0.1.904 - 2026-07-14
+
+### Added
+
+- Open the current workspace folder in Code Server from desktop or mobile through host URL settings ([#4](https://github.com/iamriajul/paseo/pull/4) by [@iamriajul](https://github.com/iamriajul))
+- Browse changed files as a collapsible folder tree or flat list ([#1918](https://github.com/getpaseo/paseo/pull/1918), [#1945](https://github.com/getpaseo/paseo/pull/1945) by [@cleiter](https://github.com/cleiter))
+- Always expand agent reasoning with a new appearance setting ([#1943](https://github.com/getpaseo/paseo/pull/1943) by [@mcowger](https://github.com/mcowger))
+- Approve Codex MCP permission requests in Paseo ([#2001](https://github.com/getpaseo/paseo/pull/2001))
+- Inspect provider-created subagents and their conversations across workspaces ([#2013](https://github.com/getpaseo/paseo/pull/2013), [#2061](https://github.com/getpaseo/paseo/pull/2061) by [@omercnet](https://github.com/omercnet))
+- Fork chats with every supported agent provider ([#2022](https://github.com/getpaseo/paseo/pull/2022))
+- Clone GitHub repositories directly into new workspaces ([#1331](https://github.com/getpaseo/paseo/pull/1331) by [@mcowger](https://github.com/mcowger))
+- Pin important chats to the top of the sidebar ([#1981](https://github.com/getpaseo/paseo/pull/1981) by [@half144](https://github.com/half144))
+- Choose how much detail tool calls show in chat ([#2031](https://github.com/getpaseo/paseo/pull/2031) by [@mcowger](https://github.com/mcowger))
+- Build Paseo for F-Droid without proprietary mobile services ([#1768](https://github.com/getpaseo/paseo/pull/1768) by [@antonok-edm](https://github.com/antonok-edm))
+
+### Improved
+
+- Project picker finds folders with fuzzy search and native desktop browsing ([#1968](https://github.com/getpaseo/paseo/pull/1968))
+- Add projects directly from New Workspace when none are configured ([#2026](https://github.com/getpaseo/paseo/pull/2026))
+- Cloned workspaces open immediately after setup ([#2045](https://github.com/getpaseo/paseo/pull/2045))
+- New terminals open at the correct size immediately ([#2023](https://github.com/getpaseo/paseo/pull/2023) by [@cleiter](https://github.com/cleiter))
+- Attachments remain visible after creating an agent ([#2030](https://github.com/getpaseo/paseo/pull/2030))
+- New Workspace prompts survive switching projects or hosts ([#2036](https://github.com/getpaseo/paseo/pull/2036))
+- Codex timelines show every terminal command an agent runs ([#2037](https://github.com/getpaseo/paseo/pull/2037))
+- Permission modes use distinct icons for faster recognition ([#1980](https://github.com/getpaseo/paseo/pull/1980) by [@cleiter](https://github.com/cleiter))
+- Nix installations can serve the daemon web interface ([#1978](https://github.com/getpaseo/paseo/pull/1978) by [@liamdiprose](https://github.com/liamdiprose))
+- Workspace search includes OpenCode configuration files ([#2049](https://github.com/getpaseo/paseo/pull/2049))
+
+### Fixed
+
+- Mobile chats no longer freeze or go blank while switching workspaces during streaming ([#1989](https://github.com/getpaseo/paseo/pull/1989))
+- OpenCode sessions start reliably ([#2015](https://github.com/getpaseo/paseo/pull/2015) by [@mcowger](https://github.com/mcowger))
+- OpenCode shuts down cleanly after sessions close ([#2027](https://github.com/getpaseo/paseo/pull/2027) by [@mcowger](https://github.com/mcowger))
+- Pi keeps existing MCP settings when Paseo adds its own ([#1990](https://github.com/getpaseo/paseo/pull/1990) by [@mcowger](https://github.com/mcowger))
+- Pi remains usable after canceling extension commands ([#2019](https://github.com/getpaseo/paseo/pull/2019))
+- Codex stays active and streams correctly while subagents run ([#1967](https://github.com/getpaseo/paseo/pull/1967))
+- Mobile sidebars stay synchronized while changing workspaces ([#1953](https://github.com/getpaseo/paseo/pull/1953))
+- Mobile retains the swipe-to-open sidebar gesture ([#1976](https://github.com/getpaseo/paseo/pull/1976))
+- Shortcut capture recognizes punctuation keys correctly ([#2047](https://github.com/getpaseo/paseo/pull/2047) by [@OnCloud125252](https://github.com/OnCloud125252))
+- Codebuddy Code models appear reliably during discovery ([#1979](https://github.com/getpaseo/paseo/pull/1979) by [@park0er](https://github.com/park0er))
+- Oversized tool output no longer slows or floods chat timelines ([#2020](https://github.com/getpaseo/paseo/pull/2020))
 
 ## 0.1.110 - 2026-07-16
 

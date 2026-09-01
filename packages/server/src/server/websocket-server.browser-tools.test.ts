@@ -1,5 +1,5 @@
-import { createServer, type Server as HTTPServer } from "node:http";
-import type { AddressInfo } from "node:net";
+import { createServer, type IncomingMessage, type Server as HTTPServer } from "node:http";
+import type { AddressInfo, Socket } from "node:net";
 
 import type {
   BrowserAutomationCommandName,
@@ -201,6 +201,16 @@ async function startBrowserToolsDaemonHarness(): Promise<BrowserToolsDaemonHarne
   const broker = createBroker();
   const wsServer = createVoiceAssistantWebSocketServer({ httpServer, broker });
   const clients = new Set<DaemonClient>();
+
+  // The WebSocket server attaches with noServer:true, so bootstrap routes
+  // 'upgrade' events to handleUpgrade() explicitly. This harness builds the
+  // server directly rather than through bootstrap, so it wires the same
+  // routing itself: claim /ws, close anything unclaimed rather than leak it.
+  httpServer.on("upgrade", (req: IncomingMessage, socket: Socket, head: Buffer) => {
+    if (!wsServer.handleUpgrade(req, socket, head)) {
+      socket.destroy();
+    }
+  });
 
   await listen(httpServer);
   const url = `ws://127.0.0.1:${getPort(httpServer)}/ws`;

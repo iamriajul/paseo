@@ -560,6 +560,8 @@ const styles = StyleSheet.create((theme) => ({
     borderBottomColor: theme.colors.border,
   },
   tabsContainer: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     gap: theme.spacing[1],
   },
@@ -589,6 +591,7 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
+    flexShrink: 0,
   },
   closeButton: {
     padding: theme.spacing[2],

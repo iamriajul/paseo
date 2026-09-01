@@ -93,10 +93,12 @@ npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.
 
 **Claude native fork from a chat message**
 
-assistant stream/footer/menu can native-fork a Claude session at a boundary; wrapSessionProvider forwards resolveNativeForkUpToMessageId so the live session still resolves transcript UUIDs
+assistant stream/footer/menu can native-fork a Claude session at a boundary; wrapSessionProvider forwards resolveNativeForkUpToMessageId so the live session still resolves transcript UUIDs. AgentStreamView's memo must still compare turnPresentation and pendingMessageSubmissions — dropping those freezes the working footer after a disconnect.
 
 ```bash
 npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts packages/server/src/server/agent/providers/claude/native-fork.test.ts packages/app/src/agent-stream/fork-strategy.test.ts packages/protocol/src/messages.native-fork.test.ts --bail=1
+grep -q "left.turnPresentation !== right.turnPresentation" packages/app/src/agent-stream/view.tsx
+grep -q "left.pendingMessageSubmissions !== right.pendingMessageSubmissions" packages/app/src/agent-stream/view.tsx
 ```
 
 ## browser-localhost-tunnel

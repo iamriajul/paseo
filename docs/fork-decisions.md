@@ -309,14 +309,26 @@ workspace menu exposes Mark as unread when a workspace is done; daemon marks non
 npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/server/src/server/session.workspaces.test.ts packages/client/src/daemon-client.test.ts packages/app/src/hooks/use-clear-workspace-attention.test.ts --bail=1
 ```
 
+## fork-rpc-permissions
+
+**fork RPCs are in the v0.7.0 semantic permission map**
+
+owner authority covers workspace.mark_unread, workspace.todos, native_fork, background_tasks, heartbeats, ui_state, tasks, and the other fork session operations; a missing map entry is a silent deny
+
+```bash
+npx vitest run packages/server/src/server/authorization/index.test.ts --bail=1 -t "owner authority"
+```
+
 ## workspace-todo-sidebar
 
 **per-workspace todo list in explorer sidebar, left sidebar, and composer**
 
 workspace-scoped todo checklist with Apple Notes style UI, Explorer sidebar tab, left sidebar progress indicator, and composer pill
 
+v0.7.0 plugin navigation imports expo-router from the registry. Root `npx vitest` does not apply the app vitest config (JSX transform, `__DEV__`, expo-router mock), so run these through the app workspace.
+
 ```bash
-npx vitest run packages/app/src/todos/workspace-todo-store.test.ts packages/app/src/todos/workspace-todo-pane.test.tsx packages/app/src/composer/todo-pill.test.tsx packages/app/src/panels/agent-tracks.test.ts packages/app/src/components/sidebar/workspace-meta-row/meta-items.test.ts packages/app/src/components/sidebar/display-preferences/row-items.test.ts packages/app/src/workspace-tabs/explorer-sidebar.test.ts packages/app/src/stores/panel-store/state.test.ts packages/app/src/stores/workspace-layout-store.test.ts packages/app/src/i18n/resources.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src/todos/workspace-todo-pane.test.tsx src/composer/todo-pill.test.tsx src/panels/agent-tracks.test.ts src/components/sidebar/workspace-meta-row/meta-items.test.ts src/components/sidebar/display-preferences/row-items.test.ts src/workspace-tabs/explorer-sidebar.test.ts src/stores/panel-store/state.test.ts src/stores/workspace-layout-store.test.ts src/i18n/resources.test.ts --bail=1
 ```
 
 ## paseo-backed-claude-subagent-prompt-cache-ttl

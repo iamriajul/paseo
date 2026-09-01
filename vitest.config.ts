@@ -54,6 +54,30 @@ export default defineConfig({
         find: /^@xterm\/addon-ligatures$/,
         replacement: path.resolve(appDir, "test-stubs/xterm-addon-ligatures.ts"),
       },
+      {
+        find: /^react-native-unistyles$/,
+        replacement: path.resolve(appDir, "test-stubs/react-native-unistyles.ts"),
+      },
+      {
+        find: /^react-native-svg$/,
+        replacement: path.resolve(appDir, "test-stubs/react-native-svg.ts"),
+      },
+      {
+        find: /^react-native-safe-area-context$/,
+        replacement: path.resolve(appDir, "test-stubs/react-native-safe-area-context.ts"),
+      },
+      {
+        find: /^@gorhom\/bottom-sheet$/,
+        replacement: path.resolve(appDir, "test-stubs/gorhom-bottom-sheet.ts"),
+      },
+      {
+        find: /^expo-linking$/,
+        replacement: path.resolve(appDir, "test-stubs/expo-linking.ts"),
+      },
+      {
+        find: /^lucide-react-native$/,
+        replacement: path.resolve(appDir, "test-stubs/lucide-react-native.ts"),
+      },
     ],
   },
   test: {

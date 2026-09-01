@@ -1,6 +1,8 @@
-import { memo, useCallback, type ReactElement } from "react";
+import { memo, useCallback, type ReactElement, type ReactNode } from "react";
 import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
+import { WorkspaceTodoPill } from "@/composer/todo-pill";
 import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
+import { useWorkspaceTodoSummary } from "@/todos/workspace-todo-store";
 import { AgentTaskList } from "@/composer/task-list";
 import { ComposerTrackBar } from "@/composer/tracks";
 import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/layout";
@@ -8,6 +10,7 @@ import { usePaneContext } from "@/panels/pane-context";
 import { useSettings } from "@/hooks/use-settings";
 import { PluginComposerPills } from "@/plugins";
 import { useSessionStore } from "@/stores/session-store";
+import { useWorkspaceDirectory } from "@/stores/session-store-hooks";
 import {
   type ArchiveFinishedStatus,
   useArchiveSubagent,
@@ -20,6 +23,8 @@ import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
 import { openComposerChanges } from "@/workspace-tabs/open-supporting-view";
+import { openExplorerSidebarView } from "@/workspace-tabs/explorer-sidebar";
+import { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";
 
 /**
  * The pane's ambient context — workspace changes, subagents, and tasks — as a row of pills above
@@ -38,6 +43,8 @@ export const AgentTracks = memo(function AgentTracks({
   archiveFinishedStatus,
   onArchiveFinished,
   hasPluginComposerPills,
+  hasExtraPills = false,
+  children,
 }: {
   serverId: string;
   workspaceId: string;
@@ -48,9 +55,14 @@ export const AgentTracks = memo(function AgentTracks({
   archiveFinishedStatus: ArchiveFinishedStatus;
   onArchiveFinished: () => void;
   hasPluginComposerPills: boolean;
+  hasExtraPills?: boolean;
+  children?: ReactNode;
 }): ReactElement | null {
   const { tabId, openTab } = usePaneContext();
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
+  const todoSummary = useWorkspaceTodoSummary(serverId, workspaceId);
+  const hasWorkspaceTodos = Boolean(todoSummary && todoSummary.total > 0);
+  const workspaceDirectory = useWorkspaceDirectory(serverId, workspaceId);
   const isCompact = useIsCompactFormFactor();
   const canSplit = supportsDesktopPaneSplits() && !isCompact;
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
@@ -112,13 +124,26 @@ export const AgentTracks = memo(function AgentTracks({
     });
   }, [cwd, isCompact, openInSidePane, serverId, workspaceKey]);
 
+  const handleOpenTodo = useCallback(() => {
+    openExplorerSidebarView({
+      isCompact,
+      workspaceKey,
+      checkout: { serverId, cwd: workspaceDirectory ?? "", isGit: true },
+      view: "todo",
+    });
+  }, [isCompact, serverId, workspaceDirectory, workspaceKey]);
+
   if (
-    !hasWorkspaceDiffStat &&
-    !hasAgentTracks({
-      subagentRows,
-      tasks,
-      archiveFinishedStatus,
-      hasPluginComposerPills,
+    !shouldShowAgentTrackBar({
+      hasOfficialTracks: hasAgentTracks({
+        subagentRows,
+        tasks,
+        archiveFinishedStatus,
+        hasPluginComposerPills,
+      }),
+      hasWorkspaceDiffStat,
+      hasWorkspaceTodos,
+      hasExtraPills,
     })
   ) {
     return null;
@@ -142,11 +167,13 @@ export const AgentTracks = memo(function AgentTracks({
         agentId={agentId}
         compact={isCompact}
       />
+      <WorkspaceTodoPill serverId={serverId} workspaceId={workspaceId} onPress={handleOpenTodo} />
       <WorkspaceDiffStatPill
         serverId={serverId}
         workspaceId={workspaceId}
         onPress={handleOpenChanges}
       />
+      {children}
     </ComposerTrackBar>
   );
 });
@@ -169,3 +196,5 @@ export function hasAgentTracks({
     hasPluginComposerPills
   );
 }
+
+export { shouldShowAgentTrackBar } from "@/panels/agent-tracks-visibility";

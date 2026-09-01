@@ -280,7 +280,7 @@ function findMostRecentDownloadId(downloads: Map<string, Download>): string | nu
   return mostRecent?.id ?? null;
 }
 
-interface DownloadTarget {
+export interface DownloadTarget {
   baseUrl: string | null;
   authHeader: string | null;
   authCredentials: { username: string; password: string } | null;
@@ -291,7 +291,7 @@ interface DownloadTarget {
  * the connection in use is anything else (relay, SSH, socket, pipe, or none yet), so the caller
  * reads the file over the session socket instead.
  */
-function resolveDaemonDownloadTarget(
+export function resolveDaemonDownloadTarget(
   daemon: HostProfile | undefined,
   activeConnectionId: string | null,
 ): DownloadTarget | null {
@@ -335,7 +335,7 @@ function resolveDaemonDownloadTarget(
   return { baseUrl, authHeader, authCredentials };
 }
 
-function buildDownloadUrl(
+export function buildDownloadUrl(
   baseUrl: string,
   token: string,
   authCredentials: { username: string; password: string } | null,

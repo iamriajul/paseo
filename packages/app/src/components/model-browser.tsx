@@ -145,6 +145,10 @@ const headerSettingsMapping = (disabled: boolean) => (theme: Theme) => ({
   color: disabled ? theme.colors.border : theme.colors.foregroundMuted,
 });
 
+const capacityWarningMapping = (theme: Theme) => ({
+  color: theme.colors.palette.amber[500],
+});
+
 interface ModelBrowserInput {
   providers: ProviderSelectorProvider[];
   selectedProvider: string;
@@ -232,6 +236,40 @@ export function ModelProviderGlyph({
 function HeaderSettingsIcon({ disabled }: { disabled: boolean }) {
   const uniProps = useMemo(() => headerSettingsMapping(disabled), [disabled]);
   return <ThemedSettings size={ICON_SIZE.sm} uniProps={uniProps} />;
+}
+
+function CapacityWarningControl({ provider, modelId }: { provider: string; modelId: string }) {
+  const { t } = useTranslation();
+  const warningLabel = t("settings.providers.models.capacityWarning");
+  const warningButtonStyle = useCallback(
+    ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.rowIconButton,
+      Boolean(hovered) && styles.rowIconButtonHovered,
+      pressed && styles.rowIconButtonPressed,
+    ],
+    [],
+  );
+  const handlePress = useCallback((event: GestureResponderEvent) => {
+    event.stopPropagation();
+  }, []);
+
+  return (
+    <Tooltip enabledOnDesktop enabledOnMobile={true}>
+      <TooltipTrigger
+        onPress={handlePress}
+        hitSlop={8}
+        style={warningButtonStyle}
+        accessibilityRole="button"
+        accessibilityLabel={warningLabel}
+        testID={`model-capacity-warning-${provider}-${modelId}`}
+      >
+        <ThemedAlertTriangle size={ICON_SIZE.sm} uniProps={capacityWarningMapping} />
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center" offset={8}>
+        <Text style={styles.tooltipText}>{warningLabel}</Text>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function iconButtonStyle({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) {
@@ -690,8 +728,14 @@ function ModelRow({
     () => <ModelProviderGlyph provider={row.provider} serverId={serverId} size={ICON_SIZE.sm} />,
     [row.provider, serverId],
   );
-
   const description = showProviderLabel ? buildProviderQualifiedDescription(row) : row.description;
+  const trailingSlot = useMemo(
+    () =>
+      row.needsCapacityConfig ? (
+        <CapacityWarningControl provider={row.provider} modelId={row.modelId} />
+      ) : null,
+    [row.modelId, row.needsCapacityConfig, row.provider],
+  );
   const primary = profiledRows[profiledRows.length - 1];
 
   const handleCreateProfile = useCallback(() => {
@@ -815,6 +859,7 @@ function ModelRow({
                 <ThemedCheck size={ICON_SIZE.sm} uniProps={foregroundMutedMapping} />
               ) : null}
             </View>
+            {trailingSlot}
             {profileAction}
           </View>
         </View>

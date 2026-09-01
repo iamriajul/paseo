@@ -15,7 +15,7 @@ export interface MermaidRenderedMessage {
 interface MermaidIframeRuntimeProps {
   request: MermaidRenderRequest | null;
   onRendered: (message: MermaidRenderedMessage) => void;
-  onRenderFailed: (revision: number) => void;
+  onRenderFailed: (revision: number, message?: string) => void;
 }
 
 /** Sandboxed Mermaid renderer. Sizing and gestures belong to the surrounding viewport. */
@@ -55,7 +55,7 @@ export function MermaidIframeRuntime({
         return;
       }
       if (message.type === "renderError") {
-        onRenderFailed(message.revision);
+        onRenderFailed(message.revision, message.message);
         sendRequest(driverRef.current?.settled(message.revision, false) ?? null);
         return;
       }

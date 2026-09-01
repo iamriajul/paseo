@@ -16,7 +16,7 @@ export type MermaidRuntimeMessage =
       source: string;
       colorScheme: DiagramColorScheme;
     } & DiagramDimensions)
-  | { type: "renderError"; revision: number };
+  | { type: "renderError"; revision: number; message?: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -61,7 +61,11 @@ export function parseMermaidRuntimeMessage(value: unknown): MermaidRuntimeMessag
     typeof value.revision === "number" &&
     Number.isInteger(value.revision)
   ) {
-    return { type: "renderError", revision: value.revision };
+    return {
+      type: "renderError",
+      revision: value.revision,
+      ...(typeof value.message === "string" ? { message: value.message } : {}),
+    };
   }
   if (
     value.type === "rendered" &&

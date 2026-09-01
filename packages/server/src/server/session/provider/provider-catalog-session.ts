@@ -482,6 +482,7 @@ export class ProviderCatalogSession {
       });
     }
   }
+
 }
 
 function resolveCatalogRequestCwd(cwd?: string | null): string | undefined {

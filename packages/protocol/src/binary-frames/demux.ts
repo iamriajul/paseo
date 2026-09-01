@@ -8,10 +8,12 @@ import {
   TerminalStreamOpcode,
   type TerminalStreamFrame,
 } from "./terminal.js";
+import { decodeTcpTunnelFrame, TcpTunnelOpcode, type TcpTunnelFrame } from "./tcp-tunnel.js";
 
 export type BinaryFrame =
   | { kind: "terminal"; frame: TerminalStreamFrame }
-  | { kind: "file_transfer"; frame: FileTransferFrame };
+  | { kind: "file_transfer"; frame: FileTransferFrame }
+  | { kind: "tcp_tunnel"; frame: TcpTunnelFrame };
 
 export function decodeBinaryFrame(bytes: Uint8Array): BinaryFrame | null {
   switch (bytes[0]) {
@@ -28,6 +30,13 @@ export function decodeBinaryFrame(bytes: Uint8Array): BinaryFrame | null {
     case FileTransferOpcode.FileEnd: {
       const frame = decodeFileTransferFrame(bytes);
       return frame ? { kind: "file_transfer", frame } : null;
+    }
+    case TcpTunnelOpcode.Open:
+    case TcpTunnelOpcode.OpenResult:
+    case TcpTunnelOpcode.Data:
+    case TcpTunnelOpcode.Close: {
+      const frame = decodeTcpTunnelFrame(bytes);
+      return frame ? { kind: "tcp_tunnel", frame } : null;
     }
     default:
       return null;

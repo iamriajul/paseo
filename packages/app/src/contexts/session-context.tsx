@@ -430,11 +430,15 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         if (connection.status === "connected") return;
         const owner = viewedTimelineSyncRef.current;
         const session = useSessionStore.getState().sessions[serverId];
-        flushPendingSubmissionsBeforeClearingLiveness({
-          flushAgent: (agentId) => owner?.flushStreamAgent(agentId),
-          pendingAgentIds: session?.messageSubmissions.keys() ?? [],
-          clearTurnLiveness: () => clearAgentTurnLiveness(serverId),
-        });
+        try {
+          flushPendingSubmissionsBeforeClearingLiveness({
+            flushAgent: (agentId) => owner?.flushStreamAgent(agentId),
+            pendingAgentIds: session?.messageSubmissions.keys() ?? [],
+            clearTurnLiveness: () => clearAgentTurnLiveness(serverId),
+          });
+        } finally {
+          clearAgentTurnLiveness(serverId);
+        }
       }),
     [clearAgentTurnLiveness, client, serverId],
   );

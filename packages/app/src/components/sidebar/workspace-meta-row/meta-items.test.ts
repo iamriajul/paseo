@@ -52,6 +52,22 @@ describe("selectMetaRowItems", () => {
     expect(kinds(select())).toEqual(["host", "changeRequest", "checks", "services", "labels"]);
   });
 
+  it("includes todo item when todos exist", () => {
+    const items = select({ todoSummary: { total: 7, completed: 3 } });
+    expect(kinds(items)).toEqual([
+      "host",
+      "changeRequest",
+      "checks",
+      "todos",
+      "services",
+      "labels",
+    ]);
+    expect(items.find((item) => item.kind === "todos")).toEqual({
+      kind: "todos",
+      summary: { total: 7, completed: 3 },
+    });
+  });
+
   it("omits what the workspace does not have", () => {
     expect(
       kinds(
@@ -61,6 +77,7 @@ describe("selectMetaRowItems", () => {
           hasHostBadge: false,
           prHint: null,
           serviceSummary: null,
+          todoSummary: null,
           labels: [],
         }),
       ),
@@ -87,13 +104,19 @@ describe("selectMetaRowItems", () => {
   });
 
   it.each([
-    ["changeRequest", ["host", "checks", "services", "labels"]],
-    ["services", ["host", "changeRequest", "checks", "labels"]],
-    ["labels", ["host", "changeRequest", "checks", "services"]],
+    ["changeRequest", ["host", "checks", "todos", "services", "labels"]],
+    ["services", ["host", "changeRequest", "checks", "todos", "labels"]],
+    ["labels", ["host", "changeRequest", "checks", "todos", "services"]],
+    ["todos", ["host", "changeRequest", "checks", "services", "labels"]],
   ] as const)("drops %s and only %s when it is switched off", (item, expected) => {
-    expect(kinds(select({ visible: { ...DEFAULT_SIDEBAR_ROW_ITEMS, [item]: false } }))).toEqual(
-      expected,
-    );
+    expect(
+      kinds(
+        select({
+          todoSummary: { total: 5, completed: 2 },
+          visible: { ...DEFAULT_SIDEBAR_ROW_ITEMS, [item]: false },
+        }),
+      ),
+    ).toEqual(expected);
   });
 
   it("drops checks and only checks when they are hidden", () => {

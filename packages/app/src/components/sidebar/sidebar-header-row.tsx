@@ -171,6 +171,7 @@ const styles = StyleSheet.create((theme) => ({
     // Match the project rows' inner padding so the icons align on one vertical
     // edge with the list below.
     paddingHorizontal: theme.spacing[2],
+
   },
   iconSpacer: { width: densityIconBox("md"), height: densityIconBox("md") },
   iconSpacerCompact: { width: densityIconBox("sm"), height: densityIconBox("sm") },
@@ -179,6 +180,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foregroundMuted,
+    flexShrink: 1,
   },
   labelHighlighted: {
     color: theme.colors.foreground,
@@ -188,11 +190,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[1],
     paddingRight: theme.spacing[2],
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
   },
   trailingAction: {
     minWidth: 28,

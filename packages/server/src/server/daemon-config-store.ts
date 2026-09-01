@@ -22,7 +22,7 @@ interface SupportedMutableConfigPatch {
   browserTools?: { enabled?: boolean };
   providers?: MutableDaemonConfig["providers"];
   removeProviders?: string[];
-  metadataGeneration?: MutableDaemonConfig["metadataGeneration"];
+  metadataGeneration?: MutableDaemonConfigPatch["metadataGeneration"];
   autoArchiveAfterMerge?: boolean;
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
@@ -40,6 +40,11 @@ interface LoggerLike {
 
 export interface DaemonConfigChangeDetails {
   removedProviders: readonly string[];
+  preserveInFlightProviderLoads?: readonly string[];
+}
+
+export interface DaemonConfigPatchOptions {
+  preserveInFlightProviderLoads?: readonly string[];
 }
 
 export interface DaemonConfigReloadResult {
@@ -249,7 +254,66 @@ function compactOwnedPaths(paths: readonly string[], owners: readonly string[]):
   return Array.from(compacted).sort();
 }
 
+function pickMetadataGenerationPatch(
+  metadataGeneration: MutableDaemonConfigPatch["metadataGeneration"],
+): SupportedMutableConfigPatch["metadataGeneration"] | undefined {
+  if (!metadataGeneration) return undefined;
+  const next: NonNullable<SupportedMutableConfigPatch["metadataGeneration"]> = {};
+  if (metadataGeneration.providers !== undefined) {
+    next.providers = metadataGeneration.providers;
+  }
+  if (metadataGeneration.customEndpoint !== undefined) {
+    next.customEndpoint = metadataGeneration.customEndpoint;
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function isDefaultCustomEndpoint(
+  endpoint: MutableDaemonConfig["metadataGeneration"]["customEndpoint"] | undefined,
+): boolean {
+  return (
+    endpoint !== undefined &&
+    endpoint.enabled === false &&
+    endpoint.baseUrl === "" &&
+    endpoint.apiKey === "" &&
+    endpoint.model === ""
+  );
+}
+
+function persistMetadataGeneration(input: {
+  merged: MutableDaemonConfig["metadataGeneration"] | undefined;
+  patch: NonNullable<SupportedMutableConfigPatch["metadataGeneration"]>;
+  persisted: PersistedConfig["agents"] extends infer T
+    ? T extends { metadataGeneration?: infer M }
+      ? M
+      : unknown
+    : unknown;
+}): Record<string, unknown> {
+  const persistedRecord =
+    input.persisted && typeof input.persisted === "object"
+      ? (input.persisted as Record<string, unknown>)
+      : {};
+  const next: Record<string, unknown> = { ...persistedRecord };
+  if (input.merged) {
+    Object.assign(next, input.merged);
+  }
+  if (input.patch.providers !== undefined) next["providers"] = input.patch.providers;
+  if (input.patch.customEndpoint !== undefined) next["customEndpoint"] = input.patch.customEndpoint;
+  const endpoint = next["customEndpoint"] as
+    | MutableDaemonConfig["metadataGeneration"]["customEndpoint"]
+    | undefined;
+  if (
+    input.patch.customEndpoint === undefined &&
+    persistedRecord["customEndpoint"] === undefined &&
+    isDefaultCustomEndpoint(endpoint)
+  ) {
+    delete next["customEndpoint"];
+  }
+  return next;
+}
+
 function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMutableConfigPatch {
+  const metadataGeneration = pickMetadataGenerationPatch(patch.metadataGeneration);
   return {
     ...(patch.relay?.enabled !== undefined ? { relay: { enabled: patch.relay.enabled } } : {}),
     ...(patch.mcp?.injectIntoAgents !== undefined
@@ -260,9 +324,7 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
       : {}),
     ...(patch.providers !== undefined ? { providers: patch.providers } : {}),
     ...(patch.removeProviders !== undefined ? { removeProviders: patch.removeProviders } : {}),
-    ...(patch.metadataGeneration?.providers !== undefined
-      ? { metadataGeneration: { providers: patch.metadataGeneration.providers } }
-      : {}),
+    ...(metadataGeneration ? { metadataGeneration } : {}),
     ...(patch.autoArchiveAfterMerge !== undefined
       ? { autoArchiveAfterMerge: patch.autoArchiveAfterMerge }
       : {}),
@@ -336,16 +398,22 @@ export class DaemonConfigStore {
     return this.current;
   }
 
-  public patch(partial: MutableDaemonConfigPatch): MutableDaemonConfig {
+  public patch(
+    partial: MutableDaemonConfigPatch,
+    options: DaemonConfigPatchOptions = {},
+  ): MutableDaemonConfig {
     const parsedPatch = pickSupportedPatchFields(MutableDaemonConfigPatchSchema.parse(partial));
-    return this.applySupportedPatch(parsedPatch);
+    return this.applySupportedPatch(parsedPatch, options);
   }
 
   public setAgentSkillSelection(selection: AgentSkillSelection): MutableDaemonConfig {
     return this.applySupportedPatch({ skills: { selection } });
   }
 
-  private applySupportedPatch(parsedPatch: SupportedMutableConfigPatch): MutableDaemonConfig {
+  private applySupportedPatch(
+    parsedPatch: SupportedMutableConfigPatch,
+    options: DaemonConfigPatchOptions = {},
+  ): MutableDaemonConfig {
     if (parsedPatch.relay?.enabled !== undefined && !this.relayEnabledMutable) {
       throw new Error(
         "Relay is controlled by a daemon launch override. Remove PASEO_RELAY_ENABLED or the relay CLI flag before changing it here.",
@@ -374,6 +442,7 @@ export class DaemonConfigStore {
     const { previous: persistedBeforePatch, knownNext } = this.persistConfig(
       configPatch,
       removedProviders,
+      next,
     );
     if (!configChanged) {
       this.lastKnownPersisted = knownNext;
@@ -381,7 +450,10 @@ export class DaemonConfigStore {
     }
 
     try {
-      this.applyReplacement(next, { removedProviders });
+      this.applyReplacement(next, {
+        removedProviders,
+        preserveInFlightProviderLoads: options.preserveInFlightProviderLoads,
+      });
       this.lastKnownPersisted = knownNext;
     } catch (error) {
       savePersistedConfig(this.paseoHome, persistedBeforePatch, this.logger);
@@ -549,6 +621,7 @@ export class DaemonConfigStore {
   private persistConfig(
     patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
     removeProviders: readonly string[],
+    mergedConfig: MutableDaemonConfig,
   ): { previous: PersistedConfig; knownNext: PersistedConfig } {
     const persisted = loadPersistedConfig(this.paseoHome, this.logger);
     const merge = (source: PersistedConfig) =>
@@ -557,6 +630,8 @@ export class DaemonConfigStore {
         patch,
         removeProviders,
         persistRelayEnabled: this.relayEnabledMutable,
+        mergedMetadataGeneration:
+          patch.metadataGeneration !== undefined ? mergedConfig.metadataGeneration : undefined,
       });
     const nextPersisted = merge(persisted);
     const knownNext = merge(this.lastKnownPersisted);
@@ -570,10 +645,17 @@ function mergeMutablePatchIntoPersistedConfig(params: {
   patch: Omit<SupportedMutableConfigPatch, "removeProviders">;
   removeProviders: readonly string[];
   persistRelayEnabled: boolean;
+  mergedMetadataGeneration?: MutableDaemonConfig["metadataGeneration"];
 }): PersistedConfig {
-  const { persisted, patch, removeProviders, persistRelayEnabled } = params;
+  const { persisted, patch, removeProviders, persistRelayEnabled, mergedMetadataGeneration } =
+    params;
   const daemon = mergeMutableDaemonPatch(persisted.daemon, patch, persistRelayEnabled);
-  const agents = mergeMutableAgentPatch(persisted.agents, patch, removeProviders);
+  const agents = mergeMutableAgentPatch(
+    persisted.agents,
+    patch,
+    removeProviders,
+    mergedMetadataGeneration,
+  );
   return {
     ...persisted,
     ...(patch.pluginsEnabled !== undefined ? { pluginsEnabled: patch.pluginsEnabled } : {}),
@@ -587,6 +669,7 @@ function mergeMutableAgentPatch(
   persistedAgents: PersistedConfig["agents"],
   patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
   removeProviders: readonly string[],
+  mergedMetadataGeneration?: MutableDaemonConfig["metadataGeneration"],
 ): PersistedConfig["agents"] {
   if (
     patch.providers === undefined &&
@@ -609,11 +692,16 @@ function mergeMutableAgentPatch(
   if (providerOverrides) next["providers"] = providerOverrides;
   else delete next["providers"];
 
-  if (patch.metadataGeneration?.providers !== undefined) {
-    next["metadataGeneration"] = { providers: patch.metadataGeneration.providers };
+  if (patch.metadataGeneration !== undefined) {
+    next["metadataGeneration"] = persistMetadataGeneration({
+      merged: mergedMetadataGeneration,
+      patch: patch.metadataGeneration,
+      persisted: persistedAgents?.metadataGeneration,
+    });
   } else if (removeProviders.length > 0 && persistedAgents?.metadataGeneration?.providers) {
     const removed = new Set(removeProviders);
     next["metadataGeneration"] = {
+      ...persistedAgents.metadataGeneration,
       providers: persistedAgents.metadataGeneration.providers.filter(
         (entry) => !removed.has(entry.provider),
       ),

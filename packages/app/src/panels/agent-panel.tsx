@@ -20,6 +20,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import invariant from "tiny-invariant";
 import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import { useChatHistorySearch } from "@/agent-search/use-chat-history-search";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/agent-stream/view";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
 import { ComposerDock } from "@/composer/dock";
@@ -27,6 +28,7 @@ import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { RetainedChatContent } from "./retained-chat-content";
 import { Composer } from "@/composer";
+import { useInteractionLocked } from "@/stores/interaction-lock-store";
 import { useWorkspaceHasDiffStat } from "@/composer/workspace-diff-stat";
 import {
   resolveComposerTrackControlClearance,
@@ -73,6 +75,7 @@ import {
 } from "@/screens/agent/agent-ready-screen-bottom-anchor";
 import { WorkspaceDraftAgentTab } from "@/composer/draft/workspace-tab";
 import { AgentTracks, hasAgentTracks } from "@/panels/agent-tracks";
+import { ForkAgentTracks, useForkAgentTrackPresence } from "@/panels/fork-agent-tracks";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
 import {
@@ -1164,12 +1167,21 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   });
   const hasPluginComposerPills = useHasPluginComposerPills(serverId, workspaceId, agentId);
   const hasActiveComposer = !agentState.archivedAt && !isArchivingCurrentAgent;
-  const hasVisibleAgentTracks = hasAgentTracks({
-    subagentRows,
-    tasks,
-    archiveFinishedStatus: archiveFinishedSubagents.status,
-    hasPluginComposerPills,
+  const hasForkTracks = useForkAgentTrackPresence({ serverId, agentId });
+  const chatSearch = useChatHistorySearch({
+    serverId,
+    agentId,
+    isPaneFocused,
+    streamViewRef,
+    toast: toastApi,
   });
+  const hasVisibleAgentTracks =
+    hasAgentTracks({
+      subagentRows,
+      tasks,
+      archiveFinishedStatus: archiveFinishedSubagents.status,
+      hasPluginComposerPills,
+    }) || hasForkTracks;
   const rawAgentInputDraft = useAgentInputDraft({
     draftKey: buildDraftStoreKey({
       serverId,
@@ -1249,6 +1261,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           hasVisibleAgentTracks={hasVisibleAgentTracks}
           toast={toastApi}
           onOpenWorkspaceFile={onOpenWorkspaceFile}
+          activeSearchResultId={chatSearch.activeSearchResultId}
         />
       </RenderProfile>
       {hasActiveComposer ? (
@@ -1262,13 +1275,17 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           archiveFinishedStatus={archiveFinishedSubagents.status}
           onArchiveFinished={archiveFinishedSubagents.archiveFinished}
           hasPluginComposerPills={hasPluginComposerPills}
-        />
+          hasExtraPills={hasForkTracks}
+        >
+          <ForkAgentTracks serverId={serverId} agentId={agentId} />
+        </AgentTracks>
       ) : null}
     </View>
   );
 
   const dockContent = (
     <View style={styles.contentContainer}>
+      {chatSearch.bar}
       {streamContent}
 
       {showHistorySyncError ? (
@@ -1374,6 +1391,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasVisibleAgentTracks,
   toast,
   onOpenWorkspaceFile,
+  activeSearchResultId = null,
 }: {
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
   serverId: string;
@@ -1386,6 +1404,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasVisibleAgentTracks: boolean;
   toast: ReturnType<typeof useToastHost>["api"];
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  activeSearchResultId?: string | null;
 }) {
   const isCompactFormFactor = useIsCompactFormFactor();
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
@@ -1458,6 +1477,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
       pendingMessageSubmissions={pendingMessageSubmissions}
       turnPresentation={turnPresentation}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      activeSearchResultId={activeSearchResultId}
     />
   );
 });
@@ -1538,6 +1558,7 @@ function ActiveAgentComposer({
   onComposerHeightChange: (height: number) => void;
   onMessageSent: () => void;
 }) {
+  const interactionLocked = useInteractionLocked();
   const isCompactFormFactor = useIsCompactFormFactor();
   const { onLayout: onInputAreaLayout, isBelow: isCompactComposerLayout } = useContainerWidthBelow(
     COMPACT_FORM_FACTOR_WIDTH,
@@ -1638,6 +1659,7 @@ function ActiveAgentComposer({
         onMessageSent={onMessageSent}
         onClientSlashCommand={handleClientSlashCommand}
         isCompactLayout={isCompactComposerLayout}
+        readOnly={interactionLocked}
       />
     </View>
   );

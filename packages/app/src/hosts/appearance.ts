@@ -53,6 +53,8 @@ export interface HostBadgeModel {
   label: string;
   color: HostColor;
   showLabel: boolean;
+  /** Server glyph next to the label. Off when the user hides identity icons. */
+  showIcon: boolean;
 }
 
 export type HostAppearanceSource = Pick<HostProfile, "serverId" | "label" | "appearance">;
@@ -67,11 +69,14 @@ export function selectHostBadges(input: {
   localServerId: string | null;
   localHostResolutionPending?: boolean;
   enabled: boolean;
+  /** When false, omit the server glyph (label-only host identity). Default true. */
+  showIcon?: boolean;
 }): ReadonlyMap<string, HostBadgeModel> {
   const badges = new Map<string, HostBadgeModel>();
   if (!input.enabled) {
     return badges;
   }
+  const showIcon = input.showIcon !== false;
   for (const host of input.hosts) {
     const display = resolveHostBadgeDisplay({
       appearance: host.appearance,
@@ -86,6 +91,7 @@ export function selectHostBadges(input: {
       label: host.label.trim() || host.serverId,
       color: host.appearance.color,
       showLabel: display === "name",
+      showIcon,
     });
   }
   return badges;

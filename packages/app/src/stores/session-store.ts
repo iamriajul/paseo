@@ -390,7 +390,6 @@ export interface SessionState {
   agentStreamHead: Map<string, StreamItem[]>;
   agentTasks: Map<string, TodoEntry[]>;
   agentTurnLiveness: Map<string, TurnLiveness>;
-  acceptRemoteTurnLiveness: boolean;
   messageSubmissions: Map<string, MessageSubmissionRecord[]>;
   agentTimelineCursor: Map<string, AgentTimelineCursorState>;
   agentTimelineHasOlder: Map<string, boolean>;
@@ -487,7 +486,6 @@ interface SessionStoreActions {
   beginAgentCancellation: (serverId: string, agentId: string) => number;
   settleAgentCancellation: (serverId: string, agentId: string, requestId: number) => void;
   clearAgentTurnLiveness: (serverId: string) => void;
-  resumeRemoteTurnLiveness: (serverId: string) => void;
   beginAgentMessageSubmission: (
     serverId: string,
     agentId: string,
@@ -649,7 +647,6 @@ function createInitialSessionState(
     agentStreamHead: new Map(),
     agentTasks: new Map(),
     agentTurnLiveness: new Map(),
-    acceptRemoteTurnLiveness: true,
     messageSubmissions: new Map(),
     agentTimelineCursor: new Map(),
     agentTimelineHasOlder: new Map(),
@@ -1092,7 +1089,7 @@ export const useSessionStore = create<SessionStore>()(
       applyAgentTurnLiveness: (serverId, agentId, transition) => {
         set((prev) => {
           const session = prev.sessions[serverId];
-          if (!session || !session.acceptRemoteTurnLiveness) return prev;
+          if (!session) return prev;
           const agentTurnLiveness = applyTurnLivenessTransition(
             session.agentTurnLiveness,
             agentId,
@@ -1129,33 +1126,12 @@ export const useSessionStore = create<SessionStore>()(
       clearAgentTurnLiveness: (serverId) => {
         set((prev) => {
           const session = prev.sessions[serverId];
-          if (!session) return prev;
-          if (session.agentTurnLiveness.size === 0 && !session.acceptRemoteTurnLiveness) {
-            return prev;
-          }
+          if (!session || session.agentTurnLiveness.size === 0) return prev;
           return {
             ...prev,
             sessions: {
               ...prev.sessions,
-              [serverId]: {
-                ...session,
-                agentTurnLiveness: new Map(),
-                acceptRemoteTurnLiveness: false,
-              },
-            },
-          };
-        });
-      },
-
-      resumeRemoteTurnLiveness: (serverId) => {
-        set((prev) => {
-          const session = prev.sessions[serverId];
-          if (!session || session.acceptRemoteTurnLiveness) return prev;
-          return {
-            ...prev,
-            sessions: {
-              ...prev.sessions,
-              [serverId]: { ...session, acceptRemoteTurnLiveness: true },
+              [serverId]: { ...session, agentTurnLiveness: new Map() },
             },
           };
         });

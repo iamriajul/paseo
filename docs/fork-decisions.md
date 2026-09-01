@@ -93,10 +93,12 @@ npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.
 
 **Claude native fork from a chat message**
 
-assistant stream/footer/menu can native-fork a Claude session at a boundary; wrapSessionProvider forwards resolveNativeForkUpToMessageId so the live session still resolves transcript UUIDs
+assistant stream/footer/menu can native-fork a Claude session at a boundary; wrapSessionProvider forwards resolveNativeForkUpToMessageId so the live session still resolves transcript UUIDs. AgentStreamView's memo must still compare turnPresentation and pendingMessageSubmissions — dropping those freezes the working footer after a disconnect.
 
 ```bash
 npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts packages/server/src/server/agent/providers/claude/native-fork.test.ts packages/app/src/agent-stream/fork-strategy.test.ts packages/protocol/src/messages.native-fork.test.ts --bail=1
+grep -q "left.turnPresentation !== right.turnPresentation" packages/app/src/agent-stream/view.tsx
+grep -q "left.pendingMessageSubmissions !== right.pendingMessageSubmissions" packages/app/src/agent-stream/view.tsx
 ```
 
 ## browser-localhost-tunnel
@@ -329,16 +331,6 @@ v0.7.0 plugin navigation imports expo-router from the registry. Root `npx vitest
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src/todos/workspace-todo-pane.test.tsx src/composer/todo-pill.test.tsx src/panels/agent-tracks.test.ts src/components/sidebar/workspace-meta-row/meta-items.test.ts src/components/sidebar/display-preferences/row-items.test.ts src/workspace-tabs/explorer-sidebar.test.ts src/stores/panel-store/state.test.ts src/stores/workspace-layout-store.test.ts src/i18n/resources.test.ts --bail=1
-```
-
-## live-user-message-flush
-
-**commit provider user_message acks before the stream coalescer frame**
-
-flush live user_message through the stream coalescer in the same turn as onmessage; disconnect clears turn liveness
-
-```bash
-npm test --workspace=@getpaseo/app -- src/timeline/ingest-agent-stream-event.test.ts src/stores/session-store.test.ts src/timeline/turn-liveness.test.ts --bail=1
 ```
 
 ## paseo-backed-claude-subagent-prompt-cache-ttl

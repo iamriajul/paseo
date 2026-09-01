@@ -55,6 +55,11 @@ $PASEO_HOME/
 │       └── {agentId}.json               # One file per agent
 ├── schedules/
 │   └── {scheduleId}.json                # One file per schedule
+├── tasks/
+│   ├── tasks.json                       # Project-scoped backlog tasks
+│   └── assets/
+│       └── {sanitized-project-id}/
+│           └── {taskId}/                # Attachment blobs owned by a task
 ├── projects/
 │   ├── projects.json                    # Project registry
 │   ├── workspaces.json                  # Workspace registry
@@ -67,7 +72,12 @@ $PASEO_HOME/
 ├── plugins/
 │   ├── sources.json                      # Managed kind and Git acquisition remote
 │   └── {pluginId}/{uuid}/                # Git checkout or npm package/lockfile/dependency tree
-└── push-tokens.json                     # Expo push notification tokens
+├── push-tokens.json                     # Expo push notification tokens
+└── ui-state/                            # Cross-device ephemeral UI state (composer/review drafts)
+    ├── composer/
+    │   └── {sanitized-key}.json
+    └── review/
+        └── {sanitized-key}.json
 ```
 
 The `agents/{sanitized-cwd}/` directory name is derived from the agent's `cwd` by stripping the filesystem root and replacing path separators with `-` (Windows drive letters become a `C-` style prefix). Persistent server stores write atomically by writing a temp file in the target directory and then renaming it into place.
@@ -232,7 +242,13 @@ snapshot so a mixed edit can apply its live subset and still name the paths that
     // `extends` (one of the built-ins or `"acp"`) and `label`. See `provider-launch-config.ts`.
     providers: Record<providerId, ProviderOverride>,
     metadataGeneration: {
-      providers: [{ provider, model?, thinkingOptionId? }]
+      providers: [{ provider, model?, thinkingOptionId? }],
+      customEndpoint?: {
+        enabled: boolean,      // default false
+        baseUrl: string,       // OpenAI-compatible root, e.g. http://127.0.0.1:11434/v1
+        apiKey?: string,       // optional Bearer token
+        model: string          // required when enabled
+      }
     }
   },
   pluginsEnabled: boolean,
@@ -348,6 +364,8 @@ after changing `config.json`. Environment changes require a daemon restart; the 
 remains authoritative during reload.
 
 ### Speech configuration
+
+`agents.metadataGeneration.customEndpoint` is an optional OpenAI-compatible chat endpoint for those same metadata tasks. It is **off by default**. When enabled with a non-empty `baseUrl` and `model`, Paseo tries that endpoint first (`/chat/completions`) and falls back to the agent-provider chain above on failure. Incomplete enabled config is skipped with a warning. Configure it from Host settings → Agents → Metadata generation endpoint (daemon-scoped, not project `paseo.json`). Style instructions still come from project `paseo.json` `metadataGeneration.*.instructions`.
 
 Each use site owns its provider settings: `features.dictation.stt`,
 `features.voiceMode.stt`, and `features.voiceMode.tts`. `provider` selects a strict
@@ -514,7 +532,44 @@ than treating it as valid.
 
 ---
 
-## 6. Push Token Store
+## 6. Task Backlog
+
+**Path:** `$PASEO_HOME/tasks/tasks.json`
+
+Single file containing all project-scoped backlog tasks. Writes are atomic and serialized through
+an in-memory queue. Attachment bytes live separately under
+`$PASEO_HOME/tasks/assets/{sanitized-project-id}/{taskId}/`; task records store absolute paths
+server-side, but task list/create/update RPCs only return attachment metadata. Task creation imports
+attachments only from the daemon's `$PASEO_HOME/uploads/{uploadId}/` staging area. New Workspace
+handoffs reuse these server-local task asset paths as uploaded-file references instead of copying the
+bytes through the client again.
+
+| Field         | Type                                 | Description                                      |
+| ------------- | ------------------------------------ | ------------------------------------------------ |
+| `id`          | `string` (UUID)                      | Task ID                                          |
+| `projectId`   | `string`                             | FK to Project.projectId                          |
+| `title`       | `string`                             | User-visible title                               |
+| `description` | `string`                             | Markdown-ish task body text                      |
+| `status`      | `"active" \| "completed"`            | Completion state                                 |
+| `attachments` | `TaskAttachment[]`                   | File metadata; persisted rows also keep the path |
+| `createdAt`   | `string` (ISO 8601)                  |                                                  |
+| `updatedAt`   | `string` (ISO 8601)                  |                                                  |
+| `completedAt` | `string \| null` (ISO 8601 nullable) | Set when completed                               |
+| `order`       | `number`                             | Per-project append order                         |
+
+### Nested: TaskAttachment
+
+| Field       | Type                | Description                                   |
+| ----------- | ------------------- | --------------------------------------------- |
+| `id`        | `string` (UUID)     | Attachment ID                                 |
+| `fileName`  | `string`            | Original file name after path-safe sanitizing |
+| `mimeType`  | `string`            | Browser/client supplied MIME type             |
+| `size`      | `number`            | Byte size                                     |
+| `createdAt` | `string` (ISO 8601) |                                               |
+
+---
+
+## 7. Push Token Store
 
 **Path:** `$PASEO_HOME/push-tokens.json`
 
@@ -528,7 +583,7 @@ Simple set of Expo push notification tokens. Loaded with permissive parsing (fil
 
 ---
 
-## 7. Daemon meta files
+## 8. Daemon meta files
 
 These small files are not validated as full Zod schemas but are persisted under `$PASEO_HOME` for daemon identity and runtime coordination.
 

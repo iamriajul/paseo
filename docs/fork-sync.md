@@ -1,0 +1,85 @@
+# Syncing official Paseo
+
+This fork is a rebase queue. `main` is an upstream release tag plus one commit per fork change, with no merge commits. Syncing replays those commits onto the next release tag.
+
+We track **stable releases**. `upstream/main` moves ~16 commits a day and carries unfinished work; prereleases (`*-beta.*`) are not sync targets either.
+
+Every behaviour the fork changes inside an official file has a section in [fork-decisions.md](fork-decisions.md) holding its policy and the command that proves it. The commits carry the code; that file carries the why.
+
+## Pick the target
+
+```bash
+git fetch upstream --tags
+git tag --list 'v*' --sort=-creatordate | grep -v -- '-beta' | head -5
+```
+
+Take the newest tag that is an ancestor of `upstream/main` and newer than your base. Upstream releases are linear — each contains the previous — so a plain `git rebase <tag>` is correct and you never need `--onto`.
+
+## Rebase
+
+```bash
+git status --porcelain                                   # must be empty
+git branch backup/pre-sync-$(git rev-parse --short HEAD)
+git push origin backup/pre-sync-$(git rev-parse --short HEAD)
+git rebase vX.Y.Z
+```
+
+Push the backup. A branch that exists only on your machine is not a backup.
+
+`rerere` is enabled in this repo, so a conflict you resolve once is replayed automatically if you redo the rebase. Restarting a botched rebase is cheap; take it rather than forcing a bad resolution forward.
+
+Git replays the commits one at a time and stops on two things.
+
+**A commit conflicts.** Resolve that one commit. `git log -1 --format=%s` names the feature; its section in `fork-decisions.md` states the policy you are preserving — not the old line numbers. Then:
+
+```bash
+git add -A && git rebase --continue
+```
+
+Prefer composition (a fork-owned module imported from one official hook) over reseating a large hunk.
+
+**A commit goes empty** — `The previous cherry-pick is now empty`. Upstream implemented it themselves. Read their code and confirm it actually covers the decision, then:
+
+```bash
+git rebase --skip
+```
+
+Write the id down. Delete its section from `fork-decisions.md` **after** the rebase finishes, as one commit — editing that file mid-rebase attaches the change to whichever commit is replaying. The queue shrinking is the healthy outcome.
+
+Fork-owned paths official does not have — `packages/app/src/heartbeats/`, `packages/server/src/server/browser-preview/` — are never "deleted by them".
+
+## Verify, then push
+
+```bash
+npm run fork:verify          # ~75s for the full set
+npm run typecheck && npm run lint
+git push --force-with-lease origin main
+```
+
+`fork:verify` runs every proof command in `fork-decisions.md` and names each decision that no longer works. A failure is one of two things:
+
+- **Upstream absorbed it** — drop the commit and delete its section.
+- **The rebase broke it** — fix the commit.
+
+Use `--force-with-lease`, never bare `--force`. The lease refuses the push if the remote moved under you.
+
+While iterating, run subsets: `npm run fork:verify -- <id> <id>`, or `-- --list` for the ids.
+
+**Gotcha:** in a fresh worktree, `node_modules/electron` has no binary, so `browser-localhost-tunnel` fails with `Electron failed to install correctly`. That is the environment, not the decision. Run that one from the main checkout.
+
+## What not to do
+
+- Merge. This fork rebases onto release tags. A merge commit in `main` means the queue is broken.
+- Treat "the symbol still exists" as preserved. Fill-if-missing versus overwrite is a decision, and grep cannot see it.
+- Take `theirs` wholesale to make a conflict go away. That is how find-in-chat and the PDF preview mounts were lost in the v0.5.1 sync.
+- Edit `patches/*.patch` at the repo root — those are patch-package for `node_modules`, unrelated to fork decisions.
+
+## Adding a change that edits an official file
+
+1. Implement it, plus a test stating the policy in product language.
+2. Commit it as one commit whose subject names the feature.
+3. Add a section to [fork-decisions.md](fork-decisions.md): heading is the id, one sentence of policy, then a `bash` block with the command that fails without your change.
+
+CI job `fork-decisions` fails if a documented decision has no proof command.
+
+If the change fits in a fork-owned file imported from one official hook, do that instead. A change that touches no official file cannot conflict, so it needs no section.

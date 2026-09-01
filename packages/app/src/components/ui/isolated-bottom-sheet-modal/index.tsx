@@ -66,8 +66,7 @@ export const IsolatedBottomSheetModal = forwardRef<
       enableDismissOnClose
       stackBehavior={presentation}
     >
-      <BottomSheetScope>{contextBridge ? contextBridge(children) : children}</BottomSheetScope>
-    </GorhomBottomSheetModal>
+      <BottomSheetScope>{contextBridge ? contextBridge(children) : children}</BottomSheetScope>    </GorhomBottomSheetModal>
   );
 
   return modal;

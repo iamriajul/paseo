@@ -4,11 +4,12 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { ListTerminalsResponse } from "@getpaseo/protocol/messages";
 import { useTranslation } from "react-i18next";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
+import { useCodeServerStore } from "@/stores/code-server-store";
 import { useSessionStore } from "@/stores/session-store";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
 
 interface RenamingTabState {
-  kind: "terminal" | "agent";
+  kind: "terminal" | "agent" | "codeServer";
   id: string;
   currentTitle: string;
 }
@@ -50,6 +51,16 @@ export function useWorkspaceTabRename(
           useSessionStore.getState().sessions[normalizedServerId]?.agents?.get(agentId) ?? null;
         const currentTitle = agent?.title ?? "";
         setRenamingTab({ kind: "agent", id: agentId, currentTitle });
+        return;
+      }
+      if (tab.target.kind === "codeServer") {
+        const { codeServerId } = tab.target;
+        const codeServer = useCodeServerStore.getState().codeServersById[codeServerId] ?? null;
+        setRenamingTab({
+          kind: "codeServer",
+          id: codeServerId,
+          currentTitle: codeServer?.title ?? "",
+        });
       }
     },
     [normalizedServerId, terminalsData],
@@ -58,10 +69,14 @@ export function useWorkspaceTabRename(
   const handleRenameModalSubmit = useCallback(
     async (nextTitle: string) => {
       if (!renamingTab) return;
+      const trimmed = nextTitle.trim();
+      if (renamingTab.kind === "codeServer") {
+        useCodeServerStore.getState().renameCodeServer(renamingTab.id, trimmed);
+        return;
+      }
       if (!client) {
         throw new Error(t("workspace.terminal.hostDisconnected"));
       }
-      const trimmed = nextTitle.trim();
       if (renamingTab.kind === "terminal") {
         const result = await client.renameTerminal({
           terminalId: renamingTab.id,
@@ -102,16 +117,26 @@ export interface WorkspaceTabRenameModalProps {
   onSubmit: (nextTitle: string) => Promise<void>;
 }
 
+function getRenameModalTitle(
+  renamingTab: RenamingTabState | null,
+  t: ReturnType<typeof useTranslation>["t"],
+): string {
+  if (renamingTab?.kind === "terminal") {
+    return t("workspace.tabs.menu.renameTerminal");
+  }
+  if (renamingTab?.kind === "codeServer") {
+    return t("workspace.tabs.menu.renameCodeServer");
+  }
+  return t("workspace.tabs.menu.renameAgent");
+}
+
 export function WorkspaceTabRenameModal({
   renamingTab,
   onClose,
   onSubmit,
 }: WorkspaceTabRenameModalProps) {
   const { t } = useTranslation();
-  const title =
-    renamingTab?.kind === "terminal"
-      ? t("workspace.tabs.menu.renameTerminal")
-      : t("workspace.tabs.menu.renameAgent");
+  const title = getRenameModalTitle(renamingTab, t);
   const initialValue = renamingTab?.currentTitle ?? "";
   const testID = renamingTab
     ? `workspace-tab-rename-modal-${renamingTab.kind}-${renamingTab.id}`

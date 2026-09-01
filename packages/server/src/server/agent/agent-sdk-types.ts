@@ -1,4 +1,5 @@
 import type {
+  AgentModelDefinition as ProtocolAgentModelDefinition,
   AgentProviderNotice,
   AgentTaskItem,
   JsonValue,
@@ -9,6 +10,7 @@ import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { PaseoToolCatalog } from "./tools/types.js";
 
 export type { AgentProviderNotice, AgentTaskItem };
+export type AgentModelDefinition = ProtocolAgentModelDefinition;
 
 export type AgentProvider = string;
 
@@ -76,20 +78,6 @@ export interface AgentMode {
 }
 
 export type ProviderStatus = "ready" | "loading" | "error" | "unavailable";
-
-export interface AgentModelDefinition {
-  provider: AgentProvider;
-  id: string;
-  aliases?: string[];
-  isSelectable?: boolean;
-  label: string;
-  description?: string;
-  isDefault?: boolean;
-  metadata?: AgentMetadata;
-  contextWindowMaxTokens?: number;
-  thinkingOptions?: AgentSelectOption[];
-  defaultThinkingOptionId?: string;
-}
 
 export interface AgentSelectOption {
   id: string;
@@ -192,6 +180,10 @@ export interface AgentCapabilityFlags {
   supportsRewindConversation?: boolean;
   supportsRewindFiles?: boolean;
   supportsRewindBoth?: boolean;
+  // COMPAT(supportsNativeFork): added in v0.2.916
+  supportsNativeFork?: boolean;
+  // COMPAT(supportsSteer): added in v0.2.916
+  supportsSteer?: boolean;
 }
 
 export interface AgentPersistenceHandle {
@@ -472,6 +464,16 @@ export type AgentStreamEvent =
       type: "provider_subagent";
       provider: AgentProvider;
       event: import("./provider-subagents/store.js").ProviderSubagentInputEvent;
+    }
+  | {
+      type: "background_tasks";
+      provider: AgentProvider;
+      event: import("./providers/claude/background-tasks.js").BackgroundTaskInputEvent;
+    }
+  | {
+      type: "provider_heartbeats";
+      provider: AgentProvider;
+      event: import("./providers/claude/provider-heartbeats.js").ProviderHeartbeatInputEvent;
     };
 
 export function getAgentStreamEventTurnId(event: AgentStreamEvent): string | undefined {
@@ -647,6 +649,12 @@ export interface AgentCreateSessionOptions {
 export interface AgentResumeSessionOptions {
   /** Defaults to interactive. History loading may be read-only for archived native sessions. */
   purpose?: "interactive" | "history";
+  /**
+   * When purpose is interactive, providers may pause autonomous Goal-style work after
+   * resume so daemon restarts do not auto-continue unsupervised runs.
+   * Defaults to true. Pass false for hot reloads that only swap config (e.g. voice mode).
+   */
+  pauseActiveGoals?: boolean;
 }
 
 /**
@@ -683,6 +691,16 @@ export interface AgentSession {
    * still uncertain.
    */
   interrupt(): Promise<void>;
+  /** Stop a provider-owned background shell task (Claude `stopTask`). */
+  stopBackgroundTask?(taskId: string): Promise<void>;
+  /** Read a capped slice of a background task output file. */
+  readBackgroundTaskOutput?(input: {
+    outputFile: string;
+    cursor?: number;
+    maxBytes?: number;
+    /** When true, never treat an empty/caught-up tail as permanent EOF. */
+    live?: boolean;
+  }): Promise<{ text: string; nextCursor: number; eof: boolean; error: string | null }>;
   /** Release live runtime resources without archiving or deleting the durable native session. */
   close(): Promise<void>;
   listCommands?(): Promise<AgentSlashCommand[]>;
@@ -692,6 +710,11 @@ export interface AgentSession {
   revertConversation?(input: { messageId: string }): Promise<void>;
   revertFiles?(input: { messageId: string }): Promise<void>;
   revertBoth?(input: { messageId: string }): Promise<void>;
+  /**
+   * Map a timeline/API boundary id to a Claude transcript UUID suitable for
+   * `forkSession({ upToMessageId })`. Claude-only; optional elsewhere.
+   */
+  resolveNativeForkUpToMessageId?(boundaryMessageId: string): Promise<string>;
   /**
    * Out-of-band prompt handler. When non-null, the manager runs the returned
    * handler instead of allocating a turn. The handler emits stream events

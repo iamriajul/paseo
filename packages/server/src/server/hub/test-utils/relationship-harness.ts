@@ -1315,6 +1315,7 @@ export class HubRelationshipHarness {
       listen: "0.0.0.0:0",
       paseoHome: this.paseoHome,
       corsAllowedOrigins: [],
+      browserPreviewUrlTemplate: null,
       hostnames: true,
       mcpEnabled: this.mcpEnabled,
       staticDir,

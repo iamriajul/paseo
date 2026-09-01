@@ -220,6 +220,7 @@ function BadgePreview({
             label: host.label,
             color: host.appearance.color,
             showLabel: badgeDisplay === "name",
+            showIcon: true,
           },
     [badgeDisplay, host.serverId, host.label, host.appearance.color],
   );

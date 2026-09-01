@@ -23,6 +23,8 @@ export interface ProviderSelectionModelRow {
   modelLabel: string;
   description?: string;
   isDefault?: boolean;
+  needsCapacityConfig?: boolean;
+  modelsDevCandidates?: AgentModelDefinition["modelsDevCandidates"];
 }
 
 function buildModelRowKey(provider: string, modelId: string): string {
@@ -67,6 +69,8 @@ function buildModelRows(
     modelLabel: model.label,
     description: model.description ?? model.id,
     isDefault: model.isDefault,
+    ...(model.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
+    ...(model.modelsDevCandidates ? { modelsDevCandidates: model.modelsDevCandidates } : {}),
   }));
 }
 

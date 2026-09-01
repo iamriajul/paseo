@@ -126,6 +126,30 @@ describe("keyboard-action-dispatcher", () => {
     expect(calls).toEqual(["visible-tab"]);
   });
 
+  it("routes agent search only to the focused retained pane", () => {
+    const calls: string[] = [];
+    const action: KeyboardActionDefinition = { id: "agent.search", scope: "workspace" };
+    for (const [handlerId, focused] of [
+      ["left-pane", false],
+      ["right-pane", true],
+    ] as const) {
+      dispatcher.registerHandler({
+        handlerId,
+        actions: ["agent.search"],
+        enabled: focused,
+        priority: 250,
+        isActive: () => focused,
+        handle: () => {
+          calls.push(handlerId);
+          return true;
+        },
+      });
+    }
+
+    expect(dispatcher.dispatch(action)).toBe(true);
+    expect(calls).toEqual(["right-pane"]);
+  });
+
   it("tries lower-priority handlers when a higher one does not consume the action", () => {
     const calls: string[] = [];
     const action: KeyboardActionDefinition = {

@@ -267,6 +267,7 @@ describe("useChatOutline", () => {
       prepareForViewportChange: vi.fn(),
       holdReadingPosition: vi.fn(),
       scrollToMessage,
+      scrollToItem: scrollToMessage,
     };
     const viewportRef = { current: viewport };
     const tail = [
@@ -319,6 +320,7 @@ describe("useChatOutline", () => {
         prepareForViewportChange: vi.fn(),
         holdReadingPosition: vi.fn(),
         scrollToMessage,
+        scrollToItem: scrollToMessage,
       },
     };
     const fetchedPrompt = {
@@ -375,6 +377,7 @@ describe("useChatOutline", () => {
       prepareForViewportChange: vi.fn(),
       holdReadingPosition: vi.fn(),
       scrollToMessage,
+      scrollToItem: scrollToMessage,
     };
     const livePrompt = {
       id: "live-prompt",

@@ -337,11 +337,10 @@ npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src
 
 a live user_message that acknowledges a pending submission is flushed immediately; disconnect flushes those pending events so a websocket drop cannot strand the working indicator. The live clientMessageId still settles the submission when sequencing drops the row (gap/stale), the viewed timeline is detached, or apply inserts because the snapshot missed the optimistic row. An unreconciled local row also settles by matching text when the live event omits clientMessageId.
 
-v0.8.0 upstream removed the session-store turn-liveness map (turns now live on the Agent record via directory-sync) and stopped clearing liveness on disconnect, so the clear/pause half of this series has no target: the disconnect effect flushes pending acks only, and liveness persists until authoritative catch-up reconciles it.
+v0.8.0 upstream removed the session-store turn-liveness map (turns now live on the Agent record via directory-sync) and stopped clearing liveness on disconnect, so the clear/pause half of this series has no target: the disconnect effect flushes pending acks only, and liveness persists until authoritative catch-up reconciles it. The chat also hides live-turn chrome and pending-send busy state unless the host is online, so Reconnecting cannot sit next to a working timer.
 
 ```bash
-npm test --workspace=@getpaseo/app -- src/timeline/ingest-agent-stream-event.test.ts --bail=1```
-
+npm test --workspace=@getpaseo/app -- src/timeline/ingest-agent-stream-event.test.ts src/timeline/turn-liveness.test.ts --bail=1
 ## paseo-backed-claude-subagent-prompt-cache-ttl
 
 **5m prompt cache TTL for orchestrator-spawned Claude agents**

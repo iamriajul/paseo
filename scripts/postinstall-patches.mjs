@@ -25,6 +25,10 @@ const patchedPackages = [
     patchPrefix: "react-native-gesture-handler+",
   },
   {
+    nodeModulesPath: "node_modules/react-native-webview",
+    patchPrefix: "react-native-webview+",
+  },
+  {
     nodeModulesPath: "node_modules/react-native-svg",
     patchPrefix: "react-native-svg+",
   },

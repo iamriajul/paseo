@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  computeAndroidVersionCode,
   computeNextReleaseVersion,
   getReleaseInfoFromSourceTag,
   parseReleaseVersion,
@@ -46,6 +47,12 @@ test("emits beta release info from tags", () => {
     releaseChannel: "beta",
     isSmokeTag: false,
   });
+});
+
+test("computes Android version codes with stable releases after betas", () => {
+  assert.equal(computeAndroidVersionCode("0.1.60-beta.1"), 1_060_001);
+  assert.equal(computeAndroidVersionCode("0.1.60"), 1_060_999);
+  assert.equal(computeAndroidVersionCode("0.1.900"), 1_900_999);
 });
 
 test("rejects non-beta prerelease versions", () => {

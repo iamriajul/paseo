@@ -131,6 +131,30 @@ describe("Explorer sidebar", () => {
     expect(activeExplorerTarget).toBe("files");
   });
 
+  it("lands on Changes the first time desktop Explorer is toggled", () => {
+    const input = {
+      isCompact: false,
+      supportsPaneSplits: true,
+      workspaceKey: WORKSPACE_KEY,
+      checkout: CHECKOUT,
+    };
+
+    toggleExplorerSidebar(input);
+
+    expect(isExplorerSidebarOpen(input)).toBe(true);
+    const openedState = useWorkspaceLayoutStore.getState();
+    const openedLayout = openedState.layoutByWorkspace[WORKSPACE_KEY];
+    const explorerPaneId = selectExplorerSidebarPaneId(openedState, WORKSPACE_KEY);
+    const explorerPane =
+      openedLayout && explorerPaneId ? findPaneById(openedLayout.root, explorerPaneId) : null;
+    const activeExplorerTarget =
+      openedLayout && explorerPane
+        ? collectAllTabs(openedLayout.root).find((tab) => tab.tabId === explorerPane.focusedTabId)
+            ?.target.kind
+        : null;
+    expect(activeExplorerTarget).toBe("changes_tree");
+  });
+
   it("toggles the compact Explorer without changing its selected view", () => {
     usePanelStore.getState().setExplorerTabForCheckout({ ...CHECKOUT, tab: "files" });
     const input = {

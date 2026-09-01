@@ -572,6 +572,8 @@ const styles = StyleSheet.create((theme) => ({
     borderBottomColor: theme.colors.border,
   },
   tabsContainer: (isCompact: boolean) => ({
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     gap: theme.spacing[1],
     // With the tab's own horizontal padding this puts the label on the pane's
@@ -604,6 +606,7 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
+    flexShrink: 0,
   },
   contentArea: {
     flex: 1,

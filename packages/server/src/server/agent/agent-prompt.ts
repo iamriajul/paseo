@@ -229,6 +229,8 @@ export interface SendPromptToAgentParams {
   prompt: AgentPromptInput;
   messageId?: string;
   activeTurnBehavior?: ActiveTurnBehavior;
+  /** COMPAT(promptSteer): maps onto activeTurnBehavior when the new field is omitted. */
+  steer?: boolean;
   runOptions?: AgentRunOptions;
   /** Optional mode to set on the agent before the run starts. */
   sessionMode?: string;
@@ -344,7 +346,7 @@ export async function sendPromptToAgent(
 
   return await startAgentRun(params.agentManager, params.agentId, params.prompt, params.logger, {
     replaceRunning: true,
-    activeTurnBehavior: params.activeTurnBehavior,
+    activeTurnBehavior: params.activeTurnBehavior ?? (params.steer === true ? "steer" : undefined),
     clearPendingPermissions: params.clearPendingPermissions,
     runOptions,
   });
@@ -552,7 +554,7 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
         return;
       }
 
-      if (event.type === "timeline_replacement") {
+      if (event.type !== "agent_stream") {
         return;
       }
 

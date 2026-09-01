@@ -16,7 +16,9 @@ const CLAUDE_CUSTOM_THINKING_FIELDS = {
     { id: "low", label: "Low" },
     { id: "medium", label: "Medium" },
     { id: "high", label: "High", isDefault: true },
+    { id: "xhigh", label: "Extra High" },
     { id: "max", label: "Max" },
+    { id: "ultracode", label: "Ultra Code" },
   ],
   defaultThinkingOptionId: "high",
 } satisfies Partial<AgentModelDefinition>;
@@ -1057,6 +1059,39 @@ test("extension inherits base override — override claude command, zai extends 
 });
 
 describe("model merging", () => {
+  test("capacity-only additional model preserves a profile label", async () => {
+    const registry = buildProviderRegistry(logger, {
+      providerOverrides: {
+        claude: {
+          models: [{ id: "grok-4.5", label: "My Grok profile" }],
+          additionalModels: [
+            {
+              id: "grok-4.5",
+              label: "grok-4.5",
+              contextWindowMaxTokens: 500_000,
+              maxOutputTokens: 65_536,
+            },
+          ],
+        },
+      },
+    });
+
+    const { models } = await registry.claude.fetchCatalog({
+      scope: "workspace",
+      cwd: "/tmp/registry-models",
+      force: false,
+    });
+
+    expect(models).toEqual([
+      expect.objectContaining({
+        id: "grok-4.5",
+        label: "My Grok profile",
+        contextWindowMaxTokens: 500_000,
+        maxOutputTokens: 65_536,
+      }),
+    ]);
+  });
+
   test("profile models replace runtime models", async () => {
     mockState.runtimeModels.set("codex", [
       {
@@ -1243,6 +1278,7 @@ describe("model merging", () => {
         provider: "claude",
         id: "runtime-pro",
         label: "Runtime Pro",
+        ...CLAUDE_CUSTOM_THINKING_FIELDS,
       },
       {
         provider: "claude",
@@ -1395,6 +1431,7 @@ describe("model merging", () => {
         provider: "claude",
         id: "runtime-only",
         label: "Runtime Only",
+        ...CLAUDE_CUSTOM_THINKING_FIELDS,
       },
     ]);
   });
@@ -1440,12 +1477,14 @@ describe("model merging", () => {
         id: "runtime-default",
         label: "Runtime Default",
         isDefault: false,
+        ...CLAUDE_CUSTOM_THINKING_FIELDS,
       },
       {
         provider: "claude",
         id: "runtime-other",
         label: "Runtime Other",
         isDefault: false,
+        ...CLAUDE_CUSTOM_THINKING_FIELDS,
       },
       {
         provider: "claude",
@@ -1480,6 +1519,7 @@ describe("model merging", () => {
         id: "runtime-default",
         label: "Runtime Default",
         isDefault: true,
+        ...CLAUDE_CUSTOM_THINKING_FIELDS,
       },
     ]);
   });

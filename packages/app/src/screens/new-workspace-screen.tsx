@@ -41,13 +41,14 @@ import { resolveLaunchTarget, type LaunchTarget } from "@/new-workspace-launch/t
 import { useTerminalComposerState } from "@/new-workspace-launch/composer-state";
 import { runCreateTerminalWorkspace } from "./new-workspace-terminal";
 import {
+  getHostRuntimeStore,
   useHostRuntimeClient,
   useHostRuntimeConnectionStatuses,
   useHostRuntimeIsConnected,
   useHosts,
   type HostRuntimeConnectionStatus,
 } from "@/runtime/host-runtime";
-import { useHostFeature, useHostFeatureMap } from "@/runtime/host-features";
+import { hostSupportsFeature, useHostFeature, useHostFeatureMap } from "@/runtime/host-features";
 import type { HostProfile } from "@/types/host-connection";
 import {
   navigateToWorkspace,
@@ -56,6 +57,8 @@ import {
 import { normalizeWorkspaceDescriptor, useSessionStore } from "@/stores/session-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import { buildNewWorkspaceDraftKey, generateDraftId } from "@/stores/draft-keys";
+import { useDraftStore } from "@/stores/draft-store";
+import { clearComposerOnHost } from "@/ui-state/composer-host-sync";
 import { useOpenAddProject } from "@/hooks/use-open-add-project";
 import { isActiveCreateFlowForDraft, useCreateFlowStore } from "@/stores/create-flow-store";
 import {
@@ -1084,6 +1087,14 @@ function submitWorkspaceDraft(input: SubmitDraftInput): void {
     workspaceId,
     target: submission.target,
   });
+  useDraftStore.getState().clearDraftInput({ draftKey: draftId, lifecycle: "sent" });
+  const serverInfo = useSessionStore.getState().sessions[serverId]?.serverInfo;
+  if (hostSupportsFeature(serverInfo, "uiState")) {
+    const client = getHostRuntimeStore().getClient(serverId);
+    if (client) {
+      void clearComposerOnHost({ client, clientDraftKey: draftId });
+    }
+  }
 }
 
 function useNewWorkspaceHostSelector(input: {

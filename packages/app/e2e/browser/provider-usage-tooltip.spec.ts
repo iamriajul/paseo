@@ -41,6 +41,14 @@ test.describe("provider usage tooltip", () => {
                 resetsAt: "2026-06-19T05:00:00.000Z",
               },
             ],
+            resetCredits: [
+              {
+                id: "reset-1",
+                label: "Full reset",
+                status: "available",
+                expiresAt: "2026-07-12T02:19:39.558977Z",
+              },
+            ],
           },
         ],
       },
@@ -58,6 +66,10 @@ test.describe("provider usage tooltip", () => {
       await expect(page.getByText("Test plan")).toBeVisible();
       await expect(page.getByText("Session", { exact: true })).toBeVisible();
       await expect(page.getByText("42%")).toBeVisible();
+      await expect(page.getByText("Available resets", { exact: true })).toBeVisible();
+      await expect(page.getByText("1 reset", { exact: true })).toBeVisible();
+      await expect(page.getByText("Full reset", { exact: true })).toBeVisible();
+      await expect(page.getByText(/^Expires .*2026$/)).toBeVisible();
     } finally {
       await session.cleanup();
     }

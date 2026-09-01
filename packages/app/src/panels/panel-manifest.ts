@@ -33,6 +33,16 @@ const manifests = {
     supportedHosts: ["main", "explorer"],
     resourceKey: (target) => `${target.parentAgentId}:${target.subagentId}`,
   },
+  background_task: {
+    kind: "background_task",
+    supportedHosts: ["main", "explorer"],
+    resourceKey: (target) => `${target.parentAgentId}:${target.taskId}`,
+  },
+  loop: {
+    kind: "loop",
+    supportedHosts: ["main", "explorer"],
+    resourceKey: (target) => target.loopId,
+  },
   terminal: {
     kind: "terminal",
     supportedHosts: ["main", "explorer"],
@@ -43,10 +53,20 @@ const manifests = {
     supportedHosts: ["main"],
     resourceKey: (target) => target.browserId,
   },
+  codeServer: {
+    kind: "codeServer",
+    supportedHosts: ["main"],
+    resourceKey: (target) => target.codeServerId,
+  },
   changes_tree: {
     kind: "changes_tree",
     supportedHosts: ["explorer"],
     resourceKey: () => "changes_tree",
+  },
+  todo: {
+    kind: "todo",
+    supportedHosts: ["explorer", "main"],
+    resourceKey: () => "todo",
   },
   files: {
     kind: "files",

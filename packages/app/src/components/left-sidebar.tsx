@@ -800,10 +800,19 @@ function DesktopSidebar({
   );
 }
 
+// Below this header width the inline Project|Status control is hidden; Group by
+// remains available in the gear menu. Sized for "Workspaces by [Project|Status] + icons".
+const WORKSPACES_GROUP_MODE_MIN_WIDTH = 300;
+
 function WorkspacesSectionHeader() {
   return (
-    <View style={styles.workspacesSectionHeader}>
-      <Text style={styles.workspacesSectionTitle}>Workspaces</Text>
+    <View style={styles.workspacesSectionHeader} onLayout={handleHeaderLayout}>
+      <View style={styles.workspacesSectionLeading}>
+        <Text style={styles.workspacesSectionTitle} numberOfLines={1}>
+          Workspaces
+        </Text>
+        <SidebarGroupModeControl visible={showGroupMode} />
+      </View>
       <View style={styles.workspacesSectionActions}>
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
@@ -860,15 +869,24 @@ const styles = StyleSheet.create((theme) => ({
     paddingTop: theme.spacing[1],
     paddingBottom: theme.spacing[1],
   },
+  workspacesSectionLeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1.5],
+    flex: 1,
+    minWidth: 0,
+  },
   workspacesSectionTitle: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
+    flexShrink: 0,
   },
   workspacesSectionActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
+    flexShrink: 0,
   },
   sidebarContent: {
     flex: 1,

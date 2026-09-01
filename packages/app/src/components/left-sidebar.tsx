@@ -5,6 +5,7 @@ import {
   GitBranch,
   History,
   Home,
+  ListTodo,
   Plus,
   Search,
   Server,
@@ -35,6 +36,7 @@ import {
 import { HostPicker } from "@/components/hosts/host-picker";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
 import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/display-preferences/menu";
+import { SidebarGroupModeControl } from "@/components/sidebar/sidebar-group-mode-control";
 import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
 import { Shortcut } from "@/components/ui/shortcut";
@@ -63,6 +65,7 @@ import { useOwnsWindowChromeCorner, WindowChromeSafeArea } from "@/utils/desktop
 import { useCloseAgentListGesture } from "@/mobile-panels/gestures";
 import { MobilePanelOverlay } from "@/mobile-panels/presentation";
 import {
+  buildBacklogRoute,
   buildOpenProjectRoute,
   buildNewWorkspaceRoute,
   buildSchedulesRoute,
@@ -72,6 +75,7 @@ import {
 } from "@/utils/host-routes";
 import { openHostOverview } from "@/navigation/settings-navigation";
 import type { ShortcutKey } from "@/utils/format-shortcut";
+import { useCreateBacklogTaskStore } from "@/stores/create-backlog-task-store";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
@@ -115,6 +119,7 @@ interface SidebarLabels {
   settings: string;
   searchHosts: string;
   sessions: string;
+  backlog: string;
   schedules: string;
   closeSidebar: string;
 }
@@ -125,6 +130,8 @@ interface MobileSidebarProps extends SidebarSharedProps {
   insetsBottom: number;
   closeSidebar: () => void;
   handleViewMoreNavigate: () => void;
+  handleViewBacklogNavigate: () => void;
+  handleCreateBacklogTask: () => void;
   handleViewSchedulesNavigate: () => void;
 }
 
@@ -132,6 +139,8 @@ interface DesktopSidebarProps extends SidebarSharedProps {
   insetsTop: number;
   active: boolean;
   handleViewMore: () => void;
+  handleViewBacklog: () => void;
+  handleCreateBacklogTask: () => void;
   handleViewSchedules: () => void;
 }
 
@@ -227,6 +236,15 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
     router.push(buildSessionsRoute());
   }, []);
 
+  const handleViewBacklogNavigate = useCallback(() => {
+    router.push(buildBacklogRoute());
+  }, []);
+
+  const openCreateBacklogTask = useCreateBacklogTaskStore((state) => state.openCreateBacklogTask);
+  const handleCreateBacklogTask = useCallback(() => {
+    openCreateBacklogTask();
+  }, [openCreateBacklogTask]);
+
   const handleViewSchedulesNavigate = useCallback(() => {
     router.push(buildSchedulesRoute());
   }, []);
@@ -241,6 +259,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
       settings: t("sidebar.actions.settings"),
       searchHosts: t("sidebar.host.searchPlaceholder"),
       sessions: t("sidebar.sections.sessions"),
+      backlog: t("sidebar.sections.backlog"),
       schedules: t("sidebar.sections.schedules"),
       closeSidebar: t("sidebar.actions.closeSidebar"),
     }),
@@ -283,6 +302,8 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
           handleAddHost={handleAddHostMobile}
           handleOpenHostSettings={handleOpenHostSettingsMobile}
           handleViewMoreNavigate={handleViewMoreNavigate}
+          handleViewBacklogNavigate={handleViewBacklogNavigate}
+          handleCreateBacklogTask={handleCreateBacklogTask}
           handleViewSchedulesNavigate={handleViewSchedulesNavigate}
         />
       </RetainedPanelActivity>
@@ -301,6 +322,8 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
         handleAddHost={handleAddHostDesktop}
         handleOpenHostSettings={handleOpenHostSettingsDesktop}
         handleViewMore={handleViewMoreNavigate}
+        handleViewBacklog={handleViewBacklogNavigate}
+        handleCreateBacklogTask={handleCreateBacklogTask}
         handleViewSchedules={handleViewSchedulesNavigate}
       />
     </RetainedPanelActivity>
@@ -633,11 +656,14 @@ function MobileSidebar({
   insetsBottom,
   closeSidebar,
   handleViewMoreNavigate,
+  handleViewBacklogNavigate,
+  handleCreateBacklogTask,
   handleViewSchedulesNavigate,
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const isSessionsActive = pathname.includes("/sessions");
+  const isBacklogActive = pathname.includes("/backlog");
   const isSchedulesActive = pathname.includes("/schedules");
   const { gesture: closeGesture, gestureRef: closeGestureRef } = useCloseAgentListGesture();
 
@@ -645,6 +671,26 @@ function MobileSidebar({
     closeSidebar();
     handleViewMoreNavigate();
   }, [closeSidebar, handleViewMoreNavigate]);
+
+  const handleViewBacklog = useCallback(() => {
+    closeSidebar();
+    handleViewBacklogNavigate();
+  }, [closeSidebar, handleViewBacklogNavigate]);
+
+  const handleCreateBacklogTaskPress = useCallback(() => {
+    closeSidebar();
+    handleCreateBacklogTask();
+  }, [closeSidebar, handleCreateBacklogTask]);
+
+  const backlogTrailingAction = useMemo(
+    () => ({
+      icon: Plus,
+      onPress: handleCreateBacklogTaskPress,
+      accessibilityLabel: "Add task",
+      testID: "sidebar-backlog-add",
+    }),
+    [handleCreateBacklogTaskPress],
+  );
 
   const handleViewSchedules = useCallback(() => {
     closeSidebar();
@@ -687,6 +733,15 @@ function MobileSidebar({
             isActive={isSessionsActive}
             testID="sidebar-sessions"
             variant="compact"
+          />
+          <SidebarHeaderRow
+            icon={ListTodo}
+            label={labels.backlog}
+            onPress={handleViewBacklog}
+            isActive={isBacklogActive}
+            testID="sidebar-backlog"
+            variant="compact"
+            trailingAction={backlogTrailingAction}
           />
           <SidebarHeaderRow
             icon={CalendarClock}
@@ -784,13 +839,25 @@ function DesktopSidebar({
   insetsTop,
   active,
   handleViewMore,
+  handleViewBacklog,
+  handleCreateBacklogTask,
   handleViewSchedules,
 }: DesktopSidebarProps) {
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const pathname = usePathname();
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const isSessionsActive = pathname.includes("/sessions");
+  const isBacklogActive = pathname.includes("/backlog");
   const isSchedulesActive = pathname.includes("/schedules");
+  const backlogTrailingAction = useMemo(
+    () => ({
+      icon: Plus,
+      onPress: handleCreateBacklogTask,
+      accessibilityLabel: "Add task",
+      testID: "sidebar-backlog-add",
+    }),
+    [handleCreateBacklogTask],
+  );
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
   const { width: viewportWidth } = useWindowDimensions();
@@ -914,6 +981,15 @@ function DesktopSidebar({
               variant="compact"
             />
             <SidebarHeaderRow
+              icon={ListTodo}
+              label={labels.backlog}
+              onPress={handleViewBacklog}
+              isActive={isBacklogActive}
+              testID="sidebar-backlog"
+              variant="compact"
+              trailingAction={backlogTrailingAction}
+            />
+            <SidebarHeaderRow
               icon={CalendarClock}
               label={labels.schedules}
               onPress={handleViewSchedules}
@@ -970,8 +1046,13 @@ function DesktopSidebar({
   );
 }
 
+// Below this header width the inline Project|Status control is hidden; Group by
+// remains available in the gear menu. Sized for "Workspaces by [Project|Status] + icons".
+const WORKSPACES_GROUP_MODE_MIN_WIDTH = 300;
+
 function WorkspacesSectionHeader() {
   const { theme } = useUnistyles();
+  const [showGroupMode, setShowGroupMode] = useState(true);
   const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
   const commandCenterKeys = useShortcutKeys("toggle-command-center");
   const handleSearchPress = useCallback(() => setCommandCenterOpen(true), [setCommandCenterOpen]);
@@ -982,10 +1063,22 @@ function WorkspacesSectionHeader() {
     ],
     [],
   );
+  const handleHeaderLayout = useCallback(
+    (event: { nativeEvent: { layout: { width: number } } }) => {
+      const next = event.nativeEvent.layout.width >= WORKSPACES_GROUP_MODE_MIN_WIDTH;
+      setShowGroupMode((prev) => (prev === next ? prev : next));
+    },
+    [],
+  );
 
   return (
-    <View style={styles.workspacesSectionHeader}>
-      <Text style={styles.workspacesSectionTitle}>Workspaces</Text>
+    <View style={styles.workspacesSectionHeader} onLayout={handleHeaderLayout}>
+      <View style={styles.workspacesSectionLeading}>
+        <Text style={styles.workspacesSectionTitle} numberOfLines={1}>
+          Workspaces
+        </Text>
+        <SidebarGroupModeControl visible={showGroupMode} />
+      </View>
       <View style={styles.workspacesSectionActions}>
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
@@ -1065,15 +1158,24 @@ const styles = StyleSheet.create((theme) => ({
     paddingTop: theme.spacing[1],
     paddingBottom: theme.spacing[1],
   },
+  workspacesSectionLeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1.5],
+    flex: 1,
+    minWidth: 0,
+  },
   workspacesSectionTitle: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
+    flexShrink: 0,
   },
   workspacesSectionActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
+    flexShrink: 0,
   },
   workspacesHeaderIconButton: {
     width: 28,

@@ -49,7 +49,7 @@ class FakeBrowserGuest {
 }
 
 describe("browser webview attachment", () => {
-  test("accepts only allowed URLs on the shared profile partition", () => {
+  test("accepts only allowed URLs on Paseo profile partitions", () => {
     expect(
       isPaseoBrowserWebviewAttach({
         src: "https://example.com",
@@ -61,7 +61,7 @@ describe("browser webview attachment", () => {
         src: "https://example.com",
         partition: "persist:paseo-browser-tab-a",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isPaseoBrowserWebviewAttach({ src: "https://example.com", partition: "persist:foreign" }),
     ).toBe(false);

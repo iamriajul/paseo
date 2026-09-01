@@ -5,10 +5,26 @@ const withAndroidAsyncStorageSize = require("./plugins/with-android-async-storag
 const withAndroidProfileable = require("./plugins/with-android-profileable");
 const withFdroidAutolinking = require("./plugins/with-fdroid-autolinking");
 const withPasteInput = require("./plugins/with-paste-input");
-const { getNativeReleaseVersion } = require("./native-release-version");
 const appVariant = process.env.APP_VARIANT ?? "production";
 const isFdroidBuild = process.env.PASEO_FDROID_BUILD === "1";
 const isProfileBuild = process.env.PASEO_PROFILE_BUILD === "1";
+const forkIdSuffix = process.env.PASEO_FORK_ID_SUFFIX?.trim();
+const explicitAndroidPackageId = process.env.PASEO_ANDROID_PACKAGE_ID?.trim();
+const explicitAndroidAppName = process.env.PASEO_ANDROID_APP_NAME?.trim();
+const explicitUrlScheme = process.env.PASEO_URL_SCHEME?.trim();
+const explicitExpoUpdatesUrl = process.env.PASEO_EXPO_UPDATES_URL?.trim();
+const explicitExpoProjectId = process.env.PASEO_EXPO_PROJECT_ID?.trim();
+const explicitExpoOwner = process.env.PASEO_EXPO_OWNER?.trim();
+const androidVersionCode = Number.parseInt(process.env.PASEO_ANDROID_VERSION_CODE ?? "", 10);
+const isForkBuild = Boolean(
+  forkIdSuffix ||
+  explicitAndroidPackageId ||
+  explicitAndroidAppName ||
+  explicitUrlScheme ||
+  explicitExpoUpdatesUrl ||
+  explicitExpoProjectId ||
+  explicitExpoOwner,
+);
 
 const buildProfile = isFdroidBuild
   ? {
@@ -20,6 +36,7 @@ const buildProfile = isFdroidBuild
       cameraPlugins: [],
       fdroidPlugins: [withFdroidAutolinking],
       notificationPlugins: [],
+      updates: { enabled: false },
     }
   : {
       androidPermissions: [
@@ -48,7 +65,32 @@ const buildProfile = isFdroidBuild
           },
         ],
       ],
+      updates: {},
     };
+
+function getNativeBuildVersionCode(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version);
+  if (!match) {
+    throw new Error(`Cannot derive Android versionCode from non-semver version: ${version}`);
+  }
+
+  const [, majorText, minorText, patchText] = match;
+  const major = Number(majorText);
+  const minor = Number(minorText);
+  const patch = Number(patchText);
+
+  if (minor > 999 || patch > 999) {
+    throw new Error(`Cannot derive collision-free Android versionCode from version: ${version}`);
+  }
+
+  const versionCode = major * 1_000_000 + minor * 1_000 + patch;
+
+  if (!Number.isSafeInteger(versionCode) || versionCode <= 0 || versionCode > 2_100_000_000) {
+    throw new Error(`Derived Android versionCode is out of range: ${versionCode}`);
+  }
+
+  return versionCode;
+}
 
 function resolveSecretFile(params) {
   const fromEnv = process.env[params.envKey];
@@ -64,10 +106,62 @@ function resolveSecretFile(params) {
   return undefined;
 }
 
+function optionalEnv(value) {
+  return value && value.length > 0 ? value : undefined;
+}
+
+function resolveAppName(defaultName) {
+  return optionalEnv(explicitAndroidAppName) ?? defaultName;
+}
+
+function resolvePackageId(defaultPackageId) {
+  if (explicitAndroidPackageId) {
+    return explicitAndroidPackageId;
+  }
+
+  if (forkIdSuffix) {
+    return `${defaultPackageId}.${forkIdSuffix}`;
+  }
+
+  return defaultPackageId;
+}
+
+function resolveUpdatesConfig() {
+  if (isFdroidBuild) {
+    return { enabled: false };
+  }
+
+  if (explicitExpoUpdatesUrl) {
+    return { url: explicitExpoUpdatesUrl };
+  }
+
+  if (isForkBuild) {
+    return { enabled: false };
+  }
+
+  return { url: "https://u.expo.dev/0e7f65ce-0367-46c8-a238-2b65963d235a" };
+}
+
+function resolveExpoProjectId() {
+  if (explicitExpoProjectId) {
+    return explicitExpoProjectId;
+  }
+
+  return isForkBuild ? undefined : "0e7f65ce-0367-46c8-a238-2b65963d235a";
+}
+
+function resolveExpoOwner() {
+  if (explicitExpoOwner) {
+    return explicitExpoOwner;
+  }
+
+  return isForkBuild ? undefined : "getpaseo";
+}
+
 const variants = {
   production: {
-    name: "Paseo",
-    packageId: "sh.paseo",
+    name: resolveAppName("Paseo"),
+    packageId: resolvePackageId("sh.paseo"),
     googleServicesFile: resolveSecretFile({
       envKey: "GOOGLE_SERVICES_FILE_PROD",
       fallbackRelativePath: "./.secrets/google-services.prod.json",
@@ -78,8 +172,8 @@ const variants = {
     }),
   },
   development: {
-    name: "Paseo Debug",
-    packageId: "sh.paseo.debug",
+    name: resolveAppName("Paseo Debug"),
+    packageId: resolvePackageId("sh.paseo.debug"),
     googleServicesFile: resolveSecretFile({
       envKey: "GOOGLE_SERVICES_FILE_DEBUG",
       fallbackRelativePath: "./.secrets/google-services.debug.json",
@@ -92,18 +186,24 @@ const variants = {
 };
 
 const variant = variants[appVariant] ?? variants.production;
-const nativeReleaseVersion = getNativeReleaseVersion(pkg.version);
+const nativeBuildVersionCode = getNativeBuildVersionCode(pkg.version);
+const expoProjectId = resolveExpoProjectId();
+const expoOwner = resolveExpoOwner();
 
 export default {
   expo: {
     name: variant.name,
     slug: "voice-mobile",
-    version: nativeReleaseVersion.appVersion,
+    version: pkg.version,
     orientation: "portrait",
     icon: "./assets/images/icon.png",
-    scheme: "paseo",
+    scheme: explicitUrlScheme || "paseo",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
+    runtimeVersion: {
+      policy: "appVersion",
+    },
+    updates: resolveUpdatesConfig(),
     ios: {
       supportsTablet: true,
       infoPlist: {
@@ -114,7 +214,7 @@ export default {
       ...(variant.googleServiceInfoPlist
         ? { googleServicesFile: variant.googleServiceInfoPlist }
         : {}),
-      buildNumber: nativeReleaseVersion.iosBuildNumber,
+      buildNumber: String(nativeBuildVersionCode),
     },
     android: {
       adaptiveIcon: {
@@ -128,7 +228,10 @@ export default {
       usesCleartextTraffic: true,
       permissions: buildProfile.androidPermissions,
       package: variant.packageId,
-      versionCode: nativeReleaseVersion.androidVersionCode,
+      versionCode:
+        Number.isInteger(androidVersionCode) && androidVersionCode > 0
+          ? androidVersionCode
+          : nativeBuildVersionCode,
       ...(variant.googleServicesFile ? { googleServicesFile: variant.googleServicesFile } : {}),
     },
     web: {
@@ -139,7 +242,10 @@ export default {
       searchPaths: ["../../node_modules", "./node_modules"],
     },
     plugins: [
+      ...(isProfileBuild ? [withAndroidProfileable] : []),
       "expo-router",
+      "expo-local-authentication",
+      "@config-plugins/react-native-pdf",
       withPasteInput,
       [withAndroidAsyncStorageSize, 64],
       ...buildProfile.cameraPlugins,
@@ -176,7 +282,6 @@ export default {
         },
       ],
       ...buildProfile.fdroidPlugins,
-      ...(isProfileBuild ? [withAndroidProfileable] : []),
     ],
     experiments: {
       typedRoutes: true,
@@ -184,13 +289,11 @@ export default {
       autolinkingModuleResolution: true,
     },
     extra: {
-      fdroidBuild: isFdroidBuild,
       profileBuild: isProfileBuild,
+      fdroidBuild: isFdroidBuild,
       router: {},
-      eas: {
-        projectId: "0e7f65ce-0367-46c8-a238-2b65963d235a",
-      },
+      ...(expoProjectId ? { eas: { projectId: expoProjectId } } : {}),
     },
-    owner: "getpaseo",
+    ...(expoOwner ? { owner: expoOwner } : {}),
   },
 };

@@ -1,5 +1,12 @@
-import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  type ComponentType,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import {
   MenuRoot,
@@ -24,7 +31,7 @@ import { COMPOSER_PILL_CLEARANCE, composerPillStyles } from "./pill-styles";
  * Trackers expose a count and a detail panel; plugin actions expose their own icon and text.
  * Trackers used to be stacked cards, so every one of them pushed the composer further down the
  * pane. Built-in and contributed pills share this one-line rail and its deterministic geometry
- * on every platform.
+ * on every platform; on a narrow screen the line scrolls instead of spilling off-screen.
  *
  * The bar floats over the transcript with no background, so content remains visible underneath.
  * Its host gives the scroll viewport a small bottom inset only when the bar exists; that keeps
@@ -33,9 +40,16 @@ import { COMPOSER_PILL_CLEARANCE, composerPillStyles } from "./pill-styles";
 export function ComposerTrackBar({ children }: { children: ReactNode }): ReactElement {
   return (
     <View style={styles.bar} pointerEvents="box-none">
-      <View style={styles.track} pointerEvents="box-none">
+      <ScrollView
+        style={styles.scroller}
+        contentContainerStyle={styles.track}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        pointerEvents="box-none"
+      >
         {children}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -54,6 +68,12 @@ export interface ComposerTrackPillProps {
    * of them is hidden behind the others.
    */
   segments: readonly ComposerTrackPillSegment[];
+  /**
+   * Leading icon, same family as the todo pill's: a glyph that names the tracker even when its
+   * label is just a count. Pass the component, not JSX — the trigger renders it at its natural
+   * size and the prop stays referentially stable.
+   */
+  icon?: ComponentType<Record<string, never>>;
   /** Sheet header on compact. Popovers never show one. */
   panelTitle: string;
   testID: string;
@@ -81,6 +101,7 @@ const PANEL_OFFSET = 12;
 
 export function ComposerTrackPill({
   segments,
+  icon,
   panelTitle,
   testID,
   accessibilityLabel,
@@ -90,6 +111,7 @@ export function ComposerTrackPill({
     <MenuRoot compactMode="sheet">
       <ComposerTrackPillTrigger
         segments={segments}
+        icon={icon}
         testID={testID}
         accessibilityLabel={accessibilityLabel ?? segments.map((segment) => segment.text).join(" ")}
       />
@@ -112,10 +134,12 @@ export function ComposerTrackPill({
 
 function ComposerTrackPillTrigger({
   segments,
+  icon: Icon,
   testID,
   accessibilityLabel,
 }: {
   segments: readonly ComposerTrackPillSegment[];
+  icon?: ComponentType<Record<string, never>>;
   testID: string;
   accessibilityLabel: string;
 }): ReactElement {
@@ -146,6 +170,7 @@ function ComposerTrackPillTrigger({
       style={pillStyle}
     >
       <View style={styles.segments}>
+        {Icon ? <Icon /> : null}
         {segments.map((segment, index) => (
           <View
             key={segment.bucket ?? "plain"}
@@ -326,12 +351,17 @@ const styles = StyleSheet.create((theme) => {
         md: COMPOSER_PILL_CLEARANCE.wide,
       },
     },
-    track: {
+    // Full width so a short row of pills still centers under the content rail; the pills
+    // themselves align to the end so they sit next to the composer, and overflow scrolls.
+    scroller: {
       width: "100%",
       maxWidth: MAX_CONTENT_WIDTH,
-      flexDirection: "row",
+    },
+    track: {
       alignItems: "center",
       gap: theme.spacing[1],
+      alignSelf: "flex-end",
+      paddingHorizontal: theme.spacing[1],
     },
     // The rail every panel row sits on: inset from the panel edge so the fill is a rounded block
     // inside it, and tall enough that revealing an action button cannot resize the row.
@@ -363,7 +393,8 @@ const styles = StyleSheet.create((theme) => {
       alignItems: "center",
       flexShrink: 1,
       minWidth: 0,
-      gap: theme.spacing[4],
+      // The icon is one of those marks — the same gap separates it from the first segment.
+      gap: theme.spacing[2],
     },
     segment: {
       flexDirection: "row",

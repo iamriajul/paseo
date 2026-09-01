@@ -6,13 +6,14 @@ import {
   isAllowedBrowserWebviewUrl,
   PendingBrowserWindowOpenRequests,
 } from "./window-open.js";
-import { PaseoBrowserWebviewRegistry } from "./registry.js";
+import { PaseoBrowserWebviewRegistry, type BrowserWorkspaceRegistration } from "./registry.js";
 
 export {
   BROWSER_NEW_TAB_REQUEST_EVENT,
   decideBrowserWindowOpenRequest,
   PendingBrowserWindowOpenRequests,
 };
+export type { BrowserWorkspaceRegistration };
 
 const browserRegistry = new PaseoBrowserWebviewRegistry();
 
@@ -41,8 +42,13 @@ interface RegisterAttachedBrowserInput extends AttachedBrowserRegistration {
 }
 
 export function isPaseoBrowserWebviewAttach(input: { src?: string; partition?: string }): boolean {
+  // Fork Browser tabs use one persistent partition per browserId so the loopback
+  // proxy can route localhost to the correct workspace host. Upstream may use the
+  // shared partition; accept both. See docs/browser-localhost-routing.md.
   return (
-    isAllowedBrowserWebviewUrl(input.src) && input.partition === PASEO_BROWSER_PROFILE_PARTITION
+    isAllowedBrowserWebviewUrl(input.src) &&
+    (input.partition === PASEO_BROWSER_PROFILE_PARTITION ||
+      input.partition?.startsWith(`${PASEO_BROWSER_PROFILE_PARTITION}-`) === true)
   );
 }
 
@@ -108,6 +114,14 @@ export function unregisterPaseoBrowserHost(hostWebContentsId: number): void {
 
 export function getPaseoBrowserWorkspaceId(browserId: string): string | null {
   return browserRegistry.getWorkspaceId(browserId);
+}
+
+export function getPaseoBrowserServerId(browserId: string): string | null {
+  return browserRegistry.getServerId(browserId);
+}
+
+export function registerPaseoBrowserWorkspace(input: BrowserWorkspaceRegistration): void {
+  browserRegistry.registerWorkspace(input);
 }
 
 export function listRegisteredPaseoBrowserIdsForWorkspace(workspaceId: string): string[] {

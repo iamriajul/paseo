@@ -136,6 +136,7 @@ interface TerminalEmulatorProps {
     target: TerminalLocalFileLinkTarget,
     disposition: "main" | "side",
   ) => Promise<void> | void;
+  onOpenExternalUrl?: (url: string) => Promise<void> | void;
   onRendererReadyChange?: (change: TerminalRendererReadyChange) => void;
   pendingModifiers?: PendingTerminalModifiers;
   focusRequestToken?: number;
@@ -180,6 +181,7 @@ export default function TerminalEmulator({
   onInputModeChange,
   onResolveLocalFileLink,
   onOpenLocalFileLink,
+  onOpenExternalUrl = openExternalUrl,
   onRendererReadyChange,
   pendingModifiers = { ctrl: false, shift: false, alt: false },
   focusRequestToken = 0,
@@ -208,6 +210,7 @@ export default function TerminalEmulator({
     onInputModeChange,
     onResolveLocalFileLink,
     onOpenLocalFileLink,
+    onOpenExternalUrl,
   });
   mountCallbacksRef.current = {
     onInput,
@@ -217,6 +220,7 @@ export default function TerminalEmulator({
     onInputModeChange,
     onResolveLocalFileLink,
     onOpenLocalFileLink,
+    onOpenExternalUrl,
   };
   const initialSnapshotRef = useRef(initialSnapshot);
   initialSnapshotRef.current = initialSnapshot;
@@ -451,7 +455,6 @@ export default function TerminalEmulator({
     runtime.setCallbacks({
       callbacks: {
         ...mountCallbacksRef.current,
-        onOpenExternalUrl: openExternalUrl,
       },
     });
     runtime.setPendingModifiers({ pendingModifiers: pendingModifiersRef.current });
@@ -485,13 +488,14 @@ export default function TerminalEmulator({
         onInputModeChange,
         onResolveLocalFileLink,
         onOpenLocalFileLink,
-        onOpenExternalUrl: openExternalUrl,
+        onOpenExternalUrl,
       },
     });
   }, [
     onInput,
     onInputModeChange,
     onOpenLocalFileLink,
+    onOpenExternalUrl,
     onPendingModifiersConsumed,
     onResolveLocalFileLink,
     onResize,

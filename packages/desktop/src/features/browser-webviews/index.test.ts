@@ -1,4 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+
+vi.mock("electron", () => ({
+  webContents: {
+    fromId: () => null,
+    getAllWebContents: () => [],
+  },
+}));
+
 import { PASEO_BROWSER_PROFILE_PARTITION } from "../browser-profile.js";
 import {
   getPaseoBrowserIdForWebContents,

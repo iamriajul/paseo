@@ -316,7 +316,7 @@ npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/server
 workspace-scoped todo checklist with Apple Notes style UI, Explorer sidebar tab, left sidebar progress indicator, and composer pill
 
 ```bash
-npx vitest run packages/app/src/todos/workspace-todo-store.test.ts packages/app/src/todos/workspace-todo-pane.test.tsx packages/app/src/composer/todo-pill.test.tsx packages/app/src/panels/agent-tracks.test.ts packages/app/src/components/sidebar/workspace-meta-row/meta-items.test.ts packages/app/src/components/sidebar/display-preferences/row-items.test.ts packages/app/src/workspace-tabs/explorer-sidebar.test.ts packages/app/src/stores/panel-store/state.test.ts packages/app/src/stores/workspace-layout-store.test.ts packages/app/src/i18n/resources.test.ts --bail=1
+npm exec --workspace=@getpaseo/app -- vitest run src/todos/workspace-todo-store.test.ts src/todos/workspace-todo-pane.test.tsx src/composer/todo-pill.test.tsx src/panels/agent-tracks.test.ts src/components/sidebar/workspace-meta-row/meta-items.test.ts src/components/sidebar/display-preferences/row-items.test.ts src/workspace-tabs/explorer-sidebar.test.ts src/stores/panel-store/state.test.ts src/stores/workspace-layout-store.test.ts src/i18n/resources.test.ts --bail=1
 ```
 
 ## paseo-backed-claude-subagent-prompt-cache-ttl

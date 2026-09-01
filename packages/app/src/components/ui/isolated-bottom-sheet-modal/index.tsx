@@ -9,6 +9,7 @@ import {
   type BottomSheetController,
   createBottomSheetVisibilityTracker,
 } from "./visibility-tracker";
+import { BottomSheetTextInputScope } from "@/components/ui/text-input/bottom-sheet-scope";
 
 type GorhomBottomSheetModalMethods = ElementRef<typeof GorhomBottomSheetModal>;
 
@@ -80,7 +81,9 @@ export const IsolatedBottomSheetModal = forwardRef<
       enableDismissOnClose
       stackBehavior={presentation}
     >
-      {contextBridge ? contextBridge(scopedChildren) : scopedChildren}
+      <BottomSheetTextInputScope>
+        {contextBridge ? contextBridge(scopedChildren) : scopedChildren}
+      </BottomSheetTextInputScope>
     </GorhomBottomSheetModal>
   );
 

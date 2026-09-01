@@ -7,13 +7,14 @@ import {
 } from "@/stores/workspace-layout-store";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 
-export type ExplorerSidebarView = "changes" | "todo" | "files";
+export type ExplorerSidebarView = "changes" | "todo" | "files" | "pr";
 export type ExplorerSidebarPresentation = "overlay" | "dock" | "pane";
 
 const VIEW_TARGETS: Record<ExplorerSidebarView, WorkspaceTabTarget> = {
   changes: { kind: "changes_tree" },
   todo: { kind: "todo" },
   files: { kind: "files" },
+  pr: { kind: "pull_request" },
 };
 
 export interface ExplorerSidebarQuery {
@@ -95,11 +96,10 @@ export function toggleExplorerSidebar(input: ExplorerSidebarInput): void {
     return;
   }
   if (!input.workspaceKey) return;
-  const view: ExplorerSidebarView = input.checkout?.isGit ? "changes" : "files";
   if (isExplorerSidebarOpen(input)) {
     hideExplorerSidebar(input);
   } else {
-    openExplorerSidebarView({ ...input, view });
+    showExplorerSidebar(input);
   }
 }
 

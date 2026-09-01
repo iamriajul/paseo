@@ -362,7 +362,6 @@ export const ar: TranslationResources = {
         added: "أُضيفت",
         started: "بدأت",
         completed: "اكتملت",
-        reopened: "أُعيد فتحها",
       },
     },
     compaction: {
@@ -433,6 +432,7 @@ export const ar: TranslationResources = {
     },
     fileActions: {
       openFile: "افتح الملف",
+      openIn: "فتح في {{target}}",
       openToSide: "فتح إلى الجانب",
       copyPath: "نسخ المسار",
       copyRelativePath: "نسخ المسار النسبي",
@@ -984,6 +984,16 @@ export const ar: TranslationResources = {
         accessibility: {
           pullRequest: "سحب الطلب #{{number}}",
           pullRequest_mr: "طلب دمج !{{number}}",
+          checkStatus: {
+            passed: "ناجح",
+            failed: "فاشل",
+            warning: "تحذير",
+            actionRequired: "إجراء مطلوب",
+            manual: "يدوي",
+            pending: "قيد الانتظار",
+            skipped: "تم التخطي",
+            cancelled: "تم الإلغاء",
+          },
         },
         states: {
           draft: "مسودة",
@@ -1187,6 +1197,14 @@ export const ar: TranslationResources = {
         serviceRunning: "الخدمة {{name}} قيد التشغيل",
         serviceUnhealthy: "الخدمة {{name}} غير سليمة",
         creating: "جارٍ الإنشاء...",
+      },
+      checks: {
+        passed: "ناجحة: {{count}}",
+        failed: "فاشلة: {{count}}",
+        warning: "تحذيرات: {{count}}",
+        actionRequired: "إجراء مطلوب: {{count}}",
+        manual: "يدوية: {{count}}",
+        pending: "قيد الانتظار: {{count}}",
       },
       actions: {
         menu: "إجراءات Workspace",
@@ -1599,6 +1617,10 @@ export const ar: TranslationResources = {
         title: "اتصال مباشر",
         description: "الشبكة المحلية أو VPN.",
       },
+      remoteSsh: {
+        title: "SSH عن بُعد",
+        description: "الاتصال عبر عميل SSH لسطح المكتب.",
+      },
       scanQr: {
         title: "مسح رمز QR",
         description: "اتصال التتابع المشفر.",
@@ -1649,6 +1671,23 @@ export const ar: TranslationResources = {
         unableToConnect:
           "غير قادر على الاتصال. تحقق من المضيف /port ومن إمكانية الوصول إلى البرنامج الخفي.",
         details: "التفاصيل:{{detail}}",
+      },
+    },
+    remoteSsh: {
+      title: "SSH عن بُعد",
+      helper: "الاتصال بخادم Paseo يعمل على المضيف البعيد.",
+      fields: {
+        target: "مضيف SSH",
+      },
+      actions: {
+        cancel: "إلغاء",
+        connect: "اتصال",
+        connecting: "جارٍ الاتصال...",
+      },
+      errors: {
+        targetRequired: "مضيف SSH مطلوب",
+        invalidTarget: "أدخل مضيف ssh:// صالحًا",
+        failedToConnect: "تعذر الاتصال عبر SSH. {{detail}}",
       },
     },
     link: {
@@ -2454,6 +2493,7 @@ export const ar: TranslationResources = {
       badges: {
         relay: "تتابع",
         local: "محلي",
+        remoteSsh: "SSH عن بُعد",
       },
       connections: {
         title: "اتصالات",

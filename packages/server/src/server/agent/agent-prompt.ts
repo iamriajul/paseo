@@ -219,6 +219,8 @@ export interface SendPromptToAgentParams {
   source?: AgentPromptSource;
   messageId?: string;
   activeTurnBehavior?: ActiveTurnBehavior;
+  /** COMPAT(promptSteer): maps onto activeTurnBehavior when the new field is omitted. */
+  steer?: boolean;
   runOptions?: AgentRunOptions;
   /** Optional mode to set on the agent before the run starts. */
   sessionMode?: string;
@@ -360,7 +362,7 @@ export async function sendPreparedPromptToAgent(
   return await startAgentRun(params.agentManager, params.agentId, params.prompt, params.logger, {
     replaceRunning: true,
     onDispatch: params.onDispatch,
-    activeTurnBehavior: params.activeTurnBehavior,
+    activeTurnBehavior: params.activeTurnBehavior ?? (params.steer === true ? "steer" : undefined),
     clearPendingPermissions: params.clearPendingPermissions,
     runOptions: params.runOptions,
   });

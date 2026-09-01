@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolvePaseoNodeEnv } from "./paseo-env.js";
 import { z } from "zod";
 import { expandTilde } from "../utils/path.js";
+import { parseBrowserPreviewTemplate } from "./browser-preview/url-template.js";
 
 import type { PaseoDaemonConfig } from "./bootstrap.js";
 import {
@@ -367,6 +368,16 @@ function resolveServiceProxyConfig(
   return { publicBaseUrl, standaloneListen };
 }
 
+export function resolveBrowserPreviewUrlTemplate(
+  env: NodeJS.ProcessEnv,
+  persisted: ReturnType<typeof loadPersistedConfig>,
+): string | null {
+  const raw =
+    env.PASEO_BROWSER_PREVIEW_URL_TEMPLATE ?? persisted.daemon?.browserPreview?.urlTemplate ?? null;
+  if (raw === null) return null;
+  return parseBrowserPreviewTemplate(raw).raw;
+}
+
 interface ResolvedWebUi {
   enabled: boolean;
   distDir: string | null;
@@ -507,6 +518,26 @@ function resolveBrowserToolsEnabled(persisted: ReturnType<typeof loadPersistedCo
   return persisted.daemon?.browserTools?.enabled ?? false;
 }
 
+function resolveAutoResumeRunningAgentsConfig(
+  env: NodeJS.ProcessEnv,
+  persisted: ReturnType<typeof loadPersistedConfig>,
+): { enabled: boolean; prompt: string } {
+  const envEnabled = parseBooleanEnv(env.PASEO_AUTO_RESUME_ENABLED);
+  const envPrompt = env.PASEO_AUTO_RESUME_PROMPT?.trim();
+  const persistedEnabled = persisted.daemon?.autoResumeRunningAgents?.enabled;
+  const persistedPrompt = persisted.daemon?.autoResumeRunningAgents?.prompt?.trim();
+  let prompt = "Resume - there was a power cut";
+  if (envPrompt && envPrompt.length > 0) {
+    prompt = envPrompt;
+  } else if (persistedPrompt && persistedPrompt.length > 0) {
+    prompt = persistedPrompt;
+  }
+  return {
+    enabled: envEnabled ?? persistedEnabled ?? true,
+    prompt,
+  };
+}
+
 /**
  * Both profile lists stay `undefined` when absent rather than defaulting to an
  * empty array: for terminal profiles that is what selects the built-in
@@ -581,6 +612,7 @@ export function resolveConfigFromPersisted(
     enabledFallback: relayEnabledFallback,
   });
   const serviceProxy = resolveServiceProxyConfig(env, persisted);
+  const browserPreviewUrlTemplate = resolveBrowserPreviewUrlTemplate(env, persisted);
   const webUi = resolveWebUiConfig(paseoHome, env, cli, persisted);
 
   const { openai, speech } = resolveSpeechConfig({
@@ -593,6 +625,8 @@ export function resolveConfigFromPersisted(
   const providerOverrides = extractProviderOverrides(
     persisted.agents?.providers as Record<string, unknown> | undefined,
   );
+
+  const autoResumeRunningAgents = resolveAutoResumeRunningAgentsConfig(env, persisted);
 
   const overrideControlledPaths = resolveOverrideControlledPaths(env, cli, speech.providers);
 
@@ -628,6 +662,7 @@ export function resolveConfigFromPersisted(
     relayUseTls: relay.useTls,
     relayPublicUseTls: relay.publicUseTls,
     serviceProxy,
+    browserPreviewUrlTemplate,
     webUi,
     appBaseUrl,
     auth: resolveAuthConfig(env, persisted),
@@ -640,6 +675,7 @@ export function resolveConfigFromPersisted(
     providerCatalogRefreshTimeoutMs: persisted.agents?.catalogRefreshTimeoutMs,
     metadataGeneration: persisted.agents?.metadataGeneration,
     providerOverrides,
+    autoResumeRunningAgents,
     log: resolveLogConfigFromEnv(env, persisted),
     configReload: {
       env: { ...env },
@@ -715,6 +751,12 @@ function resolveCoreDaemonOverridePaths(
   }
   if (env.PASEO_APP_BASE_URL !== undefined) paths.push("app.baseUrl");
   if (env.PASEO_PASSWORD?.trim()) paths.push("daemon.auth.password");
+  if (parseBooleanEnv(env.PASEO_AUTO_RESUME_ENABLED) !== undefined) {
+    paths.push("daemon.autoResumeRunningAgents.enabled");
+  }
+  if (env.PASEO_AUTO_RESUME_PROMPT?.trim()) {
+    paths.push("daemon.autoResumeRunningAgents.prompt");
+  }
   return paths;
 }
 

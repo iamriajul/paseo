@@ -3,6 +3,7 @@ import type { AttachmentMetadata } from "@/attachments/types";
 import { persistAttachmentFromBytes } from "@/attachments/service";
 import { createPreviewAttachmentId, getFileNameFromPath } from "@/attachments/utils";
 import { explorerFileFromReadResult } from "@/file-explorer/read-result";
+import { shouldPersistFilePreviewMedia } from "@/file-explorer/pdf";
 import type { ExplorerFile } from "@/stores/session-store";
 import type { LiveFileSnapshot } from "../live-file/model";
 
@@ -24,7 +25,7 @@ const initialSnapshot: FilePreviewLifecycleSnapshot = { status: "initial" };
 /** Converts a completed raw read into the preview resources consumed by FilePane. */
 export async function createFilePanePreview(file: FileReadResult): Promise<FilePanePreview | null> {
   const explorerFile = explorerFileFromReadResult(file);
-  if (file.kind !== "image") {
+  if (!shouldPersistFilePreviewMedia(file)) {
     return { file: explorerFile, imageAttachment: null };
   }
 

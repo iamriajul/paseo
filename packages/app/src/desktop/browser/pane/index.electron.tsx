@@ -201,6 +201,44 @@ function getLoadUrlRejectionMessage(error: unknown, failedToLoadLabel: string): 
   return failedToLoadLabel;
 }
 
+function registerWorkspaceBrowserThenLoad(input: {
+  webview: ElectronWebview;
+  browserId: string;
+  serverId: string;
+  workspaceId: string;
+  directLoopback?: boolean;
+  initialUrl: string;
+  shouldLoadInitialUrl: boolean;
+  isCurrentWebview: () => boolean;
+  failedToLoadLabel: () => string;
+  onLoadError: (message: string) => void;
+}): void {
+  const registration =
+    getDesktopHost()?.browser?.registerWorkspaceBrowser?.({
+      browserId: input.browserId,
+      serverId: input.serverId,
+      workspaceId: input.workspaceId,
+      ...(input.directLoopback ? { directLoopback: true } : {}),
+    }) ?? Promise.resolve();
+  void registration
+    .then(() => {
+      if (!input.shouldLoadInitialUrl || !input.isCurrentWebview()) {
+        return undefined;
+      }
+      void input.webview.loadURL?.(input.initialUrl).catch((error: unknown) => {
+        const message = getLoadUrlRejectionMessage(error, input.failedToLoadLabel());
+        if (message) {
+          input.onLoadError(message);
+        }
+      });
+      return undefined;
+    })
+    .catch(() => {
+      input.onLoadError(input.failedToLoadLabel());
+      return undefined;
+    });
+}
+
 function getUnsafeNavigationMessage(
   url: string,
   labels: { invalidUrl: string; unsupportedProtocol: (protocol: string) => string },
@@ -739,13 +777,30 @@ export function BrowserPane({
     const residentWebview = takeResidentBrowserWebview(browserId) as ElectronWebview | null;
     const webview = residentWebview ?? (document.createElement("webview") as ElectronWebview);
     webviewRef.current = webview;
+    const shouldLoadInitialUrl = !residentWebview && !initialUnsafeNavigationMessage;
     if (!residentWebview) {
       prepareBrowserWebview(webview, {
         browserId,
         workspaceId,
-        initialUrl: initialUnsafeNavigationMessage ? "about:blank" : initialUrlRef.current,
+        initialUrl: "about:blank",
       });
     }
+    registerWorkspaceBrowserThenLoad({
+      webview,
+      browserId,
+      serverId,
+      workspaceId,
+      initialUrl: initialUrlRef.current,
+      shouldLoadInitialUrl,
+      isCurrentWebview: () => webviewRef.current === webview,
+      failedToLoadLabel: () => browserErrorLabelsRef.current.failedToLoad,
+      onLoadError: (message) => {
+        updateBrowserRef.current(browserIdRef.current, {
+          isLoading: false,
+          lastError: message,
+        });
+      },
+    });
     releaseResidentBrowserWebview(browserId, webview);
     if (isPresentedRef.current) {
       presentBrowserWebview(browserId, webview, host, clip, browserViewportRef.current);
@@ -907,7 +962,7 @@ export function BrowserPane({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [browserId, onFocusPane]);
+  }, [browserId, onFocusPane, serverId, workspaceId]);
 
   useEffect(() => {
     const webview = webviewRef.current;

@@ -18,6 +18,14 @@ import {
 // is the fallback for when nothing is painting.
 const AGENT_STREAM_REDUCER_FLUSH_DELAY_MS = 16 * 3;
 
+function acknowledgedClientMessageIdsFromEvent(event: AgentStreamEventPayload): string[] {
+  if (event.type !== "timeline" || event.item.type !== "user_message") {
+    return [];
+  }
+  const clientMessageId = event.item.clientMessageId;
+  return typeof clientMessageId === "string" && clientMessageId.length > 0 ? [clientMessageId] : [];
+}
+
 // ---------------------------------------------------------------------------
 // Shared cursor type
 // ---------------------------------------------------------------------------
@@ -1637,6 +1645,7 @@ export function processAgentStreamEvent(
       head: currentHead,
       changedTail: false,
       changedHead: false,
+      acknowledgedClientMessageIds: acknowledgedClientMessageIdsFromEvent(event),
     };
   } else if (!hasAuthoritativeBaseline) {
     if (event.type === "timeline" && event.item.type === "user_message") {
@@ -1706,7 +1715,9 @@ export function processAgentStreamEvents(
       changedHead: false,
       cursor: input.currentCursor ?? null,
       cursorChanged: false,
-      acknowledgedClientMessageIds: [],
+      acknowledgedClientMessageIds: input.events.flatMap((item) =>
+        acknowledgedClientMessageIdsFromEvent(item.event),
+      ),
       sideEffects: [],
     };
   }

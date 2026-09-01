@@ -214,7 +214,7 @@ describe("resident browser webviews", () => {
     expect(webview).not.toBeNull();
     expect(webview?.isConnected).toBe(true);
     expect(webview?.getAttribute("data-paseo-browser-id")).toBe("browser-agent");
-    expect(webview?.getAttribute("partition")).toBe("persist:paseo-browser");
+    expect(webview?.getAttribute("partition")).toBe("persist:paseo-browser-browser-agent");
     expect((webview as HTMLUnknownElement & { src?: string })?.src).toContain(
       "https://example.com",
     );
@@ -222,7 +222,7 @@ describe("resident browser webviews", () => {
     expectResidentWebviewParking(webview as HTMLElement);
   });
 
-  it("shares one profile and registers attached guests with explicit identity", () => {
+  it("isolates proxy profiles and registers attached guests with explicit identity", () => {
     const firstWebview = ensureTestBrowser({
       browserId: "browser-first",
       workspaceId: "workspace-a",
@@ -242,8 +242,8 @@ describe("resident browser webviews", () => {
     firstWebview.dispatchEvent(new Event("did-attach"));
     secondWebview.dispatchEvent(new Event("did-attach"));
 
-    expect(firstWebview.getAttribute("partition")).toBe("persist:paseo-browser");
-    expect(secondWebview.getAttribute("partition")).toBe("persist:paseo-browser");
+    expect(firstWebview.getAttribute("partition")).toBe("persist:paseo-browser-browser-first");
+    expect(secondWebview.getAttribute("partition")).toBe("persist:paseo-browser-browser-second");
     expect(attachedBrowsers).toEqual([
       { browserId: "browser-first", workspaceId: "workspace-a", webContentsId: 101 },
       { browserId: "browser-second", workspaceId: "workspace-b", webContentsId: 202 },

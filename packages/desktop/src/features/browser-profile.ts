@@ -47,8 +47,14 @@ interface ElectronSessions {
   fromPartition(partition: string): BrowserProfileSession;
 }
 
-export function getPaseoBrowserProfileSession(sessions: ElectronSessions): BrowserProfileSession {
-  return sessions.fromPartition(PASEO_BROWSER_PROFILE_PARTITION);
+export function getPaseoBrowserProfileSession(
+  sessions: ElectronSessions,
+  browserId?: string,
+): BrowserProfileSession {
+  const partition = browserId
+    ? `${PASEO_BROWSER_PROFILE_PARTITION}-${browserId}`
+    : PASEO_BROWSER_PROFILE_PARTITION;
+  return sessions.fromPartition(partition);
 }
 
 export function readLegacyPaseoBrowserIds(input: unknown): string[] {

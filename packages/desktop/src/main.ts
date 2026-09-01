@@ -24,7 +24,7 @@ import {
   session,
   webContents,
 } from "electron";
-import { registerDaemonManager } from "./daemon/daemon-manager.js";
+import { peekDesktopDaemonServerId, registerDaemonManager } from "./daemon/daemon-manager.js";
 import { parsePassthroughCliArgsFromArgv, runPassthroughCli } from "./daemon/cli/passthrough.js";
 import { closeAllTransportSessions } from "./daemon/local-transport.js";
 import {
@@ -62,11 +62,21 @@ import {
   preparePaseoBrowserWebContents,
   PendingBrowserWindowOpenRequests,
   registerBrowserWebviewNavigationGuards,
+  registerPaseoBrowserWorkspace,
   unregisterPaseoBrowserFromHost,
   registerAttachedPaseoBrowser,
   setWorkspaceActivePaseoBrowserId,
   unregisterPaseoBrowserHost,
 } from "./features/browser-webviews/index.js";
+import {
+  handleLoopbackTunnelClose,
+  handleLoopbackTunnelData,
+  handleLoopbackTunnelOpenResult,
+  registerBrowserLoopbackProxy,
+  resolveBrowserLoopbackProxyCredentials,
+  shouldUseDirectLoopback,
+  unregisterBrowserLoopbackProxy,
+} from "./features/browser-loopback-proxy.js";
 import {
   clearPaseoBrowserProfile,
   getLegacyPaseoBrowserProfileSession,
@@ -370,6 +380,33 @@ ipcMain.handle("paseo:agent-navigation:ready", (event) => {
   return agentNavigationInbox.windowReady(event.sender.id);
 });
 
+function readBrowserWorkspaceInput(input: unknown): {
+  browserId: string;
+  serverId: string;
+  workspaceId: string;
+  directLoopback: boolean;
+} | null {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  if (typeof record.browserId !== "string" || record.browserId.trim().length === 0) {
+    return null;
+  }
+  if (typeof record.serverId !== "string" || record.serverId.trim().length === 0) {
+    return null;
+  }
+  if (typeof record.workspaceId !== "string" || record.workspaceId.trim().length === 0) {
+    return null;
+  }
+  return {
+    browserId: record.browserId.trim(),
+    serverId: record.serverId.trim(),
+    workspaceId: record.workspaceId.trim(),
+    directLoopback: record.directLoopback === true,
+  };
+}
+
 function normalizeBrowserCaptureRect(
   rect: unknown,
 ): { x: number; y: number; width: number; height: number } | null {
@@ -411,7 +448,9 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
   const registered = registerAttachedPaseoBrowser({
     ...input,
     sender: event.sender,
-    profileSession: getPaseoBrowserProfileSession(session),
+    // Match the per-browser webview partition used by the fork's localhost proxy.
+    // Using the shared profile session here rejects registration and breaks proxy auth.
+    profileSession: getPaseoBrowserProfileSession(session, input.browserId),
     findWebContents: (webContentsId) => webContents.fromId(webContentsId) ?? null,
   });
   if (!registered) {
@@ -435,6 +474,23 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
   }
 });
 
+ipcMain.handle("paseo:browser:register-workspace-browser", async (event, rawInput: unknown) => {
+  const input = readBrowserWorkspaceInput(rawInput);
+  if (input) {
+    registerPaseoBrowserWorkspace(input);
+    await registerBrowserLoopbackProxy({
+      ...input,
+      rendererWebContentsId: event.sender.id,
+      directLoopback:
+        input.directLoopback ||
+        shouldUseDirectLoopback({
+          localDaemonServerId: peekDesktopDaemonServerId(),
+          tabServerId: input.serverId,
+        }),
+    });
+  }
+});
+
 ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, browserId: unknown) => {
   if (typeof browserId === "string" && browserId.trim().length > 0) {
     const normalizedBrowserId = browserId.trim();
@@ -443,6 +499,9 @@ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, brows
       normalizedBrowserId,
     );
     unregisterPaseoBrowserFromHost(event.sender.id, normalizedBrowserId);
+    if (!hasOtherHost) {
+      await unregisterBrowserLoopbackProxy(normalizedBrowserId);
+    }
     // COMPAT(browserProfile): added in v0.1.108; remove after 2027-01-15.
     const legacyProfile = hasOtherHost
       ? null
@@ -462,6 +521,35 @@ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, brows
       }
     }
   }
+});
+
+ipcMain.on("paseo:browser:loopback-tunnel-open-result", (_event, payload: unknown) => {
+  handleLoopbackTunnelOpenResult(payload);
+});
+
+ipcMain.on("paseo:browser:loopback-tunnel-data", (_event, payload: unknown) => {
+  handleLoopbackTunnelData(payload);
+});
+
+ipcMain.on("paseo:browser:loopback-tunnel-close", (_event, payload: unknown) => {
+  handleLoopbackTunnelClose(payload);
+});
+
+app.on("login", (event, contents, _details, authInfo, callback) => {
+  const browserId = getPaseoBrowserIdForWebContents(contents);
+  const credentials = browserId
+    ? resolveBrowserLoopbackProxyCredentials({
+        browserId,
+        isProxy: authInfo.isProxy,
+        host: authInfo.host,
+        port: authInfo.port,
+      })
+    : null;
+  if (!credentials) {
+    return;
+  }
+  event.preventDefault();
+  callback(credentials.username, credentials.password);
 });
 
 ipcMain.handle("paseo:browser:set-workspace-active-browser", (event, rawInput: unknown) => {

@@ -56,7 +56,14 @@ export interface DesktopDialogBridge {
 export interface DesktopNotificationBridge {
   isSupported?: () => Promise<boolean>;
   sendNotification?: (
-    payload: string | { title: string; body?: string; data?: Record<string, unknown> },
+    payload:
+      | string
+      | {
+          title: string;
+          body?: string;
+          data?: Record<string, unknown>;
+          silent?: boolean;
+        },
   ) => Promise<boolean>;
 }
 
@@ -111,6 +118,9 @@ export interface DesktopWindowBridge {
     handler: (event: TEvent) => void,
   ) => Promise<() => void> | (() => void);
   setBadgeCount?: (count?: number) => Promise<void>;
+  focus?: () => Promise<boolean>;
+  /** Sync OS window focus (true when this BrowserWindow is focused, including guest webviews). */
+  isFocused?: () => boolean;
   onDragDropEvent?: <TEvent = unknown>(
     handler: (event: TEvent) => void,
   ) => Promise<() => void> | (() => void);
@@ -148,6 +158,12 @@ export interface DesktopBrowserBridge {
   setShortcutPolicy?: (input: BrowserKeyboardPolicy) => Promise<void>;
   readonly profilePartition?: string;
   registerAttachedBrowser?: (input: DesktopAttachedBrowserRegistration) => Promise<void>;
+  registerWorkspaceBrowser?: (input: {
+    browserId: string;
+    serverId: string;
+    workspaceId: string;
+    directLoopback?: boolean;
+  }) => Promise<void>;
   unregisterWorkspaceBrowser?: (browserId: string) => Promise<void>;
   setWorkspaceActiveBrowser?: (input: {
     workspaceId: string;
@@ -166,6 +182,13 @@ export interface DesktopBrowserBridge {
   ) => Promise<string | null>;
   /** Copy element text and/or an image to the system clipboard from main. */
   copyElement?: (payload: { text?: string; imageDataUrl?: string }) => Promise<boolean>;
+  sendLoopbackTunnelOpenResult?: (payload: {
+    tunnelId: string;
+    ok: boolean;
+    reason?: string | null;
+  }) => void;
+  sendLoopbackTunnelData?: (payload: { tunnelId: string; binaryBase64: string }) => void;
+  sendLoopbackTunnelClose?: (payload: { tunnelId: string; reason?: string | null }) => void;
 }
 
 export interface DesktopInvokeBridge {

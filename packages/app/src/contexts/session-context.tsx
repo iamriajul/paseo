@@ -36,8 +36,9 @@ import {
   type SessionState,
 } from "@/stores/session-store";
 import { useWorkspaceSetupStore } from "@/stores/workspace-setup-store";
-import { sendOsNotification } from "@/utils/os-notifications";
+import { deliverAttentionInterrupt } from "@/utils/deliver-attention-interrupt";
 import { getIsAppActivelyVisible, getIsAppVisible } from "@/utils/app-visibility";
+import { router } from "expo-router";
 import {
   getInitKey,
   getInitDeferred,
@@ -47,9 +48,14 @@ import {
 import { derivePendingPermissionKey } from "@/utils/agent-snapshots";
 import { useToast } from "@/contexts/toast-context";
 import { toErrorMessage } from "@/utils/error-messages";
+import { toDaemonServerInfo } from "@/utils/server-info";
 import { showProviderNoticeToast } from "@/utils/provider-notice-toast";
 import { applyCheckoutStatusUpdateFromEvent } from "@/git/checkout-status-cache";
 import { useProviderSubagentStore } from "@/subagents/provider-store";
+import { useBackgroundTaskStore } from "@/background-tasks/store";
+import { useProviderHeartbeatStore } from "@/heartbeats/provider-store";
+import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+import { useWorkspaceTodoStore } from "@/todos/workspace-todo-store";
 
 // Re-export types from session-store and draft-store for backward compatibility
 export type { DraftInput } from "@/stores/draft-store";
@@ -273,12 +279,8 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       const appState = appStateRef.current;
       const session = useSessionStore.getState().sessions[serverId];
       const attentionFocusedAgentId = session?.focusedAgentId ?? null;
+      const attentionFocusedTerminalId = session?.focusedTerminalId ?? null;
       if (params.reason === "error") {
-        return;
-      }
-      const isActivelyVisible = getIsAppActivelyVisible(appState);
-      const isAwayFromAgent = !isActivelyVisible || attentionFocusedAgentId !== params.agentId;
-      if (!isAwayFromAgent) {
         return;
       }
 
@@ -309,10 +311,17 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         return;
       }
 
-      void sendOsNotification({
+      void deliverAttentionInterrupt({
         title: notification.title,
         body: notification.body,
         data: notification.data,
+        target: { kind: "agent", id: params.agentId },
+        focusedAgentId: attentionFocusedAgentId,
+        focusedTerminalId: attentionFocusedTerminalId,
+        isActivelyVisible: getIsAppActivelyVisible(appState),
+        navigate: (route) => {
+          router.navigate(route as never);
+        },
       });
     },
     [serverId],
@@ -324,16 +333,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       return;
     }
 
-    updateSessionServerInfo(serverId, {
-      serverId: serverInfo.serverId,
-      hostname: serverInfo.hostname,
-      version: serverInfo.version,
-      ...(serverInfo.desktopManaged !== undefined
-        ? { desktopManaged: serverInfo.desktopManaged }
-        : {}),
-      ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
-      ...(serverInfo.features ? { features: serverInfo.features } : {}),
-    });
+    updateSessionServerInfo(serverId, toDaemonServerInfo(serverInfo));
   }, [client, serverId, updateSessionServerInfo]);
 
   useEffect(() => {
@@ -554,9 +554,33 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       useProviderSubagentStore.getState().applyUpdate(serverId, message.payload);
     });
 
+    const unsubBackgroundTasksUpdate = client.on("agent.background_tasks.update", (message) => {
+      if (message.type !== "agent.background_tasks.update") return;
+      useBackgroundTaskStore.getState().applyUpdate(serverId, message.payload);
+    });
+
+    const unsubProviderHeartbeatsUpdate = client.on(
+      "agent.provider_heartbeats.update",
+      (message) => {
+        if (message.type !== "agent.provider_heartbeats.update") return;
+        useProviderHeartbeatStore.getState().applyUpdate(serverId, message.payload);
+      },
+    );
+
     const unsubCheckoutStatusUpdate = onFeed("checkout_status_update", (message) => {
       if (message.type !== "checkout_status_update") return;
       applyCheckoutStatusUpdateFromEvent({ queryClient, serverId, message });
+    });
+
+    const unsubWorkspaceTodosUpdate = client.on("workspace.todos.update", (message) => {
+      if (message.type !== "workspace.todos.update") return;
+      const workspaceKey = buildWorkspaceTabPersistenceKey({
+        serverId,
+        workspaceId: message.payload.workspaceId,
+      });
+      if (workspaceKey) {
+        useWorkspaceTodoStore.getState().setTodos(workspaceKey, message.payload.todos);
+      }
     });
 
     const unsubWorkspaceSetupProgress = onFeed("workspace_setup_progress", (message) => {
@@ -710,7 +734,8 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       if (!message.payload.shouldNotify) {
         return;
       }
-      void sendOsNotification({
+      const session = useSessionStore.getState().sessions[serverId];
+      void deliverAttentionInterrupt({
         title: message.payload.title,
         body: message.payload.body,
         // serverId + workspaceId + terminalId route a tap to the terminal tab; cwd is
@@ -721,6 +746,12 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
           cwd: message.payload.cwd,
           ...(message.payload.workspaceId ? { workspaceId: message.payload.workspaceId } : {}),
         },
+        target: { kind: "terminal", id: message.payload.terminalId },
+        focusedAgentId: session?.focusedAgentId ?? null,
+        focusedTerminalId: session?.focusedTerminalId ?? null,
+        navigate: (route) => {
+          router.navigate(route as never);
+        },
       });
     });
 
@@ -729,8 +760,11 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         .release()
         .catch((error) => console.warn("[Session] Failed to release feeds", error));
       unsubProviderSubagentUpdate();
+      unsubBackgroundTasksUpdate();
+      unsubProviderHeartbeatsUpdate();
       unsubAgentAttention();
       unsubCheckoutStatusUpdate();
+      unsubWorkspaceTodosUpdate();
       unsubWorkspaceSetupProgress();
       unsubStatus();
       unsubPermissionRequest();

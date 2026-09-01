@@ -440,6 +440,14 @@ interface NewWorkspaceRouteOptions {
   draftId?: string;
 }
 
+interface BacklogRouteOptions {
+  serverId?: string;
+  projectId?: string;
+  displayName?: string;
+  /** When true, the backlog screen opens the add-task form immediately. */
+  create?: boolean;
+}
+
 function buildNewWorkspaceSearch(options: NewWorkspaceRouteOptions): string {
   const params = new URLSearchParams();
   const serverId = trimNonEmpty(options.serverId);
@@ -467,6 +475,26 @@ export function buildNewWorkspaceRoute(options: NewWorkspaceRouteOptions = {}) {
     return "/new" as const;
   }
   return `/new?${query}` as const;
+}
+
+export function buildBacklogRoute(options: BacklogRouteOptions = {}) {
+  const params = new URLSearchParams();
+  const serverId = trimNonEmpty(options.serverId);
+  const projectId = trimNonEmpty(options.projectId);
+  if (serverId) {
+    params.set("serverId", serverId);
+  }
+  if (projectId) {
+    params.set("projectId", projectId);
+  }
+  if (options.displayName) {
+    params.set("name", options.displayName);
+  }
+  if (options.create) {
+    params.set("create", "1");
+  }
+  const query = params.toString();
+  return query ? (`/backlog?${query}` as const) : ("/backlog" as const);
 }
 
 export type KnownHostRouteResolution =

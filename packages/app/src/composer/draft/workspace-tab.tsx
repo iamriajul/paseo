@@ -1,3 +1,4 @@
+import { resolveTurnPresentation, TURN_LIVENESS_IDLE } from "@/timeline/turn-liveness";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Keyboard, ScrollView, StyleSheet as RNStyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -16,7 +17,7 @@ import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
 import { useAgentInputDraft } from "@/composer/draft/input-draft";
 import type { CreateAgentInitialValues } from "@/hooks/use-agent-form-state";
 import { useDraftAgentCreateFlow, type DraftCreateAttempt } from "@/composer/draft/create-flow";
-import { resolveTurnPresentation, TURN_LIVENESS_IDLE } from "@/timeline/turn-liveness";
+import { claimDraftAutoSubmit, releaseDraftAutoSubmit } from "@/composer/draft/auto-submit-claim";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { buildWorkspaceDraftAgentConfig } from "@/screens/workspace/workspace-draft-agent-config";
 import { buildDraftStoreKey } from "@/stores/draft-keys";
@@ -24,7 +25,10 @@ import { useCreateFlowStore } from "@/stores/create-flow-store";
 import type { Agent } from "@/stores/session-store";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { useWorkspaceDraftSubmissionStore } from "@/stores/workspace-draft-submission-store";
+import { useCommandCenterActions } from "@/command-center/provider";
 import { useAgentControlCommandCenterActions } from "@/command-center/agent-control-registration";
+import { buildModelChoiceContributions } from "@/command-center/model-contributions";
+import { getCommandCenterProviderIcon } from "@/command-center/provider-icon";
 import { encodeImages } from "@/utils/encode-images";
 import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
 import { shouldAutoFocusWorkspaceDraftComposer } from "@/screens/workspace/workspace-draft-pane-focus";
@@ -249,7 +253,6 @@ function buildDraftAgentSnapshot(input: {
     id: tabId,
     provider,
     status: "running",
-    activeTurn: null,
     createdAt: now,
     updatedAt: now,
     lastUserMessageAt: now,
@@ -261,6 +264,7 @@ function buildDraftAgentSnapshot(input: {
     persistence: null,
     runtimeInfo: { provider, sessionId: null, model, modeId },
     title: "Agent",
+    activeTurn: null,
     cwd: workspaceDirectory,
     model,
     features: composerState.agentControls.features,
@@ -383,16 +387,27 @@ export function WorkspaceDraftAgentTab({
     throw new Error("Workspace draft composer state is required");
   }
 
-  const draftProvider = composerState.selectedProvider;
-  const draftProviderDefinitions = composerState.providerDefinitions;
-  const draftThinkingOptions = composerState.availableThinkingOptions;
-  const draftSelectedThinkingId = composerState.selectedThinkingOptionId;
-  const draftSetThinkingOption = composerState.setThinkingOptionFromUser;
-  const draftModeOptions = composerState.modeOptions;
-  const draftSelectedMode = composerState.selectedMode;
-  const draftSetMode = composerState.setModeFromUser;
-  const draftFeatures = composerState.agentControls.features;
-  const draftOnSetFeature = composerState.agentControls.onSetFeature;
+  const draftModelActions = useMemo(
+    () =>
+      buildModelChoiceContributions({
+        serverId,
+        providers: composerState.modelSelectorProviders,
+        selectedProvider: composerState.selectedProvider,
+        selectedModelId: composerState.effectiveModelId || null,
+        groupLabel: t("shell.commandCenter.modelGroupLabel"),
+        searchKeywords: t("shell.commandCenter.modelSearchKeywords"),
+        getIcon: getCommandCenterProviderIcon,
+        select: composerState.setProviderAndModelFromUser,
+      }),
+    [
+      composerState.effectiveModelId,
+      composerState.modelSelectorProviders,
+      composerState.selectedProvider,
+      composerState.setProviderAndModelFromUser,
+      serverId,
+      t,
+    ],
+  );
 
   const clearDraftInput = draftInput.clear;
   const replaceDraftText = draftInput.replaceText;
@@ -529,40 +544,56 @@ export function WorkspaceDraftAgentTab({
       onCreated(result);
     },
   });
-  const turnPresentation = useMemo(
-    () => resolveTurnPresentation(TURN_LIVENESS_IDLE, pendingMessageSubmissions.length > 0),
-    [pendingMessageSubmissions],
-  );
-  useAgentControlCommandCenterActions({
+  useCommandCenterActions({
     sourceId: `draft:${serverId}:${tabId}`,
+    enabled: isPaneFocused && !isSubmitting,
+    actions: draftModelActions,
+  });
+
+  // The fork owns model choices via the registration directly above, so this one
+  // passes no providers: it exists to restore thinking, modes and features, which the
+  // custom-model-picker change dropped along with upstream's registration. A non-empty
+  // list here would double every model row.
+  //
+  // The sourceId MUST differ from the model registration's. The registry is a Map keyed
+  // by sourceId (command-center/registry.ts:77) -- the owner Symbol only short-circuits
+  // same-owner replaces -- so sharing one makes the two clobber each other, last write
+  // wins, non-deterministically.
+  useAgentControlCommandCenterActions({
+    sourceId: `draft-controls:${serverId}:${tabId}`,
     enabled: isPaneFocused && !isSubmitting,
     controls: {
       serverId,
       ownerKey: tabId,
-      provider: draftProvider,
-      providerDefinitions: draftProviderDefinitions,
+      provider: composerState.selectedProvider,
+      providerDefinitions: composerState.providerDefinitions,
       models: {
-        providers: composerState.modelSelectorProviders,
-        selectedProvider: draftProvider,
+        providers: [],
+        selectedProvider: composerState.selectedProvider,
         selectedModelId: composerState.effectiveModelId,
         select: composerState.setProviderAndModelFromUser,
       },
       thinking: {
-        options: draftThinkingOptions,
-        selectedId: draftSelectedThinkingId,
-        select: draftSetThinkingOption,
+        options: composerState.availableThinkingOptions,
+        selectedId: composerState.selectedThinkingOptionId,
+        select: composerState.setThinkingOptionFromUser,
       },
       modes: {
-        options: draftModeOptions,
-        selectedId: draftSelectedMode,
-        select: draftSetMode,
+        options: composerState.modeOptions,
+        selectedId: composerState.selectedMode,
+        select: composerState.setModeFromUser,
       },
       features: {
-        list: draftFeatures,
-        set: draftOnSetFeature,
+        list: composerState.agentControls.features,
+        set: composerState.agentControls.onSetFeature,
       },
     },
   });
+  const turnPresentation = useMemo(
+    () => resolveTurnPresentation(TURN_LIVENESS_IDLE, pendingMessageSubmissions.length > 0),
+    [pendingMessageSubmissions],
+  );
+
   const isReadyForPendingAutoSubmit = Boolean(
     pendingAutoSubmit &&
     draftInput.isHydrated &&
@@ -570,20 +601,22 @@ export function WorkspaceDraftAgentTab({
     client &&
     !composerState.isModelLoading,
   );
-  const autoSubmitKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isReadyForPendingAutoSubmit) {
       return;
     }
+    // Claim BEFORE consume/create so concurrent effect runs (remount, dep thrash)
+    // cannot both start createAgent for the same New Workspace submission.
+    // Matches daemon logs: two "Creating agent" at the same millisecond.
     const submitKey = `${serverId}:${workspaceId}:${draftId}`;
-    if (autoSubmitKeyRef.current === submitKey) {
+    if (!claimDraftAutoSubmit(submitKey)) {
       return;
     }
     const submission = consumePendingAutoSubmit({ serverId, workspaceId, draftId });
     if (!submission) {
+      releaseDraftAutoSubmit(submitKey);
       return;
     }
-    autoSubmitKeyRef.current = submitKey;
     replaceDraftText("");
     setDraftAttachments([]);
     const preparedAttempt =
@@ -603,7 +636,9 @@ export function WorkspaceDraftAgentTab({
     void createPromise.catch(() => {
       replaceDraftText(submission.text);
       setDraftAttachments(composerWorkspaceAttachment.userAttachmentsOnly(submission.attachments));
-      autoSubmitKeyRef.current = null;
+      // Only release on failure so a later retry can run; success leaves the
+      // claim held for the session so remounts cannot double-create.
+      releaseDraftAutoSubmit(submitKey);
     });
   }, [
     continueCreateFromAttempt,

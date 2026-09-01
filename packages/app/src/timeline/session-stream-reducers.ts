@@ -26,6 +26,32 @@ function acknowledgedClientMessageIdsFromEvent(event: AgentStreamEventPayload): 
   return typeof clientMessageId === "string" && clientMessageId.length > 0 ? [clientMessageId] : [];
 }
 
+function acknowledgedClientMessageIdsByText(
+  event: AgentStreamEventPayload,
+  tail: StreamItem[],
+  head: StreamItem[],
+): string[] {
+  if (event.type !== "timeline" || event.item.type !== "user_message") {
+    return [];
+  }
+  const text = event.item.text;
+  if (typeof text !== "string" || text.length === 0) {
+    return [];
+  }
+  const ids: string[] = [];
+  for (const item of [...tail, ...head]) {
+    if (
+      item.kind === "user_message" &&
+      item.clientMessageId &&
+      item.messageId === undefined &&
+      item.text === text
+    ) {
+      ids.push(item.clientMessageId);
+    }
+  }
+  return ids;
+}
+
 // ---------------------------------------------------------------------------
 // Shared cursor type
 // ---------------------------------------------------------------------------
@@ -1693,7 +1719,13 @@ export function processAgentStreamEvent(
     changedHead,
     cursor: sequencing.nextTimelineCursor,
     cursorChanged: sequencing.cursorChanged,
-    acknowledgedClientMessageIds: streamResult.acknowledgedClientMessageIds ?? [],
+    acknowledgedClientMessageIds: [
+      ...new Set([
+        ...(streamResult.acknowledgedClientMessageIds ?? []),
+        ...acknowledgedClientMessageIdsFromEvent(event),
+        ...acknowledgedClientMessageIdsByText(event, currentTail, currentHead),
+      ]),
+    ],
     ...(sequencing.shouldApplyStreamEvent && event.type === "timeline" && event.item.type === "todo"
       ? { taskSnapshot: event.item.items }
       : {}),
@@ -1715,9 +1747,14 @@ export function processAgentStreamEvents(
       changedHead: false,
       cursor: input.currentCursor ?? null,
       cursorChanged: false,
-      acknowledgedClientMessageIds: input.events.flatMap((item) =>
-        acknowledgedClientMessageIdsFromEvent(item.event),
-      ),
+      acknowledgedClientMessageIds: [
+        ...new Set(
+          input.events.flatMap((item) => [
+            ...acknowledgedClientMessageIdsFromEvent(item.event),
+            ...acknowledgedClientMessageIdsByText(item.event, input.currentTail, input.currentHead),
+          ]),
+        ),
+      ],
       sideEffects: [],
     };
   }

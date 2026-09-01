@@ -1,6 +1,7 @@
 import { normalizeWorkspaceFileLocation, workspaceFileLocationsEqual } from "@/workspace/file-open";
 import type { WorkspaceDraftTabSetup, WorkspaceTabTarget } from "@/workspace-tabs/model";
 
+// oxlint-disable-next-line complexity -- central exhaustive normalizer for every tab target kind.
 export function normalizeWorkspaceTabTarget(
   value: WorkspaceTabTarget | null | undefined,
 ): WorkspaceTabTarget | null {
@@ -29,6 +30,15 @@ export function normalizeWorkspaceTabTarget(
       ? { kind: "provider_subagent", parentAgentId, subagentId }
       : null;
   }
+  if (value.kind === "background_task") {
+    const parentAgentId = trimNonEmpty(value.parentAgentId);
+    const taskId = trimNonEmpty(value.taskId);
+    return parentAgentId && taskId ? { kind: "background_task", parentAgentId, taskId } : null;
+  }
+  if (value.kind === "loop") {
+    const loopId = trimNonEmpty(value.loopId);
+    return loopId ? { kind: "loop", loopId } : null;
+  }
   if (value.kind === "file") {
     return normalizeFileTabTarget(value);
   }
@@ -55,7 +65,12 @@ function normalizeSimpleWorkspaceTabTarget(value: WorkspaceTabTarget): Workspace
       const browserId = trimNonEmpty(value.browserId);
       return browserId ? { kind: "browser", browserId } : null;
     }
+    case "codeServer": {
+      const codeServerId = trimNonEmpty(value.codeServerId);
+      return codeServerId ? { kind: "codeServer", codeServerId } : null;
+    }
     case "changes_tree":
+    case "todo":
     case "files":
     case "pull_request":
       return { kind: value.kind };
@@ -131,9 +146,25 @@ function secondaryWorkspaceTabTargetsEqual(
   left: WorkspaceTabTarget,
   right: WorkspaceTabTarget,
 ): boolean {
+  if (left.kind === "background_task" && right.kind === "background_task") {
+    return left.parentAgentId === right.parentAgentId && left.taskId === right.taskId;
+  }
+  if (left.kind === "loop" && right.kind === "loop") {
+    return left.loopId === right.loopId;
+  }
   if (left.kind === "browser" && right.kind === "browser") {
     return left.browserId === right.browserId;
   }
+  if (left.kind === "codeServer" && right.kind === "codeServer") {
+    return left.codeServerId === right.codeServerId;
+  }
+  return supportingWorkspaceTabTargetsEqual(left, right);
+}
+
+function supportingWorkspaceTabTargetsEqual(
+  left: WorkspaceTabTarget,
+  right: WorkspaceTabTarget,
+): boolean {
   if (left.kind === "file" && right.kind === "file") {
     return workspaceFileLocationsEqual(left, right);
   }
@@ -141,6 +172,9 @@ function secondaryWorkspaceTabTargetsEqual(
     return left.focusPath === right.focusPath && left.focusRequestId === right.focusRequestId;
   }
   if (left.kind === "files" && right.kind === "files") {
+    return true;
+  }
+  if (left.kind === "todo" && right.kind === "todo") {
     return true;
   }
   if (left.kind === "changes_tree" && right.kind === "changes_tree") {
@@ -204,11 +238,20 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   if (target.kind === "provider_subagent") {
     return `provider_subagent_${target.parentAgentId.length}_${target.parentAgentId}_${target.subagentId.length}_${target.subagentId}`;
   }
+  if (target.kind === "background_task") {
+    return `background_task_${target.parentAgentId.length}_${target.parentAgentId}_${target.taskId.length}_${target.taskId}`;
+  }
+  if (target.kind === "loop") {
+    return `loop_${target.loopId}`;
+  }
   if (target.kind === "terminal") {
     return `terminal_${target.terminalId}`;
   }
   if (target.kind === "browser") {
     return `browser_${target.browserId}`;
+  }
+  if (target.kind === "codeServer") {
+    return `code-server_${target.codeServerId}`;
   }
   if (target.kind === "setup") {
     return `setup_${target.workspaceId}`;
@@ -219,7 +262,12 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   if (target.kind === "working_diff") {
     return "working_diff";
   }
-  if (target.kind === "changes_tree" || target.kind === "files" || target.kind === "pull_request") {
+  if (
+    target.kind === "changes_tree" ||
+    target.kind === "todo" ||
+    target.kind === "files" ||
+    target.kind === "pull_request"
+  ) {
     return target.kind;
   }
   if (target.kind === "plugin") {

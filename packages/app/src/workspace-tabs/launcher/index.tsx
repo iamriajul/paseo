@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { Globe, SquarePen, SquareTerminal } from "lucide-react-native";
+import { AppWindow, Globe, SquarePen, SquareTerminal } from "lucide-react-native";
 import invariant from "tiny-invariant";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { resolvePluginIcon } from "@/plugins/icons";
@@ -41,6 +41,7 @@ export interface NewTabLauncher {
   showChanges: boolean;
   showPullRequest: boolean;
   showBrowser: boolean;
+  showCodeServer: boolean;
   terminalDisabled: boolean;
   launch: (selection: NewTabSelection, destination: WorkspaceTabLaunchDestination) => void;
 }
@@ -79,9 +80,11 @@ const BUILT_IN_SELECTIONS: Record<BuiltInLaunchItemId, NewTabSelection> = {
   agent: { kind: "agent" },
   terminal: { kind: "terminal" },
   changes: { kind: "target", target: { kind: "changes_tree" } },
+  todo: { kind: "target", target: { kind: "todo" } },
   diff: { kind: "target", target: { kind: "working_diff" } },
   files: { kind: "target", target: { kind: "files" } },
   browser: { kind: "browser" },
+  codeServer: { kind: "codeServer" },
   pullRequest: { kind: "target", target: { kind: "pull_request" } },
 };
 
@@ -117,6 +120,7 @@ export function useWorkspaceTabLaunchCatalog(input: {
 
   return useMemo(() => {
     const changesPresentation = getLaunchPresentation("changes_tree");
+    const todoPresentation = getLaunchPresentation("todo");
     const diffPresentation = getLaunchPresentation("working_diff");
     const filesPresentation = getLaunchPresentation("files");
     const pullRequestPresentation = getLaunchPresentation("pull_request");
@@ -148,6 +152,14 @@ export function useWorkspaceTabLaunchCatalog(input: {
         hidden: !launcher.showChanges,
         launch: launchSelection(BUILT_IN_SELECTIONS.changes),
       },
+      todo: {
+        id: "todo",
+        label: todoPresentation.label(t),
+        Icon: todoPresentation.icon,
+        disabled: false,
+        panelKind: "todo",
+        launch: launchSelection(BUILT_IN_SELECTIONS.todo),
+      },
       diff: {
         id: "diff",
         label: diffPresentation.label(t),
@@ -176,6 +188,15 @@ export function useWorkspaceTabLaunchCatalog(input: {
         panelKind: "browser",
         hidden: !launcher.showBrowser,
         launch: launchSelection(BUILT_IN_SELECTIONS.browser),
+      },
+      codeServer: {
+        id: "code-server",
+        label: t("workspace.tabs.actions.newCodeServer"),
+        Icon: AppWindow,
+        disabled: false,
+        panelKind: "codeServer",
+        hidden: !launcher.showCodeServer,
+        launch: launchSelection(BUILT_IN_SELECTIONS.codeServer),
       },
       pullRequest: {
         id: "pull-request",

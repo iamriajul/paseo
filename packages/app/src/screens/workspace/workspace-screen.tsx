@@ -108,6 +108,8 @@ import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { removeResidentBrowserWebview } from "@/desktop/browser/resident-webviews";
 import { createWorkspaceBrowser, useBrowserStore } from "@/desktop/browser/store";
+import { createWorkspaceCodeServer } from "@/stores/code-server-store";
+import { resolveCodeServerLaunchUrl } from "@/utils/code-server-url";
 import { getDesktopHost } from "@/desktop/host";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
@@ -310,6 +312,7 @@ function getFallbackTabOptionLabel(
     browser: string;
     agent: string;
     changes: string;
+    todo: string;
     files: string;
     pullRequest: string;
   },
@@ -335,6 +338,9 @@ function getFallbackTabOptionLabel(
   if (tab.target.kind === "working_diff" || tab.target.kind === "changes_tree") {
     return labels.changes;
   }
+  if (tab.target.kind === "todo") {
+    return labels.todo;
+  }
   if (tab.target.kind === "files") {
     return labels.files;
   }
@@ -357,6 +363,7 @@ function getFallbackTabOptionDescription(
     terminal: string;
     browser: string;
     changes: string;
+    todo: string;
     files: string;
     pullRequest: string;
   },
@@ -388,6 +395,9 @@ function getFallbackTabOptionDescription(
   if (tab.target.kind === "working_diff" || tab.target.kind === "changes_tree") {
     return labels.changes;
   }
+  if (tab.target.kind === "todo") {
+    return labels.todo;
+  }
   if (tab.target.kind === "files") {
     return labels.files;
   }
@@ -397,7 +407,10 @@ function getFallbackTabOptionDescription(
   if (tab.target.kind === "plugin") {
     return tab.target.panelId;
   }
-  return tab.target.path;
+  if (tab.target.kind === "file") {
+    return tab.target.path;
+  }
+  return labels.agent;
 }
 
 interface MobileWorkspaceTabSwitcherProps {
@@ -594,6 +607,7 @@ function MobileWorkspaceTabOption({
       browser: t("workspace.tabs.fallback.browser"),
       agent: t("workspace.tabs.fallback.agent"),
       changes: t("panels.diff.changesLabel"),
+      todo: t("panels.todo.label"),
       files: t("panels.files.label"),
       pullRequest: t("panels.pullRequest.label"),
     }),
@@ -2326,6 +2340,7 @@ function WorkspaceScreenContent({
       browser: t("workspace.tabs.fallback.browser"),
       agent: t("workspace.tabs.fallback.agent"),
       changes: t("panels.diff.changesLabel"),
+      todo: t("panels.todo.label"),
       files: t("panels.files.label"),
       pullRequest: t("panels.pullRequest.label"),
     }),
@@ -2417,10 +2432,36 @@ function WorkspaceScreenContent({
         });
         return;
       }
+      if (selection.kind === "codeServer") {
+        const codeServerUrlOpeners =
+          useSessionStore.getState().sessions[normalizedServerId]?.serverInfo?.urlOpeners
+            ?.codeServer;
+        const codeServerLaunchUrl = resolveCodeServerLaunchUrl({
+          isElectron: getIsElectron(),
+          codeServerUrlOpeners,
+          workspaceDirectory,
+        });
+        if (!codeServerLaunchUrl) {
+          return;
+        }
+        const { codeServerId } = createWorkspaceCodeServer({
+          initialUrl: codeServerLaunchUrl,
+          workspaceKey: persistenceKey,
+        });
+        openTarget({ kind: "codeServer", codeServerId });
+        return;
+      }
       const { browserId } = createWorkspaceBrowser();
       openTarget({ kind: "browser", browserId });
     },
-    [createTerminal, createWorkspaceTab, persistenceKey, replaceWorkspaceTabTarget],
+    [
+      createTerminal,
+      createWorkspaceTab,
+      normalizedServerId,
+      persistenceKey,
+      replaceWorkspaceTabTarget,
+      workspaceDirectory,
+    ],
   );
 
   const handleOpenUrlInBrowserTab = useCallback(
@@ -3519,11 +3560,13 @@ function WorkspaceScreenContent({
             focusPaneBeforeOpen: input.focusPaneBeforeOpen,
           });
         },
+        onOpenUrlInBrowserTab: handleOpenUrlInBrowserTab,
         onOpenImportSheet: openImportSheet,
       }),
     [
       handleCloseTabById,
       fileNavigationRevisionByTabId,
+      handleOpenUrlInBrowserTab,
       handleOpenWorkspaceFileFromPane,
       navigateToTabId,
       normalizedServerId,
@@ -3786,11 +3829,22 @@ function WorkspaceScreenContent({
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
   const showCreateBrowserTab = getIsElectron();
+  const codeServerUrlOpeners = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.codeServer,
+  );
+  const showCreateCodeServerTab = Boolean(
+    resolveCodeServerLaunchUrl({
+      isElectron: getIsElectron(),
+      codeServerUrlOpeners,
+      workspaceDirectory,
+    }),
+  );
   const newTabLauncher = useMemo<NewTabLauncher>(
     () => ({
       showChanges: isGitCheckout,
       showPullRequest: hasPullRequest,
       showBrowser: showCreateBrowserTab,
+      showCodeServer: showCreateCodeServerTab,
       terminalDisabled: createTerminalDisabled,
       launch: launchWorkspaceTab,
     }),
@@ -3800,6 +3854,7 @@ function WorkspaceScreenContent({
       isGitCheckout,
       launchWorkspaceTab,
       showCreateBrowserTab,
+      showCreateCodeServerTab,
     ],
   );
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);

@@ -17,6 +17,7 @@ import {
   type SDKResultMessage,
   type SDKSystemMessage,
   type SDKUserMessage,
+  getSessionMessages,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { Logger } from "pino";
 import {
@@ -31,17 +32,39 @@ import {
   readTaskNotificationToolUseIdFromHistoryRecord,
 } from "./task-notification-tool-call.js";
 import {
-  findClaudeModel,
+  extractBashBackgroundTaskCorrelation,
+  mapClaudeBackgroundSystemMessage,
+} from "./background-tasks.js";
+import { mapClaudeProviderHeartbeatToolEvent } from "./provider-heartbeats.js";
+import {
+  applyClaudeCustomModelEnvPins,
+  applyClaudeMaxContextTokensEnv,
+  applyClaudeMaxOutputTokensEnv,
+  applyClaudePromptCacheTtlEnv,
+  resolveClaudeMaxOutputTokens,
+  resolveClaudeContextWindowMaxTokens,
   getClaudeModelsWithSettings,
   normalizeClaudeRuntimeModelId,
   resolveConfiguredClaudeModel,
+  applyClaudeAutoCompactWindowEnv,
+  preferConfiguredClaudeContextWindow,
+  resolveClaudeAutoCompactWindowTokens,
 } from "./models.js";
 import {
   CLAUDE_DISABLED_THINKING_OPTION_ID,
   CLAUDE_ULTRACODE_THINKING_OPTION_ID,
+  getClaudeCustomModelThinkingOptions,
   parseClaudeCodeVersion,
   resolveClaudeDisabledThinkingForModel,
 } from "./model-manifest.js";
+import {
+  appendCliproxyModelsToClaudeCatalog,
+  fetchCliproxyAnthropicModels,
+  markCliproxyAutoPersistFailure,
+  resolveCliproxyAnthropicCredentials,
+  type CliproxyAdditionalModelLimits,
+  type CliproxyAgentModelDefinition,
+} from "./cliproxy-models.js";
 import { parsePartialJsonObject } from "./partial-json.js";
 import { ClaudeSidechainTracker } from "./sidechain-tracker.js";
 import { ClaudeTaskState } from "./task-state.js";
@@ -61,7 +84,13 @@ import {
   parseClaudeWorkflowRun,
 } from "./subagents/workflow-replay-source.js";
 import { readClaudeWorkflowResultFile } from "./subagents/workflow-output.js";
-import { buildClaudeFeatures, claudeModelSupportsFastMode } from "./feature-definitions.js";
+import {
+  CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
+  CLAUDE_PROMPT_CACHE_TTL_VALUES,
+  buildClaudeFeatures,
+  claudeModelSupportsFastMode,
+  resolveClaudePromptCacheTtl,
+} from "./feature-definitions.js";
 import {
   buildBinaryDiagnosticRows,
   buildCommandResolutionDiagnosticRows,
@@ -77,6 +106,11 @@ import {
 import { renderPromptAttachmentAsText } from "../../prompt-attachments.js";
 import { claudeQuery, type ClaudeOptions, type ClaudeQueryFactory } from "./query.js";
 import { realClaudeRewindSdk, revertClaudeConversation, revertClaudeFiles } from "./rewind.js";
+import {
+  readApiMessageIdFromContainer,
+  resolveClaudeTranscriptMessageId,
+  type ClaudeTranscriptMessageLookup,
+} from "./transcript-message-id.js";
 import { normalizeProviderReplayTimestamp } from "../../provider-history-timestamps.js";
 import { claudeProjectDirSync } from "./project-dir.js";
 import { THINKING_APPLIES_NEXT_TURN_NOTICE } from "../../provider-notices.js";
@@ -140,6 +174,7 @@ import { withTimeout } from "../../../../utils/promise-timeout.js";
 import { terminateWithTreeKill } from "../../../../utils/tree-kill.js";
 import { execCommand } from "../../../../utils/spawn.js";
 import { composeSystemPromptParts } from "../../system-prompt.js";
+import { lookupModelsDevModel } from "../../../models-dev/catalog.js";
 
 const fsPromises = promises;
 const CLAUDE_SETTING_SOURCES: NonNullable<ClaudeOptions["settingSources"]> = [
@@ -312,6 +347,11 @@ const CLAUDE_CAPABILITIES: AgentCapabilityFlags = {
   supportsRewindConversation: true,
   supportsRewindFiles: true,
   supportsRewindBoth: true,
+  // COMPAT(supportsNativeFork): added in v0.2.916
+  supportsNativeFork: true,
+  // COMPAT(supportsSteer): added in v0.2.916 — native streaming-input inject
+  // (Claude Code typeahead / mid-run queue). Hard cancel remains interrupt().
+  supportsSteer: true,
 };
 
 const DEFAULT_MODES: AgentMode[] = [
@@ -392,10 +432,32 @@ export interface ClaudeContentChunk {
   [key: string]: unknown;
 }
 
-interface ClaudeAgentClientOptions {
+export interface ClaudeAgentClientOptions {
   defaults?: { agents?: Record<string, AgentDefinition> };
   logger: Logger;
   runtimeSettings?: ProviderRuntimeSettings;
+  profileModels?: Array<{
+    id: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+    autoCompactThresholdPercent?: number;
+  }>;
+  /** Existing Claude additionalModels from daemon config (for capacity precedence). */
+  additionalModels?: Array<{
+    id: string;
+    label?: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+  }>;
+  /** Persist auto-resolved capacity into agents.providers.claude.additionalModels. */
+  persistClaudeAdditionalModelLimits?: (
+    models: Array<{
+      id: string;
+      label?: string;
+      contextWindowMaxTokens?: number;
+      maxOutputTokens?: number;
+    }>,
+  ) => void | Promise<void>;
   queryFactory?: ClaudeQueryFactory;
   resolveBinary?: () => Promise<string>;
   resolveVersion?: (signal?: AbortSignal) => Promise<string>;
@@ -405,6 +467,12 @@ interface ClaudeAgentClientOptions {
 interface ClaudeAgentSessionOptions {
   defaults?: { agents?: Record<string, AgentDefinition> };
   runtimeSettings?: ProviderRuntimeSettings;
+  profileModels?: Array<{
+    id: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+    autoCompactThresholdPercent?: number;
+  }>;
   handle?: AgentPersistenceHandle;
   agentId?: string;
   launchEnv?: Record<string, string>;
@@ -1480,6 +1548,14 @@ export class ClaudeAgentClient implements AgentClient {
   private readonly defaults?: { agents?: Record<string, AgentDefinition> };
   private readonly logger: Logger;
   private readonly runtimeSettings?: ProviderRuntimeSettings;
+  private readonly profileModels?: Array<{
+    id: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+    autoCompactThresholdPercent?: number;
+  }>;
+  private readonly additionalModels?: ClaudeAgentClientOptions["additionalModels"];
+  private readonly persistClaudeAdditionalModelLimits?: ClaudeAgentClientOptions["persistClaudeAdditionalModelLimits"];
   private readonly queryFactory?: ClaudeQueryFactory;
   private readonly resolveBinary: () => Promise<string>;
   private readonly resolveVersion: (signal?: AbortSignal) => Promise<string>;
@@ -1489,6 +1565,9 @@ export class ClaudeAgentClient implements AgentClient {
     this.defaults = options.defaults;
     this.logger = options.logger.child({ module: "agent", provider: "claude" });
     this.runtimeSettings = options.runtimeSettings;
+    this.profileModels = options.profileModels;
+    this.additionalModels = options.additionalModels;
+    this.persistClaudeAdditionalModelLimits = options.persistClaudeAdditionalModelLimits;
     this.queryFactory = options.queryFactory;
     this.resolveBinary = options.resolveBinary ?? (() => resolveClaudeBinary(this.runtimeSettings));
     this.resolveVersion =
@@ -1510,6 +1589,7 @@ export class ClaudeAgentClient implements AgentClient {
     return new ClaudeAgentSession(claudeConfig, {
       defaults: this.defaults,
       runtimeSettings: this.runtimeSettings,
+      profileModels: this.profileModels,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
       persistSession: options?.persistSession,
@@ -1538,6 +1618,7 @@ export class ClaudeAgentClient implements AgentClient {
     return new ClaudeAgentSession(claudeConfig, {
       defaults: this.defaults,
       runtimeSettings: this.runtimeSettings,
+      profileModels: this.profileModels,
       handle,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
@@ -1560,9 +1641,46 @@ export class ClaudeAgentClient implements AgentClient {
     } catch (error) {
       this.logger.warn({ err: error }, "Failed to resolve Claude Code version for model catalog");
     }
-    const models = await runProviderRefreshActivity(context, "settings", () =>
+    let models = await runProviderRefreshActivity(context, "settings", () =>
       getClaudeModelsWithSettings(this.logger, this.configDir, claudeCodeVersion),
     );
+    try {
+      const credentials = await resolveCliproxyAnthropicCredentials({
+        env: createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings }),
+        configDir: this.configDir,
+      });
+      if (credentials) {
+        const rows = await fetchCliproxyAnthropicModels({
+          ...credentials,
+          onWarning: (warning) => {
+            this.logger.warn(
+              {
+                phase: "cliproxy_discovery",
+                code: warning.code,
+                page: warning.page,
+                ...(warning.status === undefined ? {} : { status: warning.status }),
+              },
+              "CLIProxyAPI Claude model discovery warning",
+            );
+          },
+        });
+        if (rows.length > 0) {
+          const { models: nextModels, autoPersist } = await appendCliproxyModelsToClaudeCatalog({
+            baseModels: models,
+            rows,
+            existingAdditionalModels: this.additionalModels ?? this.profileModels ?? [],
+            lookupModelsDev: (id) => lookupModelsDevModel(id),
+            getCustomThinkingOptions: () => getClaudeCustomModelThinkingOptions(),
+          });
+          models = await this.persistCliproxyCatalogCapacity(nextModels, autoPersist);
+        }
+      }
+    } catch {
+      this.logger.warn(
+        { phase: "cliproxy_discovery" },
+        "CLIProxyAPI Claude model discovery failed",
+      );
+    }
     const modes = detectIneligibleAutoModeTransport(
       createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings }),
     )
@@ -1573,6 +1691,32 @@ export class ClaudeAgentClient implements AgentClient {
       modes,
       defaultModeId: modes.some((mode) => mode.id === "auto") ? "auto" : "default",
     };
+  }
+
+  private async persistCliproxyCatalogCapacity(
+    nextModels: CliproxyAgentModelDefinition[],
+    autoPersist: CliproxyAdditionalModelLimits[],
+  ): Promise<CliproxyAgentModelDefinition[]> {
+    if (autoPersist.length === 0) return nextModels;
+
+    if (!this.persistClaudeAdditionalModelLimits) {
+      this.logger.warn(
+        { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
+        "CLIProxyAPI Claude model capacity was not persisted",
+      );
+      return markCliproxyAutoPersistFailure(nextModels, autoPersist);
+    }
+
+    try {
+      await this.persistClaudeAdditionalModelLimits(autoPersist);
+      return nextModels;
+    } catch {
+      this.logger.warn(
+        { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
+        "CLIProxyAPI Claude model capacity persistence failed",
+      );
+      return markCliproxyAutoPersistFailure(nextModels, autoPersist);
+    }
   }
 
   async resolveDefaultModeId({ env: launchEnv }: ResolveAgentDefaultModeInput): Promise<string> {
@@ -1589,6 +1733,7 @@ export class ClaudeAgentClient implements AgentClient {
     return buildClaudeFeatures({
       modelId: claudeConfig.model,
       fastModeEnabled: claudeConfig.featureValues?.fast_mode === true,
+      promptCacheTtl: claudeConfig.featureValues?.prompt_cache_ttl,
     });
   }
 
@@ -1894,10 +2039,10 @@ class ClaudeContextUsageState {
   }
 
   recordModelUsage(modelUsage: unknown): number | undefined {
-    const contextWindowMaxTokens = extractContextWindowSize(modelUsage);
-    if (contextWindowMaxTokens !== undefined) {
-      this.contextWindowMaxTokens = contextWindowMaxTokens;
-    }
+    this.contextWindowMaxTokens = preferConfiguredClaudeContextWindow(
+      this.contextWindowMaxTokens,
+      extractContextWindowSize(modelUsage),
+    );
     return this.contextWindowMaxTokens;
   }
 
@@ -2018,6 +2163,12 @@ class ClaudeAgentSession implements AgentSession {
   private readonly agentId?: string;
   private readonly defaults?: { agents?: Record<string, AgentDefinition> };
   private readonly runtimeSettings?: ProviderRuntimeSettings;
+  private readonly profileModels?: Array<{
+    id: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+    autoCompactThresholdPercent?: number;
+  }>;
   private readonly persistSession?: boolean;
   private readonly logger: Logger;
   private readonly queryFactory?: ClaudeQueryFactory;
@@ -2085,6 +2236,8 @@ class ClaudeAgentSession implements AgentSession {
   private userMessageIds: string[] = [];
   private readonly emittedUserMessageIds = new Set<string>();
   private readonly rewindTurnAnchors: ClaudeRewindTurnAnchor[] = [];
+  /** Live/history map from Anthropic API `msg_…` ids → transcript JSONL UUIDs. */
+  private readonly apiMessageIdToTranscriptUuid = new Map<string, string>();
   private pendingFreshSessionId: string | null = null;
   private recentStderr = "";
   private closed = false;
@@ -2096,12 +2249,16 @@ class ClaudeAgentSession implements AgentSession {
     this.agentId = options.agentId;
     this.defaults = options.defaults;
     this.runtimeSettings = options.runtimeSettings;
+    this.profileModels = options.profileModels;
     this.persistSession = options.persistSession;
     this.logger = options.logger.child({ agentId: this.agentId });
     this.queryFactory = options.queryFactory;
     this.resolveBinary = options.resolveBinary;
     this.contextUsage = new ClaudeContextUsageState(
-      findClaudeModel(this.config.model)?.contextWindowMaxTokens,
+      resolveClaudeContextWindowMaxTokens({
+        modelId: this.config.model,
+        profileModels: this.profileModels,
+      }),
     );
     const handle = options.handle;
 
@@ -2139,6 +2296,7 @@ class ClaudeAgentSession implements AgentSession {
     return buildClaudeFeatures({
       modelId: this.config.model,
       fastModeEnabled: this.config.featureValues?.fast_mode === true,
+      promptCacheTtl: this.config.featureValues?.prompt_cache_ttl,
     });
   }
 
@@ -2334,6 +2492,55 @@ class ClaudeAgentSession implements AgentSession {
     };
   }
 
+  async stopBackgroundTask(taskId: string): Promise<void> {
+    const query = this.query;
+    if (!query || typeof query.stopTask !== "function") {
+      throw new Error("Background task stop is not available for this Claude session");
+    }
+    await query.stopTask(taskId);
+  }
+
+  async readBackgroundTaskOutput(input: {
+    outputFile: string;
+    cursor?: number;
+    maxBytes?: number;
+    live?: boolean;
+  }): Promise<{ text: string; nextCursor: number; eof: boolean; error: string | null }> {
+    const cursor = Math.max(0, input.cursor ?? 0);
+    const maxBytes = Math.min(Math.max(1, input.maxBytes ?? 64_000), 256_000);
+    const live = input.live !== false;
+    try {
+      const handle = await promises.open(input.outputFile, "r");
+      try {
+        const fileStat = await handle.stat();
+        if (cursor >= fileStat.size) {
+          return {
+            text: "",
+            nextCursor: fileStat.size,
+            eof: !live,
+            error: null,
+          };
+        }
+        const length = Math.min(maxBytes, fileStat.size - cursor);
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buffer, 0, length, cursor);
+        const nextCursor = cursor + bytesRead;
+        const caughtUp = nextCursor >= fileStat.size;
+        return {
+          text: buffer.subarray(0, bytesRead).toString("utf8"),
+          nextCursor,
+          eof: !live && caughtUp,
+          error: null,
+        };
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { text: "", nextCursor: cursor, eof: !live, error: message };
+    }
+  }
+
   async interrupt(): Promise<void> {
     if (this.cancelCurrentTurn) {
       this.cancelCurrentTurn();
@@ -2414,7 +2621,10 @@ class ClaudeAgentSession implements AgentSession {
       await this.applyFastModeFeature(false, activeQuery);
     }
     this.contextUsage.setInitialContextWindowMaxTokens(
-      findClaudeModel(this.config.model)?.contextWindowMaxTokens,
+      resolveClaudeContextWindowMaxTokens({
+        modelId: this.config.model,
+        profileModels: this.profileModels,
+      }),
     );
     this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
     this.lastRuntimeModel = null;
@@ -2464,6 +2674,21 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   async setFeature(featureId: string, value: unknown): Promise<void> {
+    if (featureId === CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID) {
+      const ttl = resolveClaudePromptCacheTtl(value);
+      if (ttl === undefined) {
+        throw new Error(
+          `Invalid prompt_cache_ttl value: expected one of ${CLAUDE_PROMPT_CACHE_TTL_VALUES.join(", ")}`,
+        );
+      }
+      this.config.featureValues = {
+        ...this.config.featureValues,
+        prompt_cache_ttl: ttl,
+      };
+      this.cachedRuntimeInfo = null;
+      return;
+    }
+
     if (featureId !== "fast_mode") {
       throw new Error(`Unknown Claude feature: ${featureId}`);
     }
@@ -2943,6 +3168,7 @@ class ClaudeAgentSession implements AgentSession {
     this.userMessageIds = [];
     this.emittedUserMessageIds.clear();
     this.rewindTurnAnchors.length = 0;
+    this.apiMessageIdToTranscriptUuid.clear();
     this.taskState.reset();
     this.loadPersistedHistory(sessionId);
     if (oldSessionId && oldSessionId !== sessionId) {
@@ -2974,6 +3200,7 @@ class ClaudeAgentSession implements AgentSession {
     this.userMessageIds = [];
     this.emittedUserMessageIds.clear();
     this.rewindTurnAnchors.length = 0;
+    this.apiMessageIdToTranscriptUuid.clear();
     this.taskState.reset();
   }
 
@@ -3026,6 +3253,7 @@ class ClaudeAgentSession implements AgentSession {
     if (!messageId) {
       return;
     }
+    this.rememberTranscriptUuidAlias(message, messageId);
     if (
       message.type === "user" &&
       !isSyntheticUserEntry(message) &&
@@ -3048,8 +3276,99 @@ class ClaudeAgentSession implements AgentSession {
     }
   }
 
+  private rememberTranscriptUuidAlias(message: SDKMessage, transcriptUuid: string): void {
+    const root = toObjectRecord(message) ?? {};
+    const streamEvent = toObjectRecord(root.event);
+    const streamEventMessage = toObjectRecord(streamEvent?.message);
+    const messageContainer = toObjectRecord(root.message);
+    const apiMessageId = firstTrimmedString([
+      root.message_id,
+      streamEvent?.message_id,
+      streamEventMessage?.id,
+      streamEventMessage?.message_id,
+      messageContainer?.id,
+      messageContainer?.message_id,
+    ]);
+    if (apiMessageId && apiMessageId !== transcriptUuid) {
+      this.apiMessageIdToTranscriptUuid.set(apiMessageId, transcriptUuid);
+    }
+  }
+
+  private collectKnownTranscriptUuids(): Set<string> {
+    const known = new Set<string>();
+    for (const userMessageId of this.userMessageIds) {
+      known.add(userMessageId);
+    }
+    for (const anchor of this.rewindTurnAnchors) {
+      known.add(anchor.userMessageId);
+      if (anchor.assistantMessageId) {
+        known.add(anchor.assistantMessageId);
+      }
+    }
+    for (const transcriptUuid of this.apiMessageIdToTranscriptUuid.values()) {
+      known.add(transcriptUuid);
+    }
+    return known;
+  }
+
+  private async loadSessionTranscriptLookups(): Promise<ClaudeTranscriptMessageLookup[]> {
+    const sessionId = this.claudeSessionId?.trim();
+    if (!sessionId) {
+      return [];
+    }
+    try {
+      const messages = await getSessionMessages(
+        sessionId,
+        this.config.cwd ? { dir: this.config.cwd } : undefined,
+      );
+      const lookups: ClaudeTranscriptMessageLookup[] = [];
+      for (const message of messages) {
+        const uuid = typeof message.uuid === "string" ? message.uuid.trim() : "";
+        if (!uuid) {
+          continue;
+        }
+        const apiMessageId = readApiMessageIdFromContainer(message.message);
+        if (apiMessageId && apiMessageId !== uuid) {
+          this.apiMessageIdToTranscriptUuid.set(apiMessageId, uuid);
+        }
+        lookups.push({ uuid, apiMessageId });
+      }
+      return lookups;
+    } catch (error) {
+      this.logger.warn(
+        { err: error, sessionId },
+        "Failed to load Claude session messages for native fork id resolution",
+      );
+      return [];
+    }
+  }
+
+  async resolveNativeForkUpToMessageId(boundaryMessageId: string): Promise<string> {
+    const candidate = boundaryMessageId.trim();
+    if (!candidate) {
+      throw new Error("Native fork requires a boundary message id");
+    }
+
+    const known = this.collectKnownTranscriptUuids();
+    const mapped = this.apiMessageIdToTranscriptUuid.get(candidate);
+    if (mapped) {
+      return mapped;
+    }
+    if (known.has(candidate)) {
+      return candidate;
+    }
+
+    const sessionMessages = await this.loadSessionTranscriptLookups();
+    return resolveClaudeTranscriptMessageId({
+      candidate,
+      apiMessageIdToTranscriptUuid: this.apiMessageIdToTranscriptUuid,
+      knownTranscriptUuids: this.collectKnownTranscriptUuids(),
+      sessionMessages,
+    });
+  }
+
   private resolveClaudeMessageId(messageId: string): string {
-    return messageId;
+    return this.apiMessageIdToTranscriptUuid.get(messageId) ?? messageId;
   }
 
   private resolveConversationRewindTarget(messageId: string): ClaudeConversationRewindTarget {
@@ -3219,10 +3538,31 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private buildSdkEnv(): NodeJS.ProcessEnv {
-    return createProviderEnv({
+    const env = createProviderEnv({
       baseEnv: process.env,
       runtimeSettings: this.runtimeSettings,
       overlays: [this.launchEnv],
+    });
+    const pinned = applyClaudeCustomModelEnvPins(env, this.config.model);
+    const limitOptions = {
+      modelId: this.config.model,
+      profileModels: this.profileModels,
+    };
+    const configuredWindow = resolveClaudeContextWindowMaxTokens(limitOptions);
+    const configuredMaxOutput = resolveClaudeMaxOutputTokens(limitOptions);
+    const configuredAutoCompactWindow = resolveClaudeAutoCompactWindowTokens(limitOptions);
+    // Profile/additional-model windows are the source of truth for that model.
+    // Ambient CLAUDE_CODE_* env (shell, Claude user settings leaked into the daemon)
+    // otherwise keeps the assumed 200k window and auto-compact fires too early.
+    const profileOwnsWindow = configuredAutoCompactWindow !== undefined;
+    const withContext = applyClaudeMaxContextTokensEnv(pinned, configuredWindow, {
+      overwrite: profileOwnsWindow,
+    });
+    const withOutput = applyClaudeMaxOutputTokensEnv(withContext, configuredMaxOutput, {
+      overwrite: configuredMaxOutput !== undefined,
+    });
+    return applyClaudeAutoCompactWindowEnv(withOutput, configuredAutoCompactWindow, {
+      overwrite: profileOwnsWindow,
     });
   }
 
@@ -3236,6 +3576,7 @@ class ClaudeAgentSession implements AgentSession {
     const settingsOptions = this.buildSettingsOptions(providerOptions, { ultracode });
     const sdkEnv = this.buildSdkEnv();
     assertClaudeAutoModeEligible(this.currentMode, sdkEnv);
+    const envWithCacheTtl = applyClaudePromptCacheTtlEnv(sdkEnv, this.config.featureValues);
 
     const claudeBinary = await this.resolveBinary();
     this.logger.debug(
@@ -3291,7 +3632,7 @@ class ClaudeAgentSession implements AgentSession {
       forwardSubagentText: true,
       hooks: this.buildSubagentEffortHooks(),
       ...(this.persistSession === undefined ? {} : { persistSession: this.persistSession }),
-      env: sdkEnv,
+      env: envWithCacheTtl,
     };
 
     if (this.config.mcpServers) {
@@ -4263,11 +4604,33 @@ class ClaudeAgentSession implements AgentSession {
     }
     if (message.subtype === "task_notification") {
       this.appendTaskNotificationEvents(message, events);
+      this.appendBackgroundTaskSystemEvents(message, events);
       return;
     }
-    if (message.subtype === "task_progress") {
+    if (
+      message.subtype === "task_progress" ||
+      message.subtype === "task_started" ||
+      message.subtype === "task_updated" ||
+      message.subtype === "background_tasks_changed"
+    ) {
+      this.appendBackgroundTaskSystemEvents(message, events);
       return;
     }
+  }
+
+  private appendBackgroundTaskSystemEvents(
+    message: Extract<SDKMessage, { type: "system" }>,
+    events: AgentStreamEvent[],
+  ): void {
+    const event = mapClaudeBackgroundSystemMessage(message, new Date().toISOString());
+    if (!event) {
+      return;
+    }
+    events.push({
+      type: "background_tasks",
+      provider: "claude",
+      event,
+    });
   }
 
   private appendTaskNotificationEvents(
@@ -4918,6 +5281,10 @@ class ClaudeAgentSession implements AgentSession {
     }
     if (entry.type === "assistant" && typeof entry.uuid === "string") {
       this.rememberRewindAssistantAnchor(entry.uuid);
+      const apiMessageId = readApiMessageIdFromContainer(entry.message);
+      if (apiMessageId && apiMessageId !== entry.uuid) {
+        this.apiMessageIdToTranscriptUuid.set(apiMessageId, entry.uuid);
+      }
     }
 
     if (items.length > 0) {
@@ -5125,30 +5492,62 @@ class ClaudeAgentSession implements AgentSession {
     // one as an assistant_message markdown image after the tool_call (matching how Codex emits).
     const { images, text } = splitClaudeToolResultImages(block.content);
     const output = this.buildToolOutput(text, block, entry);
+    this.pushToolResultCall({
+      block,
+      toolName,
+      callId,
+      input: entry?.input ?? null,
+      output: output ?? null,
+      text,
+      items,
+    });
+    this.emitToolResultSideEffects({
+      toolName,
+      toolInput: entry?.input ?? null,
+      toolOutput: output ?? block.content ?? null,
+      isError: block.is_error === true,
+    });
+    this.appendToolResultImages(images, items);
 
-    if (block.is_error) {
+    if (typeof block.tool_use_id === "string") {
+      this.toolUseCache.delete(block.tool_use_id);
+    }
+  }
+
+  private pushToolResultCall(input: {
+    block: ClaudeContentChunk;
+    toolName: string;
+    callId: string | null;
+    input: unknown;
+    output: AgentMetadata | undefined | null;
+    text: unknown;
+    items: AgentTimelineItem[];
+  }): void {
+    if (input.block.is_error) {
       this.pushToolCall(
         mapClaudeFailedToolCall({
-          name: toolName,
-          callId,
-          input: entry?.input ?? null,
-          output: output ?? null,
-          error: { ...block, content: text },
+          name: input.toolName,
+          callId: input.callId,
+          input: input.input,
+          output: input.output ?? null,
+          error: { ...input.block, content: input.text },
         }),
-        items,
+        input.items,
       );
-    } else {
-      this.pushToolCall(
-        mapClaudeCompletedToolCall({
-          name: toolName,
-          callId,
-          input: entry?.input ?? null,
-          output: output ?? null,
-        }),
-        items,
-      );
+      return;
     }
+    this.pushToolCall(
+      mapClaudeCompletedToolCall({
+        name: input.toolName,
+        callId: input.callId,
+        input: input.input,
+        output: input.output ?? null,
+      }),
+      input.items,
+    );
+  }
 
+  private appendToolResultImages(images: ProviderImageOutput[], items: AgentTimelineItem[]): void {
     for (const image of images) {
       const imageItem = renderProviderImageOutputAsAssistantMarkdown(image, {
         materialize: materializeProviderImage,
@@ -5157,10 +5556,61 @@ class ClaudeAgentSession implements AgentSession {
         items.push(imageItem);
       }
     }
+  }
 
-    if (typeof block.tool_use_id === "string") {
-      this.toolUseCache.delete(block.tool_use_id);
-    }
+  private emitToolResultSideEffects(input: {
+    toolName: string;
+    toolInput: unknown;
+    toolOutput: unknown;
+    isError?: boolean;
+  }): void {
+    this.emitBashBackgroundTaskCorrelation(input);
+    this.emitProviderHeartbeatToolCorrelation(input);
+  }
+
+  private emitBashBackgroundTaskCorrelation(input: {
+    toolName: string;
+    toolInput: unknown;
+    toolOutput: unknown;
+  }): void {
+    const correlation = extractBashBackgroundTaskCorrelation(input);
+    if (!correlation) return;
+    this.notifySubscribers({
+      type: "background_tasks",
+      provider: "claude",
+      event: {
+        kind: "enrich",
+        at: new Date().toISOString(),
+        taskId: correlation.taskId,
+        patch: {
+          command: correlation.command,
+          status: "running",
+        },
+      },
+    });
+  }
+
+  private emitProviderHeartbeatToolCorrelation(input: {
+    toolName: string;
+    toolInput: unknown;
+    toolOutput: unknown;
+    isError?: boolean;
+  }): void {
+    const event = mapClaudeProviderHeartbeatToolEvent(
+      {
+        toolName: input.toolName,
+        toolInput: input.toolInput,
+        toolOutput: input.toolOutput,
+        isError: input.isError === true,
+      },
+      new Date().toISOString(),
+    );
+    if (!event) return;
+    this.notifySubscribers({
+      type: "provider_heartbeats",
+      provider: "claude",
+      event,
+    });
   }
 
   private buildToolOutput(

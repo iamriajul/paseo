@@ -25,6 +25,7 @@ import type { StatusBucket } from "@/hooks/sidebar-status-view-model";
 import type { SidebarWorkspaceGroup } from "@/components/sidebar/sidebar-labels";
 import { SidebarFilterEmptyState } from "@/components/sidebar/empty-states";
 import type { HostBadgeModel } from "@/hosts/appearance";
+import { useAppSettings } from "@/hooks/use-settings";
 import { isWeb as platformIsWeb, isNative as platformIsNative } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { StyleSheet } from "react-native-unistyles";
@@ -530,6 +531,7 @@ const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
 
   const handlePress = useCallback(() => {
     if (!workspace.serverId) return;
+    // navigateToWorkspace no-ops when interaction-locked; keep handler simple.
     onWorkspacePress?.();
     navigateToWorkspace({ serverId: workspace.serverId, workspaceId: workspace.workspaceId });
   }, [onWorkspacePress, workspace.serverId, workspace.workspaceId]);
@@ -642,8 +644,7 @@ function StatusWorkspaceRowWithMenu({
 
   const archiveShortcutKeys = useShortcutKeys("archive-workspace");
   const { hasClearableAttention, canMarkUnread, clearAttention, markUnread } =
-    useWorkspaceReadState({
-      serverId: workspace.serverId,
+    useWorkspaceReadState({      serverId: workspace.serverId,
       workspaceId: workspace.workspaceId,
     });
   const handleMarkAsRead = useCallback(() => {
@@ -790,6 +791,10 @@ function StatusWorkspaceRowInnerContent({
   const [isPressed, setIsPressed] = useState(false);
   const trailing = useSidebarWorkspaceTrailing();
   const {
+    settings: { sidebarStatusSubtitle },
+  } = useAppSettings();
+  const projectSubtitle = sidebarStatusSubtitle === "project" ? projectName : null;
+  const {
     role: _dragRole,
     tabIndex: _dragTabIndex,
     "aria-roledescription": _dragRoleDescription,
@@ -892,6 +897,7 @@ function StatusWorkspaceRowInnerContent({
               <SidebarWorkspaceRowContent
                 workspace={workspace}
                 hostBadge={hostBadge}
+                projectSubtitle={projectSubtitle}
                 leadingProjectName={projectName}
                 leadingProjectIconDataUri={projectIconDataUri}
                 serviceSummary={serviceSummary}

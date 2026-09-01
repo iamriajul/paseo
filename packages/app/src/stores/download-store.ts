@@ -238,13 +238,13 @@ function findMostRecentDownloadId(downloads: Map<string, Download>): string | nu
   return mostRecent?.id ?? null;
 }
 
-interface DownloadTarget {
+export interface DownloadTarget {
   baseUrl: string | null;
   authHeader: string | null;
   authCredentials: { username: string; password: string } | null;
 }
 
-function resolveDaemonDownloadTarget(daemon?: HostProfile): DownloadTarget {
+export function resolveDaemonDownloadTarget(daemon?: HostProfile): DownloadTarget {
   const connection = daemon?.connections.find((conn) => conn.type === "directTcp") ?? null;
   if (!connection) {
     return { baseUrl: null, authHeader: null, authCredentials: null };
@@ -285,7 +285,7 @@ function resolveDaemonDownloadTarget(daemon?: HostProfile): DownloadTarget {
   return { baseUrl, authHeader, authCredentials };
 }
 
-function buildDownloadUrl(
+export function buildDownloadUrl(
   baseUrl: string,
   token: string,
   authCredentials: { username: string; password: string } | null,

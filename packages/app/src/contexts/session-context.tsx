@@ -12,6 +12,10 @@ import {
 } from "@/hooks/use-agent-initialization";
 import type { StreamItem } from "@/types/stream";
 import { deriveAgentStreamTurnLiveness } from "@/timeline/session-stream-reducers";
+import {
+  flushPendingSubmissionsBeforeClearingLiveness,
+  ingestAgentStreamEvent,
+} from "@/timeline/ingest-agent-stream-event";
 import { planTimelineTailFetch } from "@/timeline/timeline-sync-plan";
 import { requestTimelineReplacement } from "@/timeline/timeline-replacement";
 import {
@@ -424,7 +428,13 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
     () =>
       client.subscribeConnectionStatus((connection) => {
         if (connection.status === "connected") return;
-        clearAgentTurnLiveness(serverId);
+        const owner = viewedTimelineSyncRef.current;
+        const session = useSessionStore.getState().sessions[serverId];
+        flushPendingSubmissionsBeforeClearingLiveness({
+          flushAgent: (agentId) => owner?.flushStreamAgent(agentId),
+          pendingAgentIds: session?.messageSubmissions.keys() ?? [],
+          clearTurnLiveness: () => clearAgentTurnLiveness(serverId),
+        });
       }),
     [clearAgentTurnLiveness, client, serverId],
   );
@@ -554,11 +564,16 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       if (turnLiveness.length > 0) {
         applyAgentTurnLiveness(serverId, agentId, turnLiveness);
       }
-      owner.enqueueStreamEvent(agentId, {
-        event: streamEvent,
-        seq,
-        epoch,
-        timestamp: parsedTimestamp,
+      ingestAgentStreamEvent({
+        enqueue: (id, queued) => owner.enqueueStreamEvent(id, queued),
+        flushAgent: (id) => owner.flushStreamAgent(id),
+        agentId,
+        event: {
+          event: streamEvent,
+          seq,
+          epoch,
+          timestamp: parsedTimestamp,
+        },
       });
 
       // NOTE: We don't update lastActivityAt on every stream event to prevent

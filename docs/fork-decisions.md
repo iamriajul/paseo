@@ -331,6 +331,16 @@ v0.7.0 plugin navigation imports expo-router from the registry. Root `npx vitest
 npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src/todos/workspace-todo-pane.test.tsx src/composer/todo-pill.test.tsx src/panels/agent-tracks.test.ts src/components/sidebar/workspace-meta-row/meta-items.test.ts src/components/sidebar/display-preferences/row-items.test.ts src/workspace-tabs/explorer-sidebar.test.ts src/stores/panel-store/state.test.ts src/stores/workspace-layout-store.test.ts src/i18n/resources.test.ts --bail=1
 ```
 
+## live-user-message-flush
+
+**commit provider user_message acks before the stream coalescer frame**
+
+a live user_message that acknowledges a pending submission is flushed immediately; disconnect flushes those pending events before clearing turn liveness so a websocket drop cannot strand the working indicator
+
+```bash
+npm test --workspace=@getpaseo/app -- src/timeline/ingest-agent-stream-event.test.ts src/stores/session-store.test.ts --bail=1 -t "flushes a live user_message|does not flush assistant|flushes pending submissions|pending submission after disconnect|matches timeline user_message"
+```
+
 ## paseo-backed-claude-subagent-prompt-cache-ttl
 
 **5m prompt cache TTL for orchestrator-spawned Claude agents**

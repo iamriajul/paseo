@@ -40,6 +40,14 @@ export const ProviderProfileModelSchema = z.object({
   label: z.string().min(1),
   description: z.string().optional(),
   isDefault: z.boolean().optional(),
+  contextWindowMaxTokens: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+  autoCompactThresholdPercent: z.number().int().min(50).max(99).optional(),
+  modelsDevProviderId: z.string().min(1).optional(),
+  modelsDevMatchedId: z.string().min(1).optional(),
+  inputModalities: z.array(z.string().min(1)).optional(),
+  outputModalities: z.array(z.string().min(1)).optional(),
+  capabilities: z.array(z.string().min(1)).optional(),
   thinkingOptions: z.array(ProviderProfileThinkingOptionSchema).optional(),
 });
 

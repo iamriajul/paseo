@@ -41,6 +41,17 @@ export function formatAgo(iso: string | null | undefined): string | null {
   return `${diffMinutes}m ago`;
 }
 
+export function formatDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
 export function formatAmount(value: number, unit: ProviderUsageBalanceUnit): string {
   switch (unit) {
     case "usd":

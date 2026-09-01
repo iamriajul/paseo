@@ -3,6 +3,8 @@ import type {
   ProviderUsageBalance,
   ProviderUsageDetail,
   ProviderUsageListResponseMessage,
+  ProviderUsageResetCredit,
+  ProviderUsageResetQuotaResponseMessage,
   ProviderUsageStatus,
   ProviderUsageTone,
   ProviderUsageWindow,
@@ -12,6 +14,7 @@ export type {
   ProviderUsage,
   ProviderUsageBalance,
   ProviderUsageDetail,
+  ProviderUsageResetCredit,
   ProviderUsageStatus,
   ProviderUsageTone,
   ProviderUsageWindow,
@@ -19,6 +22,7 @@ export type {
 
 export type ProviderUsageBalanceUnit = ProviderUsageBalance["unit"];
 export type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
+export type ProviderUsageResetQuotaPayload = ProviderUsageResetQuotaResponseMessage["payload"];
 
 export type ProviderUsageView =
   | { kind: "loading" }

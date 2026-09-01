@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { getProviderIcon } from "@/components/provider-icons";
@@ -6,7 +6,8 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import type { Theme } from "@/styles/theme";
 import { ProviderUsageBalanceBar } from "./balance-bar";
 import { formatAgo } from "./format";
-import type { ProviderUsage } from "./types";
+import { ProviderUsageResetCredits } from "./reset-credits";
+import type { ProviderUsage, ProviderUsageResetCredit } from "./types";
 import { ProviderUsageWindowBar } from "./window-bar";
 
 interface ProviderUsageIconProps {
@@ -23,6 +24,9 @@ function ProviderUsageIcon({ iconKey, size, color = "" }: ProviderUsageIconProps
 const ThemedProviderUsageIcon = withUnistyles(ProviderUsageIcon);
 
 const mutedIconColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const emptyBalances: NonNullable<ProviderUsage["balances"]> = [];
+const emptyResetCredits: ProviderUsageResetCredit[] = [];
+const resetCreditBalanceId = "rate_limit_reset_credits";
 
 function statusText(usage: ProviderUsage): string | null {
   if (usage.status === "available") return null;
@@ -37,17 +41,79 @@ function footerText(usage: ProviderUsage): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+function resetCreditCountFrom(
+  balances: ProviderUsage["balances"],
+  resetCredits: ProviderUsageResetCredit[],
+): number {
+  if (resetCredits.length > 0) {
+    return resetCredits.length;
+  }
+  return balances?.find((balance) => balance.id === resetCreditBalanceId)?.remaining ?? 0;
+}
+
+function ProviderUsageMetrics({
+  usage,
+  balances,
+  resetCredits,
+  onResetQuota,
+  resetQuotaLoading,
+  canResetQuota,
+}: {
+  usage: ProviderUsage;
+  balances: NonNullable<ProviderUsage["balances"]>;
+  resetCredits: ProviderUsageResetCredit[];
+  onResetQuota?: (usage: ProviderUsage) => void;
+  resetQuotaLoading: boolean;
+  canResetQuota: boolean;
+}) {
+  const visibleBalances = balances.filter((balance) => balance.id !== resetCreditBalanceId);
+  const resetCreditCount = resetCreditCountFrom(balances, resetCredits);
+  const shouldShowResetQuotaAction =
+    usage.providerId === "codex" && canResetQuota && resetCreditCount > 0 && !!onResetQuota;
+  const handleResetQuota = useCallback(() => {
+    onResetQuota?.(usage);
+  }, [onResetQuota, usage]);
+
+  if (usage.windows.length === 0 && visibleBalances.length === 0 && resetCreditCount === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.bars}>
+      {usage.windows.map((window) => (
+        <ProviderUsageWindowBar key={window.id} window={window} />
+      ))}
+      {visibleBalances.map((balance) => (
+        <ProviderUsageBalanceBar key={balance.id} balance={balance} />
+      ))}
+      <ProviderUsageResetCredits
+        resetCredits={resetCredits}
+        resetCreditCount={resetCreditCount}
+        onResetQuota={shouldShowResetQuotaAction ? handleResetQuota : undefined}
+        resetQuotaLoading={resetQuotaLoading}
+      />
+    </View>
+  );
+}
+
 export function ProviderUsageCard({
   usage,
   compact = false,
+  onResetQuota,
+  resetQuotaLoading = false,
+  canResetQuota = false,
 }: {
   usage: ProviderUsage;
   compact?: boolean;
+  onResetQuota?: (usage: ProviderUsage) => void;
+  resetQuotaLoading?: boolean;
+  canResetQuota?: boolean;
 }) {
   const status = statusText(usage);
   const footer = footerText(usage);
-  const balances = usage.balances ?? [];
+  const balances = usage.balances ?? emptyBalances;
   const details = usage.details ?? [];
+  const resetCredits = usage.resetCredits ?? emptyResetCredits;
 
   const containerStyle = useMemo(
     () => [styles.container, compact ? styles.containerCompact : styles.containerPadded],
@@ -85,16 +151,14 @@ export function ProviderUsageCard({
         </Text>
       ) : null}
 
-      {usage.windows.length > 0 || balances.length > 0 ? (
-        <View style={styles.bars}>
-          {usage.windows.map((window) => (
-            <ProviderUsageWindowBar key={window.id} window={window} />
-          ))}
-          {balances.map((balance) => (
-            <ProviderUsageBalanceBar key={balance.id} balance={balance} />
-          ))}
-        </View>
-      ) : null}
+      <ProviderUsageMetrics
+        usage={usage}
+        balances={balances}
+        resetCredits={resetCredits}
+        onResetQuota={onResetQuota}
+        resetQuotaLoading={resetQuotaLoading}
+        canResetQuota={canResetQuota}
+      />
 
       {details.length > 0 ? (
         <View style={styles.details}>

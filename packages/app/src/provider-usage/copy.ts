@@ -6,7 +6,9 @@
 export const providerUsageCopy = {
   title: "Plan usage",
   refresh: "Refresh",
+  refreshQuota: "Refresh quota",
   refreshing: "Refreshing...",
+  refreshingQuota: "Refreshing quota...",
   loading: "Loading usage...",
   empty: "No usage data",
   errorTitle: "Unable to load usage",
@@ -14,5 +16,12 @@ export const providerUsageCopy = {
   hostUpgradeRequired: "Update the host to see provider usage",
   clientUnavailable: "Host connection is not ready",
   retry: "Try again",
+  resetQuota: "Reset quota",
+  resetQuotaConfirmTitle: "Reset Codex quota?",
+  resetQuotaConfirmMessage:
+    "This consumes one available reset and immediately resets eligible Codex usage windows.",
+  resetQuotaSuccessTitle: "Quota reset",
+  resetQuotaNoopTitle: "No reset applied",
+  resetQuotaFailedTitle: "Unable to reset quota",
   tooltipLoading: "Loading plan usage…",
 } as const;

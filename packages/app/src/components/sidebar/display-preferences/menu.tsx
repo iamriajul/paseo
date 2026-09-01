@@ -21,6 +21,7 @@ import {
   GitBranch,
   GitPullRequest,
   Globe,
+  ListTodo,
   Server,
   Settings2,
   Tag,
@@ -55,6 +56,7 @@ import type { WorkspaceTitleSource } from "@/hooks/use-settings";
 import { SIDEBAR_CHECKS_DISPLAYS, type SidebarChecksDisplay } from "./checks-display";
 import { useSidebarDisplayPreferences, type SidebarTrailingChoice } from "./model";
 import { SIDEBAR_ROW_ITEMS, type SidebarRowItem } from "./row-items";
+import { SIDEBAR_STATUS_SUBTITLES, type SidebarStatusSubtitle } from "./workspace-subtitle";
 import { useWorkspaceLabelProjection } from "@/workspace-labels";
 import { WorkspaceLabelDot } from "@/workspace-labels/swatch";
 import { WorkspaceLabelManagerModal } from "@/workspace-labels/manager-modal";
@@ -103,6 +105,7 @@ const ROW_ITEM_ICONS: Record<SidebarRowItem, OptionIcon> = {
   project: withUnistyles(Folder),
   host: withUnistyles(Server),
   changeRequest: withUnistyles(GitPullRequest),
+  todos: withUnistyles(ListTodo),
   services: withUnistyles(Globe),
   labels: withUnistyles(Tag),
 };
@@ -139,8 +142,19 @@ const ROW_ITEM_LABEL_KEYS: Record<SidebarRowItem, string> = {
   project: "sidebar.display.show.project",
   host: "sidebar.display.show.host",
   changeRequest: "sidebar.display.show.changeRequest",
+  todos: "sidebar.display.show.todos",
   services: "sidebar.display.show.services",
   labels: "sidebar.display.show.labels",
+};
+
+const STATUS_SUBTITLE_ICONS: Record<SidebarStatusSubtitle, OptionIcon> = {
+  host: withUnistyles(Server),
+  project: withUnistyles(Folder),
+};
+
+const STATUS_SUBTITLE_LABEL_KEYS: Record<SidebarStatusSubtitle, string> = {
+  host: "sidebar.display.statusSubtitle.host",
+  project: "sidebar.display.statusSubtitle.project",
 };
 
 const CHECKS_DISPLAY_LABEL_KEYS: Record<SidebarChecksDisplay, string> = {
@@ -223,6 +237,20 @@ export function SidebarDisplayPreferencesMenu(): ReactElement {
         id: "show",
         title: t("sidebar.display.show.label"),
         content: <ShowPage preferences={preferences} />,
+      },
+      {
+        id: "statusSubtitle",
+        title: t("sidebar.display.statusSubtitle.label"),
+        content: (
+          <OptionList
+            values={SIDEBAR_STATUS_SUBTITLES}
+            icons={STATUS_SUBTITLE_ICONS}
+            labelKeys={STATUS_SUBTITLE_LABEL_KEYS}
+            selectedValue={preferences.statusSubtitle}
+            onSelect={preferences.setStatusSubtitle}
+            testIDPrefix="sidebar-status-subtitle"
+          />
+        ),
       },
       {
         id: "checks",
@@ -550,6 +578,12 @@ function OptionList<Value extends string>({
  */
 function ShowPage({ preferences }: { preferences: Preferences }): ReactElement {
   const { t } = useTranslation();
+  const handleToggleIdentityIcon = useCallback(
+    (_value: string) => {
+      preferences.setIdentityIcon(!preferences.identityIcon);
+    },
+    [preferences],
+  );
   return (
     <>
       {SIDEBAR_ROW_ITEMS.map((item) => (
@@ -564,6 +598,24 @@ function ShowPage({ preferences }: { preferences: Preferences }): ReactElement {
           testID={`sidebar-row-item-${item}`}
         />
       ))}
+      <OptionItem
+        value="identityIcon"
+        icon={ROW_ITEM_ICONS.host}
+        label={t("sidebar.display.show.identityIcon")}
+        selected={preferences.identityIcon}
+        closeOnSelect={false}
+        onSelect={handleToggleIdentityIcon}
+        testID="sidebar-row-item-identity-icon"
+      />
+      {preferences.grouping === "status" ? (
+        <MenuSubTrigger
+          id="statusSubtitle"
+          value={t(STATUS_SUBTITLE_LABEL_KEYS[preferences.statusSubtitle])}
+          testID="sidebar-display-status-subtitle"
+        >
+          {t("sidebar.display.statusSubtitle.label")}
+        </MenuSubTrigger>
+      ) : null}
       <ChecksSubTrigger />
       <MenuSeparator />
       {TRAILING_CHOICES.map((choice) => (

@@ -83,6 +83,7 @@ import {
   useHorizontalScrollBoundary,
 } from "@/components/ui/horizontal-scroll-boundary";
 import { useSessionStore } from "@/stores/session-store";
+import { WorkspacePinnedTargetsRow } from "@/workspace-pins/workspace-pinned-row";
 
 const DROPDOWN_WIDTH = 220;
 const DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH = 36;
@@ -249,7 +250,14 @@ function WorkspaceNewTabButton({
     </DropdownMenu>
   );
 
-  return placement === "inline" ? <View style={styles.inlineAddButton}>{menu}</View> : menu;
+  return placement === "inline" ? (
+    <View style={styles.inlineAddButton}>
+      {menu}
+      <WorkspacePinnedTargetsRow serverId={serverId} purpose="primary" paneId={paneId} />
+    </View>
+  ) : (
+    menu
+  );
 }
 
 function WorkspacePaneToolbarActions({
@@ -586,6 +594,7 @@ function getFallbackTabLabel(
     terminal: string;
     agent: string;
     changes: string;
+    todo: string;
     files: string;
     pullRequest: string;
   },
@@ -607,6 +616,9 @@ function getFallbackTabLabel(
   }
   if (tab.target.kind === "working_diff" || tab.target.kind === "changes_tree") {
     return labels.changes;
+  }
+  if (tab.target.kind === "todo") {
+    return labels.todo;
   }
   if (tab.target.kind === "files") {
     return labels.files;
@@ -1073,6 +1085,7 @@ function ResolvedWorkspaceDesktopTabsRow({
       terminal: t("workspace.tabs.fallback.terminal"),
       agent: t("workspace.tabs.fallback.agent"),
       changes: t("panels.diff.changesLabel"),
+      todo: t("panels.todo.label"),
       files: t("panels.files.label"),
       pullRequest: t("panels.pullRequest.label"),
     }),

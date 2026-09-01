@@ -2,7 +2,7 @@ import {
   BottomSheetModal as GorhomBottomSheetModal,
   type BottomSheetModalProps,
 } from "@gorhom/bottom-sheet";
-import React from "react";
+import React, { createContext, useContext } from "react";
 import { forwardRef, useCallback, useEffect, useMemo, useRef } from "react";
 import type { ElementRef, ReactNode } from "react";
 import {
@@ -53,11 +53,27 @@ type IsolatedBottomSheetModalProps = Omit<
 
 export type IsolatedBottomSheetModalRef = GorhomBottomSheetModalMethods;
 
+/**
+ * True only under an open Gorhom bottom-sheet tree. AdaptiveTextInput and
+ * similar inputs must not call BottomSheetTextInput / useBottomSheetInternal
+ * outside this scope (e.g. backlog search on a normal screen).
+ */
+const BottomSheetInputScopeContext = createContext(false);
+
+export function useIsInsideBottomSheetInputScope(): boolean {
+  return useContext(BottomSheetInputScopeContext);
+}
+
 export const IsolatedBottomSheetModal = forwardRef<
   IsolatedBottomSheetModalRef,
   IsolatedBottomSheetModalProps
 >(function IsolatedBottomSheetModal(props, ref) {
   const { children, presentation = "push", contextBridge, ...bottomSheetProps } = props;
+  const scopedChildren = (
+    <BottomSheetInputScopeContext.Provider value={true}>
+      {children as React.ReactNode}
+    </BottomSheetInputScopeContext.Provider>
+  );
   const modal = (
     <GorhomBottomSheetModal
       {...bottomSheetProps}
@@ -66,7 +82,7 @@ export const IsolatedBottomSheetModal = forwardRef<
       stackBehavior={presentation}
     >
       <BottomSheetTextInputScope>
-        {contextBridge ? contextBridge(children) : children}
+        {contextBridge ? contextBridge(scopedChildren) : scopedChildren}
       </BottomSheetTextInputScope>
     </GorhomBottomSheetModal>
   );

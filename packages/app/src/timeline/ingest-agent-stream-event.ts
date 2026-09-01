@@ -5,11 +5,6 @@ export function isUserMessageStreamEvent(event: AgentStreamEventPayload): boolea
   return event.type === "timeline" && event.item.type === "user_message";
 }
 
-/**
- * User-message acks settle pending submissions. They must commit in the same
- * turn as the websocket onmessage — the frame coalescer can still be holding
- * them when a reconnect drop clears turn liveness.
- */
 export function ingestAgentStreamEvent(input: {
   enqueue: (agentId: string, event: AgentStreamReducerEvent) => void;
   flushAgent: (agentId: string) => void;

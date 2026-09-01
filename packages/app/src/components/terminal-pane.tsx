@@ -1,6 +1,7 @@
 import { TerminalFind, type TerminalPaneFindHandle } from "@/terminal/find";
 import type { TerminalFindResult } from "@/terminal/runtime/terminal-emulator-runtime";
 import type { TerminalCharacterWidths } from "@/terminal/character-widths";
+import { useWorkspaceBrowserAvailability } from "@/desktop/browser/workspace-browser-availability";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +26,8 @@ import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-
 import { useKeyboardShiftStyle } from "@/keyboard/shift";
 import { useAppActivelyVisible } from "@/hooks/use-app-visible";
 import { useStableEvent } from "@/hooks/use-stable-event";
+import { openExternalUrl } from "@/utils/open-external-url";
+import { resolveWorkspaceUrlOpenAction } from "@/utils/workspace-url-open-action";
 import {
   hasPendingTerminalModifiers,
   resolvePendingModifierDataInput,
@@ -110,6 +113,7 @@ interface TerminalPaneProps {
   isPaneFocused: boolean;
   onOpenFileExplorer: () => void;
   onOpenWorkspaceFile: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab: (url: string) => void;
 }
 
 const TERMINAL_REFIT_DELAYS_MS = [0, 48, 144, 320];
@@ -264,6 +268,7 @@ export function TerminalPane({
   isPaneFocused,
   onOpenFileExplorer,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: TerminalPaneProps) {
   const { t } = useTranslation();
   const retainedPanelActive = useRetainedPanelActive();
@@ -294,6 +299,7 @@ export function TerminalPane({
 
   const client = useHostRuntimeClient(serverId);
   const isConnected = useHostRuntimeIsConnected(serverId);
+  const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(serverId);
   const isTerminalPresented = retainedPanelActive && isWorkspaceFocused;
   const supportsTerminalRestoreModes = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.["terminal-restore-modes"] === true,
@@ -309,6 +315,9 @@ export function TerminalPane({
     state.sessions[serverId]?.serverInfo?.features?.["terminal-grapheme-widths"] === true
       ? "graphemes"
       : "legacy",
+  );
+  const vscodeProxyUri = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.urlOpeners?.vscodeProxyUri,
   );
   const setFocusedTerminalId = useSessionStore((state) => state.setFocusedTerminalId);
 
@@ -1048,6 +1057,20 @@ export function TerminalPane({
     },
     [onOpenWorkspaceFile],
   );
+  const handleOpenExternalUrl = useStableEvent((url: string) => {
+    const action = resolveWorkspaceUrlOpenAction({
+      url,
+      hasWorkspaceBrowser,
+      vscodeProxyUri,
+    });
+
+    if (action.kind === "browser") {
+      onOpenUrlInBrowserTab(action.url);
+      return;
+    }
+
+    void openExternalUrl(action.url);
+  });
 
   const toggleModifier = useCallback(
     (modifier: keyof ModifierState) => {
@@ -1200,6 +1223,7 @@ export function TerminalPane({
             onSelectionChange={handleSelectionChange}
             onResolveLocalFileLink={handleResolveLocalFileLink}
             onOpenLocalFileLink={handleOpenLocalFileLink}
+            onOpenExternalUrl={handleOpenExternalUrl}
             onPendingModifiersConsumed={handlePendingModifiersConsumed}
             pendingModifiers={modifiers}
             focusRequestToken={focusRequestToken}

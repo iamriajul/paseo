@@ -18,6 +18,10 @@ import {
   isChecksHiddenByLegacyRowItem,
   type SidebarRowItems,
 } from "@/components/sidebar/display-preferences/row-items";
+import {
+  DEFAULT_SIDEBAR_STATUS_SUBTITLE,
+  type SidebarStatusSubtitle,
+} from "@/components/sidebar/display-preferences/workspace-subtitle";
 import { isNative } from "@/constants/platform";
 import {
   DEFAULT_CONTENT_MAX_WIDTH,
@@ -44,6 +48,33 @@ export type PullRequestOpenLocation = "main" | "side" | "explorer";
 export type SidebarWorkspaceTrailing = "diff" | "timestamp" | "none";
 /** How much of an agent's work the chat shows between the user's message and the reply. */
 export type ChatDisplay = "full" | "collapseToolCalls" | "collapseTurns";
+
+/** Curated attention chimes for agent/terminal interrupts. Default soft. */
+export type AttentionSoundPreset =
+  | "soft"
+  | "chime"
+  | "ping"
+  | "glass"
+  | "knock"
+  | "pulse"
+  | "bell"
+  | "drop"
+  | "spark"
+  | "alert";
+
+/** Stable display order for settings dropdown. */
+export const ATTENTION_SOUND_PRESETS: readonly AttentionSoundPreset[] = [
+  "soft",
+  "chime",
+  "ping",
+  "glass",
+  "knock",
+  "pulse",
+  "bell",
+  "drop",
+  "spark",
+  "alert",
+] as const;
 
 const ThemePreferenceSchema = z.enum([
   ...THEME_OPTIONS.map((option) => option.name),
@@ -104,10 +135,25 @@ export interface AppSettings {
   usage: UsagePreferences;
   autoExpandReasoning: boolean;
   chatDisplay: ChatDisplay;
+  /**
+   * When group-by is Status, what identity text sits under the workspace title.
+   * Project grouping always uses host when host is enabled.
+   */
+  sidebarStatusSubtitle: SidebarStatusSubtitle;
+  /** Server glyph next to host identity under a workspace title. Default on. */
+  sidebarIdentityIcon: boolean;
   chatOutlineEnabled: boolean;
   vimKeybindings: boolean;
   sendShortcut: SendShortcut;
   filePanelAssociations: Record<string, string>;
+  /** When true, unfocused attention focuses Paseo and opens the target. Default off. */
+  attentionIntrusiveMode: boolean;
+  /** When true, show OS/system notification bubbles. Default on. */
+  attentionOsBubbleEnabled: boolean;
+  /** When true, play attention sound for delivered interrupts. Default on. */
+  attentionSoundEnabled: boolean;
+  /** Built-in attention sound preset. Default soft. */
+  attentionSoundPreset: AttentionSoundPreset;
   /** Desktop-only preferences for implicit opens into the ordinary side pane. */
   openInSidePane: OpenInSidePanePreferences;
   pullRequestOpenLocation: PullRequestOpenLocation;
@@ -161,10 +207,16 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   usage: DEFAULT_USAGE_PREFERENCES,
   autoExpandReasoning: false,
   chatDisplay: "collapseTurns",
+  sidebarStatusSubtitle: DEFAULT_SIDEBAR_STATUS_SUBTITLE,
+  sidebarIdentityIcon: true,
   chatOutlineEnabled: true,
   vimKeybindings: false,
   sendShortcut: "enter",
   filePanelAssociations: {},
+  attentionIntrusiveMode: false,
+  attentionOsBubbleEnabled: true,
+  attentionSoundEnabled: true,
+  attentionSoundPreset: "soft",
   openInSidePane: DEFAULT_OPEN_IN_SIDE_PANE_PREFERENCES,
   pullRequestOpenLocation: "explorer",
 };
@@ -192,6 +244,7 @@ const SidebarRowItemsSchema = z
     project: z.boolean().catch(DEFAULT_SIDEBAR_ROW_ITEMS.project),
     host: z.boolean().catch(DEFAULT_SIDEBAR_ROW_ITEMS.host),
     changeRequest: z.boolean().catch(DEFAULT_SIDEBAR_ROW_ITEMS.changeRequest),
+    todos: z.boolean().catch(DEFAULT_SIDEBAR_ROW_ITEMS.todos),
     services: z.boolean().optional().catch(undefined),
     labels: z.boolean().catch(DEFAULT_SIDEBAR_ROW_ITEMS.labels),
     // COMPAT(sidebarRowItemsChecks): migrated in v0.3.0, remove after 2027-08-05.
@@ -257,6 +310,8 @@ const StoredAppSettingsSchema = z
     sidebarFooterItems: z.array(z.object({ key: z.string(), visible: z.boolean() })).catch([]),
     usage: UsagePreferencesSchema,
     autoExpandReasoning: z.boolean().catch(false),
+    sidebarStatusSubtitle: z.enum(["host", "project"]).catch(DEFAULT_SIDEBAR_STATUS_SUBTITLE),
+    sidebarIdentityIcon: z.boolean().catch(true),
     chatDisplay: z.enum(["full", "collapseToolCalls", "collapseTurns"]).optional().catch("full"),
     // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.
     toolCallDetailLevel: z
@@ -270,6 +325,15 @@ const StoredAppSettingsSchema = z
     vimKeybindings: z.boolean().catch(false),
     sendShortcut: z.enum(["enter", "mod-enter"]).catch("enter"),
     filePanelAssociations: z.record(z.string(), z.string()).catch({}),
+    attentionIntrusiveMode: z.boolean().catch(false),
+    attentionOsBubbleEnabled: z.boolean().catch(true),
+    attentionSoundEnabled: z.boolean().catch(true),
+    // COMPAT(attentionSoundClassic): "classic" renamed to "bell" when the preset set expanded.
+    attentionSoundPreset: z
+      .unknown()
+      .transform((value) => (value === "classic" ? "bell" : value))
+      .pipe(z.enum(ATTENTION_SOUND_PRESETS))
+      .catch("soft"),
     openInSidePane: z
       .object({
         explorerFiles: z.boolean().catch(false),
@@ -462,6 +526,7 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     compactToolCalls: _compactToolCalls,
     toolCallDetailLevel: _toolCallDetailLevel,
     uiFontSize: _uiFontSize,
+    openSupportingTabsInSidePanel: _openSupportingTabsInSidePanel,
     ...settings
   } = StoredAppSettingsSchema.parse(value);
   return settings;

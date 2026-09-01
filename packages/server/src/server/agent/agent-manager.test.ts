@@ -7177,6 +7177,53 @@ test("clearAgentAttention on errored agent stays cleared until a new error trans
   expect(persistedAfterSecondFailure?.attentionReason).toBe("error");
 });
 
+test("markAgentAttention sets requiresAttention and attentionReason on live and persisted agent", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-mark-attention-"));
+  const storagePath = join(workdir, "agents");
+  const storage = new AgentStorage(storagePath, logger);
+  const client = new TestAgentClient();
+  const manager = new AgentManager({
+    registry: storage,
+    logger,
+    clients: { codex: client },
+  });
+
+  const snapshot = await manager.createAgent(
+    {
+      provider: "codex",
+      cwd: workdir,
+    },
+    undefined,
+    {
+      workspaceId: undefined,
+      initialTitle: "attention agent",
+    },
+  );
+  await manager.flush();
+
+  // Clear attention first
+  await manager.clearAgentAttention(snapshot.id);
+  await manager.flush();
+
+  let live = manager.getAgent(snapshot.id);
+  expect(live?.attention).toEqual({ requiresAttention: false });
+
+  // Mark attention
+  await manager.markAgentAttention(snapshot.id, "finished");
+  await manager.flush();
+
+  live = manager.getAgent(snapshot.id);
+  expect(live?.attention).toMatchObject({
+    requiresAttention: true,
+    attentionReason: "finished",
+  });
+
+  const persisted = await storage.get(snapshot.id);
+  expect(persisted?.requiresAttention).toBe(true);
+  expect(persisted?.attentionReason).toBe("finished");
+  expect(persisted?.attentionTimestamp).toEqual(expect.any(String));
+});
+
 test("streamAgent clears pending run when startTurn fails before a turn id exists", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-start-turn-failure-"));
   const storagePath = join(workdir, "agents");

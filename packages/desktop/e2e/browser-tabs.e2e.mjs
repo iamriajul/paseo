@@ -341,7 +341,7 @@ async function readViewport(client, browserId) {
   return JSON.parse(evaluated.resultJson);
 }
 
-async function clickGuestElement(page, client, browserId, selector) {
+async function readGuestElementRect(client, browserId, selector) {
   const evaluated = await callBrowserTool(client, "browser_evaluate", {
     browserId,
     function: `() => {
@@ -351,8 +351,37 @@ async function clickGuestElement(page, client, browserId, selector) {
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     }`,
   });
-  const elementRect = JSON.parse(evaluated.resultJson);
-  assert(elementRect, `Guest element ${selector} was unavailable`);
+  return JSON.parse(evaluated.resultJson);
+}
+
+async function readGuestLocation(client, browserId) {
+  try {
+    const evaluated = await callBrowserTool(client, "browser_evaluate", {
+      browserId,
+      function:
+        "() => ({ href: location.href, title: document.title, readyState: document.readyState })",
+    });
+    return JSON.parse(evaluated.resultJson);
+  } catch (error) {
+    return { error: String(error) };
+  }
+}
+
+async function waitForGuestElementRect(client, browserId, selector) {
+  const deadline = Date.now() + timeoutMs;
+  let elementRect = null;
+  while (Date.now() < deadline) {
+    elementRect = await readGuestElementRect(client, browserId, selector);
+    if (elementRect) return elementRect;
+    await delay(100);
+  }
+  const location = await readGuestLocation(client, browserId);
+  assert(elementRect, `Guest element ${selector} was unavailable (${JSON.stringify(location)})`);
+  return elementRect;
+}
+
+async function clickGuestElement(page, client, browserId, selector) {
+  const elementRect = await waitForGuestElementRect(client, browserId, selector);
   const webviewRect = await page.evaluate((id) => {
     const webview = document.querySelector(`[data-paseo-browser-id="${id}"]`);
     if (!(webview instanceof HTMLElement)) return null;

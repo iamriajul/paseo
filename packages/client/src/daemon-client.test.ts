@@ -3210,6 +3210,99 @@ test("omitting create_paseo_worktree_request worktree base-ref fields preserves 
   });
 });
 
+test("sends workspace.mark_unread.request and resolves on success", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const markUnreadPromise = client.markWorkspaceUnread("ws-unread-test");
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "workspace.mark_unread.request",
+    workspaceId: "ws-unread-test",
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.mark_unread.response",
+      payload: {
+        requestId: request.requestId,
+        workspaceId: "ws-unread-test",
+        markedAgentIds: ["agent-1"],
+        results: [
+          {
+            workspaceId: "ws-unread-test",
+            markedAgentIds: ["agent-1"],
+            success: true,
+            error: null,
+          },
+        ],
+        success: true,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(markUnreadPromise).resolves.toBeUndefined();
+});
+
+test("throws error when workspace.mark_unread.response fails", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const markUnreadPromise = client.markWorkspaceUnread("ws-missing");
+  const request = parseSentFrame(mock.sent[0]);
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.mark_unread.response",
+      payload: {
+        requestId: request.requestId,
+        workspaceId: "ws-missing",
+        markedAgentIds: [],
+        results: [
+          {
+            workspaceId: "ws-missing",
+            markedAgentIds: [],
+            success: false,
+            error: "Workspace not found: ws-missing",
+          },
+        ],
+        success: false,
+        error: "Workspace not found: ws-missing",
+      },
+    }),
+  );
+
+  await expect(markUnreadPromise).rejects.toThrow("Workspace not found: ws-missing");
+});
+
 test("sends explicit shutdown_server_request via shutdownServer", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();
@@ -5845,13 +5938,14 @@ test("sends provider.usage.list.request and resolves provider.usage.list.respons
   mock.triggerOpen();
   await connectPromise;
 
-  const usagePromise = client.listProviderUsage({ requestId: "usage-1" });
+  const usagePromise = client.listProviderUsage({ requestId: "usage-1", forceRefresh: true });
 
   expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
     type: "session",
     message: {
       type: "provider.usage.list.request",
       requestId: "usage-1",
+      forceRefresh: true,
     },
   });
 
@@ -5900,6 +5994,59 @@ test("sends provider.usage.list.request and resolves provider.usage.list.respons
         ],
       },
     ],
+  });
+});
+
+test("sends provider.usage.reset_quota.request and resolves provider.usage.reset_quota.response", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const resetPromise = client.resetProviderUsageQuota({
+    providerId: "codex",
+    requestId: "reset-1",
+  });
+
+  expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
+    type: "session",
+    message: {
+      type: "provider.usage.reset_quota.request",
+      providerId: "codex",
+      requestId: "reset-1",
+    },
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "provider.usage.reset_quota.response",
+      payload: {
+        requestId: "reset-1",
+        providerId: "codex",
+        code: "reset",
+        windowsReset: 2,
+        message: "Reset quota consumed. Windows reset: 2.",
+      },
+    }),
+  );
+
+  await expect(resetPromise).resolves.toEqual({
+    requestId: "reset-1",
+    providerId: "codex",
+    code: "reset",
+    windowsReset: 2,
+    message: "Reset quota consumed. Windows reset: 2.",
   });
 });
 
@@ -6020,4 +6167,60 @@ test("waitForFinish with timeout=0 omits timeoutMs and has no client deadline", 
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("DaemonClient gets and sets workspace todos", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const getPromise = client.getWorkspaceTodos("ws-123");
+  const getRequest = parseSentFrame(mock.sent[0]);
+  expect(getRequest.type).toBe("workspace.todos.get.request");
+  expect(getRequest.workspaceId).toBe("ws-123");
+
+  const todoItems = [{ id: "t-1", text: "Buy milk", completed: false, createdAt: 12345 }];
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.todos.get.response",
+      payload: {
+        requestId: getRequest.requestId,
+        workspaceId: "ws-123",
+        todos: todoItems,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(getPromise).resolves.toEqual({ todos: todoItems });
+
+  mock.sent.length = 0;
+  const setPromise = client.setWorkspaceTodos("ws-123", todoItems);
+  const setRequest = parseSentFrame(mock.sent[0]);
+  expect(setRequest.type).toBe("workspace.todos.set.request");
+  expect(setRequest.todos).toEqual(todoItems);
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "workspace.todos.set.response",
+      payload: {
+        requestId: setRequest.requestId,
+        workspaceId: "ws-123",
+        todos: todoItems,
+        error: null,
+      },
+    }),
+  );
+
+  await expect(setPromise).resolves.toEqual({ todos: todoItems });
 });

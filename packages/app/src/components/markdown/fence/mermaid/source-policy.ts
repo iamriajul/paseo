@@ -10,7 +10,22 @@
 // in generated labels and carry no resource-bearing attributes; all other
 // tags (and entity-encoded text that could smuggle one) are rejected.
 const UNSAFE_MERMAID_SOURCE =
-  /@\s*\{|url\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
+  /@\s*\{|\burl\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
+
+// A literal `<placeholder>` in prose (e.g. "<canonical URL>", "<name>") is byte-for-byte
+// indistinguishable from a real tag by shape alone, so the check above can't tell them
+// apart — it has to treat both as unsafe. Rather than discard the whole diagram over a
+// single harmless placeholder, swap just the opening `<` for a lookalike (U+2039) before
+// rendering. No literal `<` survives, so nothing here can ever be interpreted as a tag by
+// Mermaid's SVG output or anything downstream — at least as safe as rejecting outright,
+// without losing the rest of the diagram. Matches on the raw, undecoded source only, so
+// escape-disguised tags (`<img`) still fall through to containsUnsafeMermaidSource's
+// decode-and-reject path below, unchanged.
+const DISALLOWED_TAG_OPEN = /<(?!\/?(?:br|i)\s*\/?>)(?=[a-z!/])/gi;
+
+export function neutralizeDisallowedTags(code: string): string {
+  return code.replace(DISALLOWED_TAG_OPEN, "‹");
+}
 
 // Mermaid labels can contain escaped text. Decode the escape forms we care
 // about before running the denylist so disguised HTML still gets caught.

@@ -68,7 +68,8 @@ export function setMobilePanelTarget(
   return { target, revision: selection.revision + 1 };
 }
 
-const ExplorerTabSchema = z.enum(["changes", "files", "pr"]);
+// Fork builds persisted "todo" and "ports" here; accept them so old state still parses.
+const ExplorerTabSchema = z.enum(["changes", "todo", "files", "pr", "ports"]);
 const DesktopSidebarStorageSchema = z.strictObject({
   agentListOpen: z.boolean().optional(),
   focusModeEnabled: z.boolean().optional(),

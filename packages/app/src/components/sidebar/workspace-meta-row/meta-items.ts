@@ -2,6 +2,7 @@ import type { WorkspaceLabelDefinition } from "@getpaseo/protocol/workspace-labe
 import type { PrHint } from "@/git/pr-hint";
 import type { SidebarChecksDisplay } from "@/components/sidebar/display-preferences/checks-display";
 import type { SidebarRowItems } from "@/components/sidebar/display-preferences/row-items";
+import type { WorkspaceTodoSummary } from "@/todos/workspace-todo-store";
 import { selectCheckSummary, type CheckSummary } from "./check-summary";
 import type { WorkspaceServiceSummary } from "./service-summary";
 
@@ -21,8 +22,10 @@ export type MetaRowItem =
   | { kind: "host" }
   | { kind: "changeRequest"; hint: PrHint }
   | { kind: "checks"; summary: CheckSummary; label: boolean }
+  | { kind: "todos"; summary: WorkspaceTodoSummary }
   | { kind: "services"; summary: WorkspaceServiceSummary }
-  | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] };
+  | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] }
+  | { kind: "heartbeat"; text: string };
 
 /**
  * Which peers a row should draw, given what it knows and what the user left switched on.
@@ -33,33 +36,45 @@ export type MetaRowItem =
  *
  * The host is filtered upstream, where the badge map is built: a host that should show nothing
  * has no badge to hand down, so by the time a row sees one it is meant to be drawn.
+ *
+ * Status grouping can swap host identity for a plain project name via `projectSubtitle`.
  */
+// oxlint-disable-next-line complexity
 export function selectMetaRowItems(input: {
   currentBranch: string | null;
   projectName: string | null;
   hasHostBadge: boolean;
+  projectSubtitle?: string | null;
   prHint: PrHint | null;
   serviceSummary: WorkspaceServiceSummary | null;
+  todoSummary?: WorkspaceTodoSummary | null;
   labels: readonly WorkspaceLabelDefinition[];
   visible: SidebarRowItems;
   checksDisplay: SidebarChecksDisplay;
+  heartbeatText?: string | null;
 }): MetaRowItem[] {
   const {
     currentBranch,
     projectName,
     hasHostBadge,
+    projectSubtitle,
     prHint,
     serviceSummary,
+    todoSummary,
     labels,
     visible,
     checksDisplay,
+    heartbeatText,
   } = input;
   const items: MetaRowItem[] = [];
 
+  const trimmedProjectSubtitle = projectSubtitle?.trim() ?? "";
   if (currentBranch && visible.branch) {
     items.push({ kind: "branch", name: currentBranch });
   }
-  if (projectName && visible.project) {
+  if (trimmedProjectSubtitle) {
+    items.push({ kind: "project", name: trimmedProjectSubtitle });
+  } else if (projectName && visible.project) {
     items.push({ kind: "project", name: projectName });
   }
   if (hasHostBadge) {
@@ -80,12 +95,25 @@ export function selectMetaRowItems(input: {
     }
   }
 
+  if (todoSummary && todoSummary.total > 0 && visible.todos) {
+    items.push({ kind: "todos", summary: todoSummary });
+  }
+
   if (serviceSummary && visible.services) {
     items.push({ kind: "services", summary: serviceSummary });
   }
 
   if (labels.length > 0 && visible.labels) {
     items.push({ kind: "labels", labels });
+  }
+
+  // Heartbeat sits last, after every other peer — including labels — so the
+  // cadence reads as an ambient signal rather than competing for rank with
+  // operational metadata. It is not gated by rowItems; a scheduled run is
+  // state you asked for, not chrome you can hide without losing the schedule.
+  const trimmedHeartbeat = heartbeatText?.trim() ?? "";
+  if (trimmedHeartbeat.length > 0) {
+    items.push({ kind: "heartbeat", text: trimmedHeartbeat });
   }
 
   return items;

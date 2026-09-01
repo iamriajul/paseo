@@ -133,6 +133,8 @@ import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { removeResidentBrowserWebview } from "@/desktop/browser/resident-webviews";
 import { createWorkspaceBrowser, useBrowserStore } from "@/desktop/browser/store";
+import { createWorkspaceCodeServer } from "@/stores/code-server-store";
+import { resolveCodeServerLaunchUrl } from "@/utils/code-server-url";
 import { getDesktopHost } from "@/desktop/host";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
@@ -1853,10 +1855,36 @@ function WorkspaceScreenContent({
         });
         return;
       }
+      if (selection.kind === "codeServer") {
+        const codeServerUrlOpeners =
+          useSessionStore.getState().sessions[normalizedServerId]?.serverInfo?.urlOpeners
+            ?.codeServer;
+        const codeServerLaunchUrl = resolveCodeServerLaunchUrl({
+          isElectron: getIsElectron(),
+          codeServerUrlOpeners,
+          workspaceDirectory,
+        });
+        if (!codeServerLaunchUrl) {
+          return;
+        }
+        const { codeServerId } = createWorkspaceCodeServer({
+          initialUrl: codeServerLaunchUrl,
+          workspaceKey: persistenceKey,
+        });
+        openTarget({ kind: "codeServer", codeServerId });
+        return;
+      }
       const { browserId } = createWorkspaceBrowser();
       openTarget({ kind: "browser", browserId });
     },
-    [createTerminal, createWorkspaceTab, persistenceKey, replaceWorkspaceTabTarget],
+    [
+      createTerminal,
+      createWorkspaceTab,
+      normalizedServerId,
+      persistenceKey,
+      replaceWorkspaceTabTarget,
+      workspaceDirectory,
+    ],
   );
 
   const handleOpenUrlInBrowserTab = useCallback(
@@ -2980,11 +3008,13 @@ function WorkspaceScreenContent({
             focusPaneBeforeOpen: input.focusPaneBeforeOpen,
           });
         },
+        onOpenUrlInBrowserTab: handleOpenUrlInBrowserTab,
         onOpenImportSheet: openImportSheet,
       }),
     [
       handleCloseTabById,
       panelRevisions,
+      handleOpenUrlInBrowserTab,
       handleOpenWorkspaceFileFromPane,
       navigateToTabId,
       normalizedServerId,
@@ -3268,11 +3298,22 @@ function WorkspaceScreenContent({
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
   const showCreateBrowserTab = getIsElectron();
+  const codeServerUrlOpeners = useSessionStore(
+    (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.codeServer,
+  );
+  const showCreateCodeServerTab = Boolean(
+    resolveCodeServerLaunchUrl({
+      isElectron: getIsElectron(),
+      codeServerUrlOpeners,
+      workspaceDirectory,
+    }),
+  );
   const newTabLauncher = useMemo<NewTabLauncher>(
     () => ({
       showChanges: isGitCheckout,
       showPullRequest: hasPullRequest,
       showBrowser: showCreateBrowserTab,
+      showCodeServer: showCreateCodeServerTab,
       terminalDisabled: createTerminalDisabled,
       launch: launchWorkspaceTab,
     }),
@@ -3282,6 +3323,7 @@ function WorkspaceScreenContent({
       isGitCheckout,
       launchWorkspaceTab,
       showCreateBrowserTab,
+      showCreateCodeServerTab,
     ],
   );
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);

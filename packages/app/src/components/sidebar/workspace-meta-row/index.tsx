@@ -2,7 +2,14 @@ import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View, type GestureResponderEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { ExternalLink, Folder, GitBranch, Globe } from "lucide-react-native";
+import {
+  CalendarClock,
+  ExternalLink,
+  Folder,
+  GitBranch,
+  Globe,
+  ListTodo,
+} from "lucide-react-native";
 import {
   workspaceLabelKey,
   type WorkspaceLabelDefinition,
@@ -16,6 +23,7 @@ import { openExternalUrl } from "@/utils/open-external-url";
 import { useSidebarMetaPreferences } from "@/components/sidebar/display-preferences/model";
 import type { Theme } from "@/styles/theme";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
+import type { WorkspaceTodoSummary } from "@/todos/workspace-todo-store";
 import { CheckIndicator } from "./check-indicator";
 import type { CheckSummary, CheckSummaryState } from "./check-summary";
 import { selectMetaRowItems, type MetaRowItem } from "./meta-items";
@@ -38,6 +46,8 @@ const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedFolder = withUnistyles(Folder);
 const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedGlobe = withUnistyles(Globe);
+const ThemedListTodo = withUnistyles(ListTodo);
+const ThemedCalendarClock = withUnistyles(CalendarClock);
 
 /** Stable identity so a row without labels doesn't re-select its items on every render. */
 const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
@@ -45,6 +55,8 @@ const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
 const foregroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const dangerMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
+const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
+const warningMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
 
 /**
  * The subtitle under a workspace title: which host it lives on, its change request, that
@@ -64,27 +76,37 @@ export function WorkspaceMetaRow({
   currentBranch,
   projectName,
   hostBadge,
+  projectSubtitle = null,
   prHint,
   serviceSummary,
+  todoSummary = null,
   labels = EMPTY_LABELS,
+  heartbeatText = null,
 }: {
   currentBranch: string | null;
   projectName: string | null;
   hostBadge: HostBadgeModel | null;
+  /** When set (status grouping + project subtitle pref), replaces host identity. */
+  projectSubtitle?: string | null;
   prHint: PrHint | null;
   serviceSummary: WorkspaceServiceSummary | null;
+  todoSummary?: WorkspaceTodoSummary | null;
   labels?: readonly WorkspaceLabelDefinition[];
+  heartbeatText?: string | null;
 }) {
   const { rowItems, checksDisplay } = useSidebarMetaPreferences();
   const items = selectMetaRowItems({
     currentBranch,
     projectName,
     hasHostBadge: hostBadge !== null,
+    projectSubtitle,
     prHint,
     serviceSummary,
+    todoSummary,
     labels,
     visible: rowItems,
     checksDisplay,
+    heartbeatText,
   });
 
   if (items.length === 0) return null;
@@ -92,7 +114,7 @@ export function WorkspaceMetaRow({
   return (
     <View style={styles.row}>
       {items.map((item, index) => (
-        <Fragment key={item.kind}>
+        <Fragment key={item.kind === "project" ? `project-${item.name}` : item.kind}>
           {index > 0 ? <Text style={styles.separator}>·</Text> : null}
           <MetaItemNode item={item} hostBadge={hostBadge} leading={index === 0} />
         </Fragment>
@@ -126,8 +148,14 @@ function MetaItemNode({
   if (item.kind === "checks") {
     return <ChecksItem summary={item.summary} label={item.label} />;
   }
+  if (item.kind === "todos") {
+    return <TodosItem summary={item.summary} />;
+  }
   if (item.kind === "labels") {
     return <LabelsItem labels={item.labels} leading={leading} />;
+  }
+  if (item.kind === "heartbeat") {
+    return <HeartbeatItem text={item.text} />;
   }
   return <ServiceItem summary={item.summary} />;
 }
@@ -141,6 +169,40 @@ function IdentityItem({ kind, name }: { kind: "branch" | "project"; name: string
       </View>
       <Text style={styles.identityText} numberOfLines={1}>
         {name}
+      </Text>
+    </View>
+  );
+}
+
+function resolveTodoIconMapping(summary: WorkspaceTodoSummary) {
+  if (summary.completed === summary.total) return successMapping;
+  if (summary.completed > 0) return warningMapping;
+  return mutedMapping;
+}
+
+function resolveTodoTextStyle(summary: WorkspaceTodoSummary) {
+  if (summary.completed === summary.total) return styles.todosTextDone;
+  if (summary.completed > 0) return styles.todosTextInProgress;
+  return styles.todosTextOpen;
+}
+
+function TodosItem({ summary }: { summary: WorkspaceTodoSummary }) {
+  const { t } = useTranslation();
+  const iconMapping = resolveTodoIconMapping(summary);
+  const textStyle = resolveTodoTextStyle(summary);
+
+  return (
+    <View
+      style={styles.item}
+      accessibilityLabel={t("workspace.todos.summaryAccessible", {
+        completed: summary.completed,
+        total: summary.total,
+      })}
+      testID="sidebar-workspace-todos"
+    >
+      <ThemedListTodo size={META_ICON_SIZE} uniProps={iconMapping} />
+      <Text style={textStyle} numberOfLines={1}>
+        {`${summary.completed}/${summary.total}`}
       </Text>
     </View>
   );
@@ -273,6 +335,17 @@ const CHECK_STATE_ACCESSIBLE_KEYS = {
   running: "workspace.git.pr.checksSummary.runningAccessible",
 } as const;
 
+function HeartbeatItem({ text }: { text: string }) {
+  return (
+    <View style={styles.item} accessibilityLabel={text} testID="sidebar-workspace-heartbeat">
+      <ThemedCalendarClock size={META_ICON_SIZE} uniProps={mutedMapping} />
+      <Text style={styles.heartbeatText} numberOfLines={1}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
 /**
  * A running service, named. It is the one item on the line whose text is arbitrary — everything
  * else is a number, a short word, or a host label the user already picked — so it is also the
@@ -297,8 +370,6 @@ function ServiceItem({ summary }: { summary: WorkspaceServiceSummary }) {
     </View>
   );
 }
-
-const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
 
 const PR_STATE_LABEL_KEYS = {
   merged: "workspace.git.pr.states.merged",
@@ -348,10 +419,14 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 16,
     flexShrink: 0,
   },
+  projectName: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 1,
+    minWidth: 0,
+  },
   // Tighter than the line's own gap so a run of chips reads as one item — see `LabelsItem`.
-  // Shrinks at the same weight as the service name: both are arbitrary text somebody chose, so
-  // a crowded line takes from the two of them in proportion rather than emptying one of them.
-  // The host badge still gives up its space before either — see `flexShrink` in host-badge.tsx.
   labels: {
     flexDirection: "row",
     alignItems: "center",
@@ -409,6 +484,30 @@ const styles = StyleSheet.create((theme) => ({
   },
   checksTextRunning: {
     color: theme.colors.statusWarning,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  todosTextDone: {
+    color: theme.colors.statusSuccess,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  todosTextInProgress: {
+    color: theme.colors.statusWarning,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  todosTextOpen: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  heartbeatText: {
+    color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,

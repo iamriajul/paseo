@@ -56,7 +56,9 @@ import {
   useHosts,
 } from "@/runtime/host-runtime";
 import { ProvidersSection } from "@/screens/settings/providers-section";
+import { providerUsageCopy } from "@/provider-usage/copy";
 import { ProviderUsageSettingsSection } from "@/provider-usage/settings-section";
+import type { ProviderUsage } from "@/provider-usage/types";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
 import { HostAppearanceSection } from "@/screens/settings/host-appearance-section";
 import { SettingsSection } from "@/screens/settings/settings-section";
@@ -74,6 +76,7 @@ import { getProviderIcon } from "@/components/provider-icons";
 import { BrowserToolsOptInCard } from "./browser-tools-card";
 import { hasDaemonReconnectedAfter, type DaemonConnectionMarker } from "./daemon-reconnect";
 import { restartDaemonFromSettings } from "./daemon-restart";
+import { MetadataCustomEndpointCard } from "./metadata-custom-endpoint-card";
 
 const ThemedArrowUp = withUnistyles(ArrowUp);
 const ThemedArrowDown = withUnistyles(ArrowDown);
@@ -103,6 +106,7 @@ const moveDownIcon = <ThemedArrowDown size={ICON_SIZE.sm} uniProps={mutedColorMa
 const editProfileIcon = <ThemedProfilePencil size={ICON_SIZE.sm} uniProps={mutedColorMapping} />;
 const removeProfileIcon = <ThemedTrash2 size={ICON_SIZE.sm} uniProps={destructiveColorMapping} />;
 const addProfileIcon = <ThemedPlus size={ICON_SIZE.sm} uniProps={mutedColorMapping} />;
+const providerUsageResetCreditBalanceId = "rate_limit_reset_credits";
 
 function formatHostConnectionLabel(connection: HostConnection, t: TFunction): string {
   if (connection.type === "relay") {
@@ -112,6 +116,17 @@ function formatHostConnectionLabel(connection: HostConnection, t: TFunction): st
     return `${t("settings.host.badges.local")} (${connection.path})`;
   }
   return `TCP (${connection.endpoint})`;
+}
+
+function resetCreditCountForConfirmation(usage: ProviderUsage): number {
+  const resetCredits = usage.resetCredits ?? [];
+  if (resetCredits.length > 0) {
+    return resetCredits.length;
+  }
+  return (
+    usage.balances?.find((balance) => balance.id === providerUsageResetCreditBalanceId)
+      ?.remaining ?? 0
+  );
 }
 
 function formatActiveConnectionBadge(
@@ -269,6 +284,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
         <SettingsSection title={t("settings.hostSections.agents")}>
           <InjectPaseoToolsCard serverId={serverId} />
           <BrowserToolsOptInCard serverId={serverId} />
+          <MetadataCustomEndpointCard serverId={serverId} />
           <AppendSystemPromptCard serverId={serverId} />
         </SettingsSection>
       ) : (
@@ -322,10 +338,51 @@ export function HostProvidersPage({ serverId }: { serverId: string }) {
 
 export function HostUsagePage({ serverId }: { serverId: string }) {
   const host = useHostProfile(serverId);
-  const { view: providerUsageView, refresh: refreshProviderUsage } = useProviderUsage(serverId);
+  const {
+    view: providerUsageView,
+    refresh: refreshProviderUsage,
+    resetQuota,
+    canResetQuota,
+    canForceRefreshQuota,
+    resettingProviderId,
+  } = useProviderUsage(serverId);
   const handleRefresh = useCallback(() => {
-    void refreshProviderUsage();
+    void refreshProviderUsage({ forceRefresh: true });
   }, [refreshProviderUsage]);
+  const handleResetQuota = useCallback(
+    async (usage: ProviderUsage) => {
+      const resetCount = resetCreditCountForConfirmation(usage);
+      const resetCountLabel =
+        resetCount === 1 ? "1 available reset" : `${resetCount} available resets`;
+      const confirmed = await confirmDialog({
+        title: providerUsageCopy.resetQuotaConfirmTitle,
+        message: `${providerUsageCopy.resetQuotaConfirmMessage}\n\nYou currently have ${resetCountLabel}.`,
+        confirmLabel: providerUsageCopy.resetQuota,
+        cancelLabel: "Cancel",
+        destructive: true,
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        const result = await resetQuota(usage.providerId);
+        Alert.alert(
+          result.code === "reset"
+            ? providerUsageCopy.resetQuotaSuccessTitle
+            : providerUsageCopy.resetQuotaNoopTitle,
+          result.message ?? providerUsageCopy.resetQuotaSuccessTitle,
+        );
+      } catch (error) {
+        Alert.alert(
+          providerUsageCopy.resetQuotaFailedTitle,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    },
+    [resetQuota],
+  );
 
   if (!host) {
     return <HostNotFound />;
@@ -333,7 +390,14 @@ export function HostUsagePage({ serverId }: { serverId: string }) {
 
   return (
     <View>
-      <ProviderUsageSettingsSection view={providerUsageView} onRefresh={handleRefresh} />
+      <ProviderUsageSettingsSection
+        view={providerUsageView}
+        onRefresh={handleRefresh}
+        onResetQuota={handleResetQuota}
+        canResetQuota={canResetQuota}
+        canForceRefreshQuota={canForceRefreshQuota}
+        resettingProviderId={resettingProviderId}
+      />
     </View>
   );
 }

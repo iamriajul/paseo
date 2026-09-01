@@ -820,4 +820,45 @@ describe("pending submission after disconnect", () => {
         .isActive,
     ).toBe(false);
   });
+
+  it("ignores remote turn opens after the websocket has dropped", () => {
+    const client = { isConnected: true as boolean };
+    useSessionStore.getState().initializeSession("test-server", client as DaemonClient);
+    const store = useSessionStore.getState();
+    const agentId = "agent-1";
+    store.applyAgentTurnLiveness("test-server", agentId, {
+      type: "stream_open",
+      turn: { turnId: "turn-1", startedAt: new Date("2026-09-01T00:00:01.000Z") },
+    });
+    expect(
+      selectAgentTurnPresentation(useSessionStore.getState().sessions["test-server"], agentId)
+        .isActive,
+    ).toBe(true);
+
+    client.isConnected = false;
+    store.clearAgentTurnLiveness("test-server");
+    store.applyAgentTurnLiveness("test-server", agentId, {
+      type: "snapshot",
+      activeTurn: { turnId: "turn-1", startedAt: new Date("2026-09-01T00:00:01.000Z") },
+    });
+    store.applyAgentTurnLiveness("test-server", agentId, {
+      type: "stream_open",
+      turn: { turnId: "turn-2", startedAt: new Date("2026-09-01T00:00:02.000Z") },
+    });
+
+    expect(
+      selectAgentTurnPresentation(useSessionStore.getState().sessions["test-server"], agentId)
+        .isActive,
+    ).toBe(false);
+
+    client.isConnected = true;
+    store.applyAgentTurnLiveness("test-server", agentId, {
+      type: "snapshot",
+      activeTurn: { turnId: "turn-1", startedAt: new Date("2026-09-01T00:00:01.000Z") },
+    });
+    expect(
+      selectAgentTurnPresentation(useSessionStore.getState().sessions["test-server"], agentId)
+        .isActive,
+    ).toBe(true);
+  });
 });

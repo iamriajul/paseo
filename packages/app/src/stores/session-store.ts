@@ -1090,6 +1090,7 @@ export const useSessionStore = create<SessionStore>()(
         set((prev) => {
           const session = prev.sessions[serverId];
           if (!session) return prev;
+          if (session.client?.isConnected === false) return prev;
           const agentTurnLiveness = applyTurnLivenessTransition(
             session.agentTurnLiveness,
             agentId,

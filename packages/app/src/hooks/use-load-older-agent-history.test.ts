@@ -3,6 +3,7 @@ import type { ToastApi, ToastShowOptions } from "@/components/toast-host";
 import type { AgentTimelineCursorState } from "@/stores/session-store";
 import { TIMELINE_FETCH_PAGE_SIZE } from "@/timeline/timeline-fetch-policy";
 import {
+  loadAllOlderAgentHistory,
   loadOlderAgentHistory,
   type LoadOlderAgentHistoryClient,
 } from "./use-load-older-agent-history";
@@ -94,7 +95,7 @@ describe("loadOlderAgentHistory", () => {
 
     expect(client.calls).toEqual([]);
     expect(inFlight.values).toEqual([false]);
-    expect(started).toBe(false);
+    expect(started).toBe("complete");
   });
 
   it("no-ops when the daemon says no older history exists", async () => {
@@ -111,10 +112,10 @@ describe("loadOlderAgentHistory", () => {
 
     expect(client.calls).toEqual([]);
     expect(inFlight.values).toEqual([false]);
-    expect(started).toBe(false);
+    expect(started).toBe("complete");
   });
 
-  it("no-ops when a request is already in flight", async () => {
+  it("no-ops when a request is already marked in-flight", async () => {
     const client = createClient();
     const inFlight = createInFlight(true);
 
@@ -128,7 +129,8 @@ describe("loadOlderAgentHistory", () => {
 
     expect(client.calls).toEqual([]);
     expect(inFlight.values).toEqual([true]);
-    expect(started).toBe(true);
+    // Early complete: isLoadingOlder means the row is already fetching.
+    expect(started).toBe("complete");
   });
 
   it("requests the page before the current start cursor and clears in-flight on success", async () => {
@@ -155,7 +157,7 @@ describe("loadOlderAgentHistory", () => {
       },
     ]);
     expect(inFlight.values).toEqual([false, true, false]);
-    expect(started).toBe(true);
+    expect(started).toBe("loaded");
   });
 
   it("shows a panel toast, warns, and clears in-flight on failure", async () => {
@@ -167,7 +169,7 @@ describe("loadOlderAgentHistory", () => {
     const toast = createToast();
     const logger = createLogger();
 
-    await loadOlderAgentHistory(agentId, {
+    const result = await loadOlderAgentHistory(agentId, {
       client,
       cursor: someCursor,
       hasOlder: true,
@@ -177,6 +179,7 @@ describe("loadOlderAgentHistory", () => {
       logger,
     });
 
+    expect(result).toBe("failed");
     expect(client.calls).toHaveLength(1);
     expect(toast.shown).toEqual([
       {
@@ -188,5 +191,82 @@ describe("loadOlderAgentHistory", () => {
       ["[Timeline] failed to load older agent history", agentId, error],
     ]);
     expect(inFlight.values).toEqual([false, true, false]);
+  });
+
+  it("shares a single cursor request between scroll and search callers", async () => {
+    let resolveRequest: (() => void) | undefined;
+    const client = createClient(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    const inFlight = createInFlight();
+    const deps = {
+      client,
+      cursor: someCursor,
+      hasOlder: true,
+      isLoadingOlder: false,
+      setInFlight: inFlight.setInFlight,
+    };
+
+    const first = loadOlderAgentHistory(agentId, deps, "shared");
+    const second = loadOlderAgentHistory(agentId, { ...deps, isLoadingOlder: true }, "shared");
+    expect(client.calls).toHaveLength(1);
+    resolveRequest?.();
+    await expect(Promise.all([first, second])).resolves.toEqual(["loaded", "loaded"]);
+  });
+
+  it("backfills sequential 100-item pages and can stop between pages", async () => {
+    const requests: number[] = [];
+    let page = 0;
+    let continueLoading = true;
+    const deps = () => ({
+      client: {
+        fetchAgentTimeline: async (_id: string, request: { limit: number }) => {
+          requests.push(request.limit);
+          page += 1;
+          if (page === 2) {
+            continueLoading = false;
+          }
+        },
+      },
+      cursor: { ...someCursor, startSeq: 10 - page },
+      hasOlder: page < 4,
+      isLoadingOlder: false,
+      setInFlight: () => {},
+    });
+
+    await expect(
+      loadAllOlderAgentHistory({
+        agentId,
+        requestKey: "backfill",
+        getDeps: deps,
+        shouldContinue: () => continueLoading,
+      }),
+    ).resolves.toBe("complete");
+    expect(requests).toEqual([TIMELINE_FETCH_PAGE_SIZE, TIMELINE_FETCH_PAGE_SIZE]);
+  });
+
+  it("stops full-history backfill on failure so it can be retried", async () => {
+    const client = createClient(async () => {
+      throw new Error("offline");
+    });
+    await expect(
+      loadAllOlderAgentHistory({
+        agentId,
+        requestKey: "failure",
+        getDeps: () => ({
+          client,
+          cursor: someCursor,
+          hasOlder: true,
+          isLoadingOlder: false,
+          setInFlight: () => {},
+          logger: { warn: () => {} },
+        }),
+        shouldContinue: () => true,
+      }),
+    ).resolves.toBe("failed");
+    expect(client.calls).toHaveLength(1);
   });
 });

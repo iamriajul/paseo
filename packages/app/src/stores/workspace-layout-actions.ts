@@ -1204,7 +1204,11 @@ function createDefaultExplorerSidebarTabs(): WorkspaceTab[] {
 /** The desktop companion pane exists before it is first shown. */
 export function createWorkspaceLayoutWithExplorerSidebar(): WorkspaceLayout {
   const explorerTabs = createDefaultExplorerSidebarTabs();
-  const filesTabId = explorerTabs.find((tab) => tab.target.kind === "files")?.tabId ?? null;
+  // Official leaves focusedTabId unset so createPaneNode picks the last built-in
+  // tab (Changes). The fork adds Todo after Files; pin Changes explicitly so
+  // Cmd+E still lands there instead of Files or Todo.
+  const changesTabId =
+    explorerTabs.find((tab) => tab.target.kind === "changes_tree")?.tabId ?? null;
   return {
     root: createGroupNode({
       id: DEFAULT_LAYOUT_GROUP_ID,
@@ -1214,7 +1218,7 @@ export function createWorkspaceLayoutWithExplorerSidebar(): WorkspaceLayout {
         createPaneNode({
           id: EXPLORER_SIDEBAR_PANE_ID,
           tabs: explorerTabs,
-          focusedTabId: filesTabId,
+          focusedTabId: changesTabId,
           hidden: true,
         }),
       ],

@@ -157,7 +157,7 @@ describe("workspace-layout-store helpers", () => {
       { kind: "todo" },
     ]);
     expect(findPaneById(layout.root, "explorer")?.focusedTabId).toBe(
-      tabs.find((tab) => tab.target.kind === "files")?.tabId,
+      tabs.find((tab) => tab.target.kind === "changes_tree")?.tabId,
     );
   });
 

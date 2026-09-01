@@ -9,6 +9,14 @@ Controlled by `APP_VARIANT` in `packages/app/app.config.js` (vanilla Expo, no cu
 | `production`  | Paseo       | `sh.paseo`       |
 | `development` | Paseo Debug | `sh.paseo.debug` |
 
+Fork release builds default to the same production identity as official Paseo. Override only when you intentionally want a distinct brand:
+
+- `PASEO_ANDROID_APP_NAME` — launcher name (defaults to `Paseo`)
+- `PASEO_ANDROID_PACKAGE_ID` — Android package ID (defaults to `sh.paseo`)
+- `PASEO_URL_SCHEME` — deep-link scheme (defaults to `paseo`)
+
+When `PASEO_FORK_ID_SUFFIX` is set without an explicit package ID, `packages/app/app.config.js` can still derive a suffixed package ID for intentional side-by-side installs. The fork APK release path emits official-like defaults (`sh.paseo` / `Paseo` / `paseo`) so personal builds replace an official install and keep asset names aligned with upstream. Fork builds disable the upstream EAS Update URL unless `PASEO_EXPO_UPDATES_URL` is explicitly set, so a fork APK does not later load upstream JavaScript.
+
 EAS profiles: `development`, `production`, and `production-apk` in `packages/app/eas.json`.
 
 `development` uses Android `debug`.
@@ -60,6 +68,8 @@ emulator @paseo     # start it; leave running
 Gradle auto-fetches the platform/build-tools it needs once licenses are accepted, so adjust `android-35` only if it asks for a different level.
 
 ## Local build + install
+
+> **Android Browser native changes:** routine local verification stops at focused Vitest tests, formatting, lint, and TypeScript typecheck. Do not run Expo prebuild, Gradle, an emulator, Maestro, or APK/AAB assembly locally for Browser tunneling work. The path-filtered `android-browser-native` CI job runs the proxy's Kotlin tests and `:app:assembleDebug` with `--no-daemon`, one worker, and Gradle parallelism disabled. APK validation remains in the existing GitHub/cloud release workflows.
 
 From repo root:
 
@@ -182,6 +192,10 @@ Beta releases are an explicit no-op: they do not create or rewrite F-Droid chang
 
 Keep `react` and `react-dom` pinned to the React version embedded by the current `react-native` release. React Native `0.81.x` embeds `react-native-renderer` `19.1.0`, so `packages/app` must use React `19.1.0`. Bumping React to a newer patch can build successfully but crash at JS startup on Android with `Incompatible React versions`, leaving the app on the native splash screen.
 
+### Expo native module SDK alignment
+
+Pin Expo modules to the versions in `expo/bundledNativeModules.json` for the current SDK (today: Expo 54). Major version numbers on Expo packages track the Expo SDK, not "newest is best." Installing an SDK 57 package such as `expo-local-authentication@57` on an SDK 54 app can still typecheck and produce a release APK, then crash at native module registration with `NoClassDefFoundError` / `ClassNotFoundException` for symbols that only exist in newer `expo-modules-core` (for example `expo.modules.kotlin.types.AnyTypeCache`). The interaction lock depends on `expo-local-authentication`; keep it at `~17.0.8` while the app is on Expo 54.
+
 ## Screenshots
 
 ```bash
@@ -200,6 +214,19 @@ iOS auto-submits to App Store review via a Fastlane lane after EAS uploads to Te
 Beta tags like `v0.1.1-beta.1` only trigger the GitHub APK workflow. They publish a GitHub prerelease APK for testing and do not submit to the stores.
 
 `android-v*` tags also trigger only the GitHub APK workflow — useful when you want to ship an APK without going through stores. The GitHub APK workflow supports `workflow_dispatch` with an existing `tag` input so you can rebuild without cutting a new tag.
+
+In forks, `.github/workflows/android-apk-release.yml` does not use Expo Cloud. It runs `expo prebuild` in GitHub Actions, patches the generated Gradle project to use release signing, builds `:app:assembleRelease`, and uploads a signed APK. Configure these fork secrets for secure signing:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+If none of those secrets are configured, fork builds use the committed public insecure fallback key at `scripts/android-insecure-fallback-upload-keystore.jks.base64`. The fallback key uses alias/password `paseo-insecure-fallback`, and its SHA-256 certificate fingerprint is `E9:41:27:CD:30:09:3A:47:53:C9:30:0A:C8:CB:B5:5D:84:88:30:14:1B:8B:F5:EC:A0:52:ED:42:8E:89:7B:BE`. Fallback APK release assets include `INSECURE-PUBLIC-FALLBACK-KEY` in the APK filename and upload a warning text file beside the APK. Use this path only for easy fork testing; anyone with the repo can sign an APK with the same fallback key.
+
+If only some Android signing secrets are configured, the workflow fails so a partially configured secure signing setup is not silently downgraded.
+
+Fork APKs derive `PASEO_ANDROID_VERSION_CODE` from the release tag so future APKs with the same package ID can update in place.
 
 ### Useful commands
 

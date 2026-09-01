@@ -43,6 +43,32 @@ import {
   ScheduleUpdateResponseSchema,
 } from "./schedule/rpc-schemas.js";
 import {
+  TaskAttachmentDownloadTokenRequestSchema,
+  TaskAttachmentDownloadTokenResponseSchema,
+  TaskCreateRequestSchema,
+  TaskCreateResponseSchema,
+  TaskDeleteRequestSchema,
+  TaskDeleteResponseSchema,
+  TaskListAllRequestSchema,
+  TaskListAllResponseSchema,
+  TaskListRequestSchema,
+  TaskListResponseSchema,
+  TaskUpdateRequestSchema,
+  TaskUpdateResponseSchema,
+  TaskUploadedFileAttachmentSchema,
+} from "./tasks/rpc-schemas.js";
+import {
+  UiStateClearRequestMessageSchema,
+  UiStateClearResponseMessageSchema,
+  UiStateGetRequestMessageSchema,
+  UiStateGetResponseMessageSchema,
+  UiStateListRequestMessageSchema,
+  UiStateListResponseMessageSchema,
+  UiStateUpdatedMessageSchema,
+  UiStateUpsertRequestMessageSchema,
+  UiStateUpsertResponseMessageSchema,
+} from "./ui-state/schemas.js";
+import {
   LoopRunRequestSchema,
   LoopListRequestSchema,
   LoopInspectRequestSchema,
@@ -113,6 +139,7 @@ const MutableDaemonProviderModelSchema = z
     label: z.string().min(1),
     description: z.string().optional(),
     isDefault: z.boolean().optional(),
+    contextWindowMaxTokens: z.number().int().positive().optional(),
   })
   .passthrough();
 
@@ -131,9 +158,24 @@ const MutableStructuredGenerationProviderSchema = z
   })
   .passthrough();
 
+const MetadataCustomEndpointSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    baseUrl: z.string().default(""),
+    apiKey: z.string().default(""),
+    model: z.string().default(""),
+  })
+  .passthrough();
+
 const MutableMetadataGenerationConfigSchema = z
   .object({
     providers: z.array(MutableStructuredGenerationProviderSchema).default([]),
+    customEndpoint: MetadataCustomEndpointSchema.default({
+      enabled: false,
+      baseUrl: "",
+      apiKey: "",
+      model: "",
+    }),
   })
   .passthrough();
 
@@ -237,7 +279,15 @@ export const MutableDaemonConfigSchema = z
     catalogRefreshTimeoutMs: z.number().int().positive().optional(),
     browserTools: MutableBrowserToolsConfigSchema.default({ enabled: false }),
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
-    metadataGeneration: MutableMetadataGenerationConfigSchema.default({ providers: [] }),
+    metadataGeneration: MutableMetadataGenerationConfigSchema.default({
+      providers: [],
+      customEndpoint: {
+        enabled: false,
+        baseUrl: "",
+        apiKey: "",
+        model: "",
+      },
+    }),
     autoArchiveAfterMerge: z.boolean().default(false),
     enableTerminalAgentHooks: z.boolean().default(false),
     appendSystemPrompt: z.string().default(""),
@@ -246,6 +296,24 @@ export const MutableDaemonConfigSchema = z
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
     pluginsEnabled: z.boolean().optional(),
     plugins: z.record(PluginIdSchema, PluginSourceSchema).optional(),
+  })
+  .passthrough();
+
+// Patch schemas must not re-apply .default() for omitted keys — otherwise
+// deepMerge would overwrite live config with empty defaults on partial patches.
+const MetadataCustomEndpointPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    baseUrl: z.string().optional(),
+    apiKey: z.string().optional(),
+    model: z.string().optional(),
+  })
+  .passthrough();
+
+const MutableMetadataGenerationConfigPatchSchema = z
+  .object({
+    providers: z.array(MutableStructuredGenerationProviderSchema).optional(),
+    customEndpoint: MetadataCustomEndpointPatchSchema.optional(),
   })
   .passthrough();
 
@@ -258,7 +326,7 @@ export const MutableDaemonConfigPatchSchema = z
       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
       .optional(),
     removeProviders: z.array(z.string().min(1)).optional(),
-    metadataGeneration: MutableMetadataGenerationConfigSchema.partial().optional(),
+    metadataGeneration: MutableMetadataGenerationConfigPatchSchema.optional(),
     autoArchiveAfterMerge: z.boolean().optional(),
     enableTerminalAgentHooks: z.boolean().optional(),
     appendSystemPrompt: z.string().optional(),
@@ -355,6 +423,19 @@ const AgentModelDefinitionSchema = z.object({
   isDefault: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   contextWindowMaxTokens: z.number().optional(),
+  maxOutputTokens: z.number().optional(),
+  needsCapacityConfig: z.boolean().optional(),
+  modelsDevCandidates: z
+    .array(
+      z.object({
+        providerId: z.string(),
+        matchedId: z.string(),
+        name: z.string().optional(),
+        contextWindowMaxTokens: z.number(),
+        maxOutputTokens: z.number().optional(),
+      }),
+    )
+    .optional(),
   thinkingOptions: z.array(AgentSelectOptionSchema).optional(),
   defaultThinkingOptionId: z.string().optional(),
 }) satisfies z.ZodType<AgentModelDefinition>;
@@ -411,6 +492,10 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
     supportsRewindFiles: z.boolean().optional().default(false),
     // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
     supportsRewindBoth: z.boolean().optional().default(false),
+    // COMPAT(supportsNativeFork): added in v0.2.916, drop when floor >= v0.2.916.
+    supportsNativeFork: z.boolean().optional().default(false),
+    // COMPAT(supportsSteer): added in v0.2.916, drop when floor >= v0.2.916.
+    supportsSteer: z.boolean().optional().default(false),
   })
   .catchall(z.boolean());
 
@@ -984,6 +1069,65 @@ export const ProjectRemoveRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const WorkspaceTodoItemSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  completed: z.boolean(),
+  createdAt: z.number(),
+  completedAt: z.number().nullable().optional(),
+});
+export type WorkspaceTodoItem = z.infer<typeof WorkspaceTodoItemSchema>;
+
+export const WorkspaceTodosGetRequestSchema = z.object({
+  type: z.literal("workspace.todos.get.request"),
+  workspaceId: z.string(),
+  requestId: z.string(),
+});
+export type WorkspaceTodosGetRequest = z.infer<typeof WorkspaceTodosGetRequestSchema>;
+
+export const WorkspaceTodosSetRequestSchema = z.object({
+  type: z.literal("workspace.todos.set.request"),
+  workspaceId: z.string(),
+  todos: z.array(WorkspaceTodoItemSchema),
+  requestId: z.string(),
+});
+export type WorkspaceTodosSetRequest = z.infer<typeof WorkspaceTodosSetRequestSchema>;
+
+export const WorkspaceTodosGetResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  workspaceId: z.string(),
+  todos: z.array(WorkspaceTodoItemSchema),
+  error: z.string().nullable().optional(),
+});
+
+export const WorkspaceTodosGetResponseSchema = z.object({
+  type: z.literal("workspace.todos.get.response"),
+  payload: WorkspaceTodosGetResponsePayloadSchema,
+});
+export type WorkspaceTodosGetResponse = z.infer<typeof WorkspaceTodosGetResponseSchema>;
+
+export const WorkspaceTodosSetResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  workspaceId: z.string(),
+  todos: z.array(WorkspaceTodoItemSchema),
+  error: z.string().nullable().optional(),
+});
+
+export const WorkspaceTodosSetResponseSchema = z.object({
+  type: z.literal("workspace.todos.set.response"),
+  payload: WorkspaceTodosSetResponsePayloadSchema,
+});
+export type WorkspaceTodosSetResponse = z.infer<typeof WorkspaceTodosSetResponseSchema>;
+
+export const WorkspaceTodosUpdateMessageSchema = z.object({
+  type: z.literal("workspace.todos.update"),
+  payload: z.object({
+    workspaceId: z.string(),
+    todos: z.array(WorkspaceTodoItemSchema),
+  }),
+});
+export type WorkspaceTodosUpdateMessage = z.infer<typeof WorkspaceTodosUpdateMessageSchema>;
+
 export const WorkspaceTitleSetRequestSchema = z.object({
   type: z.literal("workspace.title.set.request"),
   workspaceId: z.string(),
@@ -1166,14 +1310,7 @@ export const ReviewAttachmentSchema = z.object({
   comments: z.array(ReviewAttachmentCommentSchema),
 });
 
-export const UploadedFileAttachmentSchema = z.object({
-  type: z.literal("uploaded_file"),
-  id: z.string(),
-  fileName: z.string(),
-  mimeType: z.string(),
-  size: z.number().int().nonnegative(),
-  path: z.string(),
-});
+export const UploadedFileAttachmentSchema = TaskUploadedFileAttachmentSchema;
 
 export const AgentAttachmentSchema = z.discriminatedUnion("type", [
   ForgeChangeRequestAttachmentSchema,
@@ -1377,6 +1514,10 @@ export const SendAgentMessageRequestSchema = z.object({
   activeTurnBehavior: ActiveTurnBehaviorSchema.optional(),
   images: z.array(ImageAttachmentSchema).optional(),
   attachments: AgentAttachmentsSchema,
+  // COMPAT(promptSteer): added in v0.2.916 — explicit mid-turn redirect (interrupt + send).
+  // When true, the agent must already be running; when false/omitted, existing replaceRunning
+  // send semantics are unchanged.
+  steer: z.boolean().optional().default(false),
 });
 
 export const WaitForFinishRequestSchema = z.object({
@@ -1561,6 +1702,19 @@ export const SetDaemonConfigRequestMessageSchema = z.object({
   config: MutableDaemonConfigPatchSchema,
 });
 
+export const MetadataCustomEndpointListModelsRequestSchema = z.object({
+  type: z.literal("metadataGeneration.customEndpoint.listModels.request"),
+  requestId: z.string(),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+});
+
+export const ModelsDevLookupModelRequestSchema = z.object({
+  type: z.literal("models.dev.lookup_model.request"),
+  requestId: z.string(),
+  modelId: z.string(),
+});
+
 export const ReadProjectConfigRequestMessageSchema = z.object({
   type: z.literal("read_project_config_request"),
   requestId: z.string(),
@@ -1703,6 +1857,13 @@ export const ProviderDiagnosticRequestMessageSchema = z.object({
 export const ProviderUsageListRequestMessageSchema = z.object({
   type: z.literal("provider.usage.list.request"),
   requestId: z.string(),
+  forceRefresh: z.boolean().optional(),
+});
+
+export const ProviderUsageResetQuotaRequestMessageSchema = z.object({
+  type: z.literal("provider.usage.reset_quota.request"),
+  providerId: z.string(),
+  requestId: z.string(),
 });
 
 export const ResumeAgentRequestMessageSchema = z.object({
@@ -1793,6 +1954,55 @@ export const ProviderSubagentTimelineRequestMessageSchema = z.object({
   limit: z.number().int().nonnegative().optional(),
 });
 
+export const BackgroundTasksListRequestMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.list.request"),
+  parentAgentId: z.string(),
+  requestId: z.string(),
+});
+
+export const ProviderHeartbeatsListRequestMessageSchema = z.object({
+  type: z.literal("agent.provider_heartbeats.list.request"),
+  parentAgentId: z.string(),
+  requestId: z.string(),
+});
+
+export const ProviderHeartbeatsDeleteRequestMessageSchema = z.object({
+  type: z.literal("agent.provider_heartbeats.delete.request"),
+  parentAgentId: z.string(),
+  taskId: z.string().min(1),
+  requestId: z.string(),
+});
+
+export const BackgroundTasksStopRequestMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.stop.request"),
+  parentAgentId: z.string(),
+  taskId: z.string().min(1),
+  requestId: z.string(),
+});
+
+export const BackgroundTasksOutputGetRequestMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.output.get.request"),
+  parentAgentId: z.string(),
+  taskId: z.string().min(1),
+  requestId: z.string(),
+  cursor: z.number().int().nonnegative().optional(),
+  maxBytes: z.number().int().positive().optional(),
+});
+
+export const BackgroundTasksOutputSubscribeRequestMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.output.subscribe.request"),
+  parentAgentId: z.string(),
+  taskId: z.string().min(1),
+  requestId: z.string(),
+});
+
+export const BackgroundTasksOutputUnsubscribeRequestMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.output.unsubscribe.request"),
+  parentAgentId: z.string(),
+  taskId: z.string().min(1),
+  requestId: z.string(),
+});
+
 export const SetAgentTimelineSubscriptionRequestMessageSchema = z.object({
   type: z.literal("agent.timeline.set_subscription.request"),
   agentIds: z.array(z.string()),
@@ -1805,6 +2015,15 @@ export const AgentForkContextRequestMessageSchema = z.object({
   boundaryCursor: AgentTimelineCursorSchema.optional(),
   boundaryMessageId: z.string().optional(),
   requestId: z.string(),
+});
+
+export const AgentNativeForkRequestMessageSchema = z.object({
+  type: z.literal("agent.native_fork.request"),
+  requestId: z.string(),
+  agentId: z.string(),
+  boundaryCursor: AgentTimelineCursorSchema.optional(),
+  boundaryMessageId: z.string().optional(),
+  target: z.enum(["tab", "workspace"]).default("tab"),
 });
 
 export const SetAgentModeRequestMessageSchema = z.object({
@@ -2546,6 +2765,12 @@ export const WorkspaceClearAttentionRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const WorkspaceMarkUnreadRequestSchema = z.object({
+  type: z.literal("workspace.mark_unread.request"),
+  workspaceId: z.union([z.string(), z.array(z.string())]),
+  requestId: z.string(),
+});
+
 // Highlighted diff token schema
 // Note: style can be a compound class name (e.g., "heading meta") from the syntax highlighter
 const HighlightTokenSchema = z.object({
@@ -3015,6 +3240,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProjectIconSetRequestSchema,
   ProjectRemoveRequestSchema,
   WorkspaceTitleSetRequestSchema,
+  WorkspaceTodosGetRequestSchema,
+  WorkspaceTodosSetRequestSchema,
   WorkspacePinSetRequestSchema,
   WorkspaceLabelListRequestSchema,
   WorkspaceLabelAssignmentSetRequestSchema,
@@ -3054,6 +3281,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentSkillsImportLegacySelectionRequestSchema,
   GetDaemonConfigRequestMessageSchema,
   SetDaemonConfigRequestMessageSchema,
+  MetadataCustomEndpointListModelsRequestSchema,
+  ModelsDevLookupModelRequestSchema,
   ReadProjectConfigRequestMessageSchema,
   WriteProjectConfigRequestMessageSchema,
   DictationStreamStartMessageSchema,
@@ -3069,6 +3298,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   RefreshProvidersSnapshotRequestMessageSchema,
   ProviderDiagnosticRequestMessageSchema,
   ProviderUsageListRequestMessageSchema,
+  ProviderUsageResetQuotaRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
@@ -3080,8 +3310,16 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentTimelineListPromptsRequestMessageSchema,
   ProviderSubagentListRequestMessageSchema,
   ProviderSubagentTimelineRequestMessageSchema,
+  BackgroundTasksListRequestMessageSchema,
+  BackgroundTasksStopRequestMessageSchema,
+  BackgroundTasksOutputGetRequestMessageSchema,
+  BackgroundTasksOutputSubscribeRequestMessageSchema,
+  BackgroundTasksOutputUnsubscribeRequestMessageSchema,
+  ProviderHeartbeatsListRequestMessageSchema,
+  ProviderHeartbeatsDeleteRequestMessageSchema,
   SetAgentTimelineSubscriptionRequestMessageSchema,
   AgentForkContextRequestMessageSchema,
+  AgentNativeForkRequestMessageSchema,
   SetAgentModeRequestMessageSchema,
   SetAgentModelRequestMessageSchema,
   SetAgentThinkingRequestMessageSchema,
@@ -3134,6 +3372,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ArchiveWorkspaceRequestSchema,
   WorkspaceCreateRequestSchema,
   WorkspaceClearAttentionRequestSchema,
+  WorkspaceMarkUnreadRequestSchema,
   FileExplorerRequestSchema,
   FileSubscribeRequestSchema,
   FileUnsubscribeRequestSchema,
@@ -3182,6 +3421,16 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ScheduleDeleteRequestSchema,
   ScheduleRunOnceRequestSchema,
   ScheduleUpdateRequestSchema,
+  TaskListRequestSchema,
+  TaskListAllRequestSchema,
+  TaskCreateRequestSchema,
+  TaskUpdateRequestSchema,
+  TaskDeleteRequestSchema,
+  TaskAttachmentDownloadTokenRequestSchema,
+  UiStateGetRequestMessageSchema,
+  UiStateUpsertRequestMessageSchema,
+  UiStateClearRequestMessageSchema,
+  UiStateListRequestMessageSchema,
   LoopRunRequestSchema,
   LoopListRequestSchema,
   LoopInspectRequestSchema,
@@ -3352,6 +3601,25 @@ export const ServerInfoStatusPayloadSchema = z
     // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
     desktopManaged: z.boolean().optional(),
     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
+    urlOpeners: z
+      .object({
+        vscodeProxyUri: z.string().min(1).optional(),
+        codeServer: z
+          .object({
+            localhostUrl: z.string().min(1).optional(),
+            externalUrl: z.string().min(1).optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    // COMPAT(browserPreview): added in v0.4.x, remove gate once daemon floor ships it.
+    // Presence of a valid urlTemplate IS the capability; there is deliberately no
+    // features.browserPreview flag, so the two can never disagree.
+    browserPreview: z
+      .object({
+        urlTemplate: z.string().min(1).optional(),
+      })
+      .optional(),
     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
     features: z
       .object({
@@ -3432,6 +3700,10 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceFileEditing: z.boolean().optional(),
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
         providerUsageList: z.boolean().optional(),
+        // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
+        providerUsageResetQuota: z.boolean().optional(),
+        // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
+        providerUsageForceRefresh: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
@@ -3442,10 +3714,24 @@ export const ServerInfoStatusPayloadSchema = z
         daemonSelfUpdate: z.boolean().optional(),
         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
         agentForkContext: z.boolean().optional(),
+        // COMPAT(taskBacklog): added in v0.1.104-beta.4, drop gate once daemon floor >= v0.1.104-beta.4.
+        taskBacklog: z.boolean().optional(),
+        // COMPAT(taskBacklogListAll): added in v0.1.104-beta.5, drop gate once daemon floor >= v0.1.104-beta.5.
+        taskBacklogListAll: z.boolean().optional(),
+        // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
+        uiState: z.boolean().optional(),
+        // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
+        agentNativeFork: z.boolean().optional(),
+        // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
+        tcpTunnel: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
         providerSubagents: z.boolean().optional(),
+        // COMPAT(backgroundTasks): added in v0.2.x, remove gate after 2027-02-01.
+        backgroundTasks: z.boolean().optional(),
+        // COMPAT(providerHeartbeats): added in v0.2.x, remove gate after 2027-02-02.
+        providerHeartbeats: z.boolean().optional(),
         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
         workspacePinning: z.boolean().optional(),
         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
@@ -3481,6 +3767,10 @@ export const ServerInfoStatusPayloadSchema = z
         stableProjectIdentity: z.boolean().optional(),
         // COMPAT(workspaceScriptManagement): added in v0.1.105, remove gate after 2027-01-10.
         workspaceScriptManagement: z.boolean().optional(),
+        // COMPAT(metadataCustomEndpoint): added 2026-07-28, remove after 2027-01-28 once daemon floor advertises it.
+        metadataCustomEndpoint: z.boolean().optional(),
+        // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
+        modelsDevLookup: z.boolean().optional(),
         // COMPAT(projectCustomIcon): added in v0.2.0, remove after 2027-01-20.
         projectCustomIcon: z.boolean().optional(),
         // COMPAT(fsEntryOps): added in v0.3.0, remove gate after 2027-02-08.
@@ -4457,6 +4747,145 @@ export const ProviderSubagentUpdateMessageSchema = z.object({
   ]),
 });
 
+export const BackgroundTaskStatusSchema = z.enum([
+  "running",
+  "completed",
+  "failed",
+  "stopped",
+  "unknown",
+]);
+export type BackgroundTaskStatus = z.infer<typeof BackgroundTaskStatusSchema>;
+
+export const BackgroundTaskDescriptorPayloadSchema = z.object({
+  taskId: z.string().min(1),
+  parentAgentId: z.string(),
+  type: z.string().min(1),
+  description: z.string(),
+  command: z.string().nullable().optional(),
+  status: BackgroundTaskStatusSchema,
+  outputFile: z.string().nullable().optional(),
+  lastSummary: z.string().nullable().optional(),
+  updatedAt: z.string().min(1),
+});
+export type BackgroundTaskDescriptorPayload = z.infer<typeof BackgroundTaskDescriptorPayloadSchema>;
+
+export const ProviderHeartbeatModeSchema = z.enum(["recurring", "one_shot", "dynamic"]);
+export type ProviderHeartbeatMode = z.infer<typeof ProviderHeartbeatModeSchema>;
+
+export const ProviderHeartbeatDescriptorPayloadSchema = z.object({
+  taskId: z.string().min(1),
+  parentAgentId: z.string().min(1),
+  provider: AgentProviderSchema,
+  prompt: z.string(),
+  mode: ProviderHeartbeatModeSchema,
+  scheduleLabel: z.string(),
+  nextHint: z.string().nullable(),
+  updatedAt: z.string(),
+});
+export type ProviderHeartbeatDescriptorPayload = z.infer<
+  typeof ProviderHeartbeatDescriptorPayloadSchema
+>;
+
+export const BackgroundTasksListResponseMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.list.response"),
+  payload: z.object({
+    requestId: z.string(),
+    parentAgentId: z.string(),
+    tasks: z.array(BackgroundTaskDescriptorPayloadSchema),
+    error: z.string().nullable(),
+  }),
+});
+
+export const BackgroundTasksUpdateMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.update"),
+  payload: z.object({
+    parentAgentId: z.string(),
+    tasks: z.array(BackgroundTaskDescriptorPayloadSchema),
+  }),
+});
+
+export const ProviderHeartbeatsListResponseMessageSchema = z.object({
+  type: z.literal("agent.provider_heartbeats.list.response"),
+  payload: z.object({
+    requestId: z.string(),
+    parentAgentId: z.string(),
+    heartbeats: z.array(ProviderHeartbeatDescriptorPayloadSchema),
+    error: z.string().nullable(),
+  }),
+});
+
+export const ProviderHeartbeatsUpdateMessageSchema = z.object({
+  type: z.literal("agent.provider_heartbeats.update"),
+  payload: z.object({
+    parentAgentId: z.string(),
+    heartbeats: z.array(ProviderHeartbeatDescriptorPayloadSchema),
+  }),
+});
+
+export const ProviderHeartbeatsDeleteResponseMessageSchema = z.object({
+  type: z.literal("agent.provider_heartbeats.delete.response"),
+  payload: z.object({
+    requestId: z.string(),
+    parentAgentId: z.string(),
+    taskId: z.string(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const BackgroundTasksStopResponseMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.stop.response"),
+  payload: z.object({
+    requestId: z.string(),
+    parentAgentId: z.string(),
+    taskId: z.string().min(1),
+    error: z.string().nullable(),
+  }),
+});
+
+export const BackgroundTasksOutputGetResponseMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.output.get.response"),
+  payload: z.object({
+    requestId: z.string(),
+    parentAgentId: z.string(),
+    taskId: z.string().min(1),
+    text: z.string(),
+    nextCursor: z.number().int().nonnegative(),
+    eof: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const BackgroundTasksOutputSubscribeResponseMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.output.subscribe.response"),
+  payload: z.object({
+    requestId: z.string(),
+    parentAgentId: z.string(),
+    taskId: z.string().min(1),
+    error: z.string().nullable(),
+  }),
+});
+
+export const BackgroundTasksOutputUnsubscribeResponseMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.output.unsubscribe.response"),
+  payload: z.object({
+    requestId: z.string(),
+    parentAgentId: z.string(),
+    taskId: z.string().min(1),
+    error: z.string().nullable(),
+  }),
+});
+
+export const BackgroundTasksOutputUpdateMessageSchema = z.object({
+  type: z.literal("agent.background_tasks.output.update"),
+  payload: z.object({
+    parentAgentId: z.string(),
+    taskId: z.string().min(1),
+    text: z.string(),
+    nextCursor: z.number().int().nonnegative(),
+    eof: z.boolean(),
+  }),
+});
+
 export const SetAgentTimelineSubscriptionResponseMessageSchema = z.object({
   type: z.literal("agent.timeline.set_subscription.response"),
   payload: z.object({
@@ -4497,6 +4926,18 @@ export const AgentForkContextResponseMessageSchema = z.object({
     boundaryMessageId: z.string().nullable(),
     boundaryCursor: AgentTimelineCursorSchema.nullable().optional(),
     error: z.string().nullable(),
+  }),
+});
+
+export const AgentNativeForkResponseMessageSchema = z.object({
+  type: z.literal("agent.native_fork.response"),
+  payload: z.object({
+    requestId: z.string(),
+    sourceAgentId: z.string(),
+    accepted: z.boolean(),
+    error: z.string().nullable(),
+    agentId: z.string().optional(),
+    workspaceId: z.string().optional(),
   }),
 });
 
@@ -4549,6 +4990,25 @@ export const WorkspaceClearAttentionResponseSchema = z.object({
   }),
 });
 
+export const WorkspaceMarkUnreadResponseSchema = z.object({
+  type: z.literal("workspace.mark_unread.response"),
+  payload: z.object({
+    requestId: z.string(),
+    workspaceId: z.union([z.string(), z.array(z.string())]),
+    markedAgentIds: z.array(z.string()),
+    results: z.array(
+      z.object({
+        workspaceId: z.string(),
+        markedAgentIds: z.array(z.string()),
+        success: z.boolean(),
+        error: z.string().nullable(),
+      }),
+    ),
+    success: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const SendAgentMessageResponseMessageSchema = z.object({
   type: z.literal("send_agent_message_response"),
   payload: z.object({
@@ -4576,6 +5036,59 @@ export const GetDaemonConfigResponseMessageSchema = z.object({
     .object({
       requestId: z.string(),
       config: MutableDaemonConfigSchema,
+    })
+    .passthrough(),
+});
+
+export const MetadataCustomEndpointListModelsResponseSchema = z.object({
+  type: z.literal("metadataGeneration.customEndpoint.listModels.response"),
+  payload: z
+    .object({
+      requestId: z.string(),
+      models: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string().optional(),
+        }),
+      ),
+      error: z
+        .object({
+          code: z.string(),
+          message: z.string(),
+        })
+        .nullable(),
+    })
+    .passthrough(),
+});
+
+const ModelsDevLookupCandidateSchema = z.object({
+  providerId: z.string(),
+  matchedId: z.string(),
+  name: z.string().optional(),
+  contextWindowMaxTokens: z.number().int().positive(),
+  maxOutputTokens: z.number().int().positive().optional(),
+  inputModalities: z.array(z.string()).optional(),
+  outputModalities: z.array(z.string()).optional(),
+  capabilities: z.array(z.string()).optional(),
+});
+
+export const ModelsDevLookupModelResponseSchema = z.object({
+  type: z.literal("models.dev.lookup_model.response"),
+  payload: z
+    .object({
+      requestId: z.string(),
+      found: z.boolean(),
+      modelId: z.string(),
+      matchedId: z.string().optional(),
+      name: z.string().optional(),
+      contextWindowMaxTokens: z.number().int().positive().optional(),
+      maxOutputTokens: z.number().int().positive().optional(),
+      providerId: z.string().optional(),
+      inputModalities: z.array(z.string()).optional(),
+      outputModalities: z.array(z.string()).optional(),
+      capabilities: z.array(z.string()).optional(),
+      candidates: z.array(ModelsDevLookupCandidateSchema).optional(),
+      error: z.string().nullable().optional(),
     })
     .passthrough(),
 });
@@ -5838,6 +6351,15 @@ export const ProviderUsageDetailSchema = z.object({
   tone: ProviderUsageToneSchema.optional(),
 });
 
+export const ProviderUsageResetCreditSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: z.string().optional(),
+  grantedAt: z.string().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
+  tone: ProviderUsageToneSchema.optional(),
+});
+
 export const ProviderUsageSchema = z.object({
   providerId: z.string(),
   displayName: z.string(),
@@ -5849,6 +6371,7 @@ export const ProviderUsageSchema = z.object({
   windows: z.array(ProviderUsageWindowSchema),
   balances: z.array(ProviderUsageBalanceSchema).optional(),
   details: z.array(ProviderUsageDetailSchema).optional(),
+  resetCredits: z.array(ProviderUsageResetCreditSchema).optional(),
   error: z.string().nullable().optional(),
 });
 
@@ -5858,6 +6381,17 @@ export const ProviderUsageListResponseMessageSchema = z.object({
     requestId: z.string(),
     fetchedAt: z.string(),
     providers: z.array(ProviderUsageSchema),
+  }),
+});
+
+export const ProviderUsageResetQuotaResponseMessageSchema = z.object({
+  type: z.literal("provider.usage.reset_quota.response"),
+  payload: z.object({
+    requestId: z.string(),
+    providerId: z.string(),
+    code: z.string(),
+    windowsReset: z.number().nullable(),
+    message: z.string().nullable(),
   }),
 });
 
@@ -6375,13 +6909,25 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProviderSubagentListResponseMessageSchema,
   ProviderSubagentTimelineResponseMessageSchema,
   ProviderSubagentUpdateMessageSchema,
+  BackgroundTasksListResponseMessageSchema,
+  BackgroundTasksUpdateMessageSchema,
+  BackgroundTasksStopResponseMessageSchema,
+  BackgroundTasksOutputGetResponseMessageSchema,
+  BackgroundTasksOutputSubscribeResponseMessageSchema,
+  BackgroundTasksOutputUnsubscribeResponseMessageSchema,
+  BackgroundTasksOutputUpdateMessageSchema,
+  ProviderHeartbeatsListResponseMessageSchema,
+  ProviderHeartbeatsUpdateMessageSchema,
+  ProviderHeartbeatsDeleteResponseMessageSchema,
   SetAgentTimelineSubscriptionResponseMessageSchema,
   AgentAttentionRequiredMessageSchema,
   AgentForkContextResponseMessageSchema,
+  AgentNativeForkResponseMessageSchema,
   CancelAgentResponseMessageSchema,
   ClearAgentAttentionResponseMessageSchema,
   WorkspaceCreateResponseSchema,
   WorkspaceClearAttentionResponseSchema,
+  WorkspaceMarkUnreadResponseSchema,
   SendAgentMessageResponseMessageSchema,
   SetVoiceModeResponseMessageSchema,
   DaemonGetStatusResponseSchema,
@@ -6394,6 +6940,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   DiagnosticsResponseSchema,
   GetDaemonConfigResponseMessageSchema,
   SetDaemonConfigResponseMessageSchema,
+  MetadataCustomEndpointListModelsResponseSchema,
+  ModelsDevLookupModelResponseSchema,
   ReadProjectConfigResponseMessageSchema,
   WriteProjectConfigResponseMessageSchema,
   SetAgentModeResponseMessageSchema,
@@ -6408,6 +6956,9 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProjectIconSetResponseSchema,
   ProjectRemoveResponseSchema,
   WorkspaceTitleSetResponseSchema,
+  WorkspaceTodosGetResponseSchema,
+  WorkspaceTodosSetResponseSchema,
+  WorkspaceTodosUpdateMessageSchema,
   WorkspacePinSetResponseSchema,
   WorkspaceRecoveryInspectResponseSchema,
   WorkspaceRecoveryRestoreResponseSchema,
@@ -6473,6 +7024,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   RefreshProvidersSnapshotResponseMessageSchema,
   ProviderDiagnosticResponseMessageSchema,
   ProviderUsageListResponseMessageSchema,
+  ProviderUsageResetQuotaResponseMessageSchema,
   ListCommandsResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
@@ -6499,6 +7051,17 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ScheduleDeleteResponseSchema,
   ScheduleRunOnceResponseSchema,
   ScheduleUpdateResponseSchema,
+  TaskListResponseSchema,
+  TaskListAllResponseSchema,
+  TaskCreateResponseSchema,
+  TaskUpdateResponseSchema,
+  TaskDeleteResponseSchema,
+  TaskAttachmentDownloadTokenResponseSchema,
+  UiStateGetResponseMessageSchema,
+  UiStateUpsertResponseMessageSchema,
+  UiStateClearResponseMessageSchema,
+  UiStateListResponseMessageSchema,
+  UiStateUpdatedMessageSchema,
   LoopRunResponseSchema,
   LoopListResponseSchema,
   LoopInspectResponseSchema,
@@ -6588,6 +7151,7 @@ export type AgentTimelineListPromptsResponseMessage = z.infer<
   typeof AgentTimelineListPromptsResponseMessageSchema
 >;
 export type AgentForkContextResponseMessage = z.infer<typeof AgentForkContextResponseMessageSchema>;
+export type AgentNativeForkResponseMessage = z.infer<typeof AgentNativeForkResponseMessageSchema>;
 export type CancelAgentResponseMessage = z.infer<typeof CancelAgentResponseMessageSchema>;
 export type SendAgentMessageResponseMessage = z.infer<typeof SendAgentMessageResponseMessageSchema>;
 export type SetVoiceModeResponseMessage = z.infer<typeof SetVoiceModeResponseMessageSchema>;
@@ -6653,8 +7217,12 @@ export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
 export type ProviderUsageWindow = z.infer<typeof ProviderUsageWindowSchema>;
 export type ProviderUsageBalance = z.infer<typeof ProviderUsageBalanceSchema>;
 export type ProviderUsageDetail = z.infer<typeof ProviderUsageDetailSchema>;
+export type ProviderUsageResetCredit = z.infer<typeof ProviderUsageResetCreditSchema>;
 export type ProviderUsageListResponseMessage = z.infer<
   typeof ProviderUsageListResponseMessageSchema
+>;
+export type ProviderUsageResetQuotaResponseMessage = z.infer<
+  typeof ProviderUsageResetQuotaResponseMessageSchema
 >;
 export type ChatCreateResponse = z.infer<typeof ChatCreateResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
@@ -6672,6 +7240,28 @@ export type ScheduleResumeResponse = z.infer<typeof ScheduleResumeResponseSchema
 export type ScheduleDeleteResponse = z.infer<typeof ScheduleDeleteResponseSchema>;
 export type ScheduleRunOnceResponse = z.infer<typeof ScheduleRunOnceResponseSchema>;
 export type ScheduleUpdateResponse = z.infer<typeof ScheduleUpdateResponseSchema>;
+export type TaskListResponse = z.infer<typeof TaskListResponseSchema>;
+export type TaskListAllResponse = z.infer<typeof TaskListAllResponseSchema>;
+export type TaskCreateResponse = z.infer<typeof TaskCreateResponseSchema>;
+export type TaskUpdateResponse = z.infer<typeof TaskUpdateResponseSchema>;
+export type TaskDeleteResponse = z.infer<typeof TaskDeleteResponseSchema>;
+export type TaskAttachmentDownloadTokenResponse = z.infer<
+  typeof TaskAttachmentDownloadTokenResponseSchema
+>;
+export type {
+  UiStateClearRequestMessage,
+  UiStateClearResponseMessage,
+  UiStateGetRequestMessage,
+  UiStateGetResponseMessage,
+  UiStateListRequestMessage,
+  UiStateListResponseMessage,
+  UiStateNamespace,
+  UiStateRecord,
+  UiStateReviewComment,
+  UiStateUpdatedMessage,
+  UiStateUpsertRequestMessage,
+  UiStateUpsertResponseMessage,
+} from "./ui-state/schemas.js";
 export type LoopRunResponse = z.infer<typeof LoopRunResponseSchema>;
 export type LoopListResponse = z.infer<typeof LoopListResponseSchema>;
 export type LoopInspectResponse = z.infer<typeof LoopInspectResponseSchema>;
@@ -6692,6 +7282,7 @@ export type FetchWorkspacesRequestMessage = z.infer<typeof FetchWorkspacesReques
 export type ProjectListRequestMessage = z.infer<typeof ProjectListRequestMessageSchema>;
 export type FetchAgentRequestMessage = z.infer<typeof FetchAgentRequestMessageSchema>;
 export type AgentForkContextRequestMessage = z.infer<typeof AgentForkContextRequestMessageSchema>;
+export type AgentNativeForkRequestMessage = z.infer<typeof AgentNativeForkRequestMessageSchema>;
 export type SendAgentMessageRequest = z.infer<typeof SendAgentMessageRequestSchema>;
 export type WaitForFinishRequest = z.infer<typeof WaitForFinishRequestSchema>;
 export type DictationStreamStartMessage = z.infer<typeof DictationStreamStartMessageSchema>;
@@ -6878,6 +7469,8 @@ export type ProjectGithubCloneRequest = z.infer<typeof ProjectGithubCloneRequest
 export type ProjectGithubCloneProtocol = z.infer<typeof ProjectGithubCloneProtocolSchema>;
 export type ArchiveWorkspaceRequest = z.infer<typeof ArchiveWorkspaceRequestSchema>;
 export type WorkspaceClearAttentionRequest = z.infer<typeof WorkspaceClearAttentionRequestSchema>;
+export type WorkspaceMarkUnreadRequest = z.infer<typeof WorkspaceMarkUnreadRequestSchema>;
+export type WorkspaceMarkUnreadResponse = z.infer<typeof WorkspaceMarkUnreadResponseSchema>;
 export type FileExplorerRequest = z.infer<typeof FileExplorerRequestSchema>;
 export type FileExplorerResponse = z.infer<typeof FileExplorerResponseSchema>;
 export type FileVersion = z.infer<typeof FileVersionSchema>;

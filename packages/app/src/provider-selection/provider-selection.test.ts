@@ -85,6 +85,36 @@ describe("combined model selector data", () => {
     });
   });
 
+  it("preserves capacity warning metadata for the model browser", () => {
+    const warningModel: AgentModelDefinition = {
+      provider: "claude",
+      id: "qwen3.8-max",
+      label: "Qwen 3.8 Max",
+      needsCapacityConfig: true,
+      modelsDevCandidates: [
+        {
+          providerId: "opencode-go",
+          matchedId: "qwen3.8-max",
+          contextWindowMaxTokens: 1_000_000,
+        },
+      ],
+    };
+    const [provider] = buildSelectableProviderSelectorProviders([
+      snapshotEntry({ provider: "claude", models: [warningModel] }),
+    ]);
+
+    expect(provider?.modelSelection).toMatchObject({
+      kind: "models",
+      rows: [
+        {
+          modelId: "qwen3.8-max",
+          needsCapacityConfig: true,
+          modelsDevCandidates: warningModel.modelsDevCandidates,
+        },
+      ],
+    });
+  });
+
   it("synthesizes a default model row for ready enabled providers without explicit models", () => {
     expect(
       buildSelectableProviderSelectorProviders([

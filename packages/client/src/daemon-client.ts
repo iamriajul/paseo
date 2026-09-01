@@ -83,6 +83,7 @@ import type {
   RefreshProvidersSnapshotResponseMessage,
   ProviderDiagnosticResponseMessage,
   ProviderUsageListResponseMessage,
+  ProviderUsageResetQuotaResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
   DaemonConfigReloadResponse,
@@ -103,6 +104,7 @@ import type {
   PaseoConfigRevision,
   WorkspaceCreateRequest,
   WorkspaceRecoveryState,
+  WorkspaceTodoItem,
   PluginListItem,
   PluginLogEntry,
   AgentSkillSelection,
@@ -128,10 +130,15 @@ import {
   asUint8Array,
   decodeFileTransferFrame,
   encodeFileTransferFrame,
+  decodeTcpTunnelFrame,
+  encodeTcpTunnelFrame,
   decodeTerminalStreamFrame,
   FileTransferOpcode,
+  TcpTunnelOpcode,
+  TcpTunnelTargetHost,
   TerminalStreamOpcode,
   type FileTransferFrame,
+  type TcpTunnelFrame,
 } from "@getpaseo/protocol/binary-frames/index";
 import {
   createRelayE2eeTransportFactory,
@@ -459,6 +466,7 @@ type GetProvidersSnapshotPayload = GetProvidersSnapshotResponseMessage["payload"
 type RefreshProvidersSnapshotPayload = RefreshProvidersSnapshotResponseMessage["payload"];
 type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
+type ProviderUsageResetQuotaPayload = ProviderUsageResetQuotaResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
 type DiagnosticsPayload = DiagnosticsResponse["payload"];
@@ -540,6 +548,43 @@ type ScheduleUpdatePayload = Extract<
   SessionOutboundMessage,
   { type: "schedule/update/response" }
 >["payload"];
+type TaskListPayload = Extract<SessionOutboundMessage, { type: "tasks.list.response" }>["payload"];
+type TaskListAllPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.list_all.response" }
+>["payload"];
+type TaskCreatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.create.response" }
+>["payload"];
+type TaskUpdatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.update.response" }
+>["payload"];
+type TaskDeletePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.delete.response" }
+>["payload"];
+type TaskAttachmentDownloadTokenPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.attachment.download_token.response" }
+>["payload"];
+type UiStateGetPayload = Extract<
+  SessionOutboundMessage,
+  { type: "ui_state.get.response" }
+>["payload"];
+type UiStateUpsertPayload = Extract<
+  SessionOutboundMessage,
+  { type: "ui_state.upsert.response" }
+>["payload"];
+type UiStateClearPayload = Extract<
+  SessionOutboundMessage,
+  { type: "ui_state.clear.response" }
+>["payload"];
+type UiStateListPayload = Extract<
+  SessionOutboundMessage,
+  { type: "ui_state.list.response" }
+>["payload"];
 export type FetchAgentTimelinePayload = FetchAgentTimelineResponseMessage["payload"];
 export type AgentForkContextPayload = AgentForkContextResponseMessage["payload"];
 
@@ -582,6 +627,35 @@ export interface FetchProviderSubagentTimelineOptions {
   requestId?: string;
   timeout?: number;
 }
+
+export type BackgroundTasksListPayload = Extract<
+  SessionOutboundMessage,
+  { type: "agent.background_tasks.list.response" }
+>["payload"];
+export type BackgroundTasksStopPayload = Extract<
+  SessionOutboundMessage,
+  { type: "agent.background_tasks.stop.response" }
+>["payload"];
+export type BackgroundTasksOutputGetPayload = Extract<
+  SessionOutboundMessage,
+  { type: "agent.background_tasks.output.get.response" }
+>["payload"];
+export type BackgroundTasksOutputSubscribePayload = Extract<
+  SessionOutboundMessage,
+  { type: "agent.background_tasks.output.subscribe.response" }
+>["payload"];
+export type BackgroundTasksOutputUnsubscribePayload = Extract<
+  SessionOutboundMessage,
+  { type: "agent.background_tasks.output.unsubscribe.response" }
+>["payload"];
+export type ProviderHeartbeatsListPayload = Extract<
+  SessionOutboundMessage,
+  { type: "agent.provider_heartbeats.list.response" }
+>["payload"];
+export type ProviderHeartbeatsDeletePayload = Extract<
+  SessionOutboundMessage,
+  { type: "agent.provider_heartbeats.delete.response" }
+>["payload"];
 
 // COMPAT(daemon-client-object-options): added in v0.1.102; remove after
 // 2026-12-29 once SDK callers have migrated to object parameters.
@@ -772,6 +846,33 @@ export interface UpdateScheduleOptions {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  requestId?: string;
+}
+export type TaskUploadAttachmentInput = NonNullable<FileUploadResult["file"]>;
+export interface CreateTaskOptions {
+  projectId: string;
+  title: string;
+  description: string;
+  attachments?: readonly TaskUploadAttachmentInput[];
+  requestId?: string;
+}
+export interface UpdateTaskOptions {
+  projectId: string;
+  taskId: string;
+  title?: string;
+  description?: string;
+  status?: "active" | "completed";
+  requestId?: string;
+}
+export interface DeleteTaskOptions {
+  projectId: string;
+  taskId: string;
+  requestId?: string;
+}
+export interface TaskAttachmentDownloadTokenOptions {
+  projectId: string;
+  taskId: string;
+  attachmentId: string;
   requestId?: string;
 }
 export interface RenameBranchInput {
@@ -1058,6 +1159,28 @@ interface PingProbe {
   drivesLivenessFailure: boolean;
 }
 
+export interface TcpTunnelStream {
+  readonly streamId: number;
+  write(data: Uint8Array | ArrayBuffer | string): void;
+  close(reason?: string): void;
+  onData(handler: (data: Uint8Array) => void): () => void;
+  onClose(handler: (reason: string) => void): () => void;
+}
+
+export type TcpTunnelHost = "ipv4" | "ipv6";
+
+interface TcpTunnelClientStreamState {
+  streamId: number;
+  status: "opening" | "open" | "closed";
+  dataHandlers: Set<(data: Uint8Array) => void>;
+  closeHandlers: Set<(reason: string) => void>;
+  timeoutHandle: ReturnType<typeof setTimeout>;
+  resolve: (stream: TcpTunnelStream) => void;
+  reject: (error: Error) => void;
+}
+
+const DEFAULT_TCP_TUNNEL_OPEN_TIMEOUT_MS = 10_000;
+
 export class DaemonClient {
   private transport: DaemonTransport | null = null;
   private transportCleanup: Array<() => void> = [];
@@ -1096,6 +1219,8 @@ export class DaemonClient {
   private pendingBinaryFileReads = new Map<string, PendingBinaryFileRead>();
   private activeBinaryFileTransfers = new Map<string, BinaryFileTransferState>();
   private completedBinaryFileReads = new Map<string, FileReadResult>();
+  private tcpTunnelStreams = new Map<number, TcpTunnelClientStreamState>();
+  private nextTcpTunnelStreamId = 1;
   private logger: Logger;
   private pendingSendQueue: PendingSend[] = [];
   private readonly logConnectionPath: "direct" | "relay";
@@ -1371,6 +1496,7 @@ export class DaemonClient {
     this.clearWaiters(new Error("Daemon client closed"));
     this.rejectPendingSendQueue(new Error("Daemon client closed"));
     this.rejectPingProbe(new Error("Daemon client closed"));
+    this.closeAllTcpTunnelStreams(new Error("Daemon client closed."));
     this.terminalStreams.clearSlots();
     this.fileSubscriptions.clear();
     this.lastServerInfoMessage = null;
@@ -1428,6 +1554,53 @@ export class DaemonClient {
 
   getLastLivenessRttMs(): number | null {
     return this.lastLivenessRttMs;
+  }
+
+  openTcpTunnel(
+    port: number,
+    options?: { timeoutMs?: number; host?: TcpTunnelHost },
+  ): Promise<TcpTunnelStream> {
+    if (!this.isConnected) {
+      return Promise.reject(new Error("Daemon client is not connected."));
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return Promise.reject(new RangeError("TCP tunnel port must be between 1 and 65535."));
+    }
+
+    const streamId = this.allocateTcpTunnelStreamId();
+    const timeoutMs = Math.max(1, options?.timeoutMs ?? DEFAULT_TCP_TUNNEL_OPEN_TIMEOUT_MS);
+
+    return new Promise<TcpTunnelStream>((resolve, reject) => {
+      const state: TcpTunnelClientStreamState = {
+        streamId,
+        status: "opening",
+        dataHandlers: new Set(),
+        closeHandlers: new Set(),
+        timeoutHandle: setTimeout(() => {
+          this.closeTcpTunnelStream(streamId, "TCP tunnel open timed out.", {
+            notifyDaemon: true,
+            notifyHandlers: false,
+          });
+        }, timeoutMs),
+        resolve,
+        reject,
+      };
+      this.tcpTunnelStreams.set(streamId, state);
+      try {
+        this.sendBinaryFrame(
+          encodeTcpTunnelFrame({
+            opcode: TcpTunnelOpcode.Open,
+            streamId,
+            port,
+            targetHost: this.encodeTcpTunnelTargetHost(options?.host),
+          }),
+        );
+      } catch (error) {
+        this.tcpTunnelStreams.delete(streamId);
+        clearTimeout(state.timeoutHandle);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   // ============================================================================
@@ -1849,6 +2022,32 @@ export class DaemonClient {
     });
     if (!response.success) {
       throw new Error(response.error ?? "Failed to clear workspace attention");
+    }
+  }
+
+  async markWorkspaceUnread(workspaceId: string | string[]): Promise<void> {
+    const requestId = this.createRequestId();
+    const message = SessionInboundMessageSchema.parse({
+      type: "workspace.mark_unread.request",
+      workspaceId,
+      requestId,
+    });
+    const response = await this.sendRequest({
+      requestId,
+      message,
+      options: { skipQueue: true },
+      select: (msg) => {
+        if (msg.type !== "workspace.mark_unread.response") {
+          return null;
+        }
+        if (msg.payload.requestId !== requestId) {
+          return null;
+        }
+        return msg.payload;
+      },
+    });
+    if (!response.success) {
+      throw new Error(response.error ?? "Failed to mark workspace as unread");
     }
   }
 
@@ -2694,6 +2893,44 @@ export class DaemonClient {
     return { title: payload.title };
   }
 
+  async getWorkspaceTodos(
+    workspaceId: string,
+    requestId?: string,
+  ): Promise<{ todos: WorkspaceTodoItem[] }> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.todos.get.response">({
+        requestId,
+        message: {
+          type: "workspace.todos.get.request",
+          workspaceId,
+        },
+      });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return { todos: payload.todos };
+  }
+
+  async setWorkspaceTodos(
+    workspaceId: string,
+    todos: WorkspaceTodoItem[],
+    requestId?: string,
+  ): Promise<{ todos: WorkspaceTodoItem[] }> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.todos.set.response">({
+        requestId,
+        message: {
+          type: "workspace.todos.set.request",
+          workspaceId,
+          todos,
+        },
+      });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return { todos: payload.todos };
+  }
+
   async setWorkspacePinned(
     workspaceId: string,
     pinned: boolean,
@@ -2966,6 +3203,208 @@ export class DaemonClient {
     return payload;
   }
 
+  async listBackgroundTasks(
+    parentAgentId: string,
+    options: { requestId?: string; timeout?: number } = {},
+  ): Promise<BackgroundTasksListPayload> {
+    const requestId = this.createRequestId(options.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.background_tasks.list.request",
+      parentAgentId,
+      requestId,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      timeout: options.timeout,
+      options: { skipQueue: true },
+      select: (response) =>
+        response.type === "agent.background_tasks.list.response" &&
+        response.payload.requestId === requestId
+          ? response.payload
+          : null,
+    });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return payload;
+  }
+
+  async stopBackgroundTask(
+    parentAgentId: string,
+    taskId: string,
+    options: { requestId?: string; timeout?: number } = {},
+  ): Promise<BackgroundTasksStopPayload> {
+    const requestId = this.createRequestId(options.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.background_tasks.stop.request",
+      parentAgentId,
+      taskId,
+      requestId,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      timeout: options.timeout,
+      options: { skipQueue: true },
+      select: (response) =>
+        response.type === "agent.background_tasks.stop.response" &&
+        response.payload.requestId === requestId
+          ? response.payload
+          : null,
+    });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return payload;
+  }
+
+  async getBackgroundTaskOutput(
+    parentAgentId: string,
+    taskId: string,
+    options: {
+      cursor?: number;
+      maxBytes?: number;
+      requestId?: string;
+      timeout?: number;
+    } = {},
+  ): Promise<BackgroundTasksOutputGetPayload> {
+    const requestId = this.createRequestId(options.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.background_tasks.output.get.request",
+      parentAgentId,
+      taskId,
+      requestId,
+      ...(typeof options.cursor === "number" ? { cursor: options.cursor } : {}),
+      ...(typeof options.maxBytes === "number" ? { maxBytes: options.maxBytes } : {}),
+    });
+    return this.sendRequest({
+      requestId,
+      message,
+      timeout: options.timeout,
+      options: { skipQueue: true },
+      select: (response) =>
+        response.type === "agent.background_tasks.output.get.response" &&
+        response.payload.requestId === requestId
+          ? response.payload
+          : null,
+    });
+  }
+
+  async subscribeBackgroundTaskOutput(
+    parentAgentId: string,
+    taskId: string,
+    options: { requestId?: string; timeout?: number } = {},
+  ): Promise<BackgroundTasksOutputSubscribePayload> {
+    const requestId = this.createRequestId(options.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.background_tasks.output.subscribe.request",
+      parentAgentId,
+      taskId,
+      requestId,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      timeout: options.timeout,
+      options: { skipQueue: true },
+      select: (response) =>
+        response.type === "agent.background_tasks.output.subscribe.response" &&
+        response.payload.requestId === requestId
+          ? response.payload
+          : null,
+    });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return payload;
+  }
+
+  async unsubscribeBackgroundTaskOutput(
+    parentAgentId: string,
+    taskId: string,
+    options: { requestId?: string; timeout?: number } = {},
+  ): Promise<BackgroundTasksOutputUnsubscribePayload> {
+    const requestId = this.createRequestId(options.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.background_tasks.output.unsubscribe.request",
+      parentAgentId,
+      taskId,
+      requestId,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      timeout: options.timeout,
+      options: { skipQueue: true },
+      select: (response) =>
+        response.type === "agent.background_tasks.output.unsubscribe.response" &&
+        response.payload.requestId === requestId
+          ? response.payload
+          : null,
+    });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return payload;
+  }
+
+  async listProviderHeartbeats(
+    parentAgentId: string,
+    options: { requestId?: string; timeout?: number } = {},
+  ): Promise<ProviderHeartbeatsListPayload> {
+    const requestId = this.createRequestId(options.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.provider_heartbeats.list.request",
+      parentAgentId,
+      requestId,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      timeout: options.timeout,
+      options: { skipQueue: true },
+      select: (response) =>
+        response.type === "agent.provider_heartbeats.list.response" &&
+        response.payload.requestId === requestId
+          ? response.payload
+          : null,
+    });
+    if (payload.error) {
+      throw new Error(payload.error);
+    }
+    return payload;
+  }
+
+  async deleteProviderHeartbeat(
+    parentAgentId: string,
+    taskId: string,
+    options: { requestId?: string; timeout?: number } = {},
+  ): Promise<ProviderHeartbeatsDeletePayload> {
+    const requestId = this.createRequestId(options.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.provider_heartbeats.delete.request",
+      parentAgentId,
+      taskId,
+      requestId,
+    });
+    // Return full payload even when error is non-null: server may remove the
+    // row from Paseo's view while reporting an advisory cancel limitation
+    // ("Provider cancel is not available; removed from Paseo view only").
+    // Callers can toast the advisory and still refresh the list.
+    return this.sendRequest({
+      requestId,
+      message,
+      timeout: options.timeout,
+      options: { skipQueue: true },
+      select: (response) =>
+        response.type === "agent.provider_heartbeats.delete.response" &&
+        response.payload.requestId === requestId
+          ? response.payload
+          : null,
+    });
+  }
+
   async setAgentTimelineSubscription(agentIds: string[]): Promise<void> {
     // COMPAT(selectiveAgentTimeline): added in v0.1.106. Old daemons keep their
     // legacy global stream and do not understand this RPC. Remove after
@@ -2991,6 +3430,34 @@ export class DaemonClient {
           return null;
         }
         return response.payload.requestId === requestId ? response.payload : null;
+      },
+    });
+  }
+
+  async nativeForkAgent(
+    agentId: string,
+    options: {
+      boundaryCursor?: { epoch: string; seq: number };
+      boundaryMessageId?: string;
+      target?: "tab" | "workspace";
+      requestId?: string;
+    } = {},
+  ): Promise<{
+    requestId: string;
+    sourceAgentId: string;
+    accepted: boolean;
+    error: string | null;
+    agentId?: string;
+    workspaceId?: string;
+  }> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "agent.native_fork.request",
+        agentId,
+        ...(options.boundaryCursor ? { boundaryCursor: options.boundaryCursor } : {}),
+        ...(options.boundaryMessageId ? { boundaryMessageId: options.boundaryMessageId } : {}),
+        ...(options.target ? { target: options.target } : {}),
       },
     });
   }
@@ -4541,6 +5008,155 @@ export class DaemonClient {
     });
   }
 
+  async listTasks(projectId: string, requestId?: string): Promise<TaskListPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "tasks.list.request",
+        projectId,
+      },
+    });
+  }
+
+  async listAllTasks(requestId?: string): Promise<TaskListAllPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "tasks.list_all.request",
+      },
+    });
+  }
+
+  async createTask(options: CreateTaskOptions): Promise<TaskCreatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "tasks.create.request",
+        projectId: options.projectId,
+        title: options.title,
+        description: options.description,
+        ...(options.attachments ? { attachments: options.attachments } : {}),
+      },
+    });
+  }
+
+  async updateTask(options: UpdateTaskOptions): Promise<TaskUpdatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "tasks.update.request",
+        projectId: options.projectId,
+        taskId: options.taskId,
+        ...(options.title !== undefined ? { title: options.title } : {}),
+        ...(options.description !== undefined ? { description: options.description } : {}),
+        ...(options.status !== undefined ? { status: options.status } : {}),
+      },
+    });
+  }
+
+  async deleteTask(options: DeleteTaskOptions): Promise<TaskDeletePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "tasks.delete.request",
+        projectId: options.projectId,
+        taskId: options.taskId,
+      },
+    });
+  }
+
+  async requestTaskAttachmentDownloadToken(
+    options: TaskAttachmentDownloadTokenOptions,
+  ): Promise<TaskAttachmentDownloadTokenPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "tasks.attachment.download_token.request",
+        projectId: options.projectId,
+        taskId: options.taskId,
+        attachmentId: options.attachmentId,
+      },
+    });
+  }
+
+  async getUiState(options: {
+    namespace: "composer" | "review";
+    key: string;
+    requestId?: string;
+  }): Promise<UiStateGetPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "ui_state.get.request",
+        namespace: options.namespace,
+        key: options.key,
+      },
+    });
+  }
+
+  async upsertUiState(options: {
+    namespace: "composer" | "review";
+    key: string;
+    record: {
+      text?: string;
+      attachments?: Array<Record<string, unknown>>;
+      lifecycle?: "active" | "abandoned" | "sent";
+      comments?: Array<{
+        id: string;
+        filePath: string;
+        side: "old" | "new";
+        lineNumber: number;
+        body: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+      updatedAt: string;
+    };
+    requestId?: string;
+  }): Promise<UiStateUpsertPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "ui_state.upsert.request",
+        namespace: options.namespace,
+        key: options.key,
+        record: options.record,
+      },
+    });
+  }
+
+  async clearUiState(options: {
+    namespace: "composer" | "review";
+    key: string;
+    updatedAt: string;
+    requestId?: string;
+  }): Promise<UiStateClearPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "ui_state.clear.request",
+        namespace: options.namespace,
+        key: options.key,
+        updatedAt: options.updatedAt,
+      },
+    });
+  }
+
+  async listUiState(options: {
+    namespace: "composer" | "review";
+    keyPrefix?: string;
+    requestId?: string;
+  }): Promise<UiStateListPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "ui_state.list.request",
+        namespace: options.namespace,
+        ...(options.keyPrefix !== undefined ? { keyPrefix: options.keyPrefix } : {}),
+      },
+    });
+  }
+
   async requestProjectIcon(
     cwd: string,
     requestId?: string,
@@ -4741,6 +5357,86 @@ export class DaemonClient {
     });
   }
 
+  async listMetadataCustomEndpointModels(
+    input: { baseUrl?: string; apiKey?: string } = {},
+    requestId?: string,
+  ): Promise<{
+    models: Array<{ id: string; name?: string }>;
+    error: null | { code: string; message: string };
+  }> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "metadataGeneration.customEndpoint.listModels.request",
+        ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
+        ...(input.apiKey !== undefined ? { apiKey: input.apiKey } : {}),
+      },
+      responseType: "metadataGeneration.customEndpoint.listModels.response",
+    });
+    return {
+      models: payload.models,
+      error: payload.error,
+    };
+  }
+
+  async lookupModelsDevModel(
+    modelId: string,
+    requestId?: string,
+  ): Promise<{
+    found: boolean;
+    modelId: string;
+    matchedId?: string;
+    name?: string;
+    contextWindowMaxTokens?: number;
+    maxOutputTokens?: number;
+    providerId?: string;
+    inputModalities?: string[];
+    outputModalities?: string[];
+    capabilities?: string[];
+    candidates?: Array<{
+      providerId: string;
+      matchedId: string;
+      name?: string;
+      contextWindowMaxTokens: number;
+      maxOutputTokens?: number;
+      inputModalities?: string[];
+      outputModalities?: string[];
+      capabilities?: string[];
+    }>;
+    error?: string | null;
+  }> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "models.dev.lookup_model.request",
+        modelId,
+      },
+      responseType: "models.dev.lookup_model.response",
+    });
+    return {
+      found: payload.found,
+      modelId: payload.modelId,
+      ...(payload.matchedId !== undefined ? { matchedId: payload.matchedId } : {}),
+      ...(payload.name !== undefined ? { name: payload.name } : {}),
+      ...(payload.contextWindowMaxTokens !== undefined
+        ? { contextWindowMaxTokens: payload.contextWindowMaxTokens }
+        : {}),
+      ...(payload.maxOutputTokens !== undefined
+        ? { maxOutputTokens: payload.maxOutputTokens }
+        : {}),
+      ...(payload.providerId !== undefined ? { providerId: payload.providerId } : {}),
+      ...(payload.inputModalities !== undefined
+        ? { inputModalities: payload.inputModalities }
+        : {}),
+      ...(payload.outputModalities !== undefined
+        ? { outputModalities: payload.outputModalities }
+        : {}),
+      ...(payload.capabilities !== undefined ? { capabilities: payload.capabilities } : {}),
+      ...(payload.candidates !== undefined ? { candidates: payload.candidates } : {}),
+      ...(payload.error !== undefined ? { error: payload.error } : {}),
+    };
+  }
+
   sendBrowserAutomationExecuteResponse(response: BrowserAutomationExecuteResponse): void {
     this.sendSessionMessageStrict(response);
   }
@@ -4801,12 +5497,30 @@ export class DaemonClient {
     });
   }
 
-  async listProviderUsage(options?: { requestId?: string }): Promise<ProviderUsageListPayload> {
+  async listProviderUsage(options?: {
+    requestId?: string;
+    forceRefresh?: boolean;
+  }): Promise<ProviderUsageListPayload> {
     return this.sendNamespacedCorrelatedSessionRequest({
       requestId: options?.requestId,
       message: {
         type: "provider.usage.list.request",
+        ...(options?.forceRefresh ? { forceRefresh: true } : {}),
       },
+    });
+  }
+
+  async resetProviderUsageQuota(options: {
+    providerId: string;
+    requestId?: string;
+  }): Promise<ProviderUsageResetQuotaPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "provider.usage.reset_quota.request",
+        providerId: options.providerId,
+      },
+      timeout: 60_000,
     });
   }
 
@@ -5724,6 +6438,14 @@ export class DaemonClient {
       return true;
     }
 
+    const tunnelFrame = decodeTcpTunnelFrame(rawBytes);
+    if (tunnelFrame) {
+      this.consecutiveLivenessFailures = 0;
+      this.handleTcpTunnelFrame(tunnelFrame);
+      this.runtimeMetrics?.recordBinaryFrame("other", rawBytes.byteLength, 0);
+      return true;
+    }
+
     const frame = decodeTerminalStreamFrame(rawBytes);
     if (!frame) {
       return false;
@@ -5828,6 +6550,193 @@ export class DaemonClient {
     });
   }
 
+  private handleTcpTunnelFrame(frame: TcpTunnelFrame): void {
+    const state = this.tcpTunnelStreams.get(frame.streamId);
+    if (!state || state.status === "closed") {
+      return;
+    }
+
+    if (frame.opcode === TcpTunnelOpcode.OpenResult) {
+      if (state.status !== "opening") {
+        return;
+      }
+      clearTimeout(state.timeoutHandle);
+      if (!frame.ok) {
+        state.status = "closed";
+        this.tcpTunnelStreams.delete(frame.streamId);
+        state.reject(new Error(frame.message || "TCP tunnel open failed."));
+        return;
+      }
+      state.status = "open";
+      state.resolve(this.createTcpTunnelStreamHandle(state));
+      return;
+    }
+
+    if (frame.opcode === TcpTunnelOpcode.Data) {
+      if (state.status !== "open") {
+        return;
+      }
+      for (const handler of state.dataHandlers) {
+        try {
+          handler(frame.payload);
+        } catch {
+          // no-op
+        }
+      }
+      return;
+    }
+
+    if (frame.opcode === TcpTunnelOpcode.Close) {
+      this.finishTcpTunnelStream(frame.streamId, frame.reason || "TCP tunnel closed.");
+    }
+  }
+
+  private createTcpTunnelStreamHandle(state: TcpTunnelClientStreamState): TcpTunnelStream {
+    const streamId = state.streamId;
+    return {
+      streamId,
+      write: (data) => {
+        const current = this.tcpTunnelStreams.get(streamId);
+        if (!current || current.status !== "open") {
+          return;
+        }
+        this.sendBinaryFrame(
+          encodeTcpTunnelFrame({
+            opcode: TcpTunnelOpcode.Data,
+            streamId,
+            payload: data,
+          }),
+        );
+      },
+      close: (reason) => {
+        this.closeTcpTunnelStream(streamId, reason ?? "TCP tunnel closed by client.", {
+          notifyDaemon: true,
+          notifyHandlers: false,
+        });
+      },
+      onData: (handler) => {
+        const current = this.tcpTunnelStreams.get(streamId);
+        if (!current || current.status === "closed") {
+          return () => {};
+        }
+        current.dataHandlers.add(handler);
+        return () => {
+          current.dataHandlers.delete(handler);
+        };
+      },
+      onClose: (handler) => {
+        const current = this.tcpTunnelStreams.get(streamId);
+        if (!current || current.status === "closed") {
+          return () => {};
+        }
+        current.closeHandlers.add(handler);
+        return () => {
+          current.closeHandlers.delete(handler);
+        };
+      },
+    };
+  }
+
+  private closeTcpTunnelStream(
+    streamId: number,
+    reason: string,
+    options: { notifyDaemon: boolean; notifyHandlers: boolean },
+  ): void {
+    const state = this.tcpTunnelStreams.get(streamId);
+    if (!state || state.status === "closed") {
+      return;
+    }
+    const wasOpening = state.status === "opening";
+    state.status = "closed";
+    this.tcpTunnelStreams.delete(streamId);
+    clearTimeout(state.timeoutHandle);
+
+    if (options.notifyDaemon && this.isConnected) {
+      try {
+        this.sendBinaryFrame(
+          encodeTcpTunnelFrame({
+            opcode: TcpTunnelOpcode.Close,
+            streamId,
+            reason,
+          }),
+        );
+      } catch {
+        // The local stream is already closing; reconnect logic will handle transport state.
+      }
+    }
+
+    if (wasOpening) {
+      state.reject(new Error(reason));
+    }
+    if (options.notifyHandlers) {
+      for (const handler of state.closeHandlers) {
+        try {
+          handler(reason);
+        } catch {
+          // no-op
+        }
+      }
+    }
+  }
+
+  private finishTcpTunnelStream(streamId: number, reason: string): void {
+    const state = this.tcpTunnelStreams.get(streamId);
+    if (!state || state.status === "closed") {
+      return;
+    }
+    const wasOpening = state.status === "opening";
+    state.status = "closed";
+    this.tcpTunnelStreams.delete(streamId);
+    clearTimeout(state.timeoutHandle);
+    if (wasOpening) {
+      state.reject(new Error(reason));
+      return;
+    }
+    for (const handler of state.closeHandlers) {
+      try {
+        handler(reason);
+      } catch {
+        // no-op
+      }
+    }
+  }
+
+  private closeAllTcpTunnelStreams(error: Error): void {
+    for (const streamId of Array.from(this.tcpTunnelStreams.keys())) {
+      const state = this.tcpTunnelStreams.get(streamId);
+      if (!state) {
+        continue;
+      }
+      state.status = "closed";
+      this.tcpTunnelStreams.delete(streamId);
+      clearTimeout(state.timeoutHandle);
+      state.reject(error);
+      for (const handler of state.closeHandlers) {
+        try {
+          handler(error.message);
+        } catch {
+          // no-op
+        }
+      }
+    }
+  }
+
+  private allocateTcpTunnelStreamId(): number {
+    for (let attempts = 0; attempts < 0xffff; attempts += 1) {
+      const streamId = this.nextTcpTunnelStreamId;
+      this.nextTcpTunnelStreamId =
+        this.nextTcpTunnelStreamId >= 0xffffffff ? 1 : this.nextTcpTunnelStreamId + 1;
+      if (!this.tcpTunnelStreams.has(streamId)) {
+        return streamId;
+      }
+    }
+    throw new Error("No TCP tunnel stream ids are available.");
+  }
+
+  private encodeTcpTunnelTargetHost(host: TcpTunnelHost | undefined): TcpTunnelTargetHost {
+    return host === "ipv6" ? TcpTunnelTargetHost.Ipv6Loopback : TcpTunnelTargetHost.Ipv4Loopback;
+  }
+
   private updateConnectionState(
     next: ConnectionState,
     metadata?: { event: string; reason?: string; reasonCode?: string },
@@ -5886,6 +6795,7 @@ export class DaemonClient {
     this.clearWaiters(new Error(reason ?? "Connection lost"));
     this.rejectPendingSendQueue(new Error(reason ?? "Connection lost"));
     this.rejectPingProbe(new Error(reason ?? "Connection lost"));
+    this.closeAllTcpTunnelStreams(new Error(reason ?? "Connection lost"));
     this.terminalStreams.clearSlots();
     this.lastServerInfoMessage = null;
 

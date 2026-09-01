@@ -10,7 +10,9 @@ describe("getBuiltInLaunchOrder", () => {
       "diff",
       "files",
       "browser",
+      "codeServer",
       "pullRequest",
+      "todo",
     ]);
   });
 
@@ -22,7 +24,9 @@ describe("getBuiltInLaunchOrder", () => {
       "terminal",
       "agent",
       "browser",
+      "codeServer",
       "pullRequest",
+      "todo",
     ]);
   });
 });

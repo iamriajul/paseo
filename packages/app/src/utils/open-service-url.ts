@@ -8,12 +8,20 @@ import { i18n } from "@/i18n/i18next";
 import { openExternalUrl } from "@/utils/open-external-url";
 
 export interface OpenServiceUrlOptions {
-  openInApp?: (url: string) => void;
+  openInApp?: (url: string) => boolean | void;
 }
 
 export async function openServiceUrl(url: string, options?: OpenServiceUrlOptions): Promise<void> {
   const openInApp = options?.openInApp;
-  if (!openInApp || !isElectronRuntime()) {
+  if (!openInApp) {
+    await openExternalUrl(url);
+    return;
+  }
+
+  if (!isElectronRuntime()) {
+    if (openInApp(url) !== false) {
+      return;
+    }
     await openExternalUrl(url);
     return;
   }

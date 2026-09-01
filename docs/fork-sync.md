@@ -67,6 +67,29 @@ While iterating, run subsets: `npm run fork:verify -- <id> <id>`, or `-- --list`
 
 **Gotcha:** in a fresh worktree, `node_modules/electron` has no binary, so `browser-localhost-tunnel` fails with `Electron failed to install correctly`. That is the environment, not the decision. Run that one from the main checkout.
 
+## The Nix hash always needs fixing
+
+`nix/npm-deps.hash` pins a hash of the npm dependency closure. The fork changes
+`package.json` and files under `packages/server/` and `packages/cli/`, all of which feed
+that derivation, so the fork's hash is never the same as upstream's. A rebase brings
+upstream's value across and it is always wrong:
+
+```
+error: hash mismatch in fixed-output derivation '/nix/store/…-npm-deps.drv'
+```
+
+Regenerate it locally and commit the result as its own card:
+
+```bash
+./scripts/update-nix.sh
+```
+
+Do not wait for the `Nix Update Hash` workflow to fix it. That workflow needs
+`PASEO_BOT_APP_ID` and `PASEO_BOT_APP_PRIVATE_KEY` — upstream's GitHub App credentials,
+which this fork does not have — so it fails on every run with
+`Input required and not supplied: app-id`. Until those secrets exist, the hash is yours
+to maintain, and `build-desktop-darwin` fails on every sync PR that skips this step.
+
 ## What not to do
 
 - Merge. This fork rebases onto release tags. A merge commit in `main` means the queue is broken.

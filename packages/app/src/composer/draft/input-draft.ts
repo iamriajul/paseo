@@ -20,8 +20,17 @@ import {
   resolveEffectiveComposerThinkingOptionId,
   type ProviderSelectionState,
 } from "@/provider-selection/provider-selection";
+import { useHostFeature } from "@/runtime/host-features";
+import { getHostRuntimeStore, useHostRuntimeConnectionStatus } from "@/runtime/host-runtime";
 import { useDraftStore } from "@/stores/draft-store";
 import { toDraftInputIfReady } from "@/stores/draft-store/state";
+import {
+  clearComposerOnHost,
+  handleUiStateUpdatedForComposer,
+  hydrateComposerFromHost,
+  scheduleComposerHostUpsert,
+} from "@/ui-state/composer-host-sync";
+import { toWireComposerKey } from "@/ui-state/keys";
 import { AfterPaintPublication } from "@/composer/after-paint-publication";
 import { isWeb } from "@/constants/platform";
 
@@ -82,6 +91,21 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
       }),
     [formState.selectedServerId, input.draftKey],
   );
+  const hostServerId = useMemo(() => {
+    // Prefer explicit composer server; fall back to parsing agent:/draft: keys.
+    const fromComposer = composerOptions?.initialServerId?.trim();
+    if (fromComposer) {
+      return fromComposer;
+    }
+    const parts = draftKey.split(":");
+    if ((parts[0] === "agent" || parts[0] === "draft") && parts[1]) {
+      return parts[1];
+    }
+    return formState.selectedServerId?.trim() || null;
+  }, [composerOptions?.initialServerId, draftKey, formState.selectedServerId]);
+  const supportsUiState = useHostFeature(hostServerId, "uiState");
+  const connectionStatus = useHostRuntimeConnectionStatus(hostServerId ?? "");
+  const isHostOnline = connectionStatus === "online";
   const draftRecord = useDraftStore((state) => state.drafts[draftKey]);
   const draft = useMemo(() => toDraftInputIfReady(draftRecord), [draftRecord]);
   const attachmentFocusRequestId = useDraftStore(
@@ -105,11 +129,28 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
       const next = update(current);
       if (!hasDraftContent(next)) {
         store.clearDraftInput({ draftKey, lifecycle: "abandoned" });
+        if (supportsUiState && hostServerId) {
+          const client = getHostRuntimeStore().getClient(hostServerId);
+          if (client) {
+            void clearComposerOnHost({ client, clientDraftKey: draftKey });
+          }
+        }
         return;
       }
       store.saveDraftInput({ draftKey, draft: next });
+      if (supportsUiState && hostServerId) {
+        const client = getHostRuntimeStore().getClient(hostServerId);
+        if (client) {
+          scheduleComposerHostUpsert({
+            client,
+            clientDraftKey: draftKey,
+            text: next.text,
+            attachments: next.attachments,
+          });
+        }
+      }
     },
-    [draftKey],
+    [draftKey, hostServerId, supportsUiState],
   );
 
   const textPublication = useMemo(
@@ -154,8 +195,14 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
     (lifecycle: "sent" | "abandoned") => {
       textPublication.cancel();
       useDraftStore.getState().clearDraftInput({ draftKey, lifecycle });
+      if (supportsUiState && hostServerId) {
+        const client = getHostRuntimeStore().getClient(hostServerId);
+        if (client) {
+          void clearComposerOnHost({ client, clientDraftKey: draftKey });
+        }
+      }
     },
-    [draftKey, textPublication],
+    [draftKey, hostServerId, supportsUiState, textPublication],
   );
 
   useEffect(() => {
@@ -186,6 +233,16 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
     let cancelled = false;
     void (async () => {
       await useDraftStore.getState().hydrateDraftInput({ draftKey });
+      if (supportsUiState && isHostOnline && hostServerId && toWireComposerKey(draftKey)) {
+        const client = getHostRuntimeStore().getClient(hostServerId);
+        if (client) {
+          try {
+            await hydrateComposerFromHost({ client, clientDraftKey: draftKey });
+          } catch (error) {
+            console.warn("[ui-state] composer hydrate failed", error);
+          }
+        }
+      }
       if (!cancelled) {
         setTextReplacementRevision((revision) => revision + 1);
         setHydratedDraftKey(draftKey);
@@ -195,7 +252,27 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
     return () => {
       cancelled = true;
     };
-  }, [draftKey]);
+  }, [draftKey, hostServerId, isHostOnline, supportsUiState]);
+
+  useEffect(() => {
+    if (!supportsUiState || !isHostOnline || !hostServerId) {
+      return;
+    }
+    const client = getHostRuntimeStore().getClient(hostServerId);
+    if (!client) {
+      return;
+    }
+    const wireKey = toWireComposerKey(draftKey);
+    if (!wireKey) {
+      return;
+    }
+    return client.on("ui_state.updated", (message) => {
+      handleUiStateUpdatedForComposer({
+        message,
+        resolveClientDraftKeys: (key) => (key === wireKey ? [draftKey] : []),
+      });
+    });
+  }, [draftKey, hostServerId, isHostOnline, supportsUiState]);
 
   const lockedWorkingDir = composerOptions?.lockedWorkingDir?.trim() ?? "";
   useEffect(() => {

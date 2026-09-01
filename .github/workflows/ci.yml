@@ -18,6 +18,81 @@ env:
   ONNXRUNTIME_NODE_INSTALL: skip
 
 jobs:
+  android-browser-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.android_browser }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            android_browser:
+              - '.github/workflows/ci.yml'
+              - 'package-lock.json'
+              - 'patches/react-native-webview+*.patch'
+              - 'scripts/postinstall-patches.mjs'
+              - 'packages/app/app.config.js'
+              - 'packages/app/package.json'
+              - 'packages/app/modules/paseo-browser-proxy/**'
+              - 'packages/app/src/browser/**'
+              - 'packages/app/src/components/browser-pane.android.tsx'
+              - 'packages/app/src/native/mobile-browser-proxy*'
+
+  android-browser-native:
+    needs: android-browser-changes
+    if: needs.android-browser-changes.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+
+      - name: Build app dependencies
+        run: npm run build:app-deps
+
+      - name: Generate Android project
+        working-directory: packages/app
+        run: CI=1 APP_VARIANT=development npx expo prebuild --platform android --non-interactive
+
+      - name: Test native proxy and compile debug app
+        working-directory: packages/app/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :paseo-browser-proxy:testDebugUnitTest :app:assembleDebug --no-daemon --max-workers=1 -Dorg.gradle.parallel=false
+
+  fork-decisions:
+    name: fork-decisions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # Guards that every decision in docs/fork-decisions.md carries a proof command.
+      # The proofs themselves run at sync time via `npm run fork:verify`; running them
+      # here would just re-run test files the main suite already covers.
+      - name: Test fork decision docs and parser
+        run: node --test scripts/fork-verify.test.mjs
+
   changes:
     name: changes
     runs-on: ubuntu-latest
@@ -52,7 +127,7 @@ jobs:
           filters: .github/ci-paths.yml
 
       - name: Validate CI contracts
-        run: node --test scripts/ci-workflow.test.mjs scripts/daemon-launch-contract.test.mjs
+        run: node --test scripts/ci-workflow.test.mjs scripts/daemon-launch-contract.test.mjs scripts/fork-verify.test.mjs
 
   format:
     name: format

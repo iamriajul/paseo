@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, View, type ViewStyle } from "react-native";
+import { Pressable, Text, View, type ViewStyle } from "react-native";
 import { Code, Maximize2, Workflow } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -87,6 +87,11 @@ function MermaidFenceHostImpl({
     <>
       {sourceVisible ? (
         <View style={sourceContainerStyle}>
+          {state.status === "failed" && state.errorMessage ? (
+            <Text style={controlStyles.errorCaption}>
+              {t("message.diagram.renderError", { message: state.errorMessage })}
+            </Text>
+          ) : null}
           <HighlightedCodeBlock
             code={code}
             language="mermaid"
@@ -173,6 +178,11 @@ const controlStyles = StyleSheet.create((theme) => ({
   },
   icon: { color: theme.colors.foregroundMuted },
   iconHovered: { color: theme.colors.foreground },
+  errorCaption: {
+    color: theme.colors.foregroundMuted,
+    fontSize: 12,
+    paddingBottom: theme.spacing[1],
+  },
 }));
 const mapColorScheme = (theme: Theme) => ({ colorScheme: theme.colorScheme });
 const ThemedMermaidFenceHost = withUnistyles(MermaidFenceHostImpl);

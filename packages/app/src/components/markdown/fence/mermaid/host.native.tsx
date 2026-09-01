@@ -4,6 +4,7 @@ import {
   Pressable,
   StyleSheet as RNStyleSheet,
   ScrollView,
+  Text,
   View,
   type TextStyle,
   type ViewStyle,
@@ -44,7 +45,7 @@ interface MermaidWebViewProps {
     height: number;
     width: number;
   }) => void;
-  onRenderFailed: (revision: number) => void;
+  onRenderFailed: (revision: number, message?: string) => void;
   style?: ViewStyle;
 }
 
@@ -100,7 +101,7 @@ function MermaidWebView({
         return;
       }
       if (message.type === "renderError") {
-        onRenderFailed(message.revision);
+        onRenderFailed(message.revision, message.message);
         sendRequest(driverRef.current?.settled(message.revision, false) ?? null);
         return;
       }
@@ -319,11 +320,11 @@ function MermaidFenceHostImpl({
   return (
     <>
       {!canShowDiagram ? (
-        <HighlightedCodeBlock
+        <MermaidSourceFallback
           code={code}
-          language="mermaid"
           inheritedStyles={inheritedStyles}
           textStyle={textStyle}
+          errorMessage={state.status === "failed" ? state.errorMessage : null}
         />
       ) : null}
       <Pressable
@@ -355,6 +356,45 @@ function MermaidFenceHostImpl({
           textStyle={textStyle}
         />
       ) : null}
+    </>
+  );
+}
+
+const diagramFallbackStyles = StyleSheet.create((theme) => ({
+  errorCaption: {
+    color: theme.colors.foregroundMuted,
+    fontSize: 12,
+    paddingBottom: theme.spacing[1],
+  },
+}));
+
+interface MermaidSourceFallbackProps {
+  code: string;
+  inheritedStyles: TextStyle;
+  textStyle: TextStyle;
+  errorMessage: string | null;
+}
+
+function MermaidSourceFallback({
+  code,
+  inheritedStyles,
+  textStyle,
+  errorMessage,
+}: MermaidSourceFallbackProps) {
+  const { t } = useTranslation();
+  return (
+    <>
+      {errorMessage ? (
+        <Text style={diagramFallbackStyles.errorCaption}>
+          {t("message.diagram.renderError", { message: errorMessage })}
+        </Text>
+      ) : null}
+      <HighlightedCodeBlock
+        code={code}
+        language="mermaid"
+        inheritedStyles={inheritedStyles}
+        textStyle={textStyle}
+      />
     </>
   );
 }

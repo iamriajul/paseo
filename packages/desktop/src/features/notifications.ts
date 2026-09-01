@@ -2,11 +2,14 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { app, BrowserWindow, Notification, ipcMain, nativeImage } from "electron";
 import { getDesktopSettingsStore } from "../settings/desktop-settings-electron.js";
+import { applyOsFocusSteal } from "./window-focus.js";
 
 interface NotificationInput {
   title?: unknown;
   body?: unknown;
   data?: unknown;
+  /** When true, OS notification is silent. Defaults to true for safety. */
+  silent?: unknown;
 }
 
 interface NotificationClickPayload {
@@ -54,6 +57,12 @@ function focusSenderWindow(sender: Electron.WebContents): BrowserWindow | null {
   if (!win || win.isDestroyed()) {
     return null;
   }
+  applyOsFocusSteal({
+    platform: process.platform,
+    focusApp: (options) => {
+      app.focus(options);
+    },
+  });
   win.show();
   if (win.isMinimized()) {
     win.restore();
@@ -97,11 +106,14 @@ export function registerNotificationHandlers(): void {
     const data = toRecord(rawInput?.data);
     const icon = getNotificationIcon();
     const settings = await getDesktopSettingsStore().get();
+    // Prefer explicit caller silent flag (attention sound path); else desktop playSound setting.
+    const silent =
+      typeof rawInput?.silent === "boolean" ? rawInput.silent : !settings.notifications.playSound;
     const notification = new Notification({
       title,
       ...(body ? { body } : {}),
       ...(icon ? { icon } : {}),
-      silent: !settings.notifications.playSound,
+      silent,
     });
 
     activeNotifications.add(notification);
@@ -121,5 +133,10 @@ export function registerNotificationHandlers(): void {
 
     notification.show();
     return true;
+  });
+
+  ipcMain.handle("paseo:window:focus", (event) => {
+    const win = focusSenderWindow(event.sender);
+    return win !== null;
   });
 }

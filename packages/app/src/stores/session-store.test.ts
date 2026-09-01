@@ -749,3 +749,47 @@ describe("removeWorkspace", () => {
     expect(after.workspaces).toBe(before.workspaces);
   });
 });
+
+describe("updateSessionServerInfo", () => {
+  it("propagates browserPreview.urlTemplate into the stored serverInfo", () => {
+    initializeTestSession();
+    const store = useSessionStore.getState();
+
+    store.updateSessionServerInfo("test-server", {
+      serverId: "test-server",
+      hostname: null,
+      version: "1.0.0",
+      browserPreview: { urlTemplate: "https://{port}.preview.example.com" },
+    });
+
+    expect(getTestSessionReferences().session.serverInfo?.browserPreview).toEqual({
+      urlTemplate: "https://{port}.preview.example.com",
+    });
+  });
+
+  it("updates the store when only browserPreview.urlTemplate changes", () => {
+    initializeTestSession();
+    const store = useSessionStore.getState();
+
+    store.updateSessionServerInfo("test-server", {
+      serverId: "test-server",
+      hostname: null,
+      version: "1.0.0",
+      browserPreview: { urlTemplate: "https://{port}.preview.example.com" },
+    });
+    const before = getTestSessionReferences();
+
+    store.updateSessionServerInfo("test-server", {
+      serverId: "test-server",
+      hostname: null,
+      version: "1.0.0",
+      browserPreview: { urlTemplate: "https://{port}.preview.other.example.com" },
+    });
+    const after = getTestSessionReferences();
+
+    expect(after.session).not.toBe(before.session);
+    expect(after.session.serverInfo?.browserPreview).toEqual({
+      urlTemplate: "https://{port}.preview.other.example.com",
+    });
+  });
+});

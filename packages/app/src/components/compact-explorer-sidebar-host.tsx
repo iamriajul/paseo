@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
+import { useWorkspaceBrowserAvailability } from "@/desktop/browser/workspace-browser-availability";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import {
@@ -11,6 +12,7 @@ import { useOpenFileExplorerGesture } from "@/mobile-panels/gestures";
 import { useIsMobilePanelActive } from "@/mobile-panels/provider";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { usePanelStore } from "@/stores/panel-store";
+import { createWorkspaceBrowser } from "@/desktop/browser/store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { useWorkspaceCheckoutStatus } from "@/screens/workspace/use-workspace-checkout-status";
@@ -118,6 +120,7 @@ export function CompactExplorerSidebarHost({
     [openTab],
   );
   const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
+  const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(model?.serverId ?? "");
 
   const handleOpenExplorer = useCallback(() => {
     if (!model?.workspaceRoot) {
@@ -147,6 +150,18 @@ export function CompactExplorerSidebarHost({
     [focusWorkspaceTab, model, openWorkspaceTabInFocusedPane, presentation, showMobileAgent],
   );
 
+  const handleOpenUrlInBrowserTab = useCallback(
+    (url: string) => {
+      if (!model?.persistenceKey || !hasWorkspaceBrowser) {
+        return false;
+      }
+      const { browserId } = createWorkspaceBrowser({ initialUrl: url });
+      openWorkspaceTabInFocusedPane(model.persistenceKey, { kind: "browser", browserId });
+      showMobileAgent();
+      return true;
+    },
+    [hasWorkspaceBrowser, model, openWorkspaceTabInFocusedPane, showMobileAgent],
+  );
   const handleContainerLayout = useCallback((event: LayoutChangeEvent) => {
     const nextWidth = event.nativeEvent.layout.width;
     setContainerWidth((current) => (current === nextWidth ? current : nextWidth));
@@ -164,6 +179,7 @@ export function CompactExplorerSidebarHost({
             persistenceKey={model.persistenceKey}
             containerWidth={containerWidth}
             onOpenFile={handleOpenFile}
+            onOpenUrlInBrowserTab={handleOpenUrlInBrowserTab}
           />
         ) : (
           <CompactExplorerSidebar
@@ -172,6 +188,7 @@ export function CompactExplorerSidebarHost({
             workspaceRoot={model.workspaceRoot}
             isGit={model.isGit}
             onOpenFile={handleOpenFile}
+            onOpenUrlInBrowserTab={handleOpenUrlInBrowserTab}
           />
         )}
       </DiffDocumentWorkspaceCacheProvider>

@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { DensityIcon } from "@/components/ui/density-icon";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -14,27 +14,40 @@ export function SidebarSectionHeader({
   collapsed,
   onToggle,
   testID,
+  titleAccessory,
+  onLayout,
   children,
 }: {
   title: string;
   collapsed?: boolean;
   onToggle?: () => void;
   testID?: string;
+  /** Sits right after the title, e.g. the Workspaces group-mode control. */
+  titleAccessory?: ReactNode;
+  onLayout?: (event: LayoutChangeEvent) => void;
   children?: ReactNode;
 }) {
+  const titleNode = onToggle ? (
+    <CollapsibleTitle
+      title={title}
+      collapsed={collapsed ?? false}
+      onToggle={onToggle}
+      testID={testID}
+    />
+  ) : (
+    <Text style={styles.title} numberOfLines={1} testID={testID}>
+      {title}
+    </Text>
+  );
   return (
-    <View style={styles.header}>
-      {onToggle ? (
-        <CollapsibleTitle
-          title={title}
-          collapsed={collapsed ?? false}
-          onToggle={onToggle}
-          testID={testID}
-        />
+    <View style={styles.header} onLayout={onLayout}>
+      {titleAccessory ? (
+        <View style={styles.leading}>
+          {titleNode}
+          {titleAccessory}
+        </View>
       ) : (
-        <Text style={styles.title} testID={testID}>
-          {title}
-        </Text>
+        titleNode
       )}
       {children ? <View style={styles.actions}>{children}</View> : null}
     </View>
@@ -102,7 +115,15 @@ const styles = StyleSheet.create((theme) => ({
     marginLeft: -theme.spacing[2],
     paddingHorizontal: theme.spacing[2],
   },
+  leading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1.5],
+    flex: 1,
+    minWidth: 0,
+  },
   title: {
+    flexShrink: 0,
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
@@ -111,5 +132,6 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
+    flexShrink: 0,
   },
 }));

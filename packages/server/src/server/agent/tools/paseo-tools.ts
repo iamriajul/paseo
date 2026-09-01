@@ -104,6 +104,12 @@ import {
   createPaseoWorktreeCommand,
 } from "../../worktree/commands.js";
 import { registerBrowserTools } from "../../browser-tools/tools.js";
+import {
+  mergeBacklogIntoCreateAgentPrompt,
+  registerBacklogTools,
+  resolveBacklogLinkForAgentCreate,
+} from "./backlog-tools.js";
+import type { TaskStore } from "../../tasks/task-store.js";
 import type { BrowserToolsBroker } from "../../browser-tools/broker.js";
 import {
   PaseoToolInputError,
@@ -149,6 +155,7 @@ export interface PaseoToolHostDependencies {
   markWorkspaceArchiving?: ArchiveDependencies["markWorkspaceArchiving"];
   clearWorkspaceArchiving?: ArchiveDependencies["clearWorkspaceArchiving"];
   createPaseoWorktree?: CreatePaseoWorktreeWorkflowFn;
+  taskStore?: TaskStore | null;
   // Mints a fresh directory workspace for a cwd and returns its id.
   ensureWorkspaceForCreate?: (
     cwd: string,
@@ -1191,6 +1198,18 @@ function createToolCatalog(
       .trim()
       .min(1, "initialPrompt is required")
       .describe("Required first task to run immediately after creation."),
+    backlogTaskId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Optional backlog task id to link. Appends the task id to the prompt and labels the agent so it can resolve the task when done.",
+      ),
+    backlogProjectId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Optional project id for backlogTaskId when disambiguation is needed."),
   };
   const legacyCreateAgentPlacementFields = {
     relationship: AgentRelationshipInputSchema.describe(
@@ -1359,6 +1378,17 @@ function createToolCatalog(
     registerBrowserTools({
       registerTool,
       broker: options.browserToolsBroker,
+      callerAgentId,
+      resolveCallerAgent,
+    });
+  }
+
+  if (options.taskStore) {
+    registerBacklogTools({
+      registerTool,
+      taskStore: options.taskStore,
+      projectRegistry: options.projectRegistry,
+      workspaceRegistry: options.workspaceRegistry,
       callerAgentId,
       resolveCallerAgent,
     });
@@ -1612,6 +1642,9 @@ function createToolCatalog(
       } else {
         notifyOnFinish = resolvedArgs.parsedArgs.notifyOnFinish ?? false;
       }
+      const linkedBacklog = await resolveCreateAgentBacklogLink(parsedArgs);
+      const initialPrompt = linkedBacklog.initialPrompt;
+      const labels = linkedBacklog.labels;
       const selectedProvider = resolveRequiredProviderModel(parsedArgs.provider).provider;
       const inheritedConfig = resolveInheritedProviderConfig(selectedProvider);
       const { snapshot, initialPromptStarted } = await createAgentCommand(
@@ -1633,14 +1666,14 @@ function createToolCatalog(
           kind: "mcp",
           provider: parsedArgs.provider,
           title: parsedArgs.title,
-          initialPrompt: parsedArgs.initialPrompt,
+          initialPrompt,
           config: inheritedConfig,
           cwd: resolvedArgs.cwd,
           workspaceId: resolvedArgs.workspaceId,
           thinking: parsedArgs.settings?.thinkingOptionId,
           features: parsedArgs.settings?.features,
           labels: {
-            ...parsedArgs.labels,
+            ...labels,
             ...(callerAgentId && !resolvedArgs.detached && options.serverId
               ? { "paseo.parent-server-id": options.serverId }
               : {}),
@@ -1692,6 +1725,41 @@ function createToolCatalog(
         cwd: string | undefined;
         workspaceId: string | undefined;
       };
+
+  async function resolveCreateAgentBacklogLink(parsedArgs: {
+    initialPrompt: string;
+    labels?: Record<string, string>;
+    backlogTaskId?: string;
+    backlogProjectId?: string;
+  }): Promise<{ initialPrompt: string; labels: Record<string, string> | undefined }> {
+    const labels = parsedArgs.labels ? { ...parsedArgs.labels } : {};
+    const backlogTaskId = parsedArgs.backlogTaskId?.trim();
+    if (!backlogTaskId) {
+      return {
+        initialPrompt: parsedArgs.initialPrompt,
+        labels: Object.keys(labels).length > 0 ? labels : undefined,
+      };
+    }
+    if (!options.taskStore) {
+      throw new Error("Backlog task store is not configured");
+    }
+    const linked = await resolveBacklogLinkForAgentCreate({
+      taskStore: options.taskStore,
+      projectRegistry: options.projectRegistry,
+      workspaceRegistry: options.workspaceRegistry,
+      callerAgentId,
+      resolveCallerAgent,
+      backlogTaskId,
+      backlogProjectId: parsedArgs.backlogProjectId,
+    });
+    return {
+      initialPrompt: mergeBacklogIntoCreateAgentPrompt({
+        initialPrompt: parsedArgs.initialPrompt,
+        task: linked.task,
+      }),
+      labels: { ...labels, ...linked.labels },
+    };
+  }
 
   async function resolveCreateAgentToolArgs(args: unknown): Promise<ResolvedCreateAgentToolArgs> {
     const placement = args as {

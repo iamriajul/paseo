@@ -91,7 +91,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   "trailer",
 ]);
 
-function normalizeHostHeader(host: string): string {
+export function normalizeHostHeader(host: string): string {
   return host.trim().toLowerCase().replace(/:\d+$/, "");
 }
 
@@ -244,7 +244,7 @@ function toHealthTarget(route: ServiceProxyRouteEntry): ServiceProxyHealthTarget
   };
 }
 
-function stripHopByHopHeaders(
+export function stripHopByHopHeaders(
   rawHeaders: http.IncomingHttpHeaders,
 ): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};

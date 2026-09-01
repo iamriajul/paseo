@@ -132,6 +132,7 @@ async function main() {
   let daemon: Awaited<ReturnType<typeof createPaseoDaemon>> | null = null;
   let shutdownPromise: Promise<number> | null = null;
   let exitHookInstalled = false;
+  let lastLifecycleIntentReason: string | null = null;
 
   applyCliFlagOverrides(config);
 
@@ -152,7 +153,10 @@ async function main() {
       successExitCode?: number;
     },
   ) => {
-    const reason = options?.reason ?? `worker_received_${signal}`;
+    const reason = options?.reason ?? lastLifecycleIntentReason ?? `worker_received_${signal}`;
+    // Consume the stored intent reason so a later unrelated SIGTERM is not
+    // misclassified as intentional.
+    lastLifecycleIntentReason = null;
     if (!shutdownPromise) {
       logger.info(
         { signal, reason, ...getProcessDiagnostics() },
@@ -174,7 +178,7 @@ async function main() {
             clearTimeout(forceExit);
             return 1;
           }
-          await daemon.stop();
+          await daemon.stop(reason);
           clearTimeout(forceExit);
           logger.info("Server closed");
           return options?.successExitCode ?? 0;
@@ -213,6 +217,7 @@ async function main() {
         { clientId: intent.clientId, requestId: intent.requestId, reason: intent.reason },
         "Shutdown requested via websocket",
       );
+      lastLifecycleIntentReason = intent.reason;
       if (sendSupervisorLifecycleMessage({ type: "paseo:shutdown", reason: intent.reason })) {
         return;
       }
@@ -224,6 +229,7 @@ async function main() {
       { clientId: intent.clientId, requestId: intent.requestId, reason: intent.reason },
       "Restart requested via websocket",
     );
+    lastLifecycleIntentReason = intent.reason;
     if (
       sendSupervisorLifecycleMessage({
         type: "paseo:restart",

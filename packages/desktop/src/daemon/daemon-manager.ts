@@ -56,6 +56,8 @@ import { tailFile } from "../diagnostics/tail-file.js";
 const DAEMON_LOG_FILENAME = "daemon.log";
 let ownedLaunch: { home: string; instance: DaemonInstance } | null = null;
 
+let lastKnownDesktopDaemonServerId = "";
+
 type DesktopDaemonState = "starting" | "running" | "stopped" | "errored";
 const DESKTOP_DAEMON_STOP_REASON_VALUES = [
   "manual_ipc",
@@ -219,6 +221,21 @@ function resolveDesktopAppVersion(): string {
 // Daemon lifecycle
 // ---------------------------------------------------------------------------
 
+export function peekDesktopDaemonServerId(): string {
+  return lastKnownDesktopDaemonServerId;
+}
+
+export function resetDesktopDaemonServerIdCache(): void {
+  lastKnownDesktopDaemonServerId = "";
+}
+
+function rememberDesktopDaemonServerId(serverId: string): void {
+  const trimmed = serverId.trim();
+  if (trimmed.length > 0) {
+    lastKnownDesktopDaemonServerId = trimmed;
+  }
+}
+
 export async function resolveDesktopDaemonStatus(): Promise<DesktopDaemonStatus> {
   const home = getPaseoHome();
 
@@ -230,7 +247,9 @@ export async function resolveDesktopDaemonStatus(): Promise<DesktopDaemonStatus>
       home,
       "--json",
     ])) as Record<string, unknown>;
-    return statusFromDaemonProbe(payload, home);
+    const status = statusFromDaemonProbe(payload, home);
+    rememberDesktopDaemonServerId(status.serverId);
+    return status;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logDesktopDaemonLifecycle("resolveStatus CLI command failed", { error: errorMessage });

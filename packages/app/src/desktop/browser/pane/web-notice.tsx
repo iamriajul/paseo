@@ -10,7 +10,7 @@ export function WebBrowserNotice(): ReactElement {
   const { t } = useTranslation();
   return (
     <View style={styles.notice}>
-      <Text numberOfLines={1} style={styles.text} accessibilityRole="alert">
+      <Text style={styles.text} role="status">
         {t("workspace.browser.iframeNotice")}
       </Text>
     </View>
@@ -20,7 +20,7 @@ export function WebBrowserNotice(): ReactElement {
 const styles = StyleSheet.create((theme) => ({
   notice: {
     width: "100%",
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 4,
     backgroundColor: theme.colors.muted,
     borderBottomWidth: StyleSheet.hairlineWidth,

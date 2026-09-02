@@ -1817,11 +1817,13 @@ git commit -m "feat(app/browser): add web browser toolbar and annotation compose
 Behaviour:
 
 1. Resolve `resolveWebBrowserSrc({url, template})` as today. `no-template` and unsupported-protocol states are unchanged.
-2. `useReducer(webNavigationReducer, ..., createWebNavigationState)`, reset via `{type:"reset"}` whenever the tab's `url` changes.
+2. `useReducer(webNavigationReducer, ..., createWebNavigationState)`. **Two distinct paths, and conflating them breaks one of them:**
+   - An **address-bar submit** dispatches `{type:"user-navigate"}`. It must not dispatch `reset` — `reset` rebuilds from the factory, so routing URL-bar moves through it leaves `stack` permanently `[url]` at index 0, `canGoBack` permanently false, and the entire parent-side history half of the reducer unreachable. That would silently delete the "back/forward across URL-bar navigations" behaviour the spec's degradation table promises for direct URLs.
+   - An **externally-driven tab-url change** — initial mount, tab switch, an `open-url` arriving from chat — dispatches `{type:"reset"}`, because the parent's history genuinely does not carry over.
 3. When `resolved.kind === "preview"`, create a bridge with `origin = new URL(resolved.src).origin` and `getFrame = () => iframeRef.current?.contentWindow ?? null`. Dispose on unmount and on src change.
 4. Map bridge events: `navigation` → dispatch, and `updateBrowser(browserId, {url: displayed, title, canGoBack, canGoForward})` so the tab title follows; `selection` → set pending selection, opening the annotation composer; `select-cancelled` → clear selecting.
 5. `displayUrl` shown in the toolbar is `toDisplayUrl({url: state.displayUrl, template, originalUrl: url})`.
-6. Back/forward/reload send bridge commands when `state.bridgeReady`, otherwise dispatch the parent-stack action and bump `reloadKey`.
+6. Back/forward/reload send bridge commands when `state.bridgeReady`, otherwise dispatch the parent-stack action and bump `reloadKey`. **The pane does carry this one branch** — an earlier draft of this plan claimed the reducer left it with none, which was wrong. There is no bridge-side back/forward _action_ in the reducer, so dispatching `user-back` while a bridge is live walks the parent stack instead of the page's real history: with no pre-bridge URL-bar moves that stack is `[START]` at index 0, so the dispatch hits the bounds guard and returns state unchanged — a back button lit by the bridge's own `canGoBack` that silently does nothing. `bridgeReady` is the discriminator.
 7. URL submit: `normalizeWorkspaceBrowserUrl`, then `updateBrowser(browserId, {url})`. Same-URL submit reloads.
 8. Navigating without a bridge **remounts** the iframe via `reloadKey` — assigning `src` would push onto the top-level history and hijack the app's own back button.
 9. `resolved.kind === "direct"` renders `<WebBrowserNotice />` between the toolbar and the iframe.

@@ -306,6 +306,10 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
     [state, target, template],
   );
 
+  // The Code Server panel embeds this pane as a bare surface, so that it feels
+  // like an embedded editor rather than a browser tab. Everything Paseo puts
+  // around the frame is chrome: the toolbar — whose devtools and element picker
+  // would otherwise sit over the VS Code UI — and the notice.
   const showChrome = chrome !== "hidden";
   const isResponsive = viewport.mode === "responsive";
   const frameWrapStyle = useMemo(
@@ -387,9 +391,6 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
 
   return (
     <View style={styles.pane}>
-      {/* The Code Server panel embeds this pane as a bare surface. Honouring its
-          request is what keeps a devtools panel and an element picker off the
-          VS Code UI, which resolves `preview` like any other loopback port. */}
       {showChrome ? (
         <WebBrowserToolbar
           state={toolbarState}
@@ -406,7 +407,7 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
           onChangeViewport={handleChangeViewport}
         />
       ) : null}
-      {resolved.kind === "direct" ? <WebBrowserNotice /> : null}
+      {showChrome && resolved.kind === "direct" ? <WebBrowserNotice /> : null}
       {pendingSelectionLabel ? (
         <View style={styles.selectedElement}>
           <Text numberOfLines={1} style={styles.selectedElementText}>

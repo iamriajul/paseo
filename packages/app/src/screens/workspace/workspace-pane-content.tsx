@@ -37,7 +37,7 @@ export interface BuildWorkspacePaneContentModelInput {
   onRetargetCurrentTab: (target: WorkspaceTabDescriptor["target"]) => void;
   onSetCurrentTabState: (state: WorkspaceTabDescriptor["state"]) => void;
   onOpenWorkspaceFile: (request: WorkspaceFileOpenRequest) => void;
-  onOpenUrlInBrowserTab: (url: string) => void;
+  onOpenUrlInBrowserTab: (url: string) => boolean;
   onOpenImportSheet: () => void;
 }
 

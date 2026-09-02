@@ -978,7 +978,7 @@ interface WorkspaceHeaderTitleBarProps {
   onOpenSetupTab: () => void;
   onScriptTerminalStarted: (terminalId: string) => void;
   onViewScriptTerminal: (terminalId: string) => void;
-  onOpenUrlInBrowserTab: (url: string) => void;
+  onOpenUrlInBrowserTab: (url: string) => boolean;
 }
 
 function WorkspaceHeaderTitleBar({
@@ -2492,10 +2492,16 @@ function WorkspaceScreenContent({
     ],
   );
 
+  // Same gate as handleCreateBrowserTab above, and it returns whether it took
+  // the URL. Chat, terminal, ports-pane and script links all treat "opened in a
+  // Browser tab" as terminal — agent-stream/view.tsx and terminal-pane.tsx stop
+  // there, and open-service-url.ts reads anything that is not `false` as
+  // success — so a handler that silently declined suppressed the vscodeProxyUri
+  // and external fallbacks and left the link doing nothing at all.
   const handleOpenUrlInBrowserTab = useCallback(
-    (url: string) => {
-      if (!persistenceKey || !getIsElectron()) {
-        return;
+    (url: string): boolean => {
+      if (!persistenceKey || !showCreateBrowserTab) {
+        return false;
       }
       const { browserId } = createWorkspaceBrowser({ initialUrl: url });
       openWorkspaceTabFocused(
@@ -2503,8 +2509,9 @@ function WorkspaceScreenContent({
         { kind: "browser", browserId },
         FOCUSED_PANE_PLACEMENT,
       );
+      return true;
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [openWorkspaceTabFocused, persistenceKey, showCreateBrowserTab],
   );
 
   useDesktopBrowserNewTabRequests({

@@ -386,7 +386,7 @@ browser-preview rewrites text/html responses to splice a navigation, eruda and e
 ```bash
 npx vitest run packages/server/src/server/browser-preview/html-injection.test.ts packages/server/src/server/browser-preview/inject packages/app/src/desktop/browser/pane/web-bridge.test.ts packages/app/src/desktop/browser/pane/web-navigation.test.ts packages/app/src/desktop/browser/pane/web-submit.test.ts --bail=1
 grep -q "createHtmlInjectionStream" packages/server/src/server/browser-preview/index.ts
-grep -q "useWorkspaceBrowserAvailability" packages/app/src/screens/workspace/workspace-screen.tsx
-grep -q "useWorkspaceBrowserAvailability" packages/app/src/command-center/workspace-registration.tsx
+grep -q "showCreateBrowserTab = useWorkspaceBrowserAvailability" packages/app/src/screens/workspace/workspace-screen.tsx
+grep -q "hasWorkspaceBrowser = useWorkspaceBrowserAvailability" packages/app/src/command-center/workspace-registration.tsx
 ! grep -q "showCreateBrowserTab = getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
 ```

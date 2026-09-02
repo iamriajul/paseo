@@ -60,7 +60,7 @@ At the start of non-trivial work, list `docs/` and skim anything relevant to the
 | [docs/android.md](docs/android.md)                                   | App variants, local/cloud builds, EAS workflows, version codes, F-Droid source builds and store metadata                       |
 | [docs/fork-release.md](docs/fork-release.md)                         | Fork-friendly desktop, Docker, npm global-install; official sync rebases onto release tags                                     |
 | [docs/fork-decisions.md](docs/fork-decisions.md)                     | Every behaviour this fork changes inside official files, and the command that proves each one                                  |
-| [docs/fork-sync.md](docs/fork-sync.md)                               | Rebasing the fork onto a new official release: picking the tag, conflicts, empty commits, verify                               |
+| [docs/fork-sync.md](docs/fork-sync.md)                               | Rebasing the fork onto a new official release: picking the tag, conflicts, empty commits, verify, what past syncs lost         |
 | [docs/docker.md](docs/docker.md)                                     | Running the daemon and bundled web UI in Docker, volumes, agent images, security                                               |
 | [docs/release.md](docs/release.md)                                   | Release playbook, draft releases, completion checklist                                                                         |
 | [docs/terminal-activity.md](docs/terminal-activity.md)               | Terminal activity indicators — source-agnostic tracker, agent hook reporting, adding a new hook provider                       |

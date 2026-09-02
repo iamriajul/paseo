@@ -13,7 +13,7 @@ import { resolveWorkspaceScriptLink } from "@/utils/workspace-script-links";
 export interface ExplorerPortsPaneProps {
   serverId: string;
   workspaceId?: string | null;
-  onOpenUrlInBrowserTab?: (url: string) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }
 
 interface PortRow {

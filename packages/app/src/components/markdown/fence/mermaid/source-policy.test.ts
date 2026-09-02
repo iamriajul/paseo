@@ -128,6 +128,20 @@ describe("neutralizeDisallowedTags composed with containsUnsafeMermaidSource", (
     expect(containsUnsafeMermaidSource(streaming)).toBe(true);
   });
 
+  it("keeps an unclosed <i> unsafe while the mock provider's 4-char slices fill the label", () => {
+    const streaming = 'flowchart LR\n  Start --> Middle\n  Middle --> Done["<i>Don';
+    expect(neutralizeDisallowedTags(streaming)).toBe(streaming);
+    expect(containsUnsafeMermaidSource(streaming)).toBe(true);
+    expect(containsUnsafeMermaidSource(neutralizeDisallowedTags(streaming))).toBe(true);
+  });
+
+  it("allows the completed italic label from the mermaid-streaming e2e fixture", () => {
+    const complete =
+      'flowchart LR\n  Start --> Middle\n  Middle --> Done["<i>Done</i>"]\n  Middle --> Review\n';
+    expect(neutralizeDisallowedTags(complete)).toBe(complete);
+    expect(containsUnsafeMermaidSource(complete)).toBe(false);
+  });
+
   it("allows the previously-rejected diagrams from this conversation to render", () => {
     const gitProxySource =
       "sequenceDiagram\n  A->>D: git clone/push  <canonical URL>\n  Note over A,D: plain text";

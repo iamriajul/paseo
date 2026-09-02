@@ -72,11 +72,11 @@ Proxied `text/html` responses are rewritten on the way through. The daemon splic
 
 The scripts go after the opening `<head>`, not before `</body>`. The navigation script patches `history.pushState`, and a patch installed after the page's own JavaScript misses every route change during hydration, so the address bar is already wrong by the first frame the parent can observe.
 
-Only the head is buffered — up to `</head>`, then every later byte passes through untouched, so a streaming-SSR page keeps streaming instead of collapsing into one late flush. Buffering stops at 64 KiB and the search window is clamped to the same 64 KiB, not just the buffer: searching everything received so far and checking the cap afterwards would make identical bytes inject or not depending on how upstream happened to chunk them.
+Only the head is buffered — up to `</head>`, then every later byte passes through untouched, so a streaming-SSR page keeps streaming instead of collapsing into one late flush. Buffering stops at 64 KiB, and the search window is clamped to that same 64 KiB rather than only the buffer: searching everything received so far and checking the cap afterwards would make identical bytes inject or not depending on how upstream happened to chunk them.
 
 Two things are undone so the splice lands. `gzip`, `deflate` and `br` bodies are decompressed first, since splicing tags into compressed bytes yields a document no browser can read; an encoding the daemon cannot decode disables injection instead of corrupting the response. And `<meta http-equiv="content-security-policy">` is stripped from the head window — the proxy drops the CSP response header already, but a meta tag survives that and would block the injected scripts.
 
-The bridge is not advertised on `server_info`. The navigation script posts a `ready` message once it installs, and the pane keys off that, so `packages/protocol` needs no change for any of this: a host serving no proxied HTML simply never sends the message, and the pane stays on its no-bridge path.
+The bridge is not advertised on `server_info`. The navigation script posts a `ready` message once it installs, and the pane keys off that, so `packages/protocol` needs no change for any of this: a host serving no proxied HTML never sends the message, and the pane stays on its no-bridge path.
 
 ### Configuration
 
@@ -142,10 +142,10 @@ Only `normalizeHostHeader` and `stripHopByHopHeaders` are imported from `service
 
 ### Known limitations
 
-- **Devtools need internet from the client.** eruda is fetched from jsdelivr by the previewed page rather than bundled, keeping ~1.4 MB out of the server package for a panel most previews never open. A client that cannot reach the CDN gets no devtools and no explanation: the toolbar button un-toggles and stops there.
-- **A `Content-Security-Policy` added after the daemon disables the whole bridge.** The proxy strips CSP from the dev server's response and from meta tags in the head window, but it cannot strip one a reverse proxy adds on the way out. That blocks the injected inline scripts, and the tab falls back to no URL sync, no devtools and no element picker.
-- **A direct URL gets no bridge at all.** Injection only touches the daemon's own proxied responses, so a tab on any other origin has no URL sync, no devtools and no element picker, and its back/forward walks the parent's record of URL-bar moves. In-page navigation there stays invisible.
-- **A `<head>` that does not close within the first 64 KiB streams unmodified.** That document loads without the bridge. The cap is deliberate: it keeps output independent of upstream chunking, and a head that large is not worth delaying the response for.
+- **A direct URL gets no bridge at all.** Injection only touches the daemon's own proxied responses, so a tab on any other origin has no URL sync, no devtools and no element picker, and its back/forward walks the parent's record of URL-bar moves. In-page navigation there stays invisible. The page still loads, under a sticky notice.
+- **Devtools need internet from the client.** eruda is fetched from jsdelivr by the previewed page rather than bundled, which keeps ~1.4 MB out of the server package. A client that cannot reach the CDN gets no devtools and no explanation: the toolbar button un-toggles and stops there.
+- **A `Content-Security-Policy` added after the daemon disables the whole bridge.** The proxy strips CSP from the dev server's response and from meta tags in the head window, but it cannot strip one a reverse proxy adds on the way out. That blocks the injected inline scripts, and the tab degrades to the direct-URL behaviour above.
+- **A `<head>` that does not close within the first 64 KiB streams unmodified**, and degrades the same way. The cap is deliberate: it keeps output independent of upstream chunking, and a head that large is not worth delaying the response for.
 - **A port already exposed as a service-proxy route is reachable at two origins.** If a `paseo.json` service script and a manually opened Browser tab point at the same port, the service hostname and the preview hostname are different origins with separate cookie jars — signing in on one does not carry over to the other. This is intended: [service proxy](service-proxy.md) routes and preview routes serve different purposes, and neither is aware of the other's routes.
 
 ## Code Server

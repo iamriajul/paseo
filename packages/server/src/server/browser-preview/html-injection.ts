@@ -1,3 +1,5 @@
+import { Transform } from "node:stream";
+
 // Bounds how much of a response is held in memory looking for an injection
 // point. Past it the body streams unmodified: a document whose <head> has not
 // closed inside 64 KiB is not one worth delaying.
@@ -45,4 +47,64 @@ export function rewriteHtmlHead(windowText: string, scripts: string): string {
   const stripped = stripMetaCsp(windowText);
   const offset = findHeadInjectionOffset(stripped);
   return stripped.slice(0, offset) + scripts + stripped.slice(offset);
+}
+
+// Buffers until </head> closes (or the cap, or end of stream), rewrites that
+// window once, then passes every later byte through untouched. Holding only the
+// head is what lets streaming SSR keep streaming: buffering the whole document
+// would serialise a Suspense-streamed page into one late flush.
+export function createHtmlInjectionStream(scripts: string): Transform {
+  let pending: Buffer | null = Buffer.alloc(0);
+
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      if (pending === null) {
+        // Window already emitted: straight passthrough, byte for byte.
+        callback(null, chunk);
+        return;
+      }
+
+      pending = Buffer.concat([pending, chunk]);
+
+      // Search in latin1, never utf8. Decoding a partial buffer replaces a
+      // multi-byte character split across a chunk boundary with U+FFFD, and
+      // re-encoding then ships the corruption downstream. latin1 is
+      // byte-preserving and 1 byte == 1 char, so a match index here is a byte
+      // offset — and every tag we look for is ASCII either way.
+      const headEnd = /<\/head\s*>/i.exec(pending.toString("latin1"));
+
+      if (headEnd !== null) {
+        const boundary = headEnd.index + headEnd[0].length;
+        // The boundary sits just past '>', an ASCII byte, so the window never
+        // ends mid-character and decoding it as utf8 is safe.
+        const windowText = pending.subarray(0, boundary).toString("utf8");
+        const rest = pending.subarray(boundary);
+        pending = null;
+        this.push(Buffer.from(rewriteHtmlHead(windowText, scripts), "utf8"));
+        callback(null, rest.byteLength > 0 ? rest : undefined);
+        return;
+      }
+
+      if (pending.byteLength >= INJECTION_SCAN_LIMIT_BYTES) {
+        // Gave up looking. Emit the raw bytes untouched — no decode round-trip.
+        const raw = pending;
+        pending = null;
+        callback(null, raw);
+        return;
+      }
+      callback();
+    },
+    flush(callback) {
+      if (pending === null) {
+        callback();
+        return;
+      }
+      // Stream ended before </head>. The whole buffer is the window, and it is
+      // complete, so utf8 decoding is safe here.
+      const windowText = pending.toString("utf8");
+      pending = null;
+      this.push(Buffer.from(rewriteHtmlHead(windowText, scripts), "utf8"));
+      callback();
+    },
+  });
 }

@@ -1,6 +1,8 @@
+import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import {
   INJECTION_SCAN_LIMIT_BYTES,
+  createHtmlInjectionStream,
   findHeadInjectionOffset,
   rewriteHtmlHead,
   stripMetaCsp,
@@ -108,5 +110,83 @@ describe("rewriteHtmlHead", () => {
 
   it("exposes a 64 KiB scan limit", () => {
     expect(INJECTION_SCAN_LIMIT_BYTES).toBe(65536);
+  });
+});
+
+async function pump(chunks: readonly (string | Buffer)[], scripts: string): Promise<string> {
+  const stream = Readable.from(
+    chunks.map((chunk) => (Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))),
+  ).pipe(createHtmlInjectionStream(scripts));
+  const out: Buffer[] = [];
+  for await (const chunk of stream) out.push(chunk as Buffer);
+  return Buffer.concat(out).toString("utf8");
+}
+
+describe("createHtmlInjectionStream", () => {
+  it("injects once and passes the body through", async () => {
+    const out = await pump(
+      ["<!doctype html><html><head><title>t</title></head>", "<body>hello</body></html>"],
+      SCRIPTS,
+    );
+    expect(out).toContain(SCRIPTS);
+    expect(out).toContain("<body>hello</body>");
+    expect(out.split(SCRIPTS)).toHaveLength(2);
+  });
+
+  // The insertion point can straddle a chunk boundary; a naive per-chunk
+  // implementation silently misses it and the page loads with no bridge.
+  it("finds an injection point split across chunks", async () => {
+    const out = await pump(["<!doctype html><ht", "ml><he", "ad></head><body></body>"], SCRIPTS);
+    expect(out).toContain(SCRIPTS);
+    expect(out.indexOf(SCRIPTS)).toBeGreaterThan(out.indexOf("<head>"));
+  });
+
+  it("strips meta CSP appearing after the injection point", async () => {
+    const out = await pump(
+      [`<html><head><meta http-equiv="Content-Security-Policy" content="x"></head><body>b</body>`],
+      SCRIPTS,
+    );
+    expect(out).not.toContain("Content-Security-Policy");
+    expect(out).toContain("<body>b</body>");
+  });
+
+  it("stops buffering after </head> so the body streams", async () => {
+    const big = "x".repeat(200_000);
+    const out = await pump([`<html><head></head><body>${big}</body></html>`], SCRIPTS);
+    expect(out).toContain(SCRIPTS);
+    expect(out).toContain(big);
+  });
+
+  it("passes through unmodified when no injection point arrives within the cap", async () => {
+    const filler = `<!-- ${"y".repeat(INJECTION_SCAN_LIMIT_BYTES)} -->`;
+    const out = await pump([filler, "<html><head></head>"], SCRIPTS);
+    expect(out).not.toContain(SCRIPTS);
+    expect(out).toBe(`${filler}<html><head></head>`);
+  });
+
+  it("still injects when the stream ends before </head>", async () => {
+    const out = await pump(["<html><head><title>only</title>"], SCRIPTS);
+    expect(out).toContain(SCRIPTS);
+  });
+
+  // Splits a 3-byte character down the middle, across the chunk boundary. A
+  // transform that decodes each accumulated chunk as utf8 turns the halves
+  // into U+FFFD and this assertion fails.
+  it("does not corrupt a multi-byte character split across chunks", async () => {
+    const full = Buffer.from("<html><head></head><body>日本語テキスト</body></html>", "utf8");
+    const splitAt = full.indexOf(Buffer.from("日", "utf8")) + 1;
+    const out = await pump([full.subarray(0, splitAt), full.subarray(splitAt)], SCRIPTS);
+    expect(out).toContain("日本語テキスト");
+    expect(out).not.toContain("�");
+  });
+
+  // Same hazard on the give-up path: the raw bytes must pass through
+  // untouched rather than surviving a decode round-trip.
+  it("does not corrupt multi-byte content when it gives up at the cap", async () => {
+    const filler = Buffer.from(`<!-- ${"y".repeat(INJECTION_SCAN_LIMIT_BYTES)} 日本語 -->`, "utf8");
+    const splitAt = filler.indexOf(Buffer.from("日", "utf8")) + 1;
+    const out = await pump([filler.subarray(0, splitAt), filler.subarray(splitAt)], SCRIPTS);
+    expect(out).toContain("日本語");
+    expect(out).not.toContain("�");
   });
 });

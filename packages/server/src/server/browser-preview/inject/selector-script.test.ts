@@ -185,9 +185,11 @@ describe("SELECTOR_SCRIPT", () => {
     const sent = runScript();
     startSelect();
     click(document.querySelector("div") as HTMLElement);
-    // The Electron original carried el.attributes-derived data; a live
-    // NamedNodeMap or any DOM node in the payload throws here rather than in
-    // production, where postMessage would drop the whole message.
+    // Not a bug the Electron original had: it built a plain {name: value} map
+    // (element-selector.electron.ts:316-319), which clones fine. This guards the
+    // direction — postMessage structured-clones the payload, so a DOM node or
+    // any other live object added to it later throws here, rather than silently
+    // dropping the whole message in production.
     expect(() => structuredClone(only(sent, "selection").payload)).not.toThrow();
   });
 
@@ -232,7 +234,11 @@ describe("SELECTOR_SCRIPT", () => {
     // Picking an element must not also press the button it happens to be on.
     expect(pageHandler).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(true);
-    expect(only(sent, "selection").payload.tag).toBe("a");
+    // A selection is still reported. Which element it names is jsdom-specific:
+    // jsdom does no hit-testing, so the anchor is still the target here, while a
+    // real browser applies `.__paseo-select-mode a { pointer-events: none }` and
+    // retargets the click to the parent — links are not directly pickable.
+    expect(sent.filter((message) => message.type === "selection")).toHaveLength(1);
   });
 
   it("outlines the hovered element and labels it", () => {
@@ -272,6 +278,50 @@ describe("SELECTOR_SCRIPT", () => {
     // A second click lands on an unarmed page, so nothing more is reported.
     click(target);
     expect(sent.filter((message) => message.type === "selection")).toHaveLength(1);
+  });
+
+  it("refuses to arm while the document is still parsing", () => {
+    const sent = runScript();
+    // Injected into <head>, this script can be asked to arm before there is a
+    // page to point at. An own property shadows the prototype getter, which
+    // keeps this off the prototype-spy path that does not intercept under
+    // vitest — and if the shadow failed, the picker would arm and fail below.
+    Object.defineProperty(document, "readyState", { configurable: true, value: "loading" });
+    try {
+      startSelect();
+    } finally {
+      Reflect.deleteProperty(document, "readyState");
+    }
+    expect(armed()).toBe(false);
+    expect(overlayNodes()).toBe(0);
+    // Answered rather than ignored, so the app does not sit in 'selecting'
+    // waiting for a frame that will never arm.
+    expect(only(sent, "select-cancelled").source).toBe(BRIDGE_SOURCE);
+
+    // The control: it arms once parsing is done.
+    startSelect();
+    expect(armed()).toBe(true);
+  });
+
+  it("arms again after a completed selection", () => {
+    document.body.innerHTML = "<p>one</p><p>two</p>";
+    const sent = runScript();
+    const paragraphs = [...document.querySelectorAll("p")];
+    startSelect();
+    click(paragraphs[0] as HTMLElement);
+    // Pick one element, then pick another: the ordinary flow, and the one that
+    // breaks if teardown leaves anything behind that start checks.
+    startSelect();
+    expect(armed()).toBe(true);
+    expect(overlayNodes()).toBe(2);
+    click(paragraphs[1] as HTMLElement);
+    const selections = sent.filter((message) => message.type === "selection");
+    expect(selections.map((message) => message.payload.selector)).toEqual([
+      "html > body > p",
+      "html > body > p:nth-of-type(2)",
+    ]);
+    expect(armed()).toBe(false);
+    expect(overlayNodes()).toBe(0);
   });
 
   it("cancels on Escape", () => {

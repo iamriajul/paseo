@@ -193,6 +193,34 @@ describe("ERUDA_SCRIPT", () => {
     expect(sent[0]?.source).toBe(BRIDGE_SOURCE);
   });
 
+  it("reports eruda-failed when the bundle loads but defines no eruda", () => {
+    const sent = runScript();
+    // A CDN that answers 200 with something that is not the eruda bundle: the
+    // transport succeeded, so onerror never fires.
+    toggle();
+    finishLoad();
+    expect(sent.map((message) => message.type)).toEqual(["eruda-failed"]);
+    // And the toggle is not wedged for the life of the document.
+    toggle();
+    expect(tags()).toHaveLength(2);
+  });
+
+  it("reports eruda-failed when init throws on the loaded bundle", () => {
+    const sent = runScript();
+    const { eruda } = fakeEruda();
+    // Wrong build, blocked API, version skew — init throws out of the onload
+    // handler, so nothing downstream of it runs unless the throw is caught.
+    eruda.init = vi.fn(() => {
+      throw new Error("wrong build");
+    });
+    toggle();
+    finishLoad();
+    expect(sent.map((message) => message.type)).toEqual(["eruda-failed"]);
+    expect(eruda._isShow).toBe(false);
+    toggle();
+    expect(tags()).toHaveLength(2);
+  });
+
   it("retries the fetch after a failure", () => {
     runScript();
     toggle();

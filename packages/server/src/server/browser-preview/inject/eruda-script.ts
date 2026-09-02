@@ -34,7 +34,16 @@ export const ERUDA_SCRIPT = `
     loading = true;
     var tag = document.createElement('script');
     tag.src = ${JSON.stringify(ERUDA_CDN_URL)};
-    tag.onload = function() { initEruda(); onReady(); };
+    // Three ways this fetch ends without devtools: the request fails, the
+    // response defines no window.eruda, and init() throws on whatever it did
+    // define. All three have to clear the loading flag and say so — a load that
+    // ends silently with it still set wedges the toggle for the life of the
+    // document, and the button reads dead with no error anywhere.
+    tag.onload = function() {
+      try { initEruda(); } catch (error) { /* handled by the !ready check */ }
+      if (!ready) { loading = false; send('eruda-failed', {}); return; }
+      onReady();
+    };
     tag.onerror = function() { loading = false; send('eruda-failed', {}); };
     (document.head || document.documentElement).appendChild(tag);
   }

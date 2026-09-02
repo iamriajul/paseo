@@ -63,14 +63,19 @@ const EXPECTED_CLAUDE_MODELS = [
     descriptionFragment: "200K context window",
   },
   {
-    id: "claude-fable-5[1m]",
-    model: "Fable 5 1M",
+    id: "claude-fable-5-1[1m]",
+    model: "Fable 5.1 1M",
     descriptionFragment: "1M context window",
   },
   {
     id: "claude-fable-5-1",
     model: "Fable 5.1",
     descriptionFragment: "Most powerful",
+  },
+  {
+    id: "claude-fable-5[1m]",
+    model: "Fable 5 1M",
+    descriptionFragment: "1M context window",
   },
   {
     id: "claude-fable-5",
@@ -176,9 +181,18 @@ async function runProviderModelsJson(provider: string): Promise<ProviderModel[]>
 }
 
 function assertClaudeModels(data: ProviderModel[]): void {
+  assert.strictEqual(
+    data.length,
+    EXPECTED_CLAUDE_CATALOG_MODELS.length,
+    "claude output should match the current catalog size",
+  );
+
   const byId = new Map(data.map((model) => [model.id, model]));
+  const ids = [...byId.keys()].sort();
+  const expectedIds = EXPECTED_CLAUDE_CATALOG_MODELS.map((model) => model.id).sort();
 
   assert.strictEqual(byId.size, data.length, "claude model IDs should be unique");
+  assert.deepStrictEqual(ids, expectedIds, "claude IDs should match the current catalog");
 
   for (const expectedModel of EXPECTED_CLAUDE_CATALOG_MODELS) {
     const actualModel = byId.get(expectedModel.id);
@@ -194,16 +208,24 @@ function assertClaudeModels(data: ProviderModel[]): void {
     );
   }
 
+  const fable51OneMIndex = data.findIndex((model) => model.id === "claude-fable-5-1[1m]");
   const fable51Index = data.findIndex((model) => model.id === "claude-fable-5-1");
+  const fable5OneMIndex = data.findIndex((model) => model.id === "claude-fable-5[1m]");
   const fable5Index = data.findIndex((model) => model.id === "claude-fable-5");
   assert.strictEqual(
-    fable5Index,
-    fable51Index + 1,
-    "Fable models should stay adjacent and newest-first",
+    fable51Index,
+    fable51OneMIndex + 1,
+    "Fable 5.1 dual rows should stay adjacent, 1M then 200K",
   );
-  assert(
-    !byId.has("claude-fable-5[1m]"),
-    "compatibility-only Fable aliases should not appear in CLI output",
+  assert.strictEqual(
+    fable5OneMIndex,
+    fable51Index + 1,
+    "Fable 5.1 should sit immediately above Fable 5",
+  );
+  assert.strictEqual(
+    fable5Index,
+    fable5OneMIndex + 1,
+    "Fable 5 dual rows should stay adjacent, 1M then 200K",
   );
 }
 

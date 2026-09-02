@@ -130,6 +130,36 @@ describe("toDisplayUrl", () => {
     ).toBe("https://a.example/x");
   });
 
+  it("maps back when the loopback url has no explicit port", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://80.preview.example.com/app",
+        template: TEMPLATE,
+        originalUrl: "http://localhost/",
+      }),
+    ).toBe("http://localhost/app");
+  });
+
+  it("passes through when the original url cannot be parsed", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://3000.preview.example.com/x",
+        template: TEMPLATE,
+        originalUrl: "not a url",
+      }),
+    ).toBe("https://3000.preview.example.com/x");
+  });
+
+  it("passes through when the template is not a valid url", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://3000.preview.example.com/x",
+        template: "{port}.preview.example.com",
+        originalUrl: "http://localhost:3000/",
+      }),
+    ).toBe("https://3000.preview.example.com/x");
+  });
+
   it("round-trips with resolveWebBrowserSrc", () => {
     const original = "http://localhost:5173/nested/path?a=b";
     const resolved = resolveWebBrowserSrc({ url: original, template: TEMPLATE });

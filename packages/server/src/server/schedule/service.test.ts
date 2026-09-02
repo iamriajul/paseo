@@ -34,6 +34,7 @@ import {
   FileBackedWorkspaceRegistry,
 } from "../workspace-registry.js";
 import { archiveByScope, type ActiveWorkspaceRef } from "../workspace-archive-service.js";
+import type { BackgroundTaskDescriptor } from "../agent/background-tasks/store.js";
 import {
   ScheduleService,
   ScheduleTargetGoneError,
@@ -701,6 +702,139 @@ describe("ScheduleService", () => {
         workspaceId: storedAgent?.workspaceId,
         archivedAt: expect.any(String),
       }),
+    );
+  });
+
+  test("keeps the run workspace while a background task the run started is still running", async () => {
+    const {
+      workspaceRegistry,
+      createDirectoryWorkspace: createScheduleDirectoryWorkspace,
+      createArchiveWorkspace,
+    } = await createRegistryBackedScheduleWorkspaceDeps(tempDir);
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    let backgroundTasks: BackgroundTaskDescriptor[] = [];
+    manager.listBackgroundTasks = () => backgroundTasks;
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      createDirectoryWorkspace: createScheduleDirectoryWorkspace,
+      archiveWorkspace: createArchiveWorkspace({
+        agentManager: manager,
+        agentStorage,
+      }),
+      now: () => now,
+    });
+
+    const created = await service.create({
+      prompt: "leave a shell running",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", model: "test-model", cwd: tempDir, isolation: "local" },
+      },
+      maxRuns: 1,
+    });
+
+    backgroundTasks = [
+      {
+        taskId: "task-1",
+        parentAgentId: "pending",
+        type: "shell",
+        description: "npm run build",
+        command: "npm run build",
+        status: "running",
+        outputFile: null,
+        lastSummary: null,
+        updatedAt: now.toISOString(),
+      },
+    ];
+    await service.tick();
+
+    const inspected = await service.inspect(created.id);
+    expect(inspected.runs[0]?.status).toBe("succeeded");
+    const agentId = inspected.runs[0]!.agentId!;
+    const storedAgent = await agentStorage.get(agentId);
+    expect(storedAgent?.archivedAt ?? null).toBeNull();
+    expect(await workspaceRegistry.get(storedAgent!.workspaceId!)).toEqual(
+      expect.objectContaining({ archivedAt: null }),
+    );
+
+    // The shell finishes; the deferred archive lands on the next tick.
+    backgroundTasks = [];
+    now = new Date("2026-01-01T00:02:00.000Z");
+    await service.tick();
+
+    expect((await agentStorage.get(agentId))?.archivedAt).toEqual(expect.any(String));
+    expect(await workspaceRegistry.get(storedAgent!.workspaceId!)).toEqual(
+      expect.objectContaining({ archivedAt: expect.any(String) }),
+    );
+  });
+
+  test("keeps the run workspace while a terminal in it is busy", async () => {
+    const {
+      workspaceRegistry,
+      createDirectoryWorkspace: createScheduleDirectoryWorkspace,
+      createArchiveWorkspace,
+    } = await createRegistryBackedScheduleWorkspaceDeps(tempDir);
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    let terminalState: "working" | "idle" = "working";
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      createDirectoryWorkspace: createScheduleDirectoryWorkspace,
+      archiveWorkspace: createArchiveWorkspace({
+        agentManager: manager,
+        agentStorage,
+      }),
+      listWorkspaceTerminals: async () => [
+        {
+          id: "term-1",
+          name: "bash",
+          exited: false,
+          activity: { state: terminalState, changedAt: 0 },
+        },
+      ],
+      now: () => now,
+    });
+
+    const created = await service.create({
+      prompt: "leave a terminal running",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", model: "test-model", cwd: tempDir, isolation: "local" },
+      },
+      maxRuns: 1,
+    });
+
+    await service.tick();
+
+    const inspected = await service.inspect(created.id);
+    const storedAgent = await agentStorage.get(inspected.runs[0]!.agentId!);
+    expect(await workspaceRegistry.get(storedAgent!.workspaceId!)).toEqual(
+      expect.objectContaining({ archivedAt: null }),
+    );
+
+    terminalState = "idle";
+    now = new Date("2026-01-01T00:02:00.000Z");
+    await service.tick();
+
+    expect(await workspaceRegistry.get(storedAgent!.workspaceId!)).toEqual(
+      expect.objectContaining({ archivedAt: expect.any(String) }),
     );
   });
 

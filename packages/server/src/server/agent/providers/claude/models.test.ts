@@ -195,9 +195,6 @@ describe("getClaudeModels", () => {
     expect(models.get("claude-fable-5")?.thinkingOptions?.map((option) => option.id)).not.toContain(
       CLAUDE_DISABLED_THINKING_OPTION_ID,
     );
-    expect(
-      models.get("claude-fable-5-1")?.thinkingOptions?.map((option) => option.id),
-    ).not.toContain(CLAUDE_DISABLED_THINKING_OPTION_ID);
     expect(models.get("claude-haiku-4-5")?.thinkingOptions?.map((option) => option.id)).toEqual([
       "low",
       "medium",
@@ -622,6 +619,19 @@ describe("Claude Fable 5.1 catalog", () => {
     expect(findClaudeModel("claude-fable-5-1-20260901[1m]")?.id).toBe("claude-fable-5-1[1m]");
     expect(findClaudeModel("claude-fable-5-1[1m]")?.contextWindowMaxTokens).toBe(1_000_000);
     expect(findClaudeModel("claude-fable-5-1")?.contextWindowMaxTokens).toBe(200_000);
+  });
+
+  it("does not offer disabled thinking on either Fable 5.1 context variant", () => {
+    expect(
+      getClaudeModels()
+        .find((model) => model.id === "claude-fable-5-1")
+        ?.thinkingOptions?.map((option) => option.id),
+    ).not.toContain(CLAUDE_DISABLED_THINKING_OPTION_ID);
+    expect(
+      getClaudeModels()
+        .find((model) => model.id === "claude-fable-5-1[1m]")
+        ?.thinkingOptions?.map((option) => option.id),
+    ).not.toContain(CLAUDE_DISABLED_THINKING_OPTION_ID);
   });
 });
 

@@ -55,6 +55,36 @@ function captureMessages(): BridgeMessage[] {
   return sent;
 }
 
+// jsdom starts a 0 ms timer of its own whenever sessionStorage.setItem changes a
+// value — that is how it dispatches the storage event — and the bridge saves its
+// stack on install. That timer lands on vitest's fake clock under Node 22 and
+// does not under Node 26, so vi.getTimerCount() tallies jsdom's bookkeeping as
+// well as ours and cannot say whether teardown cleared the poll. Watching the
+// handles the script itself opens and closes answers that on every runtime.
+function trackIntervals(): { opened: unknown[]; closed: unknown[]; restore: () => void } {
+  const opened: unknown[] = [];
+  const closed: unknown[] = [];
+  const realSetInterval = globalThis.setInterval;
+  const realClearInterval = globalThis.clearInterval;
+  globalThis.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    const id = realSetInterval(handler, timeout, ...args);
+    opened.push(id);
+    return id;
+  }) as typeof globalThis.setInterval;
+  globalThis.clearInterval = ((id?: number) => {
+    closed.push(id);
+    realClearInterval(id);
+  }) as typeof globalThis.clearInterval;
+  return {
+    opened,
+    closed,
+    restore: () => {
+      globalThis.setInterval = realSetInterval;
+      globalThis.clearInterval = realClearInterval;
+    },
+  };
+}
+
 // The browser evaluates the script as inline <head> markup; new Function is the
 // closest equivalent that still runs it against this window's globals.
 function install(): void {
@@ -363,24 +393,35 @@ describe("NAVIGATION_SCRIPT", () => {
     vi.useFakeTimers();
     const nativePushState = history.pushState;
     const nativeReplaceState = history.replaceState;
-    const sent = runScript();
-    expect(history.pushState).not.toBe(nativePushState);
-    expect(vi.getTimerCount()).toBeGreaterThan(0);
-    const assign = vi.fn();
+    const polls = trackIntervals();
+    const sent = captureMessages();
+    try {
+      install();
+      expect(history.pushState).not.toBe(nativePushState);
+      // Guards the assertion below against passing because the poll went away.
+      expect(polls.opened).not.toHaveLength(0);
 
-    window.__paseoNavigationBridge?.destroy();
+      window.__paseoNavigationBridge?.destroy();
+    } finally {
+      polls.restore();
+    }
+    const assign = vi.fn();
 
     // Nothing of ours is left on the window: no handle, no poll, no patched
     // history, no command listener.
     expect(window.__paseoNavigationBridge).toBeUndefined();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(polls.closed).toEqual(expect.arrayContaining(polls.opened));
     expect(history.pushState).toBe(nativePushState);
     expect(history.replaceState).toBe(nativeReplaceState);
+    // Move both axes the poll watches. Frozen at the current href, a poll that
+    // outlived destroy and kept observing dedupes its way to silence and the
+    // assertion below passes anyway.
     Object.defineProperty(window, "location", {
       configurable: true,
-      value: { ...window.location, assign, href: window.location.href },
+      value: { ...window.location, assign, href: "http://localhost:3000/after-destroy" },
       writable: true,
     });
+    document.title = "moved after destroy";
     const before = sent.length;
     history.pushState(null, "", "/after-destroy");
     command({ source: COMMAND_SOURCE, command: "goto", url: "http://localhost:3000/nope" });

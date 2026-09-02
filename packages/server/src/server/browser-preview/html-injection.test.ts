@@ -129,6 +129,20 @@ async function pump(chunks: readonly (string | Buffer)[], scripts: string): Prom
   return Buffer.concat(await pumpChunks(chunks, scripts)).toString("utf8");
 }
 
+// Everything the transform has pushed so far, as one string. read() with no
+// argument drains the entire readable buffer in paused mode, so the result does
+// not depend on how many push calls produced it — the question here is what has
+// left the transform, never how it was cut up on the way out.
+function drain(stream: Readable): string {
+  const parts: Buffer[] = [];
+  let chunk = stream.read() as Buffer | null;
+  while (chunk !== null) {
+    parts.push(chunk);
+    chunk = stream.read() as Buffer | null;
+  }
+  return Buffer.concat(parts).toString("utf8");
+}
+
 describe("createHtmlInjectionStream", () => {
   it("injects once and passes the body through", async () => {
     const out = await pump(
@@ -157,19 +171,31 @@ describe("createHtmlInjectionStream", () => {
     expect(out).toContain("<body>b</body>");
   });
 
+  // Counting the consumer's chunks proves nothing about the transform: read()
+  // hands back the whole readable buffer at once in paused mode, so two
+  // synchronous pushes surface as one chunk on Node 22 and as two on Node 26.
+  // What actually separates this from a transform that buffered the document
+  // and rewrote it in flush is that such a transform has emitted nothing at all
+  // until end() — so read before ending, and concatenate whatever comes back so
+  // that batching cannot change the answer.
   it("stops buffering after </head> so the body streams", async () => {
     const big = "x".repeat(200_000);
-    const chunks = await pumpChunks([`<html><head></head><body>${big}</body></html>`], SCRIPTS);
-    const out = Buffer.concat(chunks).toString("utf8");
-    expect(out).toContain(SCRIPTS);
-    expect(out).toContain(big);
-    // Only the chunk boundary separates this from a transform that buffered the
-    // whole document and rewrote it in flush — that produces a byte-identical
-    // concatenation. The head has to leave on its own, ahead of the body.
-    expect(chunks.length).toBeGreaterThan(1);
-    const [head] = chunks;
-    expect(head?.toString("utf8")).toContain(SCRIPTS);
-    expect(head?.toString("utf8")).not.toContain(big);
+    const stream = createHtmlInjectionStream(SCRIPTS);
+
+    stream.write("<html><head></head><body>");
+    const head = drain(stream);
+    expect(head).toContain(SCRIPTS);
+
+    stream.write(big);
+    const body = drain(stream);
+    expect(body).toContain(big);
+
+    stream.end("</body></html>");
+    const tail: Buffer[] = [];
+    for await (const chunk of stream) tail.push(chunk as Buffer);
+    expect(head + body + Buffer.concat(tail).toString("utf8")).toBe(
+      `<html><head>${SCRIPTS}</head><body>${big}</body></html>`,
+    );
   });
 
   // Identical bytes must produce identical output however upstream chunked them.

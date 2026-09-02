@@ -542,6 +542,8 @@ export const ja: TranslationResources = {
           "このホストに browserPreview.urlTemplate を設定すると、Web アプリからこのホストの localhost ポートを閲覧できるようになります。デスクトップアプリでは、このワークスペースのブラウザはすでに利用できます。",
       },
       session: "ブラウザセッション{{browserId}}",
+      iframeNotice:
+        "このページは iframe 内で動作しているため、読み込みを拒否するサイトがあり、開発ツールも利用できません。完全なブラウザを使うにはデスクトップアプリを開いてください。",
       controls: {
         back: "戻る",
         forward: "進む",

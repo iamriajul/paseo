@@ -542,6 +542,8 @@ export const ptBR: TranslationResources = {
           "Defina browserPreview.urlTemplate neste host para navegar pelas portas localhost pelo aplicativo web. O navegador já funciona para este workspace no aplicativo de desktop.",
       },
       session: "Sessão do navegador {{browserId}}",
+      iframeNotice:
+        "Esta página é executada dentro de um iframe, então alguns sites se recusam a carregar e as ferramentas de desenvolvedor não estão disponíveis. Use o aplicativo de desktop para um navegador completo.",
       controls: {
         back: "Voltar",
         forward: "Avançar",

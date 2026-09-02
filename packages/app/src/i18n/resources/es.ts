@@ -542,6 +542,8 @@ export const es: TranslationResources = {
           "Configure browserPreview.urlTemplate en este host para explorar sus puertos de localhost desde la aplicación web. El navegador ya funciona en este espacio de trabajo en la aplicación de escritorio.",
       },
       session: "Sesión de navegador{{browserId}}",
+      iframeNotice:
+        "Esta página se ejecuta dentro de un iframe, por lo que algunos sitios se niegan a cargarse y las herramientas de desarrollo no están disponibles. Usa la aplicación de escritorio para un navegador completo.",
       controls: {
         back: "Atrás",
         forward: "Adelante",

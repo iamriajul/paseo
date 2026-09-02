@@ -542,6 +542,8 @@ export const fr: TranslationResources = {
           "Définissez browserPreview.urlTemplate sur cet hôte pour parcourir ses ports localhost depuis l'application web. Le navigateur fonctionne déjà pour cet espace de travail dans l'application de bureau.",
       },
       session: "Session de navigateur{{browserId}}",
+      iframeNotice:
+        "Cette page s'exécute dans une iframe : certains sites refusent de se charger et les outils de développement ne sont pas disponibles. Utilisez l'application de bureau pour un navigateur complet.",
       controls: {
         back: "Dos",
         forward: "Avant",

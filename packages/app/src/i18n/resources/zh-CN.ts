@@ -538,6 +538,8 @@ export const zhCN: TranslationResources = {
           "在此主机上设置 browserPreview.urlTemplate，即可通过 Web 应用浏览其 localhost 端口。在桌面应用中，此 workspace 的浏览器已经可用。",
       },
       session: "浏览器会话 {{browserId}}",
+      iframeNotice:
+        "此页面运行在 iframe 中，因此部分网站会拒绝加载，开发者工具也不可用。如需完整的浏览器，请使用桌面应用。",
       controls: {
         back: "后退",
         forward: "前进",

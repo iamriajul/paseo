@@ -1,12 +1,43 @@
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
+import { useWorkspaceAttachmentsStore } from "@/attachments/workspace-attachments-store";
 import { isWeb } from "@/constants/platform";
-import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
-import { normalizeWorkspaceBrowserUrl, useBrowserStore } from "@/desktop/browser/store";
+import {
+  buildBrowserAttachmentScopeKey,
+  buildBrowserElementAttachment,
+  truncateBrowserText,
+  type BrowserElementAnnotation,
+} from "@/desktop/browser/browser-element-attachment";
+import {
+  normalizeWorkspaceBrowserUrl,
+  RESPONSIVE_BROWSER_VIEWPORT,
+  useBrowserStore,
+  type BrowserViewport,
+} from "@/desktop/browser/store";
 import { useBrowserPreviewTemplate } from "@/desktop/browser/workspace-browser-preview";
-import { getUnsupportedIframeProtocol, resolveWebBrowserSrc } from "./web-preview-url";
+import { useStableEvent } from "@/hooks/use-stable-event";
+import { WebAnnotationComposer } from "./web-annotation-composer";
+import {
+  createPreviewBridge,
+  type BridgeEvent,
+  type BridgeSelection,
+  type PreviewBridge,
+} from "./web-bridge";
+import {
+  createWebNavigationState,
+  webNavigationReducer,
+  type WebNavigationState,
+} from "./web-navigation";
+import { WebBrowserNotice } from "./web-notice";
+import {
+  getUnsupportedIframeProtocol,
+  resolveWebBrowserSrc,
+  toDisplayUrl,
+} from "./web-preview-url";
+import { WebBrowserToolbar } from "./web-toolbar";
 
 interface BrowserPaneProps {
   browserId: string;
@@ -20,53 +51,270 @@ interface BrowserPaneProps {
   chrome?: "visible" | "hidden";
 }
 
-const IFRAME_STYLE = {
+const RESPONSIVE_FRAME_STYLE: CSSProperties = {
   flex: 1,
   border: "none",
   width: "100%",
   height: "100%",
-} as const;
+};
 
-export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
+export function BrowserPane({ browserId, serverId, workspaceId, cwd }: BrowserPaneProps) {
   const { t } = useTranslation();
-  const { theme } = useUnistyles();
   const browser = useBrowserStore((state) => state.browsersById[browserId] ?? null);
   const updateBrowser = useBrowserStore((state) => state.updateBrowser);
+  const setBrowserViewport = useBrowserStore((state) => state.setBrowserViewport);
+  const addWorkspaceAttachment = useWorkspaceAttachmentsStore(
+    (state) => state.addWorkspaceAttachment,
+  );
   const template = useBrowserPreviewTemplate(serverId);
   const url = browser?.url ?? "https://example.com";
-  const resolved = useMemo(() => resolveWebBrowserSrc({ url, template }), [url, template]);
+  const viewport = browser?.viewport ?? RESPONSIVE_BROWSER_VIEWPORT;
 
-  // The address bar shows the URL the user typed (e.g. localhost:5173) while the
-  // iframe loads the resolved preview origin. Bumping `reloadKey` remounts the
-  // iframe to reload it — a cross-origin frame can't be reloaded through the DOM.
-  const urlInputRef = useRef<EditingTextInputHandle | null>(null);
+  const [state, dispatch] = useReducer(webNavigationReducer, url, createWebNavigationState);
   const [reloadKey, setReloadKey] = useState(0);
-  const reload = useCallback(() => setReloadKey((key) => key + 1), []);
-  const submit = useCallback(() => {
-    const next = normalizeWorkspaceBrowserUrl(urlInputRef.current?.getText() ?? url);
-    if (next === url) {
-      reload();
-    } else {
-      updateBrowser(browserId, { url: next });
-    }
-  }, [url, reload, updateBrowser, browserId]);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [isErudaOpen, setIsErudaOpen] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState<BridgeSelection | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const bridgeRef = useRef<PreviewBridge | null>(null);
 
-  const titleStyle = useMemo(
-    () => [styles.title, { color: theme.colors.foreground }],
-    [theme.colors.foreground],
+  // Where the frame is *pointed*, which is not where it currently *is*: with a
+  // live bridge the page routes itself and `state.displayUrl` follows, while the
+  // src must stay put or every client-side route change would reload the page
+  // out from under the user. `stack[index]` is the reducer's own record of the
+  // pointed-at URL — it moves on navigate/back/forward/reset and on nothing else —
+  // so reading it here keeps one owner for the parent-side history.
+  const target = state.stack[state.index] ?? url;
+  const resolved = useMemo(
+    () => resolveWebBrowserSrc({ url: target, template }),
+    [target, template],
   );
-  const subtitleStyle = useMemo(
-    () => [styles.subtitle, { color: theme.colors.foregroundMuted }],
-    [theme.colors.foregroundMuted],
+  const previewSrc = resolved.kind === "preview" ? resolved.src : null;
+
+  // The record's `url` is written from two places — this pane, and anything
+  // external (tab restore, an `open-url` arriving from chat). Only the external
+  // one may reset navigation state, so the pane records every URL it writes and
+  // the effect below skips those. Without this, `updateBrowser` on an address-bar
+  // submit would fire the reset effect, `reset` would rebuild from the factory,
+  // and the parent stack would be pinned at `[url]` index 0 forever — silently
+  // deleting the direct-URL back/forward the reducer maintains.
+  const syncedUrlRef = useRef(url);
+  useEffect(() => {
+    if (url === syncedUrlRef.current) {
+      return;
+    }
+    syncedUrlRef.current = url;
+    dispatch({ type: "reset", url });
+  }, [url]);
+
+  const handleBridgeEvent = useStableEvent((event: BridgeEvent) => {
+    dispatch({ type: "bridge", event });
+    switch (event.type) {
+      case "ready":
+        // A fresh document: eruda is re-injected hidden and any selector overlay
+        // went with the old one.
+        setIsErudaOpen(false);
+        setIsSelecting(false);
+        return;
+      case "navigation": {
+        const displayed = toDisplayUrl({ url: event.url, template, originalUrl: target });
+        syncedUrlRef.current = displayed;
+        updateBrowser(browserId, {
+          url: displayed,
+          title: event.title,
+          canGoBack: event.canGoBack,
+          canGoForward: event.canGoForward,
+        });
+        return;
+      }
+      case "selection":
+        // The overlay tears itself down before posting, so selecting is over.
+        setIsSelecting(false);
+        setPendingSelection(event.selection);
+        return;
+      case "select-cancelled":
+        setIsSelecting(false);
+        return;
+      case "eruda-failed":
+        setIsErudaOpen(false);
+        return;
+      case "eruda-ready":
+        return;
+    }
+  });
+
+  useEffect(() => {
+    // Both belong to the document being replaced.
+    setIsSelecting(false);
+    setIsErudaOpen(false);
+    if (!previewSrc) {
+      return;
+    }
+    const bridge = createPreviewBridge({
+      origin: new URL(previewSrc).origin,
+      getFrame: () => iframeRef.current?.contentWindow ?? null,
+      onEvent: handleBridgeEvent,
+    });
+    bridgeRef.current = bridge;
+    return () => {
+      bridge.dispose();
+      if (bridgeRef.current === bridge) {
+        bridgeRef.current = null;
+      }
+    };
+  }, [handleBridgeEvent, previewSrc]);
+
+  const handleReload = useCallback(() => {
+    if (state.bridgeReady) {
+      bridgeRef.current?.send({ command: "reload" });
+      return;
+    }
+    setReloadKey((key) => key + 1);
+  }, [state.bridgeReady]);
+
+  const handleSubmitUrl = useCallback(
+    (raw: string) => {
+      const next = normalizeWorkspaceBrowserUrl(raw);
+      const nextResolved = resolveWebBrowserSrc({ url: next, template });
+      const nextSrc = nextResolved.kind === "no-template" ? null : nextResolved.src;
+      const currentSrc = resolved.kind === "no-template" ? null : resolved.src;
+      // Nothing about what the frame loads changes — pressing Enter unedited, or
+      // asking for the root of a page that has since routed itself elsewhere. A
+      // `user-navigate` here would clear `bridgeReady` with no document load to
+      // re-announce `ready`, leaving every bridge control dead over a live
+      // bridge, and would push a duplicate onto the only history direct URLs
+      // have. Remount instead: that reloads, and it also drags a page that
+      // routed away back to the src.
+      if (nextSrc !== null && nextSrc === currentSrc) {
+        setReloadKey((key) => key + 1);
+        return;
+      }
+      // Never `goto`: a cross-origin goto navigates the frame off the preview
+      // origin and ends the bridge session, leaving the controls silently inert.
+      // The src is the only thing that re-points the frame.
+      syncedUrlRef.current = next;
+      dispatch({ type: "user-navigate", url: next });
+      updateBrowser(browserId, { url: next, title: "", canGoBack: false, canGoForward: false });
+    },
+    [browserId, resolved, template, updateBrowser],
   );
+
+  // The reducer has no bridge-side back/forward action, so `bridgeReady` is the
+  // discriminator rather than a preference. Dispatching `user-back` over a live
+  // bridge would walk the parent stack instead of the page's real history — and
+  // with no prior URL-bar moves that stack is one entry at index 0, so it hits
+  // the bounds guard and returns unchanged. It would also keep `bridgeReady` and
+  // `title`, which the reducer's "no bridge implies no title" invariant relies on
+  // never happening over a live session.
+  const handleBack = useCallback(() => {
+    if (state.bridgeReady) {
+      bridgeRef.current?.send({ command: "back" });
+      return;
+    }
+    dispatch({ type: "user-back" });
+  }, [state.bridgeReady]);
+
+  const handleForward = useCallback(() => {
+    if (state.bridgeReady) {
+      bridgeRef.current?.send({ command: "forward" });
+      return;
+    }
+    dispatch({ type: "user-forward" });
+  }, [state.bridgeReady]);
+
+  const handleToggleEruda = useCallback(() => {
+    // The frame reports `eruda-ready`/`eruda-failed` but never which way the
+    // panel went, so the open state is the parent's own optimistic mirror,
+    // corrected by `eruda-failed` and reset by each new document.
+    bridgeRef.current?.send({ command: "toggle-eruda" });
+    setIsErudaOpen((open) => !open);
+  }, []);
+
+  const handleToggleSelect = useCallback(() => {
+    bridgeRef.current?.send({ command: isSelecting ? "cancel-select" : "start-select" });
+    setIsSelecting(!isSelecting);
+  }, [isSelecting]);
+
+  const handleChangeViewport = useCallback(
+    (next: BrowserViewport) => setBrowserViewport(browserId, next),
+    [browserId, setBrowserViewport],
+  );
+
+  const scopeKey = useMemo(
+    () => buildBrowserAttachmentScopeKey({ cwd, serverId, workspaceId }),
+    [cwd, serverId, workspaceId],
+  );
+
+  const handleAnnotationSubmit = useCallback(
+    (annotation: BrowserElementAnnotation) => {
+      const selection = pendingSelection;
+      setPendingSelection(null);
+      if (!selection || !scopeKey) {
+        return;
+      }
+      addWorkspaceAttachment({
+        scopeKey,
+        attachment: {
+          kind: "browser_element",
+          // No screenshot argument: Electron's element capture is a main-process
+          // bridge with no iframe equivalent, so web attaches text only.
+          attachment: buildBrowserElementAttachment(selection, annotation),
+        },
+      });
+    },
+    [addWorkspaceAttachment, pendingSelection, scopeKey],
+  );
+
+  const handleAnnotationCancel = useCallback(() => setPendingSelection(null), []);
+
+  // The bridge reports the preview origin; the address bar must keep showing the
+  // loopback URL the user asked for. The toolbar reads `state.displayUrl`, so the
+  // translation happens on the state handed to it rather than on a second prop.
+  const toolbarState = useMemo<WebNavigationState>(
+    () => ({
+      ...state,
+      displayUrl: toDisplayUrl({ url: state.displayUrl, template, originalUrl: target }),
+    }),
+    [state, target, template],
+  );
+
+  const isResponsive = viewport.mode === "responsive";
+  const frameWrapStyle = useMemo(
+    () => [styles.frameWrap, isResponsive ? null : styles.frameWrapDeviceFrame],
+    [isResponsive],
+  );
+  const frameStyle = useMemo<CSSProperties>(
+    () =>
+      viewport.mode === "fixed"
+        ? {
+            border: "none",
+            width: viewport.width,
+            height: viewport.height,
+            boxShadow: "0 2px 16px rgba(0,0,0,0.25)",
+          }
+        : RESPONSIVE_FRAME_STYLE,
+    [viewport],
+  );
+
+  // Which element the picker returned. The composer takes no `selection` prop, so
+  // the identity line the Electron and Android panes render inside their cards is
+  // rendered here instead, in the column where it cannot collide with the
+  // composer's own absolute layout.
+  const pendingSelectionLabel = useMemo(() => {
+    if (!pendingSelection) {
+      return null;
+    }
+    const text = truncateBrowserText(pendingSelection.text.trim().replace(/\s+/g, " "), 60);
+    return text ? `${pendingSelection.tag} · ${text}` : pendingSelection.tag;
+  }, [pendingSelection]);
 
   // No reachable preview origin for this host — nothing to navigate to, so no
-  // address bar either.
+  // toolbar either.
   if (resolved.kind === "no-template") {
     return (
       <View style={styles.container}>
-        <Text style={titleStyle}>{t("workspace.browser.previewNotConfigured.title")}</Text>
-        <Text style={subtitleStyle}>{t("workspace.browser.previewNotConfigured.subtitle")}</Text>
+        <Text style={styles.title}>{t("workspace.browser.previewNotConfigured.title")}</Text>
+        <Text style={styles.subtitle}>{t("workspace.browser.previewNotConfigured.subtitle")}</Text>
       </View>
     );
   }
@@ -78,7 +326,7 @@ export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
   if (unsupportedProtocol) {
     content = (
       <View style={styles.container}>
-        <Text style={titleStyle}>
+        <Text style={styles.title}>
           {t("workspace.browser.errors.unsupportedProtocol", { protocol: unsupportedProtocol })}
         </Text>
       </View>
@@ -91,11 +339,18 @@ export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
       // the daemon already strips X-Frame-Options/CSP so it runs unrestricted, and a sandbox
       // would break the scripts, forms, and popups a real page needs. Cross-origin isolation
       // already separates it from the Paseo origin.
+      //
+      // `src` is in the key on purpose. Assigning a new `src` to a mounted iframe
+      // navigates it, and an iframe navigation lands on the *top-level* joint
+      // session history — the app's own back button would start walking preview
+      // pages. Keying on it makes every re-point a remount, so the rule holds
+      // structurally instead of depending on each call site remembering it.
       // oxlint-disable-next-line react/iframe-missing-sandbox
       <iframe
-        key={reloadKey}
+        key={`${reloadKey}:${resolved.src}`}
+        ref={iframeRef}
         src={resolved.src}
-        style={IFRAME_STYLE}
+        style={frameStyle}
         title={t("workspace.tabs.fallback.browser")}
       />
     );
@@ -103,32 +358,35 @@ export function BrowserPane({ browserId, serverId }: BrowserPaneProps) {
 
   return (
     <View style={styles.pane}>
-      <View style={[styles.addressBar, { borderBottomColor: theme.colors.border }]}>
-        {/* key remounts the field on url change so it resyncs to the canonical URL. */}
-        <EditingTextInput
-          ref={urlInputRef}
-          key={url}
-          initialValue={url}
-          onSubmitEditing={submit}
-          placeholder={t("workspace.browser.controls.enterUrl")}
-          placeholderTextColor={theme.colors.foregroundMuted}
-          accessibilityLabel={t("workspace.browser.controls.browserUrl")}
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={[
-            styles.urlInput,
-            { color: theme.colors.foreground, backgroundColor: theme.colors.input },
-          ]}
+      <WebBrowserToolbar
+        state={toolbarState}
+        bridgeAvailable={state.bridgeReady}
+        isSelecting={isSelecting}
+        isErudaOpen={isErudaOpen}
+        viewport={viewport}
+        onSubmitUrl={handleSubmitUrl}
+        onBack={handleBack}
+        onForward={handleForward}
+        onReload={handleReload}
+        onToggleEruda={handleToggleEruda}
+        onToggleSelect={handleToggleSelect}
+        onChangeViewport={handleChangeViewport}
+      />
+      {resolved.kind === "direct" ? <WebBrowserNotice /> : null}
+      {pendingSelectionLabel ? (
+        <View style={styles.selectedElement}>
+          <Text numberOfLines={1} style={styles.selectedElementText}>
+            {pendingSelectionLabel}
+          </Text>
+        </View>
+      ) : null}
+      <View style={frameWrapStyle}>{content}</View>
+      {pendingSelection ? (
+        <WebAnnotationComposer
+          onSubmit={handleAnnotationSubmit}
+          onCancel={handleAnnotationCancel}
         />
-        <Pressable
-          onPress={reload}
-          accessibilityLabel={t("workspace.browser.controls.refresh")}
-          style={styles.reloadButton}
-        >
-          <Text style={[styles.reloadGlyph, { color: theme.colors.foregroundMuted }]}>↻</Text>
-        </Pressable>
-      </View>
-      {content}
+      ) : null}
     </View>
   );
 }
@@ -144,35 +402,38 @@ const styles = StyleSheet.create((theme) => ({
     gap: 8,
     padding: 16,
   },
-  addressBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  urlInput: {
+  frameWrap: {
     flex: 1,
-    height: 32,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    fontSize: theme.fontSize.sm,
+    minHeight: 0,
+    overflow: "hidden",
   },
-  reloadButton: {
-    width: 32,
-    height: 32,
+  // A fixed device size centres the framed page over a muted backdrop instead of
+  // left-aligning it, matching the Electron pane.
+  frameWrapDeviceFrame: {
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: theme.colors.surface1,
+    padding: theme.spacing[3],
   },
-  reloadGlyph: {
-    fontSize: theme.fontSize.base,
+  selectedElement: {
+    width: "100%",
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
+    backgroundColor: theme.colors.muted,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.border,
+  },
+  selectedElementText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
   },
   title: {
     fontSize: theme.fontSize.base,
     fontWeight: "600",
+    color: theme.colors.foreground,
   },
   subtitle: {
     fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
   },
 }));

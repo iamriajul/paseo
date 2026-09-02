@@ -217,10 +217,14 @@ interface WebBrowserToolbarProps {
   onChangeViewport: (viewport: BrowserViewport) => void;
 }
 
-// Chrome for the web pane's iframe. Back, forward, devtools and select all need
-// the injected bridge to do anything, so without one they render inert rather
-// than accepting a press and dropping it. Reload never needs the bridge — the
-// pane remounts the iframe instead.
+// Chrome for the web pane's iframe. `bridgeAvailable` gates devtools and select
+// only: those two have nothing to fall back on, so without the injected bridge
+// they render inert rather than accepting a press and dropping it. Back and
+// forward gate on `canGoBack`/`canGoForward` alone, which the reducer maintains
+// on both paths — bridge-reported while a bridge is live, a parent-side stack of
+// URL-bar moves when there is none — so they keep working on a direct URL, which
+// is what the design's degradation table promises. Reload never needs the bridge
+// either; the pane remounts the iframe instead.
 export function WebBrowserToolbar({
   state,
   bridgeAvailable,
@@ -260,14 +264,14 @@ export function WebBrowserToolbar({
       <View style={styles.group}>
         <ToolbarButton
           label={t("workspace.browser.controls.back")}
-          disabled={!bridgeAvailable || !state.canGoBack}
+          disabled={!state.canGoBack}
           onPress={onBack}
         >
           <ThemedArrowLeft size={16} uniProps={mutedIconMapping} />
         </ToolbarButton>
         <ToolbarButton
           label={t("workspace.browser.controls.forward")}
-          disabled={!bridgeAvailable || !state.canGoForward}
+          disabled={!state.canGoForward}
           onPress={onForward}
         >
           <ThemedArrowRight size={16} uniProps={mutedIconMapping} />

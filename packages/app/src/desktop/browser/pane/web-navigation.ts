@@ -66,11 +66,13 @@ export function webNavigationReducer(
     // Re-pointing the frame ends any bridge session too — the proxy injects no
     // bridge into another origin — so this clears the same bridge fields `reset`
     // does while keeping the parent stack, which is the half that still applies.
-    // Leaving `bridgeReady` set would route back/forward into a dead session.
+    // Leaving `bridgeReady` set would route back/forward into a dead session, and
+    // a kept `title` would name the previous page forever: a direct URL has no
+    // bridge to correct it. Empty is the honest value for an unknown title.
     case "user-navigate": {
       const stack = [...state.stack.slice(0, state.index + 1), action.url];
       return movedTo(
-        { ...state, stack, bridgeReady: false, lastDocId: null, lastSeq: 0 },
+        { ...state, stack, title: "", bridgeReady: false, lastDocId: null, lastSeq: 0 },
         stack.length - 1,
       );
     }

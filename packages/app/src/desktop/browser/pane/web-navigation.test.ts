@@ -122,7 +122,10 @@ describe("webNavigationReducer", () => {
     let state = createWebNavigationState(START);
     state = webNavigationReducer(state, { type: "user-navigate", url: "http://localhost:3000/a" });
     state = webNavigationReducer(state, nav({ seq: 9, url: "http://localhost:3000/b" }));
+    expect(state.title).toBe("Home");
     state = webNavigationReducer(state, { type: "reset", url: "https://other.example" });
+    // Same reason as user-navigate: no bridge will ever correct a kept title.
+    expect(state.title).toBe("");
     expect(state.stack).toEqual(["https://other.example"]);
     expect(state.index).toBe(0);
     expect(state.canGoBack).toBe(false);
@@ -139,8 +142,14 @@ describe("webNavigationReducer", () => {
       nav({ seq: 4, url: "http://localhost:3000/b" }),
     );
     expect(state.bridgeReady).toBe(true);
+    // Asserted before the move so the title check below cannot pass vacuously.
+    expect(state.title).toBe("Home");
     state = webNavigationReducer(state, { type: "user-navigate", url: "https://other.example" });
     expect(state.bridgeReady).toBe(false);
+    // A direct URL has no bridge to correct a stale title, and Task 11 feeds
+    // this straight into updateBrowser({ title }) — so the tab would carry the
+    // previous page's name indefinitely.
+    expect(state.title).toBe("");
     // ...and the guard no longer holds the dead document's seq.
     state = webNavigationReducer(state, nav({ seq: 1, url: "https://other.example/next" }));
     expect(state.displayUrl).toBe("https://other.example/next");

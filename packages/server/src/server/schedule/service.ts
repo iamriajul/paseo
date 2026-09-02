@@ -16,8 +16,15 @@ import { resolveCreateAgentTitles } from "../agent/create-agent-title.js";
 import { type BoundCreateAgentCommand, formatProviderModel } from "../agent/create-agent/create.js";
 import type { PersistedWorkspaceRecord } from "../workspace-registry.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../worktree-session.js";
+import type { BackgroundTaskDescriptor } from "../agent/background-tasks/store.js";
+import type { ProviderHeartbeatDescriptor } from "../agent/provider-heartbeats/store.js";
 import { ScheduleStore } from "./store.js";
 import { computeNextRunAt, validateScheduleCadence } from "./cron.js";
+import {
+  findScheduleRunLiveWork,
+  type ScheduleRunLiveWork,
+  type ScheduleRunTerminalSnapshot,
+} from "./live-work.js";
 import type {
   CreateScheduleInput,
   ScheduleExecutionResult,
@@ -30,6 +37,9 @@ import type {
 import type { FirstAgentContext } from "@getpaseo/protocol/messages";
 
 const SCHEDULE_TICK_INTERVAL_MS = 1000;
+// Re-checking a deferred archive costs a schedule-store read and a terminal
+// lookup per workspace. Cleanup is not urgent, so it does not ride the 1s tick.
+const DEFERRED_ARCHIVE_RETRY_INTERVAL_MS = 30_000;
 
 // A run failed because its target no longer exists: the agent was deleted or
 // archived, or a new-agent cwd was removed. These are permanent, so the schedule
@@ -137,6 +147,22 @@ function shouldArchiveScheduleRunWorkspace(input: {
   return input.agentId === null || (input.archiveOnFinish ?? true);
 }
 
+/** A run workspace archive that is pending, or waiting on the run's live work to finish. */
+interface DeferredScheduleArchive {
+  scheduleId: string;
+  runId: string;
+  workspaceId: string;
+  agentId: string | null;
+  cwd: string | null;
+  isolation: "local" | "worktree";
+  trigger: "run" | "recovery";
+}
+
+const ARCHIVE_FAILURE_MESSAGE: Record<DeferredScheduleArchive["trigger"], string> = {
+  run: "Failed to archive scheduled workspace after run",
+  recovery: "Failed to archive interrupted scheduled workspace after daemon restart",
+};
+
 function shouldCompleteSchedule(schedule: StoredSchedule, now: Date): boolean {
   if (schedule.expiresAt && new Date(schedule.expiresAt).getTime() <= now.getTime()) {
     return true;
@@ -213,6 +239,9 @@ type ScheduleAgentManager = Pick<
     | "createAgent"
     | "getRegisteredProviderIds"
     | "hydrateTimelineFromProvider"
+    | "listAgents"
+    | "listBackgroundTasks"
+    | "listProviderHeartbeats"
     | "resumeAgentFromPersistence"
     | "runAgent"
     | "waitForAgentEvent"
@@ -237,6 +266,14 @@ export interface ScheduleServiceOptions {
     input: ScheduleWorkspaceCreateInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   archiveWorkspace: (workspaceId: string) => Promise<void>;
+  /**
+   * Terminals living in a run workspace. Defaults to none, which only disables
+   * the terminal half of the live-work check.
+   */
+  listWorkspaceTerminals?: (input: {
+    cwd: string;
+    workspaceId: string;
+  }) => Promise<ScheduleRunTerminalSnapshot[]>;
   now?: () => Date;
   runner?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
 }
@@ -254,12 +291,20 @@ export class ScheduleService {
     input: ScheduleWorkspaceCreateInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   private readonly archiveWorkspace: (workspaceId: string) => Promise<void>;
+  private readonly listWorkspaceTerminals: (input: {
+    cwd: string;
+    workspaceId: string;
+  }) => Promise<ScheduleRunTerminalSnapshot[]>;
   private readonly now: () => Date;
   private readonly runner: (
     schedule: StoredSchedule,
     runId: string,
   ) => Promise<ScheduleExecutionResult>;
   private readonly runningScheduleIds = new Set<string>();
+  // Run workspaces whose archive is waiting on live work to finish, keyed by
+  // workspace id. In-memory: a restart forgets them, which keeps the workspace.
+  private readonly deferredArchives = new Map<string, DeferredScheduleArchive>();
+  private lastDeferredArchiveFlushAt: number | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: ScheduleServiceOptions) {
@@ -271,6 +316,7 @@ export class ScheduleService {
     this.createDirectoryWorkspace = options.createDirectoryWorkspace;
     this.createPaseoWorktreeWorkspace = options.createPaseoWorktreeWorkspace;
     this.archiveWorkspace = options.archiveWorkspace;
+    this.listWorkspaceTerminals = options.listWorkspaceTerminals ?? (async () => []);
     this.now = options.now ?? (() => new Date());
     this.runner = options.runner ?? ((schedule, runId) => this.executeSchedule(schedule, runId));
   }
@@ -547,6 +593,7 @@ export class ScheduleService {
 
   async tick(): Promise<void> {
     const now = this.now();
+    await this.flushDeferredArchives();
     const schedules = await this.store.list();
     for (const schedule of schedules) {
       if (schedule.status !== "active" || !schedule.nextRunAt) {
@@ -593,6 +640,7 @@ export class ScheduleService {
       workspaceId: string;
       agentId: string | null;
       runId: string;
+      isolation: "local" | "worktree";
     }> = [];
     await this.store.update(scheduleId, (current) => {
       let updated = { ...current };
@@ -614,6 +662,7 @@ export class ScheduleService {
             workspaceId: runningRun.workspaceId,
             agentId: runningRun.agentId,
             runId: runningRun.id,
+            isolation: updated.target.config.isolation ?? "local",
           });
         }
         runs[runningIndex] = {
@@ -648,20 +697,20 @@ export class ScheduleService {
     if (!interruptedWorkspace) {
       return;
     }
-    try {
-      await this.archiveWorkspace(interruptedWorkspace.workspaceId);
-    } catch (error) {
-      this.logger.warn(
-        {
-          err: error,
-          agentId: interruptedWorkspace.agentId,
-          workspaceId: interruptedWorkspace.workspaceId,
-          scheduleId,
-          runId: interruptedWorkspace.runId,
-        },
-        "Failed to archive interrupted scheduled workspace after daemon restart",
-      );
-    }
+    // The run record has no cwd; the agent it created was started in the run
+    // workspace, so its record carries the directory the archive would delete.
+    const agentRecord = interruptedWorkspace.agentId
+      ? await this.agentStorage.get(interruptedWorkspace.agentId)
+      : null;
+    await this.archiveRunWorkspaceWhenIdle({
+      scheduleId,
+      runId: interruptedWorkspace.runId,
+      workspaceId: interruptedWorkspace.workspaceId,
+      agentId: interruptedWorkspace.agentId,
+      cwd: agentRecord?.cwd ?? null,
+      isolation: interruptedWorkspace.isolation,
+      trigger: "recovery",
+    });
   }
 
   // Orphaned agent-target schedules (agent deleted while the daemon was down, or
@@ -684,6 +733,94 @@ export class ScheduleService {
       }
       return completeSchedule(schedule, now);
     });
+  }
+
+  private listRunBackgroundTasks(agentId: string): BackgroundTaskDescriptor[] {
+    try {
+      return this.agentManager.listBackgroundTasks(agentId);
+    } catch {
+      // Agent archived, deleted, or never loaded — both list calls reject an
+      // unknown id, and a missing agent has no live work either way.
+      return [];
+    }
+  }
+
+  private listRunProviderHeartbeats(agentId: string): ProviderHeartbeatDescriptor[] {
+    try {
+      return this.agentManager.listProviderHeartbeats(agentId);
+    } catch {
+      return [];
+    }
+  }
+
+  private async findRunLiveWork(entry: DeferredScheduleArchive): Promise<ScheduleRunLiveWork[]> {
+    const { agentId, cwd, workspaceId } = entry;
+    let terminals: ScheduleRunTerminalSnapshot[] = [];
+    if (cwd) {
+      try {
+        terminals = await this.listWorkspaceTerminals({ cwd, workspaceId });
+      } catch (error) {
+        this.logger.warn({ err: error, ...entry }, "Failed to list scheduled run terminals");
+      }
+    }
+    return findScheduleRunLiveWork({
+      agentId,
+      workspaceId,
+      cwd,
+      isolation: entry.isolation,
+      backgroundTasks: agentId ? this.listRunBackgroundTasks(agentId) : [],
+      providerHeartbeats: agentId ? this.listRunProviderHeartbeats(agentId) : [],
+      schedules: await this.store.list(),
+      terminals,
+      agents: this.agentManager.listAgents().map((agent) => ({
+        id: agent.id,
+        workspaceId: agent.workspaceId ?? null,
+        lifecycle: agent.lifecycle,
+      })),
+    });
+  }
+
+  /**
+   * Archives a finished run's workspace once nothing the run started is still
+   * running. The archive kills background tasks and heartbeats with their agent,
+   * kills the workspace terminals, and for a worktree deletes the directory, so
+   * a run that left work behind keeps its workspace and retries on later ticks.
+   */
+  private async archiveRunWorkspaceWhenIdle(entry: DeferredScheduleArchive): Promise<void> {
+    const liveWork = await this.findRunLiveWork(entry);
+    if (liveWork.length > 0) {
+      if (!this.deferredArchives.has(entry.workspaceId)) {
+        this.logger.info(
+          { ...entry, liveWork },
+          "Kept scheduled run workspace; work started by the run is still running",
+        );
+      }
+      this.deferredArchives.set(entry.workspaceId, entry);
+      return;
+    }
+    this.deferredArchives.delete(entry.workspaceId);
+    try {
+      await this.archiveWorkspace(entry.workspaceId);
+    } catch (error) {
+      this.logger.warn({ err: error, ...entry }, ARCHIVE_FAILURE_MESSAGE[entry.trigger]);
+    }
+  }
+
+  private async flushDeferredArchives(): Promise<void> {
+    if (this.deferredArchives.size === 0) {
+      return;
+    }
+    const now = this.now().getTime();
+    if (
+      this.lastDeferredArchiveFlushAt !== null &&
+      now - this.lastDeferredArchiveFlushAt < DEFERRED_ARCHIVE_RETRY_INTERVAL_MS
+    ) {
+      return;
+    }
+    this.lastDeferredArchiveFlushAt = now;
+    for (const entry of Array.from(this.deferredArchives.values())) {
+      await this.archiveRunWorkspaceWhenIdle(entry);
+    }
   }
 
   private async runSchedule(
@@ -950,20 +1087,15 @@ export class ScheduleService {
         workspace &&
         shouldArchiveScheduleRunWorkspace({ agentId, archiveOnFinish: config.archiveOnFinish })
       ) {
-        try {
-          await this.archiveWorkspace(workspace.workspaceId);
-        } catch (error) {
-          this.logger.warn(
-            {
-              err: error,
-              agentId,
-              workspaceId: workspace.workspaceId,
-              scheduleId: schedule.id,
-              runId,
-            },
-            "Failed to archive scheduled workspace after run",
-          );
-        }
+        await this.archiveRunWorkspaceWhenIdle({
+          scheduleId: schedule.id,
+          runId,
+          workspaceId: workspace.workspaceId,
+          agentId,
+          cwd: workspace.cwd,
+          isolation: config.isolation ?? "local",
+          trigger: "run",
+        });
       }
     }
   }

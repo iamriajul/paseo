@@ -317,7 +317,8 @@ export interface AgentStreamViewProps {
   bottomOverlayControlClearance?: number;
   toast?: ToastApi | null;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
-  onOpenUrlInBrowserTab?: (url: string) => void;
+  /** Returns whether the URL was taken; false falls through to the fallbacks below. */
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
   readOnly?: boolean;
   activeSearchResultId?: string | null;
   historyPagination?: {
@@ -628,8 +629,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       if (!isLoopbackHttpUrl(url)) {
         return false;
       }
-      if (hasWorkspaceBrowser && onOpenUrlInBrowserTab) {
-        onOpenUrlInBrowserTab(url);
+      // Only report the press as handled if a tab actually opened. Returning
+      // true on a refusal suppressed everything below it, so a localhost link
+      // in chat did nothing at all.
+      if (hasWorkspaceBrowser && onOpenUrlInBrowserTab?.(url)) {
         return true;
       }
 

@@ -539,6 +539,8 @@ export const ko: TranslationResources = {
           "이 호스트에 browserPreview.urlTemplate을 설정하면 웹 앱에서 localhost 포트를 탐색할 수 있습니다. 데스크톱 앱에서는 이 워크스페이스의 브라우저가 이미 작동합니다.",
       },
       session: "브라우저 세션 {{browserId}}",
+      iframeNotice:
+        "이 페이지는 iframe 안에서 실행되므로 일부 사이트는 로드되지 않고 개발자 도구도 사용할 수 없습니다. 전체 브라우저 기능은 데스크톱 앱에서 사용하세요.",
       controls: {
         back: "뒤로",
         forward: "앞으로",

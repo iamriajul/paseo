@@ -62,9 +62,21 @@ browser ──HTTP/WS──> 3000--daemon-1.studio.example.com
                                                      Host: localhost:3000
 ```
 
-An inbound `Host` header matching a configured hostname template is forwarded to `127.0.0.1:<port>` on the daemon's own machine, with `Host` forged back to `localhost:<port>` so the dev server sees an ordinary loopback request — Vite host checks, cookie domains, and CORS behave as they do locally. WebSocket upgrades are proxied the same way, so HMR needs no special handling. There is no Service Worker and no injected script; the daemon does the proxying, and the app's own part is resolving each tab's URL before it ever reaches the iframe.
+An inbound `Host` header matching a configured hostname template is forwarded to `127.0.0.1:<port>` on the daemon's own machine, with `Host` forged back to `localhost:<port>` so the dev server sees an ordinary loopback request — Vite host checks, cookie domains, and CORS behave as they do locally. WebSocket upgrades are proxied the same way, so HMR needs no special handling. There is no Service Worker; the daemon does the proxying, and the app's own part is resolving each tab's URL before it ever reaches the iframe.
 
-That resolution is what decides preview versus direct: a loopback host and port substitute `{port}` into the template already received on `server_info`; everything else loads directly in the iframe. A direct `src` is the tab's raw, unvalidated URL, so `web-preview-url.ts` allowlists `http:`/`https:` before it reaches the iframe — `normalizeBrowserUrl` otherwise passes any `scheme:`-prefixed string through unchanged, so without this check a `javascript:` or `data:` URL on a tab record would execute in the app's own origin. The preview path skips the check: that URL is built from the host's own `browserPreview.urlTemplate`, a trusted config value, not arbitrary input. Electron and Android already gate navigation to unsupported schemes before a page loads; the web iframe had no equivalent and cannot gain a reactive one, because a cross-origin `<iframe>` emits no navigation events its parent could inspect — the same constraint behind the address-bar limitation below.
+That resolution is what decides preview versus direct: a loopback host and port substitute `{port}` into the template already received on `server_info`; everything else loads directly in the iframe. A direct `src` is the tab's raw, unvalidated URL, so `web-preview-url.ts` allowlists `http:`/`https:` before it reaches the iframe — `normalizeBrowserUrl` otherwise passes any `scheme:`-prefixed string through unchanged, so without this check a `javascript:` or `data:` URL on a tab record would execute in the app's own origin. The preview path skips the check: that URL is built from the host's own `browserPreview.urlTemplate`, a trusted config value, not arbitrary input. Electron and Android already gate navigation to unsupported schemes before a page loads; the web iframe has no equivalent and cannot gain a reactive one. A cross-origin `<iframe>` emits no navigation events its parent could inspect, and the injected bridge below closes that gap only for pages the daemon itself serves — a direct URL reports nothing.
+
+### Injected bridge
+
+Proxied `text/html` responses are rewritten on the way through. The daemon splices three inline scripts — navigation, eruda, element selector — into the document, and the web Browser pane drives them over `postMessage`. That is where the web build's URL bar, back/forward, devtools and click-to-select element attachments come from; a cross-origin `<iframe>` gives its parent none of that on its own.
+
+The scripts go after the opening `<head>`, not before `</body>`. The navigation script patches `history.pushState`, and a patch installed after the page's own JavaScript misses every route change during hydration, so the address bar is already wrong by the first frame the parent can observe.
+
+Only the head is buffered — up to `</head>`, then every later byte passes through untouched, so a streaming-SSR page keeps streaming instead of collapsing into one late flush. Buffering stops at 64 KiB, and the search window is clamped to that same 64 KiB rather than only the buffer: searching everything received so far and checking the cap afterwards would make identical bytes inject or not depending on how upstream happened to chunk them.
+
+Two things are undone so the splice lands. `gzip`, `deflate` and `br` bodies are decompressed first, since splicing tags into compressed bytes yields a document no browser can read; an encoding the daemon cannot decode disables injection instead of corrupting the response. And `<meta http-equiv="content-security-policy">` is stripped from the head window — the proxy drops the CSP response header already, but a meta tag survives that and would block the injected scripts.
+
+The bridge is not advertised on `server_info`. The navigation script posts a `ready` message once it installs, and the pane keys off that, so `packages/protocol` needs no change for any of this: a host serving no proxied HTML never sends the message, and the pane stays on its no-bridge path.
 
 ### Configuration
 
@@ -130,7 +142,10 @@ Only `normalizeHostHeader` and `stripHopByHopHeaders` are imported from `service
 
 ### Known limitations
 
-- **The address bar does not follow in-page navigation.** A cross-origin `<iframe>` emits no navigation events to its parent, so once a page navigates itself — a client-side route change, a redirect — Paseo's address bar keeps showing the last URL it set. Electron's `<webview>` exposes navigation events; a plain `<iframe>` does not, and there is no clean fix.
+- **A direct URL gets no bridge at all.** Injection only touches the daemon's own proxied responses, so a tab on any other origin has no URL sync, no devtools and no element picker, and its back/forward walks the parent's record of URL-bar moves. In-page navigation there stays invisible. The page still loads, under a sticky notice.
+- **Devtools need internet from the client.** eruda is fetched from jsdelivr by the previewed page rather than bundled into the server package. A client that cannot reach the CDN gets no devtools and no explanation: the toolbar button un-toggles and stops there.
+- **A `Content-Security-Policy` added after the daemon disables the whole bridge.** The proxy strips CSP from the dev server's response and from meta tags in the head window, but it cannot strip one a reverse proxy adds on the way out. That blocks the injected inline scripts, so the tab degrades to the same no-bridge toolbar as a direct URL, with no notice to say so — the notice is keyed on the URL being unproxied, and this one is proxied.
+- **A `<head>` still open after 64 KiB streams unmodified**, degrading the same silent way. The cap only bites once that many bytes actually arrive: a shorter document that ends without ever closing its head is still injected. Clamping there keeps output independent of upstream chunking, and a head that large is not worth delaying the response for.
 - **A port already exposed as a service-proxy route is reachable at two origins.** If a `paseo.json` service script and a manually opened Browser tab point at the same port, the service hostname and the preview hostname are different origins with separate cookie jars — signing in on one does not carry over to the other. This is intended: [service proxy](service-proxy.md) routes and preview routes serve different purposes, and neither is aware of the other's routes.
 
 ## Code Server
@@ -177,3 +192,12 @@ Web build routing has unit coverage in the fork-owned proxy module and the app-s
 npx vitest run packages/server/src/server/browser-preview/index.test.ts packages/server/src/server/browser-preview/url-template.test.ts packages/server/src/server/browser-preview/response-headers.test.ts packages/server/src/server/browser-preview/bootstrap-mount.test.ts packages/server/src/server/config-browser-preview.test.ts --bail=1
 npx vitest run packages/app/src/desktop/browser/pane/web-preview-url.test.ts packages/app/src/desktop/browser/workspace-browser-availability.test.ts packages/app/src/desktop/browser/workspace-browser-preview.test.ts --bail=1
 ```
+
+The injected bridge splits the same way — the rewriter and the three scripts on the daemon side, the message plumbing and the navigation reducer on the app side:
+
+```bash
+npx vitest run packages/server/src/server/browser-preview/html-injection.test.ts packages/server/src/server/browser-preview/inject --bail=1
+npx vitest run packages/app/src/desktop/browser/pane/web-bridge.test.ts packages/app/src/desktop/browser/pane/web-navigation.test.ts packages/app/src/desktop/browser/pane/web-submit.test.ts --bail=1
+```
+
+eruda actually loading from jsdelivr and rendering has no unit coverage — it needs a real network and a real browser. Verify it by hand against a running preview, per [docs/qa.md](qa.md).

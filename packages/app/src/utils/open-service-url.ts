@@ -8,6 +8,7 @@ import { i18n } from "@/i18n/i18next";
 import { openExternalUrl } from "@/utils/open-external-url";
 
 export interface OpenServiceUrlOptions {
+  /** Returns false to decline the URL; anything else counts as opened in-app. */
   openInApp?: (url: string) => boolean | void;
 }
 
@@ -27,8 +28,9 @@ export async function openServiceUrl(url: string, options?: OpenServiceUrlOption
   }
 
   const behavior = await resolveBehavior(url);
-  if (behavior === "in-app") {
-    openInApp(url);
+  // Same refusal check as the non-Electron branch above: the in-app opener can
+  // decline, and dropping the link on the floor is not the fallback.
+  if (behavior === "in-app" && openInApp(url) !== false) {
     return;
   }
   await openExternalUrl(url);

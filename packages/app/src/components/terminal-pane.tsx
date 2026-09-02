@@ -90,7 +90,8 @@ interface TerminalPaneProps {
   isPaneFocused: boolean;
   onOpenFileExplorer: () => void;
   onOpenWorkspaceFile: (request: WorkspaceFileOpenRequest) => void;
-  onOpenUrlInBrowserTab: (url: string) => void;
+  /** Returns whether the URL was taken; false falls back to opening externally. */
+  onOpenUrlInBrowserTab: (url: string) => boolean;
 }
 
 const TERMINAL_REFIT_DELAYS_MS = [0, 48, 144, 320];
@@ -941,12 +942,17 @@ export function TerminalPane({
       vscodeProxyUri,
     });
 
-    if (action.kind === "browser") {
-      onOpenUrlInBrowserTab(action.url);
+    if (action.kind === "browser" && onOpenUrlInBrowserTab(action.url)) {
       return;
     }
 
-    void openExternalUrl(action.url);
+    // A refused browser tab falls back to what the resolver would have chosen
+    // without one, rather than to the raw loopback URL the browser cannot reach.
+    const fallback =
+      action.kind === "browser"
+        ? resolveWorkspaceUrlOpenAction({ url, hasWorkspaceBrowser: false, vscodeProxyUri })
+        : action;
+    void openExternalUrl(fallback.url);
   });
 
   const toggleModifier = useCallback(

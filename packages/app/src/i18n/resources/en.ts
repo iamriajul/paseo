@@ -536,6 +536,8 @@ export const en = {
           "Set browserPreview.urlTemplate on this host to browse its localhost ports from the web app. Browser already works for this workspace in the desktop app.",
       },
       session: "Browser session {{browserId}}",
+      iframeNotice:
+        "This page is running inside an iframe, so some sites refuse to load and devtools aren't available. Use the desktop app for a full browser.",
       controls: {
         back: "Back",
         forward: "Forward",

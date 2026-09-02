@@ -48,7 +48,7 @@ interface WorkspaceScriptsButtonProps {
   liveTerminalIds?: readonly string[];
   onScriptTerminalStarted?: (terminalId: string) => void;
   onViewTerminal?: (terminalId: string) => void;
-  onOpenUrlInBrowserTab?: (url: string) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
   hideLabels?: boolean;
   presentation?: "split" | "ghost";
 }
@@ -361,7 +361,7 @@ interface ScriptRowProps {
   preferredRouteKind: WorkspaceScriptLinkKind | null;
   onSelectRouteKind: (kind: WorkspaceScriptLinkKind) => void;
   onViewTerminal?: (terminalId: string) => void;
-  onOpenUrlInBrowserTab?: (url: string) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }
 
 function resolveScriptIconColorMapping(args: {

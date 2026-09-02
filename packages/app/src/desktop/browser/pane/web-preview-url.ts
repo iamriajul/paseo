@@ -52,3 +52,40 @@ export function resolveWebBrowserSrc(input: {
   base.hash = parsed.hash;
   return { kind: "preview", src: base.toString() };
 }
+
+// The inverse of resolveWebBrowserSrc's preview branch. The bridge reports the
+// preview origin, but the address bar must keep showing the loopback URL the
+// user asked for — the preview origin is transport, never something to display.
+// The reported path is copied onto the original URL rather than the other way
+// round, so whichever loopback spelling the user typed (localhost, 127.0.0.1,
+// [::1]) survives instead of being normalised to one of them.
+export function toDisplayUrl(input: {
+  url: string;
+  template: string | null;
+  originalUrl: string;
+}): string {
+  if (!input.template) return input.url;
+
+  let reported: URL;
+  let original: URL;
+  try {
+    reported = new URL(input.url);
+    original = new URL(input.originalUrl);
+  } catch {
+    return input.url;
+  }
+
+  const port = Number(original.port || (original.protocol === "https:" ? 443 : 80));
+  let previewBase: URL;
+  try {
+    previewBase = new URL(buildBrowserPreviewUrl(input.template, port));
+  } catch {
+    return input.url;
+  }
+  if (reported.host !== previewBase.host) return input.url;
+
+  original.pathname = reported.pathname;
+  original.search = reported.search;
+  original.hash = reported.hash;
+  return original.toString();
+}

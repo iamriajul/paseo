@@ -100,6 +100,12 @@ describe("neutralizeDisallowedTags", () => {
     expect(neutralizeDisallowedTags("<i>formatted</i>")).toBe("<i>formatted</i>");
   });
 
+  it("does not rewrite a trailing prefix of an allowed tag while it is still streaming", () => {
+    expect(neutralizeDisallowedTags('  Middle --> Done["<i')).toBe('  Middle --> Done["<i');
+    expect(neutralizeDisallowedTags("line one<br")).toBe("line one<br");
+    expect(neutralizeDisallowedTags("line one<b")).toBe("line one<b");
+  });
+
   it("neutralizes only the opening bracket of a disallowed tag, leaving a bare close alone", () => {
     expect(neutralizeDisallowedTags("<i class=x>styled</i>")).toBe("‹i class=x>styled</i>");
     expect(neutralizeDisallowedTags("<img src=x>")).toBe("‹img src=x>");
@@ -116,6 +122,12 @@ describe("neutralizeDisallowedTags", () => {
 });
 
 describe("neutralizeDisallowedTags composed with containsUnsafeMermaidSource", () => {
+  it("keeps a streaming <i label prefix unsafe so the previous SVG is not replaced", () => {
+    const streaming = 'flowchart LR\n  Start --> Middle\n  Middle --> Done["<i';
+    expect(neutralizeDisallowedTags(streaming)).toBe(streaming);
+    expect(containsUnsafeMermaidSource(streaming)).toBe(true);
+  });
+
   it("allows the previously-rejected diagrams from this conversation to render", () => {
     const gitProxySource =
       "sequenceDiagram\n  A->>D: git clone/push  <canonical URL>\n  Note over A,D: plain text";

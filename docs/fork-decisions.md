@@ -226,12 +226,13 @@ npx vitest run packages/app/src/workspace-pins/target.test.ts --bail=1
 
 ## claude-200k-1m-rows
 
-**Opus 5 and Fable 5 expose both 200K and 1M picker rows**
+**Opus 5, Fable 5.1, and Fable 5 expose both 200K and 1M picker rows**
 
-claude model-manifest keeps dual context-window rows so a 200K pick is explicit and does not silently become 1M
+claude model-manifest keeps dual context-window rows so a 200K pick is explicit and does not silently become 1M. v0.7.2 added Fable 5.1 as a silent 1M row; the CLI catalog fixture must list the dual rows, not upstream's alias-hidden shape.
 
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts --bail=1 -t "defines context window sizes"
+rg -q 'claude-fable-5-1\[1m\]' packages/cli/tests/15-provider.test.ts
 ```
 
 ## interaction-lock

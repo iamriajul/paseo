@@ -85,6 +85,9 @@ export function WebBrowserPane({
   const [pendingSelection, setPendingSelection] = useState<BridgeSelection | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeRef = useRef<PreviewBridge | null>(null);
+  // Whether the document the frame is currently showing announced itself. Set
+  // by `ready` and consumed by the frame's `load`; see `handleFrameLoad`.
+  const readySinceLoadRef = useRef(false);
 
   // Where the frame is *pointed*, which is not where it currently *is*: with a
   // live bridge the page routes itself and `state.displayUrl` follows, while the
@@ -119,6 +122,11 @@ export function WebBrowserPane({
     dispatch({ type: "bridge", event });
     switch (event.type) {
       case "ready":
+        // Deliberately not set on `navigation` too: an SPA posts those for the
+        // life of one document, so a route change would leave a stale
+        // announcement behind for the *next* document's `load` to consume.
+        // `ready` is the one message that fires exactly once per document.
+        readySinceLoadRef.current = true;
         // A fresh document: eruda is re-injected hidden and any selector overlay
         // went with the old one.
         setIsErudaOpen(false);
@@ -189,17 +197,58 @@ export function WebBrowserPane({
   // toolbar cannot drift apart, and a null answer is the reducer refusing the
   // move rather than a second copy of its bounds guards.
   const applyNavigation = useCallback(
-    (action: WebNavigationAction) => {
+    (action: WebNavigationAction): boolean => {
       const applied = applyWebNavigation(state, action);
       if (!applied) {
-        return;
+        return false;
       }
       dispatch(action);
       syncedUrlRef.current = applied.record.url;
       updateBrowser(browserId, applied.record);
+      return true;
     },
     [browserId, state, updateBrowser],
   );
+
+  // The frame can navigate itself off the preview origin — an ordinary click on
+  // an off-origin link — and that is the one navigation the pane cannot route
+  // through `resolveWebBrowserSrc` first. When it happens the bridge session
+  // ends in silence: `event.origin` stops matching, nothing arrives again, and
+  // every control the bridge backs would stay lit and inert forever. `load` is
+  // the only signal a parent gets about a cross-origin navigation, so it is the
+  // detector.
+  //
+  // What makes it a decision rather than a guess: the daemon injects the bridge
+  // into `<head>`, so a bridged document posts `ready` while it is still
+  // parsing — long before its own `load` fires. By the time `load` arrives the
+  // announcement is already in hand. A `load` with no announcement behind it is
+  // a document the injection never reached: another origin, or a preview-origin
+  // response that was not injectable HTML. Both mean the same thing here.
+  //
+  // No timeout, deliberately. Waiting N ms after `load` would be waiting for a
+  // message that has already come if it was ever coming, and it would add a
+  // second async source to cancel on unmount, on remount and on teardown. The
+  // ordering can in principle invert, and the polarity is chosen so that it
+  // costs nothing when it does: a spurious "lost" is corrected by the `ready`
+  // still in flight, while the bug being fixed here is a permanent false
+  // "alive".
+  //
+  // Known gap: if the frame is navigated away before its own `load` fires, that
+  // document's announcement is still pending and the next `load` consumes it,
+  // so one off-origin navigation can slip through. It heals on the following
+  // in-frame navigation.
+  const handleFrameLoad = useStableEvent(() => {
+    if (readySinceLoadRef.current) {
+      readySinceLoadRef.current = false;
+      return;
+    }
+    if (!applyNavigation({ type: "bridge-lost" })) {
+      return;
+    }
+    // Both belonged to the document the frame has left.
+    setIsSelecting(false);
+    setIsErudaOpen(false);
+  });
 
   const handleSubmitUrl = useCallback(
     (raw: string) => {
@@ -376,6 +425,7 @@ export function WebBrowserPane({
         key={`${reloadKey}:${resolved.src}`}
         ref={iframeRef}
         src={resolved.src}
+        onLoad={handleFrameLoad}
         style={frameStyle}
         title={t("workspace.tabs.fallback.browser")}
       />
@@ -400,7 +450,7 @@ export function WebBrowserPane({
           onChangeViewport={handleChangeViewport}
         />
       ) : null}
-      {showChrome && resolved.kind === "direct" ? <WebBrowserNotice /> : null}
+      {showChrome && (resolved.kind === "direct" || state.bridgeLost) ? <WebBrowserNotice /> : null}
       {pendingSelectionLabel ? (
         <View style={styles.selectedElement}>
           <Text numberOfLines={1} style={styles.selectedElementText}>

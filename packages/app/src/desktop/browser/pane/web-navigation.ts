@@ -12,6 +12,12 @@ export interface WebNavigationState {
   canGoBack: boolean;
   canGoForward: boolean;
   bridgeReady: boolean;
+  // The frame navigated off the preview origin and the bridge session ended
+  // with it. Distinct from `!bridgeReady`, which is also the state of a frame
+  // whose bridged document has simply not announced itself yet: only this one
+  // means devtools and the picker are gone for as long as the frame stays where
+  // it is. `bridgeLost` and `bridgeReady` are never both true.
+  bridgeLost: boolean;
   // Parent-side history, used only while no bridge is reporting. In-page
   // navigation is invisible from here, so this tracks URL-bar moves alone.
   stack: readonly string[];
@@ -26,6 +32,7 @@ export type WebNavigationAction =
   | { type: "user-navigate"; url: string }
   | { type: "user-back" }
   | { type: "user-forward" }
+  | { type: "bridge-lost" }
   | { type: "reset"; url: string };
 
 export function createWebNavigationState(url: string): WebNavigationState {
@@ -35,6 +42,7 @@ export function createWebNavigationState(url: string): WebNavigationState {
     canGoBack: false,
     canGoForward: false,
     bridgeReady: false,
+    bridgeLost: false,
     stack: [url],
     index: 0,
     lastDocId: null,
@@ -109,7 +117,15 @@ export function webNavigationReducer(
     case "user-navigate": {
       const stack = [...state.stack.slice(0, state.index + 1), action.url];
       return movedTo(
-        { ...state, stack, title: "", bridgeReady: false, lastDocId: null, lastSeq: 0 },
+        {
+          ...state,
+          stack,
+          title: "",
+          bridgeReady: false,
+          bridgeLost: false,
+          lastDocId: null,
+          lastSeq: 0,
+        },
         stack.length - 1,
       );
     }
@@ -119,6 +135,36 @@ export function webNavigationReducer(
 
     case "user-forward":
       return state.index < state.stack.length - 1 ? movedTo(state, state.index + 1) : state;
+
+    // The frame left the preview origin under its own steam — an ordinary click
+    // on an off-origin link, the one navigation the pane cannot route through
+    // `resolveWebBrowserSrc`. Nothing arrives from the bridge again, so without
+    // this the toolbar would go on offering a history, a title and devtools that
+    // belong to a document the frame is no longer showing.
+    //
+    // What survives is exactly what survives `user-navigate`: the parent stack,
+    // which never depended on the bridge. `movedTo` at the current index
+    // recomputes `displayUrl`, `canGoBack` and `canGoForward` from it, so back
+    // and forward keep working on URL-bar moves instead of staying lit and
+    // inert on the dead session's flags.
+    //
+    // Guarded on `bridgeReady`: a document that never announced itself has
+    // nothing to lose, and returning the identical state keeps `load` events on
+    // direct URLs — where every load takes this path — free of re-renders.
+    case "bridge-lost":
+      return state.bridgeReady
+        ? movedTo(
+            {
+              ...state,
+              title: "",
+              bridgeReady: false,
+              bridgeLost: true,
+              lastDocId: null,
+              lastSeq: 0,
+            },
+            state.index,
+          )
+        : state;
 
     case "bridge": {
       const event = action.event;
@@ -130,6 +176,7 @@ export function webNavigationReducer(
         return {
           ...state,
           bridgeReady: true,
+          bridgeLost: false,
           lastDocId: event.docId,
           lastSeq: state.lastDocId === event.docId ? state.lastSeq : 0,
         };
@@ -143,6 +190,7 @@ export function webNavigationReducer(
       return {
         ...state,
         bridgeReady: true,
+        bridgeLost: false,
         displayUrl: event.url,
         title: event.title,
         canGoBack: event.canGoBack,

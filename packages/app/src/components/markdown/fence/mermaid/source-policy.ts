@@ -62,13 +62,25 @@ function decodeCodePointEscape(value: number): string {
   return String.fromCodePoint(value);
 }
 
+// Mock-provider streaming splits long tokens into 4-char slices, so a label like
+// `Done["<i>Done</i>"]` is revealed as `["<i` then `>Don` then `e</i`. The complete
+// `<i>` open is allowed by UNSAFE_MERMAID_SOURCE, but the mermaid string is still
+// unclosed — rendering it would let mermaid.draw steal node ids from the previous
+// SVG in the same iframe document. Keep the previous diagram until the italic
+// tags pair up.
+function hasUnclosedItalicTags(code: string): boolean {
+  const opens = code.match(/<i\s*\/?>/gi)?.length ?? 0;
+  const closes = code.match(/<\/i\s*>/gi)?.length ?? 0;
+  return opens > closes;
+}
+
 export function containsUnsafeMermaidSource(code: string): boolean {
-  if (UNSAFE_MERMAID_SOURCE.test(code)) {
+  if (UNSAFE_MERMAID_SOURCE.test(code) || hasUnclosedItalicTags(code)) {
     return true;
   }
   const normalized = normalizeMermaidSource(code);
   if (normalized === null) {
     return true;
   }
-  return UNSAFE_MERMAID_SOURCE.test(normalized);
+  return UNSAFE_MERMAID_SOURCE.test(normalized) || hasUnclosedItalicTags(normalized);
 }

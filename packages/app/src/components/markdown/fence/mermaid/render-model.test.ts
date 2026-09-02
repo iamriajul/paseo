@@ -146,6 +146,21 @@ describe("Mermaid render model", () => {
     expect(getMermaidRenderRequest(rejected)).toBeNull();
   });
 
+  it("does not request a render for an unclosed streaming <i> label", () => {
+    const rendered = renderCurrent(createMermaidRenderModel(input()));
+    const rejected = reduceMermaidRenderModel(rendered, {
+      type: "inputChanged",
+      input: input({
+        source: 'flowchart LR\n  Start --> Middle\n  Middle --> Done["<i>Don',
+        rejected: true,
+      }),
+    });
+
+    expect(rejected.status).toBe("rejected");
+    expect(rejected.visible).toBe(rendered.visible);
+    expect(getMermaidRenderRequest(rejected)).toBeNull();
+  });
+
   it("clears the last preview when the rejected revision is complete", () => {
     const rendered = renderCurrent(createMermaidRenderModel(input()));
     const rejected = reduceMermaidRenderModel(rendered, {

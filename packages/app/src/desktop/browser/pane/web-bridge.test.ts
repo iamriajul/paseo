@@ -4,14 +4,22 @@ import { type BridgeEvent, createPreviewBridge } from "./web-bridge";
 const ORIGIN = "https://3000.preview.example.com";
 
 function harness({ frameIsMounted = true }: { frameIsMounted?: boolean } = {}) {
-  const handlers = new Set<(event: MessageEvent) => void>();
+  // Keyed by event name, so every test in this file runs through the name the
+  // bridge actually registered. A typo there reaches nobody on deliver(), and a
+  // removeEventListener with a mismatched name leaves the listener attached —
+  // both of which a name-blind fake would swallow.
+  const handlers = new Map<string, Set<(event: MessageEvent) => void>>();
+  const listenedTypes: string[] = [];
   const frame = { postMessage: vi.fn() } as unknown as Window;
   const listenTarget = {
-    addEventListener: (_t: string, handler: (event: MessageEvent) => void) => {
-      handlers.add(handler);
+    addEventListener: (type: string, handler: (event: MessageEvent) => void) => {
+      listenedTypes.push(type);
+      const forType = handlers.get(type) ?? new Set<(event: MessageEvent) => void>();
+      forType.add(handler);
+      handlers.set(type, forType);
     },
-    removeEventListener: (_t: string, handler: (event: MessageEvent) => void) => {
-      handlers.delete(handler);
+    removeEventListener: (type: string, handler: (event: MessageEvent) => void) => {
+      handlers.get(type)?.delete(handler);
     },
   } as unknown as Window;
   const events: BridgeEvent[] = [];
@@ -22,11 +30,11 @@ function harness({ frameIsMounted = true }: { frameIsMounted?: boolean } = {}) {
     listenTarget,
   });
   const deliver = (data: unknown, overrides: Partial<MessageEvent> = {}) => {
-    for (const handler of handlers) {
+    for (const handler of handlers.get("message") ?? []) {
       handler({ data, origin: ORIGIN, source: frame, ...overrides } as MessageEvent);
     }
   };
-  return { bridge, events, frame, deliver };
+  return { bridge, events, frame, deliver, listenedTypes };
 }
 
 const navigation = {
@@ -43,6 +51,13 @@ const navigation = {
 };
 
 describe("createPreviewBridge", () => {
+  it("subscribes to message events under that exact name", () => {
+    // Untested, a typo here is silent: nothing else in this file reads the
+    // event name, so the bridge would be inert in production with a green suite.
+    const { listenedTypes } = harness();
+    expect(listenedTypes).toEqual(["message"]);
+  });
+
   it("accepts a navigation message from the preview origin", () => {
     const { events, deliver } = harness();
     deliver(navigation);

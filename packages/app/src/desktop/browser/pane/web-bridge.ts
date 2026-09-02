@@ -74,6 +74,24 @@ export type BridgeCommand =
   | { command: "goto"; url: string };
 
 export interface PreviewBridge {
+  /**
+   * Posts a command to the previewed document, targeted at the preview origin.
+   *
+   * `goto` is deliberately **not** constrained to the preview origin. It would
+   * buy no security — the caller already owns the iframe's `src`, a strictly
+   * stronger capability than asking the frame to navigate — and the injected
+   * script fails closed on anything that isn't http(s), which is the check that
+   * matters. Routing policy (preview origin vs direct) lives in
+   * `resolveWebBrowserSrc`; deciding it a second time here would give one rule
+   * two homes to drift between.
+   *
+   * The consequence at this call site: **a cross-origin `goto` ends the bridge
+   * session.** The proxy injects no bridge into another origin and
+   * `event.origin` stops matching, so the frame goes on rendering while
+   * back/forward/reload/devtools/select all fall silent with no error. Send an
+   * address-bar URL through `resolveWebBrowserSrc` and re-point the iframe
+   * instead; reserve `goto` for navigation you know stays on the preview origin.
+   */
   send(command: BridgeCommand): void;
   dispose(): void;
 }
@@ -102,8 +120,6 @@ export function createPreviewBridge(options: {
     const parsed = MessageSchema.safeParse(data);
     if (!parsed.success) return;
 
-    // No default case: a message type added to the schema without a case here
-    // is a compile error rather than a silently dropped event.
     switch (parsed.data.type) {
       case "ready":
         options.onEvent({ type: "ready", docId: parsed.data.payload.docId });
@@ -126,24 +142,24 @@ export function createPreviewBridge(options: {
         return;
       }
     }
+
+    // The switch above has no default, so a seventh member added to
+    // MessageSchema would fall through to here and be dropped in silence. This
+    // assignment is what makes that a compile error instead: `parsed.data` is
+    // `never` only while every member has a case. `noImplicitReturns` is off
+    // repo-wide, so nothing else catches it.
+    const unhandled: never = parsed.data;
+    void unhandled;
   };
 
-  target.addEventListener("message", handleMessage as EventListener);
+  target.addEventListener("message", handleMessage);
 
   return {
-    // `goto` is not constrained to the preview origin here. It would buy no
-    // security — the caller already owns the iframe's src, a strictly stronger
-    // capability than asking the frame to navigate — and the child fails closed
-    // on anything that isn't http(s), which is the check that matters. Routing
-    // policy (preview origin vs direct) lives in resolveWebBrowserSrc, and
-    // deciding it a second time here would give it two places to drift. The
-    // consequence to know: a cross-origin goto ends the session, because the
-    // proxy injects no bridge there and event.origin stops matching.
     send(command) {
       options.getFrame()?.postMessage({ source: COMMAND_SOURCE, ...command }, options.origin);
     },
     dispose() {
-      target.removeEventListener("message", handleMessage as EventListener);
+      target.removeEventListener("message", handleMessage);
     },
   };
 }

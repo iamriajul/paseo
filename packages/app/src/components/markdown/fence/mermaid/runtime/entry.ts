@@ -4,6 +4,7 @@ import {
   type MermaidRuntimeMessage,
   type MermaidRuntimeRenderMessage,
 } from "./messages";
+import { namespaceCommittedSvg } from "./namespace-committed-svg";
 
 declare global {
   interface Window {
@@ -71,7 +72,7 @@ async function render(message: MermaidRuntimeRenderMessage): Promise<void> {
     if (!host) {
       return;
     }
-    host.innerHTML = svg;
+    host.innerHTML = namespaceCommittedSvg(svg);
     const rect = host.querySelector("svg")?.getBoundingClientRect();
     sendToHost({
       type: "rendered",

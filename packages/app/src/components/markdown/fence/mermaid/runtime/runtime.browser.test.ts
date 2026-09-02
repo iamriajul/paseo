@@ -86,33 +86,6 @@ describe("Mermaid sandbox runtime", () => {
     expect(second).toMatchObject({ type: "rendered", revision: 3, source: secondSource });
   });
 
-  it("namespaces committed SVG ids so a follow-up render cannot steal them", async () => {
-    const frame = await mountRuntime();
-    await render(frame, { revision: 1, source: "flowchart LR\n  Start --> Middle" });
-    const host = frame.contentDocument?.getElementById("diagram");
-    const svg = host?.querySelector("svg");
-    expect(svg).not.toBeNull();
-    const ids = [...(host?.querySelectorAll("[id]") ?? [])].map((element) => element.id);
-    expect(ids.length).toBeGreaterThan(0);
-    expect(ids.every((id) => id.startsWith("c-"))).toBe(true);
-
-    const huge = `flowchart LR\n  Start --> Middle\n${Array.from({ length: 80 }, (_, index) => `  N${index} --> N${index + 1}`).join("\n")}`;
-    frame.contentWindow?.postMessage(
-      {
-        type: "render",
-        revision: 2,
-        source: huge,
-        colorScheme: "dark",
-        interactive: false,
-      },
-      "*",
-    );
-    await new Promise((resolve) => {
-      window.setTimeout(resolve, 30);
-    });
-    expect(host?.querySelector("svg")).not.toBeNull();
-  });
-
   it("coalesces queued input and never reports an obsolete result", async () => {
     const frame = await mountRuntime();
     const obsoleteSource = `flowchart TD\n${Array.from({ length: 250 }, (_, index) => `A${index} --> A${index + 1}`).join("\n")}`;

@@ -1,8 +1,11 @@
 import http, { type IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
+import zlib from "node:zlib";
 import type { RequestHandler } from "express";
 import type { Logger } from "pino";
 import { stripHopByHopHeaders } from "../service-proxy.js";
+import { createHtmlInjectionStream } from "./html-injection.js";
+import { buildInjectedScripts } from "./inject/index.js";
 import { transformPreviewResponseHeaders } from "./response-headers.js";
 import type { BrowserPreviewTemplate } from "./url-template.js";
 
@@ -12,6 +15,36 @@ import type { BrowserPreviewTemplate } from "./url-template.js";
 // to pipe the request a second time and would forward an empty body for any
 // request whose body the first pipe already consumed.
 const UPSTREAM_HOST = "localhost";
+
+// Built once: the scripts are constant for the process lifetime and this
+// concatenates every bridge source.
+const INJECTED_SCRIPTS = buildInjectedScripts();
+
+// createHtmlInjectionStream cannot tell what it is looking at — hand it JSON or
+// a JPEG and it will splice <script> into it. Content-type gating lives here,
+// at the only place that knows, and nowhere else. Everything that is not HTML
+// keeps the untouched pipe below: bundles, images, JSON and HMR traffic stay
+// compressed and streamed.
+function isHtmlResponse(headers: NodeJS.Dict<string | string[]>): boolean {
+  const contentType = headers["content-type"];
+  const value = Array.isArray(contentType) ? contentType[0] : contentType;
+  return typeof value === "string" && value.toLowerCase().includes("text/html");
+}
+
+// Returns null when the encoding is one we cannot decode, which disables
+// injection rather than corrupting the body: splicing script tags into
+// compressed bytes produces a document no browser can read.
+function createDecompressor(
+  headers: NodeJS.Dict<string | string[]>,
+): zlib.Gunzip | zlib.Inflate | zlib.BrotliDecompress | "identity" | null {
+  const raw = headers["content-encoding"];
+  const value = (Array.isArray(raw) ? raw[0] : raw)?.toLowerCase().trim();
+  if (value === undefined || value === "" || value === "identity") return "identity";
+  if (value === "gzip" || value === "x-gzip") return zlib.createGunzip();
+  if (value === "deflate") return zlib.createInflate();
+  if (value === "br") return zlib.createBrotliDecompress();
+  return null;
+}
 
 export interface BrowserPreviewSubsystem {
   middleware(): RequestHandler;
@@ -77,13 +110,53 @@ export function createBrowserPreviewSubsystem(options: {
 
         const upstream = openUpstream({ req, port, headers: buildUpstreamHeaders({ req, port }) });
         upstream.on("response", (upstreamRes) => {
+          const stripped = stripHopByHopHeaders(upstreamRes.headers);
+          const decompressor = isHtmlResponse(stripped) ? createDecompressor(stripped) : null;
+
+          if (decompressor === null) {
+            const headers = transformPreviewResponseHeaders({
+              headers: stripped,
+              targetPort: port,
+              template,
+            });
+            res.writeHead(upstreamRes.statusCode ?? 502, headers);
+            upstreamRes.pipe(res);
+            return;
+          }
+
+          // The injected bytes invalidate both: the length no longer describes
+          // the body, and the response now goes out identity whatever it
+          // arrived as. Dropping them lets Node fall back to chunked. A stale
+          // content-length would truncate the document at exactly the
+          // pre-injection byte count, which reads as a corrupt page rather
+          // than as a bug here.
+          delete stripped["content-length"];
+          delete stripped["content-encoding"];
           const headers = transformPreviewResponseHeaders({
-            headers: stripHopByHopHeaders(upstreamRes.headers),
+            headers: stripped,
             targetPort: port,
             template,
           });
           res.writeHead(upstreamRes.statusCode ?? 502, headers);
-          upstreamRes.pipe(res);
+
+          const injector = createHtmlInjectionStream(INJECTED_SCRIPTS);
+          injector.on("error", (error) => {
+            logger.debug({ err: error, port }, "browser_preview_injection_failed");
+            res.end();
+          });
+
+          if (decompressor === "identity") {
+            upstreamRes.pipe(injector).pipe(res);
+            return;
+          }
+          // Headers are already sent, so a mid-stream decode failure (a body
+          // that lied about its encoding) can only be answered by ending the
+          // response short.
+          decompressor.on("error", (error) => {
+            logger.debug({ err: error, port }, "browser_preview_decompress_failed");
+            res.end();
+          });
+          upstreamRes.pipe(decompressor).pipe(injector).pipe(res);
         });
         upstream.on("error", (error: NodeJS.ErrnoException) => {
           logger.debug({ err: error, port }, "browser_preview_upstream_failed");

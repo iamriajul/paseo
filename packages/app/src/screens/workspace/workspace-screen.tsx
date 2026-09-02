@@ -134,6 +134,7 @@ import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { removeResidentBrowserWebview } from "@/desktop/browser/resident-webviews";
 import { createWorkspaceBrowser, useBrowserStore } from "@/desktop/browser/store";
+import { useWorkspaceBrowserAvailability } from "@/desktop/browser/workspace-browser-availability";
 import { createWorkspaceCodeServer } from "@/stores/code-server-store";
 import { resolveCodeServerLaunchUrl } from "@/utils/code-server-url";
 import { getDesktopHost } from "@/desktop/host";
@@ -1816,9 +1817,21 @@ function WorkspaceScreenContent({
     [createTerminal],
   );
 
+  // Not `getIsElectron()`: the web build reaches loopback ports through the
+  // daemon's preview proxy, so a Browser tab is available there too whenever the
+  // host advertises a template. Hard-coding Electron left the whole feature with
+  // no way to create the tab it lives in. The resolver already answers this for
+  // every platform and is unit-tested; it still returns true unconditionally on
+  // Electron, so nothing there changes.
+  const showCreateBrowserTab = useWorkspaceBrowserAvailability(normalizedServerId);
+
   const handleCreateBrowserTab = useCallback(
     (input?: { paneId?: string }) => {
-      if (!persistenceKey || !getIsElectron()) {
+      // Gate and action have to agree. This handler backs the header menu item,
+      // the workspace.browser.new shortcut and workspace.tab.target.browser —
+      // all of which the line above now shows on web and on Android with a
+      // tunnel, where the old getIsElectron() check silently dropped the press.
+      if (!persistenceKey || !showCreateBrowserTab) {
         return;
       }
       const { browserId } = createWorkspaceBrowser();
@@ -1828,7 +1841,7 @@ function WorkspaceScreenContent({
         paneLocalPlacement(input?.paneId),
       );
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [openWorkspaceTabFocused, persistenceKey, showCreateBrowserTab],
   );
 
   const handleCreateNewTab = useCallback(
@@ -1903,10 +1916,16 @@ function WorkspaceScreenContent({
     ],
   );
 
+  // Same gate as handleCreateBrowserTab above, and it returns whether it took
+  // the URL. Chat, terminal, ports-pane and script links all treat "opened in a
+  // Browser tab" as terminal — agent-stream/view.tsx and terminal-pane.tsx stop
+  // there, and open-service-url.ts reads anything that is not `false` as
+  // success — so a handler that silently declined suppressed the vscodeProxyUri
+  // and external fallbacks and left the link doing nothing at all.
   const handleOpenUrlInBrowserTab = useCallback(
-    (url: string) => {
-      if (!persistenceKey || !getIsElectron()) {
-        return;
+    (url: string): boolean => {
+      if (!persistenceKey || !showCreateBrowserTab) {
+        return false;
       }
       const { browserId } = createWorkspaceBrowser({ initialUrl: url });
       openWorkspaceTabFocused(
@@ -1914,8 +1933,9 @@ function WorkspaceScreenContent({
         { kind: "browser", browserId },
         FOCUSED_PANE_PLACEMENT,
       );
+      return true;
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [openWorkspaceTabFocused, persistenceKey, showCreateBrowserTab],
   );
 
   useDesktopBrowserNewTabRequests({
@@ -3313,7 +3333,6 @@ function WorkspaceScreenContent({
     () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
-  const showCreateBrowserTab = getIsElectron();
   const codeServerUrlOpeners = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.codeServer,
   );

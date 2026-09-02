@@ -46,7 +46,7 @@ interface WorkspaceScriptsButtonProps {
   liveTerminalIds?: readonly string[];
   onScriptTerminalStarted?: (terminalId: string) => void;
   onViewTerminal?: (terminalId: string) => void;
-  onOpenUrlInBrowserTab?: (url: string) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
   hideLabels?: boolean;
 }
 
@@ -306,7 +306,7 @@ interface ScriptRowProps {
   liveTerminalIdSet: Set<string>;
   actions: WorkspaceScriptActions;
   onViewTerminal?: (terminalId: string) => void;
-  onOpenUrlInBrowserTab?: (url: string) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }
 
 function ScriptRow({

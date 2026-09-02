@@ -32,6 +32,24 @@ describe("findHeadInjectionOffset", () => {
     expect(offset).toBeGreaterThanOrEqual("<!doctype html>".length);
   });
 
+  // A comment before the doctype is legal HTML5 and shows up in build banners and
+  // license headers. A literal <head> inside one must not pull the offset back.
+  it("never inserts before a doctype when a comment before it contains a head tag", () => {
+    const html = "<!-- build: <head> --><!doctype html><html><head><title>x</title></head></html>";
+    const doctypeEnd = html.indexOf("<!doctype html>") + "<!doctype html>".length;
+    const offset = findHeadInjectionOffset(html);
+    expect(offset).toBeGreaterThanOrEqual(doctypeEnd);
+    // Search from the doctype: the first "<head>" in the string is the decoy in
+    // the comment, which is the offset this test exists to reject.
+    expect(offset).toBe(html.indexOf("<head>", doctypeEnd) + "<head>".length);
+  });
+
+  // The word boundary after "head" is all that stops <header> from winning the
+  // match and putting the bridge in the body, after the page's own scripts.
+  it("does not match <header>", () => {
+    expect(findHeadInjectionOffset("<div><header>hi</header></div>")).toBe(0);
+  });
+
   it("falls back to after <html> when there is no head", () => {
     const html = "<!doctype html><html><body>hi</body></html>";
     expect(findHeadInjectionOffset(html)).toBe(html.indexOf("<html>") + "<html>".length);
@@ -58,6 +76,13 @@ describe("stripMetaCsp", () => {
   it("removes the report-only variant and single-quoted attributes", () => {
     const html = `<meta http-equiv='content-security-policy-report-only' content='x'>`;
     expect(stripMetaCsp(html)).toBe("");
+  });
+
+  it("removes it with content before http-equiv and unquoted attributes", () => {
+    expect(
+      stripMetaCsp(`<meta content="default-src 'self'" http-equiv="content-security-policy">`),
+    ).toBe("");
+    expect(stripMetaCsp("<meta http-equiv=content-security-policy content=x>")).toBe("");
   });
 
   it("leaves unrelated meta tags alone", () => {

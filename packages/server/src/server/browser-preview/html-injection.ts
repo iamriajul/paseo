@@ -17,19 +17,24 @@ function offsetAfterOpenTag(html: string, tagName: string): number | null {
   return match.index + match[0].length;
 }
 
+// Returns a string index, not a byte count; callers slice the same string.
 export function findHeadInjectionOffset(html: string): number {
-  const head = offsetAfterOpenTag(html, "head");
-  if (head !== null) return head;
-
-  const htmlTag = offsetAfterOpenTag(html, "html");
-  if (htmlTag !== null) return htmlTag;
-
   // Nothing may precede the doctype: a node before it puts the whole document
   // into quirks mode, which changes the layout of the page we are previewing.
+  // Locating it first and searching only what follows makes that structural —
+  // a comment before the doctype holding a literal <head> cannot pull the
+  // offset back in front of it.
   const doctype = /<!doctype\b[^>]*>/i.exec(html);
-  if (doctype !== null) return doctype.index + doctype[0].length;
+  const searchFrom = doctype === null ? 0 : doctype.index + doctype[0].length;
+  const rest = html.slice(searchFrom);
 
-  return 0;
+  const head = offsetAfterOpenTag(rest, "head");
+  if (head !== null) return searchFrom + head;
+
+  const htmlTag = offsetAfterOpenTag(rest, "html");
+  if (htmlTag !== null) return searchFrom + htmlTag;
+
+  return searchFrom;
 }
 
 export function stripMetaCsp(html: string): string {

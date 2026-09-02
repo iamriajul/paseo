@@ -86,10 +86,10 @@ npx vitest run packages/desktop/src/features/window-focus.test.ts --bail=1
 
 **neutralize mermaid placeholder tags instead of rejecting the diagram**
 
-neutralizeDisallowedTags replaces disallowed tag opens with U+2039 before containsUnsafeMermaidSource so prose like <canonical URL> does not discard the whole diagram; real tags still fail closed; url() check requires word boundary. Do not rewrite a trailing `<i`/`<br` prefix — v0.7.2 streams those labels and a mid-tag ‹ swap clears the SVG.
+neutralizeDisallowedTags replaces disallowed tag opens with U+2039 before containsUnsafeMermaidSource so prose like <canonical URL> does not discard the whole diagram; real tags still fail closed; url() check requires word boundary. Do not rewrite a trailing `<i`/`<br` prefix — v0.7.2 streams those labels and a mid-tag ‹ swap clears the SVG. An unclosed `<i>` is still unsafe (mock streaming splits `Done["<i>Done</i>"]` into 4-char slices). The runtime prefixes committed SVG ids so an in-flight mermaid.render cannot steal flowchart node ids from the displayed diagram.
 
 ```bash
-npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.test.ts --bail=1
+npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.test.ts packages/app/src/components/markdown/fence/mermaid/runtime/namespace-committed-svg.test.ts --bail=1
 ```
 
 ## claude-native-fork

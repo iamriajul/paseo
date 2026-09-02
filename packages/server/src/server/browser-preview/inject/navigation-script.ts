@@ -43,7 +43,22 @@ export const NAVIGATION_SCRIPT = `
   // sessionStorage is partitioned or blocked for third-party frames in some
   // browsers, so it is an enhancement across full page loads and never the
   // source of truth. Every access is guarded.
+  // Restore only when this document replaced another one in the SAME browsing
+  // context, which is the only case that leaves a real back entry to traverse.
+  // The app re-points the preview by remounting the iframe element rather than
+  // assigning src, so a parent-driven navigation starts a fresh context with no
+  // back entry of its own — while sessionStorage, keyed by origin and not by
+  // context, still holds the previous context's stack. Restoring it there makes
+  // this script report canGoBack for a frame that cannot go back: the toolbar
+  // lights Back and history.back() silently does nothing. document.referrer
+  // names the predecessor, and is a same-origin URL only after an in-page
+  // navigation; after a remount it is the embedder's origin, or empty.
+  function hasSameOriginPredecessor() {
+    return document.referrer.indexOf(location.origin + '/') === 0;
+  }
+
   function load() {
+    if (!hasSameOriginPredecessor()) return;
     try {
       var saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
       if (saved && Array.isArray(saved.stack) && typeof saved.index === 'number') {

@@ -10,8 +10,10 @@ interface BridgeMessage {
   payload: Record<string, unknown>;
 }
 
+// No _isShow: eruda 3.4.3 has no such property. A fake that invents one lets a
+// script that reads it pass here and fail in a real browser, which is what
+// happened.
 interface FakeEruda {
-  _isShow: boolean;
   _entryBtn: { _$el: Array<{ style: { display: string } }> };
   init: (options: unknown) => void;
   show: () => void;
@@ -80,15 +82,10 @@ function tags(): HTMLScriptElement[] {
 function fakeEruda(): { eruda: FakeEruda; entry: { style: { display: string } } } {
   const entry = { style: { display: "" } };
   const eruda: FakeEruda = {
-    _isShow: false,
     _entryBtn: { _$el: [entry] },
     init: vi.fn(),
-    show: vi.fn(() => {
-      eruda._isShow = true;
-    }),
-    hide: vi.fn(() => {
-      eruda._isShow = false;
-    }),
+    show: vi.fn(),
+    hide: vi.fn(),
   };
   window.eruda = eruda;
   return { eruda, entry };
@@ -176,11 +173,14 @@ describe("ERUDA_SCRIPT", () => {
     const { eruda } = fakeEruda();
     toggle();
     finishLoad();
-    expect(eruda._isShow).toBe(true);
+    expect(eruda.show).toHaveBeenCalledTimes(1);
+    expect(eruda.hide).toHaveBeenCalledTimes(1); // the hide() inside init
     toggle();
-    expect(eruda._isShow).toBe(false);
+    expect(eruda.hide).toHaveBeenCalledTimes(2);
+    expect(eruda.show).toHaveBeenCalledTimes(1);
     toggle();
-    expect(eruda._isShow).toBe(true);
+    expect(eruda.show).toHaveBeenCalledTimes(2);
+    expect(eruda.hide).toHaveBeenCalledTimes(2);
     // Re-fetching a 1.4 MB bundle on every toggle is the regression here.
     expect(tags()).toHaveLength(1);
   });
@@ -216,7 +216,7 @@ describe("ERUDA_SCRIPT", () => {
     toggle();
     finishLoad();
     expect(sent.map((message) => message.type)).toEqual(["eruda-failed"]);
-    expect(eruda._isShow).toBe(false);
+    expect(eruda.show).not.toHaveBeenCalled();
     toggle();
     expect(tags()).toHaveLength(2);
   });

@@ -109,6 +109,7 @@ import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { removeResidentBrowserWebview } from "@/desktop/browser/resident-webviews";
 import { createWorkspaceBrowser, useBrowserStore } from "@/desktop/browser/store";
+import { useWorkspaceBrowserAvailability } from "@/desktop/browser/workspace-browser-availability";
 import { createWorkspaceCodeServer } from "@/stores/code-server-store";
 import { resolveCodeServerLaunchUrl } from "@/utils/code-server-url";
 import { getDesktopHost } from "@/desktop/host";
@@ -3870,7 +3871,13 @@ function WorkspaceScreenContent({
     () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
-  const showCreateBrowserTab = getIsElectron();
+  // Not `getIsElectron()`: the web build reaches loopback ports through the
+  // daemon's preview proxy, so a Browser tab is available there too whenever the
+  // host advertises a template. Hard-coding Electron left the whole feature with
+  // no way to create the tab it lives in. The resolver already answers this for
+  // every platform and is unit-tested; it still returns true unconditionally on
+  // Electron, so nothing there changes.
+  const showCreateBrowserTab = useWorkspaceBrowserAvailability(normalizedServerId);
   const codeServerUrlOpeners = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.codeServer,
   );

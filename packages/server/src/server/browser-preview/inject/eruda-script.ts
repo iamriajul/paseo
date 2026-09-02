@@ -11,6 +11,7 @@ export const ERUDA_SCRIPT = `
   var COMMAND = ${JSON.stringify(COMMAND_SOURCE)};
   var loading = false;
   var ready = false;
+  var shown = false;
 
   function send(type, payload) {
     try { window.parent.postMessage({ source: BRIDGE, type: type, payload: payload }, '*'); }
@@ -60,8 +61,13 @@ export const ERUDA_SCRIPT = `
     if (!data || data.source !== COMMAND || data.command !== 'toggle-eruda') return;
     load(function() {
       if (!window.eruda) return;
-      if (window.eruda._isShow) window.eruda.hide();
-      else window.eruda.show();
+      // eruda exposes no public "is it open" accessor, and the private _isShow
+      // this used to read does not exist in 3.4.3 — reading it made every toggle
+      // take the show() branch, so devtools could be opened and then never
+      // closed from the toolbar. Track the state here instead: initEruda() hides
+      // on init, so shown starts false and nothing else changes it.
+      if (shown) { window.eruda.hide(); shown = false; }
+      else { window.eruda.show(); shown = true; }
     });
   });
 })();

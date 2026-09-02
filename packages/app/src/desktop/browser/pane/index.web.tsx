@@ -12,7 +12,6 @@ import {
   type BrowserElementAnnotation,
 } from "@/desktop/browser/browser-element-attachment";
 import {
-  normalizeWorkspaceBrowserUrl,
   RESPONSIVE_BROWSER_VIEWPORT,
   useBrowserStore,
   type BrowserViewport,
@@ -37,6 +36,7 @@ import {
   resolveWebBrowserSrc,
   toDisplayUrl,
 } from "./web-preview-url";
+import { decideSubmit } from "./web-submit";
 import { WebBrowserToolbar } from "./web-toolbar";
 
 interface BrowserPaneProps {
@@ -58,7 +58,7 @@ const RESPONSIVE_FRAME_STYLE: CSSProperties = {
   height: "100%",
 };
 
-export function BrowserPane({ browserId, serverId, workspaceId, cwd }: BrowserPaneProps) {
+export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: BrowserPaneProps) {
   const { t } = useTranslation();
   const browser = useBrowserStore((state) => state.browsersById[browserId] ?? null);
   const updateBrowser = useBrowserStore((state) => state.updateBrowser);
@@ -174,29 +174,57 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd }: BrowserPa
 
   const handleSubmitUrl = useCallback(
     (raw: string) => {
-      const next = normalizeWorkspaceBrowserUrl(raw);
-      const nextResolved = resolveWebBrowserSrc({ url: next, template });
-      const nextSrc = nextResolved.kind === "no-template" ? null : nextResolved.src;
-      const currentSrc = resolved.kind === "no-template" ? null : resolved.src;
-      // Nothing about what the frame loads changes — pressing Enter unedited, or
-      // asking for the root of a page that has since routed itself elsewhere. A
-      // `user-navigate` here would clear `bridgeReady` with no document load to
-      // re-announce `ready`, leaving every bridge control dead over a live
-      // bridge, and would push a duplicate onto the only history direct URLs
-      // have. Remount instead: that reloads, and it also drags a page that
-      // routed away back to the src.
-      if (nextSrc !== null && nextSrc === currentSrc) {
+      const decision = decideSubmit({
+        raw,
+        template,
+        currentSrc: resolved.kind === "no-template" ? null : resolved.src,
+      });
+      if (decision.kind === "reload") {
         setReloadKey((key) => key + 1);
         return;
       }
       // Never `goto`: a cross-origin goto navigates the frame off the preview
       // origin and ends the bridge session, leaving the controls silently inert.
       // The src is the only thing that re-points the frame.
-      syncedUrlRef.current = next;
-      dispatch({ type: "user-navigate", url: next });
-      updateBrowser(browserId, { url: next, title: "", canGoBack: false, canGoForward: false });
+      syncedUrlRef.current = decision.url;
+      dispatch({ type: "user-navigate", url: decision.url });
+      updateBrowser(browserId, {
+        url: decision.url,
+        title: "",
+        canGoBack: false,
+        canGoForward: false,
+      });
     },
     [browserId, resolved, template, updateBrowser],
+  );
+
+  // Moving the parent stack has to write the record as well as dispatch. The
+  // submit and bridge paths both do, and on the preview path a stale record
+  // self-heals on the next `navigation` — but this path only runs when there is
+  // no bridge, so nothing ever corrects it. The tab's label, subtitle and
+  // tooltip come from the record (`panel.tsx:45,49,50`) and it is what gets
+  // persisted (`store/state.ts:192-203`), so without this the tab keeps naming
+  // the page it just left and a restart reopens it.
+  //
+  // The bounds check mirrors the reducer's own guards, so the record is never
+  // written for a move the reducer will refuse.
+  const moveParentStack = useCallback(
+    (delta: -1 | 1) => {
+      const nextIndex = state.index + delta;
+      if (nextIndex < 0 || nextIndex >= state.stack.length) {
+        return;
+      }
+      const nextUrl = state.stack[nextIndex];
+      syncedUrlRef.current = nextUrl;
+      dispatch({ type: delta < 0 ? "user-back" : "user-forward" });
+      updateBrowser(browserId, {
+        url: nextUrl,
+        title: "",
+        canGoBack: nextIndex > 0,
+        canGoForward: nextIndex < state.stack.length - 1,
+      });
+    },
+    [browserId, state.index, state.stack, updateBrowser],
   );
 
   // The reducer has no bridge-side back/forward action, so `bridgeReady` is the
@@ -211,16 +239,16 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd }: BrowserPa
       bridgeRef.current?.send({ command: "back" });
       return;
     }
-    dispatch({ type: "user-back" });
-  }, [state.bridgeReady]);
+    moveParentStack(-1);
+  }, [moveParentStack, state.bridgeReady]);
 
   const handleForward = useCallback(() => {
     if (state.bridgeReady) {
       bridgeRef.current?.send({ command: "forward" });
       return;
     }
-    dispatch({ type: "user-forward" });
-  }, [state.bridgeReady]);
+    moveParentStack(1);
+  }, [moveParentStack, state.bridgeReady]);
 
   const handleToggleEruda = useCallback(() => {
     // The frame reports `eruda-ready`/`eruda-failed` but never which way the
@@ -278,6 +306,7 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd }: BrowserPa
     [state, target, template],
   );
 
+  const showChrome = chrome !== "hidden";
   const isResponsive = viewport.mode === "responsive";
   const frameWrapStyle = useMemo(
     () => [styles.frameWrap, isResponsive ? null : styles.frameWrapDeviceFrame],
@@ -358,20 +387,25 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd }: BrowserPa
 
   return (
     <View style={styles.pane}>
-      <WebBrowserToolbar
-        state={toolbarState}
-        bridgeAvailable={state.bridgeReady}
-        isSelecting={isSelecting}
-        isErudaOpen={isErudaOpen}
-        viewport={viewport}
-        onSubmitUrl={handleSubmitUrl}
-        onBack={handleBack}
-        onForward={handleForward}
-        onReload={handleReload}
-        onToggleEruda={handleToggleEruda}
-        onToggleSelect={handleToggleSelect}
-        onChangeViewport={handleChangeViewport}
-      />
+      {/* The Code Server panel embeds this pane as a bare surface. Honouring its
+          request is what keeps a devtools panel and an element picker off the
+          VS Code UI, which resolves `preview` like any other loopback port. */}
+      {showChrome ? (
+        <WebBrowserToolbar
+          state={toolbarState}
+          bridgeAvailable={state.bridgeReady}
+          isSelecting={isSelecting}
+          isErudaOpen={isErudaOpen}
+          viewport={viewport}
+          onSubmitUrl={handleSubmitUrl}
+          onBack={handleBack}
+          onForward={handleForward}
+          onReload={handleReload}
+          onToggleEruda={handleToggleEruda}
+          onToggleSelect={handleToggleSelect}
+          onChangeViewport={handleChangeViewport}
+        />
+      ) : null}
       {resolved.kind === "direct" ? <WebBrowserNotice /> : null}
       {pendingSelectionLabel ? (
         <View style={styles.selectedElement}>

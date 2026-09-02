@@ -39,6 +39,12 @@ function blockSessionStorage(): void {
   });
 }
 
+// jsdom serves document.referrer from Document.prototype, so an own property
+// shadows it and deleting that own property puts the real getter back.
+function setReferrer(value: string): void {
+  Object.defineProperty(document, "referrer", { configurable: true, value });
+}
+
 // window.parent === window under jsdom, so the bridge posts to the same window
 // the test owns. Capture before installing.
 function captureMessages(): BridgeMessage[] {
@@ -96,6 +102,7 @@ describe("NAVIGATION_SCRIPT", () => {
     if (SESSION_STORAGE_DESCRIPTOR) {
       Object.defineProperty(window, "sessionStorage", SESSION_STORAGE_DESCRIPTOR);
     }
+    Reflect.deleteProperty(document, "referrer");
   });
 
   it("announces itself with ready", () => {
@@ -279,6 +286,37 @@ describe("NAVIGATION_SCRIPT", () => {
     const back = vi.spyOn(history, "back").mockImplementation(() => {});
     command({ source: "somebody-else", command: "back" });
     expect(back).not.toHaveBeenCalled();
+  });
+
+  it("restores the saved stack when a same-origin document preceded this one", () => {
+    // A real in-page navigation — a link click, a form post. The previous
+    // document is still in this browsing context, so back has somewhere to go
+    // and the saved stack is the only way to know that after the document swap.
+    setReferrer("http://localhost:3000/previous");
+    sessionStorage.setItem(
+      "__paseo_nav",
+      JSON.stringify({
+        stack: ["http://localhost:3000/previous", "http://localhost:3000/start"],
+        index: 1,
+      }),
+    );
+    expect(navigations(runScript()).at(-1)?.payload.canGoBack).toBe(true);
+  });
+
+  it("ignores the saved stack when the embedder loaded this document", () => {
+    // The app re-points the preview by remounting the iframe element, so this is
+    // a fresh browsing context with no back entry — but sessionStorage is keyed
+    // by origin, not by context, and still holds the previous one's stack.
+    // Trusting it lights Back on a frame whose history.back() does nothing.
+    setReferrer("http://localhost:8081/");
+    sessionStorage.setItem(
+      "__paseo_nav",
+      JSON.stringify({
+        stack: ["http://localhost:3000/one", "http://localhost:3000/two"],
+        index: 1,
+      }),
+    );
+    expect(navigations(runScript()).at(-1)?.payload.canGoBack).toBe(false);
   });
 
   it("survives sessionStorage being unavailable", () => {

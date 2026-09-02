@@ -1,5 +1,6 @@
 import http, { createServer, type IncomingMessage, type Server } from "node:http";
 import net from "node:net";
+import { gzipSync } from "node:zlib";
 import express from "express";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -34,6 +35,30 @@ describe("createBrowserPreviewSubsystem", () => {
       if (req.url === "/redirect") {
         res.writeHead(302, { location: `http://localhost:${upstreamPort}/landed` });
         res.end();
+        return;
+      }
+      if (req.url === "/page") {
+        const body = "<!doctype html><html><head><title>t</title></head><body>hi</body></html>";
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          // Explicit: res.end(body) alone makes Node chunk the response, and
+          // then there is no content-length to forward at all — which would
+          // make the "drops content-length" assertion below pass vacuously.
+          "content-length": String(Buffer.byteLength(body)),
+        });
+        res.end(body);
+        return;
+      }
+      if (req.url === "/gzipped") {
+        res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
+        res.end(
+          gzipSync("<!doctype html><html><head><title>t</title></head><body>hi</body></html>"),
+        );
+        return;
+      }
+      if (req.url === "/unknown-encoding") {
+        res.writeHead(200, { "content-type": "text/html", "content-encoding": "exotic" });
+        res.end("<!doctype html><html><head><title>t</title></head><body>hi</body></html>");
         return;
       }
       res.writeHead(200, {
@@ -160,6 +185,44 @@ describe("createBrowserPreviewSubsystem", () => {
     });
     expect(res.status).toBe(418);
     await new Promise((r) => bare.close(r));
+  });
+
+  it("injects the bridge into an HTML response", async () => {
+    const res = await get("/page", `${upstreamPort}.preview.example.com`);
+    const body = await res.text();
+    expect(body).toContain("paseo-browser-bridge");
+    expect(body).toContain("<title>t</title>");
+    expect(body).toContain("<body>hi</body>");
+  });
+
+  it("injects into a gzipped HTML response and drops the encoding", async () => {
+    const res = await get("/gzipped", `${upstreamPort}.preview.example.com`);
+    expect(await res.text()).toContain("paseo-browser-bridge");
+    expect(res.headers.get("content-encoding")).toBeNull();
+  });
+
+  // A stale content-length truncates the injected document at exactly the
+  // pre-injection byte count, which reads as a corrupt page.
+  it("drops content-length when it injects", async () => {
+    const res = await get("/page", `${upstreamPort}.preview.example.com`);
+    expect(res.headers.get("content-length")).toBeNull();
+  });
+
+  it("leaves non-HTML responses untouched", async () => {
+    const res = await get("/", `${upstreamPort}.preview.example.com`);
+    const body = await res.text();
+    expect(body).toBe("upstream-body");
+    expect(body).not.toContain("paseo-browser-bridge");
+  });
+
+  // Injection has to decode first, so an encoding we cannot decode must
+  // disable it outright rather than splice script tags into encoded bytes.
+  it("leaves HTML in an encoding it cannot decode untouched", async () => {
+    const res = await get("/unknown-encoding", `${upstreamPort}.preview.example.com`);
+    const body = await res.text();
+    expect(body).not.toContain("paseo-browser-bridge");
+    expect(body).toBe("<!doctype html><html><head><title>t</title></head><body>hi</body></html>");
+    expect(res.headers.get("content-encoding")).toBe("exotic");
   });
 });
 

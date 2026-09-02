@@ -26,6 +26,7 @@ import {
 } from "lucide-react-native";
 import { getIsElectron } from "@/constants/platform";
 import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/layout";
+import { useWorkspaceBrowserAvailability } from "@/desktop/browser/workspace-browser-availability";
 import { GIT_ACTION_ICONS } from "@/git/action-icons";
 import { useGitActionRunner, useGitActions } from "@/git/use-actions";
 import { useKeyboardShortcutOverrides } from "@/hooks/use-keyboard-shortcut-overrides";
@@ -203,12 +204,17 @@ export function useWorkspaceCommandCenterActions(): void {
     shouldShowWorkspaceSetup(persistenceKey ? (state.snapshots[persistenceKey] ?? null) : null),
   );
   const { overrides } = useKeyboardShortcutOverrides();
+  const resolvedServerId = serverId ?? "";
   const { gitActions, isGit } = useGitActions({
-    serverId: serverId ?? "",
+    serverId: resolvedServerId,
     cwd: cwd ?? "",
     icons: GIT_ACTION_ICONS,
   });
   const runGitAction = useGitActionRunner();
+  // Same resolver the workspace screen and the tab-bar launcher use. Hard-coding
+  // Electron here left the command centre with no Browser entry on hosts whose
+  // tab menu offers one.
+  const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(resolvedServerId);
   const clipboard = useWorkspaceClipboardActions();
 
   const copyPath = useCallback(() => {
@@ -285,7 +291,7 @@ export function useWorkspaceCommandCenterActions(): void {
         shortcuts: resolveWorkspaceShortcuts(overrides),
         capabilities: {
           canSplitPanes: supportsDesktopPaneSplits() && !isCompact,
-          canOpenBrowserTabs: getIsElectron(),
+          canOpenBrowserTabs: hasWorkspaceBrowser,
           isGit,
           canPin,
           canShowSetup,
@@ -315,6 +321,7 @@ export function useWorkspaceCommandCenterActions(): void {
       currentBranch,
       focusedTabs.length,
       gitActions,
+      hasWorkspaceBrowser,
       isCompact,
       isGit,
       isPinned,

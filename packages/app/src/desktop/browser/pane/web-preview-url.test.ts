@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getUnsupportedIframeProtocol, resolveWebBrowserSrc } from "./web-preview-url";
+import {
+  getUnsupportedIframeProtocol,
+  resolveWebBrowserSrc,
+  toDisplayUrl,
+} from "./web-preview-url";
 
 const template = "https://{port}--daemon-1.studio.example.com";
 
@@ -70,5 +74,109 @@ describe("getUnsupportedIframeProtocol", () => {
 
   it("does not flag a URL it can't parse", () => {
     expect(getUnsupportedIframeProtocol("not a url")).toBeNull();
+  });
+});
+
+const TEMPLATE = "https://{port}.preview.example.com";
+
+describe("toDisplayUrl", () => {
+  it("maps a preview origin back to localhost", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://3000.preview.example.com/about?q=1#x",
+        template: TEMPLATE,
+        originalUrl: "http://localhost:3000/",
+      }),
+    ).toBe("http://localhost:3000/about?q=1#x");
+  });
+
+  it("keeps the loopback hostname the user typed", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://3000.preview.example.com/a",
+        template: TEMPLATE,
+        originalUrl: "http://127.0.0.1:3000/",
+      }),
+    ).toBe("http://127.0.0.1:3000/a");
+  });
+
+  it("passes a non-preview url through untouched", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://example.com/page",
+        template: TEMPLATE,
+        originalUrl: "https://example.com/",
+      }),
+    ).toBe("https://example.com/page");
+  });
+
+  it("does not graft a foreign origin's path onto the loopback url", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://example.com/page",
+        template: TEMPLATE,
+        originalUrl: "http://localhost:3000/",
+      }),
+    ).toBe("https://example.com/page");
+  });
+
+  it("passes through when there is no template", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://a.example/x",
+        template: null,
+        originalUrl: "https://a.example",
+      }),
+    ).toBe("https://a.example/x");
+  });
+
+  it("maps back when the loopback url has no explicit port", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://80.preview.example.com/app",
+        template: TEMPLATE,
+        originalUrl: "http://localhost/",
+      }),
+    ).toBe("http://localhost/app");
+  });
+
+  it("maps back when a portless loopback url is https", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://443.preview.example.com/app",
+        template: TEMPLATE,
+        originalUrl: "https://localhost/",
+      }),
+    ).toBe("https://localhost/app");
+  });
+
+  it("passes through when the original url cannot be parsed", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://3000.preview.example.com/x",
+        template: TEMPLATE,
+        originalUrl: "not a url",
+      }),
+    ).toBe("https://3000.preview.example.com/x");
+  });
+
+  it("passes through when the template is not a valid url", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://3000.preview.example.com/x",
+        template: "{port}.preview.example.com",
+        originalUrl: "http://localhost:3000/",
+      }),
+    ).toBe("https://3000.preview.example.com/x");
+  });
+
+  it("round-trips with resolveWebBrowserSrc", () => {
+    const original = "http://localhost:5173/nested/path?a=b";
+    const resolved = resolveWebBrowserSrc({ url: original, template: TEMPLATE });
+    expect(resolved.kind).toBe("preview");
+    if (resolved.kind !== "preview") return;
+    expect(toDisplayUrl({ url: resolved.src, template: TEMPLATE, originalUrl: original })).toBe(
+      original,
+    );
   });
 });

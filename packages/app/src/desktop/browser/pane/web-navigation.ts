@@ -52,6 +52,43 @@ function movedTo(state: WebNavigationState, index: number): WebNavigationState {
   };
 }
 
+// The BrowserRecord fields a parent-side navigation implies. The pane has to
+// write these at the moment it dispatches, and the obvious way — recomputing
+// the destination index by hand — puts the same arithmetic in two places, where
+// a change to `user-navigate`'s stack shape silently desynchronises the record
+// from the toolbar. Running the reducer is the only way to be sure they agree,
+// so that is what this does: no arithmetic here mirrors `movedTo`.
+//
+// Returns null when the reducer refuses the action. `movedTo` is only reached
+// past the bounds guards, and a refusal returns the identical state object, so
+// identity is the reducer's own answer to "did this move" rather than a second
+// copy of its guards.
+export interface WebNavigationRecord {
+  url: string;
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
+export function applyWebNavigation(
+  state: WebNavigationState,
+  action: WebNavigationAction,
+): { state: WebNavigationState; record: WebNavigationRecord } | null {
+  const next = webNavigationReducer(state, action);
+  if (next === state) {
+    return null;
+  }
+  return {
+    state: next,
+    record: {
+      url: next.displayUrl,
+      title: next.title,
+      canGoBack: next.canGoBack,
+      canGoForward: next.canGoForward,
+    },
+  };
+}
+
 export function webNavigationReducer(
   state: WebNavigationState,
   action: WebNavigationAction,

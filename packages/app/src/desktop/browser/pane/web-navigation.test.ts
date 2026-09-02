@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createWebNavigationState, webNavigationReducer } from "./web-navigation";
+import {
+  applyWebNavigation,
+  createWebNavigationState,
+  webNavigationReducer,
+  type WebNavigationAction,
+  type WebNavigationState,
+} from "./web-navigation";
 
 const START = "http://localhost:3000/";
 
@@ -180,5 +186,94 @@ describe("webNavigationReducer", () => {
     const start = createWebNavigationState(START);
     expect(webNavigationReducer(start, { type: "user-back" })).toBe(start);
     expect(webNavigationReducer(start, { type: "user-forward" })).toBe(start);
+  });
+});
+
+describe("applyWebNavigation", () => {
+  // Three URL-bar moves, so index 1 has somewhere to go in both directions.
+  function threeDeep(): WebNavigationState {
+    let state = createWebNavigationState(START);
+    state = webNavigationReducer(state, { type: "user-navigate", url: "https://a.example" });
+    state = webNavigationReducer(state, { type: "user-navigate", url: "https://b.example" });
+    return webNavigationReducer(state, { type: "user-back" });
+  }
+
+  // The cross-check. The record the pane writes has to be what the reducer
+  // actually produced, so this runs the reducer separately and compares —
+  // rather than restating the arithmetic, which would reproduce the very
+  // mistake it is meant to catch. Reintroducing a hand-computed destination in
+  // applyWebNavigation fails this for whichever term drifts.
+  function expectRecordMatchesReducer(
+    state: WebNavigationState,
+    action: WebNavigationAction,
+  ): void {
+    const applied = applyWebNavigation(state, action);
+    const reduced = webNavigationReducer(state, action);
+    expect(applied).not.toBeNull();
+    expect(applied?.record).toEqual({
+      url: reduced.displayUrl,
+      title: reduced.title,
+      canGoBack: reduced.canGoBack,
+      canGoForward: reduced.canGoForward,
+    });
+  }
+
+  it("matches the reducer for a url-bar navigation", () => {
+    expectRecordMatchesReducer(threeDeep(), { type: "user-navigate", url: "https://c.example" });
+  });
+
+  it("matches the reducer going back", () => {
+    expectRecordMatchesReducer(threeDeep(), { type: "user-back" });
+  });
+
+  it("matches the reducer going forward", () => {
+    expectRecordMatchesReducer(threeDeep(), { type: "user-forward" });
+  });
+
+  // Lands on index 1 of a 3-entry stack — the one position where "there is
+  // exactly one entry ahead" is true. Without a case here, an off-by-one in
+  // canGoForward reads the same as the real value everywhere else in this file.
+  it("matches the reducer moving forward into the middle of the stack", () => {
+    let state = createWebNavigationState(START);
+    state = webNavigationReducer(state, { type: "user-navigate", url: "https://a.example" });
+    state = webNavigationReducer(state, { type: "user-navigate", url: "https://b.example" });
+    state = webNavigationReducer(state, { type: "user-back" });
+    state = webNavigationReducer(state, { type: "user-back" });
+    expect(state.index).toBe(0);
+    expectRecordMatchesReducer(state, { type: "user-forward" });
+  });
+
+  it("matches the reducer from the bottom of the stack", () => {
+    expectRecordMatchesReducer(createWebNavigationState(START), {
+      type: "user-navigate",
+      url: "https://a.example",
+    });
+  });
+
+  // The values, not just the agreement: a submit always leaves somewhere to go
+  // back to, which the pane once wrote as canGoBack: false.
+  it("reports a way back and none forward after a url-bar navigation", () => {
+    const applied = applyWebNavigation(createWebNavigationState(START), {
+      type: "user-navigate",
+      url: "https://a.example",
+    });
+    expect(applied?.record).toEqual({
+      url: "https://a.example",
+      title: "",
+      canGoBack: true,
+      canGoForward: false,
+    });
+  });
+
+  it("refuses to move back from the bottom of the stack", () => {
+    // Boundary: the reducer returns the identical state, so there is no record
+    // to write. The pane must not write one for a move that did not happen.
+    expect(applyWebNavigation(createWebNavigationState(START), { type: "user-back" })).toBeNull();
+  });
+
+  it("refuses to move forward from the top of the stack", () => {
+    let state = createWebNavigationState(START);
+    state = webNavigationReducer(state, { type: "user-navigate", url: "https://a.example" });
+    expect(applyWebNavigation(state, { type: "user-forward" })).toBeNull();
   });
 });

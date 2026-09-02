@@ -26,8 +26,10 @@ import {
   type PreviewBridge,
 } from "./web-bridge";
 import {
+  applyWebNavigation,
   createWebNavigationState,
   webNavigationReducer,
+  type WebNavigationAction,
   type WebNavigationState,
 } from "./web-navigation";
 import { WebBrowserNotice } from "./web-notice";
@@ -172,21 +174,25 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
     setReloadKey((key) => key + 1);
   }, [state.bridgeReady]);
 
-  // The one place the record's parent-stack fields are written. Both callers
-  // pass the position the reducer is about to land on, computed the same way
-  // `movedTo` computes it, so the two write paths in this file cannot disagree
-  // about fields the Electron and Android panes read.
-  const writeParentStackRecord = useCallback(
-    (nextUrl: string, index: number, length: number) => {
-      syncedUrlRef.current = nextUrl;
-      updateBrowser(browserId, {
-        url: nextUrl,
-        title: "",
-        canGoBack: index > 0,
-        canGoForward: index < length - 1,
-      });
+  // Every parent-side navigation goes through here. The record has to be written
+  // at dispatch time, and on this path nothing ever corrects it: it only runs
+  // when there is no bridge, while the tab's label, subtitle and tooltip come
+  // from the record (`panel.tsx:45,49,50`) and it is what gets persisted
+  // (`store/state.ts:192-203`). `applyWebNavigation` runs the reducer to get the
+  // fields rather than recomputing the destination here, so the record and the
+  // toolbar cannot drift apart, and a null answer is the reducer refusing the
+  // move rather than a second copy of its bounds guards.
+  const applyNavigation = useCallback(
+    (action: WebNavigationAction) => {
+      const applied = applyWebNavigation(state, action);
+      if (!applied) {
+        return;
+      }
+      dispatch(action);
+      syncedUrlRef.current = applied.record.url;
+      updateBrowser(browserId, applied.record);
     },
-    [browserId, updateBrowser],
+    [browserId, state, updateBrowser],
   );
 
   const handleSubmitUrl = useCallback(
@@ -203,36 +209,9 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
       // Never `goto`: a cross-origin goto navigates the frame off the preview
       // origin and ends the bridge session, leaving the controls silently inert.
       // The src is the only thing that re-points the frame.
-      dispatch({ type: "user-navigate", url: decision.url });
-      // `user-navigate` truncates the forward entries and appends, so it lands
-      // one past the current index in a stack that is one longer. Writing
-      // canGoBack: false here instead was wrong: after any submit there is
-      // always a previous entry to go back to.
-      writeParentStackRecord(decision.url, state.index + 1, state.index + 2);
+      applyNavigation({ type: "user-navigate", url: decision.url });
     },
-    [resolved, state.index, template, writeParentStackRecord],
-  );
-
-  // Moving the parent stack has to write the record as well as dispatch. The
-  // submit and bridge paths both do, and on the preview path a stale record
-  // self-heals on the next `navigation` — but this path only runs when there is
-  // no bridge, so nothing ever corrects it. The tab's label, subtitle and
-  // tooltip come from the record (`panel.tsx:45,49,50`) and it is what gets
-  // persisted (`store/state.ts:192-203`), so without this the tab keeps naming
-  // the page it just left and a restart reopens it.
-  //
-  // The bounds check mirrors the reducer's own guards, so the record is never
-  // written for a move the reducer will refuse.
-  const moveParentStack = useCallback(
-    (delta: -1 | 1) => {
-      const nextIndex = state.index + delta;
-      if (nextIndex < 0 || nextIndex >= state.stack.length) {
-        return;
-      }
-      dispatch({ type: delta < 0 ? "user-back" : "user-forward" });
-      writeParentStackRecord(state.stack[nextIndex], nextIndex, state.stack.length);
-    },
-    [state.index, state.stack, writeParentStackRecord],
+    [applyNavigation, resolved, template],
   );
 
   // The reducer has no bridge-side back/forward action, so `bridgeReady` is the
@@ -247,16 +226,16 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
       bridgeRef.current?.send({ command: "back" });
       return;
     }
-    moveParentStack(-1);
-  }, [moveParentStack, state.bridgeReady]);
+    applyNavigation({ type: "user-back" });
+  }, [applyNavigation, state.bridgeReady]);
 
   const handleForward = useCallback(() => {
     if (state.bridgeReady) {
       bridgeRef.current?.send({ command: "forward" });
       return;
     }
-    moveParentStack(1);
-  }, [moveParentStack, state.bridgeReady]);
+    applyNavigation({ type: "user-forward" });
+  }, [applyNavigation, state.bridgeReady]);
 
   const handleToggleEruda = useCallback(() => {
     // The frame reports `eruda-ready`/`eruda-failed` but never which way the

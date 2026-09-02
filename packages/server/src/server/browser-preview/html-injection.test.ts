@@ -113,13 +113,20 @@ describe("rewriteHtmlHead", () => {
   });
 });
 
-async function pump(chunks: readonly (string | Buffer)[], scripts: string): Promise<string> {
+async function pumpChunks(
+  chunks: readonly (string | Buffer)[],
+  scripts: string,
+): Promise<Buffer[]> {
   const stream = Readable.from(
     chunks.map((chunk) => (Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))),
   ).pipe(createHtmlInjectionStream(scripts));
   const out: Buffer[] = [];
   for await (const chunk of stream) out.push(chunk as Buffer);
-  return Buffer.concat(out).toString("utf8");
+  return out;
+}
+
+async function pump(chunks: readonly (string | Buffer)[], scripts: string): Promise<string> {
+  return Buffer.concat(await pumpChunks(chunks, scripts)).toString("utf8");
 }
 
 describe("createHtmlInjectionStream", () => {
@@ -152,9 +159,28 @@ describe("createHtmlInjectionStream", () => {
 
   it("stops buffering after </head> so the body streams", async () => {
     const big = "x".repeat(200_000);
-    const out = await pump([`<html><head></head><body>${big}</body></html>`], SCRIPTS);
+    const chunks = await pumpChunks([`<html><head></head><body>${big}</body></html>`], SCRIPTS);
+    const out = Buffer.concat(chunks).toString("utf8");
     expect(out).toContain(SCRIPTS);
     expect(out).toContain(big);
+    // Only the chunk boundary separates this from a transform that buffered the
+    // whole document and rewrote it in flush — that produces a byte-identical
+    // concatenation. The head has to leave on its own, ahead of the body.
+    expect(chunks.length).toBeGreaterThan(1);
+    const [head] = chunks;
+    expect(head?.toString("utf8")).toContain(SCRIPTS);
+    expect(head?.toString("utf8")).not.toContain(big);
+  });
+
+  // Identical bytes must produce identical output however upstream chunked them.
+  // A search over all of pending that consults the cap only afterwards finds this
+  // </head> and injects, while the same bytes split either side of the cap stream
+  // through untouched.
+  it("gives up on a </head> that closes past the cap in a single chunk", async () => {
+    const doc = `<html><head><!-- ${"y".repeat(70_000)} --></head><body>b</body></html>`;
+    const out = await pump([doc], SCRIPTS);
+    expect(out).not.toContain(SCRIPTS);
+    expect(out).toBe(doc);
   });
 
   it("passes through unmodified when no injection point arrives within the cap", async () => {
@@ -178,6 +204,23 @@ describe("createHtmlInjectionStream", () => {
     const out = await pump([full.subarray(0, splitAt), full.subarray(splitAt)], SCRIPTS);
     expect(out).toContain("日本語テキスト");
     expect(out).not.toContain("�");
+  });
+
+  // The brief's named hazard: findHeadInjectionOffset returns a UTF-16 index, so
+  // a search that runs in utf8 while still slicing the Buffer at the match index
+  // is off by (bytes - UTF-16 units). Every other test here is ASCII up to
+  // </head>, where the two coincide and the bug is invisible. Ten 3-byte
+  // characters put the shortfall mid-character; with nine it lands exactly on a
+  // character boundary and the mutation escapes again.
+  it("does not corrupt a head containing multi-byte characters", async () => {
+    const out = await pump(
+      ["<html><head><title>日本語日本語日本語日</title></head><body>b</body></html>"],
+      SCRIPTS,
+    );
+    expect(out).not.toContain("�");
+    expect(out).toContain("<title>日本語日本語日本語日</title>");
+    expect(out).toContain(SCRIPTS);
+    expect(out).toContain("<body>b</body>");
   });
 
   // Same hazard on the give-up path: the raw bytes must pass through

@@ -66,12 +66,22 @@ export function createHtmlInjectionStream(scripts: string): Transform {
 
       pending = Buffer.concat([pending, chunk]);
 
+      // Clamped to the cap so the outcome never depends on how upstream chunked
+      // the response: a </head> that closes past the cap has to lose whether it
+      // arrived in one 100 KiB chunk or as 70 KiB + 30 KiB. Searching all of
+      // pending and only checking the cap afterwards makes identical bytes
+      // produce different output.
+      const searchable =
+        pending.byteLength > INJECTION_SCAN_LIMIT_BYTES
+          ? pending.subarray(0, INJECTION_SCAN_LIMIT_BYTES)
+          : pending;
+
       // Search in latin1, never utf8. Decoding a partial buffer replaces a
       // multi-byte character split across a chunk boundary with U+FFFD, and
       // re-encoding then ships the corruption downstream. latin1 is
       // byte-preserving and 1 byte == 1 char, so a match index here is a byte
       // offset — and every tag we look for is ASCII either way.
-      const headEnd = /<\/head\s*>/i.exec(pending.toString("latin1"));
+      const headEnd = /<\/head\s*>/i.exec(searchable.toString("latin1"));
 
       if (headEnd !== null) {
         const boundary = headEnd.index + headEnd[0].length;

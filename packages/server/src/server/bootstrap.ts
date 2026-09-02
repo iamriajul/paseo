@@ -1374,6 +1374,13 @@ export async function createPaseoDaemon(
     createDirectoryWorkspace: createScheduleLocalWorkspaceExternal,
     createPaseoWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
+    listWorkspaceTerminals: async ({ cwd, workspaceId }) =>
+      (await terminalManager.getTerminals(cwd, { workspaceId })).map((terminal) => ({
+        id: terminal.id,
+        name: terminal.name,
+        exited: terminal.getExitInfo() !== null,
+        activity: terminal.getActivity(),
+      })),
   });
   await scheduleService.start();
   agentManager.setAgentArchivedCallback(async (agentId) => {

@@ -87,6 +87,8 @@ Archive is a **soft delete**: the agent record stays on disk with `archivedAt` s
 Archive sets `archivedAt`, invokes the provider's native archive hook, and cascades to managed
 children.
 
+A scheduled run archives its workspace when the run ends (`archiveOnFinish`, on by default). That archive kills the run agent's background tasks and heartbeats, kills the terminals in the workspace, and for a worktree run deletes the directory — so it waits for work the run left behind: a background shell or monitor, a Paseo or provider heartbeat, a busy terminal, a running child agent, or a schedule pointed inside the worktree. While any of those is live the workspace is kept, and the archive is retried every 30s until the work ends. The deferral is in memory only; a daemon restart forgets it, which errs toward keeping the workspace. `packages/server/src/server/schedule/live-work.ts` owns the list of what counts as live.
+
 `create_agent_request` can opt an agent into `autoArchive`. In that mode the daemon archives the agent after the first terminal turn event (`turn_completed`, `turn_failed`, or `turn_canceled`). When the agent owns an isolated workspace, auto-archive archives that workspace too; the managed worktree is removed when its final workspace reference is gone.
 
 Archiving runs through `AgentManager.archiveAgent` (`packages/server/src/server/agent/agent-manager.ts`):

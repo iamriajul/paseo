@@ -366,3 +366,13 @@ resume agents that were running when daemon shut down unexpectedly (SIGTERM/powe
 ```bash
 npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail=1
 ```
+
+## schedule-run-live-work
+
+**a scheduled run keeps its workspace while the work it started is still running**
+
+archiveOnFinish waits on live work instead of killing it: non-terminal background tasks (shells, monitors), provider heartbeats, active or paused Paseo heartbeats targeting the run agent, busy terminals in the workspace, running child agents, and — for a worktree run only — a schedule pointed inside the directory the archive would delete. Idle terminals and finished tasks do not pin the workspace. The deferred archive is retried until the work ends.
+
+```bash
+npx vitest run packages/server/src/server/schedule/live-work.test.ts packages/server/src/server/schedule/service.test.ts --bail=1
+```

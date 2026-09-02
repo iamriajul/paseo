@@ -21,7 +21,8 @@ export interface PaneContextValue {
   retargetCurrentTab: (target: WorkspaceTabTarget) => void;
   setCurrentTabState: (state: JsonValue) => void;
   openFileInWorkspace: (request: WorkspaceFileOpenRequest) => void;
-  openUrlInBrowserTab: (url: string) => void;
+  /** Returns whether a Browser tab took the URL; false means the caller falls back. */
+  openUrlInBrowserTab: (url: string) => boolean;
   openImportSheet: () => void;
 }
 

@@ -94,8 +94,34 @@ to maintain, and `build-desktop-darwin` fails on every sync PR that skips this s
 
 - Merge. This fork rebases onto release tags. A merge commit in `main` means the queue is broken.
 - Treat "the symbol still exists" as preserved. Fill-if-missing versus overwrite is a decision, and grep cannot see it.
-- Take `theirs` wholesale to make a conflict go away. That is how find-in-chat and the PDF preview mounts were lost in the v0.5.1 sync.
+- Take `theirs` wholesale to make a conflict go away. That is how the v0.5.1 sync lost three features — see [What past syncs lost](#what-past-syncs-lost).
 - Edit `patches/*.patch` at the repo root — those are patch-package for `node_modules`, unrelated to fork decisions.
+
+## What past syncs lost
+
+One sync merge, `f1daed522` (PR #65, official v0.5.1), silently dropped three fork
+features. They share a shape: the **call site** goes and the receiving code stays. Every
+file still exists, typecheck stays green, `fork:verify` stays green, and nothing fails.
+Only someone reaching for the feature finds out.
+
+| Feature                                            | Wired by    | What went                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Find in chat                                       | —           | the mount; restored, and now pinned by the `find-in-chat` decision                                                                                                                                                                                                                                    |
+| PDF preview                                        | —           | the mount; restored, and now pinned by `pdf-file-preview`                                                                                                                                                                                                                                             |
+| Localhost chat links open in the workspace Browser | `1caa0c87e` | `onOpenUrlInBrowserTab` in `packages/app/src/panels/agent-panel.tsx`: 16 occurrences in the merge's parent `c5fd95abc`, zero in the merge. `agent-stream/view.tsx` kept the receiving prop, so `view.tsx` still calls `onOpenUrlInBrowserTab?.(url)` on an argument nobody passes. **Still unwired.** |
+
+To hunt for more, count a symbol's occurrences across a sync merge:
+
+```bash
+git log -S 'onOpenUrlInBrowserTab' --oneline f1daed522 -- packages/app/src/panels/agent-panel.tsx
+```
+
+Name the old commit explicitly. The fork rebases, so past sync merges are no longer
+ancestors of `main` — the same command without `f1daed522` walks from `HEAD`, finds
+nothing, and reads exactly like "nothing was lost".
+
+Three casualties in one sync, all found afterwards and by accident, means the other syncs
+were not audited either.
 
 ## Adding a change that edits an official file
 

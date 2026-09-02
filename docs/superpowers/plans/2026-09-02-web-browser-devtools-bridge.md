@@ -1824,7 +1824,12 @@ Behaviour:
 4. Map bridge events: `navigation` → dispatch, and `updateBrowser(browserId, {url: displayed, title, canGoBack, canGoForward})` so the tab title follows; `selection` → set pending selection, opening the annotation composer; `select-cancelled` → clear selecting.
 5. `displayUrl` shown in the toolbar is `toDisplayUrl({url: state.displayUrl, template, originalUrl: url})`.
 6. Back/forward/reload send bridge commands when `state.bridgeReady`, otherwise dispatch the parent-stack action and bump `reloadKey`. **The pane does carry this one branch** — an earlier draft of this plan claimed the reducer left it with none, which was wrong. There is no bridge-side back/forward _action_ in the reducer, so dispatching `user-back` while a bridge is live walks the parent stack instead of the page's real history: with no pre-bridge URL-bar moves that stack is `[START]` at index 0, so the dispatch hits the bounds guard and returns state unchanged — a back button lit by the bridge's own `canGoBack` that silently does nothing. `bridgeReady` is the discriminator.
-7. URL submit: `normalizeWorkspaceBrowserUrl`, then `updateBrowser(browserId, {url})`. Same-URL submit reloads.
+7. URL submit: `normalizeWorkspaceBrowserUrl`, then dispatch `{type:"user-navigate"}` **and** `updateBrowser(browserId, {url})`. Same-URL submit reloads.
+
+   **These two steps collide unless the pane can tell its own submit apart from an external change**, and the collision silently undoes step 2. `updateBrowser` changes the tab's `url`, which fires the very effect step 2 routes to `reset` — so a naive wiring dispatches `user-navigate`, then `reset`, and `reset` wins. The parent stack is then permanently `[url]` at index 0 and the direct-URL back/forward behaviour is gone, which is exactly what step 2 exists to prevent.
+
+   Hold the URL the pane itself last submitted in a ref, and have the reset effect skip when the incoming tab `url` equals it. An external change — tab switch, restore, an `open-url` from chat — will not match, and still resets.
+
 8. Navigating without a bridge **remounts** the iframe via `reloadKey` — assigning `src` would push onto the top-level history and hijack the app's own back button.
 9. `resolved.kind === "direct"` renders `<WebBrowserNotice />` between the toolbar and the iframe.
 10. Viewport: `browser.viewport` sizes the iframe (`mode === "fixed"` → explicit width/height, centred; `responsive` → flex), and the toolbar's dropdown calls `setBrowserViewport`.

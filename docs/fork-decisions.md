@@ -35,8 +35,11 @@ npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts 
 
 ComposerTrackBar is shown when fork extra pills exist; AgentTracks renders heartbeats/background tasks as children. Schedules query key is host identity only.
 
+v0.7.2 pulls host-connection (and `__DEV__`) into `use-schedules`. Root `npx vitest` does not apply the app config, so run the app files through the app workspace.
+
 ```bash
-npx vitest run packages/app/src/panels/agent-tracks.test.ts packages/app/src/heartbeats/track-presentation.test.ts packages/app/src/background-tasks/track-presentation.test.ts packages/protocol/src/background-tasks-schema.test.ts packages/protocol/src/provider-heartbeats-schema.test.ts packages/app/src/hooks/use-schedules.test.ts --bail=1
+npx vitest run packages/protocol/src/background-tasks-schema.test.ts packages/protocol/src/provider-heartbeats-schema.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/panels/agent-tracks.test.ts src/heartbeats/track-presentation.test.ts src/background-tasks/track-presentation.test.ts src/hooks/use-schedules.test.ts --bail=1
 ```
 
 ## find-in-chat

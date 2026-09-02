@@ -32,6 +32,7 @@ export const NAVIGATION_SCRIPT = `
   var index = -1;
   var seq = 0;
   var lastHref = null;
+  var lastTitle = null;
   var destroyed = false;
 
   function send(type, payload) {
@@ -57,51 +58,80 @@ export const NAVIGATION_SCRIPT = `
     catch (error) { /* storage blocked */ }
   }
 
-  function report() {
+  function report(href, title) {
     seq += 1;
     send('navigation', {
       docId: docId,
       seq: seq,
-      url: location.href,
-      title: document.title || '',
+      url: href,
+      title: title,
       canGoBack: index > 0,
       canGoForward: index >= 0 && index < stack.length - 1
     });
   }
 
+  // Two axes, deliberately separate. 'moved' drives the stack; the title drives
+  // only a re-report. This script runs in <head>, so the first report always
+  // predates <title> being parsed — without the title half, an ordinary page
+  // that never route-changes would leave the parent showing an empty tab title
+  // forever, since 'load' and 'pageshow' arrive on an unchanged href.
   function observe(mode) {
     if (destroyed) return;
     var href = location.href;
-    if (mode !== 'replace' && href === lastHref) return;
+    var title = document.title || '';
+    var moved = mode === 'replace' || href !== lastHref;
+    if (!moved && title === lastTitle) return;
     lastHref = href;
-    if (mode === 'replace' && index >= 0) {
-      stack[index] = href;
-    } else if (mode === 'push') {
-      stack = stack.slice(0, index + 1);
-      stack.push(href);
-      index = stack.length - 1;
-    } else {
-      var existing = stack.indexOf(href);
-      if (existing >= 0) { index = existing; }
-      else { stack = stack.slice(0, index + 1); stack.push(href); index = stack.length - 1; }
+    lastTitle = title;
+    if (moved) {
+      if (mode === 'replace' && index >= 0) {
+        stack[index] = href;
+      } else if (mode === 'push') {
+        stack = stack.slice(0, index + 1);
+        stack.push(href);
+        index = stack.length - 1;
+      } else {
+        var existing = stack.indexOf(href);
+        if (existing >= 0) { index = existing; }
+        else { stack = stack.slice(0, index + 1); stack.push(href); index = stack.length - 1; }
+      }
+      save();
     }
-    save();
-    report();
+    report(href, title);
   }
 
   function onAuto() { observe('auto'); }
 
+  // Only the embedder may drive this frame. Task 6 posts app window ->
+  // iframe.contentWindow, so event.source is window.parent for a real command.
+  // The parent's own event.source/event.origin checks protect the parent from
+  // spoofed inbound messages; they cannot protect this frame, because a nested
+  // third-party frame (ad, checkout widget, video embed) executes here, inside
+  // the preview origin, and everything it causes us to post is then perfectly
+  // authentic on both of the parent's checks.
   function onCommand(event) {
+    if (event.source !== window.parent) return;
     var data = event.data;
     if (!data || data.source !== COMMAND) return;
     switch (data.command) {
       case 'back': if (index > 0) history.back(); break;
       case 'forward': if (index < stack.length - 1) history.forward(); break;
       case 'reload': location.reload(); break;
-      case 'goto':
-        if (typeof data.url === 'string' && data.url) location.assign(data.url);
-        break;
+      case 'goto': gotoUrl(data.url); break;
     }
+  }
+
+  // location.assign takes any string, and a javascript: URL navigating its own
+  // window runs in this document's origin. Same allowlist the app applies before
+  // it puts a URL in an iframe (ALLOWED_IFRAME_PROTOCOLS in
+  // packages/app/src/desktop/browser/pane/web-preview-url.ts). Unparseable
+  // fails closed, unlike there, where a bad string is handled downstream.
+  function gotoUrl(url) {
+    if (typeof url !== 'string' || !url) return;
+    var target;
+    try { target = new URL(url, location.href); } catch (error) { return; }
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') return;
+    location.assign(target.href);
   }
 
   var originalPush = history.pushState;
@@ -127,7 +157,9 @@ export const NAVIGATION_SCRIPT = `
 
   // Catches navigations no event covers — a same-document change made by a
   // router that writes location directly.
-  var poll = setInterval(function() { if (location.href !== lastHref) observe('auto'); }, 250);
+  var poll = setInterval(function() {
+    if (location.href !== lastHref || (document.title || '') !== lastTitle) observe('auto');
+  }, 250);
 
   function destroy() {
     if (destroyed) return;

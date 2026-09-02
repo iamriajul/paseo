@@ -65,8 +65,10 @@ function navigations(sent: BridgeMessage[]): BridgeMessage[] {
   return sent.filter((message) => message.type === "navigation");
 }
 
+// The bridge only obeys its embedder, and window.parent === window in jsdom, so
+// a legitimate command is one whose event.source is this window.
 function command(data: Record<string, unknown>): void {
-  window.dispatchEvent(new MessageEvent("message", { data }));
+  window.dispatchEvent(new MessageEvent("message", { data, source: window.parent }));
 }
 
 describe("NAVIGATION_SCRIPT", () => {
@@ -76,6 +78,9 @@ describe("NAVIGATION_SCRIPT", () => {
     // canGoBack and results depend on order.
     sessionStorage.clear();
     history.replaceState(null, "", "/start");
+    // document.title and the body outlive a test in this window.
+    document.title = "";
+    document.body.innerHTML = "";
   });
 
   afterEach(() => {
@@ -131,6 +136,23 @@ describe("NAVIGATION_SCRIPT", () => {
     expect(nav?.payload.canGoForward).toBe(true);
   });
 
+  it("reports the title once the document has parsed it", () => {
+    vi.useFakeTimers();
+    const sent = runScript();
+    // Injected into <head>: <title> has not been parsed yet, so the opening
+    // report cannot carry it.
+    expect(navigations(sent).at(-1)?.payload.title).toBe("");
+
+    document.title = "Dev Server";
+    window.dispatchEvent(new Event("load"));
+    expect(navigations(sent).at(-1)?.payload.title).toBe("Dev Server");
+
+    // And a router that swaps the title without moving the page.
+    document.title = "Dev Server — Settings";
+    vi.advanceTimersByTime(300);
+    expect(navigations(sent).at(-1)?.payload.title).toBe("Dev Server — Settings");
+  });
+
   it("does not grow the stack on replaceState", () => {
     const sent = runScript();
     history.replaceState(null, "", "/replaced");
@@ -178,12 +200,77 @@ describe("NAVIGATION_SCRIPT", () => {
     expect(assign).toHaveBeenCalledWith("http://localhost:3000/x");
   });
 
+  it("refuses a goto to anything but http or https", () => {
+    runScript();
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, assign, href: window.location.href },
+      writable: true,
+    });
+    const refused = [
+      "javascript:alert(1)",
+      // The URL parser lowercases the scheme and strips tabs and newlines, so
+      // checking the parsed protocol catches obfuscation a prefix test misses.
+      "JavaScript:alert(1)",
+      "\tjava\nscript:alert(1)",
+      "data:text/html,<script>1</script>",
+      "file:///etc/passwd",
+      // Unparseable even against a base: fail closed.
+      "http://",
+    ];
+    // An exception thrown inside a message listener does not reach dispatchEvent,
+    // but it does fire window.onerror — so this is how a refusal that throws
+    // instead of returning becomes visible.
+    const errors: ErrorEvent[] = [];
+    const onError = (event: ErrorEvent): void => {
+      errors.push(event);
+    };
+    window.addEventListener("error", onError);
+    try {
+      for (const url of refused) {
+        command({ source: COMMAND_SOURCE, command: "goto", url });
+      }
+    } finally {
+      window.removeEventListener("error", onError);
+    }
+    expect(assign).not.toHaveBeenCalled();
+    expect(errors).toEqual([]);
+
+    // The control: the refusals above have to be the scheme check, not a goto
+    // handler that stopped working.
+    command({ source: COMMAND_SOURCE, command: "goto", url: "https://example.test/ok" });
+    expect(assign).toHaveBeenCalledWith("https://example.test/ok");
+    // A relative path is resolved against the page and stays inside the
+    // allowlist, so it is allowed.
+    command({ source: COMMAND_SOURCE, command: "goto", url: "/relative" });
+    expect(assign).toHaveBeenLastCalledWith("http://localhost:3000/relative");
+  });
+
   it("goes back on a back command once there is somewhere to go", () => {
     runScript();
     history.pushState(null, "", "/deeper");
     const back = vi.spyOn(history, "back").mockImplementation(() => {});
     command({ source: COMMAND_SOURCE, command: "back" });
     expect(back).toHaveBeenCalled();
+  });
+
+  it("ignores a command from a window that is not the embedder", () => {
+    runScript();
+    history.pushState(null, "", "/deeper");
+    const back = vi.spyOn(history, "back").mockImplementation(() => {});
+    // A nested third-party frame — an ad, a checkout widget — can postMessage to
+    // its embedder. It executes inside the preview origin, so nothing the parent
+    // checks afterwards can tell the difference.
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { source: COMMAND_SOURCE, command: "back" },
+        source: frame.contentWindow,
+      }),
+    );
+    expect(back).not.toHaveBeenCalled();
   });
 
   it("ignores messages from an unknown source", () => {

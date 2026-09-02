@@ -21,10 +21,17 @@ const UNSAFE_MERMAID_SOURCE =
 // without losing the rest of the diagram. Matches on the raw, undecoded source only, so
 // escape-disguised tags (`<img`) still fall through to containsUnsafeMermaidSource's
 // decode-and-reject path below, unchanged.
-const DISALLOWED_TAG_OPEN = /<(?!\/?(?:br|i)\s*\/?>)(?=[a-z!/])/gi;
+const COMPLETE_ALLOWED_TAG = /^<\/?(?:br|i)\s*\/?>/i;
+const STREAMING_ALLOWED_TAG_PREFIX = /^<\/?(?:br|i|b)?\s*\/?$/i;
 
 export function neutralizeDisallowedTags(code: string): string {
-  return code.replace(DISALLOWED_TAG_OPEN, "‹");
+  return code.replace(/<(?=[a-z!/])/gi, (match, offset: number) => {
+    const rest = code.slice(offset);
+    if (COMPLETE_ALLOWED_TAG.test(rest) || STREAMING_ALLOWED_TAG_PREFIX.test(rest)) {
+      return match;
+    }
+    return "‹";
+  });
 }
 
 // Mermaid labels can contain escaped text. Decode the escape forms we care

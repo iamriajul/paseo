@@ -233,10 +233,24 @@ export function WebBrowserPane({
   // still in flight, while the bug being fixed here is a permanent false
   // "alive".
   //
-  // Known gap: if the frame is navigated away before its own `load` fires, that
-  // document's announcement is still pending and the next `load` consumes it,
-  // so one off-origin navigation can slip through. It heals on the following
-  // in-frame navigation.
+  // Two gaps, both of them `load` never arriving on the document that matters.
+  // A navigation away before the current document's own `load` leaves its
+  // announcement pending, and the next `load` consumes it, so one off-origin
+  // navigation slips through. And a cross-origin navigation whose document
+  // never finishes loading fires no `load` at all. Both leave the toolbar in
+  // exactly the state this handler exists to end. The first heals on the *next*
+  // in-frame navigation — only if there is one; if the off-origin page is where
+  // the user stops, the pane stays wrong for as long as the tab is open.
+  //
+  // No timeout closes either, in either polarity, because both are the absence
+  // of the event a timeout would be armed by. Neither does the obvious
+  // parent-side probe: `contentWindow.location.href` throws a SecurityError for
+  // the *preview* origin too — it is cross-origin to the app just like any other
+  // — so it reads identically in both states, as do `contentDocument` (null) and
+  // `contentWindow.origin` (throws). Nothing the parent can read tells it which
+  // origin the frame is on; only the frame saying so does, which is why the
+  // announcement is the signal. Closing these needs a bridge-level heartbeat —
+  // a command and a reply on both ends of the wire.
   const handleFrameLoad = useStableEvent(() => {
     if (readySinceLoadRef.current) {
       readySinceLoadRef.current = false;

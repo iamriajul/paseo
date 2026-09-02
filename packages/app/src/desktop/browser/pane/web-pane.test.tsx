@@ -293,11 +293,13 @@ describe("WebBrowserPane bridge liveness", () => {
     announce("doc-2");
 
     expect(lastToolbarProps().bridgeAvailable).toBe(true);
-    const noticesAfterRecovery = noticeRenders.count;
     fireFrameLoad();
     expect(lastToolbarProps().bridgeAvailable).toBe(true);
-    // The notice is gone rather than merely stale: nothing rendered it again.
-    expect(noticeRenders.count).toBe(noticesAfterRecovery);
+    // Compared against the count taken *before* the announcement, not after:
+    // the announcement is itself the render that a reducer failing to clear
+    // bridgeLost would leak, and sampling afterwards would bake it into the
+    // baseline and pass either way.
+    expect(noticeRenders.count).toBe(noticesWhileLost);
   });
 
   // A direct URL never had a bridge, and every page it loads arrives here. The

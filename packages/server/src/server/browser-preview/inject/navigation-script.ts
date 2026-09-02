@@ -53,6 +53,21 @@ export const NAVIGATION_SCRIPT = `
   // lights Back and history.back() silently does nothing. document.referrer
   // names the predecessor, and is a same-origin URL only after an in-page
   // navigation; after a remount it is the embedder's origin, or empty.
+  //
+  // Two things this relies on that nothing enforces:
+  //
+  // A previewed server that sends Referrer-Policy: no-referrer — helmet's
+  // default — leaves document.referrer empty on its own in-frame navigations
+  // too, and transformPreviewResponseHeaders strips only CSP and
+  // X-Frame-Options, so that header reaches the browser. Restore then stops
+  // working and Back goes dark after a real navigation. That is the safe
+  // direction (an unlit control that could have worked, never a lit one that
+  // cannot), but it is silent.
+  //
+  // And the preview origin is assumed never to be the app's own origin. The
+  // url template is a free-form string with {port} substituted and no check
+  // against the app origin, so a host configured as http://localhost:{port}
+  // would make the embedder same-origin and reinstate the bug this prevents.
   function hasSameOriginPredecessor() {
     return document.referrer.indexOf(location.origin + '/') === 0;
   }

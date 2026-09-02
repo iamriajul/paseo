@@ -172,6 +172,23 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
     setReloadKey((key) => key + 1);
   }, [state.bridgeReady]);
 
+  // The one place the record's parent-stack fields are written. Both callers
+  // pass the position the reducer is about to land on, computed the same way
+  // `movedTo` computes it, so the two write paths in this file cannot disagree
+  // about fields the Electron and Android panes read.
+  const writeParentStackRecord = useCallback(
+    (nextUrl: string, index: number, length: number) => {
+      syncedUrlRef.current = nextUrl;
+      updateBrowser(browserId, {
+        url: nextUrl,
+        title: "",
+        canGoBack: index > 0,
+        canGoForward: index < length - 1,
+      });
+    },
+    [browserId, updateBrowser],
+  );
+
   const handleSubmitUrl = useCallback(
     (raw: string) => {
       const decision = decideSubmit({
@@ -186,16 +203,14 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
       // Never `goto`: a cross-origin goto navigates the frame off the preview
       // origin and ends the bridge session, leaving the controls silently inert.
       // The src is the only thing that re-points the frame.
-      syncedUrlRef.current = decision.url;
       dispatch({ type: "user-navigate", url: decision.url });
-      updateBrowser(browserId, {
-        url: decision.url,
-        title: "",
-        canGoBack: false,
-        canGoForward: false,
-      });
+      // `user-navigate` truncates the forward entries and appends, so it lands
+      // one past the current index in a stack that is one longer. Writing
+      // canGoBack: false here instead was wrong: after any submit there is
+      // always a previous entry to go back to.
+      writeParentStackRecord(decision.url, state.index + 1, state.index + 2);
     },
-    [browserId, resolved, template, updateBrowser],
+    [resolved, state.index, template, writeParentStackRecord],
   );
 
   // Moving the parent stack has to write the record as well as dispatch. The
@@ -214,17 +229,10 @@ export function BrowserPane({ browserId, serverId, workspaceId, cwd, chrome }: B
       if (nextIndex < 0 || nextIndex >= state.stack.length) {
         return;
       }
-      const nextUrl = state.stack[nextIndex];
-      syncedUrlRef.current = nextUrl;
       dispatch({ type: delta < 0 ? "user-back" : "user-forward" });
-      updateBrowser(browserId, {
-        url: nextUrl,
-        title: "",
-        canGoBack: nextIndex > 0,
-        canGoForward: nextIndex < state.stack.length - 1,
-      });
+      writeParentStackRecord(state.stack[nextIndex], nextIndex, state.stack.length);
     },
-    [browserId, state.index, state.stack, updateBrowser],
+    [state.index, state.stack, writeParentStackRecord],
   );
 
   // The reducer has no bridge-side back/forward action, so `bridgeReady` is the

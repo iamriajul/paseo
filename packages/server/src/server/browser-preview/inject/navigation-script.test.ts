@@ -320,6 +320,10 @@ describe("NAVIGATION_SCRIPT", () => {
   });
 
   it("survives sessionStorage being unavailable", () => {
+    // The referrer matters: without a same-origin predecessor load() returns
+    // before it touches storage, so the getItem throw this test exists for is
+    // never reached and the test passes without exercising anything.
+    setReferrer("http://localhost:3000/previous");
     blockSessionStorage();
     let sent: BridgeMessage[] = [];
     expect(() => {

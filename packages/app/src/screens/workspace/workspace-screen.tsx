@@ -2393,9 +2393,21 @@ function WorkspaceScreenContent({
     [createTerminal],
   );
 
+  // Not `getIsElectron()`: the web build reaches loopback ports through the
+  // daemon's preview proxy, so a Browser tab is available there too whenever the
+  // host advertises a template. Hard-coding Electron left the whole feature with
+  // no way to create the tab it lives in. The resolver already answers this for
+  // every platform and is unit-tested; it still returns true unconditionally on
+  // Electron, so nothing there changes.
+  const showCreateBrowserTab = useWorkspaceBrowserAvailability(normalizedServerId);
+
   const handleCreateBrowserTab = useCallback(
     (input?: { paneId?: string }) => {
-      if (!persistenceKey || !getIsElectron()) {
+      // Gate and action have to agree. This handler backs the header menu item,
+      // the workspace.browser.new shortcut and workspace.tab.target.browser —
+      // all of which the line above now shows on web and on Android with a
+      // tunnel, where the old getIsElectron() check silently dropped the press.
+      if (!persistenceKey || !showCreateBrowserTab) {
         return;
       }
       const { browserId } = createWorkspaceBrowser();
@@ -2405,7 +2417,7 @@ function WorkspaceScreenContent({
         paneLocalPlacement(input?.paneId),
       );
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [openWorkspaceTabFocused, persistenceKey, showCreateBrowserTab],
   );
 
   const handleCreateNewTab = useCallback(
@@ -3871,13 +3883,6 @@ function WorkspaceScreenContent({
     () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
     [createTerminalMutation.isPending, pendingTerminalCreateInput],
   );
-  // Not `getIsElectron()`: the web build reaches loopback ports through the
-  // daemon's preview proxy, so a Browser tab is available there too whenever the
-  // host advertises a template. Hard-coding Electron left the whole feature with
-  // no way to create the tab it lives in. The resolver already answers this for
-  // every platform and is unit-tested; it still returns true unconditionally on
-  // Electron, so nothing there changes.
-  const showCreateBrowserTab = useWorkspaceBrowserAvailability(normalizedServerId);
   const codeServerUrlOpeners = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.serverInfo?.urlOpeners?.codeServer,
   );

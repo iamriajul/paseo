@@ -35,14 +35,23 @@ describe("webNavigationReducer", () => {
     expect(state.bridgeReady).toBe(true);
   });
 
+  // No `ready` precedes this one on purpose: a navigation message is itself
+  // proof of a live bridge, and bridgeReady is the value Task 11 branches on.
   it("takes url, title and history flags from the bridge", () => {
     const state = webNavigationReducer(
       createWebNavigationState(START),
-      nav({ url: "http://localhost:3000/about", title: "About", canGoBack: true }),
+      nav({
+        url: "http://localhost:3000/about",
+        title: "About",
+        canGoBack: true,
+        canGoForward: true,
+      }),
     );
     expect(state.displayUrl).toBe("http://localhost:3000/about");
     expect(state.title).toBe("About");
     expect(state.canGoBack).toBe(true);
+    expect(state.canGoForward).toBe(true);
+    expect(state.bridgeReady).toBe(true);
   });
 
   // Messages can arrive out of order; a stale one would drag the URL bar
@@ -119,6 +128,43 @@ describe("webNavigationReducer", () => {
     expect(state.canGoBack).toBe(false);
     state = webNavigationReducer(state, nav({ seq: 1, url: "https://other.example/next" }));
     expect(state.displayUrl).toBe("https://other.example/next");
+  });
+
+  // A URL-bar move can leave the preview origin, and the proxy injects no bridge
+  // into another origin. Keeping bridgeReady set would route back/forward into
+  // bridge.send against a session that is already gone.
+  it("ends the bridge session when the user navigates the url bar", () => {
+    let state = webNavigationReducer(
+      createWebNavigationState(START),
+      nav({ seq: 4, url: "http://localhost:3000/b" }),
+    );
+    expect(state.bridgeReady).toBe(true);
+    state = webNavigationReducer(state, { type: "user-navigate", url: "https://other.example" });
+    expect(state.bridgeReady).toBe(false);
+    // ...and the guard no longer holds the dead document's seq.
+    state = webNavigationReducer(state, nav({ seq: 1, url: "https://other.example/next" }));
+    expect(state.displayUrl).toBe("https://other.example/next");
+  });
+
+  // `ready` can arrive after its own document has already reported navigations.
+  it("keeps the seq guard when ready repeats the current document", () => {
+    let state = webNavigationReducer(
+      createWebNavigationState(START),
+      nav({ docId: "d2", seq: 3, url: "/three" }),
+    );
+    state = webNavigationReducer(state, { type: "bridge", event: { type: "ready", docId: "d2" } });
+    state = webNavigationReducer(state, nav({ docId: "d2", seq: 1, url: "/stale" }));
+    expect(state.displayUrl).toBe("/three");
+  });
+
+  it("reopens the seq guard when ready announces a new document", () => {
+    let state = webNavigationReducer(
+      createWebNavigationState(START),
+      nav({ docId: "d2", seq: 3, url: "/three" }),
+    );
+    state = webNavigationReducer(state, { type: "bridge", event: { type: "ready", docId: "d3" } });
+    state = webNavigationReducer(state, nav({ docId: "d3", seq: 1, url: "/fresh" }));
+    expect(state.displayUrl).toBe("/fresh");
   });
 
   it("stays put when there is nowhere to go back or forward", () => {

@@ -63,9 +63,16 @@ export function webNavigationReducer(
     case "reset":
       return createWebNavigationState(action.url);
 
+    // Re-pointing the frame ends any bridge session too — the proxy injects no
+    // bridge into another origin — so this clears the same bridge fields `reset`
+    // does while keeping the parent stack, which is the half that still applies.
+    // Leaving `bridgeReady` set would route back/forward into a dead session.
     case "user-navigate": {
       const stack = [...state.stack.slice(0, state.index + 1), action.url];
-      return movedTo({ ...state, stack }, stack.length - 1);
+      return movedTo(
+        { ...state, stack, bridgeReady: false, lastDocId: null, lastSeq: 0 },
+        stack.length - 1,
+      );
     }
 
     case "user-back":
@@ -77,7 +84,16 @@ export function webNavigationReducer(
     case "bridge": {
       const event = action.event;
       if (event.type === "ready") {
-        return { ...state, bridgeReady: true, lastDocId: event.docId, lastSeq: 0 };
+        // Only a *new* document reopens the seq guard. A `ready` can arrive
+        // after its own document's first navigations, and dropping lastSeq to 0
+        // there would let a stale message straight back through the seq check
+        // below — the one thing that check exists to stop.
+        return {
+          ...state,
+          bridgeReady: true,
+          lastDocId: event.docId,
+          lastSeq: state.lastDocId === event.docId ? state.lastSeq : 0,
+        };
       }
       if (event.type !== "navigation") return state;
 

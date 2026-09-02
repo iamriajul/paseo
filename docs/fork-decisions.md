@@ -381,12 +381,14 @@ npx vitest run packages/server/src/server/schedule/live-work.test.ts packages/se
 
 **daemon injects a devtools bridge into proxied preview HTML, and the Browser tab is reachable off Electron**
 
-browser-preview rewrites text/html responses to splice a navigation, eruda and element-selector bridge into `<head>`; the web Browser pane drives it over postMessage for history, URL sync, devtools and element attachments. The tab that hosts it is gated on `useWorkspaceBrowserAvailability`, not `getIsElectron()` — the resolver already answered true for web with a preview template and for Android with a tunnel, while both call sites hard-coded Electron and made the feature unreachable. Nothing is added to `server_info`; the injected script announces itself with a `ready` message, so `packages/protocol` is untouched.
+browser-preview rewrites text/html responses to splice a navigation, eruda and element-selector bridge into `<head>`; the web Browser pane drives it over postMessage for history, URL sync, devtools and element attachments. The pane itself lives in fork-owned `web-pane.tsx`, with upstream's `index.web.tsx` reduced to a shim that renders it. Every surface that opens a Browser tab is gated on `useWorkspaceBrowserAvailability`, not `getIsElectron()` — the resolver already answered true for web with a preview template and for Android with a tunnel, while the call sites hard-coded Electron and made the feature unreachable. Nothing is added to `server_info`; the injected script announces itself with a `ready` message, so `packages/protocol` is untouched.
 
 ```bash
 npx vitest run packages/server/src/server/browser-preview/html-injection.test.ts packages/server/src/server/browser-preview/inject packages/app/src/desktop/browser/pane/web-bridge.test.ts packages/app/src/desktop/browser/pane/web-navigation.test.ts packages/app/src/desktop/browser/pane/web-submit.test.ts --bail=1
 grep -q "createHtmlInjectionStream" packages/server/src/server/browser-preview/index.ts
+grep -qF 'from "./web-pane"' packages/app/src/desktop/browser/pane/index.web.tsx
 grep -q "showCreateBrowserTab = useWorkspaceBrowserAvailability" packages/app/src/screens/workspace/workspace-screen.tsx
 grep -q "hasWorkspaceBrowser = useWorkspaceBrowserAvailability" packages/app/src/command-center/workspace-registration.tsx
 ! grep -q "showCreateBrowserTab = getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
+! grep -q "persistenceKey || !getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
 ```

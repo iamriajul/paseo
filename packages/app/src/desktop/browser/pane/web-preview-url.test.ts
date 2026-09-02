@@ -140,6 +140,16 @@ describe("toDisplayUrl", () => {
     ).toBe("http://localhost/app");
   });
 
+  it("maps back when a portless loopback url is https", () => {
+    expect(
+      toDisplayUrl({
+        url: "https://443.preview.example.com/app",
+        template: TEMPLATE,
+        originalUrl: "https://localhost/",
+      }),
+    ).toBe("https://localhost/app");
+  });
+
   it("passes through when the original url cannot be parsed", () => {
     expect(
       toDisplayUrl({

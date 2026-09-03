@@ -65,6 +65,27 @@ function render(
   return response;
 }
 
+type RenderedMessage = Extract<MermaidRuntimeMessage, { type: "rendered" }>;
+
+// The frame is sandboxed `allow-scripts` without `allow-same-origin`, so it has an opaque
+// origin and `frame.contentDocument` is null from here — permanently, not until it loads.
+// The runtime sends `rendered` only after `#diagram.innerHTML = svg`, measuring the
+// committed `#diagram svg` bounding box, so non-zero dimensions are the parent's proof
+// that an SVG is really in the frame. Label text is asserted in mermaid-streaming.spec.ts,
+// which reaches into the frame out-of-process.
+function expectRendered(
+  message: MermaidRuntimeMessage,
+  expected: { revision: number; source: string },
+): RenderedMessage {
+  expect(message).toMatchObject({ type: "rendered", ...expected });
+  if (message.type !== "rendered") {
+    throw new Error(`Expected a rendered message, got ${JSON.stringify(message)}`);
+  }
+  expect(message.width).toBeGreaterThan(0);
+  expect(message.height).toBeGreaterThan(0);
+  return message;
+}
+
 afterEach(() => {
   for (const frame of mountedFrames.splice(0)) {
     frame.remove();
@@ -116,6 +137,43 @@ describe("Mermaid sandbox runtime", () => {
 
     expect(current).toMatchObject({ type: "rendered", revision: 11, source: currentSource });
     expect(obsoleteResponses).toEqual([]);
+  });
+
+  it("commits a complete italic-labelled flowchart over an earlier prefix in the same iframe", async () => {
+    const frame = await mountRuntime();
+    const prefix = "flowchart LR\n  Start --> Middle\n";
+    const complete = [
+      "flowchart LR",
+      "  Start --> Middle",
+      '  Middle --> Done["<i>Done</i>"]',
+      "  Middle --> Review",
+      "  Review --> Verify",
+      "  Verify --> Ship",
+      "  Ship --> Package",
+      "  Package --> Sign",
+      "  Sign --> Upload",
+      "  Upload --> Publish",
+      "  Publish --> Deploy",
+      "  Deploy --> Observe",
+      "  Observe --> Validate",
+      "  Validate --> Announce",
+      "  Announce --> Document",
+      "  Document --> Archive",
+      "  Archive --> Release",
+    ].join("\n");
+
+    const first = expectRendered(await render(frame, { revision: 1, source: prefix }), {
+      revision: 1,
+      source: prefix,
+    });
+    const second = expectRendered(await render(frame, { revision: 2, source: complete }), {
+      revision: 2,
+      source: complete,
+    });
+
+    // 17 chained nodes are wider than 2 in an LR flowchart, so the second commit replaced
+    // the prefix rather than leaving its SVG in place.
+    expect(second.width).toBeGreaterThan(first.width);
   });
 
   it("renders diagrams containing placeholder-style angle brackets once neutralized", async () => {

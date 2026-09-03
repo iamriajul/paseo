@@ -392,3 +392,31 @@ grep -q "hasWorkspaceBrowser = useWorkspaceBrowserAvailability" packages/app/src
 ! grep -q "showCreateBrowserTab = getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
 ! grep -q "persistenceKey || !getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
 ```
+
+## nix-update-hash-github-token
+
+**the Nix hash auto-updater authenticates with `GITHUB_TOKEN` instead of the upstream GitHub App**
+
+`nix/npm-deps.hash` pins the fixed-output derivation of the npm dependency tree, so any lockfile change makes `nix build` fail until the hash is refreshed. Upstream's updater opens with `actions/create-github-app-token@v1` reading `PASEO_BOT_APP_ID` / `PASEO_BOT_APP_PRIVATE_KEY`. A fork cannot inherit organization secrets, so that step failed before checkout on every push — 30 runs, 30 failures, never once green, and the stale hash then surfaced as a red `Nix` check on the next PR instead. The job now checks out with the default `GITHUB_TOKEN` and `contents: write`, which can push to this fork's unprotected `main`; the existing `[skip ci]` commit message stops it re-triggering CI, and the bot identity matches the token actually doing the push.
+
+```bash
+! grep -q "create-github-app-token" .github/workflows/nix-update-hash.yml
+! grep -q "PASEO_BOT_APP_ID" .github/workflows/nix-update-hash.yml
+grep -q "contents: write" .github/workflows/nix-update-hash.yml
+```
+
+## playwright-eight-shards-one-worker
+
+**the browser e2e runs on eight shards with one worker each, instead of four shards with two**
+
+Upstream runs `4 shards × 2 workers`. Each worker owns a daemon and a Chromium and shares one Metro, so two workers oversubscribe a standard runner. The symptom was not one bad test: across six consecutive CI runs, five or six _different_ specs failed attempt 1 each time, rotating — `changes-pane`, `composer-autocomplete`, `workspace-navigation-regression`, `sessions-search*`, `new-workspace-launch-memory`. `retries: 1` hid most of them and turned whichever failed twice into a red job.
+
+The evidence is timing, not logic: `sessions-search-hosts:45` took 7.0m on attempt 1 and 29.1s on its retry, and `new-workspace-launch-memory:51` runs in 16.8s on 16 cores, 38.4s pinned to two, and failed CI at 48.8s — its assertions time out at 30s while the test budget is 90s, so a slow runner fails an inner wait before the test itself expires.
+
+Eight single-worker shards keep total concurrency at eight while halving the load each runner carries, and leave wall clock roughly where it was.
+
+```bash
+grep -q 'E2E_WORKERS: "1"' .github/workflows/ci.yml
+grep -q 'PLAYWRIGHT_SHARD: "8/8"' .github/workflows/ci.yml
+! grep -q 'PLAYWRIGHT_SHARD: "1/4"' .github/workflows/ci.yml
+```

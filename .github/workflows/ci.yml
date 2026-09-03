@@ -400,13 +400,14 @@ jobs:
         run: npm run typecheck:examples --workspace=@getpaseo/client
 
   playwright-1:
-    name: playwright (shard 1/4)
+    name: playwright (shard 1/8)
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-      PLAYWRIGHT_SHARD: "1/4"
+      E2E_WORKERS: "1"
+      PLAYWRIGHT_SHARD: "1/8"
       PLAYWRIGHT_ARTIFACT: "1"
     steps: &playwright_test_steps
       - uses: actions/checkout@v4
@@ -448,36 +449,87 @@ jobs:
           retention-days: 7
 
   playwright-2:
-    name: playwright (shard 2/4)
+    name: playwright (shard 2/8)
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-      PLAYWRIGHT_SHARD: "2/4"
+      E2E_WORKERS: "1"
+      PLAYWRIGHT_SHARD: "2/8"
       PLAYWRIGHT_ARTIFACT: "2"
     steps: *playwright_test_steps
 
   playwright-3:
-    name: playwright (shard 3/4)
+    name: playwright (shard 3/8)
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-      PLAYWRIGHT_SHARD: "3/4"
+      E2E_WORKERS: "1"
+      PLAYWRIGHT_SHARD: "3/8"
       PLAYWRIGHT_ARTIFACT: "3"
     steps: *playwright_test_steps
 
   playwright-4:
-    name: playwright (shard 4/4)
+    name: playwright (shard 4/8)
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-      PLAYWRIGHT_SHARD: "4/4"
+      E2E_WORKERS: "1"
+      PLAYWRIGHT_SHARD: "4/8"
       PLAYWRIGHT_ARTIFACT: "4"
+    steps: *playwright_test_steps
+
+  playwright-5:
+    name: playwright (shard 5/8)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      E2E_WORKERS: "1"
+      PLAYWRIGHT_SHARD: "5/8"
+      PLAYWRIGHT_ARTIFACT: "5"
+    steps: *playwright_test_steps
+
+  playwright-6:
+    name: playwright (shard 6/8)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      E2E_WORKERS: "1"
+      PLAYWRIGHT_SHARD: "6/8"
+      PLAYWRIGHT_ARTIFACT: "6"
+    steps: *playwright_test_steps
+
+  playwright-7:
+    name: playwright (shard 7/8)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      E2E_WORKERS: "1"
+      PLAYWRIGHT_SHARD: "7/8"
+      PLAYWRIGHT_ARTIFACT: "7"
+    steps: *playwright_test_steps
+
+  playwright-8:
+    name: playwright (shard 8/8)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      E2E_WORKERS: "1"
+      PLAYWRIGHT_SHARD: "8/8"
+      PLAYWRIGHT_ARTIFACT: "8"
     steps: *playwright_test_steps
 
   relay-tests:

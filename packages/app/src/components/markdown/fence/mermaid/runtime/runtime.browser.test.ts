@@ -199,4 +199,69 @@ describe("Mermaid sandbox runtime", () => {
     expect(gitProxy).toMatchObject({ type: "rendered", revision: 1, source: gitProxySource });
     expect(repoNew).toMatchObject({ type: "rendered", revision: 2, source: repoNewSource });
   });
+
+  it("renders sequence diagrams containing signed URL and placeholders once neutralized", async () => {
+    const frame = await mountRuntime();
+    const sequenceDiagram = neutralizeDisallowedTags(
+      [
+        "sequenceDiagram",
+        "  autonumber",
+        "  actor User as 👤 User",
+        "  participant UI as 🖥️ Issue UI (New Issue / Detail)",
+        "  participant Files as 📁 Workflow Files (/api/workflow-files)",
+        "  participant Go as ⚙️ DeepCycle Go Backend",
+        "  participant AP as ⚡ ActivePieces Engine",
+        "  participant Ingress as 📥 IngestAPRunEvent",
+        "  participant Assignee as 🤖/👤 Assignee (Agent / Human / Squad)",
+        "  User->>UI: Create Issue -> Click Workflow Pill",
+        "  UI->>Go: GET /api/workflows?surface=issue&status=published",
+        "  Go-->>UI: List of published Issue Trigger workflows",
+        "  User->>UI: Pick workflow & fill Inputs form",
+        "  opt If File Input Present",
+        "    UI->>Files: Upload file to /api/workflow-files",
+        "    Files-->>UI: Return signed URL (/api/workflow-files/{id}?token=...)",
+        "  end",
+        "  UI-->>UI: Save input values on draft",
+        '  alt Auto-run is ON (Default on Create) or "Save & Run" on Existing Issue',
+        "    User->>UI: Submit Issue (Auto-run ON)",
+        "    UI->>Go: POST /api/issues (workflow_id, workflow_input, auto_run=true)",
+        "    Go->>Go: Insert issue row in DB (workflow_id, workflow_input)",
+        "    note over Go: Suppress WillEnqueueRun for Assignee",
+        "    Go->>Go: Build start payload = { issue: <full_snapshot_at_start>, ...workflow_input }",
+        "    Go->>AP: TriggerWebhook(published_flow, payload)",
+        "    AP-->>Go: Run started (ap_run_id)",
+        "    Go-->>UI: Issue created + Run started",
+        "  else Auto-run is OFF (Create with Auto-run toggled off)",
+        "    User->>UI: Submit Issue (Auto-run OFF)",
+        "    UI->>Go: POST /api/issues (workflow_id, workflow_input, auto_run=false)",
+        "    Go->>Go: Insert issue row in DB (workflow_id, workflow_input) - Status: IDLE",
+        '    Go-->>UI: Issue created (Workflow row: "Not started" + [Run] button)',
+        "    note over User, Go: Later: User clicks [Run] on Workflow row",
+        "    User->>UI: Click [Run]",
+        "    UI->>Go: POST /api/issues/{id}/workflow/run",
+        "    Go->>Go: Read latest issue snapshot + workflow_input",
+        "    Go->>AP: TriggerWebhook(published_flow, payload)",
+        "    AP-->>Go: Run started (ap_run_id)",
+        "  end",
+        "  rect rgb(240, 240, 255)",
+        "    note over AP, Assignee: Workflow Execution & Terminal Result Comment",
+        "    AP->>AP: Execute workflow steps (e.g. Assign to Agent, Tools, Logic)",
+        "    AP->>Ingress: POST /internal/ap/run-events (run.finished)",
+        "    Ingress->>Go: ProjectRun (upsert workflow_run, workflow_run_node)",
+        "    Go->>Go: Update issue Workflow row status (e.g. Succeeded / Failed)",
+        "    Go->>Go: Post result comment on issue with @mention to Assignee",
+        "    alt Assignee is Agent",
+        "      Go->>Assignee: Enqueue Agent Task (Agent reads result comment & acts)",
+        "    else Assignee is Human",
+        "      Go->>Assignee: Inbox notification (mentioned)",
+        "    else Assignee is Squad",
+        "      Go->>Assignee: Enqueue Squad Leader Task",
+        "    end",
+        "  end",
+      ].join("\n"),
+    );
+
+    const rendered = await render(frame, { revision: 1, source: sequenceDiagram });
+    expectRendered(rendered, { revision: 1, source: sequenceDiagram });
+  });
 });

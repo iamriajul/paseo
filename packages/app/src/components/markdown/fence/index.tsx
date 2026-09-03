@@ -10,6 +10,9 @@ export interface MarkdownFenceBlockProps extends MarkdownFenceRendererProps {
 
 const diagramFences: Partial<Record<string, ComponentType<MarkdownFenceRendererProps>>> = {
   mermaid: MermaidFence,
+  mmd: MermaidFence,
+  "mermaid-js": MermaidFence,
+  mermaidjs: MermaidFence,
 };
 
 export function MarkdownFenceBlock({

@@ -392,3 +392,15 @@ grep -q "hasWorkspaceBrowser = useWorkspaceBrowserAvailability" packages/app/src
 ! grep -q "showCreateBrowserTab = getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
 ! grep -q "persistenceKey || !getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
 ```
+
+## nix-update-hash-github-token
+
+**the Nix hash auto-updater authenticates with `GITHUB_TOKEN` instead of the upstream GitHub App**
+
+`nix/npm-deps.hash` pins the fixed-output derivation of the npm dependency tree, so any lockfile change makes `nix build` fail until the hash is refreshed. Upstream's updater opens with `actions/create-github-app-token@v1` reading `PASEO_BOT_APP_ID` / `PASEO_BOT_APP_PRIVATE_KEY`. A fork cannot inherit organization secrets, so that step failed before checkout on every push — 30 runs, 30 failures, never once green, and the stale hash then surfaced as a red `Nix` check on the next PR instead. The job now checks out with the default `GITHUB_TOKEN` and `contents: write`, which can push to this fork's unprotected `main`; the existing `[skip ci]` commit message stops it re-triggering CI, and the bot identity matches the token actually doing the push.
+
+```bash
+! grep -q "create-github-app-token" .github/workflows/nix-update-hash.yml
+! grep -q "PASEO_BOT_APP_ID" .github/workflows/nix-update-hash.yml
+grep -q "contents: write" .github/workflows/nix-update-hash.yml
+```

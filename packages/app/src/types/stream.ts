@@ -888,6 +888,19 @@ function appendUserMessage(
   return upsertUserMessage(state, nextItem);
 }
 
+function resolveAssistantMessageText(current: string, incoming: string): string {
+  // Projected history items are snapshots of the merged message. A replica or live
+  // prefix already on the row must be replaced, not concatenated, or a mermaid fence
+  // becomes `Anno```mermaidflowchart` and never renders after reload.
+  if (incoming === current || current.startsWith(incoming)) {
+    return current;
+  }
+  if (incoming.startsWith(current)) {
+    return incoming;
+  }
+  return `${current}${incoming}`;
+}
+
 function appendAssistantMessage(
   state: StreamItem[],
   text: string,
@@ -910,7 +923,7 @@ function appendAssistantMessage(
   if (shouldAppendToLast) {
     const updated: AssistantMessageItem = {
       ...last,
-      text: `${last.text}${chunk}`,
+      text: resolveAssistantMessageText(last.text, chunk),
       timestamp,
       ...(timelineCursor ? { timelineCursor } : {}),
     };
@@ -928,7 +941,7 @@ function appendAssistantMessage(
   ) {
     const updated: AssistantMessageItem = {
       ...secondLast,
-      text: `${secondLast.text}${chunk}`,
+      text: resolveAssistantMessageText(secondLast.text, chunk),
       timestamp,
       ...(timelineCursor ? { timelineCursor } : {}),
     };

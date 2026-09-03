@@ -118,6 +118,42 @@ describe("Mermaid sandbox runtime", () => {
     expect(obsoleteResponses).toEqual([]);
   });
 
+  it("keeps a committed SVG when a later complete flowchart with italic labels renders in the same iframe", async () => {
+    const frame = await mountRuntime();
+    const prefix = "flowchart LR\n  Start --> Middle\n";
+    const complete = [
+      "flowchart LR",
+      "  Start --> Middle",
+      '  Middle --> Done["<i>Done</i>"]',
+      "  Middle --> Review",
+      "  Review --> Verify",
+      "  Verify --> Ship",
+      "  Ship --> Package",
+      "  Package --> Sign",
+      "  Sign --> Upload",
+      "  Upload --> Publish",
+      "  Publish --> Deploy",
+      "  Deploy --> Observe",
+      "  Observe --> Validate",
+      "  Validate --> Announce",
+      "  Announce --> Document",
+      "  Document --> Archive",
+      "  Archive --> Release",
+    ].join("\n");
+
+    const first = await render(frame, { revision: 1, source: prefix });
+    expect(first).toMatchObject({ type: "rendered", revision: 1, source: prefix });
+    expect(frame.contentDocument?.querySelector("#diagram svg")).not.toBeNull();
+
+    const second = await render(frame, { revision: 2, source: complete });
+    expect(second).toMatchObject({ type: "rendered", revision: 2, source: complete });
+    const svg = frame.contentDocument?.querySelector("#diagram svg");
+    expect(svg).not.toBeNull();
+    expect(svg?.textContent).toContain("Start");
+    expect(svg?.textContent).toContain("Done");
+    expect(svg?.textContent).toContain("Release");
+  });
+
   it("renders diagrams containing placeholder-style angle brackets once neutralized", async () => {
     const frame = await mountRuntime();
     const gitProxySource = neutralizeDisallowedTags(

@@ -9,8 +9,7 @@
 // to the source code block. Formatting-only `<br>` and `<i>` tags are common
 // in generated labels and carry no resource-bearing attributes; all other
 // tags (and entity-encoded text that could smuggle one) are rejected.
-const UNSAFE_MERMAID_SOURCE =
-  /@\s*\{|\burl\s*\(|@import\b|themeCSS|&#|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
+const UNSAFE_MERMAID_SOURCE = /@\s*\{|\burl\(|@import\b|themeCSS|<(?!\/?(?:br|i)\s*\/?>)[a-z!/]/i;
 
 // A literal `<placeholder>` in prose (e.g. "<canonical URL>", "<name>") is byte-for-byte
 // indistinguishable from a real tag by shape alone, so the check above can't tell them
@@ -49,6 +48,12 @@ function normalizeMermaidSource(code: string): string | null {
       .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex: string) =>
         String.fromCharCode(Number.parseInt(hex, 16)),
       )
+      .replace(/&#x([0-9a-fA-F]{1,6});?/gi, (_, hex: string) =>
+        decodeCodePointEscape(Number.parseInt(hex, 16)),
+      )
+      .replace(/&#([0-9]{1,7});?/g, (_, dec: string) =>
+        decodeCodePointEscape(Number.parseInt(dec, 10)),
+      )
       .replace(/["'`\\]/g, "");
   } catch {
     return null;
@@ -69,7 +74,7 @@ function decodeCodePointEscape(value: number): string {
 // SVG in the same iframe document. Keep the previous diagram until the italic
 // tags pair up.
 function hasUnclosedItalicTags(code: string): boolean {
-  const opens = code.match(/<i\s*\/?>/gi)?.length ?? 0;
+  const opens = code.match(/<i\b(?![^>]*\/>)[^>]*>/gi)?.length ?? 0;
   const closes = code.match(/<\/i\s*>/gi)?.length ?? 0;
   return opens > closes;
 }

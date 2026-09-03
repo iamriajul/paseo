@@ -533,7 +533,7 @@ jobs:
         run: npm run test:e2e --workspace=@getpaseo/app -- --shard=${{ env.PLAYWRIGHT_SHARD }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          E2E_WORKERS: "2"
+          E2E_WORKERS: "1"
           # File groups are weighted by observed reporter durations.
           # Share of the test list per shard, rebalanced from the Playwright step
           # minutes of five eight-shard runs so the slowest and fastest shards meet.

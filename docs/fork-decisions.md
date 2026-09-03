@@ -86,7 +86,7 @@ npx vitest run packages/desktop/src/features/window-focus.test.ts --bail=1
 
 **neutralize mermaid placeholder tags instead of rejecting the diagram**
 
-neutralizeDisallowedTags replaces disallowed tag opens with U+2039 before containsUnsafeMermaidSource so prose like <canonical URL> does not discard the whole diagram; real tags still fail closed; url() check requires word boundary. Do not rewrite a trailing `<i`/`<br` prefix — v0.7.2 streams those labels and a mid-tag ‹ swap clears the SVG. An unclosed `<i>` is still unsafe (mock streaming splits `Done["<i>Done</i>"]` into 4-char slices).
+neutralizeDisallowedTags replaces disallowed tag opens with U+2039 before containsUnsafeMermaidSource so prose like <canonical URL> does not discard the whole diagram; real tags still fail closed; url() check requires word boundary and forbids whitespace before the opening parenthesis (CSS url() forbids whitespace; prose like 'URL (' does not); numeric HTML character entities (like &#35;) decode before tag checking so safe symbols are allowed while entity-smuggled tags fail closed; self-closing <i/> tags are not counted as unclosed. Do not rewrite a trailing `<i`/`<br` prefix — v0.7.2 streams those labels and a mid-tag ‹ swap clears the SVG. An unclosed `<i>` is still unsafe (mock streaming splits `Done["<i>Done</i>"]` into 4-char slices).
 
 ```bash
 npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.test.ts --bail=1

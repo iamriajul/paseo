@@ -8,15 +8,22 @@ interface Segment {
 }
 
 /** Native enriched-markdown has no fenced-block override. Only diagrams leave its engine. */
+/** Fence info strings that render as a Mermaid diagram. */
+const MERMAID_FENCE_LANGUAGES = new Set(["mermaid", "mmd", "mermaid-js", "mermaidjs"]);
+
+export function isMermaidFenceLanguage(language: string | null | undefined): boolean {
+  return MERMAID_FENCE_LANGUAGES.has(language?.toLowerCase() ?? "");
+}
+
 export function splitMermaidFences(markdown: string): Segment[] {
-  if (!/mermaid/i.test(markdown)) return [{ kind: "markdown", id: "0", source: markdown }];
+  if (!/mermaid|mmd/i.test(markdown)) return [{ kind: "markdown", id: "0", source: markdown }];
   const segments: Segment[] = [];
   const definitions = new Map<string, Definition>();
   let cursor = 0;
   function visit(node: RootContent): void {
     if (node.type === "definition" && !definitions.has(node.identifier))
       definitions.set(node.identifier, node);
-    if (node.type === "code" && node.lang?.toLowerCase() === "mermaid" && node.position) {
+    if (node.type === "code" && isMermaidFenceLanguage(node.lang) && node.position) {
       const start = node.position.start.offset!;
       const end = node.position.end.offset!;
       if (start > cursor)

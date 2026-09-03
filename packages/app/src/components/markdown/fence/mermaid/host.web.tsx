@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { Pressable, Text, View, type LayoutChangeEvent, type TextStyle, type ViewStyle } from "react-native";
 import { Code, Maximize2, Workflow } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -10,7 +10,14 @@ import type { MarkdownFenceRendererProps } from "../types";
 import { MermaidFullscreenViewer } from "./fullscreen-viewer.web";
 import { MermaidIframeRuntime, type MermaidRenderedMessage } from "./iframe-runtime.web";
 import { useMermaidRenderModel } from "./use-render-model";
-import { getDiagramBoxStyle } from "./presentation";
+import {
+  getDiagramBoxLayoutStyle,
+  getDiagramBoxStyle,
+  getDiagramFit,
+  getMeasuringContentSize,
+  getRenderedContentSize,
+  MEASURING_BOX_HEIGHT,
+} from "./presentation";
 
 interface MermaidFenceHostImplProps extends MarkdownFenceRendererProps {
   colorScheme?: "light" | "dark";
@@ -30,8 +37,15 @@ function MermaidFenceHostImpl({
     colorScheme,
   });
   const [hasRuntimeContent, setHasRuntimeContent] = useState(false);
+  const [columnWidth, setColumnWidth] = useState<number | null>(null);
   const [showSource, setShowSource] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // The measuring overlay is `left: 0; right: 0` inside this host, so the host's own width is the
+  // width the runtime is laid out at — and the width mermaid has to fit the diagram to.
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width } = event.nativeEvent.layout;
+    if (width > 0) setColumnWidth((current) => (current === width ? current : width));
+  }, []);
   const showSourcePress = useCallback(() => setShowSource(true), []);
   const showDiagramPress = useCallback(() => setShowSource(false), []);
   const openFullscreen = useCallback(() => setIsFullscreen(true), []);
@@ -81,13 +95,17 @@ function MermaidFenceHostImpl({
     () => [
       getDiagramBoxStyle(textStyle),
       containerStyle,
-      { height: runtimeHeight, minHeight: MIN_DIAGRAM_BOX_HEIGHT },
+      { ...getDiagramBoxLayoutStyle(textStyle, runtimeHeight), minHeight: MIN_DIAGRAM_BOX_HEIGHT },
     ],
     [runtimeHeight, textStyle],
   );
+  const diagramFit = useMemo(() => getDiagramFit(textStyle), [textStyle]);
   const diagramSize = useMemo(
-    () => (visible ? { width: visible.width, height: visible.height } : MEASURING_SIZE),
-    [visible],
+    () =>
+      visible
+        ? getRenderedContentSize(textStyle, columnWidth, visible)
+        : getMeasuringContentSize(columnWidth),
+    [columnWidth, textStyle, visible],
   );
   const sourceVisible = !diagramVisible;
   const sourceContainer = showSource ? sourceView.container : sourceContainerStyle;
@@ -95,7 +113,7 @@ function MermaidFenceHostImpl({
   const viewportStyle = diagramVisible ? diagramStyle : measuringStyle;
 
   return (
-    <>
+    <View onLayout={handleLayout}>
       {sourceVisible ? (
         <View style={sourceContainer}>
           {state.status === "failed" && state.errorMessage ? (
@@ -131,6 +149,7 @@ function MermaidFenceHostImpl({
         accessibilityLabel={t("message.diagram.diagram")}
         actions={actions}
         contentSize={diagramSize}
+        fit={diagramVisible ? diagramFit : undefined}
         style={viewportStyle}
         testID="mermaid-viewport"
         wheelActivation="modifier"
@@ -148,11 +167,10 @@ function MermaidFenceHostImpl({
           onClose={closeFullscreen}
         />
       ) : null}
-    </>
+    </View>
   );
 }
 
-const MEASURING_SIZE = { width: 240, height: 240 };
 /**
  * The toolbar overlays the top of the box (8px offset + 32px compact buttons) and the box clips
  * with `overflow: hidden`, so a shorter box leaves the buttons half-clipped and unclickable.
@@ -176,7 +194,7 @@ const measuringStyle: ViewStyle = {
   left: 0,
   right: 0,
   top: 0,
-  height: 240,
+  height: MEASURING_BOX_HEIGHT,
   opacity: 0,
   pointerEvents: "none",
 };

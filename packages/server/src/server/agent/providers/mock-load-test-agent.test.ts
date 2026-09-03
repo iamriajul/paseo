@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import { AgentManager } from "../agent-manager.js";
 import type { AgentStreamEvent, AgentTimelineItem } from "../agent-sdk-types.js";
+import { projectTimelineRows } from "../timeline-projection.js";
 import {
   MOCK_LOAD_TEST_DEFAULT_MODEL_ID,
   MockLoadTestAgentClient,
@@ -543,6 +544,74 @@ describe("MockLoadTestAgentClient", () => {
         .filter((item) => item.type === "tool_call" && item.status === "completed")
         .map((item) => (item.type === "tool_call" ? item.name : ""));
       expect(runningTools).toEqual(expect.arrayContaining(["read", "grep", "edit", "bash"]));
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  test("projected mermaid stream is the source once, not a prefix plus the full source", async () => {
+    vi.useFakeTimers();
+    const response = [
+      "```mermaid",
+      "flowchart LR",
+      "  Start --> Middle",
+      '  Middle --> Done["<i>Done</i>"]',
+      "  Middle --> Review",
+      "  Review --> Verify",
+      "  Verify --> Ship",
+      "  Ship --> Package",
+      "  Package --> Sign",
+      "  Sign --> Upload",
+      "  Upload --> Publish",
+      "  Publish --> Deploy",
+      "  Deploy --> Observe",
+      "  Observe --> Validate",
+      "  Validate --> Announce",
+      "  Announce --> Document",
+      "  Document --> Archive",
+      "  Archive --> Release",
+      "```",
+    ].join("\n");
+    const workdir = mkdtempSync(join(tmpdir(), "paseo-mock-mermaid-stream-"));
+    try {
+      const client = new MockLoadTestAgentClient();
+      const manager = new AgentManager({
+        clients: { mock: client },
+        idFactory: () => "00000000-0000-4000-8000-000000000002",
+        logger: createTestLogger(),
+      });
+      const agent = await manager.createAgent(
+        {
+          provider: "mock",
+          cwd: workdir,
+          model: "ten-second-stream",
+          featureValues: {
+            mockStreamingAssistantResponse: response,
+            mockStreamingAssistantIntervalMs: 150,
+          },
+        },
+        "00000000-0000-4000-8000-000000000002",
+        { workspaceId: undefined },
+      );
+
+      const resultPromise = manager.runAgent(agent.id, "Render the requested Mermaid diagram.");
+      await vi.runAllTimersAsync();
+      await resultPromise;
+
+      const rows = await manager.getTimelineRows(agent.id);
+      const assistantRows = rows.filter((row) => row.item.type === "assistant_message");
+      const joinedCanonical = assistantRows
+        .map((row) => (row.item.type === "assistant_message" ? row.item.text : ""))
+        .join("");
+      const projected = projectTimelineRows({ rows, mode: "projected" })
+        .map((entry) => entry.item)
+        .filter((item) => item.type === "assistant_message");
+      const projectedTexts = projected.map((item) =>
+        item.type === "assistant_message" ? item.text : "",
+      );
+
+      expect(joinedCanonical).toBe(response);
+      expect(projectedTexts).toEqual([response]);
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }

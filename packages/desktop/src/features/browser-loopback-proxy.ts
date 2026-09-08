@@ -1,3 +1,4 @@
+import { getPaseoBrowserWorkspacePartition } from "./browser-profile.js";
 import { randomUUID } from "node:crypto";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { session as electronSession, webContents as allWebContents } from "electron";
@@ -11,11 +12,29 @@ export interface BrowserLoopbackProxyRegistration {
   directLoopback?: boolean;
 }
 
-interface BrowserProxyRecord extends BrowserLoopbackProxyRegistration {
-  server: Server;
+interface WorkspaceProxyRecord {
+  workspaceKey: string;
+  serverId: string;
+  workspaceId: string;
+  rendererWebContentsId: number;
+  directLoopback: boolean;
+  server: Server | null;
   port: number;
   auth: BrowserProxyAuth;
-  directLoopback: boolean;
+  browsers: Set<string>;
+  activeBrowserId: string;
+}
+
+function getWorkspaceKey(input: { workspaceId?: string; browserId: string }): string {
+  const trimmed = input.workspaceId?.trim();
+  return trimmed && trimmed.length > 0 ? `ws:${trimmed}` : `browser:${input.browserId}`;
+}
+
+function sessionPartitionForWorkspaceKey(workspaceKey: string, browserId: string): string {
+  if (workspaceKey.startsWith("ws:")) {
+    return getPaseoBrowserWorkspacePartition(workspaceKey.slice(3));
+  }
+  return `persist:paseo-browser-${browserId}`;
 }
 
 interface BrowserProxyAuth {
@@ -55,7 +74,8 @@ const HEADER_LIMIT_BYTES = 64 * 1024;
 const INITIAL_HEADER_TIMEOUT_MS = 15_000;
 const RENDERER_TUNNEL_OPEN_TIMEOUT_MS = 15_000;
 
-const recordsByBrowserId = new Map<string, BrowserProxyRecord>();
+const recordsByWorkspaceKey = new Map<string, WorkspaceProxyRecord>();
+const workspaceKeyByBrowserId = new Map<string, string>();
 const tunnelsById = new Map<string, TunnelState>();
 
 export function resolveBrowserLoopbackProxyCredentials(input: {
@@ -67,7 +87,8 @@ export function resolveBrowserLoopbackProxyCredentials(input: {
   if (!input.isProxy || input.host !== LOOPBACK_PROXY_HOST) {
     return null;
   }
-  const record = recordsByBrowserId.get(input.browserId);
+  const workspaceKey = workspaceKeyByBrowserId.get(input.browserId) ?? `browser:${input.browserId}`;
+  const record = recordsByWorkspaceKey.get(workspaceKey);
   if (!record || record.port !== input.port) {
     return null;
   }
@@ -81,21 +102,44 @@ export async function registerBrowserLoopbackProxy(
   input: BrowserLoopbackProxyRegistration,
 ): Promise<void> {
   const directLoopback = input.directLoopback === true;
-  const existing = recordsByBrowserId.get(input.browserId);
+  const workspaceKey = getWorkspaceKey(input);
+  workspaceKeyByBrowserId.set(input.browserId, workspaceKey);
+
+  const partition = sessionPartitionForWorkspaceKey(workspaceKey, input.browserId);
+  const existing = recordsByWorkspaceKey.get(workspaceKey);
+
   if (directLoopback) {
     if (existing) {
+      existing.browsers.add(input.browserId);
+      existing.activeBrowserId = input.browserId;
       existing.serverId = input.serverId;
       existing.workspaceId = input.workspaceId;
       existing.rendererWebContentsId = input.rendererWebContentsId;
       existing.directLoopback = true;
+    } else {
+      recordsByWorkspaceKey.set(workspaceKey, {
+        workspaceKey,
+        serverId: input.serverId,
+        workspaceId: input.workspaceId,
+        rendererWebContentsId: input.rendererWebContentsId,
+        directLoopback: true,
+        server: null,
+        port: 0,
+        auth: createProxyAuth(),
+        browsers: new Set([input.browserId]),
+        activeBrowserId: input.browserId,
+      });
     }
     // Local daemon: Chromium should use its implicit localhost bypass, not our
     // workspace tunnel proxy. Installing `<-loopback>` here is what made official
     // browser-tabs E2E load a blank guest instead of #typing-target.
-    await applyDirectSession(input.browserId);
+    await applyDirectSession(partition);
     return;
   }
-  if (existing) {
+
+  if (existing && existing.port > 0) {
+    existing.browsers.add(input.browserId);
+    existing.activeBrowserId = input.browserId;
     existing.serverId = input.serverId;
     existing.workspaceId = input.workspaceId;
     existing.rendererWebContentsId = input.rendererWebContentsId;
@@ -105,28 +149,49 @@ export async function registerBrowserLoopbackProxy(
     return;
   }
 
-  const record = await createBrowserProxyRecord(input);
-  recordsByBrowserId.set(input.browserId, record);
-  await applyProxyToBrowserSession(input.browserId, record.port);
+  const record = await createWorkspaceProxyRecord(input, workspaceKey);
+  if (existing) {
+    for (const b of existing.browsers) {
+      record.browsers.add(b);
+    }
+  }
+  recordsByWorkspaceKey.set(workspaceKey, record);
+  await applyProxyToPartition(partition, record.port);
 }
 
 export async function unregisterBrowserLoopbackProxy(browserId: string): Promise<void> {
-  const record = recordsByBrowserId.get(browserId);
+  const workspaceKey = workspaceKeyByBrowserId.get(browserId) ?? `browser:${browserId}`;
+  workspaceKeyByBrowserId.delete(browserId);
+
   for (const [tunnelId, tunnel] of Array.from(tunnelsById)) {
     if (tunnel.browserId === browserId) {
       closeTunnel(tunnelId, "Browser closed", { notifyRenderer: true });
     }
   }
-  recordsByBrowserId.delete(browserId);
-  if (record) {
+
+  const record = recordsByWorkspaceKey.get(workspaceKey);
+  if (!record) {
+    return;
+  }
+
+  record.browsers.delete(browserId);
+  if (record.activeBrowserId === browserId) {
+    record.activeBrowserId = record.browsers.values().next().value ?? "";
+  }
+
+  // Keep workspace proxy alive while other tabs in the workspace are still open.
+  if (record.browsers.size > 0) {
+    return;
+  }
+
+  recordsByWorkspaceKey.delete(workspaceKey);
+  if (record.server) {
     await new Promise<void>((resolve) => {
-      record.server.close(() => resolve());
+      record.server!.close(() => resolve());
     }).catch(() => undefined);
   }
-  await electronSession
-    .fromPartition(browserPartition(browserId))
-    .setProxy({ mode: "direct" })
-    .catch(() => undefined);
+  const partition = sessionPartitionForWorkspaceKey(workspaceKey, browserId);
+  await applyDirectSession(partition);
 }
 
 export function handleLoopbackTunnelOpenResult(payload: unknown): void {
@@ -171,20 +236,27 @@ export function handleLoopbackTunnelClose(payload: unknown): void {
   });
 }
 
-async function createBrowserProxyRecord(
+async function createWorkspaceProxyRecord(
   input: BrowserLoopbackProxyRegistration,
-): Promise<BrowserProxyRecord> {
-  const record: BrowserProxyRecord = {
-    ...input,
+  workspaceKey: string,
+): Promise<WorkspaceProxyRecord> {
+  const server = createServer();
+  const record: WorkspaceProxyRecord = {
+    workspaceKey,
+    serverId: input.serverId,
+    workspaceId: input.workspaceId,
+    rendererWebContentsId: input.rendererWebContentsId,
     directLoopback: input.directLoopback === true,
     auth: createProxyAuth(),
-    server: createServer(),
+    server,
     port: 0,
+    browsers: new Set([input.browserId]),
+    activeBrowserId: input.browserId,
   };
-  record.server.on("connection", (socket) => {
+  server.on("connection", (socket) => {
     handleProxyConnection(record, socket);
   });
-  record.port = await listenOnLoopback(record.server);
+  record.port = await listenOnLoopback(server);
   return record;
 }
 
@@ -213,25 +285,23 @@ function listenOnLoopback(server: Server): Promise<number> {
   });
 }
 
-async function applyDirectSession(browserId: string): Promise<void> {
+async function applyDirectSession(partition: string): Promise<void> {
+  if (!electronSession) return;
   await electronSession
-    .fromPartition(browserPartition(browserId))
+    .fromPartition(partition)
     .setProxy({ mode: "direct" })
     .catch(() => undefined);
 }
 
-async function applyProxyToBrowserSession(browserId: string, port: number): Promise<void> {
-  const ses = electronSession.fromPartition(browserPartition(browserId));
+async function applyProxyToPartition(partition: string, port: number): Promise<void> {
+  if (!electronSession) return;
+  const ses = electronSession.fromPartition(partition);
   await ses.setProxy({
     mode: "fixed_servers",
     proxyRules: `${LOOPBACK_PROXY_HOST}:${port}`,
     proxyBypassRules: browserLoopbackProxyBypassRules(),
   });
   await ses.closeAllConnections().catch(() => undefined);
-}
-
-function browserPartition(browserId: string): string {
-  return `persist:paseo-browser-${browserId}`;
 }
 
 export function browserLoopbackProxyBypassRules(): string {
@@ -245,7 +315,7 @@ export function shouldUseDirectLoopback(input: {
   return input.localDaemonServerId.length > 0 && input.localDaemonServerId === input.tabServerId;
 }
 
-function handleProxyConnection(record: BrowserProxyRecord, socket: Socket): void {
+function handleProxyConnection(record: WorkspaceProxyRecord, socket: Socket): void {
   let chunks: Buffer[] = [];
   let totalBytes = 0;
   const timeoutHandle = setTimeout(() => {
@@ -287,7 +357,7 @@ function handleProxyConnection(record: BrowserProxyRecord, socket: Socket): void
 }
 
 async function handleParsedProxyRequest(
-  record: BrowserProxyRecord,
+  record: WorkspaceProxyRecord,
   socket: Socket,
   buffer: Buffer,
   headerEnd: number,
@@ -316,7 +386,7 @@ async function handleParsedProxyRequest(
 }
 
 async function connectViaWorkspaceTunnel(
-  record: BrowserProxyRecord,
+  record: WorkspaceProxyRecord,
   socket: Socket,
   parsed: ParsedProxyRequest,
   tunnelHost: BrowserLoopbackTunnelHost,
@@ -394,7 +464,7 @@ function connectDirect(socket: Socket, parsed: ParsedProxyRequest): void {
 }
 
 function requestRendererTunnel(
-  record: BrowserProxyRecord,
+  record: WorkspaceProxyRecord,
   tunnelId: string,
   socket: Socket,
   port: number,
@@ -411,7 +481,7 @@ function requestRendererTunnel(
     }, RENDERER_TUNNEL_OPEN_TIMEOUT_MS);
     tunnelsById.set(tunnelId, {
       tunnelId,
-      browserId: record.browserId,
+      browserId: record.activeBrowserId || record.browsers.values().next().value || "",
       socket,
       opened: false,
       resolveOpen: resolve,
@@ -420,7 +490,7 @@ function requestRendererTunnel(
     });
     const sent = sendToRenderer(record, "browser-loopback-tunnel-open", {
       tunnelId,
-      browserId: record.browserId,
+      browserId: record.activeBrowserId || record.browsers.values().next().value || "",
       serverId: record.serverId,
       workspaceId: record.workspaceId,
       port,
@@ -436,7 +506,8 @@ function requestRendererTunnel(
 
 function sendTunnelData(tunnelId: string, chunk: Buffer): void {
   const tunnel = tunnelsById.get(tunnelId);
-  const record = tunnel ? recordsByBrowserId.get(tunnel.browserId) : null;
+  const workspaceKey = tunnel ? workspaceKeyByBrowserId.get(tunnel.browserId) : null;
+  const record = workspaceKey ? recordsByWorkspaceKey.get(workspaceKey) : null;
   if (!tunnel || !record) {
     return;
   }
@@ -453,7 +524,8 @@ function closeTunnel(tunnelId: string, reason: string, options: { notifyRenderer
   }
   tunnelsById.delete(tunnelId);
   clearTimeout(tunnel.timeoutHandle);
-  const record = recordsByBrowserId.get(tunnel.browserId);
+  const workspaceKey = workspaceKeyByBrowserId.get(tunnel.browserId);
+  const record = workspaceKey ? recordsByWorkspaceKey.get(workspaceKey) : null;
   if (options.notifyRenderer && record) {
     sendToRenderer(record, "browser-loopback-tunnel-close", { tunnelId, reason });
   }
@@ -465,7 +537,11 @@ function closeTunnel(tunnelId: string, reason: string, options: { notifyRenderer
   }
 }
 
-function sendToRenderer(record: BrowserProxyRecord, eventName: string, payload: unknown): boolean {
+function sendToRenderer(
+  record: WorkspaceProxyRecord,
+  eventName: string,
+  payload: unknown,
+): boolean {
   const contents = allWebContents.fromId(record.rendererWebContentsId);
   if (!contents || contents.isDestroyed()) {
     return false;
@@ -714,4 +790,9 @@ function readTunnelClose(payload: unknown): { tunnelId: string; reason: string |
     tunnelId: record.tunnelId.trim(),
     reason: typeof record.reason === "string" ? record.reason : null,
   };
+}
+
+export function getBrowserLoopbackProxyPortForTest(browserId: string): number | null {
+  const workspaceKey = workspaceKeyByBrowserId.get(browserId) ?? `browser:${browserId}`;
+  return recordsByWorkspaceKey.get(workspaceKey)?.port ?? null;
 }

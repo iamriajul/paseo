@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   clearPaseoBrowserProfile,
+  getPaseoBrowserProfileSession,
+  getPaseoBrowserWorkspacePartition,
   getLegacyPaseoBrowserProfileSession,
   getPaseoBrowserProfileSessions,
   listPaseoBrowserProfileGuests,
@@ -204,5 +206,56 @@ describe("clearPaseoBrowserProfile", () => {
       }),
     ).rejects.toBe(clearError);
     expect(guest.reloads).toBe(0);
+  });
+});
+
+describe("workspace browser profile sessions", () => {
+  test("derives workspace-scoped partition", () => {
+    expect(getPaseoBrowserWorkspacePartition("workspace-123")).toBe(
+      "persist:paseo-browser-workspace-workspace-123",
+    );
+    expect(getPaseoBrowserWorkspacePartition("")).toBe("persist:paseo-browser");
+  });
+
+  test("resolves workspace profile session", () => {
+    const partitions: string[] = [];
+    const sessions = {
+      fromPartition: (partition: string) => {
+        partitions.push(partition);
+        return new FakeProfileSession();
+      },
+    };
+
+    getPaseoBrowserProfileSession(sessions, { workspaceId: "ws-a" });
+    getPaseoBrowserProfileSession(sessions, { browserId: "browser-b" });
+    getPaseoBrowserProfileSession(sessions);
+
+    expect(partitions).toEqual([
+      "persist:paseo-browser-workspace-ws-a",
+      "persist:paseo-browser-browser-b",
+      "persist:paseo-browser",
+    ]);
+  });
+
+  test("includes workspace partitions when clearing profiles", () => {
+    const partitions: string[] = [];
+    const sessions = {
+      fromPartition: (partition: string) => {
+        partitions.push(partition);
+        return new FakeProfileSession();
+      },
+    };
+
+    getPaseoBrowserProfileSessions(
+      sessions,
+      ["legacy-1"],
+      ["persist:paseo-browser-workspace-ws-a"],
+    );
+
+    expect(partitions).toEqual([
+      "persist:paseo-browser",
+      "persist:paseo-browser-legacy-1",
+      "persist:paseo-browser-workspace-ws-a",
+    ]);
   });
 });

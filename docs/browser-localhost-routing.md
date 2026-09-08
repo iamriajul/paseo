@@ -169,9 +169,13 @@ Hosts may advertise optional Code Server openers in `server_info.urlOpeners.code
 
 ## Browser profile compatibility
 
-The fork intentionally keeps Browser webviews on `persist:paseo-browser-${browserId}` partitions even though upstream Browser tabs can use one shared profile. Electron proxy settings are session-scoped, so moving fork webviews onto a single shared partition would make every tab use whichever workspace proxy registered last and silently route `localhost` to the wrong host.
+Browser webviews use workspace-scoped partitions (`persist:paseo-browser-workspace-${workspaceId}`). This scopes loopback proxying and localhost cookies to the workspace:
 
-Upstream's attached-webview identity checks and profile cleanup still apply to these prefixed partitions. Do not collapse them into the shared `persist:paseo-browser` partition unless the remote-localhost proxy is first redesigned so concurrent tabs on different hosts remain isolated.
+- Tabs within the same workspace share the same workspace session, sharing localhost cookies (both direct loopback and localhost service proxy URLs) and the workspace's loopback proxy.
+- Different workspaces remain isolated, preventing localhost cookies or proxy settings from leaking between workspaces.
+- Non-localhost cookies (including external web sites and non-localhost service URLs that proxy to the daemon) are synchronized across all workspace sessions and the shared profile session (`persist:paseo-browser`).
+
+Upstream's attached-webview identity checks and profile cleanup still apply to these prefixed partitions.
 
 ## Testing
 

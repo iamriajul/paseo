@@ -47,14 +47,35 @@ interface ElectronSessions {
   fromPartition(partition: string): BrowserProfileSession;
 }
 
+export function getPaseoBrowserWorkspacePartition(workspaceId: string): string {
+  const trimmed = workspaceId.trim();
+  return trimmed.length > 0
+    ? `${PASEO_BROWSER_PROFILE_PARTITION}-workspace-${trimmed}`
+    : PASEO_BROWSER_PROFILE_PARTITION;
+}
+
 export function getPaseoBrowserProfileSession(
   sessions: ElectronSessions,
-  browserId?: string,
+  target?: string | { workspaceId?: string | null; browserId?: string | null },
 ): BrowserProfileSession {
-  const partition = browserId
-    ? `${PASEO_BROWSER_PROFILE_PARTITION}-${browserId}`
-    : PASEO_BROWSER_PROFILE_PARTITION;
-  return sessions.fromPartition(partition);
+  if (!target) {
+    return sessions.fromPartition(PASEO_BROWSER_PROFILE_PARTITION);
+  }
+  if (typeof target === "string") {
+    if (target.startsWith("persist:")) {
+      return sessions.fromPartition(target);
+    }
+    return sessions.fromPartition(`${PASEO_BROWSER_PROFILE_PARTITION}-${target}`);
+  }
+  const workspaceId = target.workspaceId?.trim();
+  if (workspaceId && workspaceId.length > 0) {
+    return sessions.fromPartition(getPaseoBrowserWorkspacePartition(workspaceId));
+  }
+  const browserId = target.browserId?.trim();
+  if (browserId && browserId.length > 0) {
+    return sessions.fromPartition(`${PASEO_BROWSER_PROFILE_PARTITION}-${browserId}`);
+  }
+  return sessions.fromPartition(PASEO_BROWSER_PROFILE_PARTITION);
 }
 
 export function readLegacyPaseoBrowserIds(input: unknown): string[] {
@@ -76,13 +97,23 @@ export function readLegacyPaseoBrowserIds(input: unknown): string[] {
 export function getPaseoBrowserProfileSessions(
   sessions: ElectronSessions,
   legacyBrowserIds: string[],
+  workspacePartitions?: string[],
 ): [BrowserProfileSession, ...BrowserProfileSession[]] {
+  const extraPartitions = new Set<string>();
+  for (const browserId of legacyBrowserIds) {
+    extraPartitions.add(`${PASEO_BROWSER_PROFILE_PARTITION}-${browserId}`);
+  }
+  if (workspacePartitions) {
+    for (const partition of workspacePartitions) {
+      if (partition && partition.trim().length > 0) {
+        extraPartitions.add(partition.trim());
+      }
+    }
+  }
   return [
     getPaseoBrowserProfileSession(sessions),
     // COMPAT(browserProfile): added in v0.1.108; remove after 2027-01-15.
-    ...legacyBrowserIds.map((browserId) =>
-      sessions.fromPartition(`${PASEO_BROWSER_PROFILE_PARTITION}-${browserId}`),
-    ),
+    ...Array.from(extraPartitions).map((partition) => sessions.fromPartition(partition)),
   ];
 }
 

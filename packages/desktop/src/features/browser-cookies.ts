@@ -145,17 +145,28 @@ export class PaseoBrowserCookieSync {
   private readonly watchedPartitions = new Set<string>();
   private readonly inFlightSync = new Map<string, { count: number; timestamp: number }>();
 
+  private isInitialized = false;
+
   public constructor(options: { sessions: ElectronSessionsWithCookies; sharedPartition?: string }) {
     this.sessions = options.sessions;
     this.sharedPartition = options.sharedPartition ?? PASEO_BROWSER_PROFILE_PARTITION;
+  }
+
+  public init(): void {
+    if (this.isInitialized) {
+      return;
+    }
+    this.isInitialized = true;
     this.watchPartition(this.sharedPartition);
   }
 
   public getActiveWorkspacePartitions(): string[] {
+    this.init();
     return Array.from(this.activeWorkspacePartitions);
   }
 
   public async registerWorkspacePartition(partition: string): Promise<void> {
+    this.init();
     const normalized = partition.trim();
     if (!normalized || normalized === this.sharedPartition) {
       return;

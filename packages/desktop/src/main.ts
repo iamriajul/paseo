@@ -1009,6 +1009,7 @@ async function bootstrap(): Promise<void> {
   }
 
   await app.whenReady();
+  browserCookieSync.init();
 
   const appDistDir = getAppDistDir();
   protocol.handle(APP_SCHEME, (request) => {

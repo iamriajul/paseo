@@ -117,6 +117,7 @@ function createHarness(overrides?: {
           archivedAgentIds: [],
           archivedWorkspaceIds: [],
           removedDirectory: false,
+          directoryCleanup: Promise.resolve({ removedDirectory: false }),
         }) satisfies ArchiveResult),
   ) as unknown as ArchiveIfSafeDependencies["archiveByScope"];
   const isPaseoOwnedWorktreeCwd = vi.fn(
@@ -474,6 +475,7 @@ describe("archiveIfSafe", () => {
           archivedAgentIds: [],
           archivedWorkspaceIds: ["ws-auto-archive"],
           removedDirectory: false,
+          directoryCleanup: Promise.resolve({ removedDirectory: false }),
         };
       },
     });

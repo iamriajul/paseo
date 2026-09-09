@@ -27,7 +27,12 @@ restore, branch auto-name, and descriptor flows consume those persisted facts ra
 rediscovering ownership from a directory that may already be gone. Reconciliation may refresh
 mutable placement facts, but never changes `projectId`, `cwd`, `displayName`, or `baseBranch`.
 Workspace archive runs lifecycle teardown from the exact `cwd` but removes only the backing
-`worktreeRoot` after its last active reference disappears. Worktree recovery recreates that backing
+`worktreeRoot` after its last active reference disappears, and both run _after_ the archive answers.
+`archivedAt` is durable within milliseconds while teardown can run for minutes, so the archive RPC
+replies on the record and reports the rest through `workspace_update`; blocking on cleanup pushed the
+reply past the client's 60s RPC timeout, and the client then rolled back an archive the daemon had
+already committed. Teardown commands are bounded by `PASEO_WORKTREE_TEARDOWN_TIMEOUT_MS` (default 10
+minutes) so one wedged command cannot strand the worktree. Worktree recovery recreates that backing
 checkout from `mainRepoRoot`, then restores the relative path from `worktreeRoot` to `cwd`.
 
 Paseo uses **file-based JSON persistence** instead of a traditional database. All data is validated at runtime with Zod schemas. Most stores write atomically (write to temp file, then rename); a few still use plain `writeFile` — see each section. There is no schema-versioning/migration framework — schemas rely on optional fields with defaults for forward compatibility, with a small amount of inline normalization in `persisted-config.ts` for legacy provider/speech entries.

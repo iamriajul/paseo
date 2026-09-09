@@ -447,7 +447,7 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
     webContentsId: input.webContentsId,
     registeredBrowserIds: listRegisteredPaseoBrowserIds(),
   });
-  if (input.workspaceId) {
+  if (input.workspaceId.trim().length > 0) {
     void browserCookieSync.registerWorkspacePartition(
       getPaseoBrowserWorkspacePartition(input.workspaceId),
     );
@@ -608,7 +608,7 @@ ipcMain.handle("paseo:browser:clear-profile", async (_event, rawLegacyBrowserIds
   const profileSessions = getPaseoBrowserProfileSessions(
     session,
     readLegacyPaseoBrowserIds(rawLegacyBrowserIds),
-    browserCookieSync.getActiveWorkspacePartitions(),
+    browserCookieSync.getAllKnownWorkspacePartitions(),
   );
   const profileSession = profileSessions[0];
   await clearPaseoBrowserProfile({

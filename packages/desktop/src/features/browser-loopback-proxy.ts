@@ -60,6 +60,7 @@ export interface ParsedProxyRequest {
 interface TunnelState {
   tunnelId: string;
   browserId: string;
+  workspaceKey: string;
   socket: Socket;
   opened: boolean;
   resolveOpen: () => void;
@@ -161,7 +162,7 @@ export async function registerBrowserLoopbackProxy(
 
 export async function unregisterBrowserLoopbackProxy(browserId: string): Promise<void> {
   const workspaceKey = workspaceKeyByBrowserId.get(browserId) ?? `browser:${browserId}`;
-  workspaceKeyByBrowserId.delete(browserId);
+  const record = recordsByWorkspaceKey.get(workspaceKey);
 
   for (const [tunnelId, tunnel] of Array.from(tunnelsById)) {
     if (tunnel.browserId === browserId) {
@@ -169,7 +170,7 @@ export async function unregisterBrowserLoopbackProxy(browserId: string): Promise
     }
   }
 
-  const record = recordsByWorkspaceKey.get(workspaceKey);
+  workspaceKeyByBrowserId.delete(browserId);
   if (!record) {
     return;
   }
@@ -482,6 +483,7 @@ function requestRendererTunnel(
     tunnelsById.set(tunnelId, {
       tunnelId,
       browserId: record.activeBrowserId || record.browsers.values().next().value || "",
+      workspaceKey: record.workspaceKey,
       socket,
       opened: false,
       resolveOpen: resolve,
@@ -506,8 +508,7 @@ function requestRendererTunnel(
 
 function sendTunnelData(tunnelId: string, chunk: Buffer): void {
   const tunnel = tunnelsById.get(tunnelId);
-  const workspaceKey = tunnel ? workspaceKeyByBrowserId.get(tunnel.browserId) : null;
-  const record = workspaceKey ? recordsByWorkspaceKey.get(workspaceKey) : null;
+  const record = tunnel ? recordsByWorkspaceKey.get(tunnel.workspaceKey) : null;
   if (!tunnel || !record) {
     return;
   }
@@ -524,8 +525,7 @@ function closeTunnel(tunnelId: string, reason: string, options: { notifyRenderer
   }
   tunnelsById.delete(tunnelId);
   clearTimeout(tunnel.timeoutHandle);
-  const workspaceKey = workspaceKeyByBrowserId.get(tunnel.browserId);
-  const record = workspaceKey ? recordsByWorkspaceKey.get(workspaceKey) : null;
+  const record = recordsByWorkspaceKey.get(tunnel.workspaceKey);
   if (options.notifyRenderer && record) {
     sendToRenderer(record, "browser-loopback-tunnel-close", { tunnelId, reason });
   }

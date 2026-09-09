@@ -131,7 +131,8 @@ export function cookieToSetDetails(cookie: ElectronCookieLike): {
 }
 
 function cookieKey(cookie: ElectronCookieLike): string {
-  const domain = (cookie.domain ?? "").trim().toLowerCase();
+  const rawDomain = (cookie.domain ?? "").trim().toLowerCase();
+  const domain = rawDomain.replace(/^\./, "").replace(/^\[|\]$/g, "");
   const name = cookie.name;
   const path = (cookie.path ?? "/").trim();
   const secure = cookie.secure ? "1" : "0";
@@ -142,6 +143,7 @@ export class PaseoBrowserCookieSync {
   private readonly sessions: ElectronSessionsWithCookies;
   private readonly sharedPartition: string;
   private readonly activeWorkspacePartitions = new Set<string>();
+  private readonly knownWorkspacePartitions = new Set<string>();
   private readonly watchedPartitions = new Set<string>();
   private readonly inFlightSync = new Map<string, { count: number; timestamp: number }>();
 
@@ -161,8 +163,11 @@ export class PaseoBrowserCookieSync {
   }
 
   public getActiveWorkspacePartitions(): string[] {
-    this.init();
     return Array.from(this.activeWorkspacePartitions);
+  }
+
+  public getAllKnownWorkspacePartitions(): string[] {
+    return Array.from(this.knownWorkspacePartitions);
   }
 
   public async registerWorkspacePartition(partition: string): Promise<void> {
@@ -173,6 +178,7 @@ export class PaseoBrowserCookieSync {
     }
     const isNew = !this.activeWorkspacePartitions.has(normalized);
     this.activeWorkspacePartitions.add(normalized);
+    this.knownWorkspacePartitions.add(normalized);
     this.watchPartition(normalized);
 
     if (isNew) {
@@ -233,8 +239,14 @@ export class PaseoBrowserCookieSync {
       }
     }
 
-    // If the target partition has non-localhost cookies that sharedSession is missing,
-    // replicate them to sharedPartition and any other active workspace partitions.
+    // Reconcile target partition: purge any non-localhost cookies that are absent from
+    // the shared session so a re-registering workspace does not resurrect deleted cookies.
+    const sharedKeys = new Set(
+      sharedCookies
+        .filter((cookie) => !isLocalhostCookieDomain(cookie.domain))
+        .map((cookie) => cookieKey(cookie)),
+    );
+
     let targetCookies: ElectronCookieLike[] = [];
     try {
       targetCookies = await targetSession.cookies.get({});
@@ -243,8 +255,13 @@ export class PaseoBrowserCookieSync {
     }
 
     for (const cookie of targetCookies) {
-      if (!isLocalhostCookieDomain(cookie.domain)) {
-        await this.replicateCookie(targetPartition, cookie, false);
+      if (!isLocalhostCookieDomain(cookie.domain) && !sharedKeys.has(cookieKey(cookie))) {
+        const url = buildCookieUrl(cookie);
+        try {
+          await targetSession.cookies.remove(url, cookie.name);
+        } catch {
+          // ignore remove failures
+        }
       }
     }
   }

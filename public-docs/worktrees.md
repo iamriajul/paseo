@@ -97,7 +97,7 @@ Drop a `paseo.json` in your repo root. Paseo reads it from the committed version
 
 ## Setup and teardown
 
-`setup` runs once after the worktree is created. A fresh worktree has no installed dependencies and no ignored files (like `.env`), so use setup to install and copy what you need. `teardown` runs during archive, before the directory is removed.
+`setup` runs once after the worktree is created. A fresh worktree has no installed dependencies and no ignored files (like `.env`), so use setup to install and copy what you need. `teardown` runs during archive, before the directory is removed. Archiving returns as soon as the workspace is archived and teardown continues in the background, so a slow teardown never holds up the app; a command still running after 10 minutes is killed.
 
 ```json
 {

@@ -63,15 +63,36 @@ export type ArchiveScope =
   | { kind: "workspace"; workspaceId: string }
   | { kind: "worktree"; targetPath: string };
 
+export interface ArchiveDirectoryCleanupResult {
+  removedDirectory: boolean;
+}
+
 export interface ArchiveResult {
   archivedAgentIds: string[];
   archivedWorkspaceIds: string[];
+  // Whether the backing worktree directory had been removed from disk by the
+  // time this call resolved. Under `deferDirectoryCleanup` it is always false
+  // and means "not yet", never "the directory survived" — await
+  // `directoryCleanup` for the settled answer.
   removedDirectory: boolean;
+  // Settles once the paseo.json `worktree.teardown` commands and the directory
+  // removal have finished; already settled when cleanup ran inline. Never
+  // rejects: neither step can un-archive a record that is already durable, so
+  // failures are logged and surface as removedDirectory: false.
+  directoryCleanup: Promise<ArchiveDirectoryCleanupResult>;
 }
 
 export interface ArchiveByScopeRequest {
   scope: ArchiveScope;
   requestId: string;
+  // Resolve as soon as the workspace records are archived, and run the slow
+  // disk cleanup (teardown commands, then the directory removal) in the
+  // background. Callers sitting behind a request/response timeout want this:
+  // the record is durable within milliseconds while teardown can run for
+  // minutes, so blocking on it makes the caller time out on work that already
+  // succeeded. Callers that report on the directory itself leave it off and
+  // read `removedDirectory`.
+  deferDirectoryCleanup?: boolean;
 }
 
 export async function requireActiveWorkspaceForArchive(
@@ -117,7 +138,8 @@ export async function resolveWorkspaceIdAtPath(
 
 // Resolves the in-scope record set, tears each down
 // (agents + terminals + record), then removes the backing directory iff it is
-// Paseo-owned AND no active workspace still references it.
+// Paseo-owned AND no active workspace still references it. With
+// `deferDirectoryCleanup` the teardown and removal run after this resolves.
 export async function archiveByScope(
   dependencies: ArchiveDependencies,
   request: ArchiveByScopeRequest,
@@ -138,52 +160,109 @@ async function archiveByScopeWithPriority(
     dependencies.markWorkspaceArchiving(targetWorkspaceIds, new Date().toISOString());
   }
 
-  let removedDirectory = false;
-
+  let archivedAgents: Set<string>;
+  let archivedWorkspaceIds: string[];
   try {
     if (targetWorkspaceIds.length > 0) {
       await dependencies.emitWorkspaceUpdatesForWorkspaceIds(targetWorkspaceIds);
     }
 
-    const { archivedAgents, archivedWorkspaceIds } = await archiveTargetRecords(
+    ({ archivedAgents, archivedWorkspaceIds } = await archiveTargetRecords(
       dependencies,
       targetWorkspaceIds,
       request.requestId,
-    );
+    ));
+  } catch (error) {
+    await settleArchivingMarkers(dependencies, targetWorkspaceIds);
+    throw error;
+  }
 
-    if (target.backing?.mainRepoRoot) {
-      try {
-        await dependencies.workspaceGitService.getSnapshot(target.backing.mainRepoRoot, {
-          force: true,
-          reason: "archive-worktree",
-        });
-      } catch (error) {
-        dependencies.sessionLogger?.warn(
-          { err: error, cwd: target.backing.mainRepoRoot, requestId: request.requestId },
-          "Failed to force-refresh workspace git snapshot after archiving",
-        );
-      }
+  // Past this line the records carry archivedAt, so everything left is cleanup:
+  // it can fail without un-archiving anything, and the existing warnings below
+  // already treat teardown and removal failures as non-fatal.
+  const runDirectoryCleanup = async (): Promise<ArchiveDirectoryCleanupResult> => {
+    try {
+      await refreshMainRepoSnapshot(dependencies, target, request.requestId);
+      const removedDirectory =
+        target.backing === null
+          ? false
+          : await maybeRemoveDirectory(dependencies, request, target, archivedWorkspaceIds);
+      return { removedDirectory };
+    } finally {
+      await settleArchivingMarkers(dependencies, targetWorkspaceIds);
     }
+  };
 
-    if (target.backing !== null) {
-      removedDirectory = await maybeRemoveDirectory(
-        dependencies,
-        request,
-        target,
-        archivedWorkspaceIds,
-      );
-    }
-
+  if (!request.deferDirectoryCleanup) {
+    const cleanup = await runDirectoryCleanup();
     return {
       archivedAgentIds: Array.from(archivedAgents),
       archivedWorkspaceIds,
-      removedDirectory,
+      removedDirectory: cleanup.removedDirectory,
+      directoryCleanup: Promise.resolve(cleanup),
     };
-  } finally {
-    if (targetWorkspaceIds.length > 0) {
-      dependencies.clearWorkspaceArchiving(targetWorkspaceIds);
-      await dependencies.emitWorkspaceUpdatesForWorkspaceIds(targetWorkspaceIds);
-    }
+  }
+
+  // The archiving marker and the settling emit are now minutes away, so publish
+  // the archived state here instead: every client other than the one that asked
+  // for the archive learns about it from this stream.
+  if (archivedWorkspaceIds.length > 0) {
+    await dependencies.emitWorkspaceUpdatesForWorkspaceIds(archivedWorkspaceIds);
+  }
+
+  // Detached on purpose. The git-priority context that archiveByScope opened is
+  // AsyncLocalStorage, so the eventual `git worktree remove` still runs at the
+  // priority the user's archive earned; because that context is a label rather
+  // than a lease, carrying it for minutes costs no scheduler slot.
+  const directoryCleanup = runDirectoryCleanup().catch((error) => {
+    dependencies.sessionLogger?.warn(
+      { err: error, workspaceIds: targetWorkspaceIds, requestId: request.requestId },
+      "Deferred worktree cleanup failed during archive; workspace already archived",
+    );
+    return { removedDirectory: false };
+  });
+
+  return {
+    archivedAgentIds: Array.from(archivedAgents),
+    archivedWorkspaceIds,
+    removedDirectory: false,
+    directoryCleanup,
+  };
+}
+
+// Clears the transient "archiving" marker and lets clients converge on whatever
+// state the archive actually reached, successful or not.
+async function settleArchivingMarkers(
+  dependencies: ArchiveDependencies,
+  targetWorkspaceIds: string[],
+): Promise<void> {
+  if (targetWorkspaceIds.length === 0) {
+    return;
+  }
+  dependencies.clearWorkspaceArchiving(targetWorkspaceIds);
+  await dependencies.emitWorkspaceUpdatesForWorkspaceIds(targetWorkspaceIds);
+}
+
+// The parent repo still lists the worktree until its snapshot is refreshed.
+// Failure only leaves a stale listing, so it never fails the archive.
+async function refreshMainRepoSnapshot(
+  dependencies: ArchiveDependencies,
+  target: ArchiveTarget,
+  requestId: string,
+): Promise<void> {
+  if (!target.backing?.mainRepoRoot) {
+    return;
+  }
+  try {
+    await dependencies.workspaceGitService.getSnapshot(target.backing.mainRepoRoot, {
+      force: true,
+      reason: "archive-worktree",
+    });
+  } catch (error) {
+    dependencies.sessionLogger?.warn(
+      { err: error, cwd: target.backing.mainRepoRoot, requestId },
+      "Failed to force-refresh workspace git snapshot after archiving",
+    );
   }
 }
 

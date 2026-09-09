@@ -420,3 +420,13 @@ grep -q 'E2E_WORKERS: "1"' .github/workflows/ci.yml
 grep -q 'PLAYWRIGHT_SHARD: "8/8"' .github/workflows/ci.yml
 ! grep -q 'PLAYWRIGHT_SHARD: "1/4"' .github/workflows/ci.yml
 ```
+
+## archive-responds-before-cleanup
+
+**workspace archive answers on the record, not on disk cleanup**
+
+archive_workspace_request resolves once archivedAt is durable and runs paseo.json worktree.teardown plus the directory removal in the background, so a slow teardown no longer pushes the reply past the client's 60s RPC timeout and the client no longer restores a workspace the daemon archived; the archived state is published before the slow phase so other clients converge, the settling emit still runs after it, and teardown commands are bounded by PASEO_WORKTREE_TEARDOWN_TIMEOUT_MS (default 10 minutes) with the timeout named in the failure
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/workspace-archive-service.test.ts packages/server/src/server/session.workspaces.test.ts packages/server/src/utils/worktree.posix.test.ts --bail=1
+```

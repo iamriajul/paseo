@@ -411,9 +411,25 @@ export function processCarriageReturns(text: string): string {
   return output.join("");
 }
 
+// Teardown runs while a workspace is being archived, so it has to terminate.
+// The bound is deliberately generous — `rm -rf node_modules` on a large monorepo
+// is legitimately slow — it exists only so that "slow" can never become "never"
+// when a command waits on a lock, a prompt, or a port that never frees.
+const DEFAULT_WORKTREE_TEARDOWN_TIMEOUT_MS = 10 * 60_000;
+
+function resolveWorktreeTeardownTimeoutMs(override: number | undefined): number {
+  if (override !== undefined) {
+    return override;
+  }
+  const configured = Number(process.env.PASEO_WORKTREE_TEARDOWN_TIMEOUT_MS);
+  return Number.isInteger(configured) && configured > 0
+    ? configured
+    : DEFAULT_WORKTREE_TEARDOWN_TIMEOUT_MS;
+}
+
 async function execSetupCommand(
   command: string,
-  options: { cwd: string; env: NodeJS.ProcessEnv },
+  options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs?: number },
 ): Promise<WorktreeSetupCommandResult> {
   const startedAt = Date.now();
   const shellInvocation = buildStringCommandShellInvocation({ command });
@@ -421,6 +437,14 @@ async function execSetupCommand(
     const { stdout, stderr } = await execFileAsync(shellInvocation.shell, shellInvocation.args, {
       cwd: options.cwd,
       env: options.env,
+      // execFile defaults to timeout 0, i.e. wait forever. Only callers that
+      // must terminate pass a bound; setup commands (`npm ci`, native builds)
+      // legitimately run for a long time and are cancelled by the caller's
+      // AbortSignal instead. SIGKILL because the shell is what we spawned and a
+      // wedged command is exactly the one that ignores SIGTERM.
+      ...(options.timeoutMs !== undefined
+        ? { timeout: options.timeoutMs, killSignal: "SIGKILL" as const }
+        : {}),
     });
     return {
       command,
@@ -431,12 +455,20 @@ async function execSetupCommand(
       durationMs: Date.now() - startedAt,
     };
   } catch (error) {
-    const execErr = error as { stdout?: string; stderr?: string; code?: unknown } | undefined;
+    const execErr = error as
+      | { stdout?: string; stderr?: string; code?: unknown; killed?: boolean }
+      | undefined;
+    const timedOut = options.timeoutMs !== undefined && execErr?.killed === true;
+    const stderr = execErr?.stderr ?? (error instanceof Error ? error.message : String(error));
     return {
       command,
       cwd: options.cwd,
       stdout: execErr?.stdout ?? "",
-      stderr: execErr?.stderr ?? (error instanceof Error ? error.message : String(error)),
+      // Say so explicitly: the exit code of a killed process is null, which on
+      // its own reads like any other crash.
+      stderr: timedOut
+        ? `Command timed out after ${options.timeoutMs}ms and was killed\n${stderr}`.trim()
+        : stderr,
       exitCode: typeof execErr?.code === "number" ? execErr.code : null,
       durationMs: Date.now() - startedAt,
     };
@@ -750,6 +782,9 @@ export async function runWorktreeTeardownCommands(options: {
   teardownCwd?: string;
   branchName?: string;
   repoRootPath?: string;
+  // Per-command bound. Defaults to PASEO_WORKTREE_TEARDOWN_TIMEOUT_MS, else
+  // DEFAULT_WORKTREE_TEARDOWN_TIMEOUT_MS.
+  timeoutMs?: number;
 }): Promise<WorktreeTeardownCommandResult[]> {
   const teardownCwd = options.teardownCwd ?? options.worktreePath;
   if (getRealpathAwareRelativePath(options.worktreePath, teardownCwd) === null) {
@@ -780,11 +815,13 @@ export async function runWorktreeTeardownCommands(options: {
     }),
   );
 
+  const timeoutMs = resolveWorktreeTeardownTimeoutMs(options.timeoutMs);
   const results: WorktreeTeardownCommandResult[] = [];
   for (const cmd of teardownCommands) {
     const result = await execSetupCommand(cmd, {
       cwd: teardownCwd,
       env: teardownEnv,
+      timeoutMs,
     });
     results.push(result);
 

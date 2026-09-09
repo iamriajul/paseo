@@ -347,7 +347,11 @@ test.skipIf(process.platform === "win32")(
         retryError: null,
       });
       expect((await activeWorkspaceIds()).has(workspace.id)).toBe(false);
-      expect(existsSync(workspace.workspaceDirectory)).toBe(false);
+      // The archive RPC answers once the record is durable and removes the
+      // directory afterwards, so poll instead of reading disk inline.
+      await expect
+        .poll(() => existsSync(workspace.workspaceDirectory!), { timeout: 10000, interval: 100 })
+        .toBe(false);
     } finally {
       writeFileSync(stopSetupPath, "stop\n");
     }
@@ -395,6 +399,9 @@ test.skipIf(process.platform === "win32")(
 
       expect(firstArchive.error).toBeNull();
       expect((await activeWorkspaceIds()).has(workspace.id)).toBe(false);
+      // A directory pinned by a live writer outlives its archive. Removal is
+      // backgrounded now, so this only says the directory is not gone yet — the
+      // self-healing retry below is what carries the weight.
       expect(existsSync(workspace.workspaceDirectory)).toBe(true);
 
       writeFileSync(stopWriterPath, "stop\n");
@@ -403,7 +410,9 @@ test.skipIf(process.platform === "win32")(
       const retry = await ctx.client.archiveWorkspace(workspace.id);
 
       expect(retry.error).toBeNull();
-      expect(existsSync(workspace.workspaceDirectory)).toBe(false);
+      await expect
+        .poll(() => existsSync(workspace.workspaceDirectory!), { timeout: 10000, interval: 100 })
+        .toBe(false);
     } finally {
       writeFileSync(stopWriterPath, "stop\n");
       await writerExit;

@@ -60,6 +60,7 @@ import {
   asCheckoutDiffManager,
   asDaemonConfigStore,
   asTerminalManager,
+  asGitHubService,
   asSessionInternals,
   createProviderSnapshotManagerStub,
   isSessionOutboundMessage,
@@ -81,7 +82,7 @@ const UNREGISTERED_CWD = path.resolve("/tmp/unregistered");
 
 const terminalManagers: TerminalManager[] = [];
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
@@ -6066,7 +6067,13 @@ test("archive_workspace_request archives a worktree-kind workspace and removes t
   });
 
   const emitted: SessionOutboundMessage[] = [];
+  // `github.invalidate` is the last thing the archive's deferred cleanup does,
+  // and it runs after `git worktree prune` — which holds the source checkout as
+  // its cwd. Awaiting it is what keeps this test's own `rmSync(tempDir)` from
+  // racing that git child, which is an EBUSY on Windows.
+  const cleanupSettled = deferred();
   const session = createSessionForWorkspaceTests({
+    github: asGitHubService({ invalidate: () => cleanupSettled.resolve() }),
     workspaceGitService: createNoopWorkspaceGitService({
       getSnapshot: async (): Promise<WorkspaceGitRuntimeSnapshot> => ({
         cwd: worktree.worktreePath,
@@ -6112,15 +6119,143 @@ test("archive_workspace_request archives a worktree-kind workspace and removes t
     });
 
     expect(workspace.archivedAt).toBeTruthy();
-    expect(existsSync(worktree.worktreePath)).toBe(false);
     const response = emitted.find((message) => message.type === "archive_workspace_response") as
       | { payload: Record<string, unknown> }
       | undefined;
     expect(response?.payload.error).toBeNull();
+    // The response lands as soon as the record is durable, so the removal is
+    // still in flight here rather than guaranteed done.
+    await cleanupSettled.promise;
+    expect(existsSync(worktree.worktreePath)).toBe(false);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("archive_workspace_request answers before the archive's disk cleanup finishes", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "session-deferred-archive-"));
+  const repoDir = path.join(tempDir, "repo");
+  mkdirSync(repoDir, { recursive: true });
+  execFileSync("git", ["init", "-b", "main"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["config", "user.email", "test@getpaseo.local"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["config", "user.name", "Paseo Test"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "initial"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+
+  const paseoHome = path.join(tempDir, ".paseo");
+  const worktree = await createWorktree({
+    cwd: repoDir,
+    worktreeSlug: "deferred-archive",
+    source: { kind: "branch-off", baseBranch: "main", branchName: "deferred-archive" },
+    runSetup: false,
+    paseoHome,
+  });
+
+  const workspaceId = "ws-deferred-archive";
+  const projectId = "proj-deferred-archive";
+  const workspace = createPersistedWorkspaceRecord({
+    workspaceId,
+    projectId,
+    cwd: worktree.worktreePath,
+    kind: "worktree",
+    displayName: "deferred-archive",
+    createdAt: "2026-03-01T12:00:00.000Z",
+    updatedAt: "2026-03-01T12:00:00.000Z",
+  });
+  const project = createPersistedProjectRecord({
+    projectId,
+    rootPath: repoDir,
+    kind: "git",
+    displayName: "repo",
+    createdAt: "2026-03-01T12:00:00.000Z",
+    updatedAt: "2026-03-01T12:00:00.000Z",
+  });
+
+  // Park the archive's cleanup phase on its first step. A real slow teardown
+  // would do the same thing, but a blocking shell fixture is not portable to
+  // the PowerShell that runs lifecycle commands on Windows — and the wiring
+  // under test here is only "does session.ts defer", which needs no shell.
+  const slowPhase = deferred();
+  const cleanupSettled = deferred();
+  let snapshotCalls = 0;
+
+  const emitted: SessionOutboundMessage[] = [];
+  const session = createSessionForWorkspaceTests({
+    github: asGitHubService({ invalidate: () => cleanupSettled.resolve() }),
+    workspaceGitService: createNoopWorkspaceGitService({
+      getSnapshot: async (): Promise<WorkspaceGitRuntimeSnapshot> => {
+        snapshotCalls += 1;
+        await slowPhase.promise;
+        return createNoGitSnapshotForTest(worktree.worktreePath);
+      },
+    }),
+  });
+  session.paseoHome = paseoHome;
+  session.emit = (message) => {
+    if (isSessionOutboundMessage(message)) emitted.push(message);
+  };
+  session.workspaceRegistry.get = async () => workspace;
+  session.workspaceRegistry.list = async () => [workspace];
+  session.workspaceRegistry.archive = async (_id: string, archivedAt: string) => {
+    workspace.archivedAt = archivedAt;
+  };
+  session.projectRegistry.list = async () => [project];
+
+  try {
+    // Never returns if session.ts stops passing deferDirectoryCleanup: cleanup
+    // is parked, and awaiting it inline is exactly the bug that pushed this RPC
+    // past the client's 60s timeout.
+    await session.handleMessage({
+      type: "archive_workspace_request",
+      workspaceId,
+      requestId: "req-deferred-archive",
+    });
+
+    const response = emitted.find((message) => message.type === "archive_workspace_response") as
+      | { payload: Record<string, unknown> }
+      | undefined;
+    expect(response?.payload.error).toBeNull();
+    expect(response?.payload.archivedAt).toBeTruthy();
+    expect(workspace.archivedAt).toBeTruthy();
+    // The gate is engaged, so the directory provably has not been removed yet.
+    expect(snapshotCalls).toBe(1);
+    expect(existsSync(worktree.worktreePath)).toBe(true);
+
+    slowPhase.resolve();
+    await cleanupSettled.promise;
+    expect(existsSync(worktree.worktreePath)).toBe(false);
+  } finally {
+    slowPhase.resolve();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+function createNoGitSnapshotForTest(cwd: string): WorkspaceGitRuntimeSnapshot {
+  return {
+    cwd,
+    git: {
+      isGit: false,
+      repoRoot: null,
+      mainRepoRoot: null,
+      currentBranch: null,
+      remoteUrl: null,
+      isPaseoOwnedWorktree: false,
+      isDirty: false,
+      baseRef: null,
+      aheadBehind: null,
+      aheadOfOrigin: null,
+      behindOfOrigin: null,
+      hasRemote: false,
+      diffStat: null,
+    },
+    forge: { featuresEnabled: false, pullRequest: null, error: null },
+  };
+}
 
 test.skip("opening a new worktree reconciles older local workspaces into the remote project", async () => {
   const emitted: SessionOutboundMessage[] = [];

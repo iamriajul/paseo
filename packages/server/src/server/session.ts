@@ -7066,6 +7066,13 @@ export class Session {
         {
           scope: { kind: "workspace", workspaceId: existing.workspaceId },
           requestId: request.requestId,
+          // Answer as soon as the record is archived. paseo.json
+          // `worktree.teardown` plus the directory removal routinely run for
+          // minutes on a large repo, which blew past the client's 60s RPC
+          // timeout; the client then read an archive the daemon had already
+          // committed as a failure and put the workspace row back. The rest of
+          // the cleanup reports through workspace_update.
+          deferDirectoryCleanup: true,
         },
       );
 

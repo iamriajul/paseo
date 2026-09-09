@@ -17,6 +17,8 @@ import {
   resolveWorktreeRuntimeEnv,
   type WorktreeSetupCommandProgressEvent,
   runWorktreeSetupCommands,
+  runWorktreeTeardownCommands,
+  WorktreeTeardownError,
   type CreateWorktreeOptions,
   type WorktreeConfig,
 } from "./worktree";
@@ -1492,6 +1494,52 @@ describe.skipIf(isPlatform("win32"))("worktree POSIX-only", () => {
         'cleanup_message="teardown string"\necho "$cleanup_message" > "$PASEO_SOURCE_CHECKOUT_PATH/teardown.log"',
       ]);
       expect(readFileSync(join(repoDir, "teardown.log"), "utf8").trim()).toBe("teardown string");
+    });
+
+    it("kills a teardown command that outlives its timeout", async () => {
+      const paseoConfig = { worktree: { teardown: ["sleep 20"] } };
+      writeFileSync(join(repoDir, "paseo.json"), JSON.stringify(paseoConfig));
+      execFileSync("git", ["add", "paseo.json"], { cwd: repoDir });
+      execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "add hanging teardown"], {
+        cwd: repoDir,
+      });
+
+      const created = await createLegacyWorktreeForTest({
+        branchName: "teardown-timeout-branch",
+        cwd: repoDir,
+        baseBranch: "main",
+        worktreeSlug: "teardown-timeout-test",
+        paseoHome,
+      });
+
+      const startedAt = Date.now();
+      await expect(
+        runWorktreeTeardownCommands({ worktreePath: created.worktreePath, timeoutMs: 250 }),
+      ).rejects.toThrow(WorktreeTeardownError);
+      expect(Date.now() - startedAt).toBeLessThan(10_000);
+    });
+
+    it("reports the timeout in the teardown error so it is not a silent hang", async () => {
+      const paseoConfig = { worktree: { teardown: ["sleep 20"] } };
+      writeFileSync(join(repoDir, "paseo.json"), JSON.stringify(paseoConfig));
+      execFileSync("git", ["add", "paseo.json"], { cwd: repoDir });
+      execFileSync(
+        "git",
+        ["-c", "commit.gpgsign=false", "commit", "-m", "add hanging teardown message"],
+        { cwd: repoDir },
+      );
+
+      const created = await createLegacyWorktreeForTest({
+        branchName: "teardown-timeout-message-branch",
+        cwd: repoDir,
+        baseBranch: "main",
+        worktreeSlug: "teardown-timeout-message-test",
+        paseoHome,
+      });
+
+      await expect(
+        runWorktreeTeardownCommands({ worktreePath: created.worktreePath, timeoutMs: 250 }),
+      ).rejects.toThrow(/timed out after 250ms/);
     });
 
     it("omits PASEO_WORKTREE_PORT from teardown env when runtime metadata is missing", async () => {

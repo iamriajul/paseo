@@ -119,6 +119,9 @@ interface ArchiveDepsInput {
   activeWorkspaces: ActiveWorkspaceRef[];
   paseoWorktreesBaseRoot?: string;
   findWorkspaceIdForCwd?: (cwd: string) => Promise<string | null>;
+  // Overriding this parks the first step of the cleanup phase, which is how the
+  // deferral tests hold the slow phase open without a shell command.
+  getSnapshot?: () => Promise<null>;
 }
 
 interface ArchiveTestDependencies extends ArchiveDependencies {
@@ -138,7 +141,7 @@ function createArchiveDeps(input: ArchiveDepsInput): ArchiveTestDependencies {
     paseoWorktreesBaseRoot: input.paseoWorktreesBaseRoot,
     github: createGitHubServiceStub(),
     workspaceGitService: {
-      getSnapshot: vi.fn(async () => null),
+      getSnapshot: vi.fn(input.getSnapshot ?? (async () => null)),
     } as unknown as Pick<WorkspaceGitService, "getSnapshot">,
     agentManager: {
       listAgents: () => [],
@@ -174,6 +177,39 @@ function createArchiveDeps(input: ArchiveDepsInput): ArchiveTestDependencies {
     archivedAgentIds,
     archivedSnapshotIds,
   };
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+
+function deferred<T = void>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+// Blocks until the test writes `teardown-gate` into the source checkout, and
+// drops a `teardown-started` marker so the test can prove the command really
+// ran. Paths are derived inside the script from PASEO_SOURCE_CHECKOUT_PATH:
+// interpolating an absolute path into this JS string literal would be silently
+// mangled by JS escape processing on Windows (`\t`, `\U`, ...). The deadline
+// keeps a failing run from leaving a child process behind.
+function blockingTeardownCommand(): string {
+  return [
+    'node -e "',
+    "const fs=require('fs'),path=require('path');",
+    "const source=process.env.PASEO_SOURCE_CHECKOUT_PATH;",
+    "fs.writeFileSync(path.join(source,'teardown-started'),'1');",
+    "const gate=path.join(source,'teardown-gate');",
+    "const idle=new Int32Array(new SharedArrayBuffer(4));",
+    "const deadline=Date.now()+20000;",
+    "while(!fs.existsSync(gate)&&Date.now()<deadline){Atomics.wait(idle,0,0,20);}",
+    '"',
+  ].join("");
 }
 
 function assertArchiveResult(
@@ -791,6 +827,104 @@ describe("archiveByScope", () => {
     expect(result.removedDirectory).toBe(true);
     expect(existsSync(worktree.worktreePath)).toBe(false);
   });
+
+  test("deferred cleanup resolves while the slow phase runs and settles after it", async () => {
+    const { tempDir, repoDir } = createGitRepo();
+    const paseoHome = path.join(tempDir, ".paseo");
+    const worktree = await createPaseoOwnedWorktree(repoDir, paseoHome, "deferred-cleanup");
+    const workspaceId = "ws-deferred-cleanup";
+
+    // Park the first step of the cleanup phase. Nothing here is platform
+    // specific, so the deferral contract is covered on Windows too — where a
+    // blocking shell teardown is not portable (see the POSIX test below).
+    const slowPhase = deferred();
+    const deps = createArchiveDeps({
+      paseoHome,
+      activeWorkspaces: [{ workspaceId, cwd: worktree.worktreePath, kind: "worktree" }],
+      getSnapshot: async () => {
+        await slowPhase.promise;
+        return null;
+      },
+    });
+
+    // Never settles if the archive goes back to awaiting cleanup inline.
+    const result = await archiveByScope(deps, {
+      scope: { kind: "workspace", workspaceId },
+      requestId: "req-deferred-cleanup",
+      deferDirectoryCleanup: true,
+    });
+
+    // The archive is durable and the caller is free while cleanup is parked.
+    expect(result.archivedWorkspaceIds).toEqual([workspaceId]);
+    expect(result.removedDirectory).toBe(false);
+    expect(existsSync(worktree.worktreePath)).toBe(true);
+
+    // Clients already have the archived record: the pre-archive emit plus the
+    // post-archive one both landed before the slow phase started.
+    const emitsOnResolve = vi.mocked(deps.emitWorkspaceUpdatesForWorkspaceIds).mock.calls.length;
+    expect(emitsOnResolve).toBeGreaterThanOrEqual(2);
+    expect(deps.clearWorkspaceArchiving).not.toHaveBeenCalled();
+
+    slowPhase.resolve();
+    const cleanup = await result.directoryCleanup;
+
+    expect(cleanup.removedDirectory).toBe(true);
+    expect(existsSync(worktree.worktreePath)).toBe(false);
+    expect(deps.clearWorkspaceArchiving).toHaveBeenCalledWith([workspaceId]);
+    expect(vi.mocked(deps.emitWorkspaceUpdatesForWorkspaceIds).mock.calls.length).toBeGreaterThan(
+      emitsOnResolve,
+    );
+  });
+
+  // POSIX-only: lifecycle commands run through PowerShell on Windows, so a
+  // blocking shell fixture is not portable. The test above covers the same
+  // contract everywhere; this one additionally proves the deferred phase is the
+  // one that runs the real paseo.json teardown.
+  test.skipIf(process.platform === "win32")(
+    "deferred cleanup resolves before a real slow teardown command finishes",
+    async () => {
+      const { tempDir, repoDir } = createGitRepo();
+      writeFileSync(
+        path.join(repoDir, "paseo.json"),
+        // Stands in for a genuinely slow teardown; this repo's own is
+        // `rm -rf node_modules`.
+        JSON.stringify({ worktree: { teardown: [blockingTeardownCommand()] } }),
+      );
+      execFileSync("git", ["add", "."], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "slow teardown"], {
+        cwd: repoDir,
+        stdio: "pipe",
+      });
+      const paseoHome = path.join(tempDir, ".paseo");
+      const worktree = await createPaseoOwnedWorktree(repoDir, paseoHome, "slow-teardown");
+      const workspaceId = "ws-slow-teardown";
+      const deps = createArchiveDeps({
+        paseoHome,
+        activeWorkspaces: [{ workspaceId, cwd: worktree.worktreePath, kind: "worktree" }],
+      });
+
+      const result = await archiveByScope(deps, {
+        scope: { kind: "workspace", workspaceId },
+        requestId: "req-slow-teardown",
+        deferDirectoryCleanup: true,
+      });
+
+      // The teardown command is blocked on a gate this test has not written
+      // yet, so it provably cannot have finished — no polling needed.
+      expect(result.archivedWorkspaceIds).toEqual([workspaceId]);
+      expect(result.removedDirectory).toBe(false);
+      expect(existsSync(worktree.worktreePath)).toBe(true);
+
+      writeFileSync(path.join(repoDir, "teardown-gate"), "");
+      const cleanup = await result.directoryCleanup;
+
+      // Proves the teardown really ran rather than silently no-opping, which is
+      // how a broken shell fixture would otherwise pass this test.
+      expect(existsSync(path.join(repoDir, "teardown-started"))).toBe(true);
+      expect(cleanup.removedDirectory).toBe(true);
+      expect(existsSync(worktree.worktreePath)).toBe(false);
+    },
+  );
 });
 
 describe("resolveWorkspaceIdAtPath", () => {

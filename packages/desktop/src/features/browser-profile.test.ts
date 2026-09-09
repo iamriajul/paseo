@@ -1,6 +1,12 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   clearPaseoBrowserProfile,
+  getPaseoBrowserProfileSession,
+  getPaseoBrowserWorkspacePartition,
+  readPersistedPaseoBrowserPartitions,
   getLegacyPaseoBrowserProfileSession,
   getPaseoBrowserProfileSessions,
   listPaseoBrowserProfileGuests,
@@ -204,5 +210,80 @@ describe("clearPaseoBrowserProfile", () => {
       }),
     ).rejects.toBe(clearError);
     expect(guest.reloads).toBe(0);
+  });
+});
+
+describe("workspace browser profile sessions", () => {
+  test("derives workspace-scoped partition", () => {
+    expect(getPaseoBrowserWorkspacePartition("workspace-123")).toBe(
+      "persist:paseo-browser-workspace-workspace-123",
+    );
+    expect(getPaseoBrowserWorkspacePartition("")).toBe("persist:paseo-browser");
+  });
+
+  test("resolves workspace profile session", () => {
+    const partitions: string[] = [];
+    const sessions = {
+      fromPartition: (partition: string) => {
+        partitions.push(partition);
+        return new FakeProfileSession();
+      },
+    };
+
+    getPaseoBrowserProfileSession(sessions, { workspaceId: "ws-a" });
+    getPaseoBrowserProfileSession(sessions, { browserId: "browser-b" });
+    getPaseoBrowserProfileSession(sessions);
+
+    expect(partitions).toEqual([
+      "persist:paseo-browser-workspace-ws-a",
+      "persist:paseo-browser-browser-b",
+      "persist:paseo-browser",
+    ]);
+  });
+
+  test("includes workspace partitions when clearing profiles", () => {
+    const partitions: string[] = [];
+    const sessions = {
+      fromPartition: (partition: string) => {
+        partitions.push(partition);
+        return new FakeProfileSession();
+      },
+    };
+
+    getPaseoBrowserProfileSessions(
+      sessions,
+      ["legacy-1"],
+      ["persist:paseo-browser-workspace-ws-a"],
+    );
+
+    expect(partitions).toEqual([
+      "persist:paseo-browser",
+      "persist:paseo-browser-legacy-1",
+      "persist:paseo-browser-workspace-ws-a",
+    ]);
+  });
+});
+
+describe("readPersistedPaseoBrowserPartitions", () => {
+  test("discovers persisted partitions from disk", () => {
+    const tmpDir = path.join(os.tmpdir(), "paseo-partitions-test-" + Date.now());
+    const partitionsDir = path.join(tmpDir, "Partitions");
+    fs.mkdirSync(path.join(partitionsDir, "paseo-browser-workspace-ws-alpha"), { recursive: true });
+    fs.mkdirSync(path.join(partitionsDir, "paseo-browser-legacy-123"), { recursive: true });
+    fs.mkdirSync(path.join(partitionsDir, "unrelated-app-data"), { recursive: true });
+
+    try {
+      const partitions = readPersistedPaseoBrowserPartitions(tmpDir);
+      expect(partitions).toContain("persist:paseo-browser-workspace-ws-alpha");
+      expect(partitions).toContain("persist:paseo-browser-legacy-123");
+      expect(partitions).not.toContain("persist:unrelated-app-data");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("handles missing partitions dir safely", () => {
+    expect(readPersistedPaseoBrowserPartitions("/non-existent-dir")).toEqual([]);
+    expect(readPersistedPaseoBrowserPartitions("")).toEqual([]);
   });
 });

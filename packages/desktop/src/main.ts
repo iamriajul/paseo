@@ -89,6 +89,7 @@ import {
   getPaseoBrowserProfileSession,
   getPaseoBrowserWorkspacePartition,
   getPaseoBrowserProfileSessions,
+  readPersistedPaseoBrowserPartitions,
   listPaseoBrowserProfileGuests,
   readLegacyPaseoBrowserIds,
 } from "./features/browser-profile.js";
@@ -605,10 +606,16 @@ ipcMain.handle("paseo:browser:open-devtools", (event, browserId: unknown) => {
 });
 
 ipcMain.handle("paseo:browser:clear-profile", async (_event, rawLegacyBrowserIds: unknown) => {
+  const persistedPartitions = Array.from(
+    new Set([
+      ...readPersistedPaseoBrowserPartitions(app.getPath("userData")),
+      ...browserCookieSync.getAllKnownWorkspacePartitions(),
+    ]),
+  );
   const profileSessions = getPaseoBrowserProfileSessions(
     session,
     readLegacyPaseoBrowserIds(rawLegacyBrowserIds),
-    browserCookieSync.getAllKnownWorkspacePartitions(),
+    persistedPartitions,
   );
   const profileSession = profileSessions[0];
   await clearPaseoBrowserProfile({

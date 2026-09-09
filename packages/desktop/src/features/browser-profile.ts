@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 export const PASEO_BROWSER_PROFILE_PARTITION = "persist:paseo-browser";
 const LEGACY_BROWSER_ID_PATTERN =
   /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|\d{13,}-[0-9a-f]+)$/i;
@@ -156,5 +158,23 @@ export async function clearPaseoBrowserProfile(input: ClearBrowserProfileInput):
     } catch (error) {
       input.logReloadError(guest.id, error);
     }
+  }
+}
+
+export function readPersistedPaseoBrowserPartitions(userDataDir: string): string[] {
+  if (!userDataDir) {
+    return [];
+  }
+  const partitionsDir = path.join(userDataDir, "Partitions");
+  try {
+    if (!fs.existsSync(partitionsDir)) {
+      return [];
+    }
+    const entries = fs.readdirSync(partitionsDir, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith("paseo-browser-"))
+      .map((entry) => `persist:${entry.name}`);
+  } catch {
+    return [];
   }
 }

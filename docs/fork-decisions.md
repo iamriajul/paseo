@@ -106,12 +106,12 @@ grep -q "left.pendingMessageSubmissions !== right.pendingMessageSubmissions" pac
 
 ## browser-localhost-tunnel
 
-**per-browser partitions, tcpTunnel, and localhost links open in workspace Browser**
+**workspace partitions with shared non-localhost cookies, tcpTunnel, and localhost links open in workspace Browser**
 
-each Browser tab uses persist:paseo-browser-${browserId}; daemon advertises tcpTunnel and mounts browser-preview before the service proxy; assistant localhost links open in that workspace Browser instead of the client machine
+each Browser tab uses workspace-scoped persist:paseo-browser-workspace-${workspaceId} partitions with non-localhost cookies synced across workspaces and localhost cookies scoped to the workspace; daemon advertises tcpTunnel and mounts browser-preview before the service proxy; assistant localhost links open in that workspace Browser instead of the client machine
 
 ```bash
-npx vitest run packages/desktop/src/features/browser-profile.test.ts packages/desktop/src/features/browser-webviews/index.test.ts packages/app/src/utils/localhost-url.test.ts --bail=1
+npx vitest run packages/desktop/src/features/browser-cookies.test.ts packages/desktop/src/features/browser-profile.test.ts packages/desktop/src/features/browser-webviews/index.test.ts packages/app/src/utils/localhost-url.test.ts --bail=1
 ```
 
 ## code-server-tab

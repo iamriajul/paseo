@@ -63,6 +63,8 @@ import {
   decideBrowserWindowOpenRequest,
   getPaseoBrowserIdForWebContents,
   getPaseoBrowserWebContentsForHostWindow,
+  getPaseoBrowserWorkspaceId,
+  listRegisteredPaseoBrowserIdsForWorkspace,
   getPaseoBrowserWebviewRegistry,
   listRegisteredPaseoBrowserIds,
   isPaseoBrowserWebviewAttach,
@@ -84,12 +86,15 @@ import {
   shouldUseDirectLoopback,
   unregisterBrowserLoopbackProxy,
 } from "./features/browser-loopback-proxy.js";
+import { PaseoBrowserCookieSync } from "./features/browser-cookies.js";
 import {
   clearPaseoBrowserProfile,
   getLegacyPaseoBrowserProfileSession,
   PASEO_BROWSER_PROFILE_PARTITION,
   getPaseoBrowserProfileSession,
+  getPaseoBrowserWorkspacePartition,
   getPaseoBrowserProfileSessions,
+  readPersistedPaseoBrowserPartitions,
   listPaseoBrowserProfileGuests,
   readLegacyPaseoBrowserIds,
 } from "./features/browser-profile.js";
@@ -133,6 +138,7 @@ const DESKTOP_WINDOW_CHROME_MODE = resolveDesktopWindowChromeMode({
 });
 const UPDATE_QUIT_DEADLINE_MS = 5_000;
 const pendingBrowserWindowOpenRequests = new PendingBrowserWindowOpenRequests();
+const browserCookieSync = new PaseoBrowserCookieSync({ sessions: session });
 const agentNavigationInbox = new AgentNavigationInbox();
 
 // A second-instance launch can arrive before the packaged protocol handler,
@@ -437,7 +443,10 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
     sender: event.sender,
     // Match the per-browser webview partition used by the fork's localhost proxy.
     // Using the shared profile session here rejects registration and breaks proxy auth.
-    profileSession: getPaseoBrowserProfileSession(session, input.browserId),
+    profileSession: getPaseoBrowserProfileSession(session, {
+      workspaceId: input.workspaceId,
+      browserId: input.browserId,
+    }),
     findWebContents: (webContentsId) => webContents.fromId(webContentsId) ?? null,
   });
   if (!registered) {
@@ -453,6 +462,11 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
     webContentsId: input.webContentsId,
     registeredBrowserIds: listRegisteredPaseoBrowserIds(),
   });
+  if (input.workspaceId.trim().length > 0) {
+    void browserCookieSync.registerWorkspacePartition(
+      getPaseoBrowserWorkspacePartition(input.workspaceId),
+    );
+  }
   for (const url of pendingBrowserWindowOpenRequests.take(input.webContentsId)) {
     event.sender.send(BROWSER_NEW_TAB_REQUEST_EVENT, {
       sourceBrowserId: input.browserId,
@@ -481,6 +495,7 @@ ipcMain.handle("paseo:browser:register-workspace-browser", async (event, rawInpu
 ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, browserId: unknown) => {
   if (typeof browserId === "string" && browserId.trim().length > 0) {
     const normalizedBrowserId = browserId.trim();
+    const workspaceId = getPaseoBrowserWorkspaceId(normalizedBrowserId);
     const hasOtherHost = getPaseoBrowserWebviewRegistry().hasBrowserInOtherHostWindow(
       event.sender.id,
       normalizedBrowserId,
@@ -488,6 +503,11 @@ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, brows
     unregisterPaseoBrowserFromHost(event.sender.id, normalizedBrowserId);
     if (!hasOtherHost) {
       await unregisterBrowserLoopbackProxy(normalizedBrowserId);
+      if (workspaceId && listRegisteredPaseoBrowserIdsForWorkspace(workspaceId).length === 0) {
+        browserCookieSync.unregisterWorkspacePartition(
+          getPaseoBrowserWorkspacePartition(workspaceId),
+        );
+      }
     }
     // COMPAT(browserProfile): added in v0.1.108; remove after 2027-01-15.
     const legacyProfile = hasOtherHost
@@ -600,9 +620,16 @@ ipcMain.handle("paseo:browser:open-devtools", (event, browserId: unknown) => {
 });
 
 ipcMain.handle("paseo:browser:clear-profile", async (_event, rawLegacyBrowserIds: unknown) => {
+  const persistedPartitions = Array.from(
+    new Set([
+      ...readPersistedPaseoBrowserPartitions(app.getPath("userData")),
+      ...browserCookieSync.getAllKnownWorkspacePartitions(),
+    ]),
+  );
   const profileSessions = getPaseoBrowserProfileSessions(
     session,
     readLegacyPaseoBrowserIds(rawLegacyBrowserIds),
+    persistedPartitions,
   );
   const profileSession = profileSessions[0];
   await clearPaseoBrowserProfile({
@@ -1016,6 +1043,7 @@ async function bootstrap(): Promise<void> {
   }
 
   await app.whenReady();
+  browserCookieSync.init();
 
   const appDistDir = getAppDistDir();
   protocol.handle(APP_SCHEME, (request) => {

@@ -317,9 +317,14 @@ export function prepareBrowserWebview(
 ): void {
   const browser = getBrowserBridge(input.profileHost);
   webview.setAttribute(BROWSER_ID_ATTRIBUTE, input.browserId);
-  // The fork keeps one persistent partition per Browser so its Electron proxy
-  // can route localhost to the correct remote host without affecting other tabs.
-  webview.setAttribute("partition", `${browser.profilePartition}-${input.browserId}`);
+  // The fork keeps persistent partitions scoped to the workspace so localhost
+  // proxying and cookies are shared across tabs of that workspace, while non-localhost
+  // cookies are synchronized across all workspaces.
+  const partition =
+    input.workspaceId.trim().length > 0
+      ? `${browser.profilePartition}-workspace-${input.workspaceId.trim()}`
+      : `${browser.profilePartition}-${input.browserId}`;
+  webview.setAttribute("partition", partition);
   webview.setAttribute("allowpopups", "true");
   webview.setAttribute("spellcheck", "false");
   webview.setAttribute("autosize", "on");

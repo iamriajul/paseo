@@ -3,6 +3,10 @@ import { describe, expect, test } from "vitest";
 import {
   browserLoopbackProxyBypassRules,
   parseBrowserLoopbackProxyRequestForTest,
+  registerBrowserLoopbackProxy,
+  resolveBrowserLoopbackProxyCredentials,
+  getBrowserLoopbackProxyPortForTest,
+  unregisterBrowserLoopbackProxy,
 } from "./browser-loopback-proxy";
 
 function parseRawRequest(raw: string) {
@@ -80,5 +84,59 @@ describe("browser loopback proxy", () => {
         "",
       ].join("\r\n"),
     );
+  });
+});
+
+describe("workspace loopback proxy multi-tab lifecycle", () => {
+  test("shares proxy and credentials across tabs of the same workspace", async () => {
+    await registerBrowserLoopbackProxy({
+      browserId: "tab-1",
+      serverId: "server-1",
+      workspaceId: "ws-alpha",
+      rendererWebContentsId: 999,
+      directLoopback: false,
+    });
+
+    const port = getBrowserLoopbackProxyPortForTest("tab-1");
+    expect(typeof port === "number" && port > 0).toBe(true);
+    const creds1 = resolveBrowserLoopbackProxyCredentials({
+      browserId: "tab-1",
+      isProxy: true,
+      host: "127.0.0.1",
+      port: port!,
+    });
+    expect(creds1).not.toBeNull();
+
+    // Register tab 2 in the same workspace
+    await registerBrowserLoopbackProxy({
+      browserId: "tab-2",
+      serverId: "server-1",
+      workspaceId: "ws-alpha",
+      rendererWebContentsId: 999,
+      directLoopback: false,
+    });
+
+    const creds2 = resolveBrowserLoopbackProxyCredentials({
+      browserId: "tab-2",
+      isProxy: true,
+      host: "127.0.0.1",
+      port: port!,
+    });
+    expect(creds2).toEqual(creds1);
+
+    // Unregister tab 1; tab 2 remains alive in the workspace
+    await unregisterBrowserLoopbackProxy("tab-1");
+
+    // Unregister tab 2; cleans up workspace proxy
+    await unregisterBrowserLoopbackProxy("tab-2");
+
+    expect(
+      resolveBrowserLoopbackProxyCredentials({
+        browserId: "tab-2",
+        isProxy: true,
+        host: "127.0.0.1",
+        port: 12345,
+      }),
+    ).toBeNull();
   });
 });

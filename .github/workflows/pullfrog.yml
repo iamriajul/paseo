@@ -174,7 +174,7 @@ jobs:
             core.info(`dispatch: ${runName} trigger=${event.trigger}`);
 
       - name: Run agent
-        uses: pullfrog/pullfrog@9397c1a891ef1fb961807498e12d2891bcd934a7 # v0.1.53
+        uses: pullfrog/pullfrog@v0
         with:
           prompt: ${{ steps.payload.outputs.prompt }}
           model: ${{ vars.PULLFROG_MODEL || 'opencode/muse-spark-1.3-contributor-free' }}

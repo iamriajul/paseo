@@ -177,11 +177,6 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
     userSelect: "none",
   },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
-  },
   button: {
     flexDirection: "row",
     alignItems: "center",
@@ -217,6 +212,7 @@ const styles = StyleSheet.create((theme) => ({
   shortcut: {
     marginLeft: "auto",
   },
+
   trailingAction: {
     minWidth: 28,
     minHeight: 28,

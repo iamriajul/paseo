@@ -312,7 +312,7 @@ npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts p
 workspace menu exposes Mark as unread when a workspace is done; daemon marks non-running agents with attention to surface in attention group
 
 ```bash
-npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/server/src/server/session.workspaces.test.ts packages/client/src/daemon-client.test.ts packages/app/src/hooks/use-clear-workspace-attention.test.ts --bail=1
+npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/server/src/server/session.workspaces.test.ts packages/client/src/daemon-client.test.ts --bail=1
 ```
 
 ## fork-rpc-permissions

@@ -122,7 +122,8 @@ export interface AppSettings {
    */
   sidebarStatusSubtitle: SidebarStatusSubtitle;
   /** Server glyph next to host identity under a workspace title. Default on. */
-  sidebarIdentityIcon: boolean;  autoExpandReasoning: boolean;
+  sidebarIdentityIcon: boolean;
+  autoExpandReasoning: boolean;
   toolCallDetailLevel: ToolCallDetailLevel;
   chatOutlineEnabled: boolean;
   vimKeybindings: boolean;
@@ -184,7 +185,8 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   sidebarChecksDisplay: DEFAULT_SIDEBAR_CHECKS_DISPLAY,
   sidebarNavItems: [],
   sidebarStatusSubtitle: DEFAULT_SIDEBAR_STATUS_SUBTITLE,
-  sidebarIdentityIcon: true,  autoExpandReasoning: false,
+  sidebarIdentityIcon: true,
+  autoExpandReasoning: false,
   toolCallDetailLevel: "detailed",
   chatOutlineEnabled: true,
   vimKeybindings: false,
@@ -279,7 +281,8 @@ const StoredAppSettingsSchema = z
       .catch(DEFAULT_SIDEBAR_CHECKS_DISPLAY),
     sidebarNavItems: z.array(z.object({ key: z.string(), visible: z.boolean() })).catch([]),
     sidebarStatusSubtitle: z.enum(["host", "project"]).catch(DEFAULT_SIDEBAR_STATUS_SUBTITLE),
-    sidebarIdentityIcon: z.boolean().catch(true),    autoExpandReasoning: z.boolean().catch(false),
+    sidebarIdentityIcon: z.boolean().catch(true),
+    autoExpandReasoning: z.boolean().catch(false),
     toolCallDetailLevel: z
       .enum(["overview", "detailed"])
       .or(z.literal("concise").transform(() => "overview" as const))

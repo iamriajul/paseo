@@ -23,6 +23,7 @@ import {
 } from "@/components/sidebar-resize-handle-layout";
 import { HostPicker } from "@/components/hosts/host-picker";
 import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/display-preferences/menu";
+import { SidebarGroupModeControl } from "@/components/sidebar/sidebar-group-mode-control";
 import { SidebarNavRows } from "@/components/sidebar/sidebar-nav-rows";
 import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
@@ -805,6 +806,14 @@ function DesktopSidebar({
 const WORKSPACES_GROUP_MODE_MIN_WIDTH = 300;
 
 function WorkspacesSectionHeader() {
+  const [showGroupMode, setShowGroupMode] = useState(true);
+  const handleHeaderLayout = useCallback(
+    (event: { nativeEvent: { layout: { width: number } } }) => {
+      const next = event.nativeEvent.layout.width >= WORKSPACES_GROUP_MODE_MIN_WIDTH;
+      setShowGroupMode((prev) => (prev === next ? prev : next));
+    },
+    [],
+  );
   return (
     <View style={styles.workspacesSectionHeader} onLayout={handleHeaderLayout}>
       <View style={styles.workspacesSectionLeading}>

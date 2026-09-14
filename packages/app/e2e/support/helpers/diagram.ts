@@ -34,7 +34,10 @@ const STREAMING_OBSERVATION_MS = 3_000;
 // it fails while the SVG is provably present, and a real removal that is restored within
 // one poll budget slips through unnoticed. A MutationObserver on #diagram sees every
 // commit the runtime makes and is unaffected by driver latency.
-export async function expectDiagramRemainsRenderedWhileStreaming(page: Page): Promise<void> {
+export async function expectDiagramRemainsRenderedWhileStreaming(
+  page: Page,
+  completion?: Promise<unknown>,
+): Promise<void> {
   const { diagram, svg } = renderedDiagram(page);
   await expect(diagram).toBeVisible({ timeout: 30_000 });
   await expect(svg).toBeVisible({ timeout: 30_000 });
@@ -48,7 +51,12 @@ export async function expectDiagramRemainsRenderedWhileStreaming(page: Page): Pr
     }).observe(element, { childList: true, subtree: true });
   });
 
-  await page.waitForTimeout(STREAMING_OBSERVATION_MS);
+  // Watch while tokens stream, but stop early once the turn completes.
+  if (completion) {
+    await Promise.race([completion, page.waitForTimeout(STREAMING_OBSERVATION_MS)]);
+  } else {
+    await page.waitForTimeout(STREAMING_OBSERVATION_MS);
+  }
 
   const emptied = await host.evaluate(() => {
     const state = (window as unknown as Record<string, { emptied: number } | undefined>)
@@ -60,7 +68,8 @@ export async function expectDiagramRemainsRenderedWhileStreaming(page: Page): Pr
   expect(emptied, "#diagram lost its committed SVG while the message was still streaming").toBe(0);
 
   await expect(diagram).toBeVisible();
-  await expect(svg).toBeVisible();}
+  await expect(svg).toBeVisible();
+}
 
 export async function waitForDiagramTurnToComplete(agent: MockAgentWorkspace): Promise<void> {
   await agent.client.waitForFinish(agent.agentId, 30_000);

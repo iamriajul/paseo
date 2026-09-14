@@ -810,6 +810,14 @@ function DesktopSidebar({
 const WORKSPACES_GROUP_MODE_MIN_WIDTH = 300;
 
 function WorkspacesSectionHeader() {
+  const [showGroupMode, setShowGroupMode] = useState(true);
+  const handleHeaderLayout = useCallback(
+    (event: { nativeEvent: { layout: { width: number } } }) => {
+      const next = event.nativeEvent.layout.width >= WORKSPACES_GROUP_MODE_MIN_WIDTH;
+      setShowGroupMode((prev) => (prev === next ? prev : next));
+    },
+    [],
+  );
   return (
     <SidebarSectionHeader
       title="Workspaces"

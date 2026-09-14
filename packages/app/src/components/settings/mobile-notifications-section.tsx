@@ -7,7 +7,7 @@ import * as Clipboard from "expo-clipboard";
 import { Button } from "@/components/ui/button";
 import { isNative } from "@/constants/platform";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
-import { SettingsSection } from "@/screens/settings/settings-section";
+import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { settingsStyles } from "@/styles/settings";
 import { getExpoProjectId, redactExpoPushToken } from "@/utils/expo-project-id";
 

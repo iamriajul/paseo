@@ -1,4 +1,3 @@
-import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactElement, RefObject } from "react";
 import { useTranslation } from "react-i18next";
@@ -1155,7 +1154,8 @@ async function submitWorkspaceDraft(input: SubmitDraftInput): Promise<SubmitOutc
       void clearComposerOnHost({ client, clientDraftKey: draftId });
     }
   }
-  return "navigated";}
+  return "navigated";
+}
 
 function useNewWorkspaceHostSelector(input: {
   initialServerId: string;

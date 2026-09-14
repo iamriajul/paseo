@@ -100,7 +100,8 @@ export const IsolatedBottomSheetModal = forwardRef<
       stackBehavior={presentation}
       backdropComponent={backdropOpacity === undefined ? undefined : renderBackdrop}
     >
-      <BottomSheetScope>{contextBridge ? contextBridge(children) : children}</BottomSheetScope>    </GorhomBottomSheetModal>
+      <BottomSheetScope>{contextBridge ? contextBridge(children) : children}</BottomSheetScope>
+    </GorhomBottomSheetModal>
   );
 
   return modal;

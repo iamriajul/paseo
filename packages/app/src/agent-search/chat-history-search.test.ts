@@ -13,7 +13,14 @@ const items: StreamItem[] = [
   { kind: "user_message", id: "u1", text: "Alpha alpha", timestamp },
   { kind: "thought", id: "t1", text: "alpha", timestamp, status: "ready" },
   { kind: "assistant_message", id: "a1", text: "Beta ALPHA", timestamp },
-  { kind: "activity_log", id: "l1", message: "alpha", activityType: "info", timestamp },
+  {
+    kind: "notification",
+    id: "l1",
+    sourceType: "notification",
+    level: "info",
+    message: "alpha",
+    timestamp,
+  },
   { kind: "user_message", id: "u2", text: "unrelated", timestamp },
 ];
 

@@ -30,6 +30,15 @@ describe("workspace message schemas", () => {
           requestId: "req-mark-unread",
           workspaceId: "workspace-1",
           markedAgentId: "agent-1",
+          markedAgentIds: ["agent-1"],
+          results: [
+            {
+              workspaceId: "workspace-1",
+              markedAgentIds: ["agent-1"],
+              success: true,
+              error: null,
+            },
+          ],
           success: true,
           error: null,
         },
@@ -40,6 +49,15 @@ describe("workspace message schemas", () => {
         requestId: "req-mark-unread",
         workspaceId: "workspace-1",
         markedAgentId: "agent-1",
+        markedAgentIds: ["agent-1"],
+        results: [
+          {
+            workspaceId: "workspace-1",
+            markedAgentIds: ["agent-1"],
+            success: true,
+            error: null,
+          },
+        ],
         success: true,
         error: null,
       },
@@ -1317,6 +1335,7 @@ describe("workspace message schemas", () => {
       payload: {
         requestId: "req-mark-unread-1",
         workspaceId: "ws-1",
+        markedAgentId: "agent-1",
         markedAgentIds: ["agent-1"],
         results: [
           {
@@ -1335,6 +1354,7 @@ describe("workspace message schemas", () => {
       payload: {
         requestId: "req-mark-unread-1",
         workspaceId: "ws-1",
+        markedAgentId: "agent-1",
         markedAgentIds: ["agent-1"],
         results: [
           {

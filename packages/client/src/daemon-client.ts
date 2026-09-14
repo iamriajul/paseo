@@ -2255,7 +2255,8 @@ export class DaemonClient {
         },
       });
     if (!response.success) {
-      throw new Error(response.error ?? "Failed to mark workspace unread");    }
+      throw new Error(response.error ?? "Failed to mark workspace unread");
+    }
   }
 
   sendHeartbeat(params: {
@@ -3611,6 +3612,7 @@ export class DaemonClient {
     );
   }
 
+
   async listBackgroundTasks(
     parentAgentId: string,
     options: { requestId?: string; timeout?: number } = {},
@@ -3810,34 +3812,6 @@ export class DaemonClient {
         response.payload.requestId === requestId
           ? response.payload
           : null,
-    });
-  }
-
-  async setAgentTimelineSubscription(agentIds: string[]): Promise<void> {    // COMPAT(selectiveAgentTimeline): added in v0.1.106. Old daemons keep their
-    // legacy global stream and do not understand this RPC. Remove after
-    // 2027-01-12 once the supported daemon floor is >= v0.1.106.
-    if (!this.lastServerInfoMessage?.features?.selectiveAgentTimeline) {
-      return;
-    }
-
-    const requestId = this.createRequestId();
-    const normalizedAgentIds = [...new Set(agentIds)].sort();
-    const message = SessionInboundMessageSchema.parse({
-      type: "agent.timeline.set_subscription.request",
-      agentIds: normalizedAgentIds,
-      requestId,
-    });
-
-    await this.sendRequest({
-      requestId,
-      message,
-      options: { skipQueue: true },
-      select: (response) => {
-        if (response.type !== "agent.timeline.set_subscription.response") {
-          return null;
-        }
-        return response.payload.requestId === requestId ? response.payload : null;
-      },
     });
   }
 

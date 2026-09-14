@@ -9,6 +9,7 @@ function agent(overrides: Partial<AggregatedAgent> & Pick<AggregatedAgent, "id">
     serverLabel: overrides.serverLabel ?? "Local",
     title: overrides.title ?? null,
     status: overrides.status ?? "idle",
+    turn: overrides.turn ?? { phase: "idle", cancellationRequestId: null },
     lastActivityAt: overrides.lastActivityAt ?? new Date("2026-07-30T00:00:00.000Z"),
     cwd: overrides.cwd ?? "/tmp/repo",
     workspaceId: overrides.workspaceId ?? "ws-1",

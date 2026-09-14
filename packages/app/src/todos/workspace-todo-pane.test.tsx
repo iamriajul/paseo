@@ -77,6 +77,9 @@ vi.mock("@/components/ui/text-input", () => ({
         setVal(nextText);
         (onChangeText as ((text: string) => void) | undefined)?.(nextText);
       },
+      reset: () => {
+        setVal("");
+      },
       getNativeRef: () => inputRef.current,
     }));
 

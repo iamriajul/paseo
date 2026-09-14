@@ -3291,6 +3291,15 @@ test("marks a workspace unread through the dotted RPC", async () => {
         requestId: "req-mark-unread",
         workspaceId: "workspace-1",
         markedAgentId: "agent-1",
+        markedAgentIds: ["agent-1"],
+        results: [
+          {
+            workspaceId: "workspace-1",
+            markedAgentIds: ["agent-1"],
+            success: true,
+            error: null,
+          },
+        ],
         success: true,
         error: null,
       },
@@ -3688,6 +3697,7 @@ test("sends workspace.mark_unread.request and resolves on success", async () => 
       payload: {
         requestId: request.requestId,
         workspaceId: "ws-unread-test",
+        markedAgentId: "agent-1",
         markedAgentIds: ["agent-1"],
         results: [
           {
@@ -3732,6 +3742,7 @@ test("throws error when workspace.mark_unread.response fails", async () => {
       payload: {
         requestId: request.requestId,
         workspaceId: "ws-missing",
+        markedAgentId: null,
         markedAgentIds: [],
         results: [
           {

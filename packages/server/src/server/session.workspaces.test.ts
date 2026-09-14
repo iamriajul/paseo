@@ -1794,7 +1794,7 @@ test("workspace clear attention responds with an error instead of timing out", a
   });
 });
 
-test("workspace mark unread selects the newest finished workspace root", async () => {
+test("workspace mark unread marks every non-running agent in the workspace", async () => {
   const emitted: SessionOutboundMessage[] = [];
   const workspace = createPersistedWorkspaceRecord({
     workspaceId: REPO_CWD,
@@ -1838,7 +1838,8 @@ test("workspace mark unread selects the newest finished workspace root", async (
   const session = createSessionForWorkspaceTests({
     onMessage: (message) => emitted.push(message),
     agentManager: {
-      markAgentUnread: async (agentId: string) => {
+      getAgent: (agentId: string) => ({ id: agentId }),
+      markAgentAttention: async (agentId: string) => {
         markedAgentIds.push(agentId);
       },
     },
@@ -1870,17 +1871,26 @@ test("workspace mark unread selects the newest finished workspace root", async (
     requestId: "req-mark-unread",
   });
 
-  expect(markedAgentIds).toEqual(["root-agent"]);
+  expect(markedAgentIds).toEqual(["root-agent", "newer-child"]);
   expect(findByType(emitted, "workspace.mark_unread.response").payload).toEqual({
     requestId: "req-mark-unread",
     workspaceId: workspace.workspaceId,
     markedAgentId: "root-agent",
+    markedAgentIds: ["root-agent", "newer-child"],
+    results: [
+      {
+        workspaceId: workspace.workspaceId,
+        markedAgentIds: ["root-agent", "newer-child"],
+        success: true,
+        error: null,
+      },
+    ],
     success: true,
     error: null,
   });
 });
 
-test("workspace mark unread rejects workspaces without a finished root agent", async () => {
+test("workspace mark unread succeeds vacuously when no agent is markable", async () => {
   const emitted: SessionOutboundMessage[] = [];
   const workspace = createPersistedWorkspaceRecord({
     workspaceId: REPO_CWD,
@@ -1906,8 +1916,17 @@ test("workspace mark unread rejects workspaces without a finished root agent", a
     requestId: "req-mark-unread",
     workspaceId: workspace.workspaceId,
     markedAgentId: null,
-    success: false,
-    error: `Workspace has no finished agent to mark unread: ${workspace.workspaceId}`,
+    markedAgentIds: [],
+    results: [
+      {
+        workspaceId: workspace.workspaceId,
+        markedAgentIds: [],
+        success: true,
+        error: null,
+      },
+    ],
+    success: true,
+    error: null,
   });
 });
 

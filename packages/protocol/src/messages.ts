@@ -5329,6 +5329,9 @@ export const WorkspaceMarkUnreadResponseSchema = z.object({
   payload: z.object({
     requestId: z.string(),
     workspaceId: z.union([z.string(), z.array(z.string())]),
+    // COMPAT(markedAgentId): pre-batch clients require the single marked id.
+    // First marked agent overall, or null when nothing was marked.
+    markedAgentId: z.string().nullable(),
     markedAgentIds: z.array(z.string()),
     results: z.array(
       z.object({

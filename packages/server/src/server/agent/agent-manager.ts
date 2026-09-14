@@ -1817,6 +1817,14 @@ export class AgentManager {
     );
   }
 
+  private resolveReloadResumeOptions(
+    rehydrateFromDisk: boolean,
+  ): { pauseActiveGoals: boolean } | undefined {
+    // Hot reloads (voice toggle, config swap) must not park Codex Goals.
+    // Full disk rehydrate (user "Reload agent") keeps the default pause-on-resume.
+    return rehydrateFromDisk ? undefined : { pauseActiveGoals: false };
+  }
+
   private async reloadAgentSessionInternal(
     agentId: string,
     overrides?: Partial<AgentSessionConfig>,
@@ -1871,7 +1879,8 @@ export class AgentManager {
     }
 
     let session: AgentSession | undefined;
-    let closedExisting: ManagedAgentClosed | undefined;    let handedToRegistration = false;
+    let closedExisting: ManagedAgentClosed | undefined;
+    let handedToRegistration = false;
     try {
       // A persisted thread can have only one writer, even when its turn is idle.
       await this.closeReloadedSession(existing.session, agentId);
@@ -1882,14 +1891,12 @@ export class AgentManager {
       this.assertAcceptingAgentRegistrations();
 
       this.paseoToolPolicies.set(agentId, paseoToolPolicy);
-      // Hot reloads (voice toggle, config swap) must not park Codex Goals.
-      // Full disk rehydrate (user "Reload agent") keeps the default pause-on-resume.
       session = handle
         ? await client.resumeSession(
             handle,
             providerLaunchConfig,
             launchContext,
-            rehydrateFromDisk ? undefined : { pauseActiveGoals: false },
+            this.resolveReloadResumeOptions(rehydrateFromDisk),
           )
         : await client.createSession(providerLaunchConfig, launchContext);
       await this.requireExternalMcpSupport(session, providerLaunchConfig, launchContext);
@@ -2620,6 +2627,8 @@ export class AgentManager {
     };
     await registry.upsert(nextRecord);
     this.dispatchStoredAgentState(nextRecord);
+  }
+
   async markAgentAttention(
     agentId: string,
     reason: "finished" | "error" = "finished",
@@ -2631,7 +2640,8 @@ export class AgentManager {
       attentionTimestamp: new Date(),
     };
     await this.persistSnapshot(agent);
-    this.emitState(agent, { persist: false });  }
+    this.emitState(agent, { persist: false });
+  }
 
   async archiveSnapshot(agentId: string, archivedAt: string): Promise<StoredAgentRecord> {
     return this.runLifecycleMutation(agentId, () =>

@@ -249,7 +249,6 @@ import {
 } from "../services/github-service.js";
 import type { ForgeService } from "../services/forge-service.js";
 import {
-  resolveWorkspaceRootAgent,
   summarizeFetchWorkspacesEntries,
   workspaceIdsOnCheckout,
   WorkspaceDirectory,
@@ -2669,6 +2668,7 @@ export class Session {
       this.connectedHostSession?.dispatch(msg) ??
       this.dispatchSubscriptionMessage(msg, source) ??
       this.dispatchVoiceAndControlMessage(msg) ??
+      this.dispatchBackgroundTasksMessage(msg) ??
       this.dispatchAgentObservationMessage(msg, source) ??
       this.dispatchHubExecutionMessage(msg) ??
       this.dispatchCreationMessage(msg, source) ??
@@ -3027,6 +3027,27 @@ export class Session {
     }
   }
 
+  private dispatchBackgroundTasksMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "agent.background_tasks.list.request":
+        return this.handleBackgroundTasksListRequest(msg);
+      case "agent.background_tasks.stop.request":
+        return this.handleBackgroundTasksStopRequest(msg);
+      case "agent.background_tasks.output.get.request":
+        return this.handleBackgroundTasksOutputGetRequest(msg);
+      case "agent.background_tasks.output.subscribe.request":
+        return this.handleBackgroundTasksOutputSubscribeRequest(msg);
+      case "agent.background_tasks.output.unsubscribe.request":
+        return this.handleBackgroundTasksOutputUnsubscribeRequest(msg);
+      case "agent.provider_heartbeats.list.request":
+        return this.handleProviderHeartbeatsListRequest(msg);
+      case "agent.provider_heartbeats.delete.request":
+        return this.handleProviderHeartbeatsDeleteRequest(msg);
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchAgentTimelineMessage(
     msg: SessionInboundMessage,
     source?: object,
@@ -3070,20 +3091,7 @@ export class Session {
           throw error;
         });
       }
-      case "agent.background_tasks.list.request":
-        return this.handleBackgroundTasksListRequest(msg);
-      case "agent.background_tasks.stop.request":
-        return this.handleBackgroundTasksStopRequest(msg);
-      case "agent.background_tasks.output.get.request":
-        return this.handleBackgroundTasksOutputGetRequest(msg);
-      case "agent.background_tasks.output.subscribe.request":
-        return this.handleBackgroundTasksOutputSubscribeRequest(msg);
-      case "agent.background_tasks.output.unsubscribe.request":
-        return this.handleBackgroundTasksOutputUnsubscribeRequest(msg);
-      case "agent.provider_heartbeats.list.request":
-        return this.handleProviderHeartbeatsListRequest(msg);
-      case "agent.provider_heartbeats.delete.request":
-        return this.handleProviderHeartbeatsDeleteRequest(msg);      case "agent.timeline.set_subscription.request": {
+      case "agent.timeline.set_subscription.request": {
         const agentIds = [...new Set(msg.agentIds)].sort();
         const owner = this.subscribeAgentTimelines(agentIds);
         this.emitForSource(
@@ -3432,6 +3440,20 @@ export class Session {
   }
 
   private dispatchWorkspaceStateMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "workspace.recovery.inspect.request":
+        return this.handleWorkspaceRecoveryInspectRequest(msg);
+      case "workspace.recovery.restore.request":
+        return this.handleWorkspaceRecoveryRestoreRequest(msg);
+      case "workspace.clear_attention.request":
+        return this.handleWorkspaceClearAttentionRequest(msg);
+      case "workspace.mark_unread.request":
+        return this.handleWorkspaceMarkUnreadRequest(msg);
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchTaskUiStateAndLabelMessage(
     msg: SessionInboundMessage,
   ): Promise<void> | undefined {
@@ -3471,18 +3493,6 @@ export class Session {
         return this.uiStateSession.handleClear(msg);
       case "ui_state.list.request":
         return this.uiStateSession.handleList(msg);
-      default:
-        return undefined;
-    }
-  }    switch (msg.type) {
-      case "workspace.recovery.inspect.request":
-        return this.handleWorkspaceRecoveryInspectRequest(msg);
-      case "workspace.recovery.restore.request":
-        return this.handleWorkspaceRecoveryRestoreRequest(msg);
-      case "workspace.clear_attention.request":
-        return this.handleWorkspaceClearAttentionRequest(msg);
-      case "workspace.mark_unread.request":
-        return this.handleWorkspaceMarkUnreadRequest(msg);
       default:
         return undefined;
     }
@@ -8170,6 +8180,7 @@ export class Session {
         payload: {
           requestId,
           workspaceId,
+          markedAgentId: null,
           markedAgentIds: [],
           results,
           success: false,
@@ -8265,6 +8276,7 @@ export class Session {
       payload: {
         requestId,
         workspaceId,
+        markedAgentId: markedAgentIds[0] ?? null,
         markedAgentIds,
         results,
         success: failedResults.length === 0,
@@ -8276,7 +8288,8 @@ export class Session {
                 .filter((error) => error !== null)
                 .join("; "),
       },
-    });  }
+    });
+  }
 
   private async handleFetchAgent(agentIdOrIdentifier: string, requestId: string): Promise<void> {
     // An unknown agent is a null agent, not an error. Errors are for empty or ambiguous identifiers.
@@ -9427,7 +9440,8 @@ export class Session {
   }
   /** Public emit for server-side fan-out (e.g. ui_state.updated). */
   emitOutbound(msg: SessionOutboundMessage): void {
-    this.emit(msg);  }
+    this.emit(msg);
+  }
 
   private emit(msg: SessionOutboundMessage): void {
     if (!this.authorization.allowsOutbound(msg)) return;

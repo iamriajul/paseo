@@ -660,7 +660,8 @@ function submitWorkspaceDraft(input: SubmitDraftInput): SubmitOutcome {
       void clearComposerOnHost({ client, clientDraftKey: draftId });
     }
   }
-  return "navigated";}
+  return "navigated";
+}
 
 function useNewWorkspaceHostSelector(input: {
   initialServerId: string;

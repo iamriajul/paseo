@@ -220,7 +220,8 @@ describe("daemon-manager commands", () => {
     await handlers.desktop_daemon_status();
     await handlers.desktop_daemon_status();
 
-    expect(peekDesktopDaemonServerId()).toBe("local-daemon-1");  });
+    expect(peekDesktopDaemonServerId()).toBe("local-daemon-1");
+  });
 });
 
 describe("desktop stops and terminals", () => {

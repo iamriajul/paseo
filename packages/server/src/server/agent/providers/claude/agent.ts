@@ -5843,6 +5843,15 @@ class ClaudeAgentSession implements AgentSession {
     return replay;
   }
 
+  private rememberApiMessageIdMapping(entry: Record<string, unknown>): void {
+    const uuid = entry.uuid;
+    if (typeof uuid !== "string") return;
+    const apiMessageId = readApiMessageIdFromContainer(entry.message);
+    if (apiMessageId && apiMessageId !== uuid) {
+      this.apiMessageIdToTranscriptUuid.set(apiMessageId, uuid);
+    }
+  }
+
   private async ingestPersistedHistoryEntry(
     entry: ClaudeHistoryEntry,
     timeline: PersistedTimelineEntry[],
@@ -5893,10 +5902,7 @@ class ClaudeAgentSession implements AgentSession {
     }
     if (entry.type === "assistant" && typeof entry.uuid === "string") {
       this.rememberRewindAssistantAnchor(entry.uuid);
-      const apiMessageId = readApiMessageIdFromContainer(entry.message);
-      if (apiMessageId && apiMessageId !== entry.uuid) {
-        this.apiMessageIdToTranscriptUuid.set(apiMessageId, entry.uuid);
-      }
+      this.rememberApiMessageIdMapping(entry);
     }
 
     if (items.length > 0) {

@@ -1,10 +1,8 @@
 import { router, usePathname } from "expo-router";
-import { CalendarClock, History, ListTodo, Plus, Search } from "lucide-react-native";
+import { CalendarClock, History, Plus, Search } from "lucide-react-native";
 import { memo, useCallback, useMemo, useRef, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, View, type StyleProp, type ViewStyle } from "react-native";
-import { withUnistyles } from "react-native-unistyles";
-import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { View, type StyleProp, type ViewStyle } from "react-native";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { PluginSidebarItem } from "@/plugins/sidebar-items";
@@ -17,11 +15,9 @@ import {
 } from "@/sidebar-nav/model";
 import { useSidebarNavItems } from "@/sidebar-nav/use-sidebar-nav-items";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
-import { useCreateBacklogTaskStore } from "@/stores/create-backlog-task-store";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import {
-  buildBacklogRoute,
   buildNewWorkspaceRoute,
   buildSchedulesRoute,
   buildSessionsRoute,
@@ -157,49 +153,6 @@ function SidebarSearchRow({ onBeforeNavigate }: SidebarNavRowProps) {
   );
 }
 
-function SidebarBacklogRow({ onBeforeNavigate }: SidebarNavRowProps) {
-  const { t } = useTranslation();
-  const pathname = usePathname();
-  const openCreateBacklogTask = useCreateBacklogTaskStore((state) => state.openCreateBacklogTask);
-  const handlePress = useCallback(() => {
-    onBeforeNavigate?.();
-    router.push(buildBacklogRoute());
-  }, [onBeforeNavigate]);
-  const handleCreateTask = useCallback(() => {
-    onBeforeNavigate?.();
-    openCreateBacklogTask();
-  }, [onBeforeNavigate, openCreateBacklogTask]);
-  const ThemedPlus = useMemo(() => withUnistyles(Plus), []);
-  const addButton = useMemo(
-    () => (
-      <Pressable
-        onPress={handleCreateTask}
-        accessibilityRole="button"
-        accessibilityLabel="Add task"
-        testID="sidebar-backlog-add"
-        hitSlop={8}
-      >
-        <ThemedPlus
-          size={ICON_SIZE.sm}
-          uniProps={(theme: Theme) => ({ color: theme.colors.foregroundMuted })}
-        />
-      </Pressable>
-    ),
-    [ThemedPlus, handleCreateTask],
-  );
-
-   return (
-     <SidebarHeaderRow
-       icon={ListTodo}
-       label={t(builtinSidebarNavLabelKey("backlog"))}
-       onPress={handlePress}
-       isActive={pathname.includes("/backlog")}
-       testID="sidebar-backlog"
-       variant="compact"
-      trailing={addButton}
-     />
-   );
-}
 
 function SidebarSchedulesRow({ onBeforeNavigate }: SidebarNavRowProps) {
   const { t } = useTranslation();
@@ -225,6 +178,5 @@ const BUILTIN_ROWS: Record<BuiltinSidebarNavId, ComponentType<SidebarNavRowProps
   "new-workspace": SidebarNewWorkspaceRow,
   history: SidebarHistoryRow,
   search: SidebarSearchRow,
-  backlog: SidebarBacklogRow,
   schedules: SidebarSchedulesRow,
 };

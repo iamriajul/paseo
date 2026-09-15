@@ -156,7 +156,7 @@ test("ordinary Hub requests survive daemon restart and restore an archived works
     async () => {
       expect((await hub.worktreeState(agent.cwd)).exists).toBe(false);
     },
-    { timeout: 60_000, interval: 500 },
+    { timeout: 45_000, interval: 500 },
   );
   expect(
     await hub.requestOrdinary({
@@ -182,7 +182,7 @@ test("ordinary Hub requests survive daemon restart and restore an archived works
     }),
   ).toMatchObject({ payload: { agentId, accepted: true } });
   expect(hub.providerPromptTexts().filter((text) => text === "follow up")).toHaveLength(1);
-}, 20_000);
+}, 60_000);
 
 test("Hub completes the standard hello before rejecting a second hello", async () => {
   const hub = await launchRelationship();

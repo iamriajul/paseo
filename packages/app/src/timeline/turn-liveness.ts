@@ -81,13 +81,6 @@ export function resolveTurnPresentation(
   };
 }
 
-export function resolveVisibleTurnPresentation(
-  presentation: TurnPresentation,
-  hostIsLive: boolean,
-): TurnPresentation {
-  return hostIsLive ? presentation : TURN_PRESENTATION_IDLE;
-}
-
 function closeTurn(current: TurnLiveness, turnId: string | null): TurnLiveness {
   // COMPAT(agentTurnIdentity): added in v0.2.6, remove after 2027-01-31 once daemon floor >= v0.2.6.
   const targetsDifferentIdentifiedTurn =

@@ -30,9 +30,11 @@ import {
 } from "@/components/sidebar-resize-handle-layout";
 import { HostPicker } from "@/components/hosts/host-picker";
 import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/display-preferences/menu";
+import { SidebarGroupModeControl } from "@/components/sidebar/sidebar-group-mode-control";
 import { SidebarSeparator } from "@/components/sidebar/sidebar-separator";
 import { SidebarNavRows } from "@/components/sidebar/sidebar-nav-rows";
 import { SidebarFooterIconHighlight } from "@/components/sidebar/sidebar-footer-icon-highlight";
+import { SidebarBacklogRow } from "@/components/sidebar/sidebar-backlog-row";
 import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
 import { DensityIcon } from "@/components/ui/density-icon";
@@ -578,6 +580,9 @@ function MobileSidebar({
           onBeforeNavigate={closeSidebar}
           firstRowTrailing={closeButton}
         />
+        <View style={styles.sidebarHeaderGroup}>
+          <SidebarBacklogRow onBeforeNavigate={closeSidebar} />
+        </View>
 
         {isInitialLoad && !hasActiveHostFilter ? (
           <SidebarAgentListSkeleton />
@@ -759,6 +764,9 @@ function DesktopSidebar({
             <TitlebarDragRegion />
           )}
           <SidebarNavRows style={sidebarHeaderGroupStyle} />
+          <View style={sidebarHeaderGroupStyle}>
+            <SidebarBacklogRow />
+          </View>
         </View>
 
         {isInitialLoad && !hasActiveHostFilter ? (

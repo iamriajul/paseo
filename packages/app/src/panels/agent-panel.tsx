@@ -93,7 +93,6 @@ import {
   type Agent,
   useSessionStore,
 } from "@/stores/session-store";
-import { resolveVisibleTurnPresentation } from "@/timeline/turn-liveness";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { openWorkspaceChanges } from "@/workspace-tabs/open-supporting-view";
@@ -1377,8 +1376,6 @@ const AgentStreamSection = memo(function AgentStreamSection({
   activeSearchResultId?: string | null;
 }) {
   const isCompactFormFactor = useIsCompactFormFactor();
-  const connectionStatus = useHostRuntimeConnectionStatus(serverId);
-  const hostIsLive = connectionStatus === "online" || connectionStatus === "idle";
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
   const hasVisibleComposerTracks =
     hasActiveComposer && (hasVisibleAgentTracks || hasWorkspaceDiffStat);
@@ -1391,19 +1388,16 @@ const AgentStreamSection = memo(function AgentStreamSection({
   const streamItemsRaw = useAgentStreamTail(serverId, agentId);
   const pendingMessageSubmissions = useSessionStore(
     useShallow((state) =>
-      agentId && hostIsLive
+      agentId
         ? getActiveMessageSubmissions(state.sessions[serverId]?.messageSubmissions.get(agentId))
         : EMPTY_MESSAGE_SUBMISSIONS,
     ),
   );
   const turnPresentation = useSessionStore(
     useShallow((state) =>
-      resolveVisibleTurnPresentation(
-        agentId
-          ? selectAgentTurnPresentation(state.sessions[serverId], agentId)
-          : { isActive: false, isCancelling: false, startedAt: null, turnId: null },
-        hostIsLive,
-      ),
+      agentId
+        ? selectAgentTurnPresentation(state.sessions[serverId], agentId)
+        : { isActive: false, isCancelling: false, startedAt: null, turnId: null },
     ),
   );
   const streamItems = streamItemsRaw ?? EMPTY_STREAM_ITEMS;

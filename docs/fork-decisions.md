@@ -188,7 +188,7 @@ npx vitest run packages/app/src/utils/schedule-list-search.test.ts --bail=1
 
 **global Backlog row in the left sidebar**
 
-left-sidebar keeps a Backlog entry with add-task; buildBacklogRoute stays the /backlog deep link
+a fork-owned Backlog row with add-task sits alongside the preference-driven nav rows in left-sidebar; buildBacklogRoute stays the /backlog deep link. It lives outside the sidebar-nav model on purpose: the model's exact-list tests and the nav-settings e2e pin the four upstream builtins
 
 ```bash
 npx vitest run packages/app/src/utils/host-routes.test.ts --bail=1 -t buildBacklogRoute
@@ -309,7 +309,7 @@ npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts p
 
 **Workspaces can be marked as unread**
 
-workspace menu exposes Mark as unread when a workspace is done; daemon marks non-running agents with attention to surface in attention group
+workspace menu exposes Mark as unread when a workspace is done; daemon marks the newest finished root agent with attention to surface in attention group (one per workspace; opening the workspace reveals that agent, which clears it). Batch requests fan out per workspace with per-workspace results; the response keeps markedAgentId for pre-batch clients
 
 ```bash
 npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/server/src/server/session.workspaces.test.ts packages/client/src/daemon-client.test.ts --bail=1
@@ -341,7 +341,7 @@ npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src
 
 **commit provider user_message acks before the stream coalescer frame**
 
-flush live user_message through the stream coalescer in the same turn as onmessage; disconnect flushes pending acks and the chat hides live-turn chrome while the host is offline. (v0.8.0 upstream removed the session-store liveness map, so there is no store clearing to do; turns live on the Agent record and reconcile on catch-up.)
+flush live user_message through the stream coalescer in the same turn as onmessage; disconnect flushes pending acks so submissions settle instead of hanging. (v0.8.0 upstream removed the session-store liveness map, so there is no store clearing to do; turns live on the Agent record and reconcile on catch-up. The offline chrome gating went with it: the drop-socket spec pins the working indicator visible after a drop, so hiding it while reconnecting contradicts the contract.)
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/timeline/ingest-agent-stream-event.test.ts src/timeline/turn-liveness.test.ts --bail=1

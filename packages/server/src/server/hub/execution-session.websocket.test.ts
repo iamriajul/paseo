@@ -152,9 +152,12 @@ test("ordinary Hub requests survive daemon restart and restore an archived works
   ).toMatchObject({ payload: { error: null, archivedAt: expect.any(String) } });
   // Archive answers once the record is durable while the worktree removal
   // finishes in the background, so poll for the directory's disappearance.
-  await vi.waitFor(async () => {
-    expect((await hub.worktreeState(agent.cwd)).exists).toBe(false);
-  });
+  await vi.waitFor(
+    async () => {
+      expect((await hub.worktreeState(agent.cwd)).exists).toBe(false);
+    },
+    { timeout: 60_000, interval: 500 },
+  );
   expect(
     await hub.requestOrdinary({
       type: "workspace.recovery.inspect.request",

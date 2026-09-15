@@ -241,6 +241,7 @@ import {
 import type { ForgeService } from "../services/forge-service.js";
 import type { ProviderUsageService } from "../services/quota-fetcher/service.js";
 import {
+  resolveWorkspaceRootAgent,
   summarizeFetchWorkspacesEntries,
   workspaceIdsOnCheckout,
   WorkspaceDirectory,
@@ -7434,7 +7435,9 @@ export class Session {
     const requestedWorkspaceIds = Array.isArray(workspaceId) ? workspaceId : [workspaceId];
     let agents: AgentSnapshotPayload[];
     try {
-      agents = await this.listAgentPayloads();
+      agents = (await this.listAgentPayloads()).filter((agent) =>
+        this.isProviderVisibleToClient(agent.provider),
+      );
     } catch (error) {
       const message = getErrorMessage(error);
       const results = requestedWorkspaceIds.map((requestedWorkspaceId) => ({
@@ -7472,12 +7475,28 @@ export class Session {
           throw new Error(`Workspace not found: ${requestedWorkspaceId}`);
         }
 
+        // Mark the single newest finished root: opening the workspace reveals
+        // that agent, which clears its attention and settles the row. Marking
+        // every finished agent would leave the row attention-gated on agents
+        // the user never opens.
+        const agentsById = new Map(agents.map((agent) => [agent.id, agent] as const));
         const markableAgentIds = agents
-          .filter((agent) => !agent.archivedAt)
-          .filter((agent) => agent.workspaceId === workspace.workspaceId)
+          .filter((agent) => !agent.archivedAt && agent.workspaceId === workspace.workspaceId)
+          .filter((agent) => resolveWorkspaceRootAgent(agent, agentsById)?.id === agent.id)
+          .filter((agent) => agent.status === "idle" || agent.status === "closed")
+          .filter((agent) => agent.requiresAttention !== true)
           .filter((agent) => (agent.pendingPermissions?.length ?? 0) === 0)
-          .filter((agent) => agent.status !== "running")
+          .sort(
+            (left, right) =>
+              right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id),
+          )
+          .slice(0, 1)
           .map((agent) => agent.id);
+        if (markableAgentIds.length === 0) {
+          throw new Error(
+            `Workspace has no finished agent to mark unread: ${requestedWorkspaceId}`,
+          );
+        }
 
         const now = new Date();
         const nowIso = now.toISOString();

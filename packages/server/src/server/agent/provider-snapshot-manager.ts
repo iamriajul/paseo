@@ -141,6 +141,8 @@ interface ProviderSnapshotReadOptions {
   wait?: boolean;
 }
 
+const EMPTY_PRESERVED_PROVIDERS: ReadonlySet<string> = new Set();
+
 interface ApplyMutableProviderConfigOptions {
   removeProviders?: readonly string[];
   preserveInFlightProviderLoads?: readonly string[];
@@ -600,13 +602,25 @@ export class ProviderSnapshotManager {
     );
     const definitions = this.buildRegistry(runtimeSettings, providerOverrides);
     const changed = new Set<AgentProvider>();
+    const removedProviders = new Set(options.removeProviders ?? []);
+    // Providers with in-flight loads the caller wants to keep (e.g. the persister
+    // re-applying just-discovered limits) must not have their discovery torn
+    // down: their refresh completes against the pre-apply state and publishes
+    // normally, while the new definitions still install for future refreshes.
+    const preservedProviders = new Set(
+      (options.preserveInFlightProviderLoads ?? []).filter(
+        (provider) => !removedProviders.has(provider),
+      ),
+    );
     const clients = { ...this.providerClients };
     for (const provider of new Set([...this.generation.order, ...Object.keys(definitions)])) {
       const before = this.generation.definitions[provider];
       const after = definitions[provider];
       if (!before || !after || !isDeepStrictEqual(before.configuration, after.configuration)) {
         changed.add(provider);
-        delete clients[provider];
+        if (!preservedProviders.has(provider)) {
+          delete clients[provider];
+        }
       } else {
         definitions[provider] = before;
       }
@@ -620,7 +634,7 @@ export class ProviderSnapshotManager {
         this.baseProviderOverrides = baseProviderOverrides;
         this.runtimeSettings = runtimeSettings;
         this.providerOverrides = providerOverrides;
-        this.installGeneration(generation, clients, changed);
+        this.installGeneration(generation, clients, changed, preservedProviders);
       },
     };
   }
@@ -629,21 +643,23 @@ export class ProviderSnapshotManager {
     generation: RegistryGeneration,
     clients: Record<AgentProvider, AgentClient>,
     changed: ReadonlySet<AgentProvider>,
+    preservedProviders: ReadonlySet<string> = EMPTY_PRESERVED_PROVIDERS,
   ): void {
-    for (const provider of changed) {
+    const disrupted = [...changed].filter((provider) => !preservedProviders.has(provider));
+    for (const provider of disrupted) {
       this.generation.providerStates.get(provider)?.discoveryLimit.clearQueue();
     }
     this.generation = generation;
     this.providerClients = clients;
     for (const [key, catalogs] of this.catalogs) {
-      for (const provider of changed) catalogs.delete(provider);
+      for (const provider of disrupted) catalogs.delete(provider);
       if (catalogs.size === 0) this.catalogs.delete(key);
     }
     for (const target of this.targets.values()) {
-      for (const provider of changed) target.bindings.delete(provider);
+      for (const provider of disrupted) target.bindings.delete(provider);
     }
     this.publishTargets(this.targets.keys());
-    const providers = [...changed].filter((provider) => generation.definitions[provider]);
+    const providers = disrupted.filter((provider) => generation.definitions[provider]);
     if (providers.length === 0) return;
     for (const cwd of this.targets.keys()) {
       void this.warmUp(

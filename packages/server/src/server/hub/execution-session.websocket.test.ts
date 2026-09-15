@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { HubRelationshipHarness } from "./test-utils/relationship-harness.js";
 
 let relationship: HubRelationshipHarness | null = null;
@@ -150,7 +150,11 @@ test("ordinary Hub requests survive daemon restart and restore an archived works
       requestId: "ordinary-archive",
     }),
   ).toMatchObject({ payload: { error: null, archivedAt: expect.any(String) } });
-  expect((await hub.worktreeState(agent.cwd)).exists).toBe(false);
+  // Archive answers once the record is durable while the worktree removal
+  // finishes in the background, so poll for the directory's disappearance.
+  await vi.waitFor(async () => {
+    expect((await hub.worktreeState(agent.cwd)).exists).toBe(false);
+  });
   expect(
     await hub.requestOrdinary({
       type: "workspace.recovery.inspect.request",

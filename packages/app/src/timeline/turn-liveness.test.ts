@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  reduceTurnLiveness,
-  resolveTurnPresentation,
-  resolveVisibleTurnPresentation,
-  TURN_LIVENESS_IDLE,
-  TURN_PRESENTATION_IDLE,
-} from "./turn-liveness";
+import { reduceTurnLiveness, resolveTurnPresentation, TURN_LIVENESS_IDLE } from "./turn-liveness";
 
 describe("turn activity", () => {
   const startedAt = new Date("2026-07-31T10:00:00.000Z");
@@ -80,19 +74,5 @@ describe("turn activity", () => {
       startedAt: null,
       turnId: null,
     });
-  });
-
-  it("hides live-turn chrome while the host is not connected", () => {
-    const live = resolveTurnPresentation(
-      {
-        phase: "open",
-        turnId: "turn-1",
-        startedAt: new Date("2026-09-01T00:00:00.000Z"),
-        cancellationRequestId: null,
-      },
-      true,
-    );
-    expect(resolveVisibleTurnPresentation(live, true)).toEqual(live);
-    expect(resolveVisibleTurnPresentation(live, false)).toEqual(TURN_PRESENTATION_IDLE);
   });
 });

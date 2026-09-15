@@ -1794,7 +1794,7 @@ test("workspace clear attention responds with an error instead of timing out", a
   });
 });
 
-test("workspace mark unread marks every non-running agent in the workspace", async () => {
+test("workspace mark unread selects the newest finished workspace root", async () => {
   const emitted: SessionOutboundMessage[] = [];
   const workspace = createPersistedWorkspaceRecord({
     workspaceId: REPO_CWD,
@@ -1871,16 +1871,16 @@ test("workspace mark unread marks every non-running agent in the workspace", asy
     requestId: "req-mark-unread",
   });
 
-  expect(markedAgentIds).toEqual(["root-agent", "newer-child"]);
+  expect(markedAgentIds).toEqual(["root-agent"]);
   expect(findByType(emitted, "workspace.mark_unread.response").payload).toEqual({
     requestId: "req-mark-unread",
     workspaceId: workspace.workspaceId,
     markedAgentId: "root-agent",
-    markedAgentIds: ["root-agent", "newer-child"],
+    markedAgentIds: ["root-agent"],
     results: [
       {
         workspaceId: workspace.workspaceId,
-        markedAgentIds: ["root-agent", "newer-child"],
+        markedAgentIds: ["root-agent"],
         success: true,
         error: null,
       },
@@ -1890,7 +1890,7 @@ test("workspace mark unread marks every non-running agent in the workspace", asy
   });
 });
 
-test("workspace mark unread succeeds vacuously when no agent is markable", async () => {
+test("workspace mark unread rejects workspaces without a finished root agent", async () => {
   const emitted: SessionOutboundMessage[] = [];
   const workspace = createPersistedWorkspaceRecord({
     workspaceId: REPO_CWD,
@@ -1921,12 +1921,12 @@ test("workspace mark unread succeeds vacuously when no agent is markable", async
       {
         workspaceId: workspace.workspaceId,
         markedAgentIds: [],
-        success: true,
-        error: null,
+        success: false,
+        error: `Workspace has no finished agent to mark unread: ${workspace.workspaceId}`,
       },
     ],
-    success: true,
-    error: null,
+    success: false,
+    error: `Workspace has no finished agent to mark unread: ${workspace.workspaceId}`,
   });
 });
 

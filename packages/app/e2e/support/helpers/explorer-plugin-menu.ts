@@ -104,6 +104,13 @@ export async function openWorkspacePanelFromExplorerMenu(
   await expect(
     menu.getByRole("menuitem", { name: "Other review summary", exact: true }),
   ).toBeVisible();
+  // The fork's Todo panel is a builtin launch item, so it renders in the rail
+  // menu alongside Changes/Files, ahead of the plugin panels.
+  await expect(menu.getByRole("menuitem", { name: "Todo", exact: true })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Review", exact: true })).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
   await menu.getByRole("menuitem", { name: "Review", exact: true }).click();
   await expect(
     page.getByText(`Review workspace ${workspace.workspaceId}`, { exact: true }),

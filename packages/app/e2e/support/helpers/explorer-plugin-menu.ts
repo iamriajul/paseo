@@ -103,10 +103,13 @@ export async function openWorkspacePanelFromExplorerMenu(
     body: await page.screenshot({ path: testInfo.outputPath("explorer-panel-menu.png") }),
     contentType: "image/png",
   });
+  // The fork's Todo panel is a builtin launch item, so it renders in the rail
+  // menu alongside Changes/Files, ahead of the plugin panels.
   await expect(menu.getByRole("menuitem")).toHaveText([
     "New tab",
     "Changes",
     "Files",
+    "Todo",
     "Other review",
     "Other review summary",
     "Review",

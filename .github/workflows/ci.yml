@@ -62,6 +62,8 @@ jobs:
           cache: gradle
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ""
 
       - name: Install dependencies
         run: node scripts/npm-retry.mjs ci

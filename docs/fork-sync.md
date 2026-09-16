@@ -84,11 +84,7 @@ Regenerate it locally and commit the result as its own card:
 ./scripts/update-nix.sh
 ```
 
-Do not wait for the `Nix Update Hash` workflow to fix it. That workflow needs
-`PASEO_BOT_APP_ID` and `PASEO_BOT_APP_PRIVATE_KEY` — upstream's GitHub App credentials,
-which this fork does not have — so it fails on every run with
-`Input required and not supplied: app-id`. Until those secrets exist, the hash is yours
-to maintain, and `build-desktop-darwin` fails on every sync PR that skips this step.
+Do not wait for the `Nix Update Hash` workflow to fix it on first push: it runs after the sync lands and commits with `[skip ci]`. Regenerate the hash locally so the sync PR itself is green, and let the workflow cover later lockfile drift. See the `nix-update-hash-github-token` decision in [fork-decisions.md](fork-decisions.md) for why the job uses `GITHUB_TOKEN` instead of upstream's GitHub App credentials.
 
 ## What not to do
 

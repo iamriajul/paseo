@@ -325,6 +325,9 @@ export async function streamExplorerFile(
     if (isImage) {
       kind = "image";
       mimeType = IMAGE_MIME_TYPES[ext];
+    } else if (ext in BINARY_MIME_TYPES) {
+      kind = "binary";
+      mimeType = BINARY_MIME_TYPES[ext];
     } else if (isBinary) {
       kind = "binary";
       mimeType = "application/octet-stream";

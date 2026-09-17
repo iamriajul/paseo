@@ -549,6 +549,10 @@ function CustomModelFormSubSheet({
   const [candidates, setCandidates] = useState<ModelsDevCandidateLike[]>([]);
   const [summary, setSummary] = useState<ModelsDevCandidateLike | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
+  // Bumped whenever a lookup/source pick writes values into the fields, so the
+  // uncontrolled inputs below refresh. Their resetKeys are otherwise constant
+  // while the sheet is open and programmatic fills would never appear.
+  const [autofillEpoch, setAutofillEpoch] = useState(0);
   const sourceAnchorRef = useRef<View | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lookupHint, setLookupHint] = useState<string | null>(null);
@@ -562,6 +566,12 @@ function CustomModelFormSubSheet({
     [config?.providers, provider],
   );
   const isEdit = mode.kind === "edit";
+  // The auto-compact threshold only takes effect for Claude-backed providers
+  // (it maps to CLAUDE_CODE_AUTO_COMPACT_WINDOW); other providers ignore it,
+  // so showing the slider there suggests a setting that does nothing.
+  const providerExtends = (config?.providers?.[provider] as { extends?: unknown } | undefined)
+    ?.extends;
+  const supportsAutoCompact = provider === "claude" || providerExtends === "claude";
   const originalId = mode.kind === "edit" ? mode.model.id : null;
   const trimmedId = modelId.trim();
   const trimmedLabel = label.trim();
@@ -617,6 +627,7 @@ function CustomModelFormSubSheet({
       setLookupHint(null);
       setLookingUp(false);
       lastAutofilledRef.current = createEmptyAutofillSnapshot();
+      setAutofillEpoch(0);
       return;
     }
     const fields = resolveCustomModelFormFields(mode);
@@ -651,6 +662,13 @@ function CustomModelFormSubSheet({
         },
         lastAutofilledRef.current,
       );
+      if (
+        applied.next.label !== label ||
+        applied.next.contextWindow !== contextWindow ||
+        applied.next.maxOutput !== maxOutput
+      ) {
+        setAutofillEpoch((epoch) => epoch + 1);
+      }
       setLabel(applied.next.label);
       setContextWindow(applied.next.contextWindow);
       setMaxOutput(applied.next.maxOutput);
@@ -750,7 +768,7 @@ function CustomModelFormSubSheet({
       label: trimmedLabel.length > 0 ? trimmedLabel : trimmedId,
       contextTokens: contextTokens === undefined ? undefined : contextTokens,
       maxOutputTokens: maxOutputTokens === undefined ? undefined : maxOutputTokens,
-      autoCompactThresholdPercent,
+      autoCompactThresholdPercent: supportsAutoCompact ? autoCompactThresholdPercent : undefined,
       sourceId,
       selectedCandidate: resolveSelectedCandidate(sourceId, candidates, summary),
     });
@@ -829,7 +847,7 @@ function CustomModelFormSubSheet({
         <Text style={sheetStyles.formLabel}>{t("settings.providers.models.label")}</Text>
         <AdaptiveTextInput
           initialValue={label}
-          resetKey={`custom-model-label-${visible}-${originalId ?? "add"}`}
+          resetKey={`custom-model-label-${visible}-${originalId ?? "add"}-${autofillEpoch}`}
           onChangeText={setLabel}
           placeholder={t("settings.providers.models.labelPlaceholder")}
           placeholderTextColor={theme.colors.foregroundMuted}
@@ -895,7 +913,7 @@ function CustomModelFormSubSheet({
         </Text>
         <AdaptiveTextInput
           initialValue={contextWindow}
-          resetKey={`custom-model-window-${visible}-${originalId ?? "add"}`}
+          resetKey={`custom-model-window-${visible}-${originalId ?? "add"}-${autofillEpoch}`}
           onChangeText={setContextWindow}
           placeholder={t("settings.providers.models.contextWindowPlaceholder")}
           placeholderTextColor={theme.colors.foregroundMuted}
@@ -911,27 +929,31 @@ function CustomModelFormSubSheet({
           </Text>
         ) : null}
 
-        <Text style={sheetStyles.formLabel}>
-          {t("settings.providers.models.autoCompactThreshold")}
-        </Text>
-        <Text style={sheetStyles.descriptionInline}>
-          {t("settings.providers.models.autoCompactThresholdHint")}
-        </Text>
-        <AutoCompactThresholdSlider
-          value={autoCompactThresholdPercent}
-          onChange={setAutoCompactThresholdPercent}
-          disabled={parsedContext === "invalid"}
-        />
-        <Text style={sheetStyles.descriptionInline}>
-          {autoCompactWindowLabel
-            ? t("settings.providers.models.autoCompactThresholdValue", {
-                percent: autoCompactThresholdPercent,
-                tokens: autoCompactWindowLabel,
-              })
-            : t("settings.providers.models.autoCompactThresholdNeedsContext", {
-                percent: autoCompactThresholdPercent,
-              })}
-        </Text>
+        {supportsAutoCompact ? (
+          <>
+            <Text style={sheetStyles.formLabel}>
+              {t("settings.providers.models.autoCompactThreshold")}
+            </Text>
+            <Text style={sheetStyles.descriptionInline}>
+              {t("settings.providers.models.autoCompactThresholdHint")}
+            </Text>
+            <AutoCompactThresholdSlider
+              value={autoCompactThresholdPercent}
+              onChange={setAutoCompactThresholdPercent}
+              disabled={parsedContext === "invalid"}
+            />
+            <Text style={sheetStyles.descriptionInline}>
+              {autoCompactWindowLabel
+                ? t("settings.providers.models.autoCompactThresholdValue", {
+                    percent: autoCompactThresholdPercent,
+                    tokens: autoCompactWindowLabel,
+                  })
+                : t("settings.providers.models.autoCompactThresholdNeedsContext", {
+                    percent: autoCompactThresholdPercent,
+                  })}
+            </Text>
+          </>
+        ) : null}
 
         <Text style={sheetStyles.formLabel}>{t("settings.providers.models.maxOutput")}</Text>
         <Text style={sheetStyles.descriptionInline}>
@@ -939,7 +961,7 @@ function CustomModelFormSubSheet({
         </Text>
         <AdaptiveTextInput
           initialValue={maxOutput}
-          resetKey={`custom-model-max-output-${visible}-${originalId ?? "add"}`}
+          resetKey={`custom-model-max-output-${visible}-${originalId ?? "add"}-${autofillEpoch}`}
           onChangeText={setMaxOutput}
           onSubmitEditing={handleSave}
           placeholder={t("settings.providers.models.maxOutputPlaceholder")}

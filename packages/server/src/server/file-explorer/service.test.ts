@@ -213,6 +213,27 @@ describe("file explorer service", () => {
     }
   });
 
+  it("advertises application/pdf on the streaming path clients actually use", async () => {
+    const root = await createTempDir("paseo-file-explorer-stream-");
+
+    try {
+      const filePath = path.join(root, "document.pdf");
+      await writeFile(filePath, Buffer.from("%PDF-1.7\n\0preview"));
+
+      let advertised: { kind: unknown; mimeType: unknown } | null = null;
+      await streamExplorerFile({ root, relativePath: "document.pdf" }, async (file) => {
+        advertised = { kind: file.kind, mimeType: file.mimeType };
+        for await (const _chunk of file.chunks) {
+          // Drain without asserting on bytes; the header carries kind/mime.
+        }
+      });
+
+      expect(advertised).toEqual({ kind: "binary", mimeType: "application/pdf" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("identifies PDF files for clients that can preview them", async () => {
     const root = await createTempDir("paseo-file-explorer-");
 

@@ -308,7 +308,8 @@ function storeFetchedAgentDetail(input: {
 }
 
 function AgentPanel() {
-  const { serverId, workspaceId, target, openFileInWorkspace } = usePaneContext();
+  const { serverId, workspaceId, target, openFileInWorkspace, openUrlInBrowserTab } =
+    usePaneContext();
   const { isInteractive } = usePaneFocus();
   invariant(target.kind === "agent", "AgentPanel requires agent target");
 
@@ -320,6 +321,7 @@ function AgentPanel() {
         agentId={target.agentId}
         isPaneFocused={isInteractive}
         onOpenWorkspaceFile={openFileInWorkspace}
+        onOpenUrlInBrowserTab={openUrlInBrowserTab}
       />
     </RetainedChatContent>
   );
@@ -451,12 +453,14 @@ function AgentPanelContent({
   agentId,
   isPaneFocused,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   serverId: string;
   workspaceId: string;
   agentId: string;
   isPaneFocused: boolean;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }) {
   const { t } = useTranslation();
   const resolvedAgentId = agentId.trim() || undefined;
@@ -509,6 +513,7 @@ function AgentPanelContent({
       client={runtimeClient}
       isConnected={runtimeIsConnected}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
     />
   );
 }
@@ -521,6 +526,7 @@ function AgentPanelBody({
   client,
   isConnected,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   serverId: string;
   workspaceId: string;
@@ -529,6 +535,7 @@ function AgentPanelBody({
   client: ReturnType<typeof useHostRuntimeClient>;
   isConnected: boolean;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }) {
   const { t } = useTranslation();
   const { isArchivingAgent: _isArchivingAgent } = useArchiveAgent();
@@ -664,6 +671,7 @@ function AgentPanelBody({
       client={client}
       isConnected={isConnected}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
     />
   );
 }
@@ -676,6 +684,7 @@ function ChatAgentContent({
   client,
   isConnected,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   serverId: string;
   workspaceId: string;
@@ -684,6 +693,7 @@ function ChatAgentContent({
   client: ReturnType<typeof useHostRuntimeClient>;
   isConnected: boolean;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }) {
   const { t } = useTranslation();
   const isPaneVisible = useRetainedPanelActive();
@@ -1040,6 +1050,7 @@ function ChatAgentContent({
       onAttentionInputFocus={attentionController.clearOnInputFocus}
       onAttentionPromptSend={attentionController.clearOnPromptSend}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
     />
   );
 }
@@ -1070,6 +1081,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   onAttentionInputFocus,
   onAttentionPromptSend,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
 }: {
   serverId: string;
   workspaceId: string;
@@ -1096,6 +1108,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   onAttentionInputFocus: () => void;
   onAttentionPromptSend: () => void;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
 }) {
   const { t } = useTranslation();
   // The workspace sheet is for looking; Open as tab brings the agent back with its composer.
@@ -1219,6 +1232,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           hasVisibleAgentTracks={hasVisibleAgentTracks}
           toast={toastApi}
           onOpenWorkspaceFile={onOpenWorkspaceFile}
+          onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
           activeSearchResultId={chatSearch.activeSearchResultId}
         />
       </RenderProfile>
@@ -1360,6 +1374,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasVisibleAgentTracks,
   toast,
   onOpenWorkspaceFile,
+  onOpenUrlInBrowserTab,
   activeSearchResultId = null,
 }: {
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
@@ -1373,6 +1388,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
   hasVisibleAgentTracks: boolean;
   toast: ReturnType<typeof useToastHost>["api"];
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  onOpenUrlInBrowserTab?: (url: string) => boolean;
   activeSearchResultId?: string | null;
 }) {
   const isCompactFormFactor = useIsCompactFormFactor();
@@ -1444,6 +1460,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
       pendingMessageSubmissions={pendingMessageSubmissions}
       turnPresentation={turnPresentation}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
       activeSearchResultId={activeSearchResultId}
     />
   );

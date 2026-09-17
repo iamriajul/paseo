@@ -804,6 +804,7 @@ function CustomModelFormSubSheet({
     refresh,
     sourceId,
     summary,
+    supportsAutoCompact,
     t,
     trimmedId,
     trimmedLabel,

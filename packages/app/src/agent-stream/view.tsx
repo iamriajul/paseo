@@ -193,7 +193,6 @@ function renderStreamItemWithTurnFooter(input: {
   supportsTimelineCursor: boolean;
   supportsNativeFork?: boolean;
   onForkAssistantTurn?: AssistantTurnForkHandler;
-  isActiveSearchResult: boolean;
 }): ReactNode {
   if (!input.content) {
     return null;
@@ -212,11 +211,7 @@ function renderStreamItemWithTurnFooter(input: {
     />
   ) : null;
   const content = (
-    <StreamItemWrapper
-      gapBelow={input.layoutItem.gapBelow}
-      turnIndent={input.turnIndent}
-      isActiveSearchResult={input.isActiveSearchResult}
-    >
+    <StreamItemWrapper gapBelow={input.layoutItem.gapBelow} turnIndent={input.turnIndent}>
       {input.content}
     </StreamItemWrapper>
   );
@@ -321,7 +316,6 @@ export interface AgentStreamViewProps {
   /** Returns whether the URL was taken; false falls through to the fallbacks below. */
   onOpenUrlInBrowserTab?: (url: string) => boolean;
   readOnly?: boolean;
-  activeSearchResultId?: string | null;
   historyPagination?: {
     hasOlder: boolean;
     isLoadingOlder: boolean;
@@ -553,7 +547,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       onOpenWorkspaceFile,
       onOpenUrlInBrowserTab,
       readOnly = false,
-      activeSearchResultId = null,
       historyPagination,
     },
     ref,
@@ -1280,13 +1273,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           supportsTimelineCursor: supportsAgentForkContextCursor,
           supportsNativeFork,
           onForkAssistantTurn: readOnly ? undefined : handleForkAssistantTurn,
-          isActiveSearchResult: layoutItem.item.id === activeSearchResultId,
         });
       },
       [
         getTurnIndent,
         handleForkAssistantTurn,
-        activeSearchResultId,
         readOnly,
         renderStreamItemContent,
         streamRenderStrategy,
@@ -1665,8 +1656,6 @@ function agentStreamViewPropsEqual(
   if (left.toast !== right.toast) reasons.push("toast");
   if (left.onOpenWorkspaceFile !== right.onOpenWorkspaceFile) reasons.push("onOpenWorkspaceFile");
   if (left.readOnly !== right.readOnly) reasons.push("readOnly");
-  if (left.activeSearchResultId !== right.activeSearchResultId)
-    reasons.push("activeSearchResultId");
   if (!historyPaginationPropsEqual(left.historyPagination, right.historyPagination)) {
     reasons.push("historyPagination");
   }
@@ -2060,10 +2049,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     alignSelf: "center",
     paddingHorizontal: theme.spacing[2],
   },
-  activeSearchResult: {
-    backgroundColor: theme.colors.surface2,
-    borderRadius: theme.borderRadius.md,
-  },
   emptyState: {
     flex: 1,
     alignItems: "center",
@@ -2190,44 +2175,36 @@ const permissionStyles = StyleSheet.create((theme) => ({
 interface StreamItemWrapperProps {
   gapBelow: number;
   turnIndent: TurnIndent;
-  isActiveSearchResult: boolean;
   children: ReactNode;
 }
 
-function StreamItemWrapper({
-  gapBelow,
-  turnIndent,
-  isActiveSearchResult,
-  children,
-}: StreamItemWrapperProps) {
+function StreamItemWrapper({ gapBelow, turnIndent, children }: StreamItemWrapperProps) {
   const wrapperStyle = useMemo(
     () => [
       stylesheet.streamItemWrapper,
-      isActiveSearchResult && stylesheet.activeSearchResult,
       { marginBottom: turnIndent === "nested" || turnIndent === "openedHost" ? 0 : gapBelow },
     ],
-    [gapBelow, turnIndent, isActiveSearchResult],
+    [gapBelow, turnIndent],
   );
   const gapStyle = useMemo(() => ({ paddingBottom: gapBelow }), [gapBelow]);
-  const testID = isActiveSearchResult ? "chat-search-result-active" : undefined;
   switch (turnIndent) {
     case "none":
     case "openedHost":
       return (
-        <View style={wrapperStyle} testID={testID}>
+        <View style={wrapperStyle}>
           {children}
           {turnIndent === "openedHost" ? <IndentRail style={gapStyle} /> : null}
         </View>
       );
     case "nested":
       return (
-        <View style={wrapperStyle} testID={testID}>
+        <View style={wrapperStyle}>
           <IndentRail style={gapStyle}>{children}</IndentRail>
         </View>
       );
     case "lastNested":
       return (
-        <View style={wrapperStyle} testID={testID}>
+        <View style={wrapperStyle}>
           <IndentRail>{children}</IndentRail>
         </View>
       );

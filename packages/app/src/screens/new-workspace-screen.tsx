@@ -4,7 +4,6 @@ import type {
 } from "@getpaseo/client/internal/daemon-client";
 import type { AgentSnapshotPayload, CreationSnapshot } from "@getpaseo/protocol/messages";
 import { encodeImages } from "@/utils/encode-images";
-import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactElement, ReactNode, RefObject } from "react";
 import { useTranslation } from "react-i18next";

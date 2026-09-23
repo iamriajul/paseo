@@ -7056,6 +7056,7 @@ test("reviewed plugin updates gate before requests and preserve exact proposal d
       { id: "review", outcome: "error", error: "changed since review" },
     ]);
   }
+});
 test("DaemonClient gets and sets workspace todos", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

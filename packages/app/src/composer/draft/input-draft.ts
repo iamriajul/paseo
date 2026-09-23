@@ -24,8 +24,6 @@ import {
 import { useHostFeature } from "@/runtime/host-features";
 import { getHostRuntimeStore, useHostRuntimeConnectionStatus } from "@/runtime/host-runtime";
 import { useDraftStore } from "@/stores/draft-store";
-import { useHostFeature } from "@/runtime/host-features";
-import { getHostRuntimeStore, useHostRuntimeConnectionStatus } from "@/runtime/host-runtime";
 import {
   clearComposerOnHost,
   handleUiStateUpdatedForComposer,

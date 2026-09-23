@@ -909,11 +909,27 @@ function appendUserMessage(
   return upsertUserMessage(state, nextItem);
 }
 
-function resolveAssistantMessageText(current: string, incoming: string): string {
+function resolveAssistantMessageText(
+  current: string,
+  incoming: string,
+  source: StreamUpdateSource,
+): string {
+  if (incoming === current) {
+    return current;
+  }
+  if (source === "live") {
+    // Live provider events are deltas. A chunk that repeats the opening text
+    // (e.g. the closing "**" of a bold span) is new content and must be
+    // appended; only a strictly longer superstring replaces.
+    if (incoming.length > current.length && incoming.startsWith(current)) {
+      return incoming;
+    }
+    return `${current}${incoming}`;
+  }
   // Projected history items are snapshots of the merged message. A replica or live
   // prefix already on the row must be replaced, not concatenated, or a mermaid fence
   // becomes `Anno```mermaidflowchart` and never renders after reload.
-  if (incoming === current || current.startsWith(incoming)) {
+  if (current.startsWith(incoming)) {
     return current;
   }
   if (incoming.startsWith(current)) {
@@ -944,7 +960,7 @@ function appendAssistantMessage(
   if (shouldAppendToLast) {
     const updated: AssistantMessageItem = {
       ...last,
-      text: resolveAssistantMessageText(last.text, chunk),
+      text: resolveAssistantMessageText(last.text, chunk, source),
       timestamp,
       ...(timelineCursor ? { timelineCursor } : {}),
     };
@@ -962,7 +978,7 @@ function appendAssistantMessage(
   ) {
     const updated: AssistantMessageItem = {
       ...secondLast,
-      text: resolveAssistantMessageText(secondLast.text, chunk),
+      text: resolveAssistantMessageText(secondLast.text, chunk, source),
       timestamp,
       ...(timelineCursor ? { timelineCursor } : {}),
     };

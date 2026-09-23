@@ -237,6 +237,10 @@ function registerWorkspaceBrowserThenLoad(input: {
     }) ?? Promise.resolve();
   void registration
     .then(() => {
+      // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+      console.info(
+        `[tmplink] pane load decision ${input.browserId.slice(0, 8)} shouldLoad=${input.shouldLoadInitialUrl} current=${input.isCurrentWebview()} src=${readWebviewSrc(input.webview).slice(0, 60)} url=${input.initialUrl.slice(0, 60)}`,
+      );
       if (!input.shouldLoadInitialUrl || !input.isCurrentWebview()) {
         return undefined;
       }
@@ -801,6 +805,14 @@ export function BrowserPane({
     const shouldLoadInitialUrl =
       (!residentWebview || isBlankWebview(residentWebview as ElectronWebview)) &&
       !initialUnsafeNavigationMessage;
+    // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+    const __mounts = ((
+      globalThis as unknown as { __tmplinkMounts?: Record<string, number> }
+    ).__tmplinkMounts ??= {});
+    __mounts[browserId] = (__mounts[browserId] ?? 0) + 1;
+    console.info(
+      `[tmplink] pane mount ${browserId.slice(0, 8)} n=${__mounts[browserId]} resident=${Boolean(residentWebview)} shouldLoad=${shouldLoadInitialUrl} url=${initialUrlRef.current.slice(0, 60)}`,
+    );
     if (!residentWebview) {
       prepareBrowserWebview(webview, {
         browserId,
@@ -848,11 +860,17 @@ export function BrowserPane({
           });
 
     const handleStartLoading = () => {
+      // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+      console.info(`[tmplink] did-start-loading ${browserId.slice(0, 8)}`);
       selectorControllerRef.current?.stopForWebview(webview);
       updateBrowser(browserId, { isLoading: true, lastError: null });
       syncNavigationState({ syncUrl: false });
     };
     const handleStopLoading = () => {
+      // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+      console.info(
+        `[tmplink] did-stop-loading ${browserId.slice(0, 8)} url=${(webview.getURL?.() ?? "").slice(0, 60)}`,
+      );
       updateBrowser(browserId, { isLoading: false });
       syncNavigationState();
     };
@@ -905,6 +923,8 @@ export function BrowserPane({
       updateBrowserRef.current(browserIdRef.current, { faviconUrl: favicons[0] ?? null });
     };
     const handleLoadFailed = (event: Event) => {
+      // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+      console.info(`[tmplink] did-fail-load ${browserId.slice(0, 8)}`);
       const message = getWebviewLoadErrorMessage(event, browserErrorLabelsRef.current.failedToLoad);
       if (!message) {
         return;

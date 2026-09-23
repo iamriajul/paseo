@@ -141,7 +141,9 @@ describe("getClaudeModels", () => {
     expect(getClaudeModels("2.1.169").map((model) => model.id)).toContain("claude-fable-5");
 
     expect(getClaudeModels("2.1.279").map((model) => model.id)).not.toContain("claude-opus-5-5");
-    expect(getClaudeModels("2.1.279").find((model) => model.isDefault)?.id).toBe("claude-opus-5");
+    expect(getClaudeModels("2.1.279").find((model) => model.isDefault)?.id).toBe(
+      "claude-opus-5[1m]",
+    );
     expect(getClaudeModels("2.1.280").map((model) => model.id)).toContain("claude-opus-5-5");
     expect(getClaudeModels("2.1.280").find((model) => model.isDefault)?.id).toBe("claude-opus-5-5");
   });

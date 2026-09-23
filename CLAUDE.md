@@ -239,6 +239,7 @@ Repo dev commands use checkout-local state by default. In this checkout, `PASEO_
 See [docs/development.md](docs/development.md) for full setup, build sync requirements, and debugging.
 
 ## Critical rules
+
 - **Fork releases are PR → merge → tag on `main`.** Never push a `v*` release tag from an unmerged feature branch. Open a PR, merge it, then tag the merge commit on `main` (or dispatch the fork release workflows with `checkout_ref=main`). See [docs/fork-release.md](docs/fork-release.md).
 - **This fork is a rebase queue.** `main` is the upstream release tag we track plus one commit per fork change — no merge commits. Changing an official file means adding a section to [docs/fork-decisions.md](docs/fork-decisions.md) with a command that fails without your change. CI (`fork-decisions`) rejects a documented decision that has no proof command.
 - **Syncing official Paseo:** follow [docs/fork-sync.md](docs/fork-sync.md). Rebase onto the new stable release tag — never merge, never track `upstream/main`. Afterwards `npm run fork:verify` must be green. Do not treat "the symbol still exists" as preserved; fill-if-missing versus overwrite is a decision grep cannot see.

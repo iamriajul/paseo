@@ -70,7 +70,7 @@ export function CreateBacklogTaskHost() {
           const result = await client.uploadFile({
             fileName: attachment.fileName,
             mimeType: attachment.mimeType,
-            bytes: attachment.bytes,
+            bytes: await attachment.readBytes(),
           });
           if (result.error || !result.file) {
             throw new Error(result.error ?? `Failed to upload ${attachment.fileName}`);

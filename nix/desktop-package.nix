@@ -100,7 +100,9 @@ buildNpmPackage {
     # App workspace deps not covered by build:server
     npm run build --workspace=@getpaseo/expo-two-way-audio
 
-    # Expo web export for the Electron renderer
+    # Expo web export for the Electron renderer. The fork bundle is larger than
+    # upstream's, so raise the heap like desktop-release.yml does (4096 arm64).
+    export NODE_OPTIONS="--max-old-space-size=4096 $NODE_OPTIONS"
     ( cd packages/app && PASEO_WEB_PLATFORM=electron npx expo export --platform web )
 
     # Desktop main process

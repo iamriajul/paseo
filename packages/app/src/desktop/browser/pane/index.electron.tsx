@@ -224,6 +224,7 @@ function registerWorkspaceBrowserThenLoad(input: {
   directLoopback?: boolean;
   initialUrl: string;
   shouldLoadInitialUrl: boolean;
+  onAssigned?: (url: string) => void;
   isCurrentWebview: () => boolean;
   failedToLoadLabel: () => string;
   onLoadError: (message: string) => void;
@@ -252,6 +253,7 @@ function registerWorkspaceBrowserThenLoad(input: {
       // did-fail-load surfaces errors; no promise rejection to catch.
       if (readWebviewSrc(input.webview) !== input.initialUrl) {
         (input.webview as ElectronWebview & { src?: string }).src = input.initialUrl;
+        input.onAssigned?.(input.initialUrl);
       }
       return undefined;
     })
@@ -663,6 +665,7 @@ export function BrowserPane({
   const browserViewportRef = useRef(browserViewport);
   const initialLoadAttemptsRef = useRef(0);
   const mountedAtRef = useRef(0);
+  const pendingInitialUrlRef = useRef<string | null>(null);
   const isPresented = useRetainedPanelActive();
   const isPresentedRef = useRef(isPresented);
   isPresentedRef.current = isPresented;
@@ -830,6 +833,9 @@ export function BrowserPane({
       workspaceId,
       initialUrl: initialUrlRef.current,
       shouldLoadInitialUrl,
+      onAssigned: (url) => {
+        pendingInitialUrlRef.current = url;
+      },
       isCurrentWebview: () => webviewRef.current === webview,
       failedToLoadLabel: () => browserErrorLabelsRef.current.failedToLoad,
       onLoadError: (message) => {
@@ -877,11 +883,14 @@ export function BrowserPane({
       // A guest that commits about:blank without ever navigating (src missed
       // during guest init, aborted first commit) would sit blank forever: the
       // one-shot initial load already ran. Force one navigation while blank,
-      // bounded so user navigations and real errors are never fought.
+      // bounded so user navigations and real errors are never fought. Only
+      // while our own initial load is still pending: other navigations (user,
+      // automation) clear the pending flag when they commit or fail loudly.
       const liveUrl = webview.getURL?.()?.trim() ?? "";
       const isBlank = liveUrl.length === 0 || liveUrl === "about:blank";
       if (
         isBlank &&
+        pendingInitialUrlRef.current !== null &&
         shouldLoadInitialUrl &&
         webviewRef.current === webview &&
         initialLoadAttemptsRef.current < 3 &&
@@ -894,6 +903,7 @@ export function BrowserPane({
             browserErrorLabelsRef.current.failedToLoad,
           );
           if (message) {
+            pendingInitialUrlRef.current = null;
             updateBrowserRef.current(browserIdRef.current, {
               isLoading: false,
               lastError: message,
@@ -912,6 +922,9 @@ export function BrowserPane({
       const normalized = normalizeWorkspaceBrowserUrl(nextUrl);
       const previousUrl = browserRef.current?.url ?? initialUrlRef.current;
       pendingNavigationUrlRef.current = null;
+      if (normalized && normalized !== "about:blank") {
+        pendingInitialUrlRef.current = null;
+      }
       updateBrowser(browserIdRef.current, {
         url: normalized,
         ...(normalized !== previousUrl ? { faviconUrl: null } : {}),
@@ -959,6 +972,7 @@ export function BrowserPane({
       if (!message) {
         return;
       }
+      pendingInitialUrlRef.current = null;
       updateBrowserRef.current(browserIdRef.current, {
         isLoading: false,
         lastError: message,

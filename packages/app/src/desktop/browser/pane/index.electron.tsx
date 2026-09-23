@@ -201,6 +201,21 @@ function getLoadUrlRejectionMessage(error: unknown, failedToLoadLabel: string): 
   return failedToLoadLabel;
 }
 
+function readWebviewSrc(webview: ElectronWebview): string {
+  const attr = webview.getAttribute?.("src")?.trim() ?? "";
+  if (attr) return attr;
+  try {
+    return webview.getURL?.()?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function isBlankWebview(webview: ElectronWebview): boolean {
+  const current = readWebviewSrc(webview);
+  return current.length === 0 || current === "about:blank";
+}
+
 function registerWorkspaceBrowserThenLoad(input: {
   webview: ElectronWebview;
   browserId: string;
@@ -225,24 +240,14 @@ function registerWorkspaceBrowserThenLoad(input: {
       if (!input.shouldLoadInitialUrl || !input.isCurrentWebview()) {
         return undefined;
       }
-      // loadURL on a detached webview never settles: the guest does not exist
-      // yet, so the promise hangs instead of navigating on attach. Wait for
-      // did-attach first; the src stays about:blank until the proxy is ready.
-      const loadInitialUrl = () => {
-        if (!input.shouldLoadInitialUrl || !input.isCurrentWebview()) {
-          return;
-        }
-        void input.webview.loadURL?.(input.initialUrl).catch((error: unknown) => {
-          const message = getLoadUrlRejectionMessage(error, input.failedToLoadLabel());
-          if (message) {
-            input.onLoadError(message);
-          }
-        });
-      };
-      if (input.webview.isConnected) {
-        loadInitialUrl();
-      } else {
-        input.webview.addEventListener("did-attach", loadInitialUrl, { once: true });
+      // Assign src (not one-shot loadURL): src navigates now when attached,
+      // navigates on attach when parked, and reloads after a guest-replacing
+      // reparent, so remounts and StrictMode-style churn cannot strand the
+      // webview on about:blank. Registration still gates this so the first
+      // navigation never runs before the workspace proxy is ready.
+      // did-fail-load surfaces errors; no promise rejection to catch.
+      if (readWebviewSrc(input.webview) !== input.initialUrl) {
+        input.webview.setAttribute?.("src", input.initialUrl);
       }
       return undefined;
     })
@@ -790,7 +795,12 @@ export function BrowserPane({
     const residentWebview = takeResidentBrowserWebview(browserId) as ElectronWebview | null;
     const webview = residentWebview ?? (document.createElement("webview") as ElectronWebview);
     webviewRef.current = webview;
-    const shouldLoadInitialUrl = !residentWebview && !initialUnsafeNavigationMessage;
+    // A taken resident that never loaded (parked before its registration
+    // resolved) still shows about:blank: load it like a fresh webview instead
+    // of assuming the resident arrival implies content.
+    const shouldLoadInitialUrl =
+      (!residentWebview || isBlankWebview(residentWebview as ElectronWebview)) &&
+      !initialUnsafeNavigationMessage;
     if (!residentWebview) {
       prepareBrowserWebview(webview, {
         browserId,

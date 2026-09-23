@@ -167,7 +167,11 @@ export function createStreamPresentation() {
       historyTransform = input.transform;
     }
     const head: StreamItem[] = [];
-    for (const item of projectPluginTimelineItems(input.head, input.transform, "streaming")) {
+    for (const item of projectPluginTimelineItems(
+      input.head,
+      input.transform,
+      input.isTurnActive ? "streaming" : "complete",
+    )) {
       const blocks = presentRows(item);
       head.push(...blocks);
     }

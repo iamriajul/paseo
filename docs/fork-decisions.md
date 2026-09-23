@@ -403,6 +403,16 @@ grep -q "hasWorkspaceBrowser = useWorkspaceBrowserAvailability" packages/app/src
 ! grep -q "persistenceKey || !getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
 ```
 
+## nix-desktop-build-heap
+
+**the Nix desktop build raises the Node heap for the Expo web export**
+
+The fork bundle carries more modules than upstream's, so `expo export` exceeds the default ~2G heap and the macOS build dies with a jest worker SIGTERM. Release builds already size the heap per arch; the Nix derivation gets the same 4096 arm64 floor.
+
+```bash
+grep -q "max-old-space-size=4096" nix/desktop-package.nix
+```
+
 ## nix-update-hash-github-token
 
 **the Nix hash auto-updater authenticates with `GITHUB_TOKEN` instead of the upstream GitHub App**

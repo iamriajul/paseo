@@ -472,19 +472,36 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
 });
 
 ipcMain.handle("paseo:browser:register-workspace-browser", async (event, rawInput: unknown) => {
+  // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+  const startedAt = Date.now();
   const input = readBrowserWorkspaceInput(rawInput);
-  if (input) {
-    registerPaseoBrowserWorkspace(input);
-    await registerBrowserLoopbackProxy({
-      ...input,
-      rendererWebContentsId: event.sender.id,
-      directLoopback:
+  try {
+    if (input) {
+      registerPaseoBrowserWorkspace(input);
+      const direct = Boolean(
         input.directLoopback ||
         shouldUseDirectLoopback({
           localDaemonServerId: peekDesktopDaemonServerId(),
           tabServerId: input.serverId,
         }),
-    });
+      );
+      console.info(
+        `[tmplink] register ${input.browserId.slice(0, 8)} ws=${input.workspaceId} srv=${input.serverId} peek=${peekDesktopDaemonServerId()} direct=${direct}`,
+      );
+      await registerBrowserLoopbackProxy({
+        ...input,
+        rendererWebContentsId: event.sender.id,
+        directLoopback: direct,
+      });
+      console.info(
+        `[tmplink] registered ${input.browserId.slice(0, 8)} in ${Date.now() - startedAt}ms`,
+      );
+    } else {
+      console.info(`[tmplink] register invalid input ${JSON.stringify(rawInput).slice(0, 120)}`);
+    }
+  } catch (error) {
+    console.info(`[tmplink] register failed ${String(error).slice(0, 200)}`);
+    throw error;
   }
 });
 

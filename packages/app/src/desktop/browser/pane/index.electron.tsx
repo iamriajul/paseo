@@ -657,8 +657,7 @@ export function BrowserPane({
   const setBrowserViewport = useBrowserStore((state) => state.setBrowserViewport);
   const browserViewport = browser?.viewport ?? RESPONSIVE_BROWSER_VIEWPORT;
   const browserViewportRef = useRef(browserViewport);
-  const initialLoadAttemptsRef = useRef(0);
-  const mountedAtRef = useRef(0);
+  browserViewportRef.current = browserViewport;
   const isPresented = useRetainedPanelActive();
   const isPresentedRef = useRef(isPresented);
   isPresentedRef.current = isPresented;
@@ -796,8 +795,6 @@ export function BrowserPane({
     const residentWebview = takeResidentBrowserWebview(browserId) as ElectronWebview | null;
     const webview = residentWebview ?? (document.createElement("webview") as ElectronWebview);
     webviewRef.current = webview;
-    mountedAtRef.current = Date.now();
-    initialLoadAttemptsRef.current = 0;
     // A taken resident that never loaded (parked before its registration
     // resolved) still shows about:blank: load it like a fresh webview instead
     // of assuming the resident arrival implies content.
@@ -856,35 +853,12 @@ export function BrowserPane({
       syncNavigationState({ syncUrl: false });
     };
     const handleStopLoading = () => {
+      // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+      console.info(
+        `[tmplink] did-stop-loading ${browserId.slice(0, 8)} url=${(webview.getURL?.() ?? "").slice(0, 60)}`,
+      );
       updateBrowser(browserId, { isLoading: false });
       syncNavigationState();
-      // A guest that commits about:blank without ever navigating (src missed
-      // during guest init, aborted first commit) would sit blank forever: the
-      // one-shot initial load already ran. Force one navigation while blank,
-      // bounded so user navigations and real errors are never fought.
-      const liveUrl = webview.getURL?.()?.trim() ?? "";
-      const isBlank = liveUrl.length === 0 || liveUrl === "about:blank";
-      if (
-        isBlank &&
-        shouldLoadInitialUrl &&
-        webviewRef.current === webview &&
-        initialLoadAttemptsRef.current < 3 &&
-        Date.now() - mountedAtRef.current < 30_000
-      ) {
-        initialLoadAttemptsRef.current += 1;
-        void webview.loadURL?.(initialUrlRef.current).catch((error: unknown) => {
-          const message = getLoadUrlRejectionMessage(
-            error,
-            browserErrorLabelsRef.current.failedToLoad,
-          );
-          if (message) {
-            updateBrowserRef.current(browserIdRef.current, {
-              isLoading: false,
-              lastError: message,
-            });
-          }
-        });
-      }
     };
     const handleNavigate = (event: Event) => {
       const nextUrl =

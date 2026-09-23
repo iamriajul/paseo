@@ -201,9 +201,10 @@ describe("autoOpenWorkspacePullRequest", () => {
     const after = useWorkspaceLayoutStore.getState().layoutByWorkspace[WORKSPACE_KEY];
     const explorer = findPaneById(after.root, "explorer")!;
     expect(explorer.tabIds).toEqual([
-      "files",
       "changes_tree",
       "pull_request",
+      "files",
+      "todo",
       "terminal_terminal-1",
     ]);
     expect(explorer.hidden).toBe(true);
@@ -326,6 +327,6 @@ describe("automatic PR placement", () => {
         useWorkspaceLayoutStore.getState().layoutByWorkspace[WORKSPACE_KEY].root,
         "explorer",
       )!.tabIds,
-    ).toEqual(["files", "pull_request"]);
+    ).toEqual(["files", "todo", "pull_request"]);
   });
 });

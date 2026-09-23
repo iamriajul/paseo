@@ -110,6 +110,7 @@ export async function registerBrowserLoopbackProxy(
   const existing = recordsByWorkspaceKey.get(workspaceKey);
 
   if (directLoopback) {
+    const alreadyDirect = existing?.directLoopback === true;
     if (existing) {
       existing.browsers.add(input.browserId);
       existing.activeBrowserId = input.browserId;
@@ -134,7 +135,13 @@ export async function registerBrowserLoopbackProxy(
     // Local daemon: Chromium should use its implicit localhost bypass, not our
     // workspace tunnel proxy. Installing `<-loopback>` here is what made official
     // browser-tabs E2E load a blank guest instead of #typing-target.
-    await applyDirectSession(partition);
+    // Re-applying setProxy after the guest has attached kills the first
+    // navigation, same hazard the tunnel path guards below: a remount that
+    // re-registers the same workspace (or a second tab in it) lands mid-commit
+    // and strands the new guest on about:blank. Skip when already direct.
+    if (!alreadyDirect) {
+      await applyDirectSession(partition);
+    }
     return;
   }
 

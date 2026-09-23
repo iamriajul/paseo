@@ -308,6 +308,7 @@ export function enrichClaudeCatalogModel(model: AgentModelDefinition): AgentMode
       const thinkingOptions = buildThinkingOptions(
         effortLevels,
         "supportsThinkingDisabled" in entry && entry.supportsThinkingDisabled === true,
+        getDefaultThinkingOptionId(entry),
       );
       if (!thinkingOptions) {
         return model;

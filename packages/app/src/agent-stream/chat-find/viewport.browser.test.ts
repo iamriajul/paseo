@@ -23,6 +23,7 @@ function transcript(messageId: string, blocks: string[]): HTMLElement {
 function viewport(root: HTMLElement, capture: Capture) {
   const handle: StreamViewportHandle = {
     scrollToBottom() {},
+    scrollToItem() {},
     prepareForViewportChange() {},
     holdReadingPosition() {},
     scrollToMessage(_messageId, occurrence) {

@@ -2679,13 +2679,19 @@ export class Session {
       this.dispatchWorkspaceLifecycleMessage(msg) ??
       this.dispatchTaskUiStateAndLabelMessage(msg) ??
       this.dispatchWorkspaceFileMessage(msg, source) ??
+      this.dispatchSecondaryMessage(msg);
+    if (promise) await promise;
+  }
+
+  private dispatchSecondaryMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    return (
       this.dispatchProviderMessage(msg) ??
       this.dispatchOrchestrationSkillsMessage(msg) ??
       this.dispatchPluginDirectoryMessage(msg) ??
       this.dispatchPluginMessage(msg) ??
       this.dispatchHostServiceMessage(msg) ??
-      this.dispatchMiscMessage(msg);
-    if (promise) await promise;
+      this.dispatchMiscMessage(msg)
+    );
   }
 
   private dispatchAgentObservationMessage(
@@ -9060,6 +9066,8 @@ export class Session {
     if (stored && !stored.title && !stored.lastUserMessageAt) {
       const { provisionalTitle } = resolveCreateAgentTitles({ initialPrompt: text });
       if (provisionalTitle) await this.agentManager.setTitle(agentId, provisionalTitle);
+    }
+  }
   private async handleAgentNativeForkRequest(
     msg: Extract<SessionInboundMessage, { type: "agent.native_fork.request" }>,
   ): Promise<void> {

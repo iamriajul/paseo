@@ -442,6 +442,34 @@ describe("stream presentation through installed plugins", () => {
       { text: sourceText, phase: "streaming" },
     ]);
   });
+
+  it("marks a live-head message complete once its turn is no longer active", () => {
+    const sourceText = "Read every paragraph and preserve the full message.";
+    const event = {
+      type: "timeline" as const,
+      provider: "codex" as const,
+      item: { type: "assistant_message" as const, messageId: "message-1", text: sourceText },
+    };
+    const timestamp = new Date("2026-01-01T00:00:00.000Z");
+    const transform = installedTransform(installProbe("assistant_message"));
+    const present = createStreamPresentation();
+    const stream = applyStreamEvent({
+      tail: [],
+      head: [],
+      event,
+      timestamp,
+    });
+
+    const rendered = present({
+      ...presentationOptions,
+      ...stream,
+      isTurnActive: false,
+      transform,
+    });
+    expect(pluginData([...rendered.tail, ...rendered.head])).toEqual([
+      { text: sourceText, phase: "complete" },
+    ]);
+  });
 });
 
 function createTimestamp(seed: number): Date {

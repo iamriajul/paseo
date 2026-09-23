@@ -98,10 +98,11 @@ grep -q "left.pendingMessageSubmissions !== right.pendingMessageSubmissions" pac
 
 **workspace partitions with shared non-localhost cookies, tcpTunnel, and localhost links open in workspace Browser**
 
-each Browser tab uses workspace-scoped persist:paseo-browser-workspace-${workspaceId} partitions with non-localhost cookies synced across workspaces and localhost cookies scoped to the workspace; daemon advertises tcpTunnel and mounts browser-preview before the service proxy; assistant localhost links open in that workspace Browser instead of the client machine; the initial loadURL waits for did-attach because loading a detached webview never settles and leaves about:blank
+each Browser tab uses workspace-scoped persist:paseo-browser-workspace-${workspaceId} partitions with non-localhost cookies synced across workspaces and localhost cookies scoped to the workspace; daemon advertises tcpTunnel and mounts browser-preview before the service proxy; assistant localhost links open in that workspace Browser instead of the client machine; the initial loadURL waits for did-attach because loading a detached webview never settles and leaves about:blank; tcp-tunnel frames carry the opening source so delivery proofs authorize OpenResult/Data replies, without which every tunnel open connects but its reply never reaches the client
 
 ```bash
 npx vitest run packages/desktop/src/features/browser-cookies.test.ts packages/desktop/src/features/browser-profile.test.ts packages/desktop/src/features/browser-webviews/index.test.ts packages/app/src/utils/localhost-url.test.ts --bail=1
+npx vitest run packages/server/src/server/tcp-tunnel-forwarder.test.ts --bail=1
 grep -q "loadInitialUrl" packages/app/src/desktop/browser/pane/index.electron.tsx
 ```
 
@@ -336,6 +337,16 @@ flush live user_message through the stream coalescer in the same turn as onmessa
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/timeline/ingest-agent-stream-event.test.ts src/timeline/turn-liveness.test.ts --bail=1
+```
+
+## assistant-delta-append
+
+**live assistant chunks append; only canonical snapshots replace by prefix**
+
+projected history snapshots replace a stored prefix by overlap, but live provider deltas always append: a delta that repeats the opening text (the closing `**` of a bold span is a prefix of the row) is new content, and prefix-matching it away drops characters from every streamed reply. snapshot overlap still replaces so a replica-painted prefix plus the full fence does not fuse into `Anno```mermaidflowchart`.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/types/stream.test.ts --bail=1
 ```
 
 ## paseo-backed-claude-subagent-prompt-cache-ttl

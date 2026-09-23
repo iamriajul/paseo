@@ -816,16 +816,19 @@ describe("stream reducer canonical tool calls", () => {
       "```",
     ].join("\n");
 
-    const state = hydrateStreamState([
-      {
-        event: assistantTimeline(prefix, "codex", "msg-mermaid"),
-        timestamp: new Date("2026-09-03T00:00:00Z"),
-      },
-      {
-        event: assistantTimeline(snapshot, "codex", "msg-mermaid"),
-        timestamp: new Date("2026-09-03T00:00:01Z"),
-      },
-    ]);
+    const state = hydrateStreamState(
+      [
+        {
+          event: assistantTimeline(prefix, "codex", "msg-mermaid"),
+          timestamp: new Date("2026-09-03T00:00:00Z"),
+        },
+        {
+          event: assistantTimeline(snapshot, "codex", "msg-mermaid"),
+          timestamp: new Date("2026-09-03T00:00:01Z"),
+        },
+      ],
+      { source: "canonical" },
+    );
 
     const messages = state.filter((item) => item.kind === "assistant_message");
     assert.strictEqual(messages.length, 1);
@@ -838,14 +841,42 @@ describe("stream reducer canonical tool calls", () => {
   it("does not shrink a complete assistant message when a stale prefix arrives", () => {
     const snapshot = "```mermaid\nflowchart LR\n  Start --> Middle\n```";
     const prefix = "```mermaid\nflowchart LR\n  Start";
+    const state = hydrateStreamState(
+      [
+        {
+          event: assistantTimeline(snapshot, "codex", "msg-mermaid"),
+          timestamp: new Date("2026-09-03T00:00:00Z"),
+        },
+        {
+          event: assistantTimeline(prefix, "codex", "msg-mermaid"),
+          timestamp: new Date("2026-09-03T00:00:01Z"),
+        },
+      ],
+      { source: "canonical" },
+    );
+
+    const messages = state.filter((item) => item.kind === "assistant_message");
+    assert.strictEqual(messages.length, 1);
+    const message = messages[0];
+    invariant(message?.kind === "assistant_message");
+    assert.strictEqual(message.text, snapshot);
+  });
+
+  it("appends live delta chunks that repeat the opening text", () => {
+    // Live provider events are deltas: the closing "**" of a bold span is a
+    // prefix of the text so far, but it is new content and must be appended.
     const state = hydrateStreamState([
       {
-        event: assistantTimeline(snapshot, "codex", "msg-mermaid"),
-        timestamp: new Date("2026-09-03T00:00:00Z"),
+        event: assistantTimeline("**Bold text stays bold", "codex", "msg-live"),
+        timestamp: new Date("2026-09-23T00:00:00Z"),
       },
       {
-        event: assistantTimeline(prefix, "codex", "msg-mermaid"),
-        timestamp: new Date("2026-09-03T00:00:01Z"),
+        event: assistantTimeline("**", "codex", "msg-live"),
+        timestamp: new Date("2026-09-23T00:00:01Z"),
+      },
+      {
+        event: assistantTimeline(" and done.", "codex", "msg-live"),
+        timestamp: new Date("2026-09-23T00:00:02Z"),
       },
     ]);
 
@@ -853,7 +884,7 @@ describe("stream reducer canonical tool calls", () => {
     assert.strictEqual(messages.length, 1);
     const message = messages[0];
     invariant(message?.kind === "assistant_message");
-    assert.strictEqual(message.text, snapshot);
+    assert.strictEqual(message.text, "**Bold text stays bold** and done.");
   });
 
   it("keeps row identities unique when an assistant message resumes after a tool", () => {

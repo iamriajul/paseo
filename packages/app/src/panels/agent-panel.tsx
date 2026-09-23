@@ -20,7 +20,6 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import invariant from "tiny-invariant";
 import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
-import { useChatHistorySearch } from "@/agent-search/use-chat-history-search";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/agent-stream/view";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
 import { ComposerDock } from "@/composer/dock";
@@ -1185,13 +1184,6 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   const hasPluginComposerPills = useHasPluginComposerPills(serverId, workspaceId, agentId);
   const hasActiveComposer = !agentState.archivedAt && !isArchivingCurrentAgent;
   const hasForkTracks = useForkAgentTrackPresence({ serverId, agentId });
-  const chatSearch = useChatHistorySearch({
-    serverId,
-    agentId,
-    isPaneFocused,
-    streamViewRef,
-    toast: toastApi,
-  });
   const hasVisibleAgentTracks =
     hasAgentTracks({
       subagentRows,
@@ -1279,7 +1271,6 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           toast={toastApi}
           onOpenWorkspaceFile={onOpenWorkspaceFile}
           onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
-          activeSearchResultId={chatSearch.activeSearchResultId}
         />
       </RenderProfile>
       {hasActiveComposer ? (
@@ -1303,7 +1294,6 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
 
   const dockContent = (
     <View style={styles.contentContainer}>
-      {chatSearch.bar}
       {streamContent}
 
       {showHistorySyncError ? (
@@ -1410,7 +1400,6 @@ const AgentStreamSection = memo(function AgentStreamSection({
   toast,
   onOpenWorkspaceFile,
   onOpenUrlInBrowserTab,
-  activeSearchResultId = null,
 }: {
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
   serverId: string;
@@ -1424,7 +1413,6 @@ const AgentStreamSection = memo(function AgentStreamSection({
   toast: ReturnType<typeof useToastHost>["api"];
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
   onOpenUrlInBrowserTab?: (url: string) => boolean;
-  activeSearchResultId?: string | null;
 }) {
   const isCompactFormFactor = useIsCompactFormFactor();
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
@@ -1498,7 +1486,6 @@ const AgentStreamSection = memo(function AgentStreamSection({
       turnPresentation={turnPresentation}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
       onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
-      activeSearchResultId={activeSearchResultId}
     />
   );
 });

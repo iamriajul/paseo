@@ -349,6 +349,16 @@ projected history snapshots replace a stored prefix by overlap, but live provide
 npm test --workspace=@getpaseo/app -- src/types/stream.test.ts --bail=1
 ```
 
+## plugin-head-turn-phase
+
+**live-head plugin cards use the turn phase, not hardcoded streaming**
+
+the stream head holds completed-but-not-yet-reconciled rows after a turn closes; rendering those plugin cards as `streaming` unconditionally strands them on the streaming template (a post-reload fetch that reconciles into head never flips them). pass `isTurnActive` so a closed turn completes head cards exactly like the chat message path does.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/agent-stream/presentation.test.ts --bail=1
+```
+
 ## paseo-backed-claude-subagent-prompt-cache-ttl
 
 **5m prompt cache TTL for orchestrator-spawned Claude agents**

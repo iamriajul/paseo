@@ -42,16 +42,6 @@ npx vitest run packages/protocol/src/background-tasks-schema.test.ts packages/pr
 npm test --workspace=@getpaseo/app -- src/panels/agent-tracks.test.ts src/heartbeats/track-presentation.test.ts src/background-tasks/track-presentation.test.ts src/hooks/use-schedules.test.ts --bail=1
 ```
 
-## find-in-chat
-
-**Find in chat: Cmd/Ctrl+F, backfill older history**
-
-agent.search keyboard bindings dispatch Find in chat; agent-panel remounts useChatHistorySearch; loadAllOlder backfills so Cmd/Ctrl+F searches the full transcript
-
-```bash
-npx vitest run packages/app/src/keyboard/route-shortcut.test.ts packages/app/src/agent-search/chat-history-search.test.ts --bail=1
-```
-
 ## pdf-file-preview
 
 **persist PDF bytes and render PdfPreview in the file pane**

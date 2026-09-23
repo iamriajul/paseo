@@ -98,12 +98,13 @@ grep -q "left.pendingMessageSubmissions !== right.pendingMessageSubmissions" pac
 
 **workspace partitions with shared non-localhost cookies, tcpTunnel, and localhost links open in workspace Browser**
 
-each Browser tab uses workspace-scoped persist:paseo-browser-workspace-${workspaceId} partitions with non-localhost cookies synced across workspaces and localhost cookies scoped to the workspace; daemon advertises tcpTunnel and mounts browser-preview before the service proxy; assistant localhost links open in that workspace Browser instead of the client machine; the initial navigation assigns src after registration (never a one-shot loadURL) and reloads blank taken residents, because remounts and guest-replacing reparents otherwise strand the webview on about:blank; tcp-tunnel frames carry the opening source so delivery proofs authorize OpenResult/Data replies, without which every tunnel open connects but its reply never reaches the client
+each Browser tab uses workspace-scoped persist:paseo-browser-workspace-${workspaceId} partitions with non-localhost cookies synced across workspaces and localhost cookies scoped to the workspace; daemon advertises tcpTunnel and mounts browser-preview before the service proxy; assistant localhost links open in that workspace Browser instead of the client machine; the initial navigation assigns src after registration (never a one-shot loadURL) and reloads blank taken residents, because remounts and guest-replacing reparents otherwise strand the webview on about:blank; direct re-registration skips setProxy when already direct, because re-applying it after the guest attached kills the first navigation exactly like the tunnel path already guarded; tcp-tunnel frames carry the opening source so delivery proofs authorize OpenResult/Data replies, without which every tunnel open connects but its reply never reaches the client
 
 ```bash
 npx vitest run packages/desktop/src/features/browser-cookies.test.ts packages/desktop/src/features/browser-profile.test.ts packages/desktop/src/features/browser-webviews/index.test.ts packages/app/src/utils/localhost-url.test.ts --bail=1
 npx vitest run packages/server/src/server/tcp-tunnel-forwarder.test.ts --bail=1
 grep -q "isBlankWebview" packages/app/src/desktop/browser/pane/index.electron.tsx
+npx vitest run packages/desktop/src/features/browser-loopback-direct.test.ts --bail=1
 ```
 
 ## code-server-tab

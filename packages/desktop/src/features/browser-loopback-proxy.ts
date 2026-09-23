@@ -212,6 +212,10 @@ export function handleLoopbackTunnelOpenResult(payload: unknown): void {
     return;
   }
   clearTimeout(tunnel.timeoutHandle);
+  // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+  console.info(
+    `[tmplink] tunnel result ${parsed.tunnelId.slice(0, 8)} ok=${parsed.ok} reason=${(parsed.reason ?? "").slice(0, 120)}`,
+  );
   if (!parsed.ok) {
     const reason = parsed.reason || "Workspace localhost tunnel failed to open.";
     tunnelsById.delete(parsed.tunnelId);

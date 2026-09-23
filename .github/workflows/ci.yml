@@ -444,8 +444,9 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # Weight file groups by observed duration; raw test counts overload
-          # early agent/Changes specs. Required check names remain unchanged.
-          PWTEST_SHARD_WEIGHTS: "111:172:137:160"
+          # early agent/Changes specs. Eight weights for eight shards: each
+          # upstream quarter split in two, preserving the observed proportions.
+          PWTEST_SHARD_WEIGHTS: "55:56:86:86:68:69:80:80"
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4

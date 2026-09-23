@@ -251,7 +251,7 @@ function registerWorkspaceBrowserThenLoad(input: {
       // navigation never runs before the workspace proxy is ready.
       // did-fail-load surfaces errors; no promise rejection to catch.
       if (readWebviewSrc(input.webview) !== input.initialUrl) {
-        input.webview.setAttribute?.("src", input.initialUrl);
+        (input.webview as ElectronWebview & { src?: string }).src = input.initialUrl;
       }
       return undefined;
     })
@@ -861,7 +861,9 @@ export function BrowserPane({
 
     const handleStartLoading = () => {
       // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
-      console.info(`[tmplink] did-start-loading ${browserId.slice(0, 8)}`);
+      console.info(
+        `[tmplink] did-start-loading ${browserId.slice(0, 8)} url=${(webview.getURL?.() ?? "").slice(0, 60)} src=${(webview.getAttribute?.("src") ?? "").slice(0, 60)}`,
+      );
       selectorControllerRef.current?.stopForWebview(webview);
       updateBrowser(browserId, { isLoading: true, lastError: null });
       syncNavigationState({ syncUrl: false });
@@ -875,6 +877,8 @@ export function BrowserPane({
       syncNavigationState();
     };
     const handleNavigate = (event: Event) => {
+      // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+      console.info(`[tmplink] did-navigate ${browserId.slice(0, 8)}`);
       const nextUrl =
         typeof (event as Event & { url?: unknown }).url === "string"
           ? ((event as Event & { url?: string }).url ?? "")

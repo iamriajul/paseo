@@ -77,7 +77,7 @@ import {
 import { useDraftStore } from "@/stores/draft-store";
 import { generateDraftId } from "@/stores/draft-keys";
 import type { UserComposerAttachment } from "@/attachments/types";
-import type { PickedFile } from "@/attachments/picked-file";
+import type { SelectedFile } from "@/attachments/selected-file";
 import { toErrorMessage } from "@/utils/error-messages";
 import { buildBacklogRoute, buildNewWorkspaceRoute } from "@/utils/host-routes";
 import { buildNewWorkspaceDraftKey } from "@/utils/new-workspace-draft";
@@ -134,14 +134,15 @@ interface AttachmentPreview {
   kind: "image" | "video";
 }
 
-interface PendingPickedFile extends PickedFile {
+interface PendingPickedFile extends SelectedFile {
   key: string;
+  bytes: Uint8Array;
 }
 
 export interface CreateTaskInput {
   title: string;
   description: string;
-  attachments: PickedFile[];
+  attachments: SelectedFile[];
   target?: MasterBacklogProjectTarget;
 }
 
@@ -294,7 +295,7 @@ function ProjectBacklogScreen({
   }, [queryClient, queryKey]);
 
   const handleCreateTask = useCallback(
-    async (input: { title: string; description: string; attachments: PickedFile[] }) => {
+    async (input: { title: string; description: string; attachments: SelectedFile[] }) => {
       if (!client) {
         throw new Error(t("workspace.terminal.hostDisconnected"));
       }
@@ -303,7 +304,7 @@ function ProjectBacklogScreen({
           const result = await client.uploadFile({
             fileName: attachment.fileName,
             mimeType: attachment.mimeType,
-            bytes: attachment.bytes,
+            bytes: await attachment.readBytes(),
           });
           if (result.error || !result.file) {
             throw new Error(result.error ?? `Failed to upload ${attachment.fileName}`);
@@ -926,7 +927,7 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
           const result = await client.uploadFile({
             fileName: attachment.fileName,
             mimeType: attachment.mimeType,
-            bytes: attachment.bytes,
+            bytes: await attachment.readBytes(),
           });
           if (result.error || !result.file) {
             throw new Error(result.error ?? `Failed to upload ${attachment.fileName}`);
@@ -1789,19 +1790,21 @@ export function TaskFormSheet({
     if (!picked || picked.length === 0) {
       return;
     }
-    setAttachments((current) => [
-      ...current,
-      ...picked.map((attachment) => {
-        const key = `${attachment.fileName}-${attachment.bytes.byteLength}-${nextAttachmentKey.current}`;
+    const pickedWithBytes = await Promise.all(
+      picked.map(async (attachment) => {
+        const bytes = await attachment.readBytes();
+        const key = `${attachment.fileName}-${bytes.byteLength}-${nextAttachmentKey.current}`;
         nextAttachmentKey.current += 1;
         return {
           fileName: attachment.fileName,
           mimeType: attachment.mimeType,
-          bytes: attachment.bytes,
+          readBytes: attachment.readBytes,
           key,
+          bytes,
         };
       }),
-    ]);
+    );
+    setAttachments((current) => [...current, ...pickedWithBytes]);
   }, [pickFiles]);
 
   const handleSubmit = useCallback(async () => {
@@ -1823,11 +1826,7 @@ export function TaskFormSheet({
         await onCreate({
           title: trimmedTitle,
           description,
-          attachments: attachments.map((attachment) => ({
-            fileName: attachment.fileName,
-            mimeType: attachment.mimeType,
-            bytes: attachment.bytes,
-          })),
+          attachments,
           ...(selectedProjectTarget ? { target: selectedProjectTarget } : {}),
         });
       }

@@ -3645,8 +3645,9 @@ describe("workspace-layout-store actions", () => {
     const layout = initialized.layoutByWorkspace[workspaceKey];
     expect(collectAllTabs(layout.root).map((tab) => tab.target)).toEqual([
       { kind: "new_tab" },
-      { kind: "files" },
       { kind: "changes_tree" },
+      { kind: "files" },
+      { kind: "todo" },
     ]);
     expect(layout.focusedPaneId).toBe("main");
 

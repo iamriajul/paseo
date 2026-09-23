@@ -237,18 +237,28 @@ function registerWorkspaceBrowserThenLoad(input: {
     }) ?? Promise.resolve();
   void registration
     .then(() => {
+      // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+      console.info(
+        `[tmplink] pane load decision ${input.browserId.slice(0, 8)} shouldLoad=${input.shouldLoadInitialUrl} current=${input.isCurrentWebview()} live=${(input.webview.getURL?.() ?? "").slice(0, 60)} url=${input.initialUrl.slice(0, 60)}`,
+      );
       if (!input.shouldLoadInitialUrl || !input.isCurrentWebview()) {
         return undefined;
       }
-      // Assign src (not one-shot loadURL): src navigates now when attached,
-      // navigates on attach when parked, and reloads after a guest-replacing
-      // reparent, so remounts and StrictMode-style churn cannot strand the
-      // webview on about:blank. Registration still gates this so the first
-      // navigation never runs before the workspace proxy is ready.
+      // The src was already assigned at creation (upstream timing) so the
+      // guest reads it at birth. If it is still blank now that registration
+      // (and the workspace proxy) resolved — guest missed it, aborted first
+      // commit, tunnel path needs the ready proxy — force one navigation.
       // did-fail-load surfaces errors; no promise rejection to catch.
-      if (readWebviewSrc(input.webview) !== input.initialUrl) {
-        (input.webview as ElectronWebview & { src?: string }).src = input.initialUrl;
+      const liveUrl = input.webview.getURL?.()?.trim() ?? "";
+      if (liveUrl.length > 0 && liveUrl !== "about:blank") {
+        return undefined;
       }
+      void input.webview.loadURL?.(input.initialUrl).catch((error: unknown) => {
+        const message = getLoadUrlRejectionMessage(error, input.failedToLoadLabel());
+        if (message) {
+          input.onLoadError(message);
+        }
+      });
       return undefined;
     })
     .catch(() => {
@@ -801,11 +811,19 @@ export function BrowserPane({
     const shouldLoadInitialUrl =
       (!residentWebview || isBlankWebview(residentWebview as ElectronWebview)) &&
       !initialUnsafeNavigationMessage;
+    // TMP-DEBUG-PLUGIN-LINKS: remove before commit.
+    const __mounts = ((
+      globalThis as unknown as { __tmplinkMounts?: Record<string, number> }
+    ).__tmplinkMounts ??= {});
+    __mounts[browserId] = (__mounts[browserId] ?? 0) + 1;
+    console.info(
+      `[tmplink] pane mount ${browserId.slice(0, 8)} n=${__mounts[browserId]} resident=${Boolean(residentWebview)} shouldLoad=${shouldLoadInitialUrl} url=${initialUrlRef.current.slice(0, 60)}`,
+    );
     if (!residentWebview) {
       prepareBrowserWebview(webview, {
         browserId,
         workspaceId,
-        initialUrl: "about:blank",
+        initialUrl: initialUnsafeNavigationMessage ? "about:blank" : initialUrlRef.current,
       });
     }
     registerWorkspaceBrowserThenLoad({

@@ -222,26 +222,27 @@ function registerWorkspaceBrowserThenLoad(input: {
     }) ?? Promise.resolve();
   void registration
     .then(() => {
-      console.info(
-        `[e2e-trace] pane load decision ${JSON.stringify({ browserId: input.browserId, shouldLoad: input.shouldLoadInitialUrl, current: input.isCurrentWebview(), hasLoadURL: typeof input.webview.loadURL, url: input.initialUrl })}`,
-      );
       if (!input.shouldLoadInitialUrl || !input.isCurrentWebview()) {
         return undefined;
       }
-      console.info(`[e2e-trace] pane loadURL called ${input.browserId} ${input.initialUrl}`);
-      const pending = input.webview.loadURL?.(input.initialUrl);
-      console.info(`[e2e-trace] pane loadURL pending ${input.browserId} ${typeof pending}`);
-      if (pending) {
-        void pending.then(
-          () => console.info(`[e2e-trace] pane loadURL resolved ${input.browserId}`),
-          (error: unknown) => {
-            console.info(`[e2e-trace] pane loadURL rejected ${input.browserId} ${String(error)}`);
-            const message = getLoadUrlRejectionMessage(error, input.failedToLoadLabel());
-            if (message) {
-              input.onLoadError(message);
-            }
-          },
-        );
+      // loadURL on a detached webview never settles: the guest does not exist
+      // yet, so the promise hangs instead of navigating on attach. Wait for
+      // did-attach first; the src stays about:blank until the proxy is ready.
+      const loadInitialUrl = () => {
+        if (!input.shouldLoadInitialUrl || !input.isCurrentWebview()) {
+          return;
+        }
+        void input.webview.loadURL?.(input.initialUrl).catch((error: unknown) => {
+          const message = getLoadUrlRejectionMessage(error, input.failedToLoadLabel());
+          if (message) {
+            input.onLoadError(message);
+          }
+        });
+      };
+      if (input.webview.isConnected) {
+        loadInitialUrl();
+      } else {
+        input.webview.addEventListener("did-attach", loadInitialUrl, { once: true });
       }
       return undefined;
     })
@@ -790,9 +791,6 @@ export function BrowserPane({
     const webview = residentWebview ?? (document.createElement("webview") as ElectronWebview);
     webviewRef.current = webview;
     const shouldLoadInitialUrl = !residentWebview && !initialUnsafeNavigationMessage;
-    console.info(
-      `[e2e-trace] pane mount ${JSON.stringify({ browserId, resident: Boolean(residentWebview), shouldLoadInitialUrl, initialUrl: initialUrlRef.current })}`,
-    );
     if (!residentWebview) {
       prepareBrowserWebview(webview, {
         browserId,

@@ -222,6 +222,13 @@ function registerWorkspaceBrowserThenLoad(input: {
     }) ?? Promise.resolve();
   void registration
     .then(() => {
+      console.info("[e2e-trace] pane load decision", {
+        browserId: input.browserId,
+        shouldLoad: input.shouldLoadInitialUrl,
+        current: input.isCurrentWebview(),
+        hasLoadURL: typeof input.webview.loadURL,
+        url: input.initialUrl,
+      });
       if (!input.shouldLoadInitialUrl || !input.isCurrentWebview()) {
         return undefined;
       }
@@ -778,6 +785,12 @@ export function BrowserPane({
     const webview = residentWebview ?? (document.createElement("webview") as ElectronWebview);
     webviewRef.current = webview;
     const shouldLoadInitialUrl = !residentWebview && !initialUnsafeNavigationMessage;
+    console.info("[e2e-trace] pane mount", {
+      browserId,
+      resident: Boolean(residentWebview),
+      shouldLoadInitialUrl,
+      initialUrl: initialUrlRef.current,
+    });
     if (!residentWebview) {
       prepareBrowserWebview(webview, {
         browserId,

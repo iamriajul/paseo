@@ -79,6 +79,33 @@ describe("TcpTunnelForwarder", () => {
     await waitFor(() => hasOpenResult(emitted, 2, false));
     forwarder.dispose();
   });
+  test("delivers emitted frames to the opening source for delivery proofs", async () => {
+    const echoServer = createServer(handleEchoConnection);
+    servers.push(echoServer);
+    const port = await listen(echoServer);
+    const source = {};
+    const seenSources: Array<object | undefined> = [];
+    const forwarder = new TcpTunnelForwarder({
+      emitBinary: (_frame, frameSource) => {
+        seenSources.push(frameSource);
+      },
+      logger: pino({ level: "silent" }),
+    });
+
+    forwarder.handleFrame(
+      {
+        opcode: TcpTunnelOpcode.Open,
+        streamId: 3,
+        port,
+        targetHost: TcpTunnelTargetHost.Ipv4Loopback,
+      },
+      source,
+    );
+
+    await waitFor(() => seenSources.length > 0);
+    expect(seenSources[0]).toBe(source);
+    forwarder.dispose();
+  });
 });
 
 function handleEchoConnection(socket: Socket): void {

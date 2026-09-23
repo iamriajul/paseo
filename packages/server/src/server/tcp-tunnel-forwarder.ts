@@ -8,13 +8,14 @@ import {
 import type pino from "pino";
 
 interface TcpTunnelForwarderHost {
-  emitBinary(frame: Uint8Array): void;
+  emitBinary(frame: Uint8Array, source?: object): void;
   logger: pino.Logger;
 }
 
 interface TcpTunnelStreamState {
   streamId: number;
   socket: Socket;
+  source: object | null;
   opened: boolean;
   closed: boolean;
   closeReason: string;
@@ -31,10 +32,10 @@ export class TcpTunnelForwarder {
     this.logger = host.logger.child({ module: "tcp-tunnel-forwarder" });
   }
 
-  public handleFrame(frame: TcpTunnelFrame): void {
+  public handleFrame(frame: TcpTunnelFrame, source?: object): void {
     switch (frame.opcode) {
       case TcpTunnelOpcode.Open:
-        this.open(frame.streamId, frame.port, frame.targetHost);
+        this.open(frame.streamId, frame.port, frame.targetHost, source ?? null);
         return;
       case TcpTunnelOpcode.Data:
         this.write(frame.streamId, frame.payload);
@@ -53,52 +54,66 @@ export class TcpTunnelForwarder {
     }
   }
 
-  private open(streamId: number, port: number, targetHost: TcpTunnelTargetHost): void {
+  private open(
+    streamId: number,
+    port: number,
+    targetHost: TcpTunnelTargetHost,
+    source: object | null,
+  ): void {
     this.close(streamId, "Replacing existing tunnel stream", { notifyClient: false });
 
     const socket = createConnection({ host: targetHostForFrame(targetHost), port });
     const state: TcpTunnelStreamState = {
       streamId,
       socket,
+      source,
       opened: false,
       closed: false,
       closeReason: "",
     };
     this.streams.set(streamId, state);
-
     socket.once("connect", () => {
       if (state.closed) {
         return;
       }
       state.opened = true;
-      this.emit({
-        opcode: TcpTunnelOpcode.OpenResult,
-        streamId,
-        ok: true,
-        message: "",
-      });
+      this.emit(
+        {
+          opcode: TcpTunnelOpcode.OpenResult,
+          streamId,
+          ok: true,
+          message: "",
+        },
+        state.source,
+      );
     });
 
     socket.on("data", (chunk: Buffer) => {
       if (state.closed) {
         return;
       }
-      this.emit({
-        opcode: TcpTunnelOpcode.Data,
-        streamId,
-        payload: new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength),
-      });
+      this.emit(
+        {
+          opcode: TcpTunnelOpcode.Data,
+          streamId,
+          payload: new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength),
+        },
+        state.source,
+      );
     });
 
     socket.once("error", (error) => {
       state.closeReason = error.message;
       if (!state.opened) {
-        this.emit({
-          opcode: TcpTunnelOpcode.OpenResult,
-          streamId,
-          ok: false,
-          message: error.message,
-        });
+        this.emit(
+          {
+            opcode: TcpTunnelOpcode.OpenResult,
+            streamId,
+            ok: false,
+            message: error.message,
+          },
+          state.source,
+        );
       }
     });
 
@@ -109,11 +124,14 @@ export class TcpTunnelForwarder {
       state.closed = true;
       this.streams.delete(streamId);
       if (state.opened) {
-        this.emit({
-          opcode: TcpTunnelOpcode.Close,
-          streamId,
-          reason: state.closeReason,
-        });
+        this.emit(
+          {
+            opcode: TcpTunnelOpcode.Close,
+            streamId,
+            reason: state.closeReason,
+          },
+          state.source,
+        );
       }
     });
   }
@@ -145,17 +163,20 @@ export class TcpTunnelForwarder {
       this.logger.debug({ err: error, streamId }, "tcp_tunnel_socket_destroy_failed");
     }
     if (options.notifyClient) {
-      this.emit({
-        opcode: TcpTunnelOpcode.Close,
-        streamId,
-        reason,
-      });
+      this.emit(
+        {
+          opcode: TcpTunnelOpcode.Close,
+          streamId,
+          reason,
+        },
+        state.source,
+      );
     }
   }
 
-  private emit(frame: TcpTunnelFrame): void {
+  private emit(frame: TcpTunnelFrame, source: object | null): void {
     try {
-      this.host.emitBinary(encodeTcpTunnelFrame(frame));
+      this.host.emitBinary(encodeTcpTunnelFrame(frame), source ?? undefined);
     } catch (error) {
       this.logger.warn({ err: error }, "tcp_tunnel_emit_failed");
     }

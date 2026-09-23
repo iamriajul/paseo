@@ -349,6 +349,16 @@ export class SessionDelivery {
     )
       this.proofs.set(frame, owner);
   }
+  authorizeTunnelReply(frame: Uint8Array, socket: object): void {
+    // Tunnel streams outlive any single request, so they cannot borrow the
+    // request-scoped proof that file replies use. Authorize each frame
+    // against the live source instead; proofs are keyed by frame object and
+    // die with it, so nothing accumulates.
+    const source = this.sources.get(socket);
+    if (source?.active) {
+      this.proofs.set(frame, { source, active: true });
+    }
+  }
 
   permitsBinary(socket: object, frame: Uint8Array): boolean {
     const source = this.sources.get(socket);

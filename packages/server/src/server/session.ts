@@ -968,7 +968,7 @@ export class Session {
       logger: this.sessionLogger,
     });
     this.tcpTunnelForwarder = new TcpTunnelForwarder({
-      emitBinary: (frame) => this.emitBinary(frame),
+      emitBinary: (frame, source) => this.emitTunnelBinary(frame, source),
       logger: this.sessionLogger,
     });
     this.agentManager = agentManager;
@@ -3410,7 +3410,7 @@ export class Session {
       return;
     }
     if (binaryFrame.kind === "tcp_tunnel") {
-      this.tcpTunnelForwarder.handleFrame(binaryFrame.frame);
+      this.tcpTunnelForwarder.handleFrame(binaryFrame.frame, source);
       return;
     }
     this.terminalController.handleBinaryFrame(binaryFrame.frame, source);
@@ -9205,6 +9205,12 @@ export class Session {
     } catch (error) {
       this.sessionLogger.error({ err: error }, "Failed to emit binary frame");
     }
+  }
+  private emitTunnelBinary(frame: Uint8Array, source?: object): void {
+    if (source) {
+      this.delivery.authorizeTunnelReply(frame, source);
+    }
+    this.emitBinary(frame);
   }
 
   private async emitBinaryForFileTransfer(frame: Uint8Array, source?: object): Promise<void> {

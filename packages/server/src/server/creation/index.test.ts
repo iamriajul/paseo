@@ -55,6 +55,8 @@ const agent: AgentSnapshotPayload = {
     supportsSessionPersistence: true,
     supportsDynamicModes: false,
     supportsMcpServers: false,
+    supportsNativeFork: false,
+    supportsSteer: false,
     supportsReasoningStream: false,
     supportsToolInvocations: true,
     supportsRewindConversation: false,

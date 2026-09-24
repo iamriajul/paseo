@@ -249,6 +249,11 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action defaults to `tools platform-tools`, but Google removed
+          # the obsolete `tools` package from the SDK repository, so the
+          # default invocation fails with "Failed to find package 'tools'".
+          packages: platform-tools
 
       - name: Setup Node
         uses: actions/setup-node@v4

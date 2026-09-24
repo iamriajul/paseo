@@ -463,3 +463,13 @@ archive_workspace_request resolves once archivedAt is durable and runs paseo.jso
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/workspace-archive-service.test.ts packages/server/src/server/session.workspaces.test.ts packages/server/src/utils/worktree.posix.test.ts --bail=1
 ```
+
+## fork-apk-setup-android-packages
+
+**the fork APK release installs only `platform-tools`, not the removed `tools` package**
+
+`android-actions/setup-android@v3` defaults to `packages: 'tools platform-tools'`, but Google removed the obsolete `tools` package from the SDK repository, so the default invocation dies with "Failed to find package 'tools'" (red since mid-September, including pre-sync main). The Gradle/Expo APK build only needs what the runner image already preinstalls plus `platform-tools`.
+
+```bash
+grep -q "packages: platform-tools" .github/workflows/android-apk-release.yml
+```

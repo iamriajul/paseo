@@ -453,3 +453,13 @@ grep -q 'E2E_WORKERS: "1"' .github/workflows/ci.yml
 grep -q 'PLAYWRIGHT_SHARD: "8/8"' .github/workflows/ci.yml
 ! grep -q 'PLAYWRIGHT_SHARD: "1/4"' .github/workflows/ci.yml
 ```
+
+## fork-apk-setup-android-packages
+
+**the fork APK release installs only `platform-tools`, not the removed `tools` package**
+
+`android-actions/setup-android@v3` defaults to `packages: 'tools platform-tools'`, but Google removed the obsolete `tools` package from the SDK repository, so the default invocation dies with "Failed to find package 'tools'" (red since mid-September, including pre-sync main). The Gradle/Expo APK build only needs what the runner image already preinstalls plus `platform-tools`.
+
+```bash
+grep -q "packages: platform-tools" .github/workflows/android-apk-release.yml
+```

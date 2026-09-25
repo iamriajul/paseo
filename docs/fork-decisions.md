@@ -543,3 +543,13 @@ When `agents.gateway` is set and the base omp provider has no `LITELLM_BASE_URL`
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/agent/provider-registry.test.ts --bail=1
 ```
+
+## gateway-quota
+
+**per-model Gateway quota in the composer tooltip, hidden when unsupported**
+
+The `gateway.quota.get` RPC (gated on `server_info.features.gatewayQuota`) maps the agent's Paseo model id to a Gateway slug and fetches `/v1/quota`, cached 60 seconds, only for Gateway-routed providers. Old Gateways without the route answer empty-body 404s; those and every other failure return `supported: false` and the tooltip renders nothing instead of an error.
+
+```bash
+npx vitest run packages/server/src/server/agent/gateway/quota.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
+```

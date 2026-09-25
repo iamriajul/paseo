@@ -3476,3 +3476,42 @@ test("binding a settled catalogue publishes once and rebinding an equal settled 
     manager.destroy();
   }
 });
+
+describe("ProviderSnapshotManager gateway routing", () => {
+  const gateway = { baseUrl: "http://gateway:8317", apiKey: "sk-test" };
+
+  test("exposes the configured gateway and per-provider routing", () => {
+    const manager = new ProviderSnapshotManager({ logger: createTestLogger(), gateway });
+    try {
+      expect(manager.getGatewayConfig()).toBe(gateway);
+      expect(manager.isGatewayRouted("claude")).toBe(true);
+      expect(manager.isGatewayRouted("codex")).toBe(true);
+      expect(manager.isGatewayRouted("opencode")).toBe(true);
+      expect(manager.isGatewayRouted("omp")).toBe(true);
+      expect(manager.isGatewayRouted("copilot")).toBe(false);
+    } finally {
+      manager.destroy();
+    }
+  });
+
+  test("reports no routing without a gateway or with provider opt-outs", () => {
+    const unconfigured = new ProviderSnapshotManager({ logger: createTestLogger() });
+    try {
+      expect(unconfigured.getGatewayConfig()).toBeUndefined();
+      expect(unconfigured.isGatewayRouted("claude")).toBe(false);
+    } finally {
+      unconfigured.destroy();
+    }
+    const optedOut = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      gateway,
+      providerOverrides: { claude: { env: { ANTHROPIC_API_KEY: "sk-ant-x" } } },
+    });
+    try {
+      expect(optedOut.isGatewayRouted("claude")).toBe(false);
+      expect(optedOut.isGatewayRouted("codex")).toBe(true);
+    } finally {
+      optedOut.destroy();
+    }
+  });
+});

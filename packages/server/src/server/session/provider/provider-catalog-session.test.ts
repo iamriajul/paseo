@@ -16,7 +16,13 @@ import {
 import type { ProviderSnapshotEntry } from "../../agent/agent-sdk-types.js";
 import { ProviderUsageService } from "../../../services/quota-fetcher/service.js";
 import { expandProviderSnapshot } from "@getpaseo/protocol/provider-snapshot-codec";
+import { GatewayQuotaGetResponseMessageSchema } from "@getpaseo/protocol/messages";
+import { getCachedGatewayQuota } from "../../agent/gateway/quota.js";
 
+vi.mock("../../agent/gateway/quota.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../agent/gateway/quota.js")>();
+  return { ...actual, getCachedGatewayQuota: vi.fn() };
+});
 type SnapshotChangeHandler = (transition: ProviderSnapshotTransition) => void;
 
 interface MakeOptions {
@@ -394,6 +400,85 @@ describe("ProviderCatalogSession", () => {
     expect(err?.payload.requestId).toBe("rq2");
   });
 
+  it("emits unsupported quota when the provider is not gateway-routed", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      snapshot: {
+        getGatewayConfig: () => null,
+        isGatewayRouted: () => false,
+      },
+    });
+
+    await subsystem.handleGatewayQuotaGetRequest({
+      type: "gateway.quota.get.request",
+      requestId: "q1",
+      provider: "claude",
+      model: "grok-4.6",
+    });
+
+    const res = findByType(emitted, "gateway.quota.get.response");
+    expect(res?.payload).toMatchObject({ requestId: "q1", supported: false, accounts: [] });
+  });
+
+  it("emits unsupported quota for non-gateway model ids", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      snapshot: {
+        getGatewayConfig: () => ({ baseUrl: "http://gateway:8317", apiKey: "sk-test" }),
+        isGatewayRouted: () => true,
+      },
+    });
+
+    await subsystem.handleGatewayQuotaGetRequest({
+      type: "gateway.quota.get.request",
+      requestId: "q2",
+      provider: "opencode",
+      model: "openai/gpt-5",
+    });
+
+    const res = findByType(emitted, "gateway.quota.get.response");
+    expect(res?.payload).toMatchObject({ requestId: "q2", supported: false, accounts: [] });
+  });
+
+  it("emits gateway quota for routed provider models", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      snapshot: {
+        getGatewayConfig: () => ({ baseUrl: "http://gateway:8317", apiKey: "sk-test" }),
+        isGatewayRouted: () => true,
+      },
+    });
+    vi.mocked(getCachedGatewayQuota).mockResolvedValue({
+      supported: true,
+      accounts: [
+        {
+          provider: "xai",
+          type: "oauth",
+          inCooldown: false,
+          windows: [{ name: "5h", usedPct: 51 }],
+        },
+      ],
+    });
+
+    await subsystem.handleGatewayQuotaGetRequest({
+      type: "gateway.quota.get.request",
+      requestId: "q3",
+      provider: "opencode",
+      model: "cliproxyapi/grok-4.6",
+    });
+
+    expect(getCachedGatewayQuota).toHaveBeenCalledWith({
+      baseUrl: "http://gateway:8317",
+      token: "sk-test",
+      model: "grok-4.6",
+    });
+    const res = findByType(emitted, "gateway.quota.get.response");
+    expect(res?.payload).toMatchObject({
+      requestId: "q3",
+      supported: true,
+      accounts: [{ provider: "xai", windows: [{ name: "5h", usedPct: 51 }] }],
+    });
+    expect(() =>
+      GatewayQuotaGetResponseMessageSchema.parse({ type: res?.type, payload: res?.payload }),
+    ).not.toThrow();
+  });
   it("surfaces a feature-list failure inline, not as an rpc_error", async () => {
     const { subsystem, emitted } = makeSubsystem({
       host: {

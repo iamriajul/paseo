@@ -49,7 +49,7 @@ import {
   resolveClaudeContextWindowMaxTokens,
   getClaudeContextWindowMaxTokens,
   getClaudeModelsWithSettings,
-  normalizeClaudeRuntimeModelId,
+  resolveObservedClaudeModelId,
   resolveConfiguredClaudeModel,
   applyClaudeAutoCompactWindowEnv,
   preferConfiguredClaudeContextWindow,
@@ -2919,11 +2919,32 @@ class ClaudeAgentSession implements AgentSession {
     const normalizedModelId =
       typeof modelId === "string" && modelId.trim().length > 0 ? modelId.trim() : null;
     const activeQuery = await this.ensureQuery();
-    await activeQuery.setModel(normalizedModelId ?? undefined);
+    let featureQuery = activeQuery;
+    try {
+      await activeQuery.setModel(normalizedModelId ?? undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/couldn't confirm model/i.test(message)) {
+        throw error;
+      }
+      // COMPAT(claudeGatewaySetModel): added in v0.9.1, remove after 2027-09-25
+      // once the SDK control plane confirms gateway models like the TUI does.
+      // The SDK control plane rejects some gateway models that inference
+      // accepts (CLIProxyAPI muse-spark-*). Relaunch the query on the resumed
+      // session with the new model, the same path as session creation.
+      this.logger.warn(
+        { err: error, modelId: normalizedModelId },
+        "Claude live model switch rejected; restarting query with new model",
+      );
+      this.config.model = normalizedModelId ?? undefined;
+      this.reconcileThinkingOptionForModel(normalizedModelId);
+      this.queryRestartNeeded = true;
+      featureQuery = await this.ensureQuery();
+    }
     this.config.model = normalizedModelId ?? undefined;
     this.reconcileThinkingOptionForModel(normalizedModelId);
     if (!claudeModelSupportsFastMode(this.config.model) && this.config.featureValues?.fast_mode) {
-      await this.applyFastModeFeature(false, activeQuery);
+      await this.applyFastModeFeature(false, featureQuery);
     }
     this.contextUsage.setInitialContextWindowMaxTokens(
       resolveClaudeContextWindowMaxTokens({
@@ -5401,19 +5422,22 @@ class ClaudeAgentSession implements AgentSession {
     this.observePermissionMode(message.permissionMode);
     this.persistence = null;
     if (message.model) {
-      const runtimeContextWindowMaxTokens = getClaudeContextWindowMaxTokens(message.model);
+      const runtimeContextWindowMaxTokens = resolveClaudeContextWindowMaxTokens({
+        modelId: message.model,
+        profileModels: this.profileModels,
+      });
       // Seed usage before the first result, including settings-resolved aliases.
       // A repeated init for the same model must retain the SDK's reported limit.
       if (message.model !== this.lastRuntimeModel && runtimeContextWindowMaxTokens !== undefined) {
         this.contextUsage.setInitialContextWindowMaxTokens(runtimeContextWindowMaxTokens);
       }
-      const normalizedRuntimeModel = normalizeClaudeRuntimeModelId(message.model);
+      const observedModel = resolveObservedClaudeModelId(message.model);
       this.logger.debug(
-        { runtimeModel: message.model, normalizedRuntimeModel },
+        { runtimeModel: message.model, observedModel },
         "Captured runtime model from SDK init",
       );
-      if (normalizedRuntimeModel) {
-        this.lastOptionsModel = normalizedRuntimeModel;
+      if (observedModel) {
+        this.lastOptionsModel = observedModel;
       } else if (!this.lastOptionsModel) {
         this.lastOptionsModel = this.config.model ?? null;
       }

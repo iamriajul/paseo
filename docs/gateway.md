@@ -54,6 +54,12 @@ Gateway models launch with raw decoded IDs through the standard Claude path, plu
 
 Deliberately not imported: Codex reasoning ceilings (they under-cap Claude Code — Grok `max` works there), per-model effort restrictions, Fast mode for non-manifest models, `[1m]` variant synthesis, and `supportedModels()` control-plane reads.
 
+## Quota
+
+The composer meter tooltip shows per-model Gateway quota for the agent's selected model through the `gateway.quota.get` RPC (gated on `server_info.features.gatewayQuota`). The daemon maps the Paseo model id to the Gateway slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is Gateway-routed. Results cache for 60 seconds.
+
+Gateways that predate `/v1/quota` answer 404 with an empty body (observed live); new Gateways answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
+
 ## Out of scope
 
 - Pi: verified env-deaf. `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL` are ignored at inference (bogus endpoints still reach vendor APIs), the model list is a static bundled catalog, and custom endpoints require `models.json` in the agent dir — a config file. No `--config` overlay flag and no project-level `models.json` exist.

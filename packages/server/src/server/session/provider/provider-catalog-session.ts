@@ -19,6 +19,7 @@ import {
   type ProviderSnapshotEntry,
 } from "../../agent/agent-sdk-types.js";
 import type { ProviderAvailability } from "../../agent/agent-manager.js";
+import { getCachedGatewayQuota, resolveGatewayQuotaSlug } from "../../agent/gateway/quota.js";
 import { expandTilde } from "../../../utils/path.js";
 
 // COMPAT(customModeIcons): the only mode icons known to clients before v0.1.84. Any
@@ -483,6 +484,53 @@ export class ProviderCatalogSession {
     }
   }
 
+  async handleGatewayQuotaGetRequest(
+    msg: Extract<SessionInboundMessage, { type: "gateway.quota.get.request" }>,
+  ): Promise<void> {
+    const unsupported = () =>
+      this.host.emit({
+        type: "gateway.quota.get.response",
+        payload: {
+          requestId: msg.requestId,
+          supported: false,
+          fetchedAt: new Date().toISOString(),
+          accounts: [],
+        },
+      });
+    try {
+      const gateway = this.providerSnapshotManager.getGatewayConfig();
+      if (!gateway || !this.providerSnapshotManager.isGatewayRouted(msg.provider)) {
+        unsupported();
+        return;
+      }
+      const slug = resolveGatewayQuotaSlug(msg.provider, msg.model);
+      if (!slug) {
+        unsupported();
+        return;
+      }
+      const quota = await getCachedGatewayQuota({
+        baseUrl: gateway.baseUrl,
+        token: gateway.apiKey,
+        model: slug,
+      });
+      this.host.emit({
+        type: "gateway.quota.get.response",
+        payload: {
+          requestId: msg.requestId,
+          supported: quota.supported,
+          fetchedAt: new Date().toISOString(),
+          accounts: quota.accounts,
+        },
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        { err, provider: msg.provider, model: msg.model },
+        "Failed to fetch Gateway quota; hiding quota",
+      );
+      unsupported();
+    }
+  }
 }
 
 function resolveCatalogRequestCwd(cwd?: string | null): string | undefined {

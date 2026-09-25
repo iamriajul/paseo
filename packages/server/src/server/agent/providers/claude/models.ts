@@ -10,6 +10,7 @@ import {
   normalizeClaudeManifestModelId,
   normalizeClaudeRuntimeModelId as normalizeClaudeManifestRuntimeModelId,
 } from "./model-manifest.js";
+import { decodeCliproxyClaudeModelId } from "./cliproxy-models.js";
 
 const CLAUDE_SETTINGS_MODEL_ENV_KEYS = [
   "ANTHROPIC_MODEL",
@@ -490,5 +491,7 @@ export function resolveObservedClaudeModelId(value: string | null | undefined): 
   if (!trimmed || CLAUDE_PLACEHOLDER_MODEL_IDS.has(trimmed)) {
     return null;
   }
-  return normalizeClaudeManifestRuntimeModelId(trimmed) ?? trimmed;
+  // Gateway wire IDs (claude-fable-5-dd-*) decode to the raw catalog ID so
+  // observed models match the picker; anything else falls back to raw.
+  return decodeCliproxyClaudeModelId(normalizeClaudeManifestRuntimeModelId(trimmed) ?? trimmed);
 }

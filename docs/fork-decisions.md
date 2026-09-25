@@ -473,3 +473,13 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/ser
 ```bash
 grep -q "packages: platform-tools" .github/workflows/android-apk-release.yml
 ```
+
+## claude-gateway-model-switch
+
+**switch to and display CLIProxyAPI gateway models**
+
+Mid-session `setModel` to a gateway model (muse-spark-_) failed with "Couldn't confirm model with the API" while the TUI accepted the same ID, and TUI-side switches displayed as first-party `claude-fable-5` after reload. On control-plane confirmation failure Paseo relaunches the query on the resumed session with the new model; `claude-fable-5-dd-_` wire IDs no longer normalize to the manifest and observed wire IDs decode back to raw catalog IDs for display.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
+```

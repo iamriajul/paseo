@@ -547,6 +547,14 @@ describe("normalizeClaudeRuntimeModelId", () => {
       "claude-opus-5",
     );
   });
+
+  it("leaves CLIProxyAPI gateway wire IDs unnormalized", () => {
+    expect(normalizeClaudeRuntimeModelId("claude-fable-5-dd-3.1-kraps-esum")).toBeNull();
+    expect(normalizeClaudeRuntimeModelId("claude-fable-5-dd-6.4-korg")).toBeNull();
+    expect(
+      normalizeClaudeRuntimeModelId("claude-fable-5-dd-rotubirtnoc-3.1-kraps-esum"),
+    ).toBeNull();
+  });
 });
 
 describe("parseClaudeCodeVersion", () => {
@@ -951,6 +959,14 @@ describe("resolveObservedClaudeModelId", () => {
     expect(resolveObservedClaudeModelId("glm-5.1")).toBe("glm-5.1");
     expect(resolveObservedClaudeModelId("<synthetic>")).toBeNull();
     expect(resolveObservedClaudeModelId("")).toBeNull();
+  });
+
+  it("decodes CLIProxyAPI gateway wire IDs to raw catalog IDs", () => {
+    expect(resolveObservedClaudeModelId("claude-fable-5-dd-3.1-kraps-esum")).toBe("muse-spark-1.3");
+    expect(resolveObservedClaudeModelId("claude-fable-5-dd-6.4-korg")).toBe("grok-4.6");
+    expect(resolveObservedClaudeModelId("claude-fable-5-dd-rotubirtnoc-3.1-kraps-esum")).toBe(
+      "muse-spark-1.3-contributor",
+    );
   });
 });
 

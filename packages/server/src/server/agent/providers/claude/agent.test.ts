@@ -1203,6 +1203,54 @@ describe("ClaudeAgentSession features", () => {
 
     await session.close();
   });
+  test("restarts the query when live validation rejects a gateway model", async () => {
+    const { queryFactory, queryMock, launches } = createQueryMock();
+    queryMock.setModel.mockRejectedValueOnce(
+      new Error(
+        'Couldn\'t confirm model "muse-spark-1.3" with the API. Try again, or run /model to see available models.',
+      ),
+    );
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "grok-4.6",
+    });
+
+    await expect(session.setModel?.("muse-spark-1.3")).resolves.toBeUndefined();
+
+    expect(queryFactory).toHaveBeenCalledTimes(2);
+    expect(launches.at(-1)?.options.model).toBe("muse-spark-1.3");
+    await expect(session.getRuntimeInfo()).resolves.toMatchObject({ model: "muse-spark-1.3" });
+
+    await session.close();
+  });
+
+  test("rethrows live model errors that are not confirmation failures", async () => {
+    const { queryFactory, queryMock } = createQueryMock();
+    queryMock.setModel.mockRejectedValueOnce(new Error("Query closed before response received"));
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "grok-4.6",
+    });
+
+    await expect(session.setModel?.("muse-spark-1.3")).rejects.toThrow(
+      "Query closed before response received",
+    );
+    expect(queryFactory).toHaveBeenCalledTimes(1);
+
+    await session.close();
+  });
 
   test("rejects disabled thinking when the active model does not support it", async () => {
     const { queryFactory } = createQueryMock();

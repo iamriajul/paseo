@@ -19,6 +19,7 @@ interface ContextWindowMeterProps {
   usedTokens: number | null;
   totalCostUsd?: number | null;
   showPercentage?: boolean;
+
   /** Optional glyph envelope for icon-toolbar alignment. */
   glyphSize?: number;
 }
@@ -148,6 +149,7 @@ export function ContextWindowMeter({
   usedTokens,
   totalCostUsd,
   showPercentage = false,
+
   glyphSize,
 }: ContextWindowMeterProps) {
   const { t } = useTranslation();
@@ -162,6 +164,7 @@ export function ContextWindowMeter({
   const closeSheet = useCallback(() => setIsSheetOpen(false), []);
   const percentage =
     maxTokens !== null && usedTokens !== null ? getUsagePercentage(maxTokens, usedTokens) : null;
+
   const geometry = getMeterGeometry(showPercentage, glyphSize);
 
   const context = useMemo(

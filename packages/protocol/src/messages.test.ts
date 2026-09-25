@@ -309,6 +309,74 @@ describe("provider usage list message contract", () => {
   });
 });
 
+describe("gateway quota message contract", () => {
+  test("accepts the quota get request as a namespaced correlated RPC", () => {
+    const parsed = SessionInboundMessageSchema.parse({
+      type: "gateway.quota.get.request",
+      requestId: "quota-1",
+      provider: "claude",
+      model: "grok-4.6",
+    });
+
+    expect(parsed).toEqual({
+      type: "gateway.quota.get.request",
+      requestId: "quota-1",
+      provider: "claude",
+      model: "grok-4.6",
+    });
+  });
+
+  test("accepts quota responses with accounts and windows", () => {
+    const parsed = SessionOutboundMessageSchema.parse({
+      type: "gateway.quota.get.response",
+      payload: {
+        requestId: "quota-2",
+        supported: true,
+        fetchedAt: "2026-09-25T14:00:00.000Z",
+        accounts: [
+          {
+            provider: "xai",
+            name: "xai-a***b.json",
+            type: "oauth",
+            plan: "Pro",
+            inCooldown: false,
+            windowsObservedAt: "2026-09-25T13:51:28Z",
+            windows: [{ name: "5h", usedPct: 51, resetsAt: "2026-09-25T15:00:00Z" }],
+          },
+        ],
+      },
+    });
+
+    expect(parsed.type).toBe("gateway.quota.get.response");
+    if (parsed.type !== "gateway.quota.get.response") {
+      throw new Error("Expected gateway quota response");
+    }
+    expect(parsed.payload.accounts[0]?.windows[0]?.usedPct).toBe(51);
+  });
+
+  test("accepts unsupported quota responses with no accounts", () => {
+    const parsed = SessionOutboundMessageSchema.parse({
+      type: "gateway.quota.get.response",
+      payload: {
+        requestId: "quota-3",
+        supported: false,
+        fetchedAt: "2026-09-25T14:00:00.000Z",
+        accounts: [],
+      },
+    });
+
+    expect(parsed).toEqual({
+      type: "gateway.quota.get.response",
+      payload: {
+        requestId: "quota-3",
+        supported: false,
+        fetchedAt: "2026-09-25T14:00:00.000Z",
+        accounts: [],
+      },
+    });
+  });
+});
+
 describe("diagnostics message contract", () => {
   test("accepts the diagnostics request as a simple namespaced RPC", () => {
     const parsed = SessionInboundMessageSchema.parse({

@@ -3343,17 +3343,13 @@ export class Session {
       case "provider_diagnostic_request":
         return this.providerCatalogSession.handleProviderDiagnosticRequest(msg);
       case "provider.usage.list.request":
-<<<<<<< HEAD
         return this.usageSession.handleLegacyList(msg);
       case "usage.list_reports.request":
         return this.usageSession.handleListReports(msg);
-||||||| parent of 414f40b5e (fork(composer-track-pills): fork tracks as composer pills)
-        return this.providerCatalogSession.handleProviderUsageListRequest(msg);
-=======
-        return this.providerCatalogSession.handleProviderUsageListRequest(msg);
       case "provider.usage.reset_quota.request":
         return this.providerCatalogSession.handleProviderUsageResetQuotaRequest(msg);
->>>>>>> 414f40b5e (fork(composer-track-pills): fork tracks as composer pills)
+      case "gateway.quota.get.request":
+        return this.providerCatalogSession.handleGatewayQuotaGetRequest(msg);
       default:
         return undefined;
     }

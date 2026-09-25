@@ -278,6 +278,7 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
   };
 }
 
+
 interface RenderLeftContentArgs {
   agentControls: DraftAgentControlsProps | undefined;
   agentId: string;

@@ -35,6 +35,7 @@ import type {
 import type { ResolvedGatewayConfig } from "./gateway/config.js";
 import {
   buildProviderRegistry,
+  resolveBaseProviderGateway,
   shutdownAgentClients,
   type BuildProviderRegistryOptions,
   type ProviderDefinition,
@@ -364,9 +365,21 @@ export class ProviderSnapshotManager {
   getProviderLabel(provider: AgentProvider): string {
     return this.generation.definitions[provider]?.label ?? provider;
   }
-
   getAgentManagerProviderState(): AgentManagerProviderState {
     return this.createAgentManagerState(this.generation.definitions, this.providerClients);
+  }
+
+  /** First-party Gateway routing, or nullish when unconfigured. */
+  getGatewayConfig(): ResolvedGatewayConfig | null | undefined {
+    return this.gateway;
+  }
+
+  /** True when the base provider currently routes through the Gateway. */
+  isGatewayRouted(provider: AgentProvider): boolean {
+    return (
+      resolveBaseProviderGateway(provider, this.providerOverrides?.[provider], this.gateway) !==
+      undefined
+    );
   }
 
   private createAgentManagerState(

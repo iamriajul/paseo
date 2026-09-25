@@ -483,3 +483,63 @@ Mid-session `setModel` to a gateway model (muse-spark-_) failed with "Couldn't c
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
 ```
+
+## gateway-first-party-routing
+
+**one `agents.gateway` routing shared by base claude/codex/opencode**
+
+`agents.gateway` (or `PASEO_GATEWAY_*` env) routes the base providers through CLIProxyAPI without per-provider entries: the registry merges the Gateway env layer under explicit override env for claude/codex and passes the resolved routing to all three clients. Providers with their own routing (Anthropic keys, Z.AI, custom Codex endpoints) and every derived provider are exempt.
+
+```bash
+npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/agent/provider-registry.test.ts packages/server/src/server/persisted-config.test.ts --bail=1
+```
+
+## gateway-detection
+
+**Gateway detection without `X-CPA-*` headers plus explicit-routing skip**
+
+Live Gateways omit `X-CPA-*` response headers on `/v1/models`, which silently disabled all discovery. Auto-detect paths now also accept behavioral proof — `claude-fable-5-dd-` listing ids on the Anthropic shape, a `models` envelope on the Codex shape — and first-party routing skips detection outright via `expectGateway`.
+
+```bash
+npx vitest run packages/server/src/server/agent/gateway/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+```
+
+## gateway-claude-launch
+
+**Claude Gateway launch: WebSearch rule, image gating, immediate capacity**
+
+Gateway-routed custom models disallow `WebSearch` (the Gateway does not serve it for non-Anthropic models), gate image blocks on known `inputModalities` with a file-hint fallback, merge auto-persisted limits (now including modalities) into the running client's in-memory models so the first post-discovery session launches with resolved capacity.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+```
+
+## gateway-codex-discovery
+
+**Codex Gateway discovery with bare-slug ids and thread provider routing**
+
+Gateway-routed Codex (first-party or a derived provider pointing at a Gateway) appends Codex-shape catalog rows — hidden skipped, reasoning levels mapped to thinking options, bare-slug ids routed by the synthetic `cliproxyapi` thread `model_provider` — to `model/list` results.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1
+```
+
+## gateway-opencode-provider
+
+**OpenCode Gateway provider injection with a live models map**
+
+Every spawned OpenCode server gets an additive `cliproxyapi` provider record (openai-compatible adapter, options, models map built from live Gateway rows with trusted limits) so Gateway slugs register, list, and run sessions; user-defined `provider.cliproxyapi` wins entirely, and the Paseo catalog appends `cliproxyapi/<slug>` rows with the same trust rules.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/opencode-agent.test.ts packages/server/src/server/agent/providers/opencode/bridge.test.ts packages/server/src/server/agent/providers/opencode-server-manager.test.ts --bail=1
+```
+
+## gateway-omp-litellm
+
+**first-party Gateway routes base OMP through `LITELLM_*` env**
+
+When `agents.gateway` is set and the base omp provider has no `LITELLM_BASE_URL`/`LITELLM_API_KEY` of its own, the registry injects the Gateway endpoint under explicit provider env. The binary exposes it as its `litellm` provider, so Gateway slugs, limits, and thinking levels appear in the OMP catalog as `litellm/<slug>` with no client changes; derived OMP profiles never inherit the routing.
+
+```bash
+npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/agent/provider-registry.test.ts --bail=1
+```

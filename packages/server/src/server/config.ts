@@ -673,6 +673,7 @@ export function resolveConfigFromPersisted(
     voiceLlmProviderExplicit: voiceLlm.providerExplicit,
     voiceLlmModel: voiceLlm.model,
     agentProviderSettings: extractAgentProviderSettings(settings.providerOverrides),
+    agentGateway: persisted.agents?.gateway,
     autoResumeRunningAgents: resolveAutoResumeRunningAgentsConfig(env, persisted),
     log: resolveLogConfigFromEnv(env, persisted),
     configReload: {

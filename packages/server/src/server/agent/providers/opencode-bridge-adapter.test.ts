@@ -108,7 +108,7 @@ describe("OpenCode bridge adapter", () => {
 });
 
 async function readBridgeContext(bridge: OpenCodeBridge, sessionId: string): Promise<unknown> {
-  const decorated = bridge.decorateServerEnv({});
+  const decorated = await bridge.decorateServerEnv({});
   const config = JSON.parse(decorated.OPENCODE_CONFIG_CONTENT);
   const [, options] = config.plugin[0];
   const response = await fetch(

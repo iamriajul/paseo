@@ -6,5 +6,6 @@ export const gatewayQuotaCopy = {
   hostUnavailable: "Connect to this host to see Gateway quota",
   hostUpgradeRequired: "Update the host to see Gateway quota",
   clientUnavailable: "Host connection is not ready",
+  missingContext: "Select a Gateway model to see quota",
   coolingDown: "Cooling down",
 } as const;

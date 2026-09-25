@@ -91,6 +91,9 @@ export function useGatewayQuota(
     if (!supportsGatewayQuota) {
       return { kind: "error", message: gatewayQuotaCopy.hostUpgradeRequired };
     }
+    if (!provider || !model) {
+      return { kind: "error", message: gatewayQuotaCopy.missingContext };
+    }
     if (query.data) {
       return { kind: "ready", payload: query.data };
     }
@@ -101,7 +104,17 @@ export function useGatewayQuota(
       };
     }
     return { kind: "loading" };
-  }, [client, isConnected, query.data, query.error, query.isError, serverId, supportsGatewayQuota]);
+  }, [
+    client,
+    isConnected,
+    model,
+    provider,
+    query.data,
+    query.error,
+    query.isError,
+    serverId,
+    supportsGatewayQuota,
+  ]);
 
   return { view, refresh };
 }

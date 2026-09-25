@@ -133,25 +133,24 @@ export async function fetchGatewayQuota(
 function mapQuotaAccount(
   account: z.infer<typeof GatewayQuotaAccountPayloadSchema>,
 ): GatewayQuotaAccount {
+  const windowsObservedAt = readTimestamp(account.windows_observed_at);
   return {
     provider: account.provider,
     ...(account.name ? { name: account.name } : {}),
     type: account.type,
     ...(account.plan ? { plan: account.plan } : {}),
     inCooldown: account.in_cooldown,
-    ...(readTimestamp(account.windows_observed_at) === undefined
-      ? {}
-      : { windowsObservedAt: readTimestamp(account.windows_observed_at) as string }),
-    windows: account.windows.map((window) => ({
-      name: window.name,
-      ...(readPercent(window.used_percent) === undefined
-        ? {}
-        : { usedPct: readPercent(window.used_percent) as number }),
-      ...(readTimestamp(window.reset_at) === undefined
-        ? {}
-        : { resetsAt: readTimestamp(window.reset_at) as string }),
-      ...(window.status ? { status: window.status } : {}),
-    })),
+    ...(windowsObservedAt === undefined ? {} : { windowsObservedAt }),
+    windows: account.windows.map((window) => {
+      const usedPct = readPercent(window.used_percent);
+      const resetsAt = readTimestamp(window.reset_at);
+      return {
+        name: window.name,
+        ...(usedPct === undefined ? {} : { usedPct }),
+        ...(resetsAt === undefined ? {} : { resetsAt }),
+        ...(window.status ? { status: window.status } : {}),
+      };
+    }),
   };
 }
 

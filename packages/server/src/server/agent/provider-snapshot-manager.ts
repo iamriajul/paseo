@@ -32,6 +32,7 @@ import type {
   AgentProviderRuntimeSettingsMap,
   ProviderOverride,
 } from "./provider-launch-config.js";
+import type { ResolvedGatewayConfig } from "./gateway/config.js";
 import {
   buildProviderRegistry,
   shutdownAgentClients,
@@ -116,6 +117,7 @@ export interface ProviderSnapshotManagerOptions {
   logger: Logger;
   runtimeSettings?: AgentProviderRuntimeSettingsMap;
   providerOverrides?: Record<string, ProviderOverride>;
+  gateway?: ResolvedGatewayConfig | null;
   workspaceGitService?: Pick<WorkspaceGitService, "resolveRepoRoot">;
   managedProcesses?: ManagedProcessRegistry;
   isDev?: boolean;
@@ -254,6 +256,7 @@ export class ProviderSnapshotManager {
   private readonly persistClaudeAdditionalModelLimits?: BuildProviderRegistryOptions["persistClaudeAdditionalModelLimits"];
   private runtimeSettings: AgentProviderRuntimeSettingsMap | undefined;
   private providerOverrides: Record<string, ProviderOverride> | undefined;
+  private readonly gateway: ResolvedGatewayConfig | null | undefined;
   private baseProviderOverrides: Record<string, ProviderOverride> | undefined;
   private generation: RegistryGeneration;
   private providerClients: Record<AgentProvider, AgentClient>;
@@ -272,9 +275,9 @@ export class ProviderSnapshotManager {
     this.isDev = options.isDev === true;
     this.extraClients = options.extraClients ?? {};
     this.persistClaudeAdditionalModelLimits = options.persistClaudeAdditionalModelLimits;
-    this.runtimeSettings = options.runtimeSettings;
     this.providerOverrides = options.providerOverrides;
     this.baseProviderOverrides = options.providerOverrides;
+    this.gateway = options.gateway;
     this.refreshTimeoutMs = providerRefreshDeadline(options.refreshTimeoutMs);
     this.diagnosticTimeoutMs = resolveDiagnosticTimeoutMs(
       options.diagnosticTimeoutMs,
@@ -729,6 +732,7 @@ export class ProviderSnapshotManager {
       runtimeSettings,
       providerOverrides,
       pluginProviders: this.pluginProviders.definitions(),
+      gateway: this.gateway,
       workspaceGitService: this.workspaceGitService,
       managedProcesses: this.managedProcesses,
       openCodeBridge: this.openCodeBridge,

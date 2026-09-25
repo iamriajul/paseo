@@ -51,6 +51,16 @@ import { MockLoadTestAgentClient } from "./providers/mock-load-test-agent.js";
 import { MockSlowProviderClient } from "./providers/mock-slow-provider.js";
 import { ToolPolicyUnsupportedError, mergeProviderOptions } from "./provider-options.js";
 import {
+  GATEWAY_PROVIDER_ID,
+  claudeGatewayEnv,
+  claudeOverrideOptsOutOfGateway,
+  codexGatewayEnv,
+  codexOverrideOptsOutOfGateway,
+  ompGatewayEnv,
+  ompOverrideOptsOutOfGateway,
+  type ResolvedGatewayConfig,
+} from "./gateway/config.js";
+import {
   AGENT_PROVIDER_DEFINITIONS,
   BUILTIN_PROVIDER_IDS,
   DEV_AGENT_PROVIDER_DEFINITIONS,
@@ -102,11 +112,11 @@ export interface RegisteredProviderDefinition extends AgentProviderDefinition {
   supportsExactMcpPreapproval: boolean;
   createClient: (logger: Logger, runtimeSettings?: ProviderRuntimeSettings) => AgentClient;
 }
-
 export interface BuildProviderRegistryOptions {
   pluginProviders?: Record<string, RegisteredProviderDefinition>;
   runtimeSettings?: AgentProviderRuntimeSettingsMap;
   providerOverrides?: Record<string, ProviderOverride>;
+  gateway?: ResolvedGatewayConfig | null;
   workspaceGitService?: Pick<WorkspaceGitService, "resolveRepoRoot">;
   managedProcesses?: ManagedProcessRegistry;
   isDev?: boolean;
@@ -120,6 +130,7 @@ interface ProviderClientFactoryOptions extends Pick<
   "workspaceGitService" | "managedProcesses" | "ompRuntime" | "persistClaudeAdditionalModelLimits"
 > {
   openCodeBridge?: OpenCodeBridge;
+  gateway?: ResolvedGatewayConfig;
   providerParams?: unknown;
   profileModels?: ProviderProfileModel[];
   additionalModels?: ProviderProfileModel[];
@@ -195,6 +206,7 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
     new ClaudeAgentClient({
       logger,
       runtimeSettings,
+      gateway: options?.gateway,
       profileModels: options?.profileModels,
       additionalModels: options?.additionalModels ?? options?.profileModels,
       persistClaudeAdditionalModelLimits: options?.customProvider
@@ -204,7 +216,12 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
   codex: (logger, runtimeSettings, options) =>
     new CodexAppServerAgentClient(logger, runtimeSettings, {
       workspaceGitService: options?.workspaceGitService,
-      customProvider: options?.customProvider,
+      customProvider:
+        options?.customProvider ??
+        (options?.gateway
+          ? { id: GATEWAY_PROVIDER_ID, label: "CLIProxyAPI", extends: "codex" }
+          : undefined),
+      gateway: options?.gateway,
     }),
   copilot: (logger, runtimeSettings) =>
     new CopilotACPAgentClient({
@@ -221,6 +238,7 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
     new OpenCodeRuntimeClient(logger, runtimeSettings, {
       managedProcesses: options?.managedProcesses,
       bridge: options?.openCodeBridge,
+      gateway: options?.gateway,
     }),
   pi: (logger, runtimeSettings) =>
     new PiRpcAgentClient({
@@ -297,6 +315,31 @@ function mergeRuntimeSettings(
         ? [...(base?.disallowedTools ?? []), ...(override?.disallowedTools ?? [])]
         : undefined,
   };
+}
+
+/**
+ * First-party Gateway routing for a base provider. Providers with their own
+ * routing keep it; OpenCode always qualifies because the Gateway arrives as
+ * an additive provider record that never reroutes existing providers.
+ */
+export function resolveBaseProviderGateway(
+  providerId: string,
+  override: ProviderOverride | undefined,
+  gateway: ResolvedGatewayConfig | null | undefined,
+): ResolvedGatewayConfig | undefined {
+  if (!gateway) return undefined;
+  if (providerId === "claude" && claudeOverrideOptsOutOfGateway(override?.env)) return undefined;
+  if (providerId === "codex" && codexOverrideOptsOutOfGateway(override?.env)) return undefined;
+  if (providerId === "omp" && ompOverrideOptsOutOfGateway(override?.env)) return undefined;
+  if (
+    providerId !== "claude" &&
+    providerId !== "codex" &&
+    providerId !== "opencode" &&
+    providerId !== "omp"
+  ) {
+    return undefined;
+  }
+  return gateway;
 }
 
 function applyOverrideToDefinition(
@@ -786,6 +829,7 @@ function buildResolvedBuiltinProviders(
     | "ompRuntime"
     | "persistClaudeAdditionalModelLimits"
     | "openCodeBridge"
+    | "gateway"
   >,
   isDev: boolean,
 ): Map<string, ResolvedProvider> {
@@ -794,7 +838,6 @@ function buildResolvedBuiltinProviders(
   const definitions = isDev
     ? [...AGENT_PROVIDER_DEFINITIONS, ...DEV_AGENT_PROVIDER_DEFINITIONS]
     : AGENT_PROVIDER_DEFINITIONS;
-
   for (const definition of definitions) {
     const override = providerOverrides[definition.id];
     const factory = getProviderClientFactory(definition.id);
@@ -826,6 +869,38 @@ function buildResolvedBuiltinProviders(
             managedProcesses: options.managedProcesses,
             ompRuntime: options.ompRuntime,
             openCodeBridge: options.openCodeBridge,
+            providerParams: override?.params,
+            profileModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
+            additionalModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
+            persistClaudeAdditionalModelLimits: options.persistClaudeAdditionalModelLimits,
+          }),
+        contract: PROVIDER_CONTRACTS[definition.id] ?? UNSUPPORTED_PROVIDER_CONTRACT,
+      }),
+    );
+    // First-party Gateway routing applies only to base providers without
+    // their own routing. Derived providers inherit the gateway-free settings.
+    const gatewayForProvider = resolveBaseProviderGateway(definition.id, override, options.gateway);
+    let gatewayEnvSettings: ProviderRuntimeSettings | undefined;
+    if (gatewayForProvider && definition.id === "claude") {
+      gatewayEnvSettings = { env: claudeGatewayEnv(gatewayForProvider) };
+    } else if (gatewayForProvider && definition.id === "codex") {
+      gatewayEnvSettings = { env: codexGatewayEnv(gatewayForProvider) };
+    } else if (gatewayForProvider && definition.id === "omp") {
+      gatewayEnvSettings = { env: ompGatewayEnv(gatewayForProvider) };
+    }
+    resolvedProviders.set(
+      definition.id,
+      resolveRegisteredProvider({
+        definition,
+        override,
+        runtimeSettings: runtimeSettings?.[definition.id],
+        createClient: (logger, settings) =>
+          factory(logger, mergeRuntimeSettings(gatewayEnvSettings, settings), {
+            workspaceGitService: options.workspaceGitService,
+            managedProcesses: options.managedProcesses,
+            ompRuntime: options.ompRuntime,
+            openCodeBridge: options.openCodeBridge,
+            gateway: gatewayForProvider,
             providerParams: override?.params,
             profileModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
             additionalModels: [...(override?.models ?? []), ...(override?.additionalModels ?? [])],
@@ -967,6 +1042,7 @@ export function buildProviderRegistry(
       ompRuntime: options?.ompRuntime,
       persistClaudeAdditionalModelLimits: options?.persistClaudeAdditionalModelLimits,
       openCodeBridge: options?.openCodeBridge,
+      gateway: options?.gateway,
     },
     options?.isDev === true,
   );

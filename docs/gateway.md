@@ -18,7 +18,7 @@ Add one section to `config.json` (`$PASEO_HOME/config.json`):
 }
 ```
 
-`baseUrl` is the Claude form (no `/v1` suffix); Paseo appends `/v1` where a harness needs it. `PASEO_GATEWAY_BASE_URL` and `PASEO_GATEWAY_API_KEY` override the file when set, and either one enables the Gateway without the flag.
+`baseUrl` accepts the Claude form (`http://gateway-host:8317`) or the Codex/OpenCode form with a `/v1` suffix; Paseo normalizes it and appends `/v1` where a harness needs it. `PASEO_GATEWAY_BASE_URL` and `PASEO_GATEWAY_API_KEY` override the file when set, and either one enables the Gateway without the flag.
 
 Restart the daemon after changing the Gateway routing. New models on an unchanged Gateway need no restart: use the provider's `Refresh` button to re-run discovery.
 

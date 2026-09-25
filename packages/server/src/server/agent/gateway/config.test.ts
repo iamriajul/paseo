@@ -29,6 +29,21 @@ describe("resolveGatewayConfig", () => {
     ).toEqual({ baseUrl: "http://gateway:8317", apiKey: "sk-test" });
   });
 
+  test("strips a trailing /v1 so both URL forms route every harness", () => {
+    expect(
+      resolveGatewayConfig(
+        { enabled: true, baseUrl: "http://gateway:8317/v1", apiKey: "sk-test" },
+        {},
+      ),
+    ).toEqual({ baseUrl: "http://gateway:8317", apiKey: "sk-test" });
+    expect(
+      resolveGatewayConfig(
+        {},
+        { [GATEWAY_ENV_BASE_URL]: "http://gateway:8317/v1/", [GATEWAY_ENV_API_KEY]: "sk-test" },
+      ),
+    ).toEqual({ baseUrl: "http://gateway:8317", apiKey: "sk-test" });
+  });
+
   test("requires both base URL and key", () => {
     expect(resolveGatewayConfig({ enabled: true, baseUrl: "http://gateway:8317" }, {})).toBeNull();
     expect(resolveGatewayConfig({ enabled: true, apiKey: "sk-test" }, {})).toBeNull();

@@ -49,7 +49,10 @@ export function resolveGatewayConfig(
   const apiKey = envApiKey ?? trimNonEmpty(persisted?.apiKey);
   if (!baseUrl || !apiKey) return null;
 
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  // Canonical Claude form: tolerate a trailing /v1 (Codex/OpenCode form) so
+  // both spellings route every harness instead of breaking Claude with
+  // a doubled …/v1/v1/models.
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
   if (!normalizedBaseUrl) return null;
   return { baseUrl: normalizedBaseUrl, apiKey };
 }

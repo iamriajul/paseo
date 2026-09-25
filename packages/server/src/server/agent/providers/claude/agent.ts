@@ -41,8 +41,10 @@ import {
   applyClaudeMaxContextTokensEnv,
   applyClaudeMaxOutputTokensEnv,
   applyClaudePromptCacheTtlEnv,
+  isClaudeCustomNonFamilyModel,
   resolveClaudeMaxOutputTokens,
   resolveClaudeContextWindowMaxTokens,
+  resolveClaudeInputModalities,
   getClaudeModelsWithSettings,
   resolveObservedClaudeModelId,
   resolveConfiguredClaudeModel,
@@ -59,12 +61,13 @@ import {
 } from "./model-manifest.js";
 import {
   appendCliproxyModelsToClaudeCatalog,
-  fetchCliproxyAnthropicModels,
   markCliproxyAutoPersistFailure,
+  mergeAdditionalModelLimits,
   resolveCliproxyAnthropicCredentials,
   type CliproxyAdditionalModelLimits,
   type CliproxyAgentModelDefinition,
 } from "./cliproxy-models.js";
+import { fetchCliproxyAnthropicModels } from "../../gateway/models.js";
 import { parsePartialJsonObject } from "./partial-json.js";
 import { ClaudeSidechainTracker } from "./sidechain-tracker.js";
 import { ClaudeTaskState } from "./task-state.js";
@@ -170,6 +173,7 @@ import {
   type ProviderRuntimeSettings,
   type ResolvedProviderLaunch,
 } from "../../provider-launch-config.js";
+import { gatewayBaseUrlsMatch, type ResolvedGatewayConfig } from "../../gateway/config.js";
 import { withTimeout } from "../../../../utils/promise-timeout.js";
 import { terminateWithTreeKill } from "../../../../utils/tree-kill.js";
 import { execCommand } from "../../../../utils/spawn.js";
@@ -441,11 +445,16 @@ export interface ClaudeAgentClientOptions {
   defaults?: { agents?: Record<string, AgentDefinition> };
   logger: Logger;
   runtimeSettings?: ProviderRuntimeSettings;
+  /** First-party Gateway routing (registry sets it only when it applies). */
+  gateway?: ResolvedGatewayConfig;
   profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
     maxOutputTokens?: number;
     autoCompactThresholdPercent?: number;
+    inputModalities?: string[];
+    outputModalities?: string[];
+    capabilities?: string[];
   }>;
   /** Existing Claude additionalModels from daemon config (for capacity precedence). */
   additionalModels?: Array<{
@@ -453,6 +462,9 @@ export interface ClaudeAgentClientOptions {
     label?: string;
     contextWindowMaxTokens?: number;
     maxOutputTokens?: number;
+    inputModalities?: string[];
+    outputModalities?: string[];
+    capabilities?: string[];
   }>;
   /** Persist auto-resolved capacity into agents.providers.claude.additionalModels. */
   persistClaudeAdditionalModelLimits?: (
@@ -461,6 +473,9 @@ export interface ClaudeAgentClientOptions {
       label?: string;
       contextWindowMaxTokens?: number;
       maxOutputTokens?: number;
+      inputModalities?: string[];
+      outputModalities?: string[];
+      capabilities?: string[];
     }>,
   ) => void | Promise<void>;
   queryFactory?: ClaudeQueryFactory;
@@ -472,11 +487,16 @@ export interface ClaudeAgentClientOptions {
 interface ClaudeAgentSessionOptions {
   defaults?: { agents?: Record<string, AgentDefinition> };
   runtimeSettings?: ProviderRuntimeSettings;
+  /** First-party Gateway routing (client sets it only when it applies). */
+  gateway?: ResolvedGatewayConfig;
   profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
     maxOutputTokens?: number;
     autoCompactThresholdPercent?: number;
+    inputModalities?: string[];
+    outputModalities?: string[];
+    capabilities?: string[];
   }>;
   handle?: AgentPersistenceHandle;
   agentId?: string;
@@ -503,6 +523,41 @@ function errorToMessageString(error: unknown): string {
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
   return "";
+}
+
+function renderClaudeTextOnlyImageHint(image: { data: string; mimeType: string }): string {
+  try {
+    const materialized = materializeProviderImage({
+      data: image.data,
+      mimeType: image.mimeType,
+    });
+    return `[Image available at: ${materialized.path}]`;
+  } catch (error) {
+    return `[Image attachment omitted: failed to write local file (${errorToMessageString(error)})]`;
+  }
+}
+
+type ClaudeSdkUserContentItem =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: {
+        type: "base64";
+        media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+        data: string;
+      };
+    };
+
+function claudeImageChunkContent(
+  chunk: { data: string; mimeType: string },
+  forwardImages: boolean,
+): ClaudeSdkUserContentItem | null {
+  if (!isImageMimeType(chunk.mimeType)) return null;
+  if (!forwardImages) return { type: "text", text: renderClaudeTextOnlyImageHint(chunk) };
+  return {
+    type: "image",
+    source: { type: "base64", media_type: chunk.mimeType, data: chunk.data },
+  };
 }
 
 function firstStringField(
@@ -1564,13 +1619,17 @@ export class ClaudeAgentClient implements AgentClient {
   private readonly defaults?: { agents?: Record<string, AgentDefinition> };
   private readonly logger: Logger;
   private readonly runtimeSettings?: ProviderRuntimeSettings;
-  private readonly profileModels?: Array<{
+  private readonly gateway?: ResolvedGatewayConfig;
+  private profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
     maxOutputTokens?: number;
     autoCompactThresholdPercent?: number;
+    inputModalities?: string[];
+    outputModalities?: string[];
+    capabilities?: string[];
   }>;
-  private readonly additionalModels?: ClaudeAgentClientOptions["additionalModels"];
+  private additionalModels?: ClaudeAgentClientOptions["additionalModels"];
   private readonly persistClaudeAdditionalModelLimits?: ClaudeAgentClientOptions["persistClaudeAdditionalModelLimits"];
   private readonly queryFactory?: ClaudeQueryFactory;
   private readonly resolveBinary: () => Promise<string>;
@@ -1581,6 +1640,7 @@ export class ClaudeAgentClient implements AgentClient {
     this.defaults = options.defaults;
     this.logger = options.logger.child({ module: "agent", provider: "claude" });
     this.runtimeSettings = options.runtimeSettings;
+    this.gateway = options.gateway;
     this.profileModels = options.profileModels;
     this.additionalModels = options.additionalModels;
     this.persistClaudeAdditionalModelLimits = options.persistClaudeAdditionalModelLimits;
@@ -1606,6 +1666,7 @@ export class ClaudeAgentClient implements AgentClient {
       defaults: this.defaults,
       runtimeSettings: this.runtimeSettings,
       profileModels: this.profileModels,
+      gateway: this.gateway,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
       persistSession: options?.persistSession,
@@ -1635,6 +1696,7 @@ export class ClaudeAgentClient implements AgentClient {
       defaults: this.defaults,
       runtimeSettings: this.runtimeSettings,
       profileModels: this.profileModels,
+      gateway: this.gateway,
       handle,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
@@ -1673,6 +1735,9 @@ export class ClaudeAgentClient implements AgentClient {
       if (credentials) {
         const rows = await fetchCliproxyAnthropicModels({
           ...credentials,
+          expectGateway:
+            this.gateway !== undefined &&
+            gatewayBaseUrlsMatch(credentials.baseUrl, this.gateway.baseUrl),
           onWarning: (warning) => {
             this.logger.warn(
               {
@@ -1727,6 +1792,12 @@ export class ClaudeAgentClient implements AgentClient {
 
     try {
       await this.persistClaudeAdditionalModelLimits(autoPersist);
+      this.additionalModels = mergeAdditionalModelLimits(this.additionalModels ?? [], autoPersist);
+      if (this.profileModels) {
+        // mergeAdditionalModelLimits clones fill-only, so profile-owned
+        // autoCompactThresholdPercent values survive untouched.
+        this.profileModels = mergeAdditionalModelLimits(this.profileModels, autoPersist);
+      }
       return nextModels;
     } catch {
       this.logger.warn(
@@ -2182,11 +2253,15 @@ class ClaudeAgentSession implements AgentSession {
   private readonly agentId?: string;
   private readonly defaults?: { agents?: Record<string, AgentDefinition> };
   private readonly runtimeSettings?: ProviderRuntimeSettings;
+  private readonly gateway?: ResolvedGatewayConfig;
   private readonly profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
     maxOutputTokens?: number;
     autoCompactThresholdPercent?: number;
+    inputModalities?: string[];
+    outputModalities?: string[];
+    capabilities?: string[];
   }>;
   private readonly persistSession?: boolean;
   private readonly logger: Logger;
@@ -2269,6 +2344,7 @@ class ClaudeAgentSession implements AgentSession {
     this.agentId = options.agentId;
     this.defaults = options.defaults;
     this.runtimeSettings = options.runtimeSettings;
+    this.gateway = options.gateway;
     this.profileModels = options.profileModels;
     this.persistSession = options.persistSession;
     this.logger = options.logger.child({ agentId: this.agentId });
@@ -3688,7 +3764,24 @@ class ClaudeAgentSession implements AgentSession {
         ...this.runtimeSettings.disallowedTools,
       ];
     }
+    this.applyGatewayDisallowedTools(base, envWithCacheTtl);
     return base;
+  }
+
+  /**
+   * Gateway-routed custom models run behind CLIProxyAPI, which does not serve
+   * Claude Code's first-party WebSearch tool. Disallow it so the model does not
+   * attempt searches that can never succeed.
+   */
+  private applyGatewayDisallowedTools(base: ClaudeOptions, env: NodeJS.ProcessEnv): void {
+    if (
+      this.gateway &&
+      isClaudeCustomNonFamilyModel(this.config.model) &&
+      gatewayBaseUrlsMatch(env["ANTHROPIC_BASE_URL"], this.gateway.baseUrl) &&
+      !base.disallowedTools?.includes("WebSearch")
+    ) {
+      base.disallowedTools = [...(base.disallowedTools ?? []), "WebSearch"];
+    }
   }
 
   private buildSettingsOptions(
@@ -3725,32 +3818,22 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private toSdkUserMessage(prompt: AgentPromptInput): SDKUserMessage {
-    const content: Array<
-      | { type: "text"; text: string }
-      | {
-          type: "image";
-          source: {
-            type: "base64";
-            media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-            data: string;
-          };
-        }
-    > = [];
+    const content: ClaudeSdkUserContentItem[] = [];
+    // Models with known text-only input cannot consume image blocks. Materialize
+    // the attachment to a local file and send a path hint instead, mirroring the
+    // Pi provider. Unknown modalities keep forwarding images.
+    const inputModalities = resolveClaudeInputModalities({
+      modelId: this.config.model,
+      profileModels: this.profileModels,
+    });
+    const forwardImages = inputModalities === undefined || inputModalities.includes("image");
     if (Array.isArray(prompt)) {
       for (const chunk of prompt) {
         if (chunk.type === "text") {
           content.push({ type: "text", text: chunk.text });
         } else if (chunk.type === "image") {
-          if (isImageMimeType(chunk.mimeType)) {
-            content.push({
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: chunk.mimeType,
-                data: chunk.data,
-              },
-            });
-          }
+          const imageContent = claudeImageChunkContent(chunk, forwardImages);
+          if (imageContent) content.push(imageContent);
         } else {
           content.push({ type: "text", text: renderPromptAttachmentAsText(chunk) });
         }

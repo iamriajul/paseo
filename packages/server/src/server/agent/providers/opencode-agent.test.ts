@@ -25,6 +25,25 @@ import type {
   AssistantMessageTimelineItem,
   AgentTimelineItem,
 } from "../agent-sdk-types.js";
+import { fetchCliproxyAnthropicModels, type CliproxyAnthropicModelRow } from "../gateway/models.js";
+import type * as GatewayModelsModule from "../gateway/models.js";
+import { lookupModelsDevModel } from "../../models-dev/catalog.js";
+import type * as ModelsDevCatalogModule from "../../models-dev/catalog.js";
+import {
+  OpenCodeBridge,
+  buildOpenCodeGatewayModelsMap,
+  mergeOpenCodeGatewayProviderRecord,
+} from "./opencode/bridge.js";
+
+vi.mock("../gateway/models.js", async (importOriginal) => {
+  const actual = await importOriginal<GatewayModelsModule>();
+  return { ...actual, fetchCliproxyAnthropicModels: vi.fn() };
+});
+
+vi.mock("../../models-dev/catalog.js", async (importOriginal) => {
+  const actual = await importOriginal<ModelsDevCatalogModule>();
+  return { ...actual, lookupModelsDevModel: vi.fn() };
+});
 
 // Deliberately an independent literal rather than the production constant these tests
 // guard: deriving the boundary from OPENCODE_SERVER_STARTUP_TIMEOUT_MS would keep the
@@ -6731,5 +6750,308 @@ describe("OpenCode snapshot summary false-idle regression", () => {
 
     expect(events.some((event) => event.type === "turn_started")).toBe(false);
     await session.close();
+  });
+});
+
+describe("OpenCode Gateway wiring", () => {
+  const gateway = { baseUrl: "http://gateway.example:8317", apiKey: "gateway-secret" };
+
+  function gatewayBridge(): OpenCodeBridge {
+    const bridge = new OpenCodeBridge({ paseoHome: tmpCwd(), logger: createTestLogger() });
+    // decorateServerEnv only needs materialized URLs; avoid starting a real bridge.
+    Object.assign(bridge, {
+      pluginUrl: "file:///tmp/paseo-gateway-test.mjs",
+      baseUrl: "http://127.0.0.1:9",
+    });
+    return bridge;
+  }
+
+  function readConfigContent(env: Record<string, string>): Record<string, unknown> {
+    return JSON.parse(env.OPENCODE_CONFIG_CONTENT) as Record<string, unknown>;
+  }
+
+  test("merge adds the gateway provider record without touching existing config", () => {
+    const merged = mergeOpenCodeGatewayProviderRecord(
+      { model: "anthropic/claude", provider: { anthropic: { options: { apiKey: "user" } } } },
+      gateway,
+      { "grok-4.6": { name: "Grok 4.6" } },
+    );
+    expect(merged).toEqual({
+      model: "anthropic/claude",
+      provider: {
+        anthropic: { options: { apiKey: "user" } },
+        cliproxyapi: {
+          npm: "@ai-sdk/openai-compatible",
+          name: "CLIProxyAPI",
+          options: { baseURL: "http://gateway.example:8317/v1", apiKey: "gateway-secret" },
+          models: { "grok-4.6": { name: "Grok 4.6" } },
+        },
+      },
+    });
+  });
+
+  test("merge normalizes a trailing-slash gateway base URL", () => {
+    const merged = mergeOpenCodeGatewayProviderRecord(
+      {},
+      { baseUrl: "http://gateway.example:8317/", apiKey: "gateway-secret" },
+      {},
+    );
+    expect(merged).toEqual({
+      provider: {
+        cliproxyapi: {
+          npm: "@ai-sdk/openai-compatible",
+          name: "CLIProxyAPI",
+          options: { baseURL: "http://gateway.example:8317/v1", apiKey: "gateway-secret" },
+          models: {},
+        },
+      },
+    });
+  });
+
+  test("merge leaves a user-defined gateway provider entirely alone", () => {
+    const custom = {
+      options: { baseURL: "http://user.example/v1", apiKey: "user-key" },
+      models: { "custom-model": { name: "Custom" } },
+    };
+    const merged = mergeOpenCodeGatewayProviderRecord(
+      { provider: { cliproxyapi: custom } },
+      gateway,
+      { "grok-4.6": { name: "Grok 4.6" } },
+    );
+    expect(merged).toEqual({ provider: { cliproxyapi: custom } });
+  });
+
+  test("models map trusts official row limits and names the rest", () => {
+    expect(buildOpenCodeGatewayModelsMap(gatewayRows())).toEqual({
+      "claude-opus-4-6": {
+        name: "Claude Opus 4.6",
+        limit: { context: 200_000, output: 32_000 },
+      },
+      "grok-4.5": { name: "Grok 4.5" },
+      "mystery-model": { name: "Mystery Model" },
+      "crowded-model": { name: "Crowded Model" },
+    });
+  });
+  function gatewayCatalogHarness(
+    serverModels: Record<string, { name: string }>,
+    extraProviders: Array<{
+      id: string;
+      name: string;
+      models: Record<string, { name: string }>;
+    }> = [],
+  ) {
+    const runtime = new TestOpenCodeHarness();
+    const openCodeClient = new TestOpenCodeClient();
+    openCodeClient.providerListResponse = {
+      data: {
+        connected: ["opencode"],
+        all: [
+          {
+            id: "opencode",
+            name: "OpenCode",
+            source: "api",
+            models: serverModels,
+          },
+          ...extraProviders.map((provider) => ({ ...provider, source: "api" })),
+        ],
+      },
+    };
+    openCodeClient.appAgentsResponse = { data: [] };
+    runtime.enqueueClient(openCodeClient);
+    return { runtime, openCodeClient };
+  }
+
+  test("decorateServerEnv keeps plugin decoration when merging the gateway record", async () => {
+    vi.mocked(fetchCliproxyAnthropicModels).mockResolvedValue(gatewayRows());
+    const env = await gatewayBridge().decorateServerEnv(
+      { OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: "anthropic/claude" }) },
+      gateway,
+    );
+    const config = readConfigContent(env);
+    expect(config.model).toBe("anthropic/claude");
+    expect(config.plugin).toEqual([
+      [
+        "file:///tmp/paseo-gateway-test.mjs",
+        { baseUrl: "http://127.0.0.1:9", token: expect.any(String) },
+      ],
+    ]);
+    expect(config.provider).toEqual({
+      cliproxyapi: {
+        npm: "@ai-sdk/openai-compatible",
+        name: "CLIProxyAPI",
+        options: { baseURL: "http://gateway.example:8317/v1", apiKey: "gateway-secret" },
+        models: {
+          "claude-opus-4-6": {
+            name: "Claude Opus 4.6",
+            limit: { context: 200_000, output: 32_000 },
+          },
+          "grok-4.5": { name: "Grok 4.5" },
+          "mystery-model": { name: "Mystery Model" },
+          "crowded-model": { name: "Crowded Model" },
+        },
+      },
+    });
+  });
+
+  test("decorateServerEnv without a gateway leaves the provider table alone", async () => {
+    const env = await gatewayBridge().decorateServerEnv({});
+    const config = readConfigContent(env);
+    expect(config.provider).toBeUndefined();
+    expect(config.plugin).toHaveLength(1);
+  });
+
+  function gatewayRows(): CliproxyAnthropicModelRow[] {
+    return [
+      {
+        id: "claude-opus-4-6",
+        label: "Claude Opus 4.6",
+        ownedBy: "anthropic",
+        maxInputTokens: 200_000,
+        maxOutputTokens: 32_000,
+        rawListId: "claude-opus-4-6",
+      },
+      {
+        id: "grok-4.5",
+        label: "Grok 4.5",
+        ownedBy: "third-party-vendor",
+        rawListId: "grok-4.5",
+      },
+      {
+        id: "mystery-model",
+        label: "Mystery Model",
+        ownedBy: "third-party-vendor",
+        rawListId: "mystery-model",
+      },
+      {
+        id: "crowded-model",
+        label: "Crowded Model",
+        ownedBy: "third-party-vendor",
+        rawListId: "crowded-model",
+      },
+    ];
+  }
+
+  test("fetchCatalog maps gateway rows with trust rules and server-wins dedupe", async () => {
+    const { runtime } = gatewayCatalogHarness({ "big-pickle": { name: "Big Pickle" } }, [
+      { id: "cliproxyapi", name: "CLIProxyAPI", models: { "dup-model": { name: "Server Dup" } } },
+    ]);
+    vi.mocked(fetchCliproxyAnthropicModels).mockResolvedValue([
+      ...gatewayRows(),
+      {
+        id: "dup-model",
+        label: "Gateway Dup",
+        ownedBy: "anthropic",
+        maxInputTokens: 50_000,
+        rawListId: "dup-model",
+      },
+    ]);
+    vi.mocked(lookupModelsDevModel).mockImplementation(async (query: string) => {
+      if (query === "grok-4.5") {
+        return {
+          found: true,
+          query,
+          matchedId: "x-ai/grok-4.5",
+          name: "Grok 4.5",
+          contextWindowMaxTokens: 131_072,
+          providerId: "x-ai",
+          candidates: [
+            { providerId: "x-ai", matchedId: "x-ai/grok-4.5", contextWindowMaxTokens: 131_072 },
+          ],
+        };
+      }
+      if (query === "crowded-model") {
+        return {
+          found: true,
+          query,
+          matchedId: "crowded-model",
+          contextWindowMaxTokens: 100_000,
+          providerId: "a",
+          candidates: [
+            { providerId: "a", matchedId: "a/crowded-model", contextWindowMaxTokens: 100_000 },
+            { providerId: "b", matchedId: "b/crowded-model", contextWindowMaxTokens: 200_000 },
+          ],
+        };
+      }
+      return { found: false, query };
+    });
+    const cwd = tmpCwd();
+    try {
+      const client = new OpenCodeAgentClient(createTestLogger(), undefined, {
+        serverManager: runtime,
+        createClient: runtime.createClient,
+        resolveHomeDir: () => cwd,
+        gateway,
+      });
+      const catalog = await client.fetchCatalog({ scope: "global", force: false });
+
+      expect(fetchCliproxyAnthropicModels).toHaveBeenCalledWith(
+        expect.objectContaining({ baseUrl: gateway.baseUrl, token: gateway.apiKey }),
+      );
+
+      const byId = new Map(catalog.models.map((model) => [model.id, model]));
+      // Official owner trusts the row limits.
+      expect(byId.get("cliproxyapi/claude-opus-4-6")).toMatchObject({
+        provider: "opencode",
+        label: "Claude Opus 4.6",
+        contextWindowMaxTokens: 200_000,
+      });
+      expect(byId.get("cliproxyapi/claude-opus-4-6")?.needsCapacityConfig).toBeUndefined();
+      // Single models.dev hit fills capacity.
+      expect(byId.get("cliproxyapi/grok-4.5")).toMatchObject({
+        provider: "opencode",
+        contextWindowMaxTokens: 131_072,
+      });
+      expect(byId.get("cliproxyapi/grok-4.5")?.needsCapacityConfig).toBeUndefined();
+      // Miss and multi-candidate hits need capacity config.
+      expect(byId.get("cliproxyapi/mystery-model")?.needsCapacityConfig).toBe(true);
+      expect(byId.get("cliproxyapi/mystery-model")?.contextWindowMaxTokens).toBeUndefined();
+      expect(byId.get("cliproxyapi/crowded-model")?.needsCapacityConfig).toBe(true);
+      // Server rows win id collisions.
+      expect(byId.get("cliproxyapi/dup-model")).toMatchObject({ label: "Server Dup" });
+      // Base server models are untouched.
+      expect(byId.get("opencode/big-pickle")).toMatchObject({ label: "Big Pickle" });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("fetchCatalog keeps base models when gateway discovery fails", async () => {
+    const { runtime } = gatewayCatalogHarness({ "big-pickle": { name: "Big Pickle" } });
+    vi.mocked(fetchCliproxyAnthropicModels).mockRejectedValue(new Error("gateway down"));
+    const lookup = vi.mocked(lookupModelsDevModel);
+    lookup.mockClear();
+    const cwd = tmpCwd();
+    try {
+      const client = new OpenCodeAgentClient(createTestLogger(), undefined, {
+        serverManager: runtime,
+        createClient: runtime.createClient,
+        resolveHomeDir: () => cwd,
+        gateway,
+      });
+      const catalog = await client.fetchCatalog({ scope: "global", force: false });
+      expect(catalog.models.map((model) => model.id)).toEqual(["opencode/big-pickle"]);
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("fetchCatalog skips gateway discovery without a gateway", async () => {
+    const { runtime } = gatewayCatalogHarness({ "big-pickle": { name: "Big Pickle" } });
+    const fetchModels = vi.mocked(fetchCliproxyAnthropicModels);
+    fetchModels.mockClear();
+    const cwd = tmpCwd();
+    try {
+      const client = new OpenCodeAgentClient(createTestLogger(), undefined, {
+        serverManager: runtime,
+        createClient: runtime.createClient,
+        resolveHomeDir: () => cwd,
+      });
+      const catalog = await client.fetchCatalog({ scope: "global", force: false });
+      expect(catalog.models.map((model) => model.id)).toEqual(["opencode/big-pickle"]);
+      expect(fetchModels).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

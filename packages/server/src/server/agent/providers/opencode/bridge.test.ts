@@ -111,7 +111,7 @@ describe("OpenCodeBridge", () => {
     });
 
     try {
-      const plugin = readPluginOptions(bridge.decorateServerEnv({}));
+      const plugin = readPluginOptions(await bridge.decorateServerEnv({}));
       expect(plugin.pluginUrl).toMatch(/^file:/);
 
       const unauthorized = await fetch(
@@ -203,13 +203,13 @@ describe("OpenCodeBridge", () => {
     await bridge.start();
 
     try {
-      const first = bridge.decorateServerEnv({
+      const first = await bridge.decorateServerEnv({
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           model: "provider/model",
           plugin: ["user-plugin"],
         }),
       });
-      const second = bridge.decorateServerEnv(first);
+      const second = await bridge.decorateServerEnv(first);
       const config = JSON.parse(second.OPENCODE_CONFIG_CONTENT) as {
         model: string;
         plugin: Array<string | [string, unknown]>;

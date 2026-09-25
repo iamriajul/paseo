@@ -305,6 +305,27 @@ describe("PersistedConfigSchema agent provider runtime settings", () => {
       PersistedConfigSchema.parse({ agents: { catalogRefreshTimeoutMs: 2_147_483_648 } }),
     ).toThrow();
   });
+
+  test("accepts a first-party gateway routing", () => {
+    const parsed = PersistedConfigSchema.parse({
+      agents: {
+        gateway: { enabled: true, baseUrl: "http://gateway:8317", apiKey: "sk-test" },
+      },
+    });
+
+    expect(parsed.agents?.gateway).toEqual({
+      enabled: true,
+      baseUrl: "http://gateway:8317",
+      apiKey: "sk-test",
+    });
+  });
+
+  test("gateway routing is optional and strict", () => {
+    expect(PersistedConfigSchema.parse({ agents: {} }).agents?.gateway).toBeUndefined();
+    expect(() =>
+      PersistedConfigSchema.parse({ agents: { gateway: { enabled: true, model: "x" } } }),
+    ).toThrow();
+  });
 });
 
 describe("provider overrides (new format)", () => {

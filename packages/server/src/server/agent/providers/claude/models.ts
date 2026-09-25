@@ -10,7 +10,7 @@ import {
   normalizeClaudeManifestModelId,
   normalizeClaudeRuntimeModelId as normalizeClaudeManifestRuntimeModelId,
 } from "./model-manifest.js";
-import { decodeCliproxyClaudeModelId } from "./cliproxy-models.js";
+import { decodeCliproxyClaudeModelId } from "../../gateway/models.js";
 
 const CLAUDE_SETTINGS_MODEL_ENV_KEYS = [
   "ANTHROPIC_MODEL",
@@ -239,6 +239,9 @@ interface ClaudeProfileModelLimits {
   contextWindowMaxTokens?: number;
   maxOutputTokens?: number;
   autoCompactThresholdPercent?: number;
+  inputModalities?: string[];
+  outputModalities?: string[];
+  capabilities?: string[];
 }
 
 /**
@@ -282,6 +285,21 @@ export function resolveClaudeMaxOutputTokens(options: {
     return Math.trunc(profileMatch.maxOutputTokens);
   }
   return undefined;
+}
+/**
+ * Resolve the known input modalities for a selected Claude model.
+ * Only profile/additional model config is used; unknown when unconfigured so
+ * callers keep forwarding images.
+ */
+export function resolveClaudeInputModalities(options: {
+  modelId: string | null | undefined;
+  profileModels?: ClaudeProfileModelLimits[];
+}): string[] | undefined {
+  const profileMatch = findProfileModel(options.modelId, options.profileModels);
+  if (!profileMatch?.inputModalities || profileMatch.inputModalities.length === 0) {
+    return undefined;
+  }
+  return [...profileMatch.inputModalities];
 }
 
 /**

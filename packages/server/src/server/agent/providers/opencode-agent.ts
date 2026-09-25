@@ -72,6 +72,13 @@ import {
   resolveProviderLaunch,
   type ProviderRuntimeSettings,
 } from "../provider-launch-config.js";
+import { GATEWAY_PROVIDER_ID, type ResolvedGatewayConfig } from "../gateway/config.js";
+import {
+  fetchCliproxyAnthropicModels,
+  isOfficialCpaOwner,
+  type CliproxyAnthropicModelRow,
+} from "../gateway/models.js";
+import { lookupModelsDevModel } from "../../models-dev/catalog.js";
 import { withTimeout } from "../../../utils/promise-timeout.js";
 import { execCommand } from "../../../utils/spawn.js";
 import { mapOpencodeToolCall } from "./opencode/tool-call-mapper.js";
@@ -840,6 +847,32 @@ function buildOpenCodeModelDefinition(
   };
 }
 
+/**
+ * Resolve the catalog capacity for one Gateway row. Official Gateway owners
+ * are trusted from the row limits; anything else gets a single models.dev
+ * lookup, falling back to `needsCapacityConfig` (never auto-persisted here).
+ */
+async function resolveOpenCodeGatewayModelCapacity(
+  row: CliproxyAnthropicModelRow,
+): Promise<{ contextWindowMaxTokens?: number; needsCapacityConfig?: true }> {
+  if (isOfficialCpaOwner(row.ownedBy)) {
+    const trusted = readPositiveFiniteNumber(row.maxInputTokens);
+    return trusted === undefined
+      ? { needsCapacityConfig: true }
+      : { contextWindowMaxTokens: trusted };
+  }
+  try {
+    const lookup = await lookupModelsDevModel(row.id);
+    if (lookup.found && lookup.candidates.length === 1) {
+      const filled = readPositiveFiniteNumber(lookup.candidates[0]?.contextWindowMaxTokens);
+      if (filled !== undefined) return { contextWindowMaxTokens: filled };
+    }
+  } catch {
+    // Keep the row and mark unresolved capacity below.
+  }
+  return { needsCapacityConfig: true };
+}
+
 function resolveOpenCodeSelectedModelContextWindow(
   providers:
     | {
@@ -1385,6 +1418,8 @@ interface OpenCodeAgentClientDeps {
   resolveHomeDir?: () => string;
   managedProcesses?: ManagedProcessRegistry;
   bridge?: OpenCodeBridge;
+  /** First-party Gateway routing (registry sets it only when it applies). */
+  gateway?: ResolvedGatewayConfig;
 }
 
 type OpenCodeClientFactory = (options: { baseUrl: string; directory: string }) => OpencodeClient;
@@ -1406,6 +1441,7 @@ export class OpenCodeAgentClient implements AgentClient {
   private readonly runtimeSettings?: ProviderRuntimeSettings;
   private readonly modelContextWindows = new Map<string, number>();
   private readonly bridge?: OpenCodeBridge;
+  private readonly gateway?: ResolvedGatewayConfig;
 
   constructor(
     logger: Logger,
@@ -1414,6 +1450,7 @@ export class OpenCodeAgentClient implements AgentClient {
   ) {
     this.logger = logger.child({ module: "agent", provider: "opencode" });
     this.bridge = deps.bridge;
+    this.gateway = deps.gateway;
     this.capabilities = {
       ...OPENCODE_CAPABILITIES,
       ...(this.bridge ? { supportsNativePaseoTools: true } : {}),
@@ -1433,7 +1470,7 @@ export class OpenCodeAgentClient implements AgentClient {
             createClient: (baseUrl) => this.createOpenCodeClient({ baseUrl, directory: "" }),
           }),
         decorateServerEnv: this.bridge
-          ? (env) => this.bridge?.decorateServerEnv(env) ?? env
+          ? (env) => this.bridge?.decorateServerEnv(env, this.gateway) ?? env
           : undefined,
       });
     this.resolveHomeDir = deps.resolveHomeDir ?? resolveOpenCodeHomeDir;
@@ -1600,10 +1637,11 @@ export class OpenCodeAgentClient implements AgentClient {
       }
 
       const client = this.createOpenCodeClient({ baseUrl: url, directory });
-      const [models, modes] = await Promise.all([
+      const [baseModels, modes] = await Promise.all([
         this.fetchModelsFromClient(client, directory, context),
         this.fetchModesFromClient(client, directory, context),
       ]);
+      const models = await this.appendGatewayModels(baseModels, context);
       return { models, modes };
     } finally {
       await acquisition?.release();
@@ -1878,6 +1916,73 @@ export class OpenCodeAgentClient implements AgentClient {
     const discovered = response.data.filter(isSelectableOpenCodeAgent).map(mapOpenCodeAgentToMode);
     return mergeOpenCodeModes(discovered);
   }
+
+  /**
+   * Append Gateway-routed models to the server catalog. Discovery failures
+   * are non-fatal: the base models are kept. Server rows win id collisions.
+   * No auto-persist: unresolved capacities stay `needsCapacityConfig`.
+   */
+  private async appendGatewayModels(
+    baseModels: AgentModelDefinition[],
+    context?: ProviderRefreshContext,
+  ): Promise<AgentModelDefinition[]> {
+    const gateway = this.gateway;
+    if (!gateway) return baseModels;
+    let rows: CliproxyAnthropicModelRow[];
+    try {
+      rows = await runProviderRefreshActivity(context, "gateway", () =>
+        fetchCliproxyAnthropicModels({
+          baseUrl: gateway.baseUrl,
+          token: gateway.apiKey,
+          expectGateway: true,
+          onWarning: (warning) => {
+            this.logger.warn(
+              {
+                phase: "gateway_discovery",
+                code: warning.code,
+                page: warning.page,
+                ...(warning.status === undefined ? {} : { status: warning.status }),
+              },
+              "CLIProxyAPI Gateway model discovery warning",
+            );
+          },
+        }),
+      );
+    } catch (error) {
+      this.logger.warn(
+        { err: error },
+        "CLIProxyAPI Gateway model discovery failed; keeping base catalog",
+      );
+      return baseModels;
+    }
+    if (rows.length === 0) return baseModels;
+    const seenIds = new Set(baseModels.map((model) => model.id));
+    const merged = [...baseModels];
+    for (const row of rows) {
+      const id = `${GATEWAY_PROVIDER_ID}/${row.id}`;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      const capacity = await resolveOpenCodeGatewayModelCapacity(row);
+      merged.push({
+        provider: "opencode",
+        id,
+        label: row.label || row.id,
+        ...(capacity.contextWindowMaxTokens === undefined
+          ? {}
+          : { contextWindowMaxTokens: capacity.contextWindowMaxTokens }),
+        ...(capacity.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
+        metadata: {
+          providerId: GATEWAY_PROVIDER_ID,
+          modelId: row.id,
+          ownedBy: row.ownedBy,
+          source: "cliproxyapi",
+          ...(capacity.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
+        },
+      });
+    }
+    return merged;
+  }
+
   private assertConfig(config: AgentSessionConfig): OpenCodeAgentConfig {
     if (config.provider !== "opencode") {
       throw new Error(`OpenCodeAgentClient received config for provider '${config.provider}'`);

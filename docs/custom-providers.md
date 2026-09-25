@@ -80,7 +80,11 @@ See [Codex with a custom OpenAI-compatible endpoint](#codex-with-a-custom-openai
 
 When `ANTHROPIC_BASE_URL` points to [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), Paseo confirms the endpoint from its `X-CPA-*` response headers. On a Claude catalog refresh, it decodes CLIProxyAPI's rewritten model IDs to raw IDs and appends the discovered models to the existing catalog.
 
+Claude Code itself keeps the rewritten wire form (`claude-fable-5-dd-*`) on the control plane: that is what `/model` shows, what `~/.claude/settings.json` stores, and what SDK init messages report. Paseo launches with the raw ID and decodes observed wire IDs back to raw IDs for display, so a model picked in the TUI still matches the picker after reload.
+
 Use the existing provider models `Refresh` button to run discovery. Paseo trusts capacity reported by CPA for official `owned_by` brands. For OpenAI-compatible and other non-official owners, it uses models.dev; unresolved capacity leaves the model selectable with a soft configuration warning.
+
+If the SDK control plane rejects a mid-session switch to a gateway model it cannot confirm (`Couldn't confirm model ... with the API`), Paseo relaunches the query on the resumed session with the new model instead — the same path as session creation. Other switch errors still surface.
 
 When capacity resolves, Paseo fills only missing fields in `additionalModels`, so the saved limits are available for Claude launch environment pins. See the [CLIProxyAPI Claude model discovery design](superpowers/specs/2026-08-11-cliproxyapi-claude-code-models-design.md) for the protocol and precedence details.
 

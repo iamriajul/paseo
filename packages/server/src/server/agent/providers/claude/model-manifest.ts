@@ -1,4 +1,5 @@
 import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-types.js";
+import { CLAUDE_DD_MODEL_PREFIX } from "./cliproxy-models.js";
 
 type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -416,6 +417,11 @@ export function normalizeClaudeManifestModelId(value: string | null | undefined)
   if (!trimmed) {
     return null;
   }
+  // CLIProxyAPI gateway wire IDs share the claude-fable-5 stem; they are not
+  // first-party models (decoded in cliproxy-models.ts).
+  if (trimmed.toLowerCase().startsWith(CLAUDE_DD_MODEL_PREFIX)) {
+    return null;
+  }
 
   if (isClaudeManifestModelId(trimmed)) {
     return trimmed;
@@ -462,6 +468,11 @@ export function normalizeClaudeRuntimeModelId(value: string | null | undefined):
 
   const trimmed = typeof value === "string" ? value.trim() : "";
   if (!trimmed) {
+    return null;
+  }
+  // CLIProxyAPI gateway wire IDs share the claude-fable-5 stem; they are not
+  // first-party models (decoded in cliproxy-models.ts).
+  if (trimmed.toLowerCase().startsWith(CLAUDE_DD_MODEL_PREFIX)) {
     return null;
   }
 

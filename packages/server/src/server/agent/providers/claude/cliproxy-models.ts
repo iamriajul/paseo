@@ -5,27 +5,7 @@ import * as path from "node:path";
 import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-types.js";
 import type { ModelsDevCandidate, ModelsDevLookupResult } from "../../../models-dev/catalog.js";
 
-// cliproxy-models.ts — decode mirrors CLIProxyAPI internal/util/claude_model.go
-export const CLAUDE_DD_MODEL_PREFIX = "claude-fable-5-dd-";
-
-export const OFFICIAL_CPA_OWNERS = new Set([
-  "anthropic",
-  "openai",
-  "codex",
-  "xai",
-  "x-ai",
-  "grok",
-  "gemini",
-  "google",
-  "vertex",
-  "aistudio",
-  "antigravity",
-  "kimi",
-  "moonshot",
-]);
-
-export const CLIPROXY_MODELS_MAX_PAGES = 20;
-export const CLIPROXY_MODELS_TIMEOUT_MS = 8_000;
+import { isOfficialCpaOwner, type CliproxyAnthropicModelRow } from "../../gateway/models.js";
 
 export interface CliproxyAnthropicEnvironment {
   ANTHROPIC_BASE_URL?: string;
@@ -43,15 +23,6 @@ export interface CliproxyAnthropicCredentials {
   token: string;
 }
 
-export interface CliproxyAnthropicModelRow {
-  id: string;
-  label: string;
-  ownedBy: string;
-  maxInputTokens?: number;
-  maxOutputTokens?: number;
-  rawListId: string;
-}
-
 export type CliproxyAgentModelDefinition = AgentModelDefinition;
 
 export interface CliproxyAdditionalModelLimits {
@@ -59,6 +30,9 @@ export interface CliproxyAdditionalModelLimits {
   label?: string;
   contextWindowMaxTokens?: number;
   maxOutputTokens?: number;
+  inputModalities?: string[];
+  outputModalities?: string[];
+  capabilities?: string[];
 }
 
 export interface AppendCliproxyModelsResult {
@@ -73,30 +47,6 @@ export interface AppendCliproxyModelsOptions {
   existingAdditionalModels: readonly CliproxyAdditionalModelLimits[];
   lookupModelsDev: (modelId: string) => Promise<ModelsDevLookupResult>;
   getCustomThinkingOptions: () => AgentSelectOption[];
-}
-
-export interface FetchCliproxyAnthropicModelsOptions {
-  baseUrl: string;
-  token: string;
-  fetchImpl?: typeof fetch;
-  onWarning?: (warning: CliproxyAnthropicModelsWarning) => void;
-}
-
-export type CliproxyAnthropicModelsWarningCode =
-  | "invalid_url"
-  | "request_failed"
-  | "http_error"
-  | "missing_fingerprint"
-  | "invalid_json"
-  | "invalid_payload"
-  | "invalid_pagination"
-  | "pagination_stalled"
-  | "pagination_limit";
-
-export interface CliproxyAnthropicModelsWarning {
-  code: CliproxyAnthropicModelsWarningCode;
-  page: number;
-  status?: number;
 }
 
 export async function resolveCliproxyAnthropicCredentials(
@@ -127,187 +77,6 @@ export async function resolveCliproxyAnthropicCredentials(
   return { baseUrl: normalizedBaseUrl, token };
 }
 
-export function responseHasCpaFingerprint(headers: Headers): boolean {
-  for (const name of headers.keys()) {
-    if (/^x-cpa-/i.test(name)) return true;
-  }
-  return false;
-}
-
-export async function fetchCliproxyAnthropicModels(
-  options: FetchCliproxyAnthropicModelsOptions,
-): Promise<CliproxyAnthropicModelRow[]> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const rows: CliproxyAnthropicModelRow[] = [];
-  const seenIds = new Set<string>();
-  const headers = {
-    Authorization: `Bearer ${options.token}`,
-    "Anthropic-Version": "2023-06-01",
-    "User-Agent": "claude-cli/paseo",
-  };
-
-  let afterId: string | undefined;
-  let pages = 0;
-
-  while (pages < CLIPROXY_MODELS_MAX_PAGES) {
-    const url = buildCliproxyModelsUrl(options.baseUrl, afterId);
-    if (!url) {
-      reportCliproxyModelsWarning(options, { code: "invalid_url", page: pages + 1 });
-      return rows;
-    }
-
-    let response: Response;
-    try {
-      response = await fetchImpl(url, {
-        method: "GET",
-        headers,
-        signal: AbortSignal.timeout(CLIPROXY_MODELS_TIMEOUT_MS),
-      });
-    } catch {
-      reportCliproxyModelsWarning(options, { code: "request_failed", page: pages + 1 });
-      return rows;
-    }
-    pages += 1;
-
-    if (!response.ok) {
-      reportCliproxyModelsWarning(options, {
-        code: "http_error",
-        page: pages,
-        status: response.status,
-      });
-      return rows;
-    }
-    if (pages === 1 && !responseHasCpaFingerprint(response.headers)) {
-      reportCliproxyModelsWarning(options, { code: "missing_fingerprint", page: pages });
-      return [];
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      reportCliproxyModelsWarning(options, { code: "invalid_json", page: pages });
-      return rows;
-    }
-    const page = parseCliproxyAnthropicModelsPage(payload);
-    if (!page) {
-      reportCliproxyModelsWarning(options, { code: "invalid_payload", page: pages });
-      return rows;
-    }
-
-    let addedDecodedIds = 0;
-    for (const value of page.data) {
-      const decodedModel = decodeCliproxyAnthropicModel(value);
-      if (!decodedModel || seenIds.has(decodedModel.id)) continue;
-      seenIds.add(decodedModel.id);
-      addedDecodedIds += 1;
-
-      const row = mapCliproxyAnthropicModelRow(value, decodedModel);
-      if (row) rows.push(row);
-    }
-
-    if (!page.hasMore) {
-      return rows;
-    }
-    if (!page.lastId) {
-      reportCliproxyModelsWarning(options, { code: "invalid_pagination", page: pages });
-      return rows;
-    }
-    if (pages >= CLIPROXY_MODELS_MAX_PAGES) {
-      reportCliproxyModelsWarning(options, { code: "pagination_limit", page: pages });
-      return rows;
-    }
-    if (addedDecodedIds === 0) {
-      reportCliproxyModelsWarning(options, { code: "pagination_stalled", page: pages });
-      return rows;
-    }
-    afterId = page.lastId;
-  }
-
-  return rows;
-}
-
-interface CliproxyAnthropicModelsPage {
-  data: unknown[];
-  hasMore: boolean;
-  lastId: string | null;
-}
-
-interface DecodedCliproxyAnthropicModel {
-  id: string;
-  rawListId: string;
-}
-
-function parseCliproxyAnthropicModelsPage(payload: unknown): CliproxyAnthropicModelsPage | null {
-  if (!isRecord(payload) || !Array.isArray(payload.data) || typeof payload.has_more !== "boolean") {
-    return null;
-  }
-
-  const data = payload.data;
-  const lastId = trimNonEmpty(payload.last_id);
-  return { data, hasMore: payload.has_more === true, lastId };
-}
-
-function reportCliproxyModelsWarning(
-  options: FetchCliproxyAnthropicModelsOptions,
-  warning: CliproxyAnthropicModelsWarning,
-): void {
-  try {
-    options.onWarning?.(warning);
-  } catch {
-    // A diagnostic warning hook must never change catalog discovery behavior.
-  }
-}
-
-function decodeCliproxyAnthropicModel(value: unknown): DecodedCliproxyAnthropicModel | null {
-  if (!isRecord(value)) return null;
-
-  const rawListId = trimNonEmpty(value.id);
-  if (!rawListId) return null;
-
-  const id = decodeCliproxyClaudeModelId(rawListId);
-  return id ? { id, rawListId } : null;
-}
-
-function mapCliproxyAnthropicModelRow(
-  value: unknown,
-  decodedModel: DecodedCliproxyAnthropicModel,
-): CliproxyAnthropicModelRow | null {
-  if (!isRecord(value)) return null;
-  if (
-    isCliproxyNonChatModel({ id: decodedModel.id, displayName: readString(value.display_name) })
-  ) {
-    return null;
-  }
-
-  const label = trimNonEmpty(value.display_name) ?? decodedModel.id;
-  const ownedBy = readString(value.owned_by)?.trim() ?? "";
-  const maxInputTokens = readFiniteNumber(value.max_input_tokens);
-  const maxOutputTokens = readFiniteNumber(value.max_tokens);
-
-  return {
-    id: decodedModel.id,
-    label,
-    ownedBy,
-    ...(maxInputTokens === undefined ? {} : { maxInputTokens }),
-    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-    rawListId: decodedModel.rawListId,
-  };
-}
-
-function buildCliproxyModelsUrl(baseUrl: string, afterId?: string): string | null {
-  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
-  if (!normalizedBaseUrl) return null;
-
-  try {
-    const url = new URL(`${normalizedBaseUrl}/v1/models`);
-    if (afterId) url.searchParams.set("after_id", afterId);
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
 async function readCliproxySettingsEnv(configDir?: string): Promise<CliproxyAnthropicEnvironment> {
   const resolvedConfigDir =
     configDir ?? process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
@@ -336,41 +105,8 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function readFiniteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function decodeCliproxyClaudeModelId(id: string): string {
-  const trimmed = id.trim();
-  if (!trimmed) return trimmed;
-
-  const match = /^(.*)\(([^()]*)\)$/.exec(trimmed);
-  const base = match?.[1] ?? trimmed;
-  const suffix = match ? `(${match[2]})` : "";
-
-  if (!base.startsWith(CLAUDE_DD_MODEL_PREFIX)) return trimmed;
-  const encoded = base.slice(CLAUDE_DD_MODEL_PREFIX.length);
-  if (!encoded) return trimmed;
-  return [...encoded].toReversed().join("") + suffix;
-}
-
-export function isOfficialCpaOwner(ownedBy: string | null | undefined): boolean {
-  if (typeof ownedBy !== "string") return false;
-  return OFFICIAL_CPA_OWNERS.has(ownedBy.trim().toLowerCase());
-}
-
-export function isCliproxyNonChatModel(options: { id: string; displayName?: string }): boolean {
-  const haystack = `${options.id} ${options.displayName ?? ""}`.toLowerCase();
-  return (
-    haystack.includes("image") ||
-    haystack.includes("video") ||
-    haystack.includes("gpt-image") ||
-    haystack.includes("grok-imagine")
-  );
 }
 
 export async function appendCliproxyModelsToClaudeCatalog(
@@ -435,6 +171,16 @@ async function resolveCliproxyModelCapacity(
     autoPersist ??= { id: row.id };
     autoPersist.maxOutputTokens = value;
   };
+  const fillModalities = (
+    key: "inputModalities" | "outputModalities" | "capabilities",
+    value: readonly string[] | undefined,
+  ): void => {
+    if (!value || value.length === 0) return;
+    if (nonEmptyStringList(configured?.[key]) !== undefined) return;
+    autoPersist ??= { id: row.id };
+    if (autoPersist[key] !== undefined) return;
+    autoPersist[key] = [...value];
+  };
 
   if (isOfficialCpaOwner(row.ownedBy)) {
     fillContextWindow(positiveCapacityValue(row.maxInputTokens));
@@ -448,6 +194,9 @@ async function resolveCliproxyModelCapacity(
         const candidate = lookup.candidates[0];
         fillContextWindow(positiveCapacityValue(candidate.contextWindowMaxTokens));
         fillMaxOutput(positiveCapacityValue(candidate.maxOutputTokens));
+        fillModalities("inputModalities", candidate.inputModalities);
+        fillModalities("outputModalities", candidate.outputModalities);
+        fillModalities("capabilities", candidate.capabilities);
       } else if (lookup.found && lookup.candidates.length > 1) {
         modelsDevCandidates = lookup.candidates;
       }
@@ -562,49 +311,114 @@ export function mergeAdditionalModelLimits(
   for (const update of updates) {
     const existing = byId.get(update.id);
     if (!existing) {
-      const added: CliproxyAdditionalModelLimits = {
-        id: update.id,
-        ...(update.label ? { label: update.label } : {}),
-        ...(positiveCapacityValue(update.contextWindowMaxTokens) === undefined
-          ? {}
-          : { contextWindowMaxTokens: update.contextWindowMaxTokens }),
-        ...(positiveCapacityValue(update.maxOutputTokens) === undefined
-          ? {}
-          : { maxOutputTokens: update.maxOutputTokens }),
-      };
+      const added = buildAddedModelLimits(update);
       cloneExisting().push(added);
       byId.set(added.id, added);
       continue;
     }
-
-    const contextWindowMaxTokens = positiveCapacityValue(update.contextWindowMaxTokens);
-    const maxOutputTokens = positiveCapacityValue(update.maxOutputTokens);
-    const shouldFillLabel = !existing.label && !!update.label;
-    const shouldFillContext =
-      positiveCapacityValue(existing.contextWindowMaxTokens) === undefined &&
-      contextWindowMaxTokens !== undefined;
-    const shouldFillMaxOutput =
-      positiveCapacityValue(existing.maxOutputTokens) === undefined &&
-      maxOutputTokens !== undefined;
-
-    if (!shouldFillLabel && !shouldFillContext && !shouldFillMaxOutput) continue;
-
-    const mergedExisting = cloneExisting().find((model) => model.id === update.id);
-    if (!mergedExisting) continue;
-    if (shouldFillLabel && update.label) mergedExisting.label = update.label;
-    if (shouldFillContext && contextWindowMaxTokens !== undefined) {
-      mergedExisting.contextWindowMaxTokens = contextWindowMaxTokens;
-    }
-    if (shouldFillMaxOutput && maxOutputTokens !== undefined) {
-      mergedExisting.maxOutputTokens = maxOutputTokens;
-    }
+    if (!modelLimitsUpdateFills(existing, update)) continue;
+    const target = cloneExisting().find((model) => model.id === update.id);
+    if (!target) continue;
+    applyModelLimitsUpdate(target, update);
   }
 
   return merged ?? (existingModels as CliproxyAdditionalModelLimits[]);
+}
+
+function buildAddedModelLimits(
+  update: CliproxyAdditionalModelLimits,
+): CliproxyAdditionalModelLimits {
+  const contextWindowMaxTokens = positiveCapacityValue(update.contextWindowMaxTokens);
+  const maxOutputTokens = positiveCapacityValue(update.maxOutputTokens);
+  const inputModalities = nonEmptyStringList(update.inputModalities);
+  const outputModalities = nonEmptyStringList(update.outputModalities);
+  const capabilities = nonEmptyStringList(update.capabilities);
+  return {
+    id: update.id,
+    ...(update.label ? { label: update.label } : {}),
+    ...(contextWindowMaxTokens === undefined ? {} : { contextWindowMaxTokens }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    ...(inputModalities === undefined ? {} : { inputModalities }),
+    ...(outputModalities === undefined ? {} : { outputModalities }),
+    ...(capabilities === undefined ? {} : { capabilities }),
+  };
+}
+
+function modelLimitsUpdateFills(
+  existing: CliproxyAdditionalModelLimits,
+  update: CliproxyAdditionalModelLimits,
+): boolean {
+  if (!existing.label && update.label) return true;
+  if (
+    positiveCapacityValue(existing.contextWindowMaxTokens) === undefined &&
+    positiveCapacityValue(update.contextWindowMaxTokens) !== undefined
+  ) {
+    return true;
+  }
+  if (
+    positiveCapacityValue(existing.maxOutputTokens) === undefined &&
+    positiveCapacityValue(update.maxOutputTokens) !== undefined
+  ) {
+    return true;
+  }
+  if (
+    nonEmptyStringList(existing.inputModalities) === undefined &&
+    nonEmptyStringList(update.inputModalities) !== undefined
+  ) {
+    return true;
+  }
+  if (
+    nonEmptyStringList(existing.outputModalities) === undefined &&
+    nonEmptyStringList(update.outputModalities) !== undefined
+  ) {
+    return true;
+  }
+  return (
+    nonEmptyStringList(existing.capabilities) === undefined &&
+    nonEmptyStringList(update.capabilities) !== undefined
+  );
+}
+
+function applyModelLimitsUpdate(
+  target: CliproxyAdditionalModelLimits,
+  update: CliproxyAdditionalModelLimits,
+): void {
+  if (!target.label && update.label) target.label = update.label;
+  const contextWindowMaxTokens = positiveCapacityValue(update.contextWindowMaxTokens);
+  if (
+    positiveCapacityValue(target.contextWindowMaxTokens) === undefined &&
+    contextWindowMaxTokens !== undefined
+  ) {
+    target.contextWindowMaxTokens = contextWindowMaxTokens;
+  }
+  const maxOutputTokens = positiveCapacityValue(update.maxOutputTokens);
+  if (
+    positiveCapacityValue(target.maxOutputTokens) === undefined &&
+    maxOutputTokens !== undefined
+  ) {
+    target.maxOutputTokens = maxOutputTokens;
+  }
+  const inputModalities = nonEmptyStringList(update.inputModalities);
+  if (nonEmptyStringList(target.inputModalities) === undefined && inputModalities !== undefined) {
+    target.inputModalities = inputModalities;
+  }
+  const outputModalities = nonEmptyStringList(update.outputModalities);
+  if (nonEmptyStringList(target.outputModalities) === undefined && outputModalities !== undefined) {
+    target.outputModalities = outputModalities;
+  }
+  const capabilities = nonEmptyStringList(update.capabilities);
+  if (nonEmptyStringList(target.capabilities) === undefined && capabilities !== undefined) {
+    target.capabilities = capabilities;
+  }
 }
 
 export const mergeCliproxyAdditionalModelLimits = mergeAdditionalModelLimits;
 
 function positiveCapacityValue(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function nonEmptyStringList(value: readonly string[] | undefined): string[] | undefined {
+  if (!value || value.length === 0) return undefined;
+  return [...value];
 }

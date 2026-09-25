@@ -1,15 +1,17 @@
 import { describe, expect, test, vi } from "vitest";
 import {
-  CLIPROXY_MODELS_MAX_PAGES,
   appendCliproxyModelsToClaudeCatalog,
-  decodeCliproxyClaudeModelId,
-  fetchCliproxyAnthropicModels,
-  isOfficialCpaOwner,
-  isCliproxyNonChatModel,
   mergeAdditionalModelLimits,
-  responseHasCpaFingerprint,
   resolveCliproxyAnthropicCredentials,
 } from "./cliproxy-models.js";
+import {
+  CLIPROXY_MODELS_MAX_PAGES,
+  decodeCliproxyClaudeModelId,
+  fetchCliproxyAnthropicModels,
+  isCliproxyNonChatModel,
+  isOfficialCpaOwner,
+  responseHasCpaFingerprint,
+} from "../../gateway/models.js";
 
 describe("decodeCliproxyClaudeModelId", () => {
   test("decodes reversed non-claude ids", () => {
@@ -116,6 +118,59 @@ describe("fetchCliproxyAnthropicModels", () => {
     });
     expect(rows).toEqual([]);
     expect(warnings).toEqual([{ code: "missing_fingerprint", page: 1 }]);
+  });
+
+  test("accepts rewritten ids without headers as behavioral proof", async () => {
+    const warnings: unknown[] = [];
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "claude-fable-5-dd-5.4-korg",
+                display_name: "Grok 4.5",
+                owned_by: "xai",
+                max_input_tokens: 500000,
+                max_tokens: 65536,
+              },
+            ],
+            has_more: false,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const rows = await fetchCliproxyAnthropicModels({
+      baseUrl: "http://cpa.example",
+      token: "t",
+      fetchImpl,
+      onWarning: (warning) => warnings.push(warning),
+    });
+    expect(rows.map((row) => row.id)).toEqual(["grok-4.5"]);
+    expect(warnings).toEqual([]);
+  });
+
+  test("expectGateway skips detection entirely", async () => {
+    const warnings: unknown[] = [];
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: "claude-opus-4-8", display_name: "Opus 4.8", owned_by: "anthropic" }],
+            has_more: false,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const rows = await fetchCliproxyAnthropicModels({
+      baseUrl: "http://cpa.example",
+      token: "t",
+      expectGateway: true,
+      fetchImpl,
+      onWarning: (warning) => warnings.push(warning),
+    });
+    expect(rows.map((row) => row.id)).toEqual(["claude-opus-4-8"]);
+    expect(warnings).toEqual([]);
   });
 
   test("reports first-page failures with safe structured warnings", async () => {

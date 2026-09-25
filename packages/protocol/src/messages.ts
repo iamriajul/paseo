@@ -1935,6 +1935,13 @@ export const ProviderUsageResetQuotaRequestMessageSchema = z.object({
   requestId: z.string(),
 });
 
+export const GatewayQuotaGetRequestMessageSchema = z.object({
+  type: z.literal("gateway.quota.get.request"),
+  requestId: z.string(),
+  provider: z.string(),
+  model: z.string(),
+});
+
 export const ResumeAgentRequestMessageSchema = z.object({
   type: z.literal("resume_agent_request"),
   handle: AgentPersistenceHandleSchema,
@@ -3456,6 +3463,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProviderDiagnosticRequestMessageSchema,
   ProviderUsageListRequestMessageSchema,
   ProviderUsageResetQuotaRequestMessageSchema,
+  GatewayQuotaGetRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
@@ -3884,6 +3892,8 @@ export const ServerInfoStatusPayloadSchema = z
         providerUsageResetQuota: z.boolean().optional(),
         // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
         providerUsageForceRefresh: z.boolean().optional(),
+        // COMPAT(gatewayQuota): added in v0.9.903, drop the gate once daemon floor >= v0.9.903.
+        gatewayQuota: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
@@ -6746,6 +6756,33 @@ export const ProviderUsageResetQuotaResponseMessageSchema = z.object({
   }),
 });
 
+export const GatewayQuotaWindowSchema = z.object({
+  name: z.string(),
+  usedPct: z.number().nullable().optional(),
+  resetsAt: z.string().nullable().optional(),
+  status: z.string().optional(),
+});
+
+export const GatewayQuotaAccountSchema = z.object({
+  provider: z.string(),
+  name: z.string().optional(),
+  type: z.enum(["oauth", "api"]),
+  plan: z.string().optional(),
+  inCooldown: z.boolean(),
+  windowsObservedAt: z.string().nullable().optional(),
+  windows: z.array(GatewayQuotaWindowSchema),
+});
+
+export const GatewayQuotaGetResponseMessageSchema = z.object({
+  type: z.literal("gateway.quota.get.response"),
+  payload: z.object({
+    requestId: z.string(),
+    supported: z.boolean(),
+    fetchedAt: z.string(),
+    accounts: z.array(GatewayQuotaAccountSchema),
+  }),
+});
+
 const AgentSlashCommandSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -7448,6 +7485,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProviderDiagnosticResponseMessageSchema,
   ProviderUsageListResponseMessageSchema,
   ProviderUsageResetQuotaResponseMessageSchema,
+  GatewayQuotaGetResponseMessageSchema,
   ListCommandsResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
@@ -7650,6 +7688,9 @@ export type ProviderUsageListResponseMessage = z.infer<
 export type ProviderUsageResetQuotaResponseMessage = z.infer<
   typeof ProviderUsageResetQuotaResponseMessageSchema
 >;
+export type GatewayQuotaWindow = z.infer<typeof GatewayQuotaWindowSchema>;
+export type GatewayQuotaAccount = z.infer<typeof GatewayQuotaAccountSchema>;
+export type GatewayQuotaGetResponseMessage = z.infer<typeof GatewayQuotaGetResponseMessageSchema>;
 export type ChatCreateResponse = z.infer<typeof ChatCreateResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
 export type ChatInspectResponse = z.infer<typeof ChatInspectResponseSchema>;

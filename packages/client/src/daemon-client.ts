@@ -95,6 +95,7 @@ import type {
   ProviderDiagnosticResponseMessage,
   ProviderUsageListResponseMessage,
   ProviderUsageResetQuotaResponseMessage,
+  GatewayQuotaGetResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
   DaemonConfigReloadResponse,
@@ -503,6 +504,7 @@ type RefreshProvidersSnapshotPayload = RefreshProvidersSnapshotResponseMessage["
 type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
 type ProviderUsageResetQuotaPayload = ProviderUsageResetQuotaResponseMessage["payload"];
+type GatewayQuotaPayload = GatewayQuotaGetResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
 type DiagnosticsPayload = DiagnosticsResponse["payload"];
@@ -5844,6 +5846,22 @@ export class DaemonClient {
         providerId: options.providerId,
       },
       timeout: 60_000,
+    });
+  }
+
+  async getGatewayQuota(options: {
+    provider: string;
+    model: string;
+    requestId?: string;
+  }): Promise<GatewayQuotaPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "gateway.quota.get.request",
+        provider: options.provider,
+        model: options.model,
+      },
+      timeout: 30_000,
     });
   }
 

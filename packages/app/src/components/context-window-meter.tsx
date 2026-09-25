@@ -4,6 +4,8 @@ import Svg, { Circle } from "react-native-svg";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { GatewayQuotaSection } from "@/gateway-quota/section";
+import { useGatewayQuota } from "@/gateway-quota/use-gateway-quota";
 import { ProviderUsageTooltipSection } from "@/provider-usage/tooltip-section";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
 import { formatTokenCount } from "./context-window-meter.utils";
@@ -16,6 +18,8 @@ interface ContextWindowMeterProps {
   serverId?: string;
   /** The Paseo provider key, e.g. "claude", "gemini", "codex" */
   provider?: string | null;
+  /** The selected model id, used for per-model Gateway quota. */
+  model?: string | null;
   /** Reserve the meter footprint and show a loading ring while usage is pending. */
   pending?: boolean;
   /** Optional glyph envelope for icon-toolbar alignment. */
@@ -103,6 +107,7 @@ export function ContextWindowMeter({
   showPercentage = false,
   serverId,
   provider,
+  model,
   pending = false,
   glyphSize,
 }: ContextWindowMeterProps) {
@@ -113,6 +118,12 @@ export function ContextWindowMeter({
     serverId ?? null,
     { enabled: isTooltipOpen },
   );
+  const { view: gatewayQuotaView, refresh: refreshGatewayQuota } = useGatewayQuota(
+    serverId ?? null,
+    provider ?? null,
+    model ?? null,
+    { enabled: isTooltipOpen },
+  );
   const percentage =
     maxTokens !== null && usedTokens !== null ? getUsagePercentage(maxTokens, usedTokens) : null;
   const handleTooltipOpenChange = useCallback(
@@ -120,11 +131,11 @@ export function ContextWindowMeter({
       setIsTooltipOpen(nextOpen);
       if (nextOpen) {
         void refreshProviderUsage().catch(() => {});
+        void refreshGatewayQuota().catch(() => {});
       }
     },
-    [refreshProviderUsage],
+    [refreshGatewayQuota, refreshProviderUsage],
   );
-
   const geometry = getMeterGeometry(showPercentage, glyphSize);
 
   // No usage yet: reserve the footprint with a track-only ring while a session is
@@ -234,6 +245,7 @@ export function ContextWindowMeter({
             </Text>
           ) : null}
           <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
+          <GatewayQuotaSection view={gatewayQuotaView} />
         </View>
       </TooltipContent>
     </Tooltip>

@@ -6593,6 +6593,59 @@ test("sends provider.usage.reset_quota.request and resolves provider.usage.reset
   });
 });
 
+test("sends gateway.quota.get.request and resolves gateway.quota.get.response", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const quotaPromise = client.getGatewayQuota({
+    provider: "claude",
+    model: "grok-4.6",
+    requestId: "quota-1",
+  });
+
+  expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
+    type: "session",
+    message: {
+      type: "gateway.quota.get.request",
+      provider: "claude",
+      model: "grok-4.6",
+      requestId: "quota-1",
+    },
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "gateway.quota.get.response",
+      payload: {
+        requestId: "quota-1",
+        supported: true,
+        fetchedAt: "2026-09-25T14:00:00.000Z",
+        accounts: [],
+      },
+    }),
+  );
+
+  await expect(quotaPromise).resolves.toEqual({
+    requestId: "quota-1",
+    supported: true,
+    fetchedAt: "2026-09-25T14:00:00.000Z",
+    accounts: [],
+  });
+});
+
 test("sends close_items_request and resolves close_items_response", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

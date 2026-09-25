@@ -7,6 +7,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Logger } from "pino";
 
 import { writeFileAtomic } from "../../../atomic-file.js";
+import { GATEWAY_PROVIDER_ID, type ResolvedGatewayConfig } from "../../gateway/config.js";
+import {
+  fetchCliproxyAnthropicModels,
+  isOfficialCpaOwner,
+  type CliproxyAnthropicModelRow,
+} from "../../gateway/models.js";
 import {
   addModelVisibleStructuredContent,
   serializePaseoToolInputParameters,
@@ -15,6 +21,7 @@ import type { PaseoToolCatalog } from "../../tools/types.js";
 
 const INTERNAL_PREFIX = "/_internal/opencode";
 const MAX_REQUEST_BYTES = 1024 * 1024;
+const OPENCODE_GATEWAY_ROWS_TTL_MS = 5 * 60 * 1000;
 
 interface OpenCodeBridgeOptions {
   paseoHome: string;
@@ -39,7 +46,6 @@ interface OpenCodeConfig {
   plugin?: Array<string | [string, Record<string, unknown>]>;
   [key: string]: unknown;
 }
-
 export class OpenCodeBridge {
   private readonly paseoHome: string;
   private readonly logger: Logger;
@@ -49,6 +55,9 @@ export class OpenCodeBridge {
   private baseUrl: string | null = null;
   private pluginUrl: string | null = null;
   private manifestCatalog: PaseoToolCatalog | null = null;
+  private gatewayRows: CliproxyAnthropicModelRow[] | null = null;
+  private gatewayRowsExpiresAt = 0;
+  private gatewayRowsInflight: Promise<CliproxyAnthropicModelRow[]> | null = null;
 
   constructor(options: OpenCodeBridgeOptions) {
     this.paseoHome = options.paseoHome;
@@ -94,7 +103,10 @@ export class OpenCodeBridge {
     };
   }
 
-  decorateServerEnv(env: Record<string, string>): Record<string, string> {
+  async decorateServerEnv(
+    env: Record<string, string>,
+    gateway?: ResolvedGatewayConfig,
+  ): Promise<Record<string, string>> {
     const pluginUrl = this.requirePluginUrl();
     const options: OpenCodePluginOptions = {
       baseUrl: this.requireBaseUrl(),
@@ -106,13 +118,64 @@ export class OpenCodeBridge {
       const specifier = Array.isArray(entry) ? entry[0] : entry;
       return !specifier.includes("/paseo-") || !specifier.endsWith(".mjs");
     });
+    const withPlugin: OpenCodeConfig = {
+      ...config,
+      plugin: [...withoutBridge, [pluginUrl, { ...options }]],
+    };
+    if (!gateway) {
+      return { ...env, OPENCODE_CONFIG_CONTENT: JSON.stringify(withPlugin) };
+    }
+    const rows = await this.resolveGatewayRows(gateway);
     return {
       ...env,
-      OPENCODE_CONFIG_CONTENT: JSON.stringify({
-        ...config,
-        plugin: [...withoutBridge, [pluginUrl, options]],
-      }),
+      OPENCODE_CONFIG_CONTENT: JSON.stringify(
+        rows
+          ? mergeOpenCodeGatewayProviderRecord(
+              withPlugin,
+              gateway,
+              buildOpenCodeGatewayModelsMap(rows),
+            )
+          : withPlugin,
+      ),
     };
+  }
+
+  /**
+   * Gateway rows for the injected provider's models map. Cached briefly so
+   * dedicated-server spawns do not refetch per session; stale rows survive a
+   * failed refresh, and a cold failure omits the provider record.
+   */
+  private async resolveGatewayRows(
+    gateway: ResolvedGatewayConfig,
+  ): Promise<CliproxyAnthropicModelRow[] | null> {
+    if (this.gatewayRows && Date.now() < this.gatewayRowsExpiresAt) return this.gatewayRows;
+    this.gatewayRowsInflight ??= fetchCliproxyAnthropicModels({
+      baseUrl: gateway.baseUrl,
+      token: gateway.apiKey,
+      expectGateway: true,
+      onWarning: (warning) => {
+        this.logger.warn(
+          { phase: "gateway_discovery", code: warning.code, page: warning.page },
+          "CLIProxyAPI Gateway model discovery warning",
+        );
+      },
+    }).then(
+      (rows) => {
+        this.gatewayRowsInflight = null;
+        if (rows.length > 0) {
+          this.gatewayRows = rows;
+          this.gatewayRowsExpiresAt = Date.now() + OPENCODE_GATEWAY_ROWS_TTL_MS;
+        }
+        return rows;
+      },
+      (error: unknown) => {
+        this.gatewayRowsInflight = null;
+        this.logger.warn({ err: error }, "CLIProxyAPI Gateway model discovery failed");
+        return this.gatewayRows ?? [];
+      },
+    );
+    const rows = await this.gatewayRowsInflight;
+    return rows.length > 0 ? rows : null;
   }
 
   async close(): Promise<void> {
@@ -231,11 +294,77 @@ export class OpenCodeBridge {
   }
 }
 
-type CompileOpenCodeBridgePlugin = (sourcePath: string) => Promise<Uint8Array>;
+/**
+ * Additively merge the Gateway provider record into an OpenCode config object.
+ * Existing `provider.*` entries are untouched; a user-defined
+ * `provider.cliproxyapi` wins entirely. Custom providers need the
+ * openai-compatible adapter plus an explicit models map to register.
+ */
+export function mergeOpenCodeGatewayProviderRecord(
+  config: OpenCodeConfig,
+  gateway: ResolvedGatewayConfig,
+  models: Record<string, OpenCodeGatewayModelEntry>,
+): OpenCodeConfig {
+  const existing: unknown = config.provider;
+  const preserved: Record<string, unknown> =
+    typeof existing === "object" && existing !== null && !Array.isArray(existing)
+      ? (existing as Record<string, unknown>)
+      : {};
+  if (GATEWAY_PROVIDER_ID in preserved) {
+    return config;
+  }
+  return {
+    ...config,
+    provider: {
+      ...preserved,
+      [GATEWAY_PROVIDER_ID]: {
+        npm: "@ai-sdk/openai-compatible",
+        name: "CLIProxyAPI",
+        options: {
+          baseURL: `${gateway.baseUrl.replace(/\/+$/, "")}/v1`,
+          apiKey: gateway.apiKey,
+        },
+        models,
+      },
+    },
+  };
+}
+
+export interface OpenCodeGatewayModelEntry {
+  name: string;
+  limit?: { context: number; output?: number };
+}
+
+/**
+ * Build the injected provider's models map from Gateway rows. Trusted row
+ * limits seed the context/output caps OpenCode reports; untrusted rows carry
+ * names only and Paseo resolves their capacity separately for display.
+ */
+export function buildOpenCodeGatewayModelsMap(
+  rows: readonly CliproxyAnthropicModelRow[],
+): Record<string, OpenCodeGatewayModelEntry> {
+  const models: Record<string, OpenCodeGatewayModelEntry> = {};
+  for (const row of rows) {
+    const trusted = isOfficialCpaOwner(row.ownedBy);
+    const context = trusted ? positiveTokenCount(row.maxInputTokens) : undefined;
+    const output = trusted ? positiveTokenCount(row.maxOutputTokens) : undefined;
+    models[row.id] = {
+      name: row.label || row.id,
+      ...(context === undefined
+        ? {}
+        : { limit: { context, ...(output === undefined ? {} : { output }) } }),
+    };
+  }
+  return models;
+}
+
+function positiveTokenCount(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
 
 export async function loadOpenCodeBridgePluginArtifact(
   moduleUrl: string,
-  compileSource: CompileOpenCodeBridgePlugin = compileOpenCodeBridgePlugin,
+  compileSource: typeof compileOpenCodeBridgePlugin = compileOpenCodeBridgePlugin,
 ): Promise<Uint8Array> {
   const bundleUrl = new URL("./bridge-plugin.bundle.mjs", moduleUrl);
   try {

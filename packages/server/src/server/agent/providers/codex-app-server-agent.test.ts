@@ -83,6 +83,7 @@ describe("Codex executable discovery", () => {
 });
 
 import { CodexAppServerClient } from "./codex/app-server-transport.js";
+import { GATEWAY_CODEX_CLIENT_VERSION } from "../gateway/models.js";
 import {
   createFakeCodexAppServer,
   type FakeCodexAppServer,
@@ -6270,5 +6271,189 @@ describe("Codex denied plan approvals", () => {
       detail: { type: "plan", text: "Ship the thing" },
       metadata: { approved: false },
     });
+  });
+});
+
+describe("Codex Gateway model discovery", () => {
+  const GATEWAY_BASE_URL = "http://127.0.0.1:8317";
+  const GATEWAY_API_KEY = "gateway-test-key";
+
+  function baseModelListResponse() {
+    return {
+      data: [
+        {
+          id: "gpt-5.4",
+          displayName: "GPT 5.4",
+          isDefault: true,
+          defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: [{ reasoningEffort: "medium" }],
+        },
+      ],
+    };
+  }
+
+  function gatewayPayload() {
+    return {
+      models: [
+        {
+          slug: "gpt-5.4",
+          display_name: "GPT 5.4 (gateway)",
+          description: "Gateway duplicate of a model/list entry",
+          context_window: 400_000,
+          default_reasoning_level: "high",
+          supported_reasoning_levels: [{ effort: "high" }],
+          visibility: [],
+        },
+        {
+          slug: "gw-alpha",
+          display_name: "Gateway Alpha",
+          description: "Alpha via gateway",
+          context_window: 200_000,
+          default_reasoning_level: "high",
+          supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
+          visibility: [],
+        },
+        {
+          slug: "gw-hidden",
+          display_name: "Hidden Model",
+          description: "Hidden from the catalog",
+          supported_reasoning_levels: [{ effort: "low" }],
+          visibility: ["hide"],
+        },
+      ],
+    };
+  }
+
+  function stubGatewayFetch(payload: unknown, seenUrls: string[]) {
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      seenUrls.push(String(input));
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "x-cpa-fingerprint": "test" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    return fetchImpl;
+  }
+
+  function createCatalogProvider(
+    appServer: FakeCodexAppServer,
+    deps: {
+      gateway?: { baseUrl: string; apiKey: string };
+      customProvider?: { id: string; label: string; extends: string };
+    },
+    runtimeSettings?: { env?: Record<string, string> },
+  ): CodexAppServerAgentClient {
+    const provider = new CodexAppServerAgentClient(createTestLogger(), runtimeSettings, deps);
+    const internals = castInternals<{
+      autoReviewEnabledPromise: Promise<boolean> | null;
+      spawnAppServer: () => Promise<ChildProcessWithoutNullStreams>;
+    }>(provider);
+    internals.autoReviewEnabledPromise = Promise.resolve(false);
+    internals.spawnAppServer = async () => appServer.child;
+    return provider;
+  }
+
+  test("appends Gateway rows with bare-slug ids, thinking options, and context windows", async () => {
+    const appServer = createFakeCodexAppServer({ "model/list": () => baseModelListResponse() });
+    const provider = createCatalogProvider(appServer, {
+      gateway: { baseUrl: GATEWAY_BASE_URL, apiKey: GATEWAY_API_KEY },
+    });
+    const seenUrls: string[] = [];
+    stubGatewayFetch(gatewayPayload(), seenUrls);
+    try {
+      const catalog = await provider.fetchCatalog({ scope: "global", force: false });
+      expect(seenUrls).toEqual([
+        `${GATEWAY_BASE_URL}/v1/models?client_version=${GATEWAY_CODEX_CLIENT_VERSION}`,
+      ]);
+
+      const byId = new Map(catalog.models.map((model) => [model.id, model]));
+      // Dedupe: the model/list entry wins over the Gateway row with the same slug.
+      expect(catalog.models.filter((model) => model.id === "gpt-5.4")).toHaveLength(1);
+      expect(byId.get("gpt-5.4")).toMatchObject({ provider: "codex", label: "GPT 5.4" });
+      expect(byId.get("gpt-5.4")?.contextWindowMaxTokens).toBeUndefined();
+
+      const alpha = byId.get("gw-alpha");
+      expect(alpha).toMatchObject({
+        provider: "codex",
+        id: "gw-alpha",
+        label: "Gateway Alpha",
+        description: "Alpha via gateway",
+        contextWindowMaxTokens: 200_000,
+        defaultThinkingOptionId: "high",
+        isDefault: false,
+      });
+      expect(alpha?.thinkingOptions).toMatchObject([
+        { id: "low", label: "low", isDefault: false },
+        { id: "high", label: "high", isDefault: true },
+      ]);
+
+      expect(byId.has("gw-hidden")).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("probes the derived custom provider endpoint via runtimeSettings env", async () => {
+    const appServer = createFakeCodexAppServer({ "model/list": () => baseModelListResponse() });
+    const provider = createCatalogProvider(
+      appServer,
+      { customProvider: { id: "cliproxyapi", label: "CLIProxyAPI", extends: "codex" } },
+      { env: { OPENAI_BASE_URL: `${GATEWAY_BASE_URL}/v1/`, OPENAI_API_KEY: GATEWAY_API_KEY } },
+    );
+    const seenUrls: string[] = [];
+    stubGatewayFetch(
+      {
+        models: [
+          {
+            slug: "gw-derived",
+            display_name: "Derived Gateway Model",
+            supported_reasoning_levels: [{ effort: "medium" }],
+            visibility: [],
+          },
+        ],
+      },
+      seenUrls,
+    );
+    try {
+      const catalog = await provider.fetchCatalog({ scope: "global", force: false });
+      // The trailing /v1 is stripped so the fetcher does not request /v1/v1/models.
+      expect(seenUrls).toEqual([
+        `${GATEWAY_BASE_URL}/v1/models?client_version=${GATEWAY_CODEX_CLIENT_VERSION}`,
+      ]);
+      expect(catalog.models.map((model) => model.id).sort()).toEqual(["gpt-5.4", "gw-derived"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("keeps base models when Gateway discovery fails", async () => {
+    const appServer = createFakeCodexAppServer({ "model/list": () => baseModelListResponse() });
+    const provider = createCatalogProvider(appServer, {
+      gateway: { baseUrl: GATEWAY_BASE_URL, apiKey: GATEWAY_API_KEY },
+    });
+    const fetchImpl = vi.fn(async () => new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const catalog = await provider.fetchCatalog({ scope: "global", force: false });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(catalog.models.map((model) => model.id)).toEqual(["gpt-5.4"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("skips Gateway discovery without gateway routing or a custom provider", async () => {
+    const appServer = createFakeCodexAppServer({ "model/list": () => baseModelListResponse() });
+    const provider = createProviderWithFakeAppServer(appServer);
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const catalog = await provider.fetchCatalog({ scope: "global", force: false });
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(catalog.models.map((model) => model.id)).toEqual(["gpt-5.4"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

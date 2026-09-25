@@ -1,5 +1,5 @@
 import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-types.js";
-import { CLAUDE_DD_MODEL_PREFIX } from "./cliproxy-models.js";
+import { CLAUDE_DD_MODEL_PREFIX } from "../../gateway/models.js";
 
 type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 

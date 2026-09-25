@@ -192,6 +192,8 @@ import type {
   AgentProviderRuntimeSettingsMap,
   ProviderOverride,
 } from "./agent/provider-launch-config.js";
+import type { GatewayPersistedConfig } from "./agent/gateway/config.js";
+import { resolveGatewayConfig } from "./agent/gateway/config.js";
 import { loadPersistedConfig, type PersistedConfig } from "./persisted-config.js";
 import { createServiceProxySubsystem, type ServiceProxySubsystem } from "./service-proxy.js";
 import { createBrowserPreviewSubsystem } from "./browser-preview/index.js";
@@ -448,6 +450,7 @@ export interface PaseoDaemonConfig {
   dictationFinalTimeoutMs?: number;
   downloadTokenTtlMs?: number;
   agentProviderSettings?: AgentProviderRuntimeSettingsMap;
+  agentGateway?: GatewayPersistedConfig;
   providerCatalogRefreshTimeoutMs?: number;
   metadataGeneration?: {
     providers?: Array<{
@@ -963,6 +966,7 @@ export async function createPaseoDaemon(
       refreshTimeoutMs: config.providerCatalogRefreshTimeoutMs,
       runtimeSettings: config.agentProviderSettings,
       providerOverrides: config.providerOverrides,
+      gateway: resolveGatewayConfig(config.agentGateway),
       workspaceGitService,
       managedProcesses,
       isDev: config.isDev === true,

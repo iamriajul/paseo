@@ -534,6 +534,7 @@ import {
   AGENT_PROVIDER_DEFINITIONS,
   buildProviderRegistry,
   createAllClients,
+  resolveBaseProviderGateway,
 } from "./provider-registry.js";
 import { FakeOmp } from "./providers/omp/test-utils/fake-omp.js";
 
@@ -1869,5 +1870,49 @@ describe("fetchCatalog", () => {
     expect(injectedClient.fetchCatalog).toHaveBeenCalledTimes(1);
     expect(catalog.models.map((model) => model.id)).toEqual(["catalog-model"]);
     expect(catalog.modes.map((mode) => mode.id)).toEqual(["ask"]);
+  });
+});
+
+describe("resolveBaseProviderGateway", () => {
+  const gateway = { baseUrl: "http://gateway:8317", apiKey: "sk-test" };
+
+  test("returns undefined without a gateway", () => {
+    expect(resolveBaseProviderGateway("claude", undefined, null)).toBeUndefined();
+    expect(resolveBaseProviderGateway("claude", undefined, undefined)).toBeUndefined();
+  });
+
+  test("applies to base providers without their own routing", () => {
+    expect(resolveBaseProviderGateway("claude", undefined, gateway)).toBe(gateway);
+    expect(resolveBaseProviderGateway("claude", {}, gateway)).toBe(gateway);
+    expect(resolveBaseProviderGateway("codex", undefined, gateway)).toBe(gateway);
+    expect(resolveBaseProviderGateway("opencode", undefined, gateway)).toBe(gateway);
+    expect(resolveBaseProviderGateway("omp", undefined, gateway)).toBe(gateway);
+    expect(resolveBaseProviderGateway("omp", { label: "OMP" }, gateway)).toBe(gateway);
+  });
+
+  test("respects provider routing opt-outs", () => {
+    expect(
+      resolveBaseProviderGateway("claude", { env: { ANTHROPIC_API_KEY: "sk-ant-x" } }, gateway),
+    ).toBeUndefined();
+    expect(
+      resolveBaseProviderGateway(
+        "codex",
+        { env: { OPENAI_BASE_URL: "https://relay.example.com" } },
+        gateway,
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveBaseProviderGateway(
+        "omp",
+        { env: { LITELLM_BASE_URL: "https://litellm.example.com/v1" } },
+        gateway,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("never applies outside claude, codex, opencode, and omp", () => {
+    expect(resolveBaseProviderGateway("copilot", undefined, gateway)).toBeUndefined();
+    expect(resolveBaseProviderGateway("pi", undefined, gateway)).toBeUndefined();
+    expect(resolveBaseProviderGateway("my-claude", undefined, gateway)).toBeUndefined();
   });
 });

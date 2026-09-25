@@ -73,7 +73,9 @@ export interface OpenCodeServerManagerOptions {
   resolveHomeDir?: () => string;
   spawnServerProcess?: OpenCodeServerProcessSpawner;
   createEventSource?: OpenCodeEventConsumerFactory;
-  decorateServerEnv?: (env: Record<string, string>) => Record<string, string>;
+  decorateServerEnv?: (
+    env: Record<string, string>,
+  ) => Record<string, string> | Promise<Record<string, string>>;
 }
 
 export class OpenCodeServerManager implements OpenCodeServerManagerLike {
@@ -92,9 +94,11 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
   private readonly portAllocator: OpenCodePortAllocator;
   private readonly resolveCommandPrefix: OpenCodeCommandPrefixResolver;
   private readonly resolveHomeDir: () => string;
+  private readonly decorateServerEnv?: (
+    env: Record<string, string>,
+  ) => Record<string, string> | Promise<Record<string, string>>;
   private readonly spawnServerProcess: OpenCodeServerProcessSpawner;
   private readonly createEventSource: OpenCodeEventConsumerFactory;
-  private readonly decorateServerEnv?: (env: Record<string, string>) => Record<string, string>;
 
   constructor(options: OpenCodeServerManagerOptions) {
     this.logger = options.logger;
@@ -328,9 +332,11 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
       (typeof this.baseEnv?.OPENCODE_CONFIG_CONTENT === "string"
         ? this.baseEnv.OPENCODE_CONFIG_CONTENT
         : process.env.OPENCODE_CONFIG_CONTENT);
-    const bridgeEnv = this.decorateServerEnv?.(
-      existingConfigContent ? { OPENCODE_CONFIG_CONTENT: existingConfigContent } : {},
-    );
+    const bridgeEnv = this.decorateServerEnv
+      ? await this.decorateServerEnv(
+          existingConfigContent ? { OPENCODE_CONFIG_CONTENT: existingConfigContent } : {},
+        )
+      : undefined;
     const serverProcess = this.spawnServerProcess(launchPrefix.command, serverArgs, {
       cwd: serverCwd,
       detached: process.platform !== "win32",

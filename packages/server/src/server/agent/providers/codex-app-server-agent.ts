@@ -66,6 +66,8 @@ import {
   type ProviderRuntimeSettings,
   type ResolvedProviderLaunch,
 } from "../provider-launch-config.js";
+import type { ResolvedGatewayConfig } from "../gateway/config.js";
+import { fetchGatewayCodexModels, type GatewayCodexModelRow } from "../gateway/models.js";
 import {
   findExecutable,
   probeExecutable,
@@ -263,6 +265,8 @@ interface CodexAppServerAgentDeps {
     label: string;
     extends: string;
   };
+  /** First-party Gateway routing (registry sets it only when it applies). */
+  gateway?: ResolvedGatewayConfig;
   customCodexConfig?: Record<string, unknown> | null;
   _createCodexClient?: (
     child: ChildProcessWithoutNullStreams,
@@ -7349,17 +7353,82 @@ export class CodexAppServerAgentClient implements AgentClient {
         typeof configuredDefaultModelId === "string"
           ? models.some((model) => model?.id === configuredDefaultModelId)
           : false;
-      return models.map((model) =>
+      const baseModels = models.map((model) =>
         buildCodexModelDefinition(model, {
           configuredDefaultModelId,
           configuredDefaultThinkingOptionId,
           hasConfiguredDefaultModel,
         }),
       );
+      const gatewayRows = await this.fetchGatewayCodexRows(context);
+      if (gatewayRows.length === 0) return baseModels;
+      return appendGatewayCodexModelsToCatalog(baseModels, gatewayRows, {
+        configuredDefaultModelId,
+        configuredDefaultThinkingOptionId,
+        hasConfiguredDefaultModel,
+      });
     } finally {
       context?.signal.removeEventListener("abort", handleAbort);
       await dispose();
     }
+  }
+
+  /**
+   * Best-effort Gateway catalog merge for `model/list` results. Discovery
+   * failures are non-fatal: the base catalog is kept unchanged.
+   */
+  private async fetchGatewayCodexRows(
+    context?: ProviderRefreshContext,
+  ): Promise<GatewayCodexModelRow[]> {
+    const target = this.resolveGatewayCodexTarget();
+    if (!target) return [];
+    try {
+      return await runProviderRefreshActivity(context, "gateway", () =>
+        fetchGatewayCodexModels({
+          baseUrl: target.baseUrl,
+          token: target.token,
+          expectGateway: this.deps.gateway !== undefined,
+          onWarning: (warning) => {
+            this.logger.warn(
+              {
+                phase: "gateway_discovery",
+                code: warning.code,
+                page: warning.page,
+                ...(warning.status === undefined ? {} : { status: warning.status }),
+              },
+              "CLIProxyAPI Codex model discovery warning",
+            );
+          },
+        }),
+      );
+    } catch (error) {
+      this.logger.warn(
+        { err: error, phase: "gateway_discovery" },
+        "CLIProxyAPI Codex model discovery failed",
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Resolve the Gateway endpoint to probe for the Codex catalog shape. The
+   * explicit Gateway routing wins; derived custom providers fall back to
+   * their own `OPENAI_*` endpoint (the CPA fingerprint gate inside the
+   * fetcher rejects non-Gateway hosts safely).
+   */
+  private resolveGatewayCodexTarget(): { baseUrl: string; token: string } | null {
+    if (this.deps.gateway) {
+      return { baseUrl: this.deps.gateway.baseUrl, token: this.deps.gateway.apiKey };
+    }
+    if (!this.deps.customProvider) return null;
+    const rawBaseUrl = this.runtimeSettings?.env?.OPENAI_BASE_URL;
+    const rawToken = this.runtimeSettings?.env?.OPENAI_API_KEY;
+    if (typeof rawBaseUrl !== "string" || typeof rawToken !== "string") return null;
+    // The fetcher appends `/v1/models`, so strip the Codex `/v1` suffix here.
+    const baseUrl = rawBaseUrl.trim().replace(/\/+$/u, "").replace(/\/v1$/u, "");
+    const token = rawToken.trim();
+    if (!baseUrl || !token) return null;
+    return { baseUrl, token };
   }
 
   async archiveNativeSession(handle: AgentPersistenceHandle): Promise<void> {
@@ -7428,6 +7497,49 @@ export class CodexAppServerAgentClient implements AgentClient {
       };
     }
   }
+}
+
+export interface GatewayCodexCatalogContext {
+  configuredDefaultModelId: string | undefined;
+  configuredDefaultThinkingOptionId: string | undefined;
+  hasConfiguredDefaultModel: boolean;
+}
+
+/**
+ * Merge Gateway-discovered Codex rows into a `model/list` catalog. Hidden rows
+ * are skipped and `model/list` entries win id collisions; routing for Gateway
+ * rows comes from `model_provider` in thread config, so ids stay bare slugs.
+ */
+export function appendGatewayCodexModelsToCatalog(
+  baseModels: AgentModelDefinition[],
+  rows: GatewayCodexModelRow[],
+  ctx: GatewayCodexCatalogContext,
+): AgentModelDefinition[] {
+  if (rows.length === 0) return baseModels;
+  const seenIds = new Set(baseModels.map((model) => model.id));
+  const merged = [...baseModels];
+  for (const row of rows) {
+    if (row.hidden || seenIds.has(row.slug)) continue;
+    seenIds.add(row.slug);
+    const definition = buildCodexModelDefinition(
+      {
+        id: row.slug,
+        displayName: row.displayName,
+        description: row.description,
+        defaultReasoningEffort: row.defaultReasoningEffort,
+        supportedReasoningEfforts: row.supportedReasoningEfforts.map((effort) => ({
+          reasoningEffort: effort,
+        })),
+      },
+      ctx,
+    );
+    if (row.contextWindow !== undefined) {
+      definition.contextWindowMaxTokens = row.contextWindow;
+    }
+    definition.isDefault = definition.isDefault ?? false;
+    merged.push(definition);
+  }
+  return merged;
 }
 
 interface CodexModelBuildContext {

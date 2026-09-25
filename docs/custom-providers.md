@@ -78,7 +78,9 @@ See [Codex with a custom OpenAI-compatible endpoint](#codex-with-a-custom-openai
 
 ### CLIProxyAPI model discovery
 
-When `ANTHROPIC_BASE_URL` points to [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), Paseo confirms the endpoint from its `X-CPA-*` response headers. On a Claude catalog refresh, it decodes CLIProxyAPI's rewritten model IDs to raw IDs and appends the discovered models to the existing catalog.
+For shared Gateway routing across harnesses without per-provider entries, configure the [first-party Gateway](gateway.md) instead. The notes below cover custom endpoints that point at CLIProxyAPI on their own.
+
+When `ANTHROPIC_BASE_URL` points to [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), Paseo confirms the endpoint from its `X-CPA-*` response headers or, when headers are absent, from the rewritten id behavior itself. On a Claude catalog refresh, it decodes CLIProxyAPI's rewritten model IDs to raw IDs and appends the discovered models to the existing catalog.
 
 Claude Code itself keeps the rewritten wire form (`claude-fable-5-dd-*`) on the control plane: that is what `/model` shows, what `~/.claude/settings.json` stores, and what SDK init messages report. Paseo launches with the raw ID and decodes observed wire IDs back to raw IDs for display, so a model picked in the TUI still matches the picker after reload.
 
@@ -261,7 +263,7 @@ requires_openai_auth = false
 ### Notes
 
 - The endpoint must speak the OpenAI **Responses API**, not just chat completions. Many gateways (OpenRouter, LiteLLM) support both — pick the Responses-compatible route.
-- Set `models` explicitly. Custom endpoints expose their own model IDs (`anthropic/claude-opus-4-7`, `qwen/qwen3-coder`, `local/llama`, etc.), and Paseo does not discover them automatically for Codex.
+- Set `models` explicitly, unless the endpoint is a CLIProxyAPI Gateway — Gateway endpoints are discovered automatically ([first-party Gateway](gateway.md) covers the shared setup). Other custom endpoints expose their own model IDs (`anthropic/claude-opus-4-7`, `qwen/qwen3-coder`, `local/llama`, etc.), and Paseo does not discover those automatically for Codex.
 - To run multiple endpoints side-by-side, define multiple entries that each extend `"codex"` with different IDs, labels, and env. Each appears as its own provider in the app.
 - If you only want to override the binary (e.g. a nightly Codex build) without changing the endpoint, omit `OPENAI_BASE_URL` and use `command` instead — see [Custom binary for a provider](#custom-binary-for-a-provider).
 

@@ -155,7 +155,6 @@ import {
 } from "./agent/tools/paseo-tools.js";
 import type { PaseoToolRuntimeContext } from "./agent/tools/types.js";
 import { createAgentProviderRuntime } from "./agent/provider-runtime.js";
-import { createAdditionalModelLimitsPersistence } from "./agent/additional-model-limits-persister.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
@@ -1056,7 +1055,6 @@ export async function createPaseoDaemon(
       managedProcesses,
       isDev: config.isDev === true,
       extraClients: config.agentClients,
-      ...createAdditionalModelLimitsPersistence(daemonConfigStore),
     },
   });
   const providerSnapshotManager = agentProviderRuntime.snapshotManager;

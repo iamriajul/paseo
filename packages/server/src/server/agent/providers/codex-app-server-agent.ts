@@ -7537,7 +7537,7 @@ export function appendGatewayCodexModelsToCatalog(
       definition.contextWindowMaxTokens = row.contextWindow;
     }
     definition.isDefault = definition.isDefault ?? false;
-    merged.push(definition);
+    definition.metadata = { ...definition.metadata, source: "cliproxyapi" };
   }
   return merged;
 }

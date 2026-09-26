@@ -24,11 +24,17 @@ export interface ProviderSelectionModelRow {
   description?: string;
   isDefault?: boolean;
   needsCapacityConfig?: boolean;
-  modelsDevCandidates?: AgentModelDefinition["modelsDevCandidates"];
+  /** Discovered from CLIProxyAPI, not the manifest or a hand-added custom model. */
+  cliproxyapi?: boolean;
 }
 
 function buildModelRowKey(provider: string, modelId: string): string {
   return `${provider}:${modelId}`;
+}
+
+function isCliproxyapiDiscoveredModel(model: AgentModelDefinition): boolean {
+  if (model.metadata?.source === "cliproxyapi") return true;
+  return model.id.startsWith("cliproxyapi/");
 }
 
 export type ProviderModelSelection =
@@ -70,7 +76,7 @@ function buildModelRows(
     description: model.description ?? model.id,
     isDefault: model.isDefault,
     ...(model.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
-    ...(model.modelsDevCandidates ? { modelsDevCandidates: model.modelsDevCandidates } : {}),
+    ...(isCliproxyapiDiscoveredModel(model) ? { cliproxyapi: true } : {}),
   }));
 }
 

@@ -115,6 +115,35 @@ describe("combined model selector data", () => {
     });
   });
 
+  it("marks CLIProxyAPI discovered models and leaves manifest rows unmarked", () => {
+    const [provider] = buildSelectableProviderSelectorProviders([
+      snapshotEntry({
+        provider: "claude",
+        models: [
+          { provider: "claude", id: "claude-opus-4-8", label: "Opus 4.8" },
+          {
+            provider: "claude",
+            id: "space-bunny-free",
+            label: "Space Bunny Free",
+            metadata: { source: "cliproxyapi" },
+          },
+          { provider: "claude", id: "cliproxyapi/grok-4.6", label: "Grok 4.6" },
+        ],
+      }),
+    ]);
+
+    expect(provider?.modelSelection).toMatchObject({
+      kind: "models",
+      rows: [
+        { modelId: "claude-opus-4-8" },
+        { modelId: "space-bunny-free", cliproxyapi: true },
+        { modelId: "cliproxyapi/grok-4.6", cliproxyapi: true },
+      ],
+    });
+    if (provider?.modelSelection.kind === "models") {
+      expect(provider.modelSelection.rows[0]?.cliproxyapi).toBeUndefined();
+    }
+  });
   it("synthesizes a default model row for ready enabled providers without explicit models", () => {
     expect(
       buildSelectableProviderSelectorProviders([

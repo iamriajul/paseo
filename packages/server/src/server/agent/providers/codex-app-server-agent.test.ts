@@ -19,8 +19,8 @@ import {
   buildCodexAppServerEnv,
   CodexAppServerAgentClient,
   CodexAppServerAgentSession,
+  codexConfigForModel,
   codexMicrosoftStoreBinaryCandidates,
-  codexAppServerTurnInputFromPrompt,
   listCodexSkills,
   mapCodexPatchNotificationToToolCall,
   mapCodexPlanUpdateToTodo,
@@ -6455,5 +6455,25 @@ describe("Codex Gateway model discovery", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("codexConfigForModel", () => {
+  const config = {
+    model_provider: "cliproxyapi",
+    model_providers: { cliproxyapi: { base_url: "http://gateway:8317/v1" } },
+  };
+
+  test("keeps CLIProxyAPI routing only for an advertised slug", () => {
+    expect(codexConfigForModel(config, "grok-4.6", new Set(["grok-4.6"]))).toBe(config);
+    expect(
+      codexConfigForModel(config, "gpt-5.4", new Set(["grok-4.6"])).model_provider,
+    ).toBeUndefined();
+    expect(codexConfigForModel(config, "gpt-5.4", null).model_provider).toBeUndefined();
+  });
+
+  test("leaves a user custom provider routed for every model", () => {
+    const custom = { model_provider: "codex-custom", model_providers: {} };
+    expect(codexConfigForModel(custom, "gpt-5.4", new Set(["grok-4.6"]))).toBe(custom);
   });
 });

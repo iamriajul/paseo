@@ -66,7 +66,11 @@ import {
   type ProviderRuntimeSettings,
   type ResolvedProviderLaunch,
 } from "../provider-launch-config.js";
-import type { ResolvedGatewayConfig } from "../gateway/config.js";
+import {
+  GATEWAY_PROVIDER_ID,
+  gatewayBaseUrlsMatch,
+  type ResolvedGatewayConfig,
+} from "../gateway/config.js";
 import { fetchGatewayCodexModels, type GatewayCodexModelRow } from "../gateway/models.js";
 import {
   findExecutable,
@@ -267,6 +271,7 @@ interface CodexAppServerAgentDeps {
   };
   /** First-party Gateway routing (registry sets it only when it applies). */
   gateway?: ResolvedGatewayConfig;
+  cliproxyapiAdvertisedIds?: ReadonlySet<string> | null;
   customCodexConfig?: Record<string, unknown> | null;
   _createCodexClient?: (
     child: ChildProcessWithoutNullStreams,
@@ -3324,6 +3329,19 @@ function buildCodexCustomProviderConfig(
   };
 }
 
+/** Native Codex models keep the local login unless CLIProxyAPI advertised the slug. */
+export function codexConfigForModel(
+  customConfig: Record<string, unknown>,
+  model: string | null | undefined,
+  advertisedIds: ReadonlySet<string> | null | undefined,
+): Record<string, unknown> {
+  if (customConfig.model_provider !== GATEWAY_PROVIDER_ID) return customConfig;
+  const modelId = model?.trim() ?? "";
+  if (modelId && advertisedIds?.has(modelId)) return customConfig;
+  const { model_provider: _modelProvider, ...rest } = customConfig;
+  return rest;
+}
+
 interface CodexSubAgentCallState {
   callId: string;
   toolCall: ToolCallTimelineItem;
@@ -5260,7 +5278,14 @@ export class CodexAppServerAgentSession implements AgentSession {
     const innerConfig: Record<string, unknown> = {};
     Object.assign(innerConfig, this.providerOptions);
     if (this.deps.customCodexConfig) {
-      Object.assign(innerConfig, this.deps.customCodexConfig);
+      Object.assign(
+        innerConfig,
+        codexConfigForModel(
+          this.deps.customCodexConfig,
+          this.config.model,
+          this.deps.cliproxyapiAdvertisedIds,
+        ),
+      );
     }
     if (this.config.mcpServers) {
       const mcpServers: Record<string, CodexMcpServerConfig> = {};
@@ -7061,6 +7086,7 @@ export class CodexAppServerAgentSession implements AgentSession {
 export class CodexAppServerAgentClient implements AgentClient {
   readonly provider = CODEX_PROVIDER;
   readonly capabilities = CODEX_APP_SERVER_CAPABILITIES;
+  private cliproxyapiAdvertisedIds: ReadonlySet<string> | null = null;
   private goalsEnabledPromise: Promise<boolean> | null = null;
   private autoReviewEnabledPromise: Promise<boolean> | null = null;
 
@@ -7073,6 +7099,7 @@ export class CodexAppServerAgentClient implements AgentClient {
   private sessionDeps(): CodexAppServerAgentDeps {
     return {
       ...this.deps,
+      cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
       customCodexConfig: buildCodexCustomProviderConfig(
         this.runtimeSettings,
         this.deps.customProvider,
@@ -7132,9 +7159,29 @@ export class CodexAppServerAgentClient implements AgentClient {
     }
   }
 
+  private cliproxyapiSpawnEnv(
+    launchEnv: Record<string, string> | undefined,
+    model: string | undefined,
+  ) {
+    const spec = createProviderEnvSpec({
+      runtimeSettings: this.runtimeSettings,
+      overlays: [launchEnv],
+    });
+    const gateway = this.deps.gateway;
+    if (!gateway || (model && this.cliproxyapiAdvertisedIds?.has(model))) return spec;
+    const envOverlay = { ...spec.envOverlay };
+    if (gatewayBaseUrlsMatch(envOverlay.OPENAI_BASE_URL, gateway.baseUrl)) {
+      envOverlay.OPENAI_BASE_URL = undefined;
+    }
+    if (envOverlay.OPENAI_API_KEY === gateway.apiKey) {
+      envOverlay.OPENAI_API_KEY = undefined;
+    }
+    return { ...spec, envOverlay };
+  }
+
   private async spawnAppServer(
     launchEnv?: Record<string, string>,
-    options?: { goalsEnabled?: boolean; agentId?: string },
+    options?: { goalsEnabled?: boolean; agentId?: string; model?: string },
   ): Promise<ChildProcessWithoutNullStreams> {
     const launchPrefix = await resolveCodexLaunchPrefix(this.runtimeSettings);
     const args = [...launchPrefix.args, "app-server"];
@@ -7153,10 +7200,7 @@ export class CodexAppServerAgentClient implements AgentClient {
     const child = spawnProcess(launchPrefix.command, args, {
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
-      ...createProviderEnvSpec({
-        runtimeSettings: this.runtimeSettings,
-        overlays: [launchEnv],
-      }),
+      ...this.cliproxyapiSpawnEnv(launchEnv, options?.model),
     });
     assertChildWithPipes(child);
     return child;
@@ -7182,7 +7226,11 @@ export class CodexAppServerAgentClient implements AgentClient {
       null,
       this.logger,
       () =>
-        this.spawnAppServer(launchContext?.env, { goalsEnabled, agentId: launchContext?.agentId }),
+        this.spawnAppServer(launchContext?.env, {
+          goalsEnabled,
+          agentId: launchContext?.agentId,
+          model: sessionConfig.model,
+        }),
       this.sessionDeps(),
       options?.persistSession === false,
       goalsEnabled,
@@ -7214,7 +7262,11 @@ export class CodexAppServerAgentClient implements AgentClient {
       handle,
       this.logger,
       () =>
-        this.spawnAppServer(launchContext?.env, { goalsEnabled, agentId: launchContext?.agentId }),
+        this.spawnAppServer(launchContext?.env, {
+          goalsEnabled,
+          agentId: launchContext?.agentId,
+          model: merged.model,
+        }),
       this.sessionDeps(),
       false,
       goalsEnabled,
@@ -7361,6 +7413,11 @@ export class CodexAppServerAgentClient implements AgentClient {
         }),
       );
       const gatewayRows = await this.fetchGatewayCodexRows(context);
+      this.cliproxyapiAdvertisedIds = new Set(
+        gatewayRows
+          .filter((row) => !row.hidden && !baseModels.some((model) => model.id === row.slug))
+          .map((row) => row.slug),
+      );
       if (gatewayRows.length === 0) return baseModels;
       return appendGatewayCodexModelsToCatalog(baseModels, gatewayRows, {
         configuredDefaultModelId,

@@ -61,7 +61,6 @@ import {
 } from "./model-manifest.js";
 import {
   appendCliproxyModelsToClaudeCatalog,
-  markCliproxyAutoPersistFailure,
   mergeAdditionalModelLimits,
   resolveCliproxyAnthropicCredentials,
   type CliproxyAdditionalModelLimits,
@@ -1782,30 +1781,29 @@ export class ClaudeAgentClient implements AgentClient {
   ): Promise<CliproxyAgentModelDefinition[]> {
     if (autoPersist.length === 0) return nextModels;
 
+    // Launch reads profileModels, not the catalog row. Apply CPA windows in
+    // memory even when the config write fails, or Claude Code stays on the
+    // 200k manifest default.
+    this.additionalModels = mergeAdditionalModelLimits(this.additionalModels ?? [], autoPersist);
+    this.profileModels = mergeAdditionalModelLimits(this.profileModels ?? [], autoPersist);
+
     if (!this.persistClaudeAdditionalModelLimits) {
       this.logger.warn(
         { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
         "CLIProxyAPI Claude model capacity was not persisted",
       );
-      return markCliproxyAutoPersistFailure(nextModels, autoPersist);
+      return nextModels;
     }
 
     try {
       await this.persistClaudeAdditionalModelLimits(autoPersist);
-      this.additionalModels = mergeAdditionalModelLimits(this.additionalModels ?? [], autoPersist);
-      if (this.profileModels) {
-        // mergeAdditionalModelLimits clones fill-only, so profile-owned
-        // autoCompactThresholdPercent values survive untouched.
-        this.profileModels = mergeAdditionalModelLimits(this.profileModels, autoPersist);
-      }
-      return nextModels;
     } catch {
       this.logger.warn(
         { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
         "CLIProxyAPI Claude model capacity persistence failed",
       );
-      return markCliproxyAutoPersistFailure(nextModels, autoPersist);
     }
+    return nextModels;
   }
 
   async resolveDefaultModeId({ env: launchEnv }: ResolveAgentDefaultModeInput): Promise<string> {

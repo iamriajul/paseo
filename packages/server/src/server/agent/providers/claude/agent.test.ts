@@ -533,7 +533,7 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
     }
   });
 
-  test("does not publish auto-persisted capacity after persistence fails", async () => {
+  test("keeps CPA capacity in the catalog when persistence fails", async () => {
     const emptyConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-models-persist-"));
     const { logger: capturedLogger, warnings } = createCapturingLogger();
     vi.stubEnv("ANTHROPIC_BASE_URL", "http://cpa.example");
@@ -577,12 +577,10 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
 
       expect(grok).toMatchObject({
         id: "grok-4.5",
-        needsCapacityConfig: true,
-        metadata: { needsCapacityConfig: true },
+        contextWindowMaxTokens: 500_000,
+        maxOutputTokens: 65_536,
       });
-      expect(grok?.isSelectable).not.toBe(false);
-      expect(grok?.contextWindowMaxTokens).toBeUndefined();
-      expect(grok?.maxOutputTokens).toBeUndefined();
+      expect(grok?.needsCapacityConfig).toBeUndefined();
       expect(JSON.stringify(warnings)).toContain("cliproxy_auto_persist");
     } finally {
       await fs.rm(emptyConfigDir, { recursive: true, force: true });

@@ -995,8 +995,8 @@ describe("Claude SDK env", () => {
       expect(result.autoPersist).toEqual([
         {
           id: "qwen3.8-max",
-          contextWindowMaxTokens: 1_000_000,
-          maxOutputTokens: 131_072,
+          contextWindowMaxTokens: 200_000,
+          maxOutputTokens: 64_000,
           inputModalities: ["text", "image"],
           outputModalities: ["text"],
           capabilities: ["tool_call"],

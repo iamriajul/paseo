@@ -553,3 +553,13 @@ The `gateway.quota.get` RPC (gated on `server_info.features.gatewayQuota`) maps 
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/quota.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
 ```
+
+## gateway-claude-cpa-window
+
+**Claude launch uses the CPA window for non-manifest models only**
+
+Non-official CPA rows such as Space Bunny and MiMo advertise their window, but Claude ignored it and launched at 200k. Those rows now use the advertised window. First-party manifest ids are left alone: the 200k row, its `[1m]` variant, and Opus 5.5 at 1M. CPA reports the base id as 1M, which would collapse that pair.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
+```

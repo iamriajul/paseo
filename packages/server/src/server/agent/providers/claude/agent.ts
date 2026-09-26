@@ -1633,7 +1633,6 @@ export class ClaudeAgentClient implements AgentClient {
     capabilities?: string[];
   }>;
   private additionalModels?: ClaudeAgentClientOptions["additionalModels"];
-  private readonly persistClaudeAdditionalModelLimits?: ClaudeAgentClientOptions["persistClaudeAdditionalModelLimits"];
   private readonly queryFactory?: ClaudeQueryFactory;
   private readonly resolveBinary: () => Promise<string>;
   private readonly resolveVersion: (signal?: AbortSignal) => Promise<string>;
@@ -1646,7 +1645,6 @@ export class ClaudeAgentClient implements AgentClient {
     this.gateway = options.gateway;
     this.profileModels = options.profileModels;
     this.additionalModels = options.additionalModels;
-    this.persistClaudeAdditionalModelLimits = options.persistClaudeAdditionalModelLimits;
     this.queryFactory = options.queryFactory;
     this.resolveBinary = options.resolveBinary ?? (() => resolveClaudeBinary(this.runtimeSettings));
     this.resolveVersion =
@@ -1788,28 +1786,8 @@ export class ClaudeAgentClient implements AgentClient {
   ): Promise<CliproxyAgentModelDefinition[]> {
     if (autoPersist.length === 0) return nextModels;
 
-    // Launch reads profileModels, not the catalog row. Apply CPA windows in
-    // memory even when the config write fails, or Claude Code stays on the
-    // 200k manifest default.
-    this.additionalModels = mergeAdditionalModelLimits(this.additionalModels ?? [], autoPersist);
+    // Launch reads profileModels. additionalModels is only models the user added.
     this.profileModels = mergeAdditionalModelLimits(this.profileModels ?? [], autoPersist);
-
-    if (!this.persistClaudeAdditionalModelLimits) {
-      this.logger.warn(
-        { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
-        "CLIProxyAPI Claude model capacity was not persisted",
-      );
-      return nextModels;
-    }
-
-    try {
-      await this.persistClaudeAdditionalModelLimits(autoPersist);
-    } catch {
-      this.logger.warn(
-        { phase: "cliproxy_auto_persist", modelCount: autoPersist.length },
-        "CLIProxyAPI Claude model capacity persistence failed",
-      );
-    }
     return nextModels;
   }
 

@@ -441,12 +441,10 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
       );
     });
     vi.stubGlobal("fetch", fetchImpl);
-    const persistClaudeAdditionalModelLimits = vi.fn();
     const client = new ClaudeAgentClient({
       logger: createTestLogger(),
       configDir,
       resolveVersion: async () => "2.1.219",
-      persistClaudeAdditionalModelLimits,
     });
 
     const { models } = await client.fetchCatalog({
@@ -461,13 +459,6 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
       maxOutputTokens: 65_536,
       metadata: { source: "cliproxyapi", ownedBy: "xai" },
     });
-    expect(persistClaudeAdditionalModelLimits).toHaveBeenCalledWith([
-      {
-        id: "grok-4.5",
-        contextWindowMaxTokens: 500_000,
-        maxOutputTokens: 65_536,
-      },
-    ]);
     expect(fetchImpl).toHaveBeenCalledWith(
       "http://cpa.example/v1/models",
       expect.objectContaining({

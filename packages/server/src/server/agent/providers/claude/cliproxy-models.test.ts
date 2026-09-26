@@ -451,7 +451,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
     },
   ];
 
-  test("overlays CPA windows onto existing catalog ids and appends the rest", async () => {
+  test("leaves first-party 200k and 1M variants alone", async () => {
     const result = await appendCliproxyModelsToClaudeCatalog({
       baseModels: [
         {
@@ -459,6 +459,18 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
           id: "claude-opus-4-8",
           label: "Opus 4.8",
           contextWindowMaxTokens: 200_000,
+        },
+        {
+          provider: "claude" as const,
+          id: "claude-opus-4-8[1m]",
+          label: "Opus 4.8 1M",
+          contextWindowMaxTokens: 1_000_000,
+        },
+        {
+          provider: "claude" as const,
+          id: "claude-opus-5-5",
+          label: "Opus 5.5",
+          contextWindowMaxTokens: 1_000_000,
         },
       ],
       rows: [
@@ -469,6 +481,14 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
           maxInputTokens: 1_000_000,
           maxOutputTokens: 128_000,
           rawListId: "claude-opus-4-8",
+        },
+        {
+          id: "claude-opus-5-5",
+          label: "Claude Opus 5.5",
+          ownedBy: "anthropic",
+          maxInputTokens: 1_000_000,
+          maxOutputTokens: 128_000,
+          rawListId: "claude-opus-5-5",
         },
         {
           id: "grok-4.5",
@@ -483,20 +503,19 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
-    expect(result.models.map((m) => m.id)).toEqual(["claude-opus-4-8", "grok-4.5"]);
-    const opus = result.models.find((m) => m.id === "claude-opus-4-8")!;
-    expect(opus.contextWindowMaxTokens).toBe(1_000_000);
-    expect(opus.maxOutputTokens).toBe(128_000);
-    expect(opus.needsCapacityConfig).toBeUndefined();
-    const grok = result.models.find((m) => m.id === "grok-4.5")!;
-    expect(grok.contextWindowMaxTokens).toBe(500_000);
-    expect(grok.maxOutputTokens).toBe(65_536);
+    expect(
+      result.models.find((model) => model.id === "claude-opus-4-8")?.contextWindowMaxTokens,
+    ).toBe(200_000);
+    expect(
+      result.models.find((model) => model.id === "claude-opus-4-8[1m]")?.contextWindowMaxTokens,
+    ).toBe(1_000_000);
+    expect(
+      result.models.find((model) => model.id === "claude-opus-5-5")?.contextWindowMaxTokens,
+    ).toBe(1_000_000);
+    expect(result.models.find((model) => model.id === "grok-4.5")?.contextWindowMaxTokens).toBe(
+      500_000,
+    );
     expect(result.autoPersist).toEqual([
-      {
-        id: "claude-opus-4-8",
-        contextWindowMaxTokens: 1_000_000,
-        maxOutputTokens: 128_000,
-      },
       {
         id: "grok-4.5",
         contextWindowMaxTokens: 500_000,

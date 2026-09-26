@@ -556,9 +556,9 @@ npx vitest run packages/server/src/server/agent/gateway/quota.test.ts packages/s
 
 ## gateway-claude-cpa-window
 
-**Claude launch uses the context window CPA advertises**
+**Claude launch uses the CPA window for non-manifest models only**
 
-CPA reports 1M on ids the Claude manifest lists at 200k, and non-official owners with a reported window were marked "configure metadata" and launched at Claude Code's 200k default. Discovered rows now overlay that advertised window onto the catalog and the in-memory launch limits. A failed config write keeps the window. The warning remains only when CPA omits the window, and clicking it opens the metadata form.
+Non-official CPA rows such as Space Bunny and MiMo advertise their window, but Claude ignored it and launched at 200k. Those rows now use the advertised window. First-party manifest ids are left alone: the 200k row, its `[1m]` variant, and Opus 5.5 at 1M. CPA reports the base id as 1M, which would collapse that pair.
 
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1

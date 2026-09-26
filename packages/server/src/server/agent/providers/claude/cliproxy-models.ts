@@ -6,6 +6,7 @@ import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-ty
 import type { ModelsDevCandidate, ModelsDevLookupResult } from "../../../models-dev/catalog.js";
 
 import { type CliproxyAnthropicModelRow } from "../../gateway/models.js";
+import { normalizeClaudeRuntimeModelId } from "./model-manifest.js";
 
 export interface CliproxyAnthropicEnvironment {
   ANTHROPIC_BASE_URL?: string;
@@ -118,6 +119,9 @@ export async function appendCliproxyModelsToClaudeCatalog(
   const autoPersist: CliproxyAdditionalModelLimits[] = [];
 
   for (const row of options.rows) {
+    // Manifest owns these: 200k base, separate [1m] variant, Opus 5.5 always 1M.
+    // CPA reports the base id as 1M, which would collapse that pair.
+    if (normalizeClaudeRuntimeModelId(row.id)) continue;
     const capacity = await resolveCliproxyModelCapacity(row, {
       existingAdditionalModels: options.existingAdditionalModels,
       lookupModelsDev: options.lookupModelsDev,

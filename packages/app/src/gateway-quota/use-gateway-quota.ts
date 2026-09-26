@@ -43,7 +43,9 @@ export function useGatewayQuota(
   const queryClient = useQueryClient();
   const client = useHostRuntimeClient(serverId ?? "");
   const isConnected = useHostRuntimeIsConnected(serverId ?? "");
-  const supportsGatewayQuota = useHostFeature(serverId, "gatewayQuota");
+  const supportsCliproxyapiQuota = useHostFeature(serverId, "cliproxyapiQuota");
+  const supportsLegacyGatewayQuota = useHostFeature(serverId, "gatewayQuota");
+  const supportsGatewayQuota = supportsCliproxyapiQuota || supportsLegacyGatewayQuota;
   const queryKey = useMemo(
     () => gatewayQuotaQueryKey(serverId, provider, model),
     [serverId, provider, model],

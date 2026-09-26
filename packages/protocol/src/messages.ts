@@ -3894,6 +3894,8 @@ export const ServerInfoStatusPayloadSchema = z
         providerUsageForceRefresh: z.boolean().optional(),
         // COMPAT(gatewayQuota): added in v0.9.903, drop the gate once daemon floor >= v0.9.903.
         gatewayQuota: z.boolean().optional(),
+        // COMPAT(cliproxyapiQuota): added in v0.9.905, drop the gate once daemon floor >= v0.9.905.
+        cliproxyapiQuota: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.

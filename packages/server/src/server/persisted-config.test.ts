@@ -306,7 +306,21 @@ describe("PersistedConfigSchema agent provider runtime settings", () => {
     ).toThrow();
   });
 
-  test("accepts a first-party gateway routing", () => {
+  test("accepts cliproxyapi routing", () => {
+    const parsed = PersistedConfigSchema.parse({
+      agents: {
+        cliproxyapi: { enabled: true, baseUrl: "http://gateway:8317", apiKey: "sk-test" },
+      },
+    });
+
+    expect(parsed.agents?.cliproxyapi).toEqual({
+      enabled: true,
+      baseUrl: "http://gateway:8317",
+      apiKey: "sk-test",
+    });
+  });
+
+  test("still accepts the old gateway key", () => {
     const parsed = PersistedConfigSchema.parse({
       agents: {
         gateway: { enabled: true, baseUrl: "http://gateway:8317", apiKey: "sk-test" },
@@ -320,10 +334,10 @@ describe("PersistedConfigSchema agent provider runtime settings", () => {
     });
   });
 
-  test("gateway routing is optional and strict", () => {
-    expect(PersistedConfigSchema.parse({ agents: {} }).agents?.gateway).toBeUndefined();
+  test("cliproxyapi routing is optional and strict", () => {
+    expect(PersistedConfigSchema.parse({ agents: {} }).agents?.cliproxyapi).toBeUndefined();
     expect(() =>
-      PersistedConfigSchema.parse({ agents: { gateway: { enabled: true, model: "x" } } }),
+      PersistedConfigSchema.parse({ agents: { cliproxyapi: { enabled: true, model: "x" } } }),
     ).toThrow();
   });
 });

@@ -1,6 +1,6 @@
-# First-party CLIProxyAPI Gateway
+# CLIProxyAPI
 
-Point Paseo at one [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) Gateway and every supported harness offers its advertised models. No per-provider `extends` entries, no harness config-file edits.
+Point Paseo at one [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) and every supported harness offers its advertised models. No per-provider `extends` entries, no harness config-file edits.
 
 ## Configure
 
@@ -9,18 +9,18 @@ Add one section to `config.json` (`$PASEO_HOME/config.json`):
 ```json
 {
   "agents": {
-    "gateway": {
+    "cliproxyapi": {
       "enabled": true,
-      "baseUrl": "http://gateway-host:8317",
+      "baseUrl": "http://cliproxyapi-host:8317",
       "apiKey": "sk-..."
     }
   }
 }
 ```
 
-`baseUrl` accepts the Claude form (`http://gateway-host:8317`) or the Codex/OpenCode form with a `/v1` suffix; Paseo normalizes it and appends `/v1` where a harness needs it. `PASEO_GATEWAY_BASE_URL` and `PASEO_GATEWAY_API_KEY` override the file when set, and either one enables the Gateway without the flag.
+`baseUrl` accepts the Claude form (`http://cliproxyapi-host:8317`) or the Codex/OpenCode form with a `/v1` suffix; Paseo normalizes it and appends `/v1` where a harness needs it. `PASEO_CLIPROXYAPI_BASE_URL` and `PASEO_CLIPROXYAPI_API_KEY` override the file when set, and either one enables CLIProxyAPI without the flag. `agents.gateway` and `PASEO_GATEWAY_*` still load, so an existing file keeps working.
 
-Restart the daemon after changing the Gateway routing. New models on an unchanged Gateway need no restart: use the provider's `Refresh` button to re-run discovery.
+Restart the daemon after changing the routing. New models on an unchanged CLIProxyAPI need no restart: use the provider's `Refresh` button to re-run discovery.
 
 ## What each harness gets
 
@@ -56,13 +56,13 @@ Deliberately not imported: Codex reasoning ceilings (they under-cap Claude Code 
 
 ## Quota
 
-The composer meter tooltip shows per-model Gateway quota for the agent's selected model through the `gateway.quota.get` RPC (gated on `server_info.features.gatewayQuota`). The daemon maps the Paseo model id to the Gateway slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is Gateway-routed. Results cache for 60 seconds.
+The composer meter tooltip shows per-model CLIProxyAPI quota for the agent's selected model through the `gateway.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`). The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.
 
-Gateways that predate `/v1/quota` answer 404 with an empty body (observed live); new Gateways answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
+CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (observed live); current builds answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
 
 ## Out of scope
 
 - Pi: verified env-deaf. `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL` are ignored at inference (bogus endpoints still reach vendor APIs), the model list is a static bundled catalog, and custom endpoints require `models.json` in the agent dir — a config file. No `--config` overlay flag and no project-level `models.json` exist.
 - Copilot: audited closed. All 65 CLI flags carry no endpoint option, `~/.copilot/config.json` holds first-launch state only, the binary's env keys are paths/update/home, and auth is device-flow. Models come from the Copilot service.
 - ACP catalog (38 CLIs): no shared override surface. Each CLI owns its endpoint and auth, and most speak vendor-native protocols the Gateway does not serve. Paseo already passes provider `env` through to every ACP child process, so a CLI with a documented env override can be pointed per-provider today; there is nothing generic for first-party routing to inject.
-- App settings UI for the Gateway: config file plus env only. The existing provider Refresh and Add Model flows cover discovery and manual entries.
+- App settings UI for CLIProxyAPI: config file plus env only. The existing provider Refresh and Add Model flows cover discovery and manual entries.

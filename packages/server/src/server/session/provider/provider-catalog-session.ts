@@ -590,7 +590,7 @@ export class ProviderCatalogSession {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error(
         { err, provider: msg.provider, model: msg.model },
-        "Failed to fetch Gateway quota; hiding quota",
+        "Failed to fetch CLIProxyAPI quota; hiding quota",
       );
       unsupported();
     }

@@ -53,6 +53,7 @@ export const CLAUDE_MODEL_MANIFEST = [
     label: "Opus 5.5 1M",
     description: "Opus 5.5 with 1M context window",
     minimumClaudeCodeVersion: "2.1.280",
+    defaultThinkingOptionId: "medium",
     contextWindowMaxTokens: 1_000_000,
     effortLevels: CLAUDE_EFFORT_LEVELS,
     supportsFastMode: true,

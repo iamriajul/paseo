@@ -66,11 +66,7 @@ import {
   type ProviderRuntimeSettings,
   type ResolvedProviderLaunch,
 } from "../provider-launch-config.js";
-import {
-  GATEWAY_PROVIDER_ID,
-  gatewayBaseUrlsMatch,
-  type ResolvedGatewayConfig,
-} from "../gateway/config.js";
+import { GATEWAY_PROVIDER_ID, type ResolvedGatewayConfig } from "../gateway/config.js";
 import { fetchGatewayCodexModels, type GatewayCodexModelRow } from "../gateway/models.js";
 import {
   findExecutable,
@@ -7166,26 +7162,6 @@ export class CodexAppServerAgentClient implements AgentClient {
     }
   }
 
-  private cliproxyapiSpawnEnv(
-    launchEnv: Record<string, string> | undefined,
-    model: string | undefined,
-  ) {
-    const spec = createProviderEnvSpec({
-      runtimeSettings: this.runtimeSettings,
-      overlays: [launchEnv],
-    });
-    const gateway = this.deps.gateway;
-    if (!gateway || (model && this.cliproxyapiAdvertisedIds?.has(model))) return spec;
-    const envOverlay = { ...spec.envOverlay };
-    if (gatewayBaseUrlsMatch(envOverlay.OPENAI_BASE_URL, gateway.baseUrl)) {
-      envOverlay.OPENAI_BASE_URL = undefined;
-    }
-    if (envOverlay.OPENAI_API_KEY === gateway.apiKey) {
-      envOverlay.OPENAI_API_KEY = undefined;
-    }
-    return { ...spec, envOverlay };
-  }
-
   private async spawnAppServer(
     launchEnv?: Record<string, string>,
     options?: { goalsEnabled?: boolean; agentId?: string; model?: string },
@@ -7207,7 +7183,10 @@ export class CodexAppServerAgentClient implements AgentClient {
     const child = spawnProcess(launchPrefix.command, args, {
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
-      ...this.cliproxyapiSpawnEnv(launchEnv, options?.model),
+      ...createProviderEnvSpec({
+        runtimeSettings: this.runtimeSettings,
+        overlays: [launchEnv],
+      }),
     });
     assertChildWithPipes(child);
     return child;

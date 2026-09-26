@@ -3348,7 +3348,7 @@ export class Session {
         return this.usageSession.handleListReports(msg);
       case "provider.usage.reset_quota.request":
         return this.providerCatalogSession.handleProviderUsageResetQuotaRequest(msg);
-      case "gateway.quota.get.request":
+      case "cliproxyapi.quota.get.request":
         return this.providerCatalogSession.handleGatewayQuotaGetRequest(msg);
       default:
         return undefined;

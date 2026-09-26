@@ -41,6 +41,7 @@ export interface OpenCodeServerManagerLike {
   acquireNew(signal?: AbortSignal): Promise<OpenCodeServerAcquisition>;
   acquireDedicated(env: Record<string, string>): Promise<OpenCodeServerAcquisition>;
   acquireExisting(url: string): OpenCodeServerAcquisition | null;
+  retireCurrent?(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -167,6 +168,10 @@ export class OpenCodeServerManager implements OpenCodeServerManagerLike {
     const server = await waitForServerAcquisition(this.getCurrentServer(), signal);
     signal?.throwIfAborted();
     return this.acquireServer(server);
+  }
+
+  async retireCurrent(): Promise<void> {
+    await this.rotateCurrentServer();
   }
 
   async acquireNew(signal?: AbortSignal): Promise<OpenCodeServerAcquisition> {

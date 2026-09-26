@@ -44,7 +44,10 @@ const { theme, snapshotState, configState, patchConfigMock, openProviderSettings
 );
 
 vi.mock("react-native", () => ({
-  Platform: { OS: "web" },
+  Platform: {
+    OS: "web",
+    select: (spec: { web?: unknown; default?: unknown }) => spec.web ?? spec.default,
+  },
   View: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
     React.createElement("div", { "data-testid": testID }, children),
   Text: ({ children }: { children?: React.ReactNode }) =>
@@ -92,6 +95,7 @@ vi.mock("react-native-unistyles", () => ({
       typeof factory === "function" ? (factory as (t: typeof theme) => unknown)(theme) : factory,
   },
   useUnistyles: () => ({ theme, rt: { breakpoint: "md" } }),
+  withUnistyles: (component: unknown) => component,
 }));
 
 vi.mock("lucide-react-native", () => {
@@ -161,9 +165,33 @@ vi.mock("@/components/ui/switch", () => ({
       },
     }),
 }));
-
 vi.mock("@/components/ui/loading-spinner", () => ({
   LoadingSpinner: () => React.createElement("span", { "data-testid": "loading-spinner" }),
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: ({
+    children,
+    onPress,
+    disabled,
+    testID,
+  }: {
+    children?: React.ReactNode;
+    onPress?: () => void;
+    disabled?: boolean;
+    testID?: string;
+  }) =>
+    React.createElement(
+      "button",
+      { type: "button", "data-testid": testID, disabled, onClick: onPress },
+      children,
+    ),
+}));
+
+vi.mock("@/components/ui/form-field", () => ({
+  Field: ({ children, label }: { children?: React.ReactNode; label?: string }) =>
+    React.createElement("label", null, label, children),
+  FormTextInput: () => React.createElement("input"),
 }));
 
 vi.mock("@/components/settings/headings/settings-info-tip", () => ({

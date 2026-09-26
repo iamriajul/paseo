@@ -48,8 +48,8 @@ export interface FetchCliproxyAnthropicModelsOptions {
   fetchImpl?: typeof fetch;
   onWarning?: (warning: CliproxyAnthropicModelsWarning) => void;
   /**
-   * Skip Gateway detection: the caller routes explicitly (first-party
-   * `agents.gateway`) instead of auto-detecting a custom endpoint.
+   * Skip CLIProxyAPI detection: the caller routes explicitly (first-party
+   * `agents.cliproxyapi`) instead of auto-detecting a custom endpoint.
    */
   expectGateway?: boolean;
 }
@@ -61,8 +61,8 @@ export interface FetchGatewayCodexModelsOptions {
   fetchImpl?: typeof fetch;
   onWarning?: (warning: CliproxyAnthropicModelsWarning) => void;
   /**
-   * Skip Gateway detection: the caller routes explicitly (first-party
-   * `agents.gateway`) instead of auto-detecting a custom endpoint.
+   * Skip CLIProxyAPI detection: the caller routes explicitly (first-party
+   * `agents.cliproxyapi`) instead of auto-detecting a custom endpoint.
    */
   expectGateway?: boolean;
 }

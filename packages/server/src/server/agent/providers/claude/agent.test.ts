@@ -551,9 +551,9 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
     }
   });
 
-  test("keeps CPA capacity in the catalog when persistence fails", async () => {
+  test("keeps CPA capacity in the catalog without writing additionalModels", async () => {
     const emptyConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-models-persist-"));
-    const { logger: capturedLogger, warnings } = createCapturingLogger();
+    const { logger: capturedLogger } = createCapturingLogger();
     vi.stubEnv("ANTHROPIC_BASE_URL", "http://cpa.example");
     vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "secret-token");
     vi.stubGlobal(
@@ -583,9 +583,6 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
         logger: capturedLogger,
         resolveVersion: async () => "2.1.219",
         configDir: emptyConfigDir,
-        persistClaudeAdditionalModelLimits: async () => {
-          throw new Error("config store unavailable");
-        },
       });
       const { models } = await client.fetchCatalog({
         scope: "global",
@@ -599,7 +596,6 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
         maxOutputTokens: 65_536,
       });
       expect(grok?.needsCapacityConfig).toBeUndefined();
-      expect(JSON.stringify(warnings)).toContain("cliproxy_auto_persist");
     } finally {
       await fs.rm(emptyConfigDir, { recursive: true, force: true });
     }

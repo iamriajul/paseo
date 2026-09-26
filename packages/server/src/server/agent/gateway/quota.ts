@@ -165,13 +165,13 @@ function readTimestamp(value: string | undefined): string | undefined {
   return Number.isNaN(Date.parse(value)) ? undefined : value;
 }
 
-function buildGatewayQuotaUrl(baseUrl: string, model: string): string | null {
+function buildGatewayQuotaUrl(baseUrl: string, model?: string): string | null {
   const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
-  const slug = model.trim();
-  if (!normalizedBaseUrl || !slug) return null;
+  if (!normalizedBaseUrl) return null;
   try {
     const url = new URL(`${normalizedBaseUrl}/v1/quota`);
-    url.searchParams.set("model", slug);
+    const slug = model?.trim();
+    if (slug) url.searchParams.set("model", slug);
     return url.toString();
   } catch {
     return null;

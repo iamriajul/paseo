@@ -563,7 +563,28 @@ export class ProviderCatalogSession {
       });
     try {
       const gateway = this.providerSnapshotManager.getGatewayConfig();
-      if (!gateway || !this.providerSnapshotManager.isGatewayRouted(msg.provider)) {
+      if (!gateway) {
+        unsupported();
+        return;
+      }
+      if (!msg.model) {
+        const quota = await getCachedGatewayQuota({
+          baseUrl: gateway.baseUrl,
+          token: gateway.apiKey,
+          model: "",
+        });
+        this.host.emit({
+          type: "cliproxyapi.quota.get.response",
+          payload: {
+            requestId: msg.requestId,
+            supported: quota.supported,
+            fetchedAt: new Date().toISOString(),
+            accounts: quota.accounts,
+          },
+        });
+        return;
+      }
+      if (!msg.provider || !this.providerSnapshotManager.isGatewayRouted(msg.provider)) {
         unsupported();
         return;
       }

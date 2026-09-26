@@ -1938,8 +1938,8 @@ export const ProviderUsageResetQuotaRequestMessageSchema = z.object({
 export const GatewayQuotaGetRequestMessageSchema = z.object({
   type: z.literal("cliproxyapi.quota.get.request"),
   requestId: z.string(),
-  provider: z.string(),
-  model: z.string(),
+  provider: z.string().optional(),
+  model: z.string().optional(),
 });
 
 export const ResumeAgentRequestMessageSchema = z.object({

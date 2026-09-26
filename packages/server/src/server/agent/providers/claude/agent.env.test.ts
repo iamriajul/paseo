@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { createTestLogger } from "../../../../test-utils/test-logger.js";
 import type { AgentLaunchContext } from "../../agent-sdk-types.js";
-import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
 import { ClaudeAgentClient } from "./agent.js";
 import {
   appendCliproxyModelsToClaudeCatalog,
@@ -702,7 +701,7 @@ describe("Claude SDK env", () => {
       await session.close();
     }
   });
-  describe("gateway WebSearch auto-disallow", () => {
+  describe("CLIProxyAPI WebSearch", () => {
     const gateway = { baseUrl: "http://127.0.0.1:8317", apiKey: "test-key" };
 
     async function captureDisallowedTools(options: {
@@ -717,11 +716,21 @@ describe("Claude SDK env", () => {
           {
             type: "system",
             subtype: "init",
-            session_id: `websearch-policy-${options.model}-${captured?.length ?? 0}`,
-            permissionMode: "default",
+            session_id: "claude-websearch-session",
+            cwd: "/workspace",
+            tools: [],
+            mcp_servers: [],
             model: options.model,
+            permissionMode: "default",
+            slash_commands: [],
+            apiKeySource: "none",
+            claude_code_version: "2.1.219",
+            output_style: "normal",
+            agents: [],
+            skills: [],
+            plugins: [],
+            uuid: "00000000-0000-4000-8000-000000000101",
           },
-          { type: "assistant", message: { content: "done" } },
           {
             type: "result",
             subtype: "success",
@@ -730,24 +739,27 @@ describe("Claude SDK env", () => {
           },
         ]);
       });
-      const runtimeSettings: ProviderRuntimeSettings = {
-        ...(options.baseUrl ? { env: { ANTHROPIC_BASE_URL: options.baseUrl } } : {}),
+      const runtimeSettings = {
+        env: options.baseUrl ? { ANTHROPIC_BASE_URL: options.baseUrl } : {},
         ...(options.runtimeDisallowedTools
           ? { disallowedTools: options.runtimeDisallowedTools }
           : {}),
       };
       const client = new ClaudeAgentClient({
         logger: createTestLogger(),
-        queryFactory,
-        resolveBinary: async () => "/test/claude/bin",
-        gateway,
         runtimeSettings,
+        gateway,
+        queryFactory,
+        resolveBinary: async () => "/usr/bin/claude",
       });
-      const session = await client.createSession({
-        provider: "claude",
-        cwd: process.cwd(),
-        model: options.model,
-      });
+      const session = await client.createSession(
+        {
+          provider: "claude",
+          cwd: "/workspace",
+          model: options.model,
+        },
+        { agentId: "agent-1" },
+      );
       try {
         await session.run("tool policy check");
       } finally {
@@ -756,12 +768,12 @@ describe("Claude SDK env", () => {
       return captured;
     }
 
-    test("disallows WebSearch for gateway-routed custom models", async () => {
+    test("keeps WebSearch for CLIProxyAPI-routed custom models", async () => {
       const disallowedTools = await captureDisallowedTools({
         model: "grok-4.5",
         baseUrl: "http://127.0.0.1:8317/v1",
       });
-      expect(disallowedTools).toContain("WebSearch");
+      expect(disallowedTools ?? []).not.toContain("WebSearch");
     });
 
     test("keeps WebSearch for first-party models on the gateway", async () => {

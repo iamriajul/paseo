@@ -41,7 +41,6 @@ import {
   applyClaudeMaxContextTokensEnv,
   applyClaudeMaxOutputTokensEnv,
   applyClaudePromptCacheTtlEnv,
-  isClaudeCustomNonFamilyModel,
   resolveClaudeMaxOutputTokens,
   resolveClaudeContextWindowMaxTokens,
   resolveClaudeInputModalities,
@@ -3768,24 +3767,7 @@ class ClaudeAgentSession implements AgentSession {
         ...this.runtimeSettings.disallowedTools,
       ];
     }
-    this.applyGatewayDisallowedTools(base, envWithCacheTtl);
     return base;
-  }
-
-  /**
-   * Gateway-routed custom models run behind CLIProxyAPI, which does not serve
-   * Claude Code's first-party WebSearch tool. Disallow it so the model does not
-   * attempt searches that can never succeed.
-   */
-  private applyGatewayDisallowedTools(base: ClaudeOptions, env: NodeJS.ProcessEnv): void {
-    if (
-      this.gateway &&
-      isClaudeCustomNonFamilyModel(this.config.model) &&
-      gatewayBaseUrlsMatch(env["ANTHROPIC_BASE_URL"], this.gateway.baseUrl) &&
-      !base.disallowedTools?.includes("WebSearch")
-    ) {
-      base.disallowedTools = [...(base.disallowedTools ?? []), "WebSearch"];
-    }
   }
 
   private buildSettingsOptions(

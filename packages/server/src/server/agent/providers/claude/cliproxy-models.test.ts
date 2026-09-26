@@ -480,9 +480,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
         },
       ],
       existingAdditionalModels: [],
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
     expect(result.models.map((m) => m.id)).toEqual(["claude-opus-4-8", "grok-4.5"]);
@@ -521,9 +519,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
         },
       ],
       existingAdditionalModels: [],
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
     const qwen = result.models.find((m) => m.id === "qwen3.8-max")!;
@@ -534,6 +530,56 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       {
         id: "qwen3.8-max",
         contextWindowMaxTokens: 1_000_000,
+        maxOutputTokens: 131_072,
+      },
+    ]);
+  });
+
+  test("uses CPA windows for gateway models such as Space Bunny and MiMo", async () => {
+    const result = await appendCliproxyModelsToClaudeCatalog({
+      baseModels: base,
+      rows: [
+        {
+          id: "space-bunny-free",
+          label: "Space Bunny Free",
+          ownedBy: "opencode",
+          maxInputTokens: 1_048_576,
+          maxOutputTokens: 524_288,
+          rawListId: "claude-fable-5-dd-eerf-ynnub-ecaps",
+        },
+        {
+          id: "mimo-v2.6-flash",
+          label: "MiMo-V2.6-Flash",
+          ownedBy: "opencode",
+          maxInputTokens: 1_048_576,
+          maxOutputTokens: 131_072,
+          rawListId: "claude-fable-5-dd-hsalf-6.2v-omim",
+        },
+      ],
+      existingAdditionalModels: [],
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
+      getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
+    });
+    expect(result.models.find((model) => model.id === "space-bunny-free")).toMatchObject({
+      contextWindowMaxTokens: 1_048_576,
+      maxOutputTokens: 524_288,
+    });
+    expect(result.models.find((model) => model.id === "mimo-v2.6-flash")).toMatchObject({
+      contextWindowMaxTokens: 1_048_576,
+      maxOutputTokens: 131_072,
+    });
+    expect(
+      result.models.find((model) => model.id === "space-bunny-free")?.needsCapacityConfig,
+    ).toBeUndefined();
+    expect(result.autoPersist).toEqual([
+      {
+        id: "space-bunny-free",
+        contextWindowMaxTokens: 1_048_576,
+        maxOutputTokens: 524_288,
+      },
+      {
+        id: "mimo-v2.6-flash",
+        contextWindowMaxTokens: 1_048_576,
         maxOutputTokens: 131_072,
       },
     ]);
@@ -595,9 +641,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       existingAdditionalModels: [
         { id: "qwen3.8-max", contextWindowMaxTokens: 999_999, maxOutputTokens: 12_345 },
       ],
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
     const qwen = result.models.find((m) => m.id === "qwen3.8-max")!;
@@ -621,9 +665,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
         },
       ],
       existingAdditionalModels: [{ id: "grok-4.5", contextWindowMaxTokens: 500_000 }],
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
 
@@ -651,9 +693,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
         },
       ],
       existingAdditionalModels: existing,
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
 
@@ -682,9 +722,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
         },
       ],
       existingAdditionalModels: [{ id: "grok-4.5", maxOutputTokens: 65_536 }],
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
 
@@ -720,7 +758,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       lookupModelsDev: lookup,
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
-    expect(lookup).not.toHaveBeenCalled();
+    expect(lookup).toHaveBeenCalled();
     expect(result.models.find((m) => m.id === "gpt-5.6-sol")?.contextWindowMaxTokens).toBe(372_000);
   });
 

@@ -155,6 +155,49 @@ interface CliproxyCapacityLookupOptions {
   lookupModelsDev: (modelId: string) => Promise<ModelsDevLookupResult>;
 }
 
+function configuredModalitiesMissing(
+  configured: CliproxyAdditionalModelLimits | undefined,
+): boolean {
+  return (
+    nonEmptyStringList(configured?.inputModalities) === undefined ||
+    nonEmptyStringList(configured?.outputModalities) === undefined ||
+    nonEmptyStringList(configured?.capabilities) === undefined
+  );
+}
+
+async function fillCapacityFromModelsDev(
+  modelId: string,
+  lookupModelsDev: (modelId: string) => Promise<ModelsDevLookupResult>,
+  target: {
+    fillContextWindow: (value: number | undefined) => void;
+    fillMaxOutput: (value: number | undefined) => void;
+    fillModalities: (
+      key: "inputModalities" | "outputModalities" | "capabilities",
+      value: readonly string[] | undefined,
+    ) => void;
+    contextWindowMissing: () => boolean;
+    setCandidates: (candidates: ModelsDevCandidate[]) => void;
+  },
+): Promise<void> {
+  try {
+    const lookup = await lookupModelsDev(modelId);
+    if (lookup.found && lookup.candidates.length === 1) {
+      const candidate = lookup.candidates[0];
+      target.fillContextWindow(positiveCapacityValue(candidate.contextWindowMaxTokens));
+      target.fillMaxOutput(positiveCapacityValue(candidate.maxOutputTokens));
+      target.fillModalities("inputModalities", candidate.inputModalities);
+      target.fillModalities("outputModalities", candidate.outputModalities);
+      target.fillModalities("capabilities", candidate.capabilities);
+      return;
+    }
+    if (target.contextWindowMissing() && lookup.found && lookup.candidates.length > 1) {
+      target.setCandidates(lookup.candidates);
+    }
+  } catch {
+    // Keep configured/trusted values and mark unresolved context below.
+  }
+}
+
 async function resolveCliproxyModelCapacity(
   row: CliproxyAnthropicModelRow,
   options: CliproxyCapacityLookupOptions,
@@ -189,26 +232,21 @@ async function resolveCliproxyModelCapacity(
   };
 
   // CPA's advertised window is the launch contract, same as Codex and OMP.
-  // models.dev only fills fields the row omitted.
+  // models.dev fills omitted windows and modalities; it never replaces a CPA window.
   fillContextWindow(positiveCapacityValue(row.maxInputTokens));
   fillMaxOutput(positiveCapacityValue(row.maxOutputTokens));
 
-  if (contextWindowMaxTokens === undefined || maxOutputTokens === undefined) {
-    try {
-      const lookup = await options.lookupModelsDev(row.id);
-      if (lookup.found && lookup.candidates.length === 1) {
-        const candidate = lookup.candidates[0];
-        fillContextWindow(positiveCapacityValue(candidate.contextWindowMaxTokens));
-        fillMaxOutput(positiveCapacityValue(candidate.maxOutputTokens));
-        fillModalities("inputModalities", candidate.inputModalities);
-        fillModalities("outputModalities", candidate.outputModalities);
-        fillModalities("capabilities", candidate.capabilities);
-      } else if (lookup.found && lookup.candidates.length > 1) {
-        modelsDevCandidates = lookup.candidates;
-      }
-    } catch {
-      // Keep configured/trusted values and mark unresolved context below.
-    }
+  const modalitiesMissing = configuredModalitiesMissing(configured);
+  if (contextWindowMaxTokens === undefined || maxOutputTokens === undefined || modalitiesMissing) {
+    await fillCapacityFromModelsDev(row.id, options.lookupModelsDev, {
+      fillContextWindow,
+      fillMaxOutput,
+      fillModalities,
+      contextWindowMissing: () => contextWindowMaxTokens === undefined,
+      setCandidates: (candidates) => {
+        modelsDevCandidates = candidates;
+      },
+    });
   }
 
   return {
@@ -292,35 +330,6 @@ function applyCliproxyCapacityOverlays(
       next.needsCapacityConfig = true;
     }
     return next;
-  });
-}
-
-export function markCliproxyAutoPersistFailure(
-  models: readonly CliproxyAgentModelDefinition[],
-  autoPersist: readonly CliproxyAdditionalModelLimits[],
-): CliproxyAgentModelDefinition[] {
-  const failedById = new Map(autoPersist.map((update) => [update.id, update]));
-
-  return models.map((model) => {
-    const failedUpdate = failedById.get(model.id);
-    if (!failedUpdate) return model;
-
-    const nextModel = { ...model };
-    if (failedUpdate.contextWindowMaxTokens !== undefined) {
-      delete nextModel.contextWindowMaxTokens;
-    }
-    if (failedUpdate.maxOutputTokens !== undefined) {
-      delete nextModel.maxOutputTokens;
-    }
-
-    return {
-      ...nextModel,
-      needsCapacityConfig: true,
-      metadata: {
-        ...model.metadata,
-        needsCapacityConfig: true,
-      },
-    };
   });
 }
 

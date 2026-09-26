@@ -270,10 +270,10 @@ function CapacityWarningControl({
   return (
     <Tooltip enabledOnDesktop enabledOnMobile={true}>
       <TooltipTrigger
-        onPress={handlePress}
+        onPress={serverId ? handlePress : undefined}
         hitSlop={8}
         style={warningButtonStyle}
-        accessibilityRole="button"
+        accessibilityRole={serverId ? "button" : "text"}
         accessibilityLabel={warningLabel}
         testID={`model-capacity-warning-${provider}-${modelId}`}
       >

@@ -6773,14 +6773,20 @@ export const GatewayQuotaWindowSchema = z.object({
   status: z.string().optional(),
 });
 
+export const GatewayQuotaResetCreditSchema = z.object({
+  expiresAt: z.string(),
+});
+
 export const GatewayQuotaAccountSchema = z.object({
   provider: z.string(),
+  providerName: z.string().optional(),
   name: z.string().optional(),
   type: z.enum(["oauth", "api"]),
   plan: z.string().optional(),
   inCooldown: z.boolean(),
   windowsObservedAt: z.string().nullable().optional(),
   windows: z.array(GatewayQuotaWindowSchema),
+  resetCredits: z.array(GatewayQuotaResetCreditSchema).optional(),
 });
 
 export const GatewayQuotaGetResponseMessageSchema = z.object({

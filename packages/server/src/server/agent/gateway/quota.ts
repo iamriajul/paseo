@@ -16,14 +16,20 @@ const GatewayQuotaWindowPayloadSchema = z.object({
   status: z.string().optional(),
 });
 
+const GatewayQuotaResetCreditPayloadSchema = z.object({
+  expires_at: z.string(),
+});
+
 const GatewayQuotaAccountPayloadSchema = z.object({
   provider: z.string(),
+  provider_name: z.string().optional(),
   name: z.string().optional(),
   type: z.enum(["oauth", "api"]),
   plan: z.string().optional(),
   in_cooldown: z.boolean(),
   windows_observed_at: z.string().optional(),
   windows: z.array(GatewayQuotaWindowPayloadSchema),
+  reset_credits: z.array(GatewayQuotaResetCreditPayloadSchema).optional(),
 });
 
 const GatewayQuotaResponsePayloadSchema = z.array(GatewayQuotaAccountPayloadSchema);
@@ -39,14 +45,20 @@ export interface GatewayQuotaWindow {
   status?: string;
 }
 
+export interface GatewayQuotaResetCredit {
+  expiresAt: string;
+}
+
 export interface GatewayQuotaAccount {
   provider: string;
+  providerName?: string;
   name?: string;
   type: "oauth" | "api";
   plan?: string;
   inCooldown: boolean;
   windowsObservedAt?: string;
   windows: GatewayQuotaWindow[];
+  resetCredits?: GatewayQuotaResetCredit[];
 }
 
 export interface GatewayQuotaResult {
@@ -134,8 +146,13 @@ function mapQuotaAccount(
   account: z.infer<typeof GatewayQuotaAccountPayloadSchema>,
 ): GatewayQuotaAccount {
   const windowsObservedAt = readTimestamp(account.windows_observed_at);
+  const resetCredits = (account.reset_credits ?? [])
+    .map((credit) => readTimestamp(credit.expires_at))
+    .filter((expiresAt): expiresAt is string => expiresAt !== undefined)
+    .map((expiresAt) => ({ expiresAt }));
   return {
     provider: account.provider,
+    ...(account.provider_name ? { providerName: account.provider_name } : {}),
     ...(account.name ? { name: account.name } : {}),
     type: account.type,
     ...(account.plan ? { plan: account.plan } : {}),
@@ -151,6 +168,7 @@ function mapQuotaAccount(
         ...(window.status ? { status: window.status } : {}),
       };
     }),
+    ...(resetCredits.length === 0 ? {} : { resetCredits }),
   };
 }
 

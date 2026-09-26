@@ -63,6 +63,7 @@ import {
   appendCliproxyModelsToClaudeCatalog,
   mergeAdditionalModelLimits,
   resolveCliproxyAnthropicCredentials,
+  shouldRouteClaudeModelThroughCliproxyapi,
   type CliproxyAdditionalModelLimits,
   type CliproxyAgentModelDefinition,
 } from "./cliproxy-models.js";
@@ -488,6 +489,8 @@ interface ClaudeAgentSessionOptions {
   runtimeSettings?: ProviderRuntimeSettings;
   /** First-party Gateway routing (client sets it only when it applies). */
   gateway?: ResolvedGatewayConfig;
+  /** null until CLIProxyAPI discovery finishes. */
+  cliproxyapiAdvertisedIds?: ReadonlySet<string> | null;
   profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
@@ -1619,6 +1622,7 @@ export class ClaudeAgentClient implements AgentClient {
   private readonly logger: Logger;
   private readonly runtimeSettings?: ProviderRuntimeSettings;
   private readonly gateway?: ResolvedGatewayConfig;
+  private cliproxyapiAdvertisedIds: ReadonlySet<string> | null = null;
   private profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
@@ -1666,6 +1670,7 @@ export class ClaudeAgentClient implements AgentClient {
       runtimeSettings: this.runtimeSettings,
       profileModels: this.profileModels,
       gateway: this.gateway,
+      cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
       persistSession: options?.persistSession,
@@ -1696,6 +1701,7 @@ export class ClaudeAgentClient implements AgentClient {
       runtimeSettings: this.runtimeSettings,
       profileModels: this.profileModels,
       gateway: this.gateway,
+      cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
       handle,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
@@ -1749,6 +1755,7 @@ export class ClaudeAgentClient implements AgentClient {
             );
           },
         });
+        this.cliproxyapiAdvertisedIds = new Set(rows.map((row) => row.id));
         if (rows.length > 0) {
           const { models: nextModels, autoPersist } = await appendCliproxyModelsToClaudeCatalog({
             baseModels: models,
@@ -2252,6 +2259,7 @@ class ClaudeAgentSession implements AgentSession {
   private readonly defaults?: { agents?: Record<string, AgentDefinition> };
   private readonly runtimeSettings?: ProviderRuntimeSettings;
   private readonly gateway?: ResolvedGatewayConfig;
+  private readonly cliproxyapiAdvertisedIds: ReadonlySet<string> | null;
   private readonly profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
@@ -2343,6 +2351,7 @@ class ClaudeAgentSession implements AgentSession {
     this.defaults = options.defaults;
     this.runtimeSettings = options.runtimeSettings;
     this.gateway = options.gateway;
+    this.cliproxyapiAdvertisedIds = options.cliproxyapiAdvertisedIds ?? null;
     this.profileModels = options.profileModels;
     this.persistSession = options.persistSession;
     this.logger = options.logger.child({ agentId: this.agentId });
@@ -3646,14 +3655,14 @@ class ClaudeAgentSession implements AgentSession {
       composeSystemPromptParts(this.config.systemPrompt, this.config.daemonAppendSystemPrompt) ?? ""
     );
   }
-
   private buildSdkEnv(): NodeJS.ProcessEnv {
     const env = createProviderEnv({
       baseEnv: process.env,
       runtimeSettings: this.runtimeSettings,
       overlays: [this.launchEnv],
     });
-    const pinned = applyClaudeCustomModelEnvPins(env, this.config.model);
+    const routed = this.applyCliproxyapiRoutingEnv(env);
+    const pinned = applyClaudeCustomModelEnvPins(routed, this.config.model);
     const limitOptions = {
       modelId: this.config.model,
       profileModels: this.profileModels,
@@ -3676,6 +3685,25 @@ class ClaudeAgentSession implements AgentSession {
     });
   }
 
+  private applyCliproxyapiRoutingEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    if (
+      !this.gateway ||
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: this.config.model,
+        advertisedIds: this.cliproxyapiAdvertisedIds,
+      })
+    ) {
+      return env;
+    }
+    const next = { ...env };
+    if (gatewayBaseUrlsMatch(next.ANTHROPIC_BASE_URL, this.gateway.baseUrl)) {
+      delete next.ANTHROPIC_BASE_URL;
+    }
+    if (next.ANTHROPIC_AUTH_TOKEN === this.gateway.apiKey) {
+      delete next.ANTHROPIC_AUTH_TOKEN;
+    }
+    return next;
+  }
   private async buildOptions(): Promise<ClaudeOptions> {
     const { thinking, effort, ultracode } = this.resolveThinkingConfig();
     const appendedSystemPrompt = this.buildAppendedSystemPrompt();

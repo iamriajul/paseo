@@ -24,6 +24,7 @@ export interface ProviderSelectionModelRow {
   description?: string;
   isDefault?: boolean;
   needsCapacityConfig?: boolean;
+  modelsDevCandidates?: AgentModelDefinition["modelsDevCandidates"];
   /** Discovered from CLIProxyAPI, not the manifest or a hand-added custom model. */
   cliproxyapi?: boolean;
 }
@@ -76,6 +77,7 @@ function buildModelRows(
     description: model.description ?? model.id,
     isDefault: model.isDefault,
     ...(model.needsCapacityConfig === true ? { needsCapacityConfig: true } : {}),
+    ...(model.modelsDevCandidates ? { modelsDevCandidates: model.modelsDevCandidates } : {}),
     ...(isCliproxyapiDiscoveredModel(model) ? { cliproxyapi: true } : {}),
   }));
 }

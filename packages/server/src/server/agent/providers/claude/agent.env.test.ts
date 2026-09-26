@@ -839,7 +839,6 @@ describe("Claude SDK env", () => {
           },
         ]);
       });
-      const persistClaudeAdditionalModelLimits = vi.fn();
       const client = new ClaudeAgentClient({
         logger: createTestLogger(),
         queryFactory,
@@ -847,13 +846,9 @@ describe("Claude SDK env", () => {
         configDir,
         resolveVersion: async () => "2.1.219",
         profileModels: [],
-        persistClaudeAdditionalModelLimits,
       });
 
       await client.fetchCatalog({ scope: "global", force: true });
-      expect(persistClaudeAdditionalModelLimits).toHaveBeenCalledWith([
-        { id: "grok-4.5", contextWindowMaxTokens: 500_000, maxOutputTokens: 65_536 },
-      ]);
 
       const session = await client.createSession({
         provider: "claude",

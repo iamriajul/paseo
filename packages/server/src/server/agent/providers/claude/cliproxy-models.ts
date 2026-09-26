@@ -40,6 +40,8 @@ export interface AppendCliproxyModelsResult {
   models: CliproxyAgentModelDefinition[];
   /** Limits to merge into additionalModels (trusted CPA or single models.dev hit). */
   autoPersist: CliproxyAdditionalModelLimits[];
+  /** Every id CPA returned, including first-party ids whose windows we do not overlay. */
+  advertisedIds: string[];
 }
 
 export interface AppendCliproxyModelsOptions {
@@ -118,7 +120,9 @@ export async function appendCliproxyModelsToClaudeCatalog(
   const overlays = new Map<string, CliproxyModelCapacity>();
   const autoPersist: CliproxyAdditionalModelLimits[] = [];
 
+  const advertisedIds: string[] = [];
   for (const row of options.rows) {
+    advertisedIds.push(row.id);
     // Manifest owns these: 200k base, separate [1m] variant, Opus 5.5 always 1M.
     // CPA reports the base id as 1M, which would collapse that pair.
     if (normalizeClaudeRuntimeModelId(row.id)) continue;
@@ -143,9 +147,36 @@ export async function appendCliproxyModelsToClaudeCatalog(
       overlays,
     ),
     autoPersist,
+    advertisedIds,
   };
 }
 
+/**
+ * CLIProxyAPI env is injected for the whole Claude provider. Use it only for
+ * ids CPA advertised. A manifest model CPA did not list keeps the local
+ * Claude Code login. Before discovery finishes, non-manifest models keep the
+ * injection so a persisted CPA model is not sent to Anthropic by mistake.
+ */
+export function shouldRouteClaudeModelThroughCliproxyapi(options: {
+  modelId: string | null | undefined;
+  advertisedIds: ReadonlySet<string> | null;
+}): boolean {
+  const modelId = options.modelId?.trim() ?? "";
+  if (!modelId) return false;
+  if (options.advertisedIds) {
+    for (const candidate of cliproxyapiRouteIds(modelId)) {
+      if (options.advertisedIds.has(candidate)) return true;
+    }
+  }
+  if (normalizeClaudeRuntimeModelId(modelId)) return false;
+  return options.advertisedIds == null;
+}
+
+/** `[1m]` is a harness context flag on the same model, not a second gateway id. */
+function cliproxyapiRouteIds(modelId: string): string[] {
+  const withoutContextFlag = modelId.replace(/\[1m\]$/i, "");
+  return withoutContextFlag === modelId ? [modelId] : [modelId, withoutContextFlag];
+}
 interface CliproxyModelCapacity {
   contextWindowMaxTokens?: number;
   maxOutputTokens?: number;

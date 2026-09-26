@@ -78,6 +78,16 @@ describe("fetchGatewayQuota", () => {
     );
   });
 
+  test("omits the model filter when listing every account", async () => {
+    const fetchImpl = vi.fn(async () => quotaResponse([]));
+    await fetchGatewayQuota({
+      baseUrl: "http://gateway:8317",
+      token: "sk-test",
+      model: "",
+      fetchImpl,
+    });
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe("http://gateway:8317/v1/quota");
+  });
   test("drops out-of-range and malformed fields while keeping the account", async () => {
     const fetchImpl = vi.fn(async () =>
       quotaResponse([

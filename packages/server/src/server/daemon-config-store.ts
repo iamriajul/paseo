@@ -36,6 +36,7 @@ interface SupportedMutableConfigPatch {
   pluginsEnabled?: boolean;
   plugins?: MutableDaemonConfig["plugins"];
   features?: SpeechSettingsPatch;
+  cliproxyapi?: MutableDaemonConfig["cliproxyapi"];
 }
 
 const SPEECH_PERSISTED_PATHS = ["features.dictation", "features.voiceMode"];
@@ -365,6 +366,7 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
     ...(patch.pluginsEnabled !== undefined ? { pluginsEnabled: patch.pluginsEnabled } : {}),
     ...(patch.plugins !== undefined ? { plugins: patch.plugins } : {}),
     ...(patch.features !== undefined ? { features: patch.features } : {}),
+    ...(patch.cliproxyapi !== undefined ? { cliproxyapi: patch.cliproxyapi } : {}),
   };
 }
 
@@ -783,6 +785,7 @@ function mergeMutableAgentPatch(
     patch.metadataGeneration === undefined &&
     patch.skills === undefined &&
     patch.idleRuntimeCleanup === undefined &&
+    patch.cliproxyapi === undefined &&
     removeProviders.length === 0
   ) {
     return persistedAgents;
@@ -816,6 +819,9 @@ function mergeMutableAgentPatch(
     };
   }
 
+  if (patch.cliproxyapi !== undefined) {
+    next["cliproxyapi"] = patch.cliproxyapi;
+  }
   if (patch.skills?.selection !== undefined) {
     next["skills"] = { selection: patch.skills.selection };
   }

@@ -5,9 +5,9 @@ import { gatewayQuotaCopy } from "./copy";
 import { buildGatewayQuotaSections } from "./sections";
 import type { GatewayQuotaView } from "./types";
 
-// Renders the selected model's Gateway quota inside the context-meter
+// Renders the selected model's CLIProxyAPI quota inside the context-meter
 // tooltip. Returns nothing unless the daemon reports usable accounts, so old
-// Gateways and transient failures hide the section instead of showing errors.
+// CLIProxyAPI builds and transient failures hide the section instead of showing errors.
 export function GatewayQuotaSection({ view }: { view: GatewayQuotaView }) {
   if (view.kind === "loading") {
     return (

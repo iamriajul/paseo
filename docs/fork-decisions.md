@@ -563,3 +563,13 @@ Non-official CPA rows such as Space Bunny and MiMo advertise their window, but C
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
 ```
+
+## cliproxyapi-config-name
+
+**first-party routing is `agents.cliproxyapi`, not `gateway`**
+
+The config key is `agents.cliproxyapi`. Env is `PASEO_CLIPROXYAPI_*`. The tooltip says CLIProxyAPI quota. The quota RPC is `cliproxyapi.quota.get`, gated on `server_info.features.cliproxyapiQuota`.
+
+```bash
+npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/persisted-config.test.ts --bail=1
+```

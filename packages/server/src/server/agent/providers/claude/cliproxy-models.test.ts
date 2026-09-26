@@ -3,6 +3,7 @@ import {
   appendCliproxyModelsToClaudeCatalog,
   mergeAdditionalModelLimits,
   resolveCliproxyAnthropicCredentials,
+  shouldRouteClaudeModelThroughCliproxyapi,
 } from "./cliproxy-models.js";
 import {
   CLIPROXY_MODELS_MAX_PAGES,
@@ -13,7 +14,64 @@ import {
   responseHasCpaFingerprint,
 } from "../../gateway/models.js";
 
-describe("decodeCliproxyClaudeModelId", () => {
+describe("shouldRouteClaudeModelThroughCliproxyapi", () => {
+  const advertised = new Set(["space-bunny-free", "claude-opus-4-8"]);
+  test("routes an advertised model and leaves an unlisted manifest model local", () => {
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "space-bunny-free",
+        advertisedIds: advertised,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "claude-opus-4-8",
+        advertisedIds: advertised,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "claude-opus-4-8[1m]",
+        advertisedIds: advertised,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "claude-opus-5-5",
+        advertisedIds: advertised,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "claude-opus-5-5",
+        advertisedIds: advertised,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "my-custom-model",
+        advertisedIds: advertised,
+      }),
+    ).toBe(false);
+  });
+
+  test("keeps non-manifest models routed until discovery finishes", () => {
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "space-bunny-free",
+        advertisedIds: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "claude-opus-4-8",
+        advertisedIds: null,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("appendCliproxyModelsToClaudeCatalog", () => {
   test("decodes reversed non-claude ids", () => {
     expect(decodeCliproxyClaudeModelId("claude-fable-5-dd-5.4-korg")).toBe("grok-4.5");
     expect(decodeCliproxyClaudeModelId("claude-fable-5-dd-los-6.5-tpg")).toBe("gpt-5.6-sol");

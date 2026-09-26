@@ -5,7 +5,8 @@ import * as path from "node:path";
 import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-types.js";
 import type { ModelsDevCandidate, ModelsDevLookupResult } from "../../../models-dev/catalog.js";
 
-import { isOfficialCpaOwner, type CliproxyAnthropicModelRow } from "../../gateway/models.js";
+import { type CliproxyAnthropicModelRow } from "../../gateway/models.js";
+import { normalizeClaudeRuntimeModelId } from "./model-manifest.js";
 
 export interface CliproxyAnthropicEnvironment {
   ANTHROPIC_BASE_URL?: string;
@@ -114,24 +115,33 @@ export async function appendCliproxyModelsToClaudeCatalog(
 ): Promise<AppendCliproxyModelsResult> {
   const existingIds = new Set(options.baseModels.map((model) => model.id));
   const additions: CliproxyAgentModelDefinition[] = [];
+  const overlays = new Map<string, CliproxyModelCapacity>();
   const autoPersist: CliproxyAdditionalModelLimits[] = [];
 
   for (const row of options.rows) {
-    if (existingIds.has(row.id)) continue;
-    existingIds.add(row.id);
-
+    // Manifest owns these: 200k base, separate [1m] variant, Opus 5.5 always 1M.
+    // CPA reports the base id as 1M, which would collapse that pair.
+    if (normalizeClaudeRuntimeModelId(row.id)) continue;
     const capacity = await resolveCliproxyModelCapacity(row, {
       existingAdditionalModels: options.existingAdditionalModels,
       lookupModelsDev: options.lookupModelsDev,
     });
+    if (capacity.autoPersist) autoPersist.push(capacity.autoPersist);
+    if (existingIds.has(row.id)) {
+      overlays.set(row.id, capacity);
+      continue;
+    }
+    existingIds.add(row.id);
     additions.push(
       mapCliproxyModelRowToAgentModel(row, capacity, options.getCustomThinkingOptions()),
     );
-    if (capacity.autoPersist) autoPersist.push(capacity.autoPersist);
   }
 
   return {
-    models: mergeCliproxyModels(options.baseModels, additions),
+    models: applyCliproxyCapacityOverlays(
+      mergeCliproxyModels(options.baseModels, additions),
+      overlays,
+    ),
     autoPersist,
   };
 }
@@ -147,6 +157,49 @@ interface CliproxyModelCapacity {
 interface CliproxyCapacityLookupOptions {
   existingAdditionalModels: readonly CliproxyAdditionalModelLimits[];
   lookupModelsDev: (modelId: string) => Promise<ModelsDevLookupResult>;
+}
+
+function configuredModalitiesMissing(
+  configured: CliproxyAdditionalModelLimits | undefined,
+): boolean {
+  return (
+    nonEmptyStringList(configured?.inputModalities) === undefined ||
+    nonEmptyStringList(configured?.outputModalities) === undefined ||
+    nonEmptyStringList(configured?.capabilities) === undefined
+  );
+}
+
+async function fillCapacityFromModelsDev(
+  modelId: string,
+  lookupModelsDev: (modelId: string) => Promise<ModelsDevLookupResult>,
+  target: {
+    fillContextWindow: (value: number | undefined) => void;
+    fillMaxOutput: (value: number | undefined) => void;
+    fillModalities: (
+      key: "inputModalities" | "outputModalities" | "capabilities",
+      value: readonly string[] | undefined,
+    ) => void;
+    contextWindowMissing: () => boolean;
+    setCandidates: (candidates: ModelsDevCandidate[]) => void;
+  },
+): Promise<void> {
+  try {
+    const lookup = await lookupModelsDev(modelId);
+    if (lookup.found && lookup.candidates.length === 1) {
+      const candidate = lookup.candidates[0];
+      target.fillContextWindow(positiveCapacityValue(candidate.contextWindowMaxTokens));
+      target.fillMaxOutput(positiveCapacityValue(candidate.maxOutputTokens));
+      target.fillModalities("inputModalities", candidate.inputModalities);
+      target.fillModalities("outputModalities", candidate.outputModalities);
+      target.fillModalities("capabilities", candidate.capabilities);
+      return;
+    }
+    if (target.contextWindowMissing() && lookup.found && lookup.candidates.length > 1) {
+      target.setCandidates(lookup.candidates);
+    }
+  } catch {
+    // Keep configured/trusted values and mark unresolved context below.
+  }
 }
 
 async function resolveCliproxyModelCapacity(
@@ -182,27 +235,22 @@ async function resolveCliproxyModelCapacity(
     autoPersist[key] = [...value];
   };
 
-  if (isOfficialCpaOwner(row.ownedBy)) {
-    fillContextWindow(positiveCapacityValue(row.maxInputTokens));
-    fillMaxOutput(positiveCapacityValue(row.maxOutputTokens));
-  }
+  // CPA's advertised window is the launch contract, same as Codex and OMP.
+  // models.dev fills omitted windows and modalities; it never replaces a CPA window.
+  fillContextWindow(positiveCapacityValue(row.maxInputTokens));
+  fillMaxOutput(positiveCapacityValue(row.maxOutputTokens));
 
-  if (contextWindowMaxTokens === undefined || maxOutputTokens === undefined) {
-    try {
-      const lookup = await options.lookupModelsDev(row.id);
-      if (lookup.found && lookup.candidates.length === 1) {
-        const candidate = lookup.candidates[0];
-        fillContextWindow(positiveCapacityValue(candidate.contextWindowMaxTokens));
-        fillMaxOutput(positiveCapacityValue(candidate.maxOutputTokens));
-        fillModalities("inputModalities", candidate.inputModalities);
-        fillModalities("outputModalities", candidate.outputModalities);
-        fillModalities("capabilities", candidate.capabilities);
-      } else if (lookup.found && lookup.candidates.length > 1) {
-        modelsDevCandidates = lookup.candidates;
-      }
-    } catch {
-      // Keep configured/trusted values and mark unresolved context below.
-    }
+  const modalitiesMissing = configuredModalitiesMissing(configured);
+  if (contextWindowMaxTokens === undefined || maxOutputTokens === undefined || modalitiesMissing) {
+    await fillCapacityFromModelsDev(row.id, options.lookupModelsDev, {
+      fillContextWindow,
+      fillMaxOutput,
+      fillModalities,
+      contextWindowMissing: () => contextWindowMaxTokens === undefined,
+      setCandidates: (candidates) => {
+        modelsDevCandidates = candidates;
+      },
+    });
   }
 
   return {
@@ -263,32 +311,29 @@ export function mergeCliproxyModels(
   return merged;
 }
 
-export function markCliproxyAutoPersistFailure(
+function applyCliproxyCapacityOverlays(
   models: readonly CliproxyAgentModelDefinition[],
-  autoPersist: readonly CliproxyAdditionalModelLimits[],
+  overlays: ReadonlyMap<string, CliproxyModelCapacity>,
 ): CliproxyAgentModelDefinition[] {
-  const failedById = new Map(autoPersist.map((update) => [update.id, update]));
-
+  if (overlays.size === 0) return [...models];
   return models.map((model) => {
-    const failedUpdate = failedById.get(model.id);
-    if (!failedUpdate) return model;
-
-    const nextModel = { ...model };
-    if (failedUpdate.contextWindowMaxTokens !== undefined) {
-      delete nextModel.contextWindowMaxTokens;
-    }
-    if (failedUpdate.maxOutputTokens !== undefined) {
-      delete nextModel.maxOutputTokens;
-    }
-
-    return {
-      ...nextModel,
-      needsCapacityConfig: true,
-      metadata: {
-        ...model.metadata,
-        needsCapacityConfig: true,
-      },
+    const capacity = overlays.get(model.id);
+    if (!capacity) return model;
+    const next: CliproxyAgentModelDefinition = {
+      ...model,
+      ...(capacity.contextWindowMaxTokens === undefined
+        ? {}
+        : { contextWindowMaxTokens: capacity.contextWindowMaxTokens }),
+      ...(capacity.maxOutputTokens === undefined
+        ? {}
+        : { maxOutputTokens: capacity.maxOutputTokens }),
     };
+    if (capacity.contextWindowMaxTokens !== undefined) {
+      delete next.needsCapacityConfig;
+    } else if (capacity.needsCapacityConfig === true) {
+      next.needsCapacityConfig = true;
+    }
+    return next;
   });
 }
 

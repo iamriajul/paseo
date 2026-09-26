@@ -45,8 +45,8 @@ Discovery failures are non-fatal everywhere: the base catalog stays, and a warni
 
 Gateway models launch with raw decoded IDs through the standard Claude path, plus:
 
-- Context/output/auto-compact env resolve from the Gateway row when `owned_by` is official (Anthropic, OpenAI, Codex, xAI, Gemini/Google/Vertex/AIStudio/Antigravity, Kimi/Moonshot). Other owners resolve through models.dev: one hit auto-persists into `additionalModels`, several or none mark the model with the soft "configure metadata" warning instead of blocking selection.
-- Auto-persisted limits merge into the running client's in-memory models immediately, so the first session after discovery already launches with resolved capacity.
+- Context/output/auto-compact env use the window CPA advertises for discovered ids that are not in the Claude manifest. First-party ids stay on the manifest: the 200k row, its separate `[1m]` variant, and Opus 5.5 at 1M. models.dev fills only fields the CPA row omitted. A row with no window and an ambiguous models.dev hit keeps the soft "configure metadata" warning; the warning opens that model's metadata form.
+- Those CPA limits are applied to the running client immediately. A failed config write no longer drops a discovered model back to Claude Code's 200k default.
 - Custom non-family models pin the five family/subagent vars (`ANTHROPIC_DEFAULT_*_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`) to the selected model. User-set values win; first-party models are untouched.
 - Gateway-routed custom models get `WebSearch` appended to disallowed tools: the Gateway does not serve that Anthropic server-side tool for non-Anthropic models. First-party rows keep it.
 - Image attachments check known `inputModalities`: a model known to be text-only gets a local-file path hint instead of image blocks. Unknown modalities keep forwarding images.

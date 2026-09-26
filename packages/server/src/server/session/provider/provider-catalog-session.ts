@@ -549,11 +549,11 @@ export class ProviderCatalogSession {
   }
 
   async handleGatewayQuotaGetRequest(
-    msg: Extract<SessionInboundMessage, { type: "gateway.quota.get.request" }>,
+    msg: Extract<SessionInboundMessage, { type: "cliproxyapi.quota.get.request" }>,
   ): Promise<void> {
     const unsupported = () =>
       this.host.emit({
-        type: "gateway.quota.get.response",
+        type: "cliproxyapi.quota.get.response",
         payload: {
           requestId: msg.requestId,
           supported: false,
@@ -578,7 +578,7 @@ export class ProviderCatalogSession {
         model: slug,
       });
       this.host.emit({
-        type: "gateway.quota.get.response",
+        type: "cliproxyapi.quota.get.response",
         payload: {
           requestId: msg.requestId,
           supported: quota.supported,

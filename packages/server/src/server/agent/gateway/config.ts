@@ -22,9 +22,6 @@ export interface ResolvedGatewayConfig {
 
 export const CLIPROXYAPI_ENV_BASE_URL = "PASEO_CLIPROXYAPI_BASE_URL";
 export const CLIPROXYAPI_ENV_API_KEY = "PASEO_CLIPROXYAPI_API_KEY";
-/** COMPAT(agents.gateway): renamed to cliproxyapi. Still read. */
-export const GATEWAY_ENV_BASE_URL = "PASEO_GATEWAY_BASE_URL";
-export const GATEWAY_ENV_API_KEY = "PASEO_GATEWAY_API_KEY";
 
 /** Provider id used for CLIProxyAPI-routed models in Codex thread config and OpenCode. */
 export const GATEWAY_PROVIDER_ID = "cliproxyapi";
@@ -36,18 +33,15 @@ function trimNonEmpty(value: unknown): string | null {
 }
 
 /**
- * Resolve CLIProxyAPI routing. `PASEO_CLIPROXYAPI_*` wins over
- * `PASEO_GATEWAY_*`, and either env wins over config.json. Either pair
- * enables routing. Both base URL and key are required.
+ * Resolve CLIProxyAPI routing. `PASEO_CLIPROXYAPI_*` wins over config.json.
+ * Either env var enables routing. Both base URL and key are required.
  */
 export function resolveGatewayConfig(
   persisted?: GatewayPersistedConfig | null,
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedGatewayConfig | null {
-  const envBaseUrl =
-    trimNonEmpty(env[CLIPROXYAPI_ENV_BASE_URL]) ?? trimNonEmpty(env[GATEWAY_ENV_BASE_URL]);
-  const envApiKey =
-    trimNonEmpty(env[CLIPROXYAPI_ENV_API_KEY]) ?? trimNonEmpty(env[GATEWAY_ENV_API_KEY]);
+  const envBaseUrl = trimNonEmpty(env[CLIPROXYAPI_ENV_BASE_URL]);
+  const envApiKey = trimNonEmpty(env[CLIPROXYAPI_ENV_API_KEY]);
   const enabled = persisted?.enabled === true || envBaseUrl !== null || envApiKey !== null;
   if (!enabled) return null;
 

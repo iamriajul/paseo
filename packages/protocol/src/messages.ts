@@ -1936,7 +1936,7 @@ export const ProviderUsageResetQuotaRequestMessageSchema = z.object({
 });
 
 export const GatewayQuotaGetRequestMessageSchema = z.object({
-  type: z.literal("gateway.quota.get.request"),
+  type: z.literal("cliproxyapi.quota.get.request"),
   requestId: z.string(),
   provider: z.string(),
   model: z.string(),
@@ -3892,8 +3892,6 @@ export const ServerInfoStatusPayloadSchema = z
         providerUsageResetQuota: z.boolean().optional(),
         // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
         providerUsageForceRefresh: z.boolean().optional(),
-        // COMPAT(gatewayQuota): added in v0.9.903, drop the gate once daemon floor >= v0.9.903.
-        gatewayQuota: z.boolean().optional(),
         // COMPAT(cliproxyapiQuota): added in v0.9.905, drop the gate once daemon floor >= v0.9.905.
         cliproxyapiQuota: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
@@ -6776,7 +6774,7 @@ export const GatewayQuotaAccountSchema = z.object({
 });
 
 export const GatewayQuotaGetResponseMessageSchema = z.object({
-  type: z.literal("gateway.quota.get.response"),
+  type: z.literal("cliproxyapi.quota.get.response"),
   payload: z.object({
     requestId: z.string(),
     supported: z.boolean(),

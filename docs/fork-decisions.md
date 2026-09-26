@@ -568,7 +568,7 @@ npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-models
 
 **first-party routing is `agents.cliproxyapi`, not `gateway`**
 
-The config key, env vars, quota tooltip, and feature flag say CLIProxyAPI. `agents.gateway` and `PASEO_GATEWAY_*` still load. The quota RPC stays `gateway.quota.get`.
+The config key is `agents.cliproxyapi`. Env is `PASEO_CLIPROXYAPI_*`. The tooltip says CLIProxyAPI quota. The quota RPC is `cliproxyapi.quota.get`, gated on `server_info.features.cliproxyapiQuota`.
 
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/persisted-config.test.ts --bail=1

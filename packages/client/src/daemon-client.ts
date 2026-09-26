@@ -5857,7 +5857,7 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest({
       requestId: options.requestId,
       message: {
-        type: "gateway.quota.get.request",
+        type: "cliproxyapi.quota.get.request",
         provider: options.provider,
         model: options.model,
       },

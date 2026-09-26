@@ -6593,7 +6593,7 @@ test("sends provider.usage.reset_quota.request and resolves provider.usage.reset
   });
 });
 
-test("sends gateway.quota.get.request and resolves gateway.quota.get.response", async () => {
+test("sends cliproxyapi.quota.get.request and resolves cliproxyapi.quota.get.response", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();
 
@@ -6619,7 +6619,7 @@ test("sends gateway.quota.get.request and resolves gateway.quota.get.response", 
   expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
     type: "session",
     message: {
-      type: "gateway.quota.get.request",
+      type: "cliproxyapi.quota.get.request",
       provider: "claude",
       model: "grok-4.6",
       requestId: "quota-1",
@@ -6628,7 +6628,7 @@ test("sends gateway.quota.get.request and resolves gateway.quota.get.response", 
 
   mock.triggerMessage(
     wrapSessionMessage({
-      type: "gateway.quota.get.response",
+      type: "cliproxyapi.quota.get.response",
       payload: {
         requestId: "quota-1",
         supported: true,

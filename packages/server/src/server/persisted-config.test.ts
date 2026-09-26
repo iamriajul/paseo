@@ -320,18 +320,14 @@ describe("PersistedConfigSchema agent provider runtime settings", () => {
     });
   });
 
-  test("still accepts the old gateway key", () => {
-    const parsed = PersistedConfigSchema.parse({
-      agents: {
-        gateway: { enabled: true, baseUrl: "http://gateway:8317", apiKey: "sk-test" },
-      },
-    });
-
-    expect(parsed.agents?.gateway).toEqual({
-      enabled: true,
-      baseUrl: "http://gateway:8317",
-      apiKey: "sk-test",
-    });
+  test("rejects the old gateway key", () => {
+    expect(() =>
+      PersistedConfigSchema.parse({
+        agents: {
+          gateway: { enabled: true, baseUrl: "http://gateway:8317", apiKey: "sk-test" },
+        },
+      }),
+    ).toThrow();
   });
 
   test("cliproxyapi routing is optional and strict", () => {

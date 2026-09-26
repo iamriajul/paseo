@@ -337,8 +337,6 @@ export const PersistedConfigSchema = z
       .object({
         providers: z.preprocess(normalizeAgentProviders, ProviderOverridesSchema).optional(),
         cliproxyapi: GatewayConfigSchema.optional(),
-        // COMPAT(agents.gateway): renamed to cliproxyapi. Still accepted.
-        gateway: GatewayConfigSchema.optional(),
         catalogRefreshTimeoutMs: z.number().int().positive().max(2_147_483_647).optional(),
         metadataGeneration: AgentMetadataGenerationSchema.optional(),
         skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),

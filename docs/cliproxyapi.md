@@ -18,7 +18,7 @@ Add one section to `config.json` (`$PASEO_HOME/config.json`):
 }
 ```
 
-`baseUrl` accepts the Claude form (`http://cliproxyapi-host:8317`) or the Codex/OpenCode form with a `/v1` suffix; Paseo normalizes it and appends `/v1` where a harness needs it. `PASEO_CLIPROXYAPI_BASE_URL` and `PASEO_CLIPROXYAPI_API_KEY` override the file when set, and either one enables CLIProxyAPI without the flag. `agents.gateway` and `PASEO_GATEWAY_*` still load, so an existing file keeps working.
+`baseUrl` accepts the Claude form (`http://cliproxyapi-host:8317`) or the Codex/OpenCode form with a `/v1` suffix; Paseo normalizes it and appends `/v1` where a harness needs it. `PASEO_CLIPROXYAPI_BASE_URL` and `PASEO_CLIPROXYAPI_API_KEY` override the file when set, and either one enables CLIProxyAPI without the flag.
 
 Restart the daemon after changing the routing. New models on an unchanged CLIProxyAPI need no restart: use the provider's `Refresh` button to re-run discovery.
 
@@ -56,7 +56,7 @@ Deliberately not imported: Codex reasoning ceilings (they under-cap Claude Code 
 
 ## Quota
 
-The composer meter tooltip shows per-model CLIProxyAPI quota for the agent's selected model through the `gateway.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`). The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.
+The composer meter tooltip shows per-model CLIProxyAPI quota for the agent's selected model through the `cliproxyapi.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`). The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.
 
 CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (observed live); current builds answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
 

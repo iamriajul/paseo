@@ -238,9 +238,18 @@ function HeaderSettingsIcon({ disabled }: { disabled: boolean }) {
   return <ThemedSettings size={ICON_SIZE.sm} uniProps={uniProps} />;
 }
 
-function CapacityWarningControl({ provider, modelId }: { provider: string; modelId: string }) {
+function CapacityWarningControl({
+  provider,
+  modelId,
+  serverId,
+}: {
+  provider: string;
+  modelId: string;
+  serverId: string | null;
+}) {
   const { t } = useTranslation();
   const warningLabel = t("settings.providers.models.capacityWarning");
+  const openProviderSettings = useProviderSettingsStore((state) => state.open);
   const warningButtonStyle = useCallback(
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.rowIconButton,
@@ -249,9 +258,14 @@ function CapacityWarningControl({ provider, modelId }: { provider: string; model
     ],
     [],
   );
-  const handlePress = useCallback((event: GestureResponderEvent) => {
-    event.stopPropagation();
-  }, []);
+  const handlePress = useCallback(
+    (event: GestureResponderEvent) => {
+      event.stopPropagation();
+      if (!serverId) return;
+      openProviderSettings({ serverId, provider, configureModelId: modelId });
+    },
+    [modelId, openProviderSettings, provider, serverId],
+  );
 
   return (
     <Tooltip enabledOnDesktop enabledOnMobile={true}>
@@ -732,9 +746,9 @@ function ModelRow({
   const trailingSlot = useMemo(
     () =>
       row.needsCapacityConfig ? (
-        <CapacityWarningControl provider={row.provider} modelId={row.modelId} />
+        <CapacityWarningControl provider={row.provider} modelId={row.modelId} serverId={serverId} />
       ) : null,
-    [row.modelId, row.needsCapacityConfig, row.provider],
+    [row.modelId, row.needsCapacityConfig, row.provider, serverId],
   );
   const primary = profiledRows[profiledRows.length - 1];
 

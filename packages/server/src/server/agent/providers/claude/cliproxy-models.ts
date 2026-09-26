@@ -5,7 +5,7 @@ import * as path from "node:path";
 import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-types.js";
 import type { ModelsDevCandidate, ModelsDevLookupResult } from "../../../models-dev/catalog.js";
 
-import { isOfficialCpaOwner, type CliproxyAnthropicModelRow } from "../../gateway/models.js";
+import { type CliproxyAnthropicModelRow } from "../../gateway/models.js";
 
 export interface CliproxyAnthropicEnvironment {
   ANTHROPIC_BASE_URL?: string;
@@ -114,24 +114,30 @@ export async function appendCliproxyModelsToClaudeCatalog(
 ): Promise<AppendCliproxyModelsResult> {
   const existingIds = new Set(options.baseModels.map((model) => model.id));
   const additions: CliproxyAgentModelDefinition[] = [];
+  const overlays = new Map<string, CliproxyModelCapacity>();
   const autoPersist: CliproxyAdditionalModelLimits[] = [];
 
   for (const row of options.rows) {
-    if (existingIds.has(row.id)) continue;
-    existingIds.add(row.id);
-
     const capacity = await resolveCliproxyModelCapacity(row, {
       existingAdditionalModels: options.existingAdditionalModels,
       lookupModelsDev: options.lookupModelsDev,
     });
+    if (capacity.autoPersist) autoPersist.push(capacity.autoPersist);
+    if (existingIds.has(row.id)) {
+      overlays.set(row.id, capacity);
+      continue;
+    }
+    existingIds.add(row.id);
     additions.push(
       mapCliproxyModelRowToAgentModel(row, capacity, options.getCustomThinkingOptions()),
     );
-    if (capacity.autoPersist) autoPersist.push(capacity.autoPersist);
   }
 
   return {
-    models: mergeCliproxyModels(options.baseModels, additions),
+    models: applyCliproxyCapacityOverlays(
+      mergeCliproxyModels(options.baseModels, additions),
+      overlays,
+    ),
     autoPersist,
   };
 }
@@ -182,10 +188,10 @@ async function resolveCliproxyModelCapacity(
     autoPersist[key] = [...value];
   };
 
-  if (isOfficialCpaOwner(row.ownedBy)) {
-    fillContextWindow(positiveCapacityValue(row.maxInputTokens));
-    fillMaxOutput(positiveCapacityValue(row.maxOutputTokens));
-  }
+  // CPA's advertised window is the launch contract, same as Codex and OMP.
+  // models.dev only fills fields the row omitted.
+  fillContextWindow(positiveCapacityValue(row.maxInputTokens));
+  fillMaxOutput(positiveCapacityValue(row.maxOutputTokens));
 
   if (contextWindowMaxTokens === undefined || maxOutputTokens === undefined) {
     try {
@@ -261,6 +267,32 @@ export function mergeCliproxyModels(
     merged.push(addition);
   }
   return merged;
+}
+
+function applyCliproxyCapacityOverlays(
+  models: readonly CliproxyAgentModelDefinition[],
+  overlays: ReadonlyMap<string, CliproxyModelCapacity>,
+): CliproxyAgentModelDefinition[] {
+  if (overlays.size === 0) return [...models];
+  return models.map((model) => {
+    const capacity = overlays.get(model.id);
+    if (!capacity) return model;
+    const next: CliproxyAgentModelDefinition = {
+      ...model,
+      ...(capacity.contextWindowMaxTokens === undefined
+        ? {}
+        : { contextWindowMaxTokens: capacity.contextWindowMaxTokens }),
+      ...(capacity.maxOutputTokens === undefined
+        ? {}
+        : { maxOutputTokens: capacity.maxOutputTokens }),
+    };
+    if (capacity.contextWindowMaxTokens !== undefined) {
+      delete next.needsCapacityConfig;
+    } else if (capacity.needsCapacityConfig === true) {
+      next.needsCapacityConfig = true;
+    }
+    return next;
+  });
 }
 
 export function markCliproxyAutoPersistFailure(

@@ -553,3 +553,13 @@ The `gateway.quota.get` RPC (gated on `server_info.features.gatewayQuota`) maps 
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/quota.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
 ```
+
+## gateway-claude-cpa-window
+
+**Claude launch uses the context window CPA advertises**
+
+CPA reports 1M on ids the Claude manifest lists at 200k, and non-official owners with a reported window were marked "configure metadata" and launched at Claude Code's 200k default. Discovered rows now overlay that advertised window onto the catalog and the in-memory launch limits. A failed config write keeps the window. The warning remains only when CPA omits the window, and clicking it opens the metadata form.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
+```

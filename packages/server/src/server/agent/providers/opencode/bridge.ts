@@ -332,6 +332,7 @@ export function mergeOpenCodeGatewayProviderRecord(
 
 export interface OpenCodeGatewayModelEntry {
   name: string;
+  family?: string;
   limit?: { context: number; output?: number };
 }
 
@@ -350,6 +351,7 @@ export function buildOpenCodeGatewayModelsMap(
     const output = trusted ? positiveTokenCount(row.maxOutputTokens) : undefined;
     models[row.id] = {
       name: row.label || row.id,
+      family: row.id,
       ...(context === undefined
         ? {}
         : { limit: { context, ...(output === undefined ? {} : { output }) } }),

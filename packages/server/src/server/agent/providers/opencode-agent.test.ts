@@ -6825,11 +6825,12 @@ describe("OpenCode Gateway wiring", () => {
     expect(buildOpenCodeGatewayModelsMap(gatewayRows())).toEqual({
       "claude-opus-4-6": {
         name: "Claude Opus 4.6",
+        family: "claude-opus-4-6",
         limit: { context: 200_000, output: 32_000 },
       },
-      "grok-4.5": { name: "Grok 4.5" },
-      "mystery-model": { name: "Mystery Model" },
-      "crowded-model": { name: "Crowded Model" },
+      "grok-4.5": { name: "Grok 4.5", family: "grok-4.5" },
+      "mystery-model": { name: "Mystery Model", family: "mystery-model" },
+      "crowded-model": { name: "Crowded Model", family: "crowded-model" },
     });
   });
   function gatewayCatalogHarness(
@@ -6883,11 +6884,12 @@ describe("OpenCode Gateway wiring", () => {
         models: {
           "claude-opus-4-6": {
             name: "Claude Opus 4.6",
+            family: "claude-opus-4-6",
             limit: { context: 200_000, output: 32_000 },
           },
-          "grok-4.5": { name: "Grok 4.5" },
-          "mystery-model": { name: "Mystery Model" },
-          "crowded-model": { name: "Crowded Model" },
+          "grok-4.5": { name: "Grok 4.5", family: "grok-4.5" },
+          "mystery-model": { name: "Mystery Model", family: "mystery-model" },
+          "crowded-model": { name: "Crowded Model", family: "crowded-model" },
         },
       },
     });

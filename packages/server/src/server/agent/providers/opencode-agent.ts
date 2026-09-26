@@ -794,6 +794,15 @@ function extractOpenCodeModelContextWindow(model: unknown): number | undefined {
   return readPositiveFiniteNumber(limit?.context);
 }
 
+function openCodeModelDescription(
+  providerName: string,
+  modelId: string,
+  family: string | undefined,
+): string {
+  const detail = family?.trim() || modelId;
+  return detail ? `${providerName} - ${detail}` : providerName;
+}
+
 function buildOpenCodeModelDefinition(
   provider: {
     id: string;
@@ -828,7 +837,7 @@ function buildOpenCodeModelDefinition(
     provider: "opencode",
     id: `${provider.id}/${modelId}`,
     label: model.name,
-    description: `${provider.name} - ${model.family ?? ""}`.trim(),
+    description: openCodeModelDescription(provider.name, modelId, model.family),
     thinkingOptions: thinkingOptions.length > 0 ? thinkingOptions : undefined,
     defaultThinkingOptionId: thinkingOptions[0]?.id,
     metadata: {

@@ -3321,6 +3321,13 @@ function buildCodexCustomProviderConfig(
     providerConfig.env_key = "OPENAI_API_KEY";
     providerConfig.requires_openai_auth = false;
   }
+  // CLIProxyAPI keys ChatGPT-parity tools, including image generation, off this
+  // header. Without it the provider routes and silently drops those calls.
+  if (customProvider.id === GATEWAY_PROVIDER_ID) {
+    providerConfig.http_headers = {
+      "X-OpenAI-Actor-Authorization": "local-proxy",
+    };
+  }
   return {
     model_provider: customProvider.id,
     model_providers: {

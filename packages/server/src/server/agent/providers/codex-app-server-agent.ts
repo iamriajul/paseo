@@ -7602,6 +7602,7 @@ export function appendGatewayCodexModelsToCatalog(
     }
     definition.isDefault = definition.isDefault ?? false;
     definition.metadata = { ...definition.metadata, source: "cliproxyapi" };
+    merged.push(definition);
   }
   return merged;
 }

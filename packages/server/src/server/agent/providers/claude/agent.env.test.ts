@@ -851,9 +851,7 @@ describe("Claude SDK env", () => {
       });
 
       await client.fetchCatalog({ scope: "global", force: true });
-      expect(persistClaudeAdditionalModelLimits).toHaveBeenCalledWith([
-        { id: "grok-4.5", contextWindowMaxTokens: 500_000, maxOutputTokens: 65_536 },
-      ]);
+      expect(persistClaudeAdditionalModelLimits).not.toHaveBeenCalled();
 
       const session = await client.createSession({
         provider: "claude",

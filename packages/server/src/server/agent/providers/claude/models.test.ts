@@ -461,13 +461,7 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
       maxOutputTokens: 65_536,
       metadata: { source: "cliproxyapi", ownedBy: "xai" },
     });
-    expect(persistClaudeAdditionalModelLimits).toHaveBeenCalledWith([
-      {
-        id: "grok-4.5",
-        contextWindowMaxTokens: 500_000,
-        maxOutputTokens: 65_536,
-      },
-    ]);
+    expect(persistClaudeAdditionalModelLimits).not.toHaveBeenCalled();
     expect(fetchImpl).toHaveBeenCalledWith(
       "http://cpa.example/v1/models",
       expect.objectContaining({

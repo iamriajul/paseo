@@ -7,6 +7,7 @@ describe("provider settings store", () => {
       serverId: null,
       provider: null,
       overlayParentLayer: 0,
+      configureModelId: null,
       visible: false,
     });
   });

@@ -409,13 +409,13 @@ describe("ProviderCatalogSession", () => {
     });
 
     await subsystem.handleGatewayQuotaGetRequest({
-      type: "gateway.quota.get.request",
+      type: "cliproxyapi.quota.get.request",
       requestId: "q1",
       provider: "claude",
       model: "grok-4.6",
     });
 
-    const res = findByType(emitted, "gateway.quota.get.response");
+    const res = findByType(emitted, "cliproxyapi.quota.get.response");
     expect(res?.payload).toMatchObject({ requestId: "q1", supported: false, accounts: [] });
   });
 
@@ -428,13 +428,13 @@ describe("ProviderCatalogSession", () => {
     });
 
     await subsystem.handleGatewayQuotaGetRequest({
-      type: "gateway.quota.get.request",
+      type: "cliproxyapi.quota.get.request",
       requestId: "q2",
       provider: "opencode",
       model: "openai/gpt-5",
     });
 
-    const res = findByType(emitted, "gateway.quota.get.response");
+    const res = findByType(emitted, "cliproxyapi.quota.get.response");
     expect(res?.payload).toMatchObject({ requestId: "q2", supported: false, accounts: [] });
   });
 
@@ -458,7 +458,7 @@ describe("ProviderCatalogSession", () => {
     });
 
     await subsystem.handleGatewayQuotaGetRequest({
-      type: "gateway.quota.get.request",
+      type: "cliproxyapi.quota.get.request",
       requestId: "q3",
       provider: "opencode",
       model: "cliproxyapi/grok-4.6",
@@ -469,7 +469,7 @@ describe("ProviderCatalogSession", () => {
       token: "sk-test",
       model: "grok-4.6",
     });
-    const res = findByType(emitted, "gateway.quota.get.response");
+    const res = findByType(emitted, "cliproxyapi.quota.get.response");
     expect(res?.payload).toMatchObject({
       requestId: "q3",
       supported: true,

@@ -17,6 +17,7 @@ import { useHostFeature } from "@/runtime/host-features";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { buildProviderDefinitions } from "@/utils/provider-definitions";
+import { CliproxyapiSettingsCard } from "./cliproxyapi-card";
 import {
   buildAcpProviderConfigPatch,
   type AcpProviderCatalogItem,
@@ -415,6 +416,7 @@ export function ProvidersSection({ serverId }: ProvidersSectionProps) {
 
   return (
     <>
+      <CliproxyapiSettingsCard serverId={serverId} />
       <SettingsSection
         title={t("settings.providers.title")}
         testID="host-page-providers-card"

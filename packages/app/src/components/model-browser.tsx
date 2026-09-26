@@ -868,6 +868,11 @@ function ModelRow({
             ) : null}
           </View>
           <View style={styles.browserRowTrailing}>
+            {row.cliproxyapi ? (
+              <Text style={styles.cliproxyapiBadge} numberOfLines={1}>
+                CLIProxyAPI
+              </Text>
+            ) : null}
             <View style={styles.browserRowSelection}>
               {isSelected ? (
                 <ThemedCheck size={ICON_SIZE.sm} uniProps={foregroundMutedMapping} />
@@ -1703,6 +1708,11 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[1],
     marginLeft: "auto",
+  },
+  cliproxyapiBadge: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    flexShrink: 0,
   },
   browserRowSelection: {
     width: 16,

@@ -205,6 +205,14 @@ const MutableBrowserToolsConfigSchema = z
     enabled: z.boolean().default(false),
   })
   .passthrough();
+
+const CliproxyapiConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    baseUrl: z.string().optional(),
+    apiKey: z.string().optional(),
+  })
+  .passthrough();
 const MutableRelayConfigSchema = z
   .object({
     enabled: z.boolean(),
@@ -239,6 +247,7 @@ export const MutableDaemonConfigSchema = z
     catalogRefreshTimeoutMs: z.number().int().positive().optional(),
     browserTools: MutableBrowserToolsConfigSchema.default({ enabled: false }),
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
+    cliproxyapi: CliproxyapiConfigSchema.optional(),
     metadataGeneration: MutableMetadataGenerationConfigSchema.default({
       providers: [],
       customEndpoint: {
@@ -285,6 +294,7 @@ export const MutableDaemonConfigPatchSchema = z
     providers: z
       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
       .optional(),
+    cliproxyapi: CliproxyapiConfigSchema.optional(),
     removeProviders: z.array(z.string().min(1)).optional(),
     metadataGeneration: MutableMetadataGenerationConfigPatchSchema.optional(),
     autoArchiveAfterMerge: z.boolean().optional(),
@@ -1936,10 +1946,10 @@ export const ProviderUsageResetQuotaRequestMessageSchema = z.object({
 });
 
 export const GatewayQuotaGetRequestMessageSchema = z.object({
-  type: z.literal("gateway.quota.get.request"),
+  type: z.literal("cliproxyapi.quota.get.request"),
   requestId: z.string(),
-  provider: z.string(),
-  model: z.string(),
+  provider: z.string().optional(),
+  model: z.string().optional(),
 });
 
 export const ResumeAgentRequestMessageSchema = z.object({
@@ -3892,8 +3902,8 @@ export const ServerInfoStatusPayloadSchema = z
         providerUsageResetQuota: z.boolean().optional(),
         // COMPAT(providerUsageForceRefresh): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
         providerUsageForceRefresh: z.boolean().optional(),
-        // COMPAT(gatewayQuota): added in v0.9.903, drop the gate once daemon floor >= v0.9.903.
-        gatewayQuota: z.boolean().optional(),
+        // COMPAT(cliproxyapiQuota): added in v0.9.905, drop the gate once daemon floor >= v0.9.905.
+        cliproxyapiQuota: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
@@ -6763,18 +6773,24 @@ export const GatewayQuotaWindowSchema = z.object({
   status: z.string().optional(),
 });
 
+export const GatewayQuotaResetCreditSchema = z.object({
+  expiresAt: z.string(),
+});
+
 export const GatewayQuotaAccountSchema = z.object({
   provider: z.string(),
+  providerName: z.string().optional(),
   name: z.string().optional(),
   type: z.enum(["oauth", "api"]),
   plan: z.string().optional(),
   inCooldown: z.boolean(),
   windowsObservedAt: z.string().nullable().optional(),
   windows: z.array(GatewayQuotaWindowSchema),
+  resetCredits: z.array(GatewayQuotaResetCreditSchema).optional(),
 });
 
 export const GatewayQuotaGetResponseMessageSchema = z.object({
-  type: z.literal("gateway.quota.get.response"),
+  type: z.literal("cliproxyapi.quota.get.response"),
   payload: z.object({
     requestId: z.string(),
     supported: z.boolean(),

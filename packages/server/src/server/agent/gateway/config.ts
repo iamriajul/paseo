@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 /**
- * First-party CLIProxyAPI Gateway configuration (`agents.gateway` in config.json).
- * A single Gateway routing shared by the base claude/codex/opencode providers.
+ * First-party CLIProxyAPI configuration (`agents.cliproxyapi` in config.json).
+ * One routing shared by the base claude/codex/opencode/omp providers.
  * Derived providers that set their own routing/auth env are never touched.
  */
 export const GatewayConfigSchema = z
@@ -20,10 +20,10 @@ export interface ResolvedGatewayConfig {
   apiKey: string;
 }
 
-export const GATEWAY_ENV_BASE_URL = "PASEO_GATEWAY_BASE_URL";
-export const GATEWAY_ENV_API_KEY = "PASEO_GATEWAY_API_KEY";
+export const CLIPROXYAPI_ENV_BASE_URL = "PASEO_CLIPROXYAPI_BASE_URL";
+export const CLIPROXYAPI_ENV_API_KEY = "PASEO_CLIPROXYAPI_API_KEY";
 
-/** Provider id used for Gateway-routed models in Codex thread config and OpenCode. */
+/** Provider id used for CLIProxyAPI-routed models in Codex thread config and OpenCode. */
 export const GATEWAY_PROVIDER_ID = "cliproxyapi";
 
 function trimNonEmpty(value: unknown): string | null {
@@ -33,15 +33,15 @@ function trimNonEmpty(value: unknown): string | null {
 }
 
 /**
- * Resolve the effective Gateway routing. Explicit env wins over config.json;
- * either enables the Gateway. Both base URL and key are required.
+ * Resolve CLIProxyAPI routing. `PASEO_CLIPROXYAPI_*` wins over config.json.
+ * Either env var enables routing. Both base URL and key are required.
  */
 export function resolveGatewayConfig(
   persisted?: GatewayPersistedConfig | null,
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedGatewayConfig | null {
-  const envBaseUrl = trimNonEmpty(env[GATEWAY_ENV_BASE_URL]);
-  const envApiKey = trimNonEmpty(env[GATEWAY_ENV_API_KEY]);
+  const envBaseUrl = trimNonEmpty(env[CLIPROXYAPI_ENV_BASE_URL]);
+  const envApiKey = trimNonEmpty(env[CLIPROXYAPI_ENV_API_KEY]);
   const enabled = persisted?.enabled === true || envBaseUrl !== null || envApiKey !== null;
   if (!enabled) return null;
 

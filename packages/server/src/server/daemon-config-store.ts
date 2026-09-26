@@ -31,6 +31,7 @@ interface SupportedMutableConfigPatch {
   skills?: MutableDaemonConfig["skills"];
   pluginsEnabled?: boolean;
   plugins?: MutableDaemonConfig["plugins"];
+  cliproxyapi?: MutableDaemonConfig["cliproxyapi"];
 }
 
 interface LoggerLike {
@@ -338,6 +339,7 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
     ...(patch.agentProfiles !== undefined ? { agentProfiles: patch.agentProfiles } : {}),
     ...(patch.pluginsEnabled !== undefined ? { pluginsEnabled: patch.pluginsEnabled } : {}),
     ...(patch.plugins !== undefined ? { plugins: patch.plugins } : {}),
+    ...(patch.cliproxyapi !== undefined ? { cliproxyapi: patch.cliproxyapi } : {}),
   };
 }
 
@@ -685,6 +687,7 @@ function mergeMutableAgentPatch(
     patch.providers === undefined &&
     patch.metadataGeneration === undefined &&
     patch.skills === undefined &&
+    patch.cliproxyapi === undefined &&
     removeProviders.length === 0
   ) {
     return persistedAgents;
@@ -718,6 +721,9 @@ function mergeMutableAgentPatch(
     };
   }
 
+  if (patch.cliproxyapi !== undefined) {
+    next["cliproxyapi"] = patch.cliproxyapi;
+  }
   if (patch.skills?.selection !== undefined) {
     next["skills"] = { selection: patch.skills.selection };
   }

@@ -54,6 +54,7 @@ import { providerUsageCopy } from "@/provider-usage/copy";
 import { ProviderUsageSettingsSection } from "@/provider-usage/settings-section";
 import type { ProviderUsage } from "@/provider-usage/types";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
+import { CliproxyapiUsageSection } from "@/gateway-quota/usage-section";
 import { HostAppearanceSection } from "@/screens/settings/host-appearance-section";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { useSessionStore } from "@/stores/session-store";
@@ -69,7 +70,6 @@ import type { Theme } from "@/styles/theme";
 import { getProviderIcon } from "@/components/provider-icons";
 import { BrowserToolsOptInCard } from "./browser-tools-card";
 import { restartDaemonFromSettings, updateDaemonFromSettings } from "./daemon-lifecycle";
-import { MetadataCustomEndpointCard } from "./metadata-custom-endpoint-card";
 
 const ThemedRestart = withUnistyles(RotateCw);
 const ThemedUpdate = withUnistyles(ArrowUpToLine);
@@ -294,7 +294,6 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
         <SettingsSection title={t("settings.hostSections.agents")}>
           <InjectPaseoToolsCard serverId={serverId} />
           <BrowserToolsOptInCard serverId={serverId} />
-          <MetadataCustomEndpointCard serverId={serverId} />
           <AppendSystemPromptCard serverId={serverId} />
         </SettingsSection>
       ) : (
@@ -408,6 +407,7 @@ export function HostUsagePage({ serverId }: { serverId: string }) {
         canForceRefreshQuota={canForceRefreshQuota}
         resettingProviderId={resettingProviderId}
       />
+      <CliproxyapiUsageSection serverId={serverId} />
     </View>
   );
 }

@@ -682,7 +682,7 @@ export function resolveConfigFromPersisted(
     voiceLlmProviderExplicit: voiceLlm.providerExplicit,
     voiceLlmModel: voiceLlm.model,
     agentProviderSettings: extractAgentProviderSettings(providerOverrides),
-    agentGateway: persisted.agents?.gateway,
+    agentGateway: persisted.agents?.cliproxyapi,
     providerCatalogRefreshTimeoutMs: persisted.agents?.catalogRefreshTimeoutMs,
     metadataGeneration: persisted.agents?.metadataGeneration,
     providerOverrides,

@@ -794,6 +794,15 @@ function extractOpenCodeModelContextWindow(model: unknown): number | undefined {
   return readPositiveFiniteNumber(limit?.context);
 }
 
+function openCodeModelDescription(
+  providerName: string,
+  modelId: string,
+  family: string | undefined,
+): string {
+  const detail = family?.trim() || modelId;
+  return detail ? `${providerName} - ${detail}` : providerName;
+}
+
 function buildOpenCodeModelDefinition(
   provider: {
     id: string;
@@ -828,7 +837,7 @@ function buildOpenCodeModelDefinition(
     provider: "opencode",
     id: `${provider.id}/${modelId}`,
     label: model.name,
-    description: `${provider.name} - ${model.family ?? ""}`.trim(),
+    description: openCodeModelDescription(provider.name, modelId, model.family),
     thinkingOptions: thinkingOptions.length > 0 ? thinkingOptions : undefined,
     defaultThinkingOptionId: thinkingOptions[0]?.id,
     metadata: {
@@ -1955,6 +1964,7 @@ export class OpenCodeAgentClient implements AgentClient {
       );
       return baseModels;
     }
+    await this.refreshOpenCodeProcessIfAdvertisedModelsChanged(rows);
     if (rows.length === 0) return baseModels;
     const seenIds = new Set(baseModels.map((model) => model.id));
     const merged = [...baseModels];
@@ -1981,6 +1991,21 @@ export class OpenCodeAgentClient implements AgentClient {
       });
     }
     return merged;
+  }
+
+  private cliproxyapiModelKey: string | null = null;
+
+  private async refreshOpenCodeProcessIfAdvertisedModelsChanged(
+    rows: readonly { id: string }[],
+  ): Promise<void> {
+    const next = rows
+      .map((row) => row.id)
+      .sort()
+      .join("\n");
+    if (next === this.cliproxyapiModelKey) return;
+    this.cliproxyapiModelKey = next;
+    this.bridge?.invalidateGatewayRows();
+    await this.serverManager.retireCurrent?.();
   }
 
   private assertConfig(config: AgentSessionConfig): OpenCodeAgentConfig {

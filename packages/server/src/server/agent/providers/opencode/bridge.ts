@@ -103,6 +103,11 @@ export class OpenCodeBridge {
     };
   }
 
+  invalidateGatewayRows(): void {
+    this.gatewayRows = null;
+    this.gatewayRowsExpiresAt = 0;
+    this.gatewayRowsInflight = null;
+  }
   async decorateServerEnv(
     env: Record<string, string>,
     gateway?: ResolvedGatewayConfig,
@@ -332,6 +337,7 @@ export function mergeOpenCodeGatewayProviderRecord(
 
 export interface OpenCodeGatewayModelEntry {
   name: string;
+  family?: string;
   limit?: { context: number; output?: number };
 }
 
@@ -350,6 +356,7 @@ export function buildOpenCodeGatewayModelsMap(
     const output = trusted ? positiveTokenCount(row.maxOutputTokens) : undefined;
     models[row.id] = {
       name: row.label || row.id,
+      family: row.id,
       ...(context === undefined
         ? {}
         : { limit: { context, ...(output === undefined ? {} : { output }) } }),

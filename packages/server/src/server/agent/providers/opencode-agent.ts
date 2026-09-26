@@ -1964,6 +1964,7 @@ export class OpenCodeAgentClient implements AgentClient {
       );
       return baseModels;
     }
+    await this.refreshOpenCodeProcessIfAdvertisedModelsChanged(rows);
     if (rows.length === 0) return baseModels;
     const seenIds = new Set(baseModels.map((model) => model.id));
     const merged = [...baseModels];
@@ -1990,6 +1991,21 @@ export class OpenCodeAgentClient implements AgentClient {
       });
     }
     return merged;
+  }
+
+  private cliproxyapiModelKey: string | null = null;
+
+  private async refreshOpenCodeProcessIfAdvertisedModelsChanged(
+    rows: readonly { id: string }[],
+  ): Promise<void> {
+    const next = rows
+      .map((row) => row.id)
+      .sort()
+      .join("\n");
+    if (next === this.cliproxyapiModelKey) return;
+    this.cliproxyapiModelKey = next;
+    this.bridge?.invalidateGatewayRows();
+    await this.serverManager.retireCurrent?.();
   }
 
   private assertConfig(config: AgentSessionConfig): OpenCodeAgentConfig {

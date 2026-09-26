@@ -103,6 +103,11 @@ export class OpenCodeBridge {
     };
   }
 
+  invalidateGatewayRows(): void {
+    this.gatewayRows = null;
+    this.gatewayRowsExpiresAt = 0;
+    this.gatewayRowsInflight = null;
+  }
   async decorateServerEnv(
     env: Record<string, string>,
     gateway?: ResolvedGatewayConfig,

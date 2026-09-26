@@ -205,6 +205,14 @@ const MutableBrowserToolsConfigSchema = z
     enabled: z.boolean().default(false),
   })
   .passthrough();
+
+const CliproxyapiConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    baseUrl: z.string().optional(),
+    apiKey: z.string().optional(),
+  })
+  .passthrough();
 const MutableRelayConfigSchema = z
   .object({
     enabled: z.boolean(),
@@ -239,6 +247,7 @@ export const MutableDaemonConfigSchema = z
     catalogRefreshTimeoutMs: z.number().int().positive().optional(),
     browserTools: MutableBrowserToolsConfigSchema.default({ enabled: false }),
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
+    cliproxyapi: CliproxyapiConfigSchema.optional(),
     metadataGeneration: MutableMetadataGenerationConfigSchema.default({
       providers: [],
       customEndpoint: {
@@ -285,6 +294,7 @@ export const MutableDaemonConfigPatchSchema = z
     providers: z
       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
       .optional(),
+    cliproxyapi: CliproxyapiConfigSchema.optional(),
     removeProviders: z.array(z.string().min(1)).optional(),
     metadataGeneration: MutableMetadataGenerationConfigPatchSchema.optional(),
     autoArchiveAfterMerge: z.boolean().optional(),

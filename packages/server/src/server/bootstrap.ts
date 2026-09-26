@@ -579,6 +579,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
       : {}),
     browserTools: { enabled: config.browserToolsEnabled ?? false },
     providers,
+    cliproxyapi: config.agentGateway,
     metadataGeneration: {
       providers: config.metadataGeneration?.providers ?? [],
       customEndpoint: resolveInitialMetadataCustomEndpoint(config.metadataGeneration),

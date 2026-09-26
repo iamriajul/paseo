@@ -163,9 +163,19 @@ export function shouldRouteClaudeModelThroughCliproxyapi(options: {
 }): boolean {
   const modelId = options.modelId?.trim() ?? "";
   if (!modelId) return false;
-  if (options.advertisedIds?.has(modelId)) return true;
+  if (options.advertisedIds) {
+    for (const candidate of cliproxyapiRouteIds(modelId)) {
+      if (options.advertisedIds.has(candidate)) return true;
+    }
+  }
   if (normalizeClaudeRuntimeModelId(modelId)) return false;
   return options.advertisedIds == null;
+}
+
+/** `[1m]` is a harness context flag on the same model, not a second gateway id. */
+function cliproxyapiRouteIds(modelId: string): string[] {
+  const withoutContextFlag = modelId.replace(/\[1m\]$/i, "");
+  return withoutContextFlag === modelId ? [modelId] : [modelId, withoutContextFlag];
 }
 interface CliproxyModelCapacity {
   contextWindowMaxTokens?: number;

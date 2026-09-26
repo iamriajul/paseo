@@ -16,7 +16,6 @@ import {
 
 describe("shouldRouteClaudeModelThroughCliproxyapi", () => {
   const advertised = new Set(["space-bunny-free", "claude-opus-4-8"]);
-
   test("routes an advertised model and leaves an unlisted manifest model local", () => {
     expect(
       shouldRouteClaudeModelThroughCliproxyapi({
@@ -30,6 +29,18 @@ describe("shouldRouteClaudeModelThroughCliproxyapi", () => {
         advertisedIds: advertised,
       }),
     ).toBe(true);
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "claude-opus-4-8[1m]",
+        advertisedIds: advertised,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: "claude-opus-5-5",
+        advertisedIds: advertised,
+      }),
+    ).toBe(false);
     expect(
       shouldRouteClaudeModelThroughCliproxyapi({
         modelId: "claude-opus-5-5",

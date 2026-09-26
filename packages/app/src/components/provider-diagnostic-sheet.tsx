@@ -57,6 +57,7 @@ import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useTimeAgo } from "@/hooks/use-time-ago";
+import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { settingsStyles } from "@/styles/settings";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
@@ -135,6 +136,7 @@ function DiscoveredModelRow({
               <TooltipTrigger
                 style={warningButtonStyle}
                 hitSlop={8}
+                onPress={handleConfigure}
                 accessibilityRole="button"
                 accessibilityLabel={capacityWarning}
                 testID={`capacity-warning-${model.id}`}
@@ -1436,6 +1438,18 @@ export function ProviderDiagnosticSheet({
     },
     [additionalModels],
   );
+
+  const consumeConfigureModelId = useProviderSettingsStore(
+    (state) => state.consumeConfigureModelId,
+  );
+  useEffect(() => {
+    if (!visible || discoveredModels.length === 0) return;
+    const modelId = consumeConfigureModelId();
+    if (!modelId) return;
+    const model = discoveredModels.find((candidate) => candidate.id === modelId);
+    if (!model) return;
+    handleConfigureDiscovered(model);
+  }, [consumeConfigureModelId, discoveredModels, handleConfigureDiscovered, visible]);
 
   const handleDeleteCustom = useCallback(
     (modelId: string) => {

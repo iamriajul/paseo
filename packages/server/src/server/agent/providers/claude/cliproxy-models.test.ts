@@ -451,17 +451,44 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
     },
   ];
 
-  test("appends only missing decoded ids", async () => {
+  test("leaves first-party 200k and 1M variants alone", async () => {
     const result = await appendCliproxyModelsToClaudeCatalog({
-      baseModels: base,
+      baseModels: [
+        {
+          provider: "claude" as const,
+          id: "claude-opus-4-8",
+          label: "Opus 4.8",
+          contextWindowMaxTokens: 200_000,
+        },
+        {
+          provider: "claude" as const,
+          id: "claude-opus-4-8[1m]",
+          label: "Opus 4.8 1M",
+          contextWindowMaxTokens: 1_000_000,
+        },
+        {
+          provider: "claude" as const,
+          id: "claude-opus-5-5",
+          label: "Opus 5.5",
+          contextWindowMaxTokens: 1_000_000,
+        },
+      ],
       rows: [
         {
-          id: "claude-fable-5",
-          label: "Claude Fable 5",
+          id: "claude-opus-4-8",
+          label: "Claude Opus 4.8",
           ownedBy: "anthropic",
           maxInputTokens: 1_000_000,
           maxOutputTokens: 128_000,
-          rawListId: "claude-fable-5",
+          rawListId: "claude-opus-4-8",
+        },
+        {
+          id: "claude-opus-5-5",
+          label: "Claude Opus 5.5",
+          ownedBy: "anthropic",
+          maxInputTokens: 1_000_000,
+          maxOutputTokens: 128_000,
+          rawListId: "claude-opus-5-5",
         },
         {
           id: "grok-4.5",
@@ -476,11 +503,18 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
-    expect(result.models.map((m) => m.id)).toEqual(["claude-fable-5", "grok-4.5"]);
-    const grok = result.models.find((m) => m.id === "grok-4.5")!;
-    expect(grok.contextWindowMaxTokens).toBe(500_000);
-    expect(grok.maxOutputTokens).toBe(65_536);
-    expect(grok.needsCapacityConfig).toBeUndefined();
+    expect(
+      result.models.find((model) => model.id === "claude-opus-4-8")?.contextWindowMaxTokens,
+    ).toBe(200_000);
+    expect(
+      result.models.find((model) => model.id === "claude-opus-4-8[1m]")?.contextWindowMaxTokens,
+    ).toBe(1_000_000);
+    expect(
+      result.models.find((model) => model.id === "claude-opus-5-5")?.contextWindowMaxTokens,
+    ).toBe(1_000_000);
+    expect(result.models.find((model) => model.id === "grok-4.5")?.contextWindowMaxTokens).toBe(
+      500_000,
+    );
     expect(result.autoPersist).toEqual([
       {
         id: "grok-4.5",
@@ -490,7 +524,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
     ]);
   });
 
-  test("does not trust OpenCodeGo CPA limits; uses models.dev single hit", async () => {
+  test("trusts CPA limits for non-official owners", async () => {
     const result = await appendCliproxyModelsToClaudeCatalog({
       baseModels: base,
       rows: [
@@ -498,35 +532,76 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
           id: "qwen3.8-max",
           label: "qwen3.8-max",
           ownedBy: "OpenCodeGo",
-          maxInputTokens: 200_000,
-          maxOutputTokens: 64_000,
+          maxInputTokens: 1_000_000,
+          maxOutputTokens: 131_072,
           rawListId: "claude-fable-5-dd-xam-8.3newq",
         },
       ],
       existingAdditionalModels: [],
-      lookupModelsDev: async () => ({
-        found: true,
-        query: "qwen3.8-max",
-        matchedId: "qwen3.8-max",
-        providerId: "opencode-go",
-        contextWindowMaxTokens: 1_000_000,
-        maxOutputTokens: 131_072,
-        candidates: [
-          {
-            providerId: "opencode-go",
-            matchedId: "qwen3.8-max",
-            contextWindowMaxTokens: 1_000_000,
-            maxOutputTokens: 131_072,
-          },
-        ],
-      }),
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
     const qwen = result.models.find((m) => m.id === "qwen3.8-max")!;
     expect(qwen.contextWindowMaxTokens).toBe(1_000_000);
     expect(qwen.maxOutputTokens).toBe(131_072);
     expect(qwen.needsCapacityConfig).toBeUndefined();
-    expect(result.autoPersist[0]?.contextWindowMaxTokens).toBe(1_000_000);
+    expect(result.autoPersist).toEqual([
+      {
+        id: "qwen3.8-max",
+        contextWindowMaxTokens: 1_000_000,
+        maxOutputTokens: 131_072,
+      },
+    ]);
+  });
+
+  test("uses CPA windows for gateway models such as Space Bunny and MiMo", async () => {
+    const result = await appendCliproxyModelsToClaudeCatalog({
+      baseModels: base,
+      rows: [
+        {
+          id: "space-bunny-free",
+          label: "Space Bunny Free",
+          ownedBy: "opencode",
+          maxInputTokens: 1_048_576,
+          maxOutputTokens: 524_288,
+          rawListId: "claude-fable-5-dd-eerf-ynnub-ecaps",
+        },
+        {
+          id: "mimo-v2.6-flash",
+          label: "MiMo-V2.6-Flash",
+          ownedBy: "opencode",
+          maxInputTokens: 1_048_576,
+          maxOutputTokens: 131_072,
+          rawListId: "claude-fable-5-dd-hsalf-6.2v-omim",
+        },
+      ],
+      existingAdditionalModels: [],
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
+      getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
+    });
+    expect(result.models.find((model) => model.id === "space-bunny-free")).toMatchObject({
+      contextWindowMaxTokens: 1_048_576,
+      maxOutputTokens: 524_288,
+    });
+    expect(result.models.find((model) => model.id === "mimo-v2.6-flash")).toMatchObject({
+      contextWindowMaxTokens: 1_048_576,
+      maxOutputTokens: 131_072,
+    });
+    expect(
+      result.models.find((model) => model.id === "space-bunny-free")?.needsCapacityConfig,
+    ).toBeUndefined();
+    expect(result.autoPersist).toEqual([
+      {
+        id: "space-bunny-free",
+        contextWindowMaxTokens: 1_048_576,
+        maxOutputTokens: 524_288,
+      },
+      {
+        id: "mimo-v2.6-flash",
+        contextWindowMaxTokens: 1_048_576,
+        maxOutputTokens: 131_072,
+      },
+    ]);
   });
 
   test("marks multi models.dev hits as needsCapacityConfig", async () => {
@@ -537,8 +612,6 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
           id: "qwen3.8-max",
           label: "qwen3.8-max",
           ownedBy: "OpenCodeGo",
-          maxInputTokens: 200_000,
-          maxOutputTokens: 64_000,
           rawListId: "x",
         },
       ],
@@ -587,9 +660,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       existingAdditionalModels: [
         { id: "qwen3.8-max", contextWindowMaxTokens: 999_999, maxOutputTokens: 12_345 },
       ],
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
     const qwen = result.models.find((m) => m.id === "qwen3.8-max")!;
@@ -613,9 +684,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
         },
       ],
       existingAdditionalModels: [{ id: "grok-4.5", contextWindowMaxTokens: 500_000 }],
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
 
@@ -643,9 +712,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
         },
       ],
       existingAdditionalModels: existing,
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
 
@@ -674,9 +741,7 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
         },
       ],
       existingAdditionalModels: [{ id: "grok-4.5", maxOutputTokens: 65_536 }],
-      lookupModelsDev: async () => {
-        throw new Error("should not be called");
-      },
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
 
@@ -712,11 +777,11 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       lookupModelsDev: lookup,
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
-    expect(lookup).not.toHaveBeenCalled();
+    expect(lookup).toHaveBeenCalled();
     expect(result.models.find((m) => m.id === "gpt-5.6-sol")?.contextWindowMaxTokens).toBe(372_000);
   });
 
-  test("marks zero-hit or lookup errors without trusting CPA limits", async () => {
+  test("trusts CPA limits when models.dev misses", async () => {
     const result = await appendCliproxyModelsToClaudeCatalog({
       baseModels: base,
       rows: [
@@ -738,11 +803,16 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
     const model = result.models.find((m) => m.id === "custom-gateway-model")!;
-    expect(model.contextWindowMaxTokens).toBeUndefined();
-    expect(model.maxOutputTokens).toBeUndefined();
-    expect(model.needsCapacityConfig).toBe(true);
-    expect(model.metadata?.needsCapacityConfig).toBe(true);
-    expect(result.autoPersist).toEqual([]);
+    expect(model.contextWindowMaxTokens).toBe(200_000);
+    expect(model.maxOutputTokens).toBe(64_000);
+    expect(model.needsCapacityConfig).toBeUndefined();
+    expect(result.autoPersist).toEqual([
+      {
+        id: "custom-gateway-model",
+        contextWindowMaxTokens: 200_000,
+        maxOutputTokens: 64_000,
+      },
+    ]);
   });
 });
 

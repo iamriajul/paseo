@@ -1786,10 +1786,7 @@ export class ClaudeAgentClient implements AgentClient {
   ): Promise<CliproxyAgentModelDefinition[]> {
     if (autoPersist.length === 0) return nextModels;
 
-    // Launch reads profileModels, not the catalog row. Keep the window in
-    // memory for this process. Do not write discovered models into
-    // additionalModels; that list is only for models the user added.
-    this.additionalModels = mergeAdditionalModelLimits(this.additionalModels ?? [], autoPersist);
+    // Launch reads profileModels. additionalModels is only models the user added.
     this.profileModels = mergeAdditionalModelLimits(this.profileModels ?? [], autoPersist);
     return nextModels;
   }

@@ -314,14 +314,14 @@ describe("provider usage list message contract", () => {
 describe("gateway quota message contract", () => {
   test("accepts the quota get request as a namespaced correlated RPC", () => {
     const parsed = SessionInboundMessageSchema.parse({
-      type: "gateway.quota.get.request",
+      type: "cliproxyapi.quota.get.request",
       requestId: "quota-1",
       provider: "claude",
       model: "grok-4.6",
     });
 
     expect(parsed).toEqual({
-      type: "gateway.quota.get.request",
+      type: "cliproxyapi.quota.get.request",
       requestId: "quota-1",
       provider: "claude",
       model: "grok-4.6",
@@ -330,7 +330,7 @@ describe("gateway quota message contract", () => {
 
   test("accepts quota responses with accounts and windows", () => {
     const parsed = SessionOutboundMessageSchema.parse({
-      type: "gateway.quota.get.response",
+      type: "cliproxyapi.quota.get.response",
       payload: {
         requestId: "quota-2",
         supported: true,
@@ -349,8 +349,8 @@ describe("gateway quota message contract", () => {
       },
     });
 
-    expect(parsed.type).toBe("gateway.quota.get.response");
-    if (parsed.type !== "gateway.quota.get.response") {
+    expect(parsed.type).toBe("cliproxyapi.quota.get.response");
+    if (parsed.type !== "cliproxyapi.quota.get.response") {
       throw new Error("Expected gateway quota response");
     }
     expect(parsed.payload.accounts[0]?.windows[0]?.usedPct).toBe(51);
@@ -358,7 +358,7 @@ describe("gateway quota message contract", () => {
 
   test("accepts unsupported quota responses with no accounts", () => {
     const parsed = SessionOutboundMessageSchema.parse({
-      type: "gateway.quota.get.response",
+      type: "cliproxyapi.quota.get.response",
       payload: {
         requestId: "quota-3",
         supported: false,
@@ -368,7 +368,7 @@ describe("gateway quota message contract", () => {
     });
 
     expect(parsed).toEqual({
-      type: "gateway.quota.get.response",
+      type: "cliproxyapi.quota.get.response",
       payload: {
         requestId: "quota-3",
         supported: false,

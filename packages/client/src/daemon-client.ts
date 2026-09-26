@@ -6578,7 +6578,7 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest({
       requestId: options.requestId,
       message: {
-        type: "gateway.quota.get.request",
+        type: "cliproxyapi.quota.get.request",
         provider: options.provider,
         model: options.model,
       },
@@ -6586,6 +6586,15 @@ export class DaemonClient {
     });
   }
 
+  async listCliproxyapiQuota(options?: { requestId?: string }): Promise<GatewayQuotaPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: {
+        type: "cliproxyapi.quota.get.request",
+      },
+      timeout: 30_000,
+    });
+  }
   async listCommands(options: ListCommandsOptions): Promise<ListCommandsPayload>;
   async listCommands(agentId: string, requestId?: string): Promise<ListCommandsPayload>;
   async listCommands(

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  GATEWAY_ENV_API_KEY,
-  GATEWAY_ENV_BASE_URL,
+  CLIPROXYAPI_ENV_API_KEY,
+  CLIPROXYAPI_ENV_BASE_URL,
   claudeGatewayEnv,
   claudeOverrideOptsOutOfGateway,
   codexGatewayEnv,
@@ -39,7 +39,10 @@ describe("resolveGatewayConfig", () => {
     expect(
       resolveGatewayConfig(
         {},
-        { [GATEWAY_ENV_BASE_URL]: "http://gateway:8317/v1/", [GATEWAY_ENV_API_KEY]: "sk-test" },
+        {
+          [CLIPROXYAPI_ENV_BASE_URL]: "http://gateway:8317/v1/",
+          [CLIPROXYAPI_ENV_API_KEY]: "sk-test",
+        },
       ),
     ).toEqual({ baseUrl: "http://gateway:8317", apiKey: "sk-test" });
   });
@@ -48,20 +51,24 @@ describe("resolveGatewayConfig", () => {
     expect(resolveGatewayConfig({ enabled: true, baseUrl: "http://gateway:8317" }, {})).toBeNull();
     expect(resolveGatewayConfig({ enabled: true, apiKey: "sk-test" }, {})).toBeNull();
   });
-
-  test("env wins over file and enables without the flag", () => {
-    const env = {
-      [GATEWAY_ENV_BASE_URL]: "http://env-gateway:8317",
-      [GATEWAY_ENV_API_KEY]: "sk-env",
-    };
+  test("cliproxyapi env wins over the file and enables without the flag", () => {
     expect(
-      resolveGatewayConfig({ enabled: false, baseUrl: "http://file:8317", apiKey: "sk-file" }, env),
-    ).toEqual({ baseUrl: "http://env-gateway:8317", apiKey: "sk-env" });
+      resolveGatewayConfig(
+        { enabled: false, baseUrl: "http://file:8317", apiKey: "sk-file" },
+        {
+          [CLIPROXYAPI_ENV_BASE_URL]: "http://cliproxyapi:8317",
+          [CLIPROXYAPI_ENV_API_KEY]: "sk-cpa",
+        },
+      ),
+    ).toEqual({ baseUrl: "http://cliproxyapi:8317", apiKey: "sk-cpa" });
   });
 
   test("blank env values do not enable", () => {
     expect(
-      resolveGatewayConfig({}, { [GATEWAY_ENV_BASE_URL]: "   ", [GATEWAY_ENV_API_KEY]: "" }),
+      resolveGatewayConfig(
+        {},
+        { [CLIPROXYAPI_ENV_BASE_URL]: "   ", [CLIPROXYAPI_ENV_API_KEY]: "" },
+      ),
     ).toBeNull();
   });
 });

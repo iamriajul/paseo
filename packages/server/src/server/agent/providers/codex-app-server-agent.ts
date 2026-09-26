@@ -66,7 +66,11 @@ import {
   type ProviderRuntimeSettings,
   type ResolvedProviderLaunch,
 } from "../provider-launch-config.js";
-import { GATEWAY_PROVIDER_ID, type ResolvedGatewayConfig } from "../gateway/config.js";
+import {
+  GATEWAY_PROVIDER_ID,
+  gatewayBaseUrlsMatch,
+  type ResolvedGatewayConfig,
+} from "../gateway/config.js";
 import { fetchGatewayCodexModels, type GatewayCodexModelRow } from "../gateway/models.js";
 import {
   findExecutable,
@@ -7162,6 +7166,26 @@ export class CodexAppServerAgentClient implements AgentClient {
     }
   }
 
+  private cliproxyapiSpawnEnv(
+    launchEnv: Record<string, string> | undefined,
+    model: string | undefined,
+  ) {
+    const spec = createProviderEnvSpec({
+      runtimeSettings: this.runtimeSettings,
+      overlays: [launchEnv],
+    });
+    const gateway = this.deps.gateway;
+    if (!gateway || (model && this.cliproxyapiAdvertisedIds?.has(model))) return spec;
+    const envOverlay = { ...spec.envOverlay };
+    if (gatewayBaseUrlsMatch(envOverlay.OPENAI_BASE_URL, gateway.baseUrl)) {
+      envOverlay.OPENAI_BASE_URL = undefined;
+    }
+    if (envOverlay.OPENAI_API_KEY === gateway.apiKey) {
+      envOverlay.OPENAI_API_KEY = undefined;
+    }
+    return { ...spec, envOverlay };
+  }
+
   private async spawnAppServer(
     launchEnv?: Record<string, string>,
     options?: { goalsEnabled?: boolean; agentId?: string; model?: string },
@@ -7183,10 +7207,7 @@ export class CodexAppServerAgentClient implements AgentClient {
     const child = spawnProcess(launchPrefix.command, args, {
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
-      ...createProviderEnvSpec({
-        runtimeSettings: this.runtimeSettings,
-        overlays: [launchEnv],
-      }),
+      ...this.cliproxyapiSpawnEnv(launchEnv, options?.model),
     });
     assertChildWithPipes(child);
     return child;
@@ -7399,11 +7420,14 @@ export class CodexAppServerAgentClient implements AgentClient {
         }),
       );
       const gatewayRows = await this.fetchGatewayCodexRows(context);
-      this.cliproxyapiAdvertisedIds = new Set(
-        gatewayRows
-          .filter((row) => !row.hidden && !baseModels.some((model) => model.id === row.slug))
-          .map((row) => row.slug),
+      const advertisedIds = new Set(
+        gatewayRows.filter((row) => !row.hidden).map((row) => row.slug),
       );
+      this.cliproxyapiAdvertisedIds = advertisedIds;
+      for (const model of baseModels) {
+        if (!advertisedIds.has(model.id)) continue;
+        model.metadata = { ...model.metadata, source: "cliproxyapi" };
+      }
       if (gatewayRows.length === 0) return baseModels;
       return appendGatewayCodexModelsToCatalog(baseModels, gatewayRows, {
         configuredDefaultModelId,

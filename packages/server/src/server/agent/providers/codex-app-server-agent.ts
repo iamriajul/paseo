@@ -7420,11 +7420,14 @@ export class CodexAppServerAgentClient implements AgentClient {
         }),
       );
       const gatewayRows = await this.fetchGatewayCodexRows(context);
-      this.cliproxyapiAdvertisedIds = new Set(
-        gatewayRows
-          .filter((row) => !row.hidden && !baseModels.some((model) => model.id === row.slug))
-          .map((row) => row.slug),
+      const advertisedIds = new Set(
+        gatewayRows.filter((row) => !row.hidden).map((row) => row.slug),
       );
+      this.cliproxyapiAdvertisedIds = advertisedIds;
+      for (const model of baseModels) {
+        if (!advertisedIds.has(model.id)) continue;
+        model.metadata = { ...model.metadata, source: "cliproxyapi" };
+      }
       if (gatewayRows.length === 0) return baseModels;
       return appendGatewayCodexModelsToCatalog(baseModels, gatewayRows, {
         configuredDefaultModelId,

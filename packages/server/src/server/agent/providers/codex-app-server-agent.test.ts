@@ -154,6 +154,7 @@ function createConfig(overrides: Partial<AgentSessionConfig> = {}): AgentSession
 function createSession(
   configOverrides: Partial<AgentSessionConfig> = {},
   options: { goalsEnabled?: boolean; autoReviewEnabled?: boolean } = {},
+  deps: Record<string, unknown> = {},
 ): CodexTestSession {
   const session = new CodexAppServerAgentSession(
     createConfig(configOverrides),
@@ -162,7 +163,7 @@ function createSession(
     () => {
       throw new Error("Test session cannot spawn Codex app-server");
     },
-    {},
+    deps,
     false,
     options.goalsEnabled === true,
     options.autoReviewEnabled === true,
@@ -6369,10 +6370,10 @@ describe("Codex Gateway model discovery", () => {
       ]);
 
       const byId = new Map(catalog.models.map((model) => [model.id, model]));
-      // Dedupe: the model/list entry wins over the Gateway row with the same slug.
+      // Dedupe: the model/list entry wins over the Gateway row with the same slug, but overlays advertised context window.
       expect(catalog.models.filter((model) => model.id === "gpt-5.4")).toHaveLength(1);
       expect(byId.get("gpt-5.4")).toMatchObject({ provider: "codex", label: "GPT 5.4" });
-      expect(byId.get("gpt-5.4")?.contextWindowMaxTokens).toBeUndefined();
+      expect(byId.get("gpt-5.4")?.contextWindowMaxTokens).toBe(400_000);
 
       const alpha = byId.get("gw-alpha");
       expect(alpha).toMatchObject({
@@ -6476,5 +6477,89 @@ describe("codexConfigForModel", () => {
   test("leaves a user custom provider routed for every model", () => {
     const custom = { model_provider: "codex-custom", model_providers: {} };
     expect(codexConfigForModel(custom, "gpt-5.4", new Set(["grok-4.6"]))).toBe(custom);
+  });
+});
+
+describe("Codex Gateway context window and model catalog", () => {
+  test("thread/start passes model_context_window from cliproxyapiContextWindows", async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const contextWindows = new Map([["qwen3.8-max", 1_000_000]]);
+    const session = createSession(
+      { model: "qwen3.8-max", thinkingOptionId: "high" },
+      {},
+      { cliproxyapiContextWindows: contextWindows },
+    );
+    session.currentThreadId = null;
+    session.activeForegroundTurnId = null;
+    session.client = {
+      request: vi.fn(async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/start") return { thread: { id: "test-thread" } };
+        if (method === "turn/start") return {};
+        throw new Error(`Unexpected request: ${method}`);
+      }),
+    };
+
+    await session.startTurn("hi");
+    const startCall = requests.find((req) => req.method === "thread/start");
+    expect(startCall?.params).toMatchObject({
+      config: {
+        model_context_window: 1_000_000,
+      },
+    });
+  });
+
+  test("handleTokenUsageUpdatedNotification preserves configured context window against lower reported fallback", () => {
+    const contextWindows = new Map([["qwen3.8-max", 1_000_000]]);
+    const session = createSession(
+      { model: "qwen3.8-max" },
+      {},
+      { cliproxyapiContextWindows: contextWindows },
+    );
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+
+    asInternals(session).handleTokenUsageUpdatedNotification({
+      kind: "token_usage_updated",
+      tokenUsage: {
+        model_context_window: 258_400,
+        last: { total_tokens: 100 },
+      },
+    });
+
+    const usageEvent = events.find((e) => e.type === "usage_updated");
+    expect(usageEvent).toBeDefined();
+    expect(usageEvent?.usage.contextWindowMaxTokens).toBe(1_000_000);
+  });
+
+  test("spawnAppServer passes -c model_catalog_json when modelCatalogPath is configured", async () => {
+    const provider = new CodexAppServerAgentClient(
+      createTestLogger(),
+      {
+        command: {
+          mode: "replace",
+          argv: [process.execPath, "-e", "console.log(process.argv.slice(1).join(' '))"],
+        },
+      },
+      {
+        modelCatalogPath: "/custom/path/codex-model-catalog.json",
+      },
+    );
+    const internals = castInternals<{
+      spawnAppServer: (
+        launchEnv?: Record<string, string>,
+        options?: { goalsEnabled?: boolean; agentId?: string; model?: string },
+      ) => Promise<ChildProcessWithoutNullStreams>;
+    }>(provider);
+
+    const child = await internals.spawnAppServer();
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    await new Promise((resolve) => child.on("exit", resolve));
+
+    expect(stdout).toContain("-c");
+    expect(stdout).toContain('model_catalog_json="/custom/path/codex-model-catalog.json"');
   });
 });

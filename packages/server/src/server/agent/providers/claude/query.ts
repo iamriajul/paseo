@@ -2,12 +2,13 @@ import { type ChildProcess, type ChildProcessWithoutNullStreams } from "node:chi
 import { query, type Options, type Query, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 
 import {
-  createProviderEnv,
   createProviderEnvSpec,
   type ProviderRuntimeSettings,
 } from "../../provider-launch-config.js";
-import { buildSelfNodeCommand } from "../../../paseo-env.js";
+import { gatewayBaseUrlsMatch, type ResolvedGatewayConfig } from "../../gateway/config.js";
+import { buildSelfNodeCommand, createExternalProcessEnv } from "../../../paseo-env.js";
 import { spawnProcess } from "../../../../utils/spawn.js";
+import { shouldRouteClaudeModelThroughCliproxyapi } from "./cliproxy-models.js";
 
 // Keep the raw SDK query import in this module only. Claude process launch behavior
 // must stay shared between production and tests so Windows .cmd/.bat handling cannot
@@ -20,6 +21,8 @@ export type ClaudeQueryFactory = (input: ClaudeQueryInput) => Query;
 export interface ClaudeQueryContext {
   runtimeSettings?: ProviderRuntimeSettings;
   launchEnv?: Record<string, string>;
+  gateway?: ResolvedGatewayConfig;
+  cliproxyapiAdvertisedIds?: ReadonlySet<string> | null;
   queryFactory?: ClaudeQueryFactory;
   /** Called with the spawned child process so the caller can tree-kill it on close. */
   onChildProcess?: (child: ChildProcess) => void;
@@ -74,11 +77,25 @@ function applyRuntimeSettingsToClaudeOptions(
         runtimeSettings,
         overlays: [launchEnv],
       });
-      const providerEnv = createProviderEnv({
-        baseEnv: spawnOptions.env,
-        runtimeSettings,
-        overlays: [launchEnv],
-      });
+      const gateway = context.gateway;
+      if (
+        gateway &&
+        !shouldRouteClaudeModelThroughCliproxyapi({
+          modelId: options.model,
+          advertisedIds: context.cliproxyapiAdvertisedIds ?? null,
+        })
+      ) {
+        if (gatewayBaseUrlsMatch(providerEnvSpec.envOverlay.ANTHROPIC_BASE_URL, gateway.baseUrl)) {
+          delete providerEnvSpec.envOverlay.ANTHROPIC_BASE_URL;
+        }
+        if (providerEnvSpec.envOverlay.ANTHROPIC_AUTH_TOKEN === gateway.apiKey) {
+          delete providerEnvSpec.envOverlay.ANTHROPIC_AUTH_TOKEN;
+        }
+      }
+      const providerEnv = createExternalProcessEnv(
+        spawnOptions.env ?? process.env,
+        providerEnvSpec.envOverlay,
+      );
       const selfNodeCommand = isDefaultRuntime
         ? buildSelfNodeCommand(resolved.args, providerEnv)
         : null;

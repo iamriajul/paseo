@@ -447,6 +447,8 @@ export interface ClaudeAgentClientOptions {
   runtimeSettings?: ProviderRuntimeSettings;
   /** First-party Gateway routing (registry sets it only when it applies). */
   gateway?: ResolvedGatewayConfig;
+  /** Discovered model ids from CLIProxyAPI. Defaults to null until discovery finishes. */
+  cliproxyapiAdvertisedIds?: ReadonlySet<string> | null;
   profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
@@ -1643,6 +1645,7 @@ export class ClaudeAgentClient implements AgentClient {
     this.logger = options.logger.child({ module: "agent", provider: "claude" });
     this.runtimeSettings = options.runtimeSettings;
     this.gateway = options.gateway;
+    this.cliproxyapiAdvertisedIds = options.cliproxyapiAdvertisedIds ?? null;
     this.profileModels = options.profileModels;
     this.additionalModels = options.additionalModels;
     this.queryFactory = options.queryFactory;
@@ -3542,6 +3545,8 @@ class ClaudeAgentSession implements AgentSession {
       {
         runtimeSettings: this.runtimeSettings,
         launchEnv: this.launchEnv,
+        gateway: this.gateway,
+        cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
         queryFactory: this.queryFactory,
         onChildProcess: (child) => {
           this.childProcess = child;

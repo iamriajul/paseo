@@ -573,3 +573,13 @@ The config key is `agents.cliproxyapi`. Env is `PASEO_CLIPROXYAPI_*`. The toolti
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/persisted-config.test.ts --bail=1
 ```
+
+## claude-gateway-fallback-survives-spawn
+
+**Claude Gateway fallback to local login survives child process spawn**
+
+When first-party Gateway routing is injected for Claude, models not advertised by the Gateway fall back to local Claude Code credentials by stripping Gateway `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`. Claude query launch re-derived the child process environment from `runtimeSettings`, re-injecting the Gateway variables. `query.ts` now strips matching Gateway variables on the spawn spec, preserving local login and any user-configured non-Gateway endpoints.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/claude/agent.spawn.test.ts --bail=1
+```

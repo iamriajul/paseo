@@ -2,11 +2,13 @@ import { type ChildProcess, type ChildProcessWithoutNullStreams } from "node:chi
 import { query, type Options, type Query, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 
 import {
-  createProviderEnv,
+  createProviderEnvFromSpec,
   createProviderEnvSpec,
+  type ProviderEnvSpec,
   type ProviderRuntimeSettings,
 } from "../../provider-launch-config.js";
-import { buildSelfNodeCommand } from "../../../paseo-env.js";
+import { gatewayBaseUrlsMatch, type ResolvedGatewayConfig } from "../../gateway/config.js";
+import { buildSelfNodeCommand, type ProcessEnvRecord } from "../../../paseo-env.js";
 import { spawnProcess } from "../../../../utils/spawn.js";
 
 // Keep the raw SDK query import in this module only. Claude process launch behavior
@@ -20,9 +22,57 @@ export type ClaudeQueryFactory = (input: ClaudeQueryInput) => Query;
 export interface ClaudeQueryContext {
   runtimeSettings?: ProviderRuntimeSettings;
   launchEnv?: Record<string, string>;
+  /**
+   * First-party Gateway routing this session resolved to. Absent means the
+   * provider is not Gateway-routed and its env must be left alone.
+   */
+  gateway?: ResolvedGatewayConfig;
+  /**
+   * Whether the Gateway advertised this session's model. A model the Gateway
+   * did not list keeps the local Claude Code login, so the routing env has to
+   * be stripped from the spec this module actually spawns with — the registry
+   * merged it into `runtimeSettings` for the whole provider.
+   */
+  routeThroughGateway?: boolean;
   queryFactory?: ClaudeQueryFactory;
   /** Called with the spawned child process so the caller can tree-kill it on close. */
   onChildProcess?: (child: ChildProcess) => void;
+}
+
+/**
+ * Drop Gateway `ANTHROPIC_*` routing, leaving any other Anthropic endpoint the
+ * user configured. Only values that match this Gateway are removed.
+ *
+ * Keys are set to `undefined` rather than deleted: the spawn path assigns this
+ * onto an env seeded from `process.env`, where a missing key would let the
+ * daemon's own Gateway routing back in.
+ */
+export function stripCliproxyapiRoutingEnv(
+  env: ProcessEnvRecord,
+  gateway: ResolvedGatewayConfig | undefined,
+): ProcessEnvRecord {
+  if (!gateway) return env;
+  const next: ProcessEnvRecord = { ...env };
+  if (gatewayBaseUrlsMatch(next.ANTHROPIC_BASE_URL, gateway.baseUrl)) {
+    next.ANTHROPIC_BASE_URL = undefined;
+  }
+  if (next.ANTHROPIC_AUTH_TOKEN === gateway.apiKey) {
+    next.ANTHROPIC_AUTH_TOKEN = undefined;
+  }
+  return next;
+}
+
+/** True when this session's model keeps the local login, not the Gateway's. */
+function shouldStripGatewayRouting(context: ClaudeQueryContext): boolean {
+  return context.gateway !== undefined && context.routeThroughGateway === false;
+}
+
+function applyGatewayRoutingToSpec(
+  spec: ProviderEnvSpec,
+  context: ClaudeQueryContext,
+): ProviderEnvSpec {
+  if (!shouldStripGatewayRouting(context)) return spec;
+  return { ...spec, envOverlay: stripCliproxyapiRoutingEnv(spec.envOverlay, context.gateway) };
 }
 
 function isChildProcessWithStreams(child: ChildProcess): child is ChildProcessWithoutNullStreams {
@@ -69,18 +119,28 @@ function applyRuntimeSettingsToClaudeOptions(
       // When the SDK passes a native binary path (from pathToClaudeCodeExecutable)
       // or the user overrides the command via runtime settings, use that directly.
       const isDefaultRuntime = resolved.command === "node" || resolved.command === "bun";
-      const providerEnvSpec = createProviderEnvSpec({
-        baseEnv: spawnOptions.env,
-        runtimeSettings,
-        overlays: [launchEnv],
-      });
-      const providerEnv = createProviderEnv({
-        baseEnv: spawnOptions.env,
-        runtimeSettings,
-        overlays: [launchEnv],
-      });
+      const providerEnvSpec = applyGatewayRoutingToSpec(
+        createProviderEnvSpec({
+          baseEnv: spawnOptions.env,
+          runtimeSettings,
+          overlays: [launchEnv],
+        }),
+        context,
+      );
+      const providerEnv = createProviderEnvFromSpec(providerEnvSpec);
+      // The default-runtime path seeds the child from `process.env`, so a daemon
+      // launched against the Gateway would route a model the Gateway never
+      // advertised. Strip that seed as well as the overlay assigned over it.
+      const stripSeed = shouldStripGatewayRouting(context);
+      const routedEnv = stripSeed
+        ? stripCliproxyapiRoutingEnv(providerEnv, context.gateway)
+        : providerEnv;
       const selfNodeCommand = isDefaultRuntime
-        ? buildSelfNodeCommand(resolved.args, providerEnv)
+        ? buildSelfNodeCommand(
+            resolved.args,
+            routedEnv,
+            stripSeed ? stripCliproxyapiRoutingEnv(process.env, context.gateway) : process.env,
+          )
         : null;
       const command = selfNodeCommand?.command ?? resolved.command;
       const args = selfNodeCommand?.args ?? resolved.args;

@@ -514,6 +514,16 @@ Gateway-routed custom models disallow `WebSearch` (the Gateway does not serve it
 npx vitest run packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
 ```
 
+## gateway-claude-spawn-routing
+
+**a Claude model the Gateway did not advertise keeps the local login in the spawned child**
+
+The Gateway env layer is merged into `runtimeSettings` for the whole Claude provider, and the SDK's `spawnClaudeCodeProcess` rebuilds the child env from it. Stripping only `buildSdkEnv()` was undone by that rebuild, so a model CLIProxyAPI never advertised was still sent to the Gateway. The session's routing decision now travels into `claudeQuery`, which strips the spec it actually spawns with — the same shape as Codex's `cliproxyapiSpawnEnv`. Stripped keys are marked `undefined` rather than deleted, and the default-runtime path strips its `process.env` seed too, because a daemon launched against the Gateway would otherwise route the model there.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/agent.gateway-spawn.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/provider-launch-config.test.ts packages/server/src/server/paseo-env.test.ts --bail=1
+```
+
 ## gateway-codex-discovery
 
 **Codex Gateway discovery with bare-slug ids and thread provider routing**

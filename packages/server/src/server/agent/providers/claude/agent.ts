@@ -107,7 +107,12 @@ import {
   type ClaudeProviderOptions,
 } from "./options.js";
 import { renderPromptAttachmentAsText } from "../../prompt-attachments.js";
-import { claudeQuery, type ClaudeOptions, type ClaudeQueryFactory } from "./query.js";
+import {
+  claudeQuery,
+  stripCliproxyapiRoutingEnv,
+  type ClaudeOptions,
+  type ClaudeQueryFactory,
+} from "./query.js";
 import { realClaudeRewindSdk, revertClaudeConversation, revertClaudeFiles } from "./rewind.js";
 import {
   readApiMessageIdFromContainer,
@@ -3542,6 +3547,9 @@ class ClaudeAgentSession implements AgentSession {
       {
         runtimeSettings: this.runtimeSettings,
         launchEnv: this.launchEnv,
+        ...(this.gateway
+          ? { gateway: this.gateway, routeThroughGateway: this.routedThroughCliproxyapi() }
+          : {}),
         queryFactory: this.queryFactory,
         onChildProcess: (child) => {
           this.childProcess = child;
@@ -3664,23 +3672,22 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private applyCliproxyapiRoutingEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    if (
-      !this.gateway ||
-      shouldRouteClaudeModelThroughCliproxyapi({
-        modelId: this.config.model,
-        advertisedIds: this.cliproxyapiAdvertisedIds,
-      })
-    ) {
-      return env;
+    return this.routedThroughCliproxyapi() ? env : stripCliproxyapiRoutingEnv(env, this.gateway);
+  }
+
+  /**
+   * CLIProxyAPI env reaches this session through `runtimeSettings`, which
+   * `query.ts` re-merges into the child env. The same decision therefore has to
+   * travel with the spawn, or the child would be sent back to the Gateway.
+   */
+  private routedThroughCliproxyapi(): boolean {
+    if (!this.gateway) {
+      return true;
     }
-    const next = { ...env };
-    if (gatewayBaseUrlsMatch(next.ANTHROPIC_BASE_URL, this.gateway.baseUrl)) {
-      delete next.ANTHROPIC_BASE_URL;
-    }
-    if (next.ANTHROPIC_AUTH_TOKEN === this.gateway.apiKey) {
-      delete next.ANTHROPIC_AUTH_TOKEN;
-    }
-    return next;
+    return shouldRouteClaudeModelThroughCliproxyapi({
+      modelId: this.config.model,
+      advertisedIds: this.cliproxyapiAdvertisedIds,
+    });
   }
   private async buildOptions(): Promise<ClaudeOptions> {
     const { thinking, effort, ultracode } = this.resolveThinkingConfig();

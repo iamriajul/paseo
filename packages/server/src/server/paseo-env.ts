@@ -57,12 +57,13 @@ export function createExternalCommandProcessEnv(
 export function buildSelfNodeCommand(
   args: string[],
   envOverlay?: ProcessEnvRecord,
+  baseEnv: ProcessEnvRecord = process.env,
 ): {
   command: string;
   args: string[];
   env: ExternalProcessEnv;
 } {
-  const env = buildExternalProcessEnv(process.env, []);
+  const env = buildExternalProcessEnv(baseEnv, []);
   Object.assign(env, { [ELECTRON_RUN_AS_NODE]: "1" }, envOverlay);
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) {

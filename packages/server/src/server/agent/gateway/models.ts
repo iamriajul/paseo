@@ -60,6 +60,7 @@ export interface FetchGatewayCodexModelsOptions {
   clientVersion?: string;
   fetchImpl?: typeof fetch;
   onWarning?: (warning: CliproxyAnthropicModelsWarning) => void;
+  onRawModels?: (models: unknown[]) => void;
   /**
    * Skip CLIProxyAPI detection: the caller routes explicitly (first-party
    * `agents.cliproxyapi`) instead of auto-detecting a custom endpoint.
@@ -248,6 +249,8 @@ export async function fetchGatewayCodexModels(
     return [];
   }
 
+  options.onRawModels?.(payload.models);
+
   const rows: GatewayCodexModelRow[] = [];
   const seenSlugs = new Set<string>();
   for (const value of payload.models) {
@@ -373,7 +376,12 @@ function mapGatewayCodexModelRow(value: unknown): GatewayCodexModelRow | null {
     visibility = [];
   }
   const description = trimNonEmpty(value.description);
-  const contextWindow = readFiniteNumber(value.context_window);
+  const rawContext = readFiniteNumber(value.context_window);
+  const rawMaxContext = readFiniteNumber(value.max_context_window);
+  const contextWindow =
+    rawContext !== undefined || rawMaxContext !== undefined
+      ? Math.max(rawContext ?? 0, rawMaxContext ?? 0)
+      : undefined;
   const defaultReasoningEffort = trimNonEmpty(value.default_reasoning_level);
 
   return {

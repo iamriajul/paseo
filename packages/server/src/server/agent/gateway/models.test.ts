@@ -123,4 +123,34 @@ describe("fetchGatewayCodexModels", () => {
     );
     await expect(fetchGatewayCodexModels({ ...base, fetchImpl: badShape })).resolves.toEqual([]);
   });
+
+  test("uses max_context_window when larger than context_window and invokes onRawModels", async () => {
+    const rawModels: unknown[] = [];
+    const fetchImpl = vi.fn(async () =>
+      codexResponse([
+        {
+          slug: "gpt-5.4",
+          display_name: "GPT 5.4",
+          context_window: 272_000,
+          max_context_window: 1_000_000,
+        },
+      ]),
+    );
+    const rows = await fetchGatewayCodexModels({
+      ...base,
+      fetchImpl,
+      onRawModels: (models) => rawModels.push(...models),
+    });
+    expect(rows).toEqual([
+      {
+        slug: "gpt-5.4",
+        displayName: "GPT 5.4",
+        contextWindow: 1_000_000,
+        supportedReasoningEfforts: [],
+        hidden: false,
+      },
+    ]);
+    expect(rawModels).toHaveLength(1);
+    expect((rawModels[0] as { slug: string }).slug).toBe("gpt-5.4");
+  });
 });

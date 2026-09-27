@@ -516,12 +516,22 @@ npx vitest run packages/server/src/server/agent/providers/claude/agent.env.test.
 
 ## gateway-codex-discovery
 
-**Codex Gateway discovery with bare-slug ids and thread provider routing**
+**Codex Gateway discovery with bare-slug ids, context windows, and thread provider routing**
 
-Gateway-routed Codex (first-party or a derived provider pointing at a Gateway) appends Codex-shape catalog rows — hidden skipped, reasoning levels mapped to thinking options, bare-slug ids routed by the synthetic `cliproxyapi` thread `model_provider` — to `model/list` results.
+Gateway-routed Codex (first-party or a derived provider pointing at a Gateway) appends Codex-shape catalog rows — hidden skipped, reasoning levels mapped to thinking options, advertised context windows overlaid on base models, bare-slug ids routed by the synthetic `cliproxyapi` thread `model_provider` — to `model/list` results.
 
 ```bash
 npx vitest run packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1
+```
+
+## gateway-codex-cpa-window
+
+**Codex launch and catalog use the CPA window and model catalog**
+
+Gateway-discovered models and base models routed through CLIProxyAPI use their advertised context window instead of being capped to Codex's 272k fallback window (258k usable). The catalog overlays advertised context windows onto existing models, writes a merged `codex-model-catalog.json` for `codex app-server`, passes `model_context_window` in thread configuration, and preserves the full context window in usage tracking.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/codex-catalog.test.ts packages/server/src/server/agent/gateway/models.test.ts --bail=1
 ```
 
 ## gateway-opencode-provider

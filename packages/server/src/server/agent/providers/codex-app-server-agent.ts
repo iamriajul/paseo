@@ -122,6 +122,13 @@ import {
   CodexProviderOptionsSchema,
   type CodexProviderOptions,
 } from "./codex/options.js";
+import {
+  buildCodexCatalog,
+  resolveBundledCodexModels,
+  resolveCodexModelCatalogPath,
+  writeCodexCatalogJsonFile,
+} from "./codex-catalog.js";
+import { resolvePaseoHome } from "../../paseo-home.js";
 
 function assertChildWithPipes(
   child: ChildProcess,
@@ -291,9 +298,11 @@ interface CodexAppServerAgentDeps {
   /** First-party Gateway routing (registry sets it only when it applies). */
   gateway?: ResolvedGatewayConfig;
   cliproxyapiAdvertisedIds?: ReadonlySet<string> | null;
+  cliproxyapiContextWindows?: ReadonlyMap<string, number> | null;
   customCodexConfig?: CodexCustomProviderConfig | null;
   // The CODEX_HOME the session's app-server runs with; prompts and skills are read from it.
   codexHome?: string;
+  modelCatalogPath?: string | null;
   _createCodexClient?: (
     child: ChildProcessWithoutNullStreams,
     logger: Logger,
@@ -5424,6 +5433,10 @@ export class CodexAppServerAgentSession implements AgentSession {
         ),
       );
     }
+    const modelContextWindow = this.resolveModelContextWindow(this.config.model);
+    if (modelContextWindow !== undefined && innerConfig.model_context_window === undefined) {
+      innerConfig.model_context_window = modelContextWindow;
+    }
     if (this.config.mcpServers) {
       const mcpServers: Record<string, CodexMcpServerConfig> = {};
       for (const [name, serverConfig] of Object.entries(this.config.mcpServers)) {
@@ -5433,6 +5446,15 @@ export class CodexAppServerAgentSession implements AgentSession {
     }
     const configured = applyCodexToolPolicy(innerConfig, this.config.toolPolicy);
     return Object.keys(configured).length > 0 ? configured : null;
+  }
+
+  private resolveModelContextWindow(model: string | null | undefined): number | undefined {
+    if (!model) return undefined;
+    const trimmed = model.trim();
+    return (
+      this.deps.cliproxyapiContextWindows?.get(trimmed) ??
+      this.deps.cliproxyapiContextWindows?.get(trimmed.toLowerCase())
+    );
   }
 
   private async buildUserInput(prompt: CodexPromptInput): Promise<CodexAppServerUserInput[]> {
@@ -6300,6 +6322,13 @@ export class CodexAppServerAgentSession implements AgentSession {
   ): void {
     this.latestUsage = toAgentUsage(parsed.tokenUsage);
     if (this.latestUsage) {
+      const configuredWindow = this.resolveModelContextWindow(this.config.model);
+      if (configuredWindow !== undefined) {
+        this.latestUsage.contextWindowMaxTokens = Math.max(
+          configuredWindow,
+          this.latestUsage.contextWindowMaxTokens ?? 0,
+        );
+      }
       this.notifySubscribers({
         type: "usage_updated",
         provider: CODEX_PROVIDER,
@@ -7229,6 +7258,8 @@ export class CodexAppServerAgentClient implements AgentClient {
   readonly provider = CODEX_PROVIDER;
   readonly capabilities = CODEX_APP_SERVER_CAPABILITIES;
   private cliproxyapiAdvertisedIds: ReadonlySet<string> | null = null;
+  private cliproxyapiContextWindows: ReadonlyMap<string, number> | null = null;
+  private modelCatalogPath: string | null = null;
   private goalsEnabledPromise: Promise<boolean> | null = null;
   private autoReviewEnabledPromise: Promise<boolean> | null = null;
 
@@ -7236,14 +7267,26 @@ export class CodexAppServerAgentClient implements AgentClient {
     private readonly logger: Logger,
     private readonly runtimeSettings?: ProviderRuntimeSettings,
     private readonly deps: CodexAppServerAgentDeps = {},
-  ) {}
+  ) {
+    if (deps.modelCatalogPath) {
+      this.modelCatalogPath = deps.modelCatalogPath;
+    }
+    if (deps.cliproxyapiAdvertisedIds) {
+      this.cliproxyapiAdvertisedIds = deps.cliproxyapiAdvertisedIds;
+    }
+    if (deps.cliproxyapiContextWindows) {
+      this.cliproxyapiContextWindows = deps.cliproxyapiContextWindows;
+    }
+  }
 
   private sessionDeps(launchEnv: Record<string, string> | undefined): CodexAppServerAgentDeps {
     return {
       ...this.deps,
       codexHome: resolveCodexHomeDir(buildCodexAppServerEnv(this.runtimeSettings, launchEnv)),
       cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
+      cliproxyapiContextWindows: this.cliproxyapiContextWindows,
       customCodexConfig: this.customProviderConfig(),
+      modelCatalogPath: this.modelCatalogPath,
     };
   }
 
@@ -7332,12 +7375,19 @@ export class CodexAppServerAgentClient implements AgentClient {
     if (options?.goalsEnabled) {
       args.push("--enable", "goals");
     }
+    const catalogPath =
+      this.modelCatalogPath ??
+      resolveCodexModelCatalogPath({ paseoHome: resolvePaseoHome(this.runtimeSettings?.env) });
+    if (catalogPath) {
+      args.push("-c", `model_catalog_json="${catalogPath}"`);
+    }
     this.logger.trace(
       {
         agentId: options?.agentId,
         provider: CODEX_PROVIDER,
         launchPrefix,
         goalsEnabled: options?.goalsEnabled === true,
+        catalogPath,
       },
       "provider.codex.spawn",
     );
@@ -7350,11 +7400,31 @@ export class CodexAppServerAgentClient implements AgentClient {
     return child;
   }
 
+  private async ensureGatewayCatalog(): Promise<void> {
+    if (this.modelCatalogPath && this.cliproxyapiAdvertisedIds) return;
+    const existing = resolveCodexModelCatalogPath({
+      paseoHome: resolvePaseoHome(this.runtimeSettings?.env),
+    });
+    if (existing) {
+      this.modelCatalogPath = existing;
+    }
+    if (!this.cliproxyapiAdvertisedIds) {
+      await this.fetchGatewayCodexRows();
+    }
+  }
+
   async createSession(
     config: AgentSessionConfig,
     launchContext?: AgentLaunchContext,
     options?: AgentCreateSessionOptions,
   ): Promise<AgentSession> {
+    if (this.deps.gateway || this.deps.customProvider) {
+      try {
+        await this.ensureGatewayCatalog();
+      } catch {
+        // Non-fatal
+      }
+    }
     if (options?.persistSession === false) {
       this.logger.debug(
         "Codex app-server does not expose an ephemeral-session option; persistSession=false is currently a no-op",
@@ -7394,6 +7464,13 @@ export class CodexAppServerAgentClient implements AgentClient {
     launchContext?: AgentLaunchContext,
     options?: AgentResumeSessionOptions,
   ): Promise<AgentSession> {
+    if (this.deps.gateway || this.deps.customProvider) {
+      try {
+        await this.ensureGatewayCatalog();
+      } catch {
+        // Non-fatal
+      }
+    }
     const storedConfig = (handle.metadata ?? {}) as Partial<AgentSessionConfig>;
     const merged: AgentSessionConfig = {
       ...storedConfig,
@@ -7571,6 +7648,13 @@ export class CodexAppServerAgentClient implements AgentClient {
         gatewayRows.filter((row) => !row.hidden).map((row) => row.slug),
       );
       this.cliproxyapiAdvertisedIds = advertisedIds;
+      const contextWindows = new Map<string, number>();
+      for (const row of gatewayRows) {
+        if (row.contextWindow !== undefined) {
+          contextWindows.set(row.slug, row.contextWindow);
+        }
+      }
+      this.cliproxyapiContextWindows = contextWindows;
       for (const model of baseModels) {
         if (!advertisedIds.has(model.id)) continue;
         model.metadata = { ...model.metadata, source: "cliproxyapi" };
@@ -7597,11 +7681,15 @@ export class CodexAppServerAgentClient implements AgentClient {
     const target = this.resolveGatewayCodexTarget();
     if (!target) return [];
     try {
-      return await runProviderRefreshActivity(context, "gateway", () =>
+      let rawGatewayModels: unknown[] = [];
+      const rows = await runProviderRefreshActivity(context, "gateway", () =>
         fetchGatewayCodexModels({
           baseUrl: target.baseUrl,
           token: target.token,
           expectGateway: this.deps.gateway !== undefined,
+          onRawModels: (models) => {
+            rawGatewayModels = models;
+          },
           onWarning: (warning) => {
             this.logger.warn(
               {
@@ -7615,6 +7703,39 @@ export class CodexAppServerAgentClient implements AgentClient {
           },
         }),
       );
+
+      const advertisedIds = new Set(rows.filter((row) => !row.hidden).map((row) => row.slug));
+      this.cliproxyapiAdvertisedIds = advertisedIds;
+      const contextWindows = new Map<string, number>();
+      for (const row of rows) {
+        if (row.contextWindow !== undefined) {
+          contextWindows.set(row.slug, row.contextWindow);
+        }
+      }
+      this.cliproxyapiContextWindows = contextWindows;
+
+      if (rawGatewayModels.length > 0) {
+        try {
+          const launchPrefix = await resolveCodexLaunchPrefix(this.runtimeSettings);
+          const bundledModels = await resolveBundledCodexModels(launchPrefix);
+          const catalog = buildCodexCatalog({
+            gatewayModels: rawGatewayModels,
+            bundledModels,
+          });
+          const catalogPath = writeCodexCatalogJsonFile({
+            catalog,
+            paseoHome: resolvePaseoHome(this.runtimeSettings?.env),
+          });
+          this.modelCatalogPath = catalogPath;
+        } catch (err) {
+          this.logger.warn(
+            { err, phase: "gateway_discovery" },
+            "Failed to write Codex catalog JSON",
+          );
+        }
+      }
+
+      return rows;
     } catch (error) {
       this.logger.warn(
         { err: error, phase: "gateway_discovery" },
@@ -7733,7 +7854,17 @@ export function appendGatewayCodexModelsToCatalog(
   const seenIds = new Set(baseModels.map((model) => model.id));
   const merged = [...baseModels];
   for (const row of rows) {
-    if (row.hidden || seenIds.has(row.slug)) continue;
+    if (row.hidden) continue;
+    if (seenIds.has(row.slug)) {
+      const existing = merged.find((model) => model.id === row.slug);
+      if (existing) {
+        if (row.contextWindow !== undefined) {
+          existing.contextWindowMaxTokens = row.contextWindow;
+        }
+        existing.metadata = { ...existing.metadata, source: "cliproxyapi" };
+      }
+      continue;
+    }
     seenIds.add(row.slug);
     const definition = buildCodexModelDefinition(
       {

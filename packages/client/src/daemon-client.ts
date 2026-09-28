@@ -108,6 +108,7 @@ import type {
   UsageReportEntry,
   ProviderUsageResetQuotaResponseMessage,
   GatewayQuotaGetResponseMessage,
+  GatewayTpsGetResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
   DaemonConfigReloadResponse,
@@ -602,6 +603,7 @@ interface UsageListReportsPayload {
 }
 type ProviderUsageResetQuotaPayload = ProviderUsageResetQuotaResponseMessage["payload"];
 type GatewayQuotaPayload = GatewayQuotaGetResponseMessage["payload"];
+type GatewayTpsPayload = GatewayTpsGetResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
 type DiagnosticsPayload = DiagnosticsResponse["payload"];
@@ -6465,6 +6467,23 @@ export class DaemonClient {
       timeout: 30_000,
     });
   }
+
+  async getGatewayTps(options: {
+    provider: string;
+    model: string;
+    requestId?: string;
+  }): Promise<GatewayTpsPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "cliproxyapi.tps.get.request",
+        provider: options.provider,
+        model: options.model,
+      },
+      timeout: 30_000,
+    });
+  }
+
   async listCommands(options: ListCommandsOptions): Promise<ListCommandsPayload>;
   async listCommands(agentId: string, requestId?: string): Promise<ListCommandsPayload>;
   async listCommands(

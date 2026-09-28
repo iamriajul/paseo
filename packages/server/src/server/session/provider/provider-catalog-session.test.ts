@@ -16,12 +16,21 @@ import {
 import type { ProviderSnapshotEntry } from "../../agent/agent-sdk-types.js";
 import { ProviderUsageService } from "../../../services/quota-fetcher/service.js";
 import { expandProviderSnapshot } from "@getpaseo/protocol/provider-snapshot-codec";
-import { GatewayQuotaGetResponseMessageSchema } from "@getpaseo/protocol/messages";
+import {
+  GatewayQuotaGetResponseMessageSchema,
+  GatewayTpsGetResponseMessageSchema,
+} from "@getpaseo/protocol/messages";
 import { getCachedGatewayQuota } from "../../agent/gateway/quota.js";
+import { fetchGatewayTps } from "../../agent/gateway/tps.js";
 
 vi.mock("../../agent/gateway/quota.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../agent/gateway/quota.js")>();
   return { ...actual, getCachedGatewayQuota: vi.fn() };
+});
+
+vi.mock("../../agent/gateway/tps.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../agent/gateway/tps.js")>();
+  return { ...actual, fetchGatewayTps: vi.fn() };
 });
 type SnapshotChangeHandler = (transition: ProviderSnapshotTransition) => void;
 
@@ -479,6 +488,108 @@ describe("ProviderCatalogSession", () => {
       GatewayQuotaGetResponseMessageSchema.parse({ type: res?.type, payload: res?.payload }),
     ).not.toThrow();
   });
+
+  it("emits unsupported throughput when the provider is not gateway-routed", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      snapshot: {
+        getGatewayConfig: () => null,
+        isGatewayRouted: () => false,
+      },
+    });
+
+    await subsystem.handleGatewayTpsGetRequest({
+      type: "cliproxyapi.tps.get.request",
+      requestId: "t1",
+      provider: "claude",
+      model: "grok-4.6",
+    });
+
+    const res = findByType(emitted, "cliproxyapi.tps.get.response");
+    expect(res?.payload).toEqual({ requestId: "t1", supported: false, sample: null });
+  });
+
+  it("emits the mapped throughput record for a routed provider model", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      snapshot: {
+        getGatewayConfig: () => ({ baseUrl: "http://gateway:8317", apiKey: "sk-test" }),
+        isGatewayRouted: () => true,
+      },
+    });
+    vi.mocked(fetchGatewayTps).mockResolvedValue({
+      supported: true,
+      sample: {
+        model: "grok-4.6",
+        at: "2026-09-28T10:00:00.000Z",
+        durationMs: 4200,
+        ttftMs: 600,
+        generationMs: 3600,
+        inputTokens: 1200,
+        outputTokens: 900,
+        tps: 250,
+        stream: true,
+      },
+    });
+
+    await subsystem.handleGatewayTpsGetRequest({
+      type: "cliproxyapi.tps.get.request",
+      requestId: "t2",
+      provider: "opencode",
+      model: "cliproxyapi/grok-4.6",
+    });
+
+    expect(fetchGatewayTps).toHaveBeenCalledWith({
+      baseUrl: "http://gateway:8317",
+      token: "sk-test",
+      model: "grok-4.6",
+    });
+    const res = findByType(emitted, "cliproxyapi.tps.get.response");
+    expect(res?.payload).toMatchObject({ requestId: "t2", supported: true, sample: { tps: 250 } });
+    expect(() =>
+      GatewayTpsGetResponseMessageSchema.parse({ type: res?.type, payload: res?.payload }),
+    ).not.toThrow();
+  });
+
+  it("reports no sample for a model the Gateway has no record of", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      snapshot: {
+        getGatewayConfig: () => ({ baseUrl: "http://gateway:8317", apiKey: "sk-test" }),
+        isGatewayRouted: () => true,
+      },
+    });
+    vi.mocked(fetchGatewayTps).mockResolvedValue({ supported: false, sample: null });
+
+    await subsystem.handleGatewayTpsGetRequest({
+      type: "cliproxyapi.tps.get.request",
+      requestId: "t3",
+      provider: "claude",
+      model: "grok-4.6",
+    });
+
+    const res = findByType(emitted, "cliproxyapi.tps.get.response");
+    expect(res?.payload).toEqual({ requestId: "t3", supported: false, sample: null });
+  });
+
+  it("hides throughput instead of surfacing a gateway failure", async () => {
+    const { subsystem, emitted } = makeSubsystem({
+      snapshot: {
+        getGatewayConfig: () => ({ baseUrl: "http://gateway:8317", apiKey: "sk-test" }),
+        isGatewayRouted: () => true,
+      },
+    });
+    vi.mocked(fetchGatewayTps).mockRejectedValue(new Error("gateway exploded"));
+
+    await subsystem.handleGatewayTpsGetRequest({
+      type: "cliproxyapi.tps.get.request",
+      requestId: "t4",
+      provider: "claude",
+      model: "grok-4.6",
+    });
+
+    expect(findByType(emitted, "rpc_error")).toBeUndefined();
+    const res = findByType(emitted, "cliproxyapi.tps.get.response");
+    expect(res?.payload).toEqual({ requestId: "t4", supported: false, sample: null });
+  });
+
   it("surfaces a feature-list failure inline, not as an rpc_error", async () => {
     const { subsystem, emitted } = makeSubsystem({
       host: {

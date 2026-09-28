@@ -5,6 +5,8 @@ import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GatewayQuotaSection } from "@/gateway-quota/section";
+import { GatewayTpsSection } from "@/gateway-tps/section";
+import { useGatewayTps } from "@/gateway-tps/use-gateway-tps";
 import { useGatewayQuota } from "@/gateway-quota/use-gateway-quota";
 import { ProviderUsageTooltipSection } from "@/provider-usage/tooltip-section";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
@@ -124,6 +126,12 @@ export function ContextWindowMeter({
     model ?? null,
     { enabled: isTooltipOpen },
   );
+  const { sample: gatewayTpsSample, refresh: refreshGatewayTps } = useGatewayTps({
+    serverId: serverId ?? null,
+    provider: provider ?? null,
+    model: model ?? null,
+    enabled: isTooltipOpen,
+  });
   const percentage =
     maxTokens !== null && usedTokens !== null ? getUsagePercentage(maxTokens, usedTokens) : null;
   const handleTooltipOpenChange = useCallback(
@@ -132,9 +140,10 @@ export function ContextWindowMeter({
       if (nextOpen) {
         void refreshProviderUsage().catch(() => {});
         void refreshGatewayQuota().catch(() => {});
+        void refreshGatewayTps().catch(() => {});
       }
     },
-    [refreshGatewayQuota, refreshProviderUsage],
+    [refreshGatewayQuota, refreshGatewayTps, refreshProviderUsage],
   );
   const geometry = getMeterGeometry(showPercentage, glyphSize);
 
@@ -246,6 +255,7 @@ export function ContextWindowMeter({
           ) : null}
           <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
           <GatewayQuotaSection view={gatewayQuotaView} />
+          <GatewayTpsSection sample={gatewayTpsSample} />
         </View>
       </TooltipContent>
     </Tooltip>

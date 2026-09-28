@@ -377,6 +377,65 @@ describe("gateway quota message contract", () => {
   });
 });
 
+describe("gateway throughput message contract", () => {
+  test("accepts the throughput get request as a namespaced correlated RPC", () => {
+    const parsed = SessionInboundMessageSchema.parse({
+      type: "cliproxyapi.tps.get.request",
+      requestId: "tps-1",
+      provider: "claude",
+      model: "grok-4.6",
+    });
+
+    expect(parsed).toEqual({
+      type: "cliproxyapi.tps.get.request",
+      requestId: "tps-1",
+      provider: "claude",
+      model: "grok-4.6",
+    });
+  });
+
+  test("accepts a throughput response carrying one sample", () => {
+    const parsed = SessionOutboundMessageSchema.parse({
+      type: "cliproxyapi.tps.get.response",
+      payload: {
+        requestId: "tps-2",
+        supported: true,
+        sample: {
+          model: "grok-4.6",
+          alias: "space-bunny-free",
+          provider: "xai",
+          at: "2026-09-28T10:00:00.000Z",
+          durationMs: 4200,
+          ttftMs: 600,
+          generationMs: 3600,
+          inputTokens: 1200,
+          outputTokens: 900,
+          tps: 250,
+          stream: true,
+        },
+      },
+    });
+
+    expect(parsed.type).toBe("cliproxyapi.tps.get.response");
+    if (parsed.type !== "cliproxyapi.tps.get.response") {
+      throw new Error("Expected gateway throughput response");
+    }
+    expect(parsed.payload.sample?.tps).toBe(250);
+  });
+
+  test("accepts a throughput response with no sample", () => {
+    const parsed = SessionOutboundMessageSchema.parse({
+      type: "cliproxyapi.tps.get.response",
+      payload: { requestId: "tps-3", supported: false, sample: null },
+    });
+
+    expect(parsed).toEqual({
+      type: "cliproxyapi.tps.get.response",
+      payload: { requestId: "tps-3", supported: false, sample: null },
+    });
+  });
+});
+
 describe("diagnostics message contract", () => {
   test("accepts the diagnostics request as a simple namespaced RPC", () => {
     const parsed = SessionInboundMessageSchema.parse({

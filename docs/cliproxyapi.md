@@ -61,6 +61,16 @@ The composer meter tooltip shows per-model CLIProxyAPI quota for the agent's sel
 
 CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (observed live); current builds answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
 
+## Latest request
+
+The context-meter tooltip shows a "CLIProxyAPI latest request" section beside the quota section, reading `cliproxyapi.tps.get` (gated on `server_info.features.cliproxyapiTps`). It maps the model id with the same slug resolver quota uses and hits `/v1/last-request-tps`, which reports generation tokens per second for the last request that model served.
+
+It is read on hover only — no interval. Opening the tooltip fetches, and every re-open fetches again, because the figure describes the _last_ request: a polled one would keep asserting a rate for something that stopped happening. The section reports the rate with the output-token count and generation time behind it, plus how long ago that request ran, so a three-hour-old number reads as three hours old.
+
+Everything that is not a usable 200 record — a model that has not run, a provider that is not CLIProxyAPI-routed, a Gateway build without the route — hides the section. There is no in-body empty state to distinguish those cases, so they render identically.
+
+`/v1/last-request-tps` is newer than `/v1/quota`: the Gateway build reachable while this shipped answered 401 on the quota route and an empty 404 here. Assume the route is absent until you have probed the Gateway you run.
+
 ## Out of scope
 
 - Pi: verified env-deaf. `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL` are ignored at inference (bogus endpoints still reach vendor APIs), the model list is a static bundled catalog, and custom endpoints require `models.json` in the agent dir — a config file. No `--config` overlay flag and no project-level `models.json` exist.

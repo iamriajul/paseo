@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import {
-  clearGatewayQuotaCache,
-  fetchGatewayQuota,
-  getCachedGatewayQuota,
-  resolveGatewayQuotaSlug,
-} from "./quota.js";
+import { clearGatewayQuotaCache, fetchGatewayQuota, getCachedGatewayQuota } from "./quota.js";
+import { resolveGatewayModelSlug } from "./slug.js";
 
 function quotaResponse(payload: unknown, status = 200): Response {
   return new Response(typeof payload === "string" ? payload : JSON.stringify(payload), {
@@ -14,26 +10,26 @@ function quotaResponse(payload: unknown, status = 200): Response {
   });
 }
 
-describe("resolveGatewayQuotaSlug", () => {
+describe("resolveGatewayModelSlug", () => {
   test("passes claude and codex ids through with suffixes stripped", () => {
-    expect(resolveGatewayQuotaSlug("claude", "grok-4.6")).toBe("grok-4.6");
-    expect(resolveGatewayQuotaSlug("claude", "claude-fable-5-dd-5.4-korg")).toBe("grok-4.5");
-    expect(resolveGatewayQuotaSlug("claude", "claude-opus-5[1m]")).toBe("claude-opus-5");
-    expect(resolveGatewayQuotaSlug("claude", "grok-4.6(high)")).toBe("grok-4.6");
-    expect(resolveGatewayQuotaSlug("codex", "gpt-6-astra")).toBe("gpt-6-astra");
-    expect(resolveGatewayQuotaSlug("claude", "   ")).toBeNull();
+    expect(resolveGatewayModelSlug("claude", "grok-4.6")).toBe("grok-4.6");
+    expect(resolveGatewayModelSlug("claude", "claude-fable-5-dd-5.4-korg")).toBe("grok-4.5");
+    expect(resolveGatewayModelSlug("claude", "claude-opus-5[1m]")).toBe("claude-opus-5");
+    expect(resolveGatewayModelSlug("claude", "grok-4.6(high)")).toBe("grok-4.6");
+    expect(resolveGatewayModelSlug("codex", "gpt-6-astra")).toBe("gpt-6-astra");
+    expect(resolveGatewayModelSlug("claude", "   ")).toBeNull();
   });
 
   test("requires gateway provider prefixes for opencode and omp", () => {
-    expect(resolveGatewayQuotaSlug("opencode", "cliproxyapi/grok-4.6")).toBe("grok-4.6");
-    expect(resolveGatewayQuotaSlug("opencode", "openai/gpt-5")).toBeNull();
-    expect(resolveGatewayQuotaSlug("omp", "litellm/grok-4.6")).toBe("grok-4.6");
-    expect(resolveGatewayQuotaSlug("omp", "muse-code/muse-spark-1.3")).toBeNull();
+    expect(resolveGatewayModelSlug("opencode", "cliproxyapi/grok-4.6")).toBe("grok-4.6");
+    expect(resolveGatewayModelSlug("opencode", "openai/gpt-5")).toBeNull();
+    expect(resolveGatewayModelSlug("omp", "litellm/grok-4.6")).toBe("grok-4.6");
+    expect(resolveGatewayModelSlug("omp", "muse-code/muse-spark-1.3")).toBeNull();
   });
 
   test("rejects unknown providers", () => {
-    expect(resolveGatewayQuotaSlug("copilot", "gpt-5.4")).toBeNull();
-    expect(resolveGatewayQuotaSlug("pi", "openai/gpt-5")).toBeNull();
+    expect(resolveGatewayModelSlug("copilot", "gpt-5.4")).toBeNull();
+    expect(resolveGatewayModelSlug("pi", "openai/gpt-5")).toBeNull();
   });
 });
 

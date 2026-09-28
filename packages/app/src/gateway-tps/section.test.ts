@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, it } from "vitest";
+import { buildTpsDetailLines, GatewayTpsSection } from "./section";
 import { gatewayTpsCopy } from "./copy";
-import { GatewayTpsSection } from "./section";
 
 describe("gatewayTpsCopy", () => {
   it("states the rate in tokens per second", () => {
@@ -34,5 +34,46 @@ describe("GatewayTpsSection", () => {
   // one that matters, and the strings it renders are covered above.
   it("returns nothing when the host has no sample", () => {
     expect(GatewayTpsSection({ sample: null })).toBeNull();
+  });
+
+  it("lists title, rate, tokens/seconds, and the relative age", () => {
+    expect(
+      buildTpsDetailLines({
+        model: "grok-4.6",
+        at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        durationMs: 4200,
+        ttftMs: 600,
+        generationMs: 3600,
+        inputTokens: 1200,
+        outputTokens: 900,
+        tps: 250,
+        stream: true,
+      }),
+    ).toEqual([
+      "CLIProxyAPI latest request",
+      "250 tokens/sec",
+      "900 output tokens in 3.6s of generation",
+      "5m ago",
+    ]);
+  });
+
+  it("omits the age rather than inventing copy when the timestamp is unreadable", () => {
+    expect(
+      buildTpsDetailLines({
+        model: "grok-4.6",
+        at: "not-a-date",
+        durationMs: 4200,
+        ttftMs: 600,
+        generationMs: 3600,
+        inputTokens: 1200,
+        outputTokens: 900,
+        tps: 250,
+        stream: true,
+      }),
+    ).toEqual([
+      "CLIProxyAPI latest request",
+      "250 tokens/sec",
+      "900 output tokens in 3.6s of generation",
+    ]);
   });
 });

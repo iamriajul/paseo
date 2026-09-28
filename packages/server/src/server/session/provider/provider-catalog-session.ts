@@ -621,9 +621,10 @@ export class ProviderCatalogSession {
 
   /**
    * Generation throughput of the last request the Gateway served for a model.
-   * Not cached: the caller polls on an interval, and a stale rate is worse
-   * than no rate. A model with no recorded request answers 404, which reports
-   * `supported: true` with no sample so the caller renders nothing.
+   * Not cached: the caller refetches on every tooltip open, and a stale rate is
+   * worse than no rate. Anything other than a usable 200 record — a model with
+   * no recorded request, a build without the route, a bad key — reports
+   * `supported: false` with no sample, so the caller renders nothing.
    */
   async handleGatewayTpsGetRequest(
     msg: Extract<SessionInboundMessage, { type: "cliproxyapi.tps.get.request" }>,

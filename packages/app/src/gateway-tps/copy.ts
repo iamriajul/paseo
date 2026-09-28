@@ -6,7 +6,6 @@ export const gatewayTpsCopy = {
   // What the rate was measured over, so a stale figure reads as stale.
   detail: (outputTokens: number, generationMs: number) =>
     `${outputTokens} output tokens in ${formatSeconds(generationMs)} of generation`,
-  noSample: "No request recorded for this model yet",
 } as const;
 
 function formatRate(value: number): string {

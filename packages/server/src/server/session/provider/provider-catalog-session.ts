@@ -20,7 +20,9 @@ import {
 } from "../../agent/agent-sdk-types.js";
 import type { ProviderAvailability } from "../../agent/agent-manager.js";
 import type { ProviderUsageService } from "../../../services/quota-fetcher/service.js";
-import { getCachedGatewayQuota, resolveGatewayQuotaSlug } from "../../agent/gateway/quota.js";
+import { getCachedGatewayQuota } from "../../agent/gateway/quota.js";
+import { resolveGatewayModelSlug } from "../../agent/gateway/slug.js";
+import { fetchGatewayTps, type GatewayTpsResult } from "../../agent/gateway/tps.js";
 import { expandTilde } from "../../../utils/path.js";
 
 // COMPAT(customModeIcons): the only mode icons known to clients before v0.1.84. Any
@@ -588,7 +590,7 @@ export class ProviderCatalogSession {
         unsupported();
         return;
       }
-      const slug = resolveGatewayQuotaSlug(msg.provider, msg.model);
+      const slug = resolveGatewayModelSlug(msg.provider, msg.model);
       if (!slug) {
         unsupported();
         return;
@@ -612,6 +614,57 @@ export class ProviderCatalogSession {
       this.logger.error(
         { err, provider: msg.provider, model: msg.model },
         "Failed to fetch CLIProxyAPI quota; hiding quota",
+      );
+      unsupported();
+    }
+  }
+
+  /**
+   * Generation throughput of the last request the Gateway served for a model.
+   * Not cached: the caller polls on an interval, and a stale rate is worse
+   * than no rate. A model with no recorded request answers 404, which reports
+   * `supported: true` with no sample so the caller renders nothing.
+   */
+  async handleGatewayTpsGetRequest(
+    msg: Extract<SessionInboundMessage, { type: "cliproxyapi.tps.get.request" }>,
+  ): Promise<void> {
+    const answer = (tps: GatewayTpsResult) =>
+      this.host.emit({
+        type: "cliproxyapi.tps.get.response",
+        payload: {
+          requestId: msg.requestId,
+          supported: tps.supported,
+          sample: tps.sample,
+        },
+      });
+    const unsupported = () => answer({ supported: false, sample: null });
+    try {
+      const gateway = this.providerSnapshotManager.getGatewayConfig();
+      if (!gateway || !msg.provider || !msg.model) {
+        unsupported();
+        return;
+      }
+      if (!this.providerSnapshotManager.isGatewayRouted(msg.provider)) {
+        unsupported();
+        return;
+      }
+      const slug = resolveGatewayModelSlug(msg.provider, msg.model);
+      if (!slug) {
+        unsupported();
+        return;
+      }
+      answer(
+        await fetchGatewayTps({
+          baseUrl: gateway.baseUrl,
+          token: gateway.apiKey,
+          model: slug,
+        }),
+      );
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        { err, provider: msg.provider, model: msg.model },
+        "Failed to fetch CLIProxyAPI throughput; hiding throughput",
       );
       unsupported();
     }

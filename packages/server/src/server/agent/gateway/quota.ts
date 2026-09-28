@@ -4,8 +4,6 @@
 // instead of surfacing errors.
 import { z } from "zod";
 
-import { decodeCliproxyClaudeModelId } from "./models.js";
-
 export const GATEWAY_QUOTA_TIMEOUT_MS = 10_000;
 const GATEWAY_QUOTA_CACHE_TTL_MS = 60_000;
 
@@ -71,41 +69,6 @@ export interface FetchGatewayQuotaOptions {
   token: string;
   model: string;
   fetchImpl?: typeof fetch;
-}
-
-/**
- * Map a Paseo provider model id to the Gateway quota slug. Returns null when
- * the model is not Gateway-routed (native opencode/omp provider prefixes).
- */
-export function resolveGatewayQuotaSlug(provider: string, model: string): string | null {
-  const trimmed = model.trim();
-  if (!trimmed) return null;
-  if (provider === "opencode") {
-    return stripProviderPrefix(trimmed, "cliproxyapi/");
-  }
-  if (provider === "omp") {
-    return stripProviderPrefix(trimmed, "litellm/");
-  }
-  if (provider === "claude") {
-    return stripQuotaSuffix(decodeCliproxyClaudeModelId(trimmed));
-  }
-  if (provider === "codex") {
-    return stripQuotaSuffix(trimmed);
-  }
-  return null;
-}
-
-function stripProviderPrefix(model: string, prefix: string): string | null {
-  if (!model.startsWith(prefix)) return null;
-  return stripQuotaSuffix(model.slice(prefix.length));
-}
-
-function stripQuotaSuffix(model: string): string | null {
-  const stripped = model
-    .replace(/\([^()]*\)$/, "")
-    .replace(/\[[^\][]*\]$/, "")
-    .trim();
-  return stripped.length > 0 ? stripped : null;
 }
 
 export async function fetchGatewayQuota(

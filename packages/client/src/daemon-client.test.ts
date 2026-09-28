@@ -6863,6 +6863,67 @@ test("sends cliproxyapi.quota.get.request and resolves cliproxyapi.quota.get.res
   });
 });
 
+test("sends cliproxyapi.tps.get.request and resolves cliproxyapi.tps.get.response", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const tpsPromise = client.getGatewayTps({
+    provider: "claude",
+    model: "grok-4.6",
+    requestId: "tps-1",
+  });
+
+  expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
+    type: "session",
+    message: {
+      type: "cliproxyapi.tps.get.request",
+      provider: "claude",
+      model: "grok-4.6",
+      requestId: "tps-1",
+    },
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "cliproxyapi.tps.get.response",
+      payload: {
+        requestId: "tps-1",
+        supported: true,
+        sample: {
+          model: "grok-4.6",
+          at: "2026-09-28T10:00:00.000Z",
+          durationMs: 4200,
+          ttftMs: 600,
+          generationMs: 3600,
+          inputTokens: 1200,
+          outputTokens: 900,
+          tps: 250,
+          stream: true,
+        },
+      },
+    }),
+  );
+
+  await expect(tpsPromise).resolves.toMatchObject({
+    requestId: "tps-1",
+    supported: true,
+    sample: { tps: 250, outputTokens: 900 },
+  });
+});
+
 test("sends close_items_request and resolves close_items_response", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

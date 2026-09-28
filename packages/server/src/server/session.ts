@@ -3350,6 +3350,8 @@ export class Session {
         return this.providerCatalogSession.handleProviderUsageResetQuotaRequest(msg);
       case "cliproxyapi.quota.get.request":
         return this.providerCatalogSession.handleGatewayQuotaGetRequest(msg);
+      case "cliproxyapi.tps.get.request":
+        return this.providerCatalogSession.handleGatewayTpsGetRequest(msg);
       default:
         return undefined;
     }

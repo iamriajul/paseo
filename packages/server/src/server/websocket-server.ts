@@ -1980,6 +1980,8 @@ export class VoiceAssistantWebSocketServer {
         providerUsageForceRefresh: true,
         // COMPAT(cliproxyapiQuota): added in v0.9.905, drop the gate once daemon floor >= v0.9.905.
         cliproxyapiQuota: true,
+        // COMPAT(cliproxyapiTps): added in v0.9.910, drop the gate once daemon floor >= v0.9.910.
+        cliproxyapiTps: true,
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.

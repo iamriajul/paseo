@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -308,9 +316,19 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   //
   // The shim launches `<harness>.exe`, and cmd appends PATHEXT only to
   // extensionless names — so `claude.exe` will not resolve to `claude.exe.bat`.
-  // The stand-in has to be named `claude.exe` exactly. A PE cannot be built
-  // here, so the file is a batch script under that name: cmd runs it, and the
-  // loader is lenient about the mismatch.
+  // The stand-in has to be named `claude.exe` exactly, and it has to be a real
+  // PE: a batch script under that name is rejected by the loader with
+  // `%1 is not a valid Win32 application`, so the launch would fail whatever
+  // the shim did. An earlier version of this test staged one anyway, on the
+  // claim that "the loader is lenient about the mismatch". That was never
+  // checked, and it was wrong — it made these tests pass for reasons that had
+  // nothing to do with the shim. `%ComSpec%` is a real PE on every Windows
+  // install, so it is copied under the harness name. Staging a batch script
+  // instead would test cmd's loader, not the shim.
+  //
+  // A copied cmd.exe is a faithful stand-in: the shim runs it with the same
+  // argv any harness would get, and the batch lines below are what the copied
+  // exe then executes.
   function stageShim(harness: "claude" | "codex" | "opencode"): {
     shimDir: string;
     // A realistic PATH, so the strip loop has entries to keep and the
@@ -319,6 +337,8 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // PATH as the shim should have left it, for asserting the strip kept
     // everything it was supposed to.
     keepDir: string;
+    // The script the copied cmd.exe runs. Passed to the shim as an argument.
+    probeScript: string;
     read: (name: string) => string;
   } {
     const home = makeHome();
@@ -343,8 +363,14 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // directory from PATH before launching, so a binary staged beside the shim
     // is unresolvable the moment the strip works — the test would fail against
     // a correct shim. keepDir is the entry that has to survive the strip.
+    //
+    // The copy of cmd.exe is invoked with the probe script as its argument, so
+    // `%*` carrying it through the shim is load-bearing: a shim that dropped the
+    // user's arguments would launch the copy with nothing to run and write no
+    // probe. That is a real shim bug this now catches.
+    const probeScript = join(home, "probe.cmd");
     writeFileSync(
-      join(keepDir, `${harness}.exe`),
+      probeScript,
       [
         "@echo off",
         "echo MARKER_REAL_BINARY",
@@ -356,10 +382,13 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
         "exit /b 0",
       ].join("\r\n"),
     );
+    const exe = join(keepDir, `${harness}.exe`);
+    copyFileSync(cmdExePath(), exe);
     return {
       shimDir,
       testPath: [shimDir, keepDir, decoyA, decoyB].join(";"),
       keepDir,
+      probeScript,
       // A missing probe file means the binary never ran, which reads as a shim
       // bug. Name it here instead of letting readFileSync throw ENOENT.
       read: (name) => {
@@ -370,28 +399,54 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     };
   }
 
-  function spawnShim(harness: string, testPath: string, env: NodeJS.ProcessEnv = {}) {
-    // PATH is narrowed to the shim directory so the shim is what resolves, but
-    // that leaves no way to find cmd.exe itself — PATH is also how the child
-    // process is located, so it has to be named absolutely. SystemRoot goes
-    // along for the ride because cmd refuses to start without it.
-    const shell =
-      process.env.ComSpec ?? join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe");
-    const result = spawnSync(shell, ["/d", "/s", "/c", harness], {
+  // PATH is narrowed to the shim directory so the shim is what resolves, but
+  // that leaves no way to find cmd.exe itself — PATH is also how the child
+  // process is located, so it has to be named absolutely. SystemRoot goes
+  // along for the ride because cmd refuses to start without it.
+  function cmdExePath(): string {
+    return (
+      process.env.ComSpec ?? join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe")
+    );
+  }
+
+  function spawnShim(
+    harness: string,
+    testPath: string,
+    env: NodeJS.ProcessEnv = {},
+    args: string[] = [],
+  ) {
+    const result = spawnSync(cmdExePath(), ["/d", "/s", "/c", harness, ...args], {
       encoding: "utf8",
       // shim first: a shim that failed to strip itself recurses until killed.
-      env: { PATH: testPath, SystemRoot: process.env.SystemRoot, ...env },
+      //
+      // PATHEXT is the variable that makes a bare `claude` reach `claude.cmd`
+      // at all — cmd only appends PATHEXT to extensionless names — and this
+      // env is built from scratch, so it does not inherit one. Without it the
+      // bare name resolves to nothing, the shim never runs, and every test here
+      // fails identically with no output and no probe files, which reads like a
+      // shim bug rather than a missing variable. Inheriting the runner's
+      // PATHEXT keeps these tests on the same footing as a real terminal,
+      // which inherits the daemon's whole environment.
+      env: {
+        PATH: testPath,
+        SystemRoot: process.env.SystemRoot,
+        PATHEXT: process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+        ...env,
+      },
       timeout: 20_000,
     });
     // A missing shell looks like a passing shim (null status, no marker), so
     // say so plainly rather than letting the assertion below report it.
     if (result.error) throw result.error;
-    return result;
+    // cmd writes a bare `not recognized as an internal or external command` to
+    // stdout for an unresolvable name, and nothing at all explains it in the
+    // assertion that follows. Fold stderr in so the failure names the cause.
+    return { ...result, stdout: `${result.stdout ?? ""}\n${result.stderr ?? ""}` };
   }
 
   it("hands OpenCode parseable JSON, settling how set treats inner quotes", () => {
-    const { testPath, read } = stageShim("opencode");
-    const result = spawnShim("opencode", testPath);
+    const { testPath, probeScript, read } = stageShim("opencode");
+    const result = spawnShim("opencode", testPath, {}, [probeScript]);
     // A shim that never launched the binary, or launched one that failed, is
     // not a pass. Asserting the marker first means the JSON below is read from
     // a run that actually reached the stand-in.
@@ -407,8 +462,8 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   });
 
   it("reaches the real binary instead of resolving to itself", () => {
-    const { testPath } = stageShim("claude");
-    const result = spawnShim("claude", testPath);
+    const { testPath, probeScript } = stageShim("claude");
+    const result = spawnShim("claude", testPath, {}, [probeScript]);
     // The marker only prints from the stand-in, so its absence means the shim
     // ended at its own `goto :eof` instead of launching.
     expect(result.stdout).toContain("MARKER_REAL_BINARY");
@@ -420,8 +475,8 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // the others: the harness would still resolve, and would resolve against a
     // PATH with no System32 in it. The decoy dirs exist to be lost, so this
     // fails when they do.
-    const { testPath, keepDir, read } = stageShim("claude");
-    spawnShim("claude", testPath);
+    const { testPath, keepDir, probeScript, read } = stageShim("claude");
+    spawnShim("claude", testPath, {}, [probeScript]);
 
     const handedDown = read("path");
     // The shim's own directory is gone, so the wrapper cannot recurse.
@@ -433,8 +488,8 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   });
 
   it("passes a key-only Codex terminal through untouched", () => {
-    const { testPath, read } = stageShim("codex");
-    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" });
+    const { testPath, probeScript, read } = stageShim("codex");
+    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" }, [probeScript]);
     // The endpoint must not be repointed at the gateway.
     expect(read("base")).toBe("");
   });

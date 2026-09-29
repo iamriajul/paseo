@@ -114,7 +114,7 @@ The context-meter tooltip shows a "CLIProxyAPI latest request" section beside th
 
 The section is a label/value table: first token, generating, then — below a rule — the derived total, throughput, and how long ago the request ran. The rule separates what the Gateway measured from what Paseo computes from it, which is how the reader sees that throughput is computed over generation time alone and not the total.
 
-It is read on hover only — no interval. Opening the tooltip fetches, and every re-open fetches again, because the figure describes the _last_ request: a polled one would keep asserting a rate for something that stopped happening.
+It is read only while the tooltip is open, polled every 3s (`GATEWAY_STATS_POLL_MS`). Opening the tooltip starts the poll and closing it stops the interval with it, so a closed tooltip costs nothing. The poll exists because a throughput figure someone is watching should visibly move; the section is still scoped to the _last_ request rather than an aggregate, so the numbers re-render to the same model on every tick and a model that stops being served stops producing new rows.
 
 Everything that is not a usable 200 record — a model that has not run, a provider that is not CLIProxyAPI-routed, a Gateway build without the route — hides the section. There is no in-body empty state to distinguish those cases, so they render identically.
 

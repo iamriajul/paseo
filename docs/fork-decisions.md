@@ -524,6 +524,16 @@ Gateway-routed Codex (first-party or a derived provider pointing at a Gateway) a
 npx vitest run packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1
 ```
 
+## gateway-claude-effort-identity
+
+**Gateway Claude models get their advertised effort levels and their real name**
+
+Gateway-routed Claude models take their effort levels from the Codex-shape catalog instead of one hardcoded set, and Claude Code is told the model's real name and capabilities through `ANTHROPIC_CUSTOM_MODEL_OPTION_*` / `ANTHROPIC_DEFAULT_FABLE_MODEL_*`. A model the catalog does not describe keeps the full set. The capability list uses the same `max_effort` / `xhigh_effort` tokens Claude Code's own model catalog carries.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-effort.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+```
+
 ## gateway-codex-cpa-window
 
 **Codex launch and catalog use the CPA window and model catalog**

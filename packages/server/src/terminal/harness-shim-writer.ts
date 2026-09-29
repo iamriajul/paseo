@@ -114,14 +114,14 @@ export function buildCmdShimScript(
     // both split on `;` and keep the remainder in one pass; the loop peels the
     // head off and reassembles.
     //
-    // eol=; matters more than it looks. Without it `for /f` treats each PATH
-    // entry as its own line, so `in ("!rest!")` iterates the loop body once per
-    // entry and each iteration resets head and tail — the loop keeps only the
-    // last entry and discards the rest of PATH. On a real terminal PATH that
-    // silently removes System32 along with everything else, so the shim would
-    // hand the harness an almost-empty environment. Pinning eol makes the
-    // semicolon an ordinary character again, leaving `delims=;` as the only
-    // line break.
+    // eol=; is restated on purpose. It is the default, and spelling it out is
+    // what stops a reader "fixing" the delimiter later. The default eol applies
+    // to *file* parsing, where it drops `;`-prefixed comment lines; with a
+    // quoted literal string the value is one line, so only `delims` splits it.
+    // An earlier note here claimed the opposite — that `delims=;` alone made
+    // cmd break the input on every semicolon and the loop kept just the last
+    // entry. That was wrong, and BuildXL's CopyCMakeDeps.bat, leiningen's
+    // lein.bat, and lsc.cmd all use this exact form to walk PATH.
     //
     // Delayed expansion is scoped to this subroutine, not enabled for the whole
     // script. The loop needs !VAR! because it rewrites PATH between iterations

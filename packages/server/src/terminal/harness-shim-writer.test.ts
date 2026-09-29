@@ -210,10 +210,12 @@ describe("cmd shim generation", () => {
 
   it("pins for /f's end-of-line to ;, so PATH stays one line", () => {
     const script = cmdShimText();
-    // Without eol=; cmd breaks the input on every `;` and runs the body once
-    // per entry, so head and tail are reset each time and the loop keeps only
-    // the last entry. On a real PATH that discards System32 and everything
-    // else, leaving the harness an almost-empty environment.
+    // eol=; is cmd's default, so this asserts nothing about behavior — it pins
+    // the value so a later reader does not "fix" the delimiter on the belief
+    // that the two interact. The default eol governs *file* parsing, where it
+    // drops `;`-prefixed comment lines; a quoted literal string is one line, and
+    // only `delims` splits it. BuildXL's CopyCMakeDeps.bat and leiningen's
+    // lein.bat walk PATH with this exact form.
     expect(script).toContain('for /f "tokens=1* delims=; eol=;"');
   });
 

@@ -67,10 +67,89 @@ function resolveCatalogWindowLimits(record: Record<string, unknown>): {
   return { contextWindow, maxContextWindow, effectivePercent };
 }
 
+function normalizeCatalogVisibility(value: unknown, fallback: unknown): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  } else if (Array.isArray(value)) {
+    if (value.includes("hide")) return "hide";
+    if (value.includes("list")) return "list";
+  }
+  if (typeof fallback === "string") {
+    const trimmedFallback = fallback.trim();
+    if (trimmedFallback.length > 0) return trimmedFallback;
+  }
+  return "list";
+}
+
+function normalizeCatalogReasoningLevel(
+  entry: unknown,
+): { effort: string; description: string } | null {
+  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
+  const record = entry as Record<string, unknown>;
+  if (typeof record.effort !== "string") return null;
+  const effort = record.effort.trim();
+  if (!effort) return null;
+  const rawDescription = record.description;
+  if (typeof rawDescription === "string" && rawDescription.trim().length > 0) {
+    return { effort, description: rawDescription };
+  }
+  return { effort, description: effort };
+}
+
+function resolveCatalogReasoningLevels(
+  value: unknown,
+  fallback: unknown,
+): Array<{
+  effort: string;
+  description: string;
+}> {
+  if (Array.isArray(value)) {
+    const levels: Array<{ effort: string; description: string }> = [];
+    for (const entry of value) {
+      const normalized = normalizeCatalogReasoningLevel(entry);
+      if (normalized) levels.push(normalized);
+    }
+    if (levels.length > 0) return levels;
+  }
+  if (Array.isArray(fallback)) {
+    const levels: Array<{ effort: string; description: string }> = [];
+    for (const entry of fallback) {
+      const normalized = normalizeCatalogReasoningLevel(entry);
+      if (normalized) levels.push(normalized);
+    }
+    if (levels.length > 0) return levels;
+  }
+  return [];
+}
+
+function isValidCatalogReasoningLevel(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return typeof entry.effort === "string" && typeof entry.description === "string";
+}
+
+function isValidCatalogModel(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.visibility !== "string") return false;
+  if (!Array.isArray(record.supported_reasoning_levels)) return false;
+  for (const level of record.supported_reasoning_levels) {
+    if (!isValidCatalogReasoningLevel(level)) return false;
+  }
+  return true;
+}
+
 /**
  * Normalizes a raw model record to ensure it contains all required fields of
  * Codex's `ModelInfo` serde struct, setting `context_window` and `max_context_window`
  * to the full advertised capacity and enabling 100% effective context window for 1M+ models.
+ *
+ * Gateway-discovered rows only carry a subset (`slug`, `display_name`,
+ * `supported_reasoning_levels: [{ effort }]` without `description`, and
+ * `visibility: []`). Codex rejects those shapes verbatim: `visibility` must be
+ * a string (or single-key map), and every reasoning level requires a
+ * `description`. Both are repaired here so the written catalog parses.
  */
 export function normalizeCodexCatalogModel(
   input: unknown,
@@ -83,6 +162,15 @@ export function normalizeCodexCatalogModel(
 
   const displayName = resolveCatalogDisplayName(record.display_name, slug);
   const { contextWindow, maxContextWindow, effectivePercent } = resolveCatalogWindowLimits(record);
+  // Gateway rows arrive with `visibility: []`; Codex requires a string ("list"/"hide").
+  // Preserve an explicit hide marker, otherwise default to visible.
+  const visibility = normalizeCatalogVisibility(record.visibility, baseTemplate.visibility);
+  // Gateway reasoning entries are `{ effort }` without `description`, which Codex
+  // rejects with `missing field description`. Fill from the entry's own effort.
+  const supportedReasoningLevels = resolveCatalogReasoningLevels(
+    record.supported_reasoning_levels,
+    baseTemplate.supported_reasoning_levels,
+  );
 
   return {
     ...baseTemplate,
@@ -93,15 +181,13 @@ export function normalizeCodexCatalogModel(
     max_context_window: maxContextWindow,
     effective_context_window_percent: effectivePercent,
     shell_type: typeof record.shell_type === "string" ? record.shell_type : baseTemplate.shell_type,
-    visibility: record.visibility ?? baseTemplate.visibility,
+    visibility,
     supported_in_api:
       record.supported_in_api !== undefined
         ? record.supported_in_api
         : baseTemplate.supported_in_api,
     priority: typeof record.priority === "number" ? record.priority : baseTemplate.priority,
-    supported_reasoning_levels: Array.isArray(record.supported_reasoning_levels)
-      ? record.supported_reasoning_levels
-      : (baseTemplate.supported_reasoning_levels ?? []),
+    supported_reasoning_levels: supportedReasoningLevels,
   };
 }
 
@@ -200,7 +286,11 @@ export function writeCodexCatalogJsonFile(options: {
 }
 
 /**
- * Returns the path to the Codex model catalog file if it exists and is non-empty.
+ * Returns the path to the Codex model catalog file if it exists, is non-empty,
+ * and every model entry satisfies the shapes Codex requires (`visibility` as a
+ * string, `description` on each reasoning level). Stale files written before
+ * gateway-shape normalization fail app-server startup with `exited with code 1`,
+ * so they are treated as absent here and rebuilt on the next Gateway refresh.
  */
 export function resolveCodexModelCatalogPath(options?: {
   paseoHome?: string;
@@ -210,11 +300,23 @@ export function resolveCodexModelCatalogPath(options?: {
   const target = path.join(home, CODEX_MODEL_CATALOG_FILENAME);
   try {
     const stat = fs.statSync(target);
-    if (stat.isFile() && stat.size > 0) {
-      return target;
+    if (!stat.isFile() || stat.size === 0) {
+      return null;
     }
   } catch {
     // Missing or unreadable
+    return null;
   }
-  return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(target, "utf8")) as {
+      models?: unknown;
+    };
+    if (!parsed || !Array.isArray(parsed.models)) return null;
+    for (const model of parsed.models) {
+      if (!isValidCatalogModel(model)) return null;
+    }
+  } catch {
+    return null;
+  }
+  return target;
 }

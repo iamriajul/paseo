@@ -240,8 +240,8 @@ describe("cmd shim generation", () => {
     const script = cmdShimText();
     // An empty stripped result means every entry matched self. Handing the
     // child an empty PATH is worse than the recursion this guards against.
-    expect(script).toContain(":restoreOriginalPath");
-    expect(script).toContain('set "PATH=!self_path!"');
+    expect(script).toContain("if defined stripped goto keepStripped");
+    expect(script).toContain('set "new_path=!self_path!"');
   });
 
   it("leaves a terminal that already routes the harness alone", () => {
@@ -255,6 +255,30 @@ describe("cmd shim generation", () => {
     expect(script).toContain(":passthrough");
   });
 
+  it("scopes delayed expansion to the strip, so a ! in a value survives", () => {
+    const script = cmdShimText();
+    // The API key comes from user config. With delayed expansion on for the
+    // whole script, cmd would consume any `!` in it and hand the harness an
+    // altered credential — so it is enabled inside the subroutine only, and
+    // endlocal runs before the launch.
+    const setline = script.indexOf('set "ANTHROPIC_BASE_URL=');
+    const enable = script.indexOf("setlocal EnableExtensions EnableDelayedExpansion");
+    expect(enable).toBeGreaterThan(setline);
+    expect(script).toContain('endlocal & set "PATH=%new_path%"');
+  });
+
+  it("keeps the env set before the strip scope opens", () => {
+    const script = cmdShimText();
+    // Order matters twice over: the values must be set outside the setlocal
+    // that enables delayed expansion, and before the passthrough guards would
+    // have skipped them.
+    const guard = script.indexOf("if defined ANTHROPIC_BASE_URL goto passthrough");
+    const setline = script.indexOf('set "ANTHROPIC_BASE_URL=');
+    const call = script.indexOf("call :stripSelfFromPath");
+    expect(guard).toBeLessThan(setline);
+    expect(setline).toBeLessThan(call);
+  });
+
   it("tests the trailing backslash unquoted", () => {
     const script = cmdShimText();
     // cmd.exe has no escape character, so `if "x"=="\"` closes the quote early
@@ -263,15 +287,73 @@ describe("cmd shim generation", () => {
     expect(script).toContain('if "!entry:~-1!"==\\ set');
     expect(script).not.toContain('=="\\"');
   });
+});
 
-  it("sets a quoted env value without escaping its inner quotes", () => {
-    // OpenCode's config content is JSON, so this runs on every launch. The
-    // outer quotes delimit the value, so `set "VAR="value""` already assigns
-    // `"value"`. Escaping — caret or backslash — leaves a literal \" behind and
-    // makes the JSON unparseable.
-    const script = buildCmdShimScript("opencode", gateway);
-    expect(script).toContain('set "OPENCODE_CONFIG_CONTENT={"provider"');
-    expect(script).not.toContain('\\"provider\\"');
-    expect(script).not.toContain('^"provider^"');
+describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () => {
+  // The text assertions above cannot settle what cmd.exe actually does with
+  // `set "K=V"` when V contains quotes, nor whether the script reaches the real
+  // binary at all. These run the generated script for real on Windows CI, which
+  // is the only place the answer is knowable.
+  //
+  // The shim launches `<harness>.exe`, so the stand-in for the real binary has
+  // to carry that name. A `.bat` under that name is what cmd.exe will run.
+  function stageShim(harness: "claude" | "codex" | "opencode"): { shimDir: string; out: string } {
+    const home = makeHome();
+    const shimDir = join(home, "shims");
+    mkdirSync(shimDir, { recursive: true });
+    writeFileSync(join(shimDir, `${harness}.cmd`), buildCmdShimScript(harness, gateway));
+    // The probe reports the env it was handed and marks that it ran at all, so
+    // an assertion can tell "the launch never happened" from "the value was
+    // empty" — the two look the same in an env report alone.
+    const out = join(home, "out.txt");
+    writeFileSync(
+      join(shimDir, `${harness}.exe.bat`),
+      [
+        "@echo off",
+        "echo MARKER_REAL_BINARY",
+        `echo %OPENCODE_CONFIG_CONTENT%>${out}`,
+        `echo %OPENAI_BASE_URL%>${out}`,
+        "exit /b 0",
+      ].join("\r\n"),
+    );
+    return { shimDir, out };
+  }
+
+  /** cmd.exe resolves PATHEXT, so the stand-in is found under its bare name. */
+  function spawnShim(harness: string, shimDir: string, env: NodeJS.ProcessEnv = {}) {
+    return spawnSync("cmd.exe", ["/c", harness], {
+      encoding: "utf8",
+      // shim first: a shim that failed to strip itself recurses until killed.
+      env: { PATH: shimDir, SystemRoot: process.env.SystemRoot, ...env },
+      timeout: 20_000,
+    });
+  }
+
+  it("hands OpenCode parseable JSON, settling how set treats inner quotes", () => {
+    const { shimDir, out } = stageShim("opencode");
+    const result = spawnShim("opencode", shimDir);
+    expect(result.status).toBe(0);
+
+    // If the value were escaped, this JSON.parse is what fails. The security
+    // review says a bare quote terminates the set command; the reviewer says it
+    // does not. Whichever is true, the parse decides it.
+    const config = JSON.parse(readFileSync(out, "utf8").trim());
+    expect(config.provider.cliproxyapi.options.baseURL).toBe("http://cpa.test:8317/v1");
+    expect(config.provider.cliproxyapi.options.apiKey).toBe("sk-test");
+  });
+
+  it("reaches the real binary instead of resolving to itself", () => {
+    const { shimDir } = stageShim("claude");
+    const result = spawnShim("claude", shimDir);
+    // The marker only prints from the stand-in, so its absence means the shim
+    // ended at its own `goto :eof` instead of launching.
+    expect(result.stdout).toContain("MARKER_REAL_BINARY");
+  });
+
+  it("passes a key-only Codex terminal through untouched", () => {
+    const { shimDir, out } = stageShim("codex");
+    spawnShim("codex", shimDir, { OPENAI_API_KEY: "sk-mine" });
+    // The endpoint must not be repointed at the gateway.
+    expect(readFileSync(out, "utf8").trim()).toBe("");
   });
 });

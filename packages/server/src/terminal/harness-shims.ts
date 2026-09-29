@@ -48,7 +48,7 @@ export function isShimmedHarness(value: string): value is ShimmedHarness {
  */
 const SHIM_CONFLICT_ENV: Record<ShimmedHarness, readonly string[]> = {
   claude: ["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
-  codex: ["OPENAI_BASE_URL"],
+  codex: ["OPENAI_BASE_URL", "OPENAI_API_KEY"],
   opencode: ["OPENCODE_CONFIG_CONTENT"],
 };
 

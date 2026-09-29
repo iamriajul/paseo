@@ -52,7 +52,7 @@ describe("buildHarnessShimEnv", () => {
   it("names the env vars that suppress each shim", () => {
     // Whole-harness, so a user's OPENAI_API_KEY is never left pointing at a
     // gateway they did not ask for.
-    expect(shimConflictEnv("codex")).toEqual(["OPENAI_BASE_URL"]);
+    expect(shimConflictEnv("codex")).toEqual(["OPENAI_BASE_URL", "OPENAI_API_KEY"]);
     expect(shimConflictEnv("claude")).toEqual([
       "ANTHROPIC_BASE_URL",
       "ANTHROPIC_API_KEY",

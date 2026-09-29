@@ -74,11 +74,11 @@ The table above covers Paseo-managed agents. A terminal tab runs the harness as 
 | Harness  | Shim applies                                                                                 | Opt-out                                                |
 | -------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | Claude   | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` | terminal `ANTHROPIC_*`, or a settings.json `env` block |
-| Codex    | `OPENAI_*` plus a `model_providers.cliproxyapi` map, which Codex only accepts from argv      | terminal `OPENAI_BASE_URL`                             |
+| Codex    | `OPENAI_*` plus a `model_providers.cliproxyapi` map, which Codex only accepts from argv      | terminal `OPENAI_BASE_URL` or `OPENAI_API_KEY`         |
 | OpenCode | `OPENCODE_CONFIG_CONTENT` with a `provider` map carrying the `cliproxyapi` record            | terminal `OPENCODE_CONFIG_CONTENT`                     |
 | OMP      | none — `LITELLM_BASE_URL` / `LITELLM_API_KEY` go straight into the terminal env              | terminal `LITELLM_*` env                               |
 
-The opt-out is whole-harness, not per-variable: a shim that set `OPENAI_BASE_URL` while a terminal had exported its own `OPENAI_API_KEY` would send that key to the gateway. A terminal that already routes a harness keeps doing so, which is the terminal-side spelling of the agent path's rules above.
+The opt-out is all-or-nothing per harness: a shim either injects its whole env and argv or none of it. Partially applying one would strand a terminal's own credentials against the gateway's endpoint — a codex terminal exporting its own `OPENAI_API_KEY` would keep that key while its endpoint was rerouted. A terminal that already routes a harness keeps doing so, which is the terminal-side spelling of the agent path's rules above.
 
 Shims rather than plain env, for two reasons. Codex only reads `model_providers` from argv, so env cannot route it at all; and injected env would put three gateway credentials in front of every unrelated process in the shell. The shim removes its own directory from PATH before exec'ing the real binary, so only the harness invocation sees the injection — and because that strip uses `$0`, a shim reached by bare name (`claude`, as typed in a terminal) resolves past itself correctly.
 

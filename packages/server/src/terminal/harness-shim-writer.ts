@@ -58,12 +58,13 @@ export function buildCmdShimScript(
   const { env, argv } = buildHarnessShimEnv(harness, gateway);
   const realBinary = `${REAL_BINARY[harness]}.exe`;
 
-  // A double quote inside `set "K=V"` is escaped with a backslash, not a caret.
-  // A caret works for a space or an &, but before the closing quote it escapes
-  // the quote itself and swallows the rest of the line. OpenCode's config
-  // content is JSON, so it hits this on every invocation.
+  // A quote inside `set "K=V"` needs no escape: the outer quotes delimit the
+  // value, so `set "VAR="value""` assigns `"value"`. Escaping it — with a caret
+  // or a backslash — leaves a literal \" in the value instead, which would make
+  // OpenCode's JSON config invalid on every Windows launch. Newlines cannot
+  // appear in an env value at all and would end the command, so they go.
   const envLines = Object.entries(env).map(
-    ([key, value]) => `set "${key}=${value.replace(/(["\r\n])/g, "\\$1")}"`,
+    ([key, value]) => `set "${key}=${value.replace(/[\r\n]/g, "")}"`,
   );
 
   // A terminal that already routes this harness keeps doing so. Whole-harness

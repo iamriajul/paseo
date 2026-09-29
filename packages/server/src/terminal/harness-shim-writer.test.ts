@@ -140,6 +140,28 @@ describe.skipIf(process.platform === "win32")("generated shim behavior", () => {
     expect(result.stdout).not.toContain("sk-test");
   });
 
+  it("leaves a key-only Codex terminal on its own endpoint", () => {
+    // Guarding only on the base URL would reroute the endpoint while keeping
+    // the user's personal key, sending it to the gateway. The key alone is
+    // enough to mean "this terminal routes Codex itself".
+    const home = makeHome();
+    const shimDir = ensureHarnessShims(home, gateway)!;
+    const realDir = join(home, "realbin");
+    writeFileSync(
+      join(mkdirSync(realDir, { recursive: true }), "codex"),
+      ["#!/bin/sh", `echo "BASE=$OPENAI_BASE_URL"`, `echo "KEY=$OPENAI_API_KEY"`].join("\n"),
+      { mode: 0o755 },
+    );
+
+    const result = spawnSync(join(shimDir, "codex"), [], {
+      encoding: "utf8",
+      env: { PATH: `${shimDir}:${realDir}`, HOME: home, OPENAI_API_KEY: "sk-mine" },
+    });
+
+    expect(result.stdout).toContain("KEY=sk-mine");
+    expect(result.stdout).not.toContain("sk-test");
+  });
+
   it("resolves past itself when the shell invokes it by bare name", () => {
     // This is how a real terminal reaches the shim: the user types `claude`, the
     // shell runs `command -v claude`, and PATH hands back a bare name. The shim
@@ -242,11 +264,14 @@ describe("cmd shim generation", () => {
     expect(script).not.toContain('=="\\"');
   });
 
-  it("escapes a quote in an env value with a backslash, not a caret", () => {
-    // OpenCode's config content is JSON, so this runs on every invocation.
-    // `^"` escapes the closing quote of the set command and truncates it.
+  it("sets a quoted env value without escaping its inner quotes", () => {
+    // OpenCode's config content is JSON, so this runs on every launch. The
+    // outer quotes delimit the value, so `set "VAR="value""` already assigns
+    // `"value"`. Escaping — caret or backslash — leaves a literal \" behind and
+    // makes the JSON unparseable.
     const script = buildCmdShimScript("opencode", gateway);
-    expect(script).toContain('\\"provider\\"');
+    expect(script).toContain('set "OPENCODE_CONFIG_CONTENT={"provider"');
+    expect(script).not.toContain('\\"provider\\"');
     expect(script).not.toContain('^"provider^"');
   });
 });

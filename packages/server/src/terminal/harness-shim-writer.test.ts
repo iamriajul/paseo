@@ -416,16 +416,21 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     env: NodeJS.ProcessEnv = {},
     args: string[] = [],
   ) {
-    // Everything after `/c` must reach cmd as ONE string. Spread across argv,
-    // cmd reads the rest of the vector as the command text: it reports a
-    // missing message number and prints the working directory, which is how the
-    // first Windows run of these tests failed with an empty result. The `/c`
-    // line is joined here for the same reason terminal.ts joins it rather than
-    // handing node-pty an argv array.
+    // Everything after cmd's own `/c` must reach it as ONE string, which is why
+    // the line is joined here instead of spread across the spawn vector. The
+    // repo joins the same line for node-pty in terminal.ts for the same reason.
     //
     // The probe path is quoted so the spaces mkdtemp's Temp directory carries
-    // survive cmd's tokenizer.
-    const commandLine = [harness, ...args.map((arg) => `"${arg}"`)].join(" ");
+    // survive cmd's tokenizer; `/s` strips only the outer quotes, and this line
+    // starts with the bare harness name, so the quoted path is left intact.
+    //
+    // The `/c` before the probe is the part that is easy to miss. The stand-in
+    // is a copy of cmd.exe, and cmd handed a bare batch path prints its prompt
+    // and waits instead of running the file — a failing run produced a cmd
+    // prompt and nothing else. `/c <script>` is the documented way to have cmd
+    // run a batch file and exit, and it rides through the shim's `%*`, so this
+    // also proves the shim forwards its arguments.
+    const commandLine = [harness, ...args].join(" ");
     const result = spawnSync(cmdExePath(), ["/d", "/s", "/c", commandLine], {
       encoding: "utf8",
       // shim first: a shim that failed to strip itself recurses until killed.
@@ -457,7 +462,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("hands OpenCode parseable JSON, settling how set treats inner quotes", () => {
     const { testPath, probeScript, read } = stageShim("opencode");
-    const result = spawnShim("opencode", testPath, {}, [probeScript]);
+    const result = spawnShim("opencode", testPath, {}, ["/c", `"${probeScript}"`]);
     // A shim that never launched the binary, or launched one that failed, is
     // not a pass. Asserting the marker first means the JSON below is read from
     // a run that actually reached the stand-in.
@@ -474,7 +479,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("reaches the real binary instead of resolving to itself", () => {
     const { testPath, probeScript } = stageShim("claude");
-    const result = spawnShim("claude", testPath, {}, [probeScript]);
+    const result = spawnShim("claude", testPath, {}, ["/c", `"${probeScript}"`]);
     // The marker only prints from the stand-in, so its absence means the shim
     // ended at its own `goto :eof` instead of launching.
     expect(result.stdout).toContain("MARKER_REAL_BINARY");
@@ -487,7 +492,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // PATH with no System32 in it. The decoy dirs exist to be lost, so this
     // fails when they do.
     const { testPath, keepDir, probeScript, read } = stageShim("claude");
-    spawnShim("claude", testPath, {}, [probeScript]);
+    spawnShim("claude", testPath, {}, ["/c", `"${probeScript}"`]);
 
     const handedDown = read("path");
     // The shim's own directory is gone, so the wrapper cannot recurse.
@@ -500,7 +505,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("passes a key-only Codex terminal through untouched", () => {
     const { testPath, probeScript, read } = stageShim("codex");
-    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" }, [probeScript]);
+    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" }, ["/c", `"${probeScript}"`]);
     // The endpoint must not be repointed at the gateway.
     expect(read("base")).toBe("");
   });

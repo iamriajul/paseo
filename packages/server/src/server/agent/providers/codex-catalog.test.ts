@@ -71,6 +71,38 @@ describe("normalizeCodexCatalogModel", () => {
       effective_context_window_percent: 95,
     });
   });
+
+  test("repairs gateway row shapes Codex rejects (visibility array, description-less levels)", () => {
+    const normalized = normalizeCodexCatalogModel({
+      slug: "gw-derived",
+      display_name: "Derived Gateway Model",
+      supported_reasoning_levels: [{ effort: "medium" }],
+      visibility: [],
+    });
+
+    // Codex requires `visibility` as a string and a `description` on every
+    // reasoning level; verbatim gateway shapes fail app-server startup.
+    expect(normalized).toMatchObject({
+      slug: "gw-derived",
+      visibility: "list",
+      supported_reasoning_levels: [{ effort: "medium", description: "medium" }],
+    });
+  });
+
+  test("preserves hide visibility from gateway arrays and keeps level descriptions", () => {
+    const normalized = normalizeCodexCatalogModel({
+      slug: "gw-hidden",
+      display_name: "Hidden Model",
+      supported_reasoning_levels: [{ effort: "low", description: "Low effort" }],
+      visibility: ["hide"],
+    });
+
+    expect(normalized).toMatchObject({
+      slug: "gw-hidden",
+      visibility: "hide",
+      supported_reasoning_levels: [{ effort: "low", description: "Low effort" }],
+    });
+  });
 });
 
 describe("buildCodexCatalog", () => {
@@ -151,8 +183,9 @@ describe("writeCodexCatalogJsonFile and resolveCodexModelCatalogPath", () => {
   test("writes catalog file and resolves it", () => {
     expect(resolveCodexModelCatalogPath({ paseoHome: tempHome })).toBeNull();
 
-    const catalog = {
-      models: [
+    const catalog = buildCodexCatalog({
+      bundledModels: [],
+      gatewayModels: [
         {
           slug: "qwen3.8-max",
           display_name: "Qwen 3.8 Max",
@@ -160,7 +193,7 @@ describe("writeCodexCatalogJsonFile and resolveCodexModelCatalogPath", () => {
           max_context_window: 1_000_000,
         },
       ],
-    };
+    });
 
     const writtenPath = writeCodexCatalogJsonFile({ catalog, paseoHome: tempHome });
     expect(writtenPath).toBe(path.join(tempHome, CODEX_MODEL_CATALOG_FILENAME));
@@ -171,5 +204,27 @@ describe("writeCodexCatalogJsonFile and resolveCodexModelCatalogPath", () => {
 
     const resolved = resolveCodexModelCatalogPath({ paseoHome: tempHome });
     expect(resolved).toBe(writtenPath);
+  });
+
+  test("treats stale gateway-shape catalog files as absent", () => {
+    const stalePath = path.join(tempHome, CODEX_MODEL_CATALOG_FILENAME);
+    fs.writeFileSync(
+      stalePath,
+      JSON.stringify({
+        models: [
+          {
+            slug: "gw-derived",
+            display_name: "Derived Gateway Model",
+            supported_reasoning_levels: [{ effort: "medium" }],
+            visibility: [],
+          },
+        ],
+      }),
+      "utf8",
+    );
+
+    // Pre-normalization files fail app-server startup; the resolver must not
+    // hand them to Codex again.
+    expect(resolveCodexModelCatalogPath({ paseoHome: tempHome })).toBeNull();
   });
 });

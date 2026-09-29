@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, it } from "vitest";
-import { formatSeconds, formatThroughput, gatewayStatsCopy } from "./copy";
+import { formatDuration, formatThroughput, gatewayStatsCopy } from "./copy";
 import { buildStatsTableRows, GatewayStatsSection } from "./section";
 
 const sample = {
@@ -17,16 +17,16 @@ const sample = {
   stream: true,
 };
 
-describe("formatSeconds", () => {
+describe("formatDuration", () => {
   it("keeps one decimal below 10s and rounds to whole seconds above", () => {
-    expect(formatSeconds(600)).toBe("0.6s");
-    expect(formatSeconds(3600)).toBe("3.6s");
-    expect(formatSeconds(12_400)).toBe("12s");
+    expect(formatDuration(600)).toBe("0.6s");
+    expect(formatDuration(3600)).toBe("3.6s");
+    expect(formatDuration(12_400)).toBe("12s");
   });
 
   it("never reports a negative or absent duration", () => {
-    expect(formatSeconds(0)).toBe("0s");
-    expect(formatSeconds(Number.NaN)).toBe("0s");
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(Number.NaN)).toBe("0s");
   });
 });
 

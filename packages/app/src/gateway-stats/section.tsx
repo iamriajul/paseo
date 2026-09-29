@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { GatewayStatsSample } from "@getpaseo/protocol/messages";
 import { formatAgo } from "@/provider-usage/format";
-import { formatSeconds, formatThroughput, gatewayStatsCopy } from "./copy";
+import { formatDuration, formatThroughput, gatewayStatsCopy } from "./copy";
 
 export interface StatsTableRow {
   label: string;
@@ -19,13 +19,13 @@ export interface StatsTableRow {
  */
 export function buildStatsTableRows(sample: GatewayStatsSample): StatsTableRow[] {
   const rows: StatsTableRow[] = [
-    { label: gatewayStatsCopy.firstToken, value: formatSeconds(sample.ttftMs), measured: true },
+    { label: gatewayStatsCopy.firstToken, value: formatDuration(sample.ttftMs), measured: true },
     {
       label: gatewayStatsCopy.generating,
-      value: formatSeconds(sample.generationMs),
+      value: formatDuration(sample.generationMs),
       measured: true,
     },
-    { label: gatewayStatsCopy.total, value: formatSeconds(sample.durationMs), measured: false },
+    { label: gatewayStatsCopy.total, value: formatDuration(sample.durationMs), measured: false },
     { label: gatewayStatsCopy.throughput, value: formatThroughput(sample.tps), measured: false },
   ];
   // The record's timestamp is validated on the daemon, so a missing age only

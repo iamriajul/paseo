@@ -9,10 +9,10 @@ export const gatewayStatsCopy = {
   ran: "Ran",
 } as const;
 
-/** Seconds, one decimal below 10s and whole above it. */
-export function formatSeconds(generationMs: number): string {
-  if (!Number.isFinite(generationMs) || generationMs <= 0) return "0s";
-  const seconds = generationMs / 1000;
+/** Seconds, one decimal below 10s and whole above it. Feeds every timing row. */
+export function formatDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return "0s";
+  const seconds = durationMs / 1000;
   return seconds >= 10 ? `${seconds.toFixed(0)}s` : `${seconds.toFixed(1)}s`;
 }
 

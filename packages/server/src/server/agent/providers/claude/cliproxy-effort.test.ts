@@ -67,6 +67,13 @@ describe("buildCliproxyThinkingOptions", () => {
     expect(optionIds(options)).toEqual(["low", "medium", "high", "max"]);
   });
 
+  test("keeps high as the default so known and unknown models agree", () => {
+    for (const profile of [undefined, { maxEffort: true, xhighEffort: true }]) {
+      const options = buildCliproxyThinkingOptions(profile);
+      expect(options.find((option) => option.isDefault)?.id).toBe("high");
+    }
+  });
+
   test("keeps the full set for a model the catalog does not describe", () => {
     const options = buildCliproxyThinkingOptions(undefined);
 

@@ -1,6 +1,7 @@
 import type { AgentSelectOption } from "../../agent-sdk-types.js";
 import type { GatewayCodexModelRow } from "../../gateway/models.js";
 import {
+  CLAUDE_DEFAULT_THINKING_OPTION_ID,
   CLAUDE_EFFORT_LABELS,
   CLAUDE_EFFORT_LEVELS,
   CLAUDE_ULTRACODE_THINKING_OPTION_ID,
@@ -71,10 +72,11 @@ export function buildCliproxyThinkingOptions(
     return true;
   });
 
-  const options: AgentSelectOption[] = effortLevels.map((id) => ({
-    id,
-    label: CLAUDE_EFFORT_LABELS[id],
-  }));
+  const options: AgentSelectOption[] = effortLevels.map((id) => {
+    const option: AgentSelectOption = { id, label: CLAUDE_EFFORT_LABELS[id] };
+    if (id === CLAUDE_DEFAULT_THINKING_OPTION_ID) option.isDefault = true;
+    return option;
+  });
   // Ultra Code is xhigh plus workflow orchestration. Without xhigh it cannot run.
   if (profile?.xhighEffort !== false) {
     options.push({ id: CLAUDE_ULTRACODE_THINKING_OPTION_ID, label: "Ultra Code" });

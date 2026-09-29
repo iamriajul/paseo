@@ -69,7 +69,7 @@ Set `PASEO_DISABLE_GATEWAY_CACHE=1` to skip the cache entirely. Both vitest conf
 
 ## Terminal tabs
 
-The table above covers Paseo-managed agents. A terminal tab runs the harness as an ordinary child process, so the agent path injects nothing there. With a Gateway configured, Paseo writes three shims into `$PASEO_HOME/harness-shims` and puts that directory on terminal PATH:
+The table above covers Paseo-managed agents. A terminal tab runs the harness as an ordinary child process, so the agent path injects nothing there. With a Gateway configured, Paseo writes three shims into a shim directory under `$PASEO_HOME` — `harness-shims`, or `cmd-shims` on Windows where the wrappers are `.cmd` — and puts that directory on terminal PATH:
 
 | Harness  | Shim applies                                                                                 | Opt-out                                                |
 | -------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |

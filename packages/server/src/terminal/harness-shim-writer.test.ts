@@ -302,11 +302,16 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   // loader is lenient about the mismatch.
   function stageShim(harness: "claude" | "codex" | "opencode"): {
     shimDir: string;
+    // A realistic PATH, so the strip loop has entries to keep and the
+    // restore-only-the-shim-dir branch is not the path under test.
+    testPath: string;
     read: (name: string) => string;
   } {
     const home = makeHome();
     const shimDir = join(home, "shims");
+    const keepDir = join(home, "keep");
     mkdirSync(shimDir, { recursive: true });
+    mkdirSync(keepDir, { recursive: true });
     writeFileSync(join(shimDir, `${harness}.cmd`), buildCmdShimScript(harness, gateway));
 
     // Each probe writes its own file: two echos into one path mean the second
@@ -323,21 +328,35 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
         "exit /b 0",
       ].join("\r\n"),
     );
-    return { shimDir, read: (name) => readFileSync(out(name), "utf8").trim() };
+    return {
+      shimDir,
+      testPath: `${shimDir};${keepDir}`,
+      read: (name) => readFileSync(out(name), "utf8").trim(),
+    };
   }
 
-  function spawnShim(harness: string, shimDir: string, env: NodeJS.ProcessEnv = {}) {
-    return spawnSync("cmd.exe", ["/c", harness], {
+  function spawnShim(harness: string, testPath: string, env: NodeJS.ProcessEnv = {}) {
+    // PATH is narrowed to the shim directory so the shim is what resolves, but
+    // that leaves no way to find cmd.exe itself — PATH is also how the child
+    // process is located, so it has to be named absolutely. SystemRoot goes
+    // along for the ride because cmd refuses to start without it.
+    const shell =
+      process.env.ComSpec ?? join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe");
+    const result = spawnSync(shell, ["/d", "/s", "/c", harness], {
       encoding: "utf8",
       // shim first: a shim that failed to strip itself recurses until killed.
-      env: { PATH: shimDir, SystemRoot: process.env.SystemRoot, ...env },
+      env: { PATH: testPath, SystemRoot: process.env.SystemRoot, ...env },
       timeout: 20_000,
     });
+    // A missing shell looks like a passing shim (null status, no marker), so
+    // say so plainly rather than letting the assertion below report it.
+    if (result.error) throw result.error;
+    return result;
   }
 
   it("hands OpenCode parseable JSON, settling how set treats inner quotes", () => {
-    const { shimDir, read } = stageShim("opencode");
-    const result = spawnShim("opencode", shimDir);
+    const { testPath, read } = stageShim("opencode");
+    const result = spawnShim("opencode", testPath);
     expect(result.status).toBe(0);
 
     // If the value were escaped, this JSON.parse is what fails. The security
@@ -349,16 +368,16 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   });
 
   it("reaches the real binary instead of resolving to itself", () => {
-    const { shimDir } = stageShim("claude");
-    const result = spawnShim("claude", shimDir);
+    const { testPath } = stageShim("claude");
+    const result = spawnShim("claude", testPath);
     // The marker only prints from the stand-in, so its absence means the shim
     // ended at its own `goto :eof` instead of launching.
     expect(result.stdout).toContain("MARKER_REAL_BINARY");
   });
 
   it("passes a key-only Codex terminal through untouched", () => {
-    const { shimDir, read } = stageShim("codex");
-    spawnShim("codex", shimDir, { OPENAI_API_KEY: "sk-mine" });
+    const { testPath, read } = stageShim("codex");
+    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" });
     // The endpoint must not be repointed at the gateway.
     expect(read("base")).toBe("");
   });

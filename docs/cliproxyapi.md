@@ -65,13 +65,15 @@ CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (obser
 
 ## Latest request
 
-The context-meter tooltip shows a "CLIProxyAPI latest request" section beside the quota section, reading `cliproxyapi.tps.get` (gated on `server_info.features.cliproxyapiTps`). It maps the model id with the same slug resolver quota uses and hits `/v1/last-request-tps`, which reports generation tokens per second for the last request that model served.
+The context-meter tooltip shows a "CLIProxyAPI latest request" section beside the quota section, reading `cliproxyapi.stats.get` (gated on `server_info.features.cliproxyapiStats`). It maps the model id with the same slug resolver quota uses and hits `/v1/last-request-stats`, which reports token and timing stats for the last request that model served.
 
-It is read on hover only — no interval. Opening the tooltip fetches, and every re-open fetches again, because the figure describes the _last_ request: a polled one would keep asserting a rate for something that stopped happening. The section reports the rate with the output-token count and generation time behind it, plus how long ago that request ran, so a three-hour-old number reads as three hours old.
+The section is a label/value table: first token, generating, then — below a rule — the derived total, throughput, and how long ago the request ran. The rule separates what the Gateway measured from what Paseo computes from it, which is how the reader sees that throughput is computed over generation time alone and not the total.
+
+It is read on hover only — no interval. Opening the tooltip fetches, and every re-open fetches again, because the figure describes the _last_ request: a polled one would keep asserting a rate for something that stopped happening.
 
 Everything that is not a usable 200 record — a model that has not run, a provider that is not CLIProxyAPI-routed, a Gateway build without the route — hides the section. There is no in-body empty state to distinguish those cases, so they render identically.
 
-`/v1/last-request-tps` is newer than `/v1/quota`: the Gateway build reachable while this shipped answered 401 on the quota route and an empty 404 here. Assume the route is absent until you have probed the Gateway you run.
+The route was `/v1/last-request-tps` through CLIProxyAPI v8.0.901 and became `/v1/last-request-stats` in v8.0.902 — it reports more than throughput. The body is unchanged and the old path is not served, so a Gateway older than v8.0.902 answers 404 for both names. Assume the route is absent until you have probed the Gateway you run: the Gateway reachable while this shipped answered 401 on `/v1/quota` and an empty 404 here.
 
 ## Out of scope
 

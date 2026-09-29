@@ -939,6 +939,46 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       result.models.find((model) => model.id === "grok-4.5")?.thinkingOptions?.map((o) => o.id),
     ).toEqual(["low", "medium", "high", "xhigh", "max", "ultracode"]);
   });
+
+  // A new first-party minor release the manifest does not list yet is a gateway row, not a
+  // spelling of the major it extends. Resolving it to the major made it look first-party and
+  // dropped it from the catalog, so the model never appeared in Claude Code.
+  test("keeps an unmanifested first-party minor release the gateway advertises", async () => {
+    const result = await appendCliproxyModelsToClaudeCatalog({
+      baseModels: [
+        ...base,
+        { provider: "claude" as const, id: "claude-sonnet-5", label: "Sonnet 5" },
+      ],
+      rows: [
+        {
+          id: "claude-sonnet-5",
+          label: "Claude Sonnet 5",
+          ownedBy: "anthropic",
+          maxInputTokens: 1_000_000,
+          rawListId: "claude-sonnet-5",
+        },
+        {
+          id: "claude-sonnet-5-5",
+          label: "Claude Sonnet 5.5",
+          ownedBy: "anthropic",
+          maxInputTokens: 1_000_000,
+          rawListId: "claude-sonnet-5-5",
+        },
+      ],
+      existingAdditionalModels: [],
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
+      getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
+    });
+
+    expect(result.advertisedIds).toEqual(["claude-sonnet-5", "claude-sonnet-5-5"]);
+    const minor = result.models.find((model) => model.id === "claude-sonnet-5-5");
+    expect(minor?.label).toBe("Claude Sonnet 5.5");
+    expect(minor?.contextWindowMaxTokens).toBe(1_000_000);
+    // The manifest's own Sonnet 5 row keeps its window rather than taking the 1M overlay.
+    expect(
+      result.models.find((model) => model.id === "claude-sonnet-5")?.contextWindowMaxTokens,
+    ).toBeUndefined();
+  });
 });
 
 describe("mergeAdditionalModelLimits", () => {

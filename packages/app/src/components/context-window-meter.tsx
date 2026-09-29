@@ -5,8 +5,8 @@ import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GatewayQuotaSection } from "@/gateway-quota/section";
-import { GatewayTpsSection } from "@/gateway-tps/section";
-import { useGatewayTps } from "@/gateway-tps/use-gateway-tps";
+import { GatewayStatsSection } from "@/gateway-stats/section";
+import { useGatewayStats } from "@/gateway-stats/use-gateway-stats";
 import { useGatewayQuota } from "@/gateway-quota/use-gateway-quota";
 import { ProviderUsageTooltipSection } from "@/provider-usage/tooltip-section";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
@@ -126,7 +126,7 @@ export function ContextWindowMeter({
     model ?? null,
     { enabled: isTooltipOpen },
   );
-  const { sample: gatewayTpsSample, refresh: refreshGatewayTps } = useGatewayTps({
+  const { sample: gatewayStatsSample, refresh: refreshGatewayStats } = useGatewayStats({
     serverId: serverId ?? null,
     provider: provider ?? null,
     model: model ?? null,
@@ -140,10 +140,10 @@ export function ContextWindowMeter({
       if (nextOpen) {
         void refreshProviderUsage().catch(() => {});
         void refreshGatewayQuota().catch(() => {});
-        void refreshGatewayTps().catch(() => {});
+        void refreshGatewayStats().catch(() => {});
       }
     },
-    [refreshGatewayQuota, refreshGatewayTps, refreshProviderUsage],
+    [refreshGatewayQuota, refreshGatewayStats, refreshProviderUsage],
   );
   const geometry = getMeterGeometry(showPercentage, glyphSize);
 
@@ -255,7 +255,7 @@ export function ContextWindowMeter({
           ) : null}
           <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
           <GatewayQuotaSection view={gatewayQuotaView} />
-          <GatewayTpsSection sample={gatewayTpsSample} />
+          <GatewayStatsSection sample={gatewayStatsSample} />
         </View>
       </TooltipContent>
     </Tooltip>

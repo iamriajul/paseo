@@ -586,11 +586,11 @@ npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/
 
 ## gateway-latest-request
 
-**CLIProxyAPI throughput in the context-meter tooltip, fetched on hover only**
+**CLIProxyAPI last-request stats in the context-meter tooltip, fetched on hover only**
 
-The `cliproxyapi.tps.get` RPC (gated on `server_info.features.cliproxyapiTps`) reads `/v1/last-request-tps`, and the meter's tooltip renders a "CLIProxyAPI latest request" section next to quota. It fetches on open and refetches on every re-open, with no interval: the value is the rate of the _last_ request, so polling would keep asserting a rate for work that stopped. A missing route, an unrun model, and a bad key all hide the section.
+The `cliproxyapi.stats.get` RPC (gated on `server_info.features.cliproxyapiStats`) reads `/v1/last-request-stats`, and the meter's tooltip renders a "CLIProxyAPI latest request" table next to quota: first token and generating above a rule, then the derived total, throughput, and age. It fetches on open and refetches on every re-open, with no interval: the value describes the _last_ request, so polling would keep asserting a rate for work that stopped. A missing route, an unrun model, and a bad key all hide the section. CLIProxyAPI renamed the route from `/v1/last-request-tps` to `/v1/last-request-stats` in v8.0.902 with the body unchanged and the old path dropped. Because the feature shipped unreleased, Paseo also renamed its own RPC from `cliproxyapi.tps.get` to `cliproxyapi.stats.get` rather than carry a wire alias forever for a name that was never public.
 
 ```bash
-npx vitest run packages/server/src/server/agent/gateway/tps.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
-cd packages/app && npx vitest run --project unit src/gateway-tps --bail=1
+npx vitest run packages/server/src/server/agent/gateway/stats.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
+cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 ```

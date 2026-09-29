@@ -706,6 +706,9 @@ export async function createPaseoDaemon(
         paseoHome: config.paseoHome,
         gateway: resolveGatewayConfig(config.agentGateway),
       }),
+    onGatewayRoutingError: (error) => {
+      logger.warn({ err: error }, "Failed to apply CLIProxyAPI routing to a terminal");
+    },
   });
   applyTerminalAgentHookSetting({ store: daemonConfigStore, logger });
 

@@ -92,7 +92,11 @@ Shims are rewritten on every terminal create, so editing `agents.cliproxyapi` re
 
 `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` is an undocumented internal flag (verified against the binary, not a published contract). It makes Claude read `/v1/models` at `[Bootstrap]` so the TUI model picker lists Gateway slugs. If a future Claude release drops it, terminal model discovery regresses and the shim's env becomes inert; the rest of the routing still works.
 
-OpenCode's shim registers the provider with an empty `models` map. The agent path populates the live catalog; a terminal session gets the provider but picks its model from OpenCode's own picker.
+OpenCode's shim sets `OPENCODE_CONFIG_CONTENT` to the provider record itself, not to a config document with a `provider` key. OpenCode merges that value over whatever the user already configured, so a record that arrived wrapped in `provider` would replace a user's own provider map instead of joining it. The same "existing providers survive, a user-defined `provider.cliproxyapi` wins" rule the agent path enforces in `mergeOpenCodeGatewayProviderRecord` therefore holds here by construction: the injected id is the same one, and OpenCode performs the merge.
+
+The shim registers the provider with an empty `models` map. The agent path populates the live catalog; a terminal session gets the provider but picks its model from OpenCode's own picker.
+
+Resolving routing writes the shims to disk, so it can fail — an unwritable `$PASEO_HOME`, a full disk. Terminal creation catches that and opens the terminal without routing, logging a warning. A terminal that loses its gateway is recoverable; a terminal that will not open is not.
 
 ## Quota
 

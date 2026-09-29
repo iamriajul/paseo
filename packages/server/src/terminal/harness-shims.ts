@@ -68,20 +68,29 @@ function codexProviderArgs(gateway: ResolvedGatewayConfig): string[] {
   ];
 }
 
+/**
+ * The gateway provider record a shim injects into `OPENCODE_CONFIG_CONTENT`.
+ *
+ * Only the record — never a whole config document. OpenCode merges this env
+ * over whatever the user already has, and a config that carried a `provider`
+ * map of its own would replace those entries wholesale. The agent path's
+ * `mergeOpenCodeGatewayProviderRecord` bakes the same "existing providers
+ * survive, a user-defined `provider.cliproxyapi` wins" rule into the object it
+ * merges; here the same rule holds because OpenCode performs the merge, and
+ * because the id is the same one the agent path uses.
+ */
 function openCodeConfigContent(gateway: ResolvedGatewayConfig): string {
   // Same normalization as the Codex argv above, for the same reason.
   const baseUrl = codexGatewayEnv(gateway).OPENAI_BASE_URL;
   return JSON.stringify({
-    provider: {
-      [GATEWAY_PROVIDER_ID]: {
-        npm: "@ai-sdk/openai-compatible",
-        name: "CLIProxyAPI",
-        options: {
-          baseURL: baseUrl,
-          apiKey: gateway.apiKey,
-        },
-        models: {},
+    [GATEWAY_PROVIDER_ID]: {
+      npm: "@ai-sdk/openai-compatible",
+      name: "CLIProxyAPI",
+      options: {
+        baseURL: baseUrl,
+        apiKey: gateway.apiKey,
       },
+      models: {},
     },
   });
 }

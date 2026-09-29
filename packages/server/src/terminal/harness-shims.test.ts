@@ -36,12 +36,16 @@ describe("buildHarnessShimEnv", () => {
     expect(joined).toContain("requires_openai_auth=false");
   });
 
-  it("gives OpenCode an inline provider record that parses as JSON", () => {
+  it("gives OpenCode a bare provider record, not a whole config document", () => {
     const { env } = buildHarnessShimEnv("opencode", gateway);
     const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT);
-    expect(config.provider.cliproxyapi.npm).toBe("@ai-sdk/openai-compatible");
-    expect(config.provider.cliproxyapi.options.baseURL).toBe("http://cpa.test:8317/v1");
-    expect(config.provider.cliproxyapi.options.apiKey).toBe("sk-test");
+    // The record is the document. Emitting {provider:{…}} instead would make
+    // OpenCode's own merge replace a user's existing provider map, so this
+    // asserts the absence of that wrapper as much as the record's presence.
+    expect(config.provider).toBeUndefined();
+    expect(config.cliproxyapi.npm).toBe("@ai-sdk/openai-compatible");
+    expect(config.cliproxyapi.options.baseURL).toBe("http://cpa.test:8317/v1");
+    expect(config.cliproxyapi.options.apiKey).toBe("sk-test");
   });
 
   it("normalizes a base url that already carries /v1", () => {

@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { ensureHarnessShims, resolveHarnessShimDirectory } from "./harness-shim-writer.js";
+import {
+  ensureHarnessShims,
+  resolveHarnessShimDirectory,
+  buildCmdShimScript,
+} from "./harness-shim-writer.js";
 import type { ResolvedGatewayConfig } from "../server/agent/gateway/config.js";
 
 const gateway: ResolvedGatewayConfig = {
@@ -133,5 +137,33 @@ describe.skipIf(process.platform === "win32")("generated shim behavior", () => {
 
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("MARKER_REAL_BINARY");
+  });
+});
+
+describe("cmd shim generation", () => {
+  // Rendered from the same builder the daemon uses on win32, so this asserts
+  // the shipped text on a machine that cannot execute it.
+  function cmdShimText(): string {
+    const home = makeHome();
+    const dir = join(home, "cmd-shims");
+    mkdirSync(dir, { recursive: true });
+    return buildCmdShimScript("claude", gateway);
+  }
+
+  it("splits PATH on the Windows separator, not the POSIX one", () => {
+    const script = cmdShimText();
+    // `delims=:` would split `C:\Users` into `C` and `\Users`, dropping every
+    // entry after the first and leaving the shim directory in PATH — which is
+    // what made the wrapper resolve to itself.
+    expect(script).toContain('delims=;"');
+    expect(script).not.toContain('delims=:"');
+  });
+
+  it("matches its own directory by substring so drive letters survive", () => {
+    const script = cmdShimText();
+    // %~dp0 keeps its trailing backslash, which a `;`-split segment never has,
+    // so an exact segment comparison could not match and nothing was stripped.
+    expect(script).toContain('set "self_dir=%~dp0"');
+    expect(script).toContain("find /I /C");
   });
 });

@@ -43,12 +43,17 @@ function shellQuote(value: string): string {
 /**
  * Emit a cmd.exe shim.
  *
- * Windows resolves a bare `claude` to `claude.cmd` before `claude.exe`, so the
- * wrapper is on PATH ahead of the real binary. The PATH is rewritten in-process
- * to drop this shim's own directory before the real binary is launched, which is
- * what stops `claude` from re-entering this file.
+ * The wrapper is named `claude.cmd` so a bare `claude` reaches it, and it strips
+ * its own directory from PATH before launching the real binary — that strip is
+ * the only thing keeping the wrapper from resolving to itself. The PATHEXT claim
+ * in the old comment here was never verified on Windows and is not relied on:
+ * the shim directory is prepended to PATH, and the real binary is reached by its
+ * own absolute directory minus the shim directory.
  */
-function buildCmdShimScript(harness: ShimmedHarness, gateway: ResolvedGatewayConfig): string {
+export function buildCmdShimScript(
+  harness: ShimmedHarness,
+  gateway: ResolvedGatewayConfig,
+): string {
   const { env, argv } = buildHarnessShimEnv(harness, gateway);
   const realBinary = `${REAL_BINARY[harness]}.exe`;
 
@@ -59,37 +64,46 @@ function buildCmdShimScript(harness: ShimmedHarness, gateway: ResolvedGatewayCon
     ([key, value]) => `set "${key}=${value.replace(/(["\r\n])/g, "^$1")}"`,
   );
 
+  // `for /f` reads a single line and splits it on one delimiter, so it cannot
+  // both split on `;` and keep the remainder in one pass. The standard
+  // workaround is a delayed-expansion loop that peels the head off and
+  // reassembles; the `goto stripLoop` after the for is its no-match fallback.
+  //
+  // Self is matched by substring rather than by exact segment: %~dp0 carries a
+  // trailing backslash that a bare PATH segment never has, and substring
+  // matching leaves drive-letter entries like C:\… intact — which an exact
+  // comparison against a `;`-split segment cannot survive.
   const stripSelfFromPath = [
-    `set "self_path=%PATH%"`,
+    `set "self_path=!PATH!"`,
     `set "self_dir=%~dp0"`,
-    `set "rest=%PATH%"`,
+    `set "rest=!PATH!"`,
     `set "stripped="`,
-    `for /f "tokens=1* delims=:" %%A in ("%rest%") do (`,
-    `  if /I not "%%A"=="" call :keepEntry "%%A"`,
+    `:stripLoop`,
+    `if not defined rest goto stripDone`,
+    `for /f "tokens=1* delims=;" %%A in ("!rest!") do (`,
+    `  set "entry=%%A"`,
     `  set "rest=%%B"`,
-    `  if not defined rest goto pathDone`,
+    `  call :keepEntry "%%A"`,
+    `  goto stripLoop`,
     `)`,
-    `call :stripDone`,
+    `goto stripLoop`,
     `:keepEntry`,
     `set "entry=%~1"`,
-    // Defensive: the dir is quoted only when it needs quoting, so a plain
-    // "%self_dir%\\" comparison never matches a bare path.
-    `if /I "%entry:~-1%"=="\\" set "entry=%entry:~0,-1%"`,
-    `if /I "%entry%"=="%self_dir%" exit /b 0`,
+    `if not defined entry exit /b 0`,
+    `echo !entry!| find /I /C "!self_dir!" >nul && exit /b 0`,
     `if not defined stripped (`,
-    `  set "stripped=%entry%"`,
+    `  set "stripped=!entry!"`,
     `) else (`,
-    `  set "stripped=%stripped%;%entry%"`,
+    `  set "stripped=!stripped!;%~1"`,
     `)`,
     `exit /b 0`,
     `:stripDone`,
     `if defined stripped (`,
-    `  set "PATH=%stripped%"`,
+    `  set "PATH=!stripped!"`,
     `) else (`,
-    `  set "PATH=%self_path%"`,
+    `  set "PATH=!self_path!"`,
     `)`,
     `exit /b 0`,
-    `:pathDone`,
   ].join("\r\n");
 
   return [

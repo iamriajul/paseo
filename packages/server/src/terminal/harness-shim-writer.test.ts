@@ -416,7 +416,17 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     env: NodeJS.ProcessEnv = {},
     args: string[] = [],
   ) {
-    const result = spawnSync(cmdExePath(), ["/d", "/s", "/c", harness, ...args], {
+    // Everything after `/c` must reach cmd as ONE string. Spread across argv,
+    // cmd reads the rest of the vector as the command text: it reports a
+    // missing message number and prints the working directory, which is how the
+    // first Windows run of these tests failed with an empty result. The `/c`
+    // line is joined here for the same reason terminal.ts joins it rather than
+    // handing node-pty an argv array.
+    //
+    // The probe path is quoted so the spaces mkdtemp's Temp directory carries
+    // survive cmd's tokenizer.
+    const commandLine = [harness, ...args.map((arg) => `"${arg}"`)].join(" ");
+    const result = spawnSync(cmdExePath(), ["/d", "/s", "/c", commandLine], {
       encoding: "utf8",
       // shim first: a shim that failed to strip itself recurses until killed.
       //

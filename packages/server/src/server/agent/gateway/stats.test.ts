@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { fetchGatewayTps } from "./tps.js";
+import { fetchGatewayStats } from "./stats.js";
 
-function tpsResponse(payload: unknown, status = 200): Response {
+function statsResponse(payload: unknown, status = 200): Response {
   return new Response(typeof payload === "string" ? payload : JSON.stringify(payload), {
     status,
     headers: { "content-type": "application/json" },
@@ -23,13 +23,13 @@ const record = {
   stream: true,
 };
 
-describe("fetchGatewayTps", () => {
+describe("fetchGatewayStats", () => {
   const base = { baseUrl: "http://gateway:8317", token: "sk-test", model: "grok-4.6" };
 
   test("maps a last-request record and requests the model filter", async () => {
-    const fetchImpl = vi.fn(async () => tpsResponse(record));
+    const fetchImpl = vi.fn(async () => statsResponse(record));
 
-    const result = await fetchGatewayTps({ ...base, fetchImpl });
+    const result = await fetchGatewayStats({ ...base, fetchImpl });
 
     expect(result).toEqual({
       supported: true,
@@ -48,38 +48,38 @@ describe("fetchGatewayTps", () => {
       },
     });
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
-      "http://gateway:8317/v1/last-request-tps?model=grok-4.6",
+      "http://gateway:8317/v1/last-request-stats?model=grok-4.6",
     );
   });
 
   test("omits the model filter for the newest request across every model", async () => {
-    const fetchImpl = vi.fn(async () => tpsResponse(record));
+    const fetchImpl = vi.fn(async () => statsResponse(record));
 
-    await fetchGatewayTps({ ...base, model: "", fetchImpl });
+    await fetchGatewayStats({ ...base, model: "", fetchImpl });
 
-    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe("http://gateway:8317/v1/last-request-tps");
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe("http://gateway:8317/v1/last-request-stats");
   });
 
   test("reports no sample when the model has never run", async () => {
     // The endpoint's 404 is the "no record" state, not a missing route: both
     // render nothing, so a caller cannot tell them apart and must not try.
-    const fetchImpl = vi.fn(async () => tpsResponse({ error: "no request recorded" }, 404));
+    const fetchImpl = vi.fn(async () => statsResponse({ error: "no request recorded" }, 404));
 
-    await expect(fetchGatewayTps({ ...base, fetchImpl })).resolves.toEqual({
+    await expect(fetchGatewayStats({ ...base, fetchImpl })).resolves.toEqual({
       supported: false,
       sample: null,
     });
   });
 
   test("reports no sample for a rejected key, missing route, or transport failure", async () => {
-    const unauthorized = vi.fn(async () => tpsResponse({ error: "unauthorized" }, 401));
-    await expect(fetchGatewayTps({ ...base, fetchImpl: unauthorized })).resolves.toEqual({
+    const unauthorized = vi.fn(async () => statsResponse({ error: "unauthorized" }, 401));
+    await expect(fetchGatewayStats({ ...base, fetchImpl: unauthorized })).resolves.toEqual({
       supported: false,
       sample: null,
     });
 
     const emptyRoute = vi.fn(async () => new Response("", { status: 404 }));
-    await expect(fetchGatewayTps({ ...base, fetchImpl: emptyRoute })).resolves.toEqual({
+    await expect(fetchGatewayStats({ ...base, fetchImpl: emptyRoute })).resolves.toEqual({
       supported: false,
       sample: null,
     });
@@ -87,7 +87,7 @@ describe("fetchGatewayTps", () => {
     const failing = vi.fn(async () => {
       throw new Error("connect refused");
     });
-    await expect(fetchGatewayTps({ ...base, fetchImpl: failing })).resolves.toEqual({
+    await expect(fetchGatewayStats({ ...base, fetchImpl: failing })).resolves.toEqual({
       supported: false,
       sample: null,
     });
@@ -105,9 +105,9 @@ describe("fetchGatewayTps", () => {
     ];
 
     for (const payload of cases) {
-      const fetchImpl = vi.fn(async () => tpsResponse(payload));
+      const fetchImpl = vi.fn(async () => statsResponse(payload));
       await expect(
-        fetchGatewayTps({ ...base, fetchImpl }),
+        fetchGatewayStats({ ...base, fetchImpl }),
         JSON.stringify(payload),
       ).resolves.toEqual({ supported: false, sample: null });
     }
@@ -116,10 +116,10 @@ describe("fetchGatewayTps", () => {
   test("keeps a record that omits the optional alias and provider", async () => {
     const fetchImpl = vi.fn(async () => {
       const { alias: _alias, provider: _provider, ...rest } = record;
-      return tpsResponse(rest);
+      return statsResponse(rest);
     });
 
-    const result = await fetchGatewayTps({ ...base, fetchImpl });
+    const result = await fetchGatewayStats({ ...base, fetchImpl });
 
     expect(result.supported).toBe(true);
     expect(result.sample).toMatchObject({ model: "grok-4.6", tps: 250 });
@@ -130,7 +130,7 @@ describe("fetchGatewayTps", () => {
   test("reports no sample when the gateway has no usable base url", async () => {
     const fetchImpl = vi.fn();
 
-    await expect(fetchGatewayTps({ ...base, baseUrl: "  ", fetchImpl })).resolves.toEqual({
+    await expect(fetchGatewayStats({ ...base, baseUrl: "  ", fetchImpl })).resolves.toEqual({
       supported: false,
       sample: null,
     });

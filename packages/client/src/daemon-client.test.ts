@@ -6863,7 +6863,7 @@ test("sends cliproxyapi.quota.get.request and resolves cliproxyapi.quota.get.res
   });
 });
 
-test("sends cliproxyapi.tps.get.request and resolves cliproxyapi.tps.get.response", async () => {
+test("sends cliproxyapi.stats.get.request and resolves cliproxyapi.stats.get.response", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();
 
@@ -6880,7 +6880,7 @@ test("sends cliproxyapi.tps.get.request and resolves cliproxyapi.tps.get.respons
   mock.triggerOpen();
   await connectPromise;
 
-  const tpsPromise = client.getGatewayTps({
+  const statsPromise = client.getGatewayStats({
     provider: "claude",
     model: "grok-4.6",
     requestId: "tps-1",
@@ -6889,7 +6889,7 @@ test("sends cliproxyapi.tps.get.request and resolves cliproxyapi.tps.get.respons
   expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
     type: "session",
     message: {
-      type: "cliproxyapi.tps.get.request",
+      type: "cliproxyapi.stats.get.request",
       provider: "claude",
       model: "grok-4.6",
       requestId: "tps-1",
@@ -6898,7 +6898,7 @@ test("sends cliproxyapi.tps.get.request and resolves cliproxyapi.tps.get.respons
 
   mock.triggerMessage(
     wrapSessionMessage({
-      type: "cliproxyapi.tps.get.response",
+      type: "cliproxyapi.stats.get.response",
       payload: {
         requestId: "tps-1",
         supported: true,
@@ -6917,7 +6917,7 @@ test("sends cliproxyapi.tps.get.request and resolves cliproxyapi.tps.get.respons
     }),
   );
 
-  await expect(tpsPromise).resolves.toMatchObject({
+  await expect(statsPromise).resolves.toMatchObject({
     requestId: "tps-1",
     supported: true,
     sample: { tps: 250, outputTokens: 900 },

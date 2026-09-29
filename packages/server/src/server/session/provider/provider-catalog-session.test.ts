@@ -17,19 +17,19 @@ import type { ProviderSnapshotEntry } from "../../agent/agent-sdk-types.js";
 import { expandProviderSnapshot } from "@getpaseo/protocol/provider-snapshot-codec";
 import {
   GatewayQuotaGetResponseMessageSchema,
-  GatewayTpsGetResponseMessageSchema,
+  GatewayStatsGetResponseMessageSchema,
 } from "@getpaseo/protocol/messages";
 import { getCachedGatewayQuota } from "../../agent/gateway/quota.js";
-import { fetchGatewayTps } from "../../agent/gateway/tps.js";
+import { fetchGatewayStats } from "../../agent/gateway/stats.js";
 
 vi.mock("../../agent/gateway/quota.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../agent/gateway/quota.js")>();
   return { ...actual, getCachedGatewayQuota: vi.fn() };
 });
 
-vi.mock("../../agent/gateway/tps.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../agent/gateway/tps.js")>();
-  return { ...actual, fetchGatewayTps: vi.fn() };
+vi.mock("../../agent/gateway/stats.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../agent/gateway/stats.js")>();
+  return { ...actual, fetchGatewayStats: vi.fn() };
 });
 type SnapshotChangeHandler = (transition: ProviderSnapshotTransition) => void;
 
@@ -400,14 +400,14 @@ describe("ProviderCatalogSession", () => {
       },
     });
 
-    await subsystem.handleGatewayTpsGetRequest({
-      type: "cliproxyapi.tps.get.request",
+    await subsystem.handleGatewayStatsGetRequest({
+      type: "cliproxyapi.stats.get.request",
       requestId: "t1",
       provider: "claude",
       model: "grok-4.6",
     });
 
-    const res = findByType(emitted, "cliproxyapi.tps.get.response");
+    const res = findByType(emitted, "cliproxyapi.stats.get.response");
     expect(res?.payload).toEqual({ requestId: "t1", supported: false, sample: null });
   });
 
@@ -418,7 +418,7 @@ describe("ProviderCatalogSession", () => {
         isGatewayRouted: () => true,
       },
     });
-    vi.mocked(fetchGatewayTps).mockResolvedValue({
+    vi.mocked(fetchGatewayStats).mockResolvedValue({
       supported: true,
       sample: {
         model: "grok-4.6",
@@ -433,22 +433,22 @@ describe("ProviderCatalogSession", () => {
       },
     });
 
-    await subsystem.handleGatewayTpsGetRequest({
-      type: "cliproxyapi.tps.get.request",
+    await subsystem.handleGatewayStatsGetRequest({
+      type: "cliproxyapi.stats.get.request",
       requestId: "t2",
       provider: "opencode",
       model: "cliproxyapi/grok-4.6",
     });
 
-    expect(fetchGatewayTps).toHaveBeenCalledWith({
+    expect(fetchGatewayStats).toHaveBeenCalledWith({
       baseUrl: "http://gateway:8317",
       token: "sk-test",
       model: "grok-4.6",
     });
-    const res = findByType(emitted, "cliproxyapi.tps.get.response");
+    const res = findByType(emitted, "cliproxyapi.stats.get.response");
     expect(res?.payload).toMatchObject({ requestId: "t2", supported: true, sample: { tps: 250 } });
     expect(() =>
-      GatewayTpsGetResponseMessageSchema.parse({ type: res?.type, payload: res?.payload }),
+      GatewayStatsGetResponseMessageSchema.parse({ type: res?.type, payload: res?.payload }),
     ).not.toThrow();
   });
 
@@ -459,16 +459,16 @@ describe("ProviderCatalogSession", () => {
         isGatewayRouted: () => true,
       },
     });
-    vi.mocked(fetchGatewayTps).mockResolvedValue({ supported: false, sample: null });
+    vi.mocked(fetchGatewayStats).mockResolvedValue({ supported: false, sample: null });
 
-    await subsystem.handleGatewayTpsGetRequest({
-      type: "cliproxyapi.tps.get.request",
+    await subsystem.handleGatewayStatsGetRequest({
+      type: "cliproxyapi.stats.get.request",
       requestId: "t3",
       provider: "claude",
       model: "grok-4.6",
     });
 
-    const res = findByType(emitted, "cliproxyapi.tps.get.response");
+    const res = findByType(emitted, "cliproxyapi.stats.get.response");
     expect(res?.payload).toEqual({ requestId: "t3", supported: false, sample: null });
   });
 
@@ -479,17 +479,17 @@ describe("ProviderCatalogSession", () => {
         isGatewayRouted: () => true,
       },
     });
-    vi.mocked(fetchGatewayTps).mockRejectedValue(new Error("gateway exploded"));
+    vi.mocked(fetchGatewayStats).mockRejectedValue(new Error("gateway exploded"));
 
-    await subsystem.handleGatewayTpsGetRequest({
-      type: "cliproxyapi.tps.get.request",
+    await subsystem.handleGatewayStatsGetRequest({
+      type: "cliproxyapi.stats.get.request",
       requestId: "t4",
       provider: "claude",
       model: "grok-4.6",
     });
 
     expect(findByType(emitted, "rpc_error")).toBeUndefined();
-    const res = findByType(emitted, "cliproxyapi.tps.get.response");
+    const res = findByType(emitted, "cliproxyapi.stats.get.response");
     expect(res?.payload).toEqual({ requestId: "t4", supported: false, sample: null });
   });
 

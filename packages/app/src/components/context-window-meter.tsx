@@ -126,7 +126,7 @@ export function ContextWindowMeter({
     model ?? null,
     { enabled: isTooltipOpen },
   );
-  const { sample: gatewayStatsSample, refresh: refreshGatewayStats } = useGatewayStats({
+  const { sample: gatewayStatsSample, isLive: gatewayStatsIsLive } = useGatewayStats({
     serverId: serverId ?? null,
     provider: provider ?? null,
     model: model ?? null,
@@ -140,10 +140,9 @@ export function ContextWindowMeter({
       if (nextOpen) {
         void refreshProviderUsage().catch(() => {});
         void refreshGatewayQuota().catch(() => {});
-        void refreshGatewayStats().catch(() => {});
       }
     },
-    [refreshGatewayQuota, refreshGatewayStats, refreshProviderUsage],
+    [refreshGatewayQuota, refreshProviderUsage],
   );
   const geometry = getMeterGeometry(showPercentage, glyphSize);
 
@@ -255,7 +254,7 @@ export function ContextWindowMeter({
           ) : null}
           <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
           <GatewayQuotaSection view={gatewayQuotaView} />
-          <GatewayStatsSection sample={gatewayStatsSample} />
+          <GatewayStatsSection sample={gatewayStatsSample} isLive={gatewayStatsIsLive} />
         </View>
       </TooltipContent>
     </Tooltip>

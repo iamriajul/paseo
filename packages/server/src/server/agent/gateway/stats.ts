@@ -1,13 +1,13 @@
-// gateway/tps.ts — CLIProxyAPI generation throughput of the last request it
-// served for a model (`GET /v1/last-request-tps?model=<id>`).
+// gateway/stats.ts — CLIProxyAPI stats for the last request it served for a model
+// (`GET /v1/last-request-stats?model=<id>`).
 // The route only exists on newer Gateways; anything other than a well-formed
 // 200 record (404 "never ran", 404 on a build without the route, bad key,
 // transport failure) reports no sample so callers render nothing.
 import { z } from "zod";
 
-export const GATEWAY_TPS_TIMEOUT_MS = 10_000;
+export const GATEWAY_STATS_TIMEOUT_MS = 10_000;
 
-const GatewayTpsPayloadSchema = z.object({
+const GatewayStatsPayloadSchema = z.object({
   model: z.string(),
   alias: z.string().optional(),
   provider: z.string().optional(),
@@ -21,7 +21,7 @@ const GatewayTpsPayloadSchema = z.object({
   stream: z.boolean(),
 });
 
-export interface GatewayTpsSample {
+export interface GatewayStatsSample {
   model: string;
   alias?: string;
   provider?: string;
@@ -35,12 +35,12 @@ export interface GatewayTpsSample {
   stream: boolean;
 }
 
-export interface GatewayTpsResult {
+export interface GatewayStatsResult {
   supported: boolean;
-  sample: GatewayTpsSample | null;
+  sample: GatewayStatsSample | null;
 }
 
-export interface FetchGatewayTpsOptions {
+export interface FetchGatewayStatsOptions {
   baseUrl: string;
   token: string;
   /** Gateway slug for the model, or empty to read the newest request overall. */
@@ -48,9 +48,11 @@ export interface FetchGatewayTpsOptions {
   fetchImpl?: typeof fetch;
 }
 
-export async function fetchGatewayTps(options: FetchGatewayTpsOptions): Promise<GatewayTpsResult> {
-  const empty: GatewayTpsResult = { supported: false, sample: null };
-  const url = buildGatewayTpsUrl(options.baseUrl, options.model);
+export async function fetchGatewayStats(
+  options: FetchGatewayStatsOptions,
+): Promise<GatewayStatsResult> {
+  const empty: GatewayStatsResult = { supported: false, sample: null };
+  const url = buildGatewayStatsUrl(options.baseUrl, options.model);
   if (!url) return empty;
 
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -59,7 +61,7 @@ export async function fetchGatewayTps(options: FetchGatewayTpsOptions): Promise<
     response = await fetchImpl(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${options.token}` },
-      signal: AbortSignal.timeout(GATEWAY_TPS_TIMEOUT_MS),
+      signal: AbortSignal.timeout(GATEWAY_STATS_TIMEOUT_MS),
     });
   } catch {
     return empty;
@@ -68,13 +70,15 @@ export async function fetchGatewayTps(options: FetchGatewayTpsOptions): Promise<
   if (response.status !== 200) return empty;
 
   const payload: unknown = await response.json().catch(() => undefined);
-  const parsed = GatewayTpsPayloadSchema.safeParse(payload);
+  const parsed = GatewayStatsPayloadSchema.safeParse(payload);
   if (!parsed.success) return empty;
-  const sample = mapTpsSample(parsed.data);
+  const sample = mapStatsSample(parsed.data);
   return sample ? { supported: true, sample } : empty;
 }
 
-function mapTpsSample(payload: z.infer<typeof GatewayTpsPayloadSchema>): GatewayTpsSample | null {
+function mapStatsSample(
+  payload: z.infer<typeof GatewayStatsPayloadSchema>,
+): GatewayStatsSample | null {
   // The record describes one completed request, so every counter is a real
   // measurement. A negative or non-finite one means the record is unusable,
   // not that the run was slow.
@@ -104,11 +108,11 @@ function isMeasurement(value: number): boolean {
   return Number.isFinite(value) && value >= 0;
 }
 
-function buildGatewayTpsUrl(baseUrl: string, model?: string): string | null {
+function buildGatewayStatsUrl(baseUrl: string, model?: string): string | null {
   const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
   if (!normalizedBaseUrl) return null;
   try {
-    const url = new URL(`${normalizedBaseUrl}/v1/last-request-tps`);
+    const url = new URL(`${normalizedBaseUrl}/v1/last-request-stats`);
     const slug = model?.trim();
     if (slug) url.searchParams.set("model", slug);
     return url.toString();

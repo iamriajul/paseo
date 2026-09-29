@@ -614,3 +614,13 @@ cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
 ```
+
+## gateway-codex-catalog-shape
+
+**Gateway-discovered Codex rows are normalized to the `ModelInfo` shapes Codex parses**
+
+Gateway `/v1/models` rows arrive as `supported_reasoning_levels: [{ effort }]` with no `description` and `visibility: []`. Written verbatim into `codex-model-catalog.json`, Codex's app-server rejects the file (`missing field description`, `invalid type: sequence, expected string or map`) and every Codex spawn exits code 1. `normalizeCodexCatalogModel` fills level descriptions from the effort and maps visibility arrays to `"list"`/`"hide"`; `resolveCodexModelCatalogPath` treats stale pre-normalization files as absent so the next Gateway refresh rebuilds them.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/codex-catalog.test.ts --bail=1
+```

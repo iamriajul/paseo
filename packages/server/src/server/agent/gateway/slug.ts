@@ -1,6 +1,6 @@
 // gateway/slug.ts — map a Paseo provider model id to the CLIProxyAPI slug the
 // Gateway itself knows the model by. Shared by every Gateway read that filters
-// on a model (`/v1/quota`, `/v1/last-request-tps`), so those two never drift on
+// on a model (`/v1/quota`, `/v1/last-request-stats`), so those two never drift on
 // what counts as a Gateway-routed id.
 import { decodeCliproxyClaudeModelId } from "./models.js";
 

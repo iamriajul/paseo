@@ -22,7 +22,7 @@ import type { ProviderAvailability } from "../../agent/agent-manager.js";
 import type { ProviderUsageService } from "../../../services/quota-fetcher/service.js";
 import { getCachedGatewayQuota } from "../../agent/gateway/quota.js";
 import { resolveGatewayModelSlug } from "../../agent/gateway/slug.js";
-import { fetchGatewayTps, type GatewayTpsResult } from "../../agent/gateway/tps.js";
+import { fetchGatewayStats, type GatewayStatsResult } from "../../agent/gateway/stats.js";
 import { expandTilde } from "../../../utils/path.js";
 
 // COMPAT(customModeIcons): the only mode icons known to clients before v0.1.84. Any
@@ -626,16 +626,16 @@ export class ProviderCatalogSession {
    * no recorded request, a build without the route, a bad key — reports
    * `supported: false` with no sample, so the caller renders nothing.
    */
-  async handleGatewayTpsGetRequest(
-    msg: Extract<SessionInboundMessage, { type: "cliproxyapi.tps.get.request" }>,
+  async handleGatewayStatsGetRequest(
+    msg: Extract<SessionInboundMessage, { type: "cliproxyapi.stats.get.request" }>,
   ): Promise<void> {
-    const answer = (tps: GatewayTpsResult) =>
+    const answer = (stats: GatewayStatsResult) =>
       this.host.emit({
-        type: "cliproxyapi.tps.get.response",
+        type: "cliproxyapi.stats.get.response",
         payload: {
           requestId: msg.requestId,
-          supported: tps.supported,
-          sample: tps.sample,
+          supported: stats.supported,
+          sample: stats.sample,
         },
       });
     const unsupported = () => answer({ supported: false, sample: null });
@@ -655,7 +655,7 @@ export class ProviderCatalogSession {
         return;
       }
       answer(
-        await fetchGatewayTps({
+        await fetchGatewayStats({
           baseUrl: gateway.baseUrl,
           token: gateway.apiKey,
           model: slug,

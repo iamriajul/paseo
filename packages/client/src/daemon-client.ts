@@ -96,7 +96,7 @@ import type {
   ProviderUsageListResponseMessage,
   ProviderUsageResetQuotaResponseMessage,
   GatewayQuotaGetResponseMessage,
-  GatewayTpsGetResponseMessage,
+  GatewayStatsGetResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
   DaemonConfigReloadResponse,
@@ -570,7 +570,7 @@ type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
 type ProviderUsageListPayload = ProviderUsageListResponseMessage["payload"];
 type ProviderUsageResetQuotaPayload = ProviderUsageResetQuotaResponseMessage["payload"];
 type GatewayQuotaPayload = GatewayQuotaGetResponseMessage["payload"];
-type GatewayTpsPayload = GatewayTpsGetResponseMessage["payload"];
+type GatewayStatsPayload = GatewayStatsGetResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
 type DiagnosticsPayload = DiagnosticsResponse["payload"];
@@ -5955,15 +5955,15 @@ export class DaemonClient {
     });
   }
 
-  async getGatewayTps(options: {
+  async getGatewayStats(options: {
     provider: string;
     model: string;
     requestId?: string;
-  }): Promise<GatewayTpsPayload> {
+  }): Promise<GatewayStatsPayload> {
     return this.sendNamespacedCorrelatedSessionRequest({
       requestId: options.requestId,
       message: {
-        type: "cliproxyapi.tps.get.request",
+        type: "cliproxyapi.stats.get.request",
         provider: options.provider,
         model: options.model,
       },

@@ -1952,8 +1952,8 @@ export const GatewayQuotaGetRequestMessageSchema = z.object({
   model: z.string().optional(),
 });
 
-export const GatewayTpsGetRequestMessageSchema = z.object({
-  type: z.literal("cliproxyapi.tps.get.request"),
+export const GatewayStatsGetRequestMessageSchema = z.object({
+  type: z.literal("cliproxyapi.stats.get.request"),
   requestId: z.string(),
   provider: z.string(),
   model: z.string(),
@@ -3482,7 +3482,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProviderUsageResetQuotaRequestMessageSchema,
   GatewayQuotaGetRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
-  GatewayTpsGetRequestMessageSchema,
+  GatewayStatsGetRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
   CancelAgentRequestMessageSchema,
@@ -3913,8 +3913,8 @@ export const ServerInfoStatusPayloadSchema = z
         providerUsageForceRefresh: z.boolean().optional(),
         // COMPAT(cliproxyapiQuota): added in v0.9.905, drop the gate once daemon floor >= v0.9.905.
         cliproxyapiQuota: z.boolean().optional(),
-        // COMPAT(cliproxyapiTps): added in v0.9.910, drop the gate once daemon floor >= v0.9.910.
-        cliproxyapiTps: z.boolean().optional(),
+        // COMPAT(cliproxyapiStats): added in v0.9.910, drop the gate once daemon floor >= v0.9.910.
+        cliproxyapiStats: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
@@ -6810,7 +6810,7 @@ export const GatewayQuotaGetResponseMessageSchema = z.object({
   }),
 });
 
-export const GatewayTpsSampleSchema = z.object({
+export const GatewayStatsSampleSchema = z.object({
   model: z.string(),
   alias: z.string().optional(),
   provider: z.string().optional(),
@@ -6824,14 +6824,14 @@ export const GatewayTpsSampleSchema = z.object({
   stream: z.boolean(),
 });
 
-export const GatewayTpsGetResponseMessageSchema = z.object({
-  type: z.literal("cliproxyapi.tps.get.response"),
+export const GatewayStatsGetResponseMessageSchema = z.object({
+  type: z.literal("cliproxyapi.stats.get.response"),
   payload: z.object({
     requestId: z.string(),
     supported: z.boolean(),
     // Null when the Gateway answered but has no record for this model, and
     // when `supported` is false. Callers render nothing in both cases.
-    sample: GatewayTpsSampleSchema.nullable(),
+    sample: GatewayStatsSampleSchema.nullable(),
   }),
 });
 
@@ -7527,7 +7527,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProjectIconGetResponseSchema,
   FileDownloadTokenResponseSchema,
   FileUploadResponseSchema,
-  GatewayTpsGetResponseMessageSchema,
+  GatewayStatsGetResponseMessageSchema,
   ListProviderModelsResponseMessageSchema,
   ListProviderModesResponseMessageSchema,
   ListProviderFeaturesResponseMessageSchema,
@@ -7743,8 +7743,8 @@ export type ProviderUsageResetQuotaResponseMessage = z.infer<
 >;
 export type GatewayQuotaWindow = z.infer<typeof GatewayQuotaWindowSchema>;
 export type GatewayQuotaAccount = z.infer<typeof GatewayQuotaAccountSchema>;
-export type GatewayTpsSample = z.infer<typeof GatewayTpsSampleSchema>;
-export type GatewayTpsGetResponseMessage = z.infer<typeof GatewayTpsGetResponseMessageSchema>;
+export type GatewayStatsSample = z.infer<typeof GatewayStatsSampleSchema>;
+export type GatewayStatsGetResponseMessage = z.infer<typeof GatewayStatsGetResponseMessageSchema>;
 export type GatewayQuotaGetResponseMessage = z.infer<typeof GatewayQuotaGetResponseMessageSchema>;
 export type ChatCreateResponse = z.infer<typeof ChatCreateResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;

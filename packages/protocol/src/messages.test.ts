@@ -380,14 +380,14 @@ describe("gateway quota message contract", () => {
 describe("gateway throughput message contract", () => {
   test("accepts the throughput get request as a namespaced correlated RPC", () => {
     const parsed = SessionInboundMessageSchema.parse({
-      type: "cliproxyapi.tps.get.request",
+      type: "cliproxyapi.stats.get.request",
       requestId: "tps-1",
       provider: "claude",
       model: "grok-4.6",
     });
 
     expect(parsed).toEqual({
-      type: "cliproxyapi.tps.get.request",
+      type: "cliproxyapi.stats.get.request",
       requestId: "tps-1",
       provider: "claude",
       model: "grok-4.6",
@@ -396,7 +396,7 @@ describe("gateway throughput message contract", () => {
 
   test("accepts a throughput response carrying one sample", () => {
     const parsed = SessionOutboundMessageSchema.parse({
-      type: "cliproxyapi.tps.get.response",
+      type: "cliproxyapi.stats.get.response",
       payload: {
         requestId: "tps-2",
         supported: true,
@@ -416,8 +416,8 @@ describe("gateway throughput message contract", () => {
       },
     });
 
-    expect(parsed.type).toBe("cliproxyapi.tps.get.response");
-    if (parsed.type !== "cliproxyapi.tps.get.response") {
+    expect(parsed.type).toBe("cliproxyapi.stats.get.response");
+    if (parsed.type !== "cliproxyapi.stats.get.response") {
       throw new Error("Expected gateway throughput response");
     }
     expect(parsed.payload.sample?.tps).toBe(250);
@@ -425,12 +425,12 @@ describe("gateway throughput message contract", () => {
 
   test("accepts a throughput response with no sample", () => {
     const parsed = SessionOutboundMessageSchema.parse({
-      type: "cliproxyapi.tps.get.response",
+      type: "cliproxyapi.stats.get.response",
       payload: { requestId: "tps-3", supported: false, sample: null },
     });
 
     expect(parsed).toEqual({
-      type: "cliproxyapi.tps.get.response",
+      type: "cliproxyapi.stats.get.response",
       payload: { requestId: "tps-3", supported: false, sample: null },
     });
   });

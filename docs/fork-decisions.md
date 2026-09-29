@@ -663,6 +663,15 @@ npx vitest run packages/server/src/server/agent/gateway/stats.test.ts packages/s
 cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 ```
 
+## gateway-unmanifested-minor-release
+
+**a first-party minor release the manifest does not list is a gateway row, not a spelling of the major it extends**
+
+`normalizeClaudeRuntimeModelId` folds `claude-sonnet-5-5` onto `claude-sonnet-5` because the fallback match is unanchored. `appendCliproxyModelsToClaudeCatalog` skips every row that normalizes, so a new Anthropic minor release advertised by the Gateway was silently dropped from the Claude catalog and never reached Claude Code. The fallback match now refuses to fold a trailing 1-2 digit minor; a 3+ digit run stays foldable so dated spellings (`claude-opus-5-20260724-v1:0`) still resolve.
+
+```bash
+npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+```
 ## cliproxyapi-terminal-tui-routing
 
 **terminal tabs route harnesses through CLIProxyAPI, via generated shims**

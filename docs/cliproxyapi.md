@@ -67,6 +67,33 @@ Set `PASEO_DISABLE_GATEWAY_CACHE=1` to skip the cache entirely. Both vitest conf
 
 - `[1m]` variant synthesis, Fast mode for non-manifest models, and `supportedModels()` control-plane reads.
 
+## Terminal tabs
+
+The table above covers Paseo-managed agents. A terminal tab runs the harness as an ordinary child process, so the agent path injects nothing there. With a Gateway configured, Paseo writes three shims into `$PASEO_HOME/harness-shims` and puts that directory on terminal PATH:
+
+| Harness  | Shim applies                                                                                 | Opt-out                     |
+| -------- | -------------------------------------------------------------------------------------------- | --------------------------- |
+| Claude   | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` | settings.json `env` block   |
+| Codex    | `OPENAI_*` plus a `model_providers.cliproxyapi` map, which Codex only accepts from argv      | —                           |
+| OpenCode | `OPENCODE_CONFIG_CONTENT` with an inline `cliproxyapi` provider record                       | user `provider.cliproxyapi` |
+| OMP      | none — `LITELLM_BASE_URL` / `LITELLM_API_KEY` go straight into the terminal env              | terminal `LITELLM_*` env    |
+
+Shims rather than plain env, for two reasons. Codex only reads `model_providers` from argv, so env cannot route it at all; and injected env would put three gateway credentials in front of every unrelated process in the shell. The shim removes its own directory from PATH before exec'ing the real binary, so only the harness invocation sees the injection — and because that strip uses `$0`, a shim reached by bare name (`claude`, as typed in a terminal) resolves past itself correctly.
+
+`PASEO_CLIPROXYAPI_DISABLE_SHIM=1` runs one invocation against the real binary with nothing injected:
+
+```bash
+PASEO_CLIPROXYAPI_DISABLE_SHIM=1 claude
+```
+
+Shims are rewritten on every terminal create, so editing `agents.cliproxyapi` reaches new terminals without a daemon restart. Already-open terminals keep the gateway they started with.
+
+**Claude's settings.json wins.** An `env` block in `~/.claude/settings.json` overrides the shim, because the harness applies it after inheriting process env. The shim is a default, not an override: it helps when no file conflicts, and does nothing when one does. If you set `ANTHROPIC_BASE_URL` there, terminal Claude keeps using it — which is usually what you want, and is the same reason the file-based route is left alone.
+
+`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` is an undocumented internal flag (verified against the binary, not a published contract). It makes Claude read `/v1/models` at `[Bootstrap]` so the TUI model picker lists Gateway slugs. If a future Claude release drops it, terminal model discovery regresses and the shim's env becomes inert; the rest of the routing still works.
+
+OpenCode's shim registers the provider with an empty `models` map. The agent path populates the live catalog; a terminal session gets the provider but picks its model from OpenCode's own picker.
+
 ## Quota
 
 The composer meter tooltip shows per-model CLIProxyAPI quota for the agent's selected model through the `cliproxyapi.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`). The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.

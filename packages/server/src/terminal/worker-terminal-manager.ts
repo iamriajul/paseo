@@ -15,6 +15,7 @@ import type {
   TerminalStateSnapshot,
 } from "./terminal.js";
 import type { CaptureTerminalLinesResult } from "./terminal-capture.js";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 import type {
   TerminalActivityListener,
   TerminalActivityTransitionEvent,
@@ -93,6 +94,7 @@ interface WorkerTerminalManagerOptions {
   requestTimeoutMs?: number;
   forkWorker?: () => TerminalWorkerProcess;
   getTerminalActivityUrl?: () => string | null;
+  resolveGatewayRouting?: () => TerminalGatewayRouting;
 }
 
 function createActivityToken(): string {
@@ -685,6 +687,9 @@ export function createWorkerTerminalManager(
       const terminalId = options.id ?? randomUUID();
       const activityToken = createActivityToken();
       const terminalActivityUrl = managerOptions.getTerminalActivityUrl?.() ?? null;
+      // Resolved here, in the parent, because writing the shims is a filesystem
+      // side effect the worker should not own.
+      const gatewayRouting = managerOptions.resolveGatewayRouting?.();
       terminalActivityTokenById.set(terminalId, activityToken);
       let result: {
         terminal: RequiredWorkerTerminalInfo;
@@ -698,6 +703,7 @@ export function createWorkerTerminalManager(
             id: terminalId,
             activityToken,
             activityUrl: terminalActivityUrl,
+            ...(gatewayRouting ? { gatewayRouting } : {}),
           },
         })) as {
           terminal: RequiredWorkerTerminalInfo;

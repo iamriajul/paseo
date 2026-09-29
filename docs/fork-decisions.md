@@ -663,14 +663,14 @@ npx vitest run packages/server/src/server/agent/gateway/stats.test.ts packages/s
 cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 ```
 
-## gateway-unmanifested-minor-release
+## cliproxyapi-terminal-tui-routing
 
-**a first-party minor release the manifest does not list is a gateway row, not a spelling of the major it extends**
+**terminal tabs route harnesses through CLIProxyAPI, via generated shims**
 
-`normalizeClaudeRuntimeModelId` folds `claude-sonnet-5-5` onto `claude-sonnet-5` because the fallback match is unanchored. `appendCliproxyModelsToClaudeCatalog` skips every row that normalizes, so a new Anthropic minor release advertised by the Gateway was silently dropped from the Claude catalog and never reached Claude Code. The fallback match now refuses to fold a trailing 1-2 digit minor; a 3+ digit run stays foldable so dated spellings (`claude-opus-5-20260724-v1:0`) still resolve.
+A terminal tab launches harnesses as ordinary child processes, so the agent path never injects gateway routing there. Paseo writes `claude`, `codex`, and `opencode` shims into `$PASEO_HOME/harness-shims` and prepends that directory to terminal PATH; OMP reads `LITELLM_*` from env and needs no shim. Env alone would not do: Codex only accepts its `model_providers` map from argv, and injected env would put three gateway credentials in front of every unrelated process in the shell. Shims are rewritten per terminal create, so a gateway edit reaches new terminals without a daemon restart. `PASEO_CLIPROXYAPI_DISABLE_SHIM=1` bypasses one invocation. Terminal-only by construction — the shim directory never reaches provider env, where the agent path already injects the same routing.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+npx vitest run packages/server/src/terminal/harness-shims.test.ts packages/server/src/terminal/harness-shim-writer.test.ts packages/server/src/terminal/harness-routing.test.ts --bail=1
 ```
 
 ## gateway-codex-catalog-shape

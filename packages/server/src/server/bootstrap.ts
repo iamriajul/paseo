@@ -174,6 +174,7 @@ import { setupAutoArchiveOnMerge } from "./auto-archive-on-merge/index.js";
 import { wrapSessionMessage, type SessionOutboundMessage } from "./messages.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { createConfiguredTerminalManager } from "../terminal/terminal-manager-factory.js";
+import { buildTerminalGatewayRouting } from "../terminal/harness-routing.js";
 import { applyTerminalAgentHookSetting } from "../terminal/agent-hooks/terminal-agent-hook-setting.js";
 import { loadOrCreateDaemonKeyPair } from "./daemon-keypair.js";
 import { createRelayRuntime, type RelayRuntime } from "./relay-runtime.js";
@@ -698,6 +699,13 @@ export async function createPaseoDaemon(
   let workspaceRegistry: FileBackedWorkspaceRegistry | null = null;
   const terminalManager = createConfiguredTerminalManager({
     getTerminalActivityUrl: () => createTerminalActivityUrl(boundListenTarget),
+    // Resolved per terminal create, not once here, so editing the gateway in
+    // config.json reaches new terminals without a daemon restart.
+    resolveGatewayRouting: () =>
+      buildTerminalGatewayRouting({
+        paseoHome: config.paseoHome,
+        gateway: resolveGatewayConfig(config.agentGateway),
+      }),
   });
   applyTerminalAgentHookSetting({ store: daemonConfigStore, logger });
 

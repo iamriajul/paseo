@@ -1,9 +1,7 @@
-import type { TerminalManager } from "./terminal-manager.js";
+import type { TerminalManager, TerminalManagerOptions } from "./terminal-manager.js";
 import { createWorkerTerminalManager } from "./worker-terminal-manager.js";
 
-export interface ConfiguredTerminalManagerOptions {
-  getTerminalActivityUrl?: () => string | null;
-}
+export type ConfiguredTerminalManagerOptions = TerminalManagerOptions;
 
 export function createConfiguredTerminalManager(
   options: ConfiguredTerminalManagerOptions = {},

@@ -542,6 +542,19 @@ describe("normalizeClaudeRuntimeModelId", () => {
     );
   });
 
+  // A minor release absent from the manifest must not resolve to the major it extends:
+  // that resolution makes the gateway row look first-party, and cliproxy-models then
+  // drops it from the catalog entirely.
+  it("leaves an unmanifested minor release unresolved instead of folding it onto the major", () => {
+    expect(normalizeClaudeRuntimeModelId("claude-sonnet-5-5")).toBeNull();
+    expect(normalizeClaudeManifestModelId("claude-sonnet-5-5")).toBeNull();
+    expect(normalizeClaudeRuntimeModelId("us.anthropic.claude-sonnet-5-5")).toBeNull();
+    // A dated spelling of a known major still folds, so the 8-digit run is exempt.
+    expect(normalizeClaudeRuntimeModelId("us.anthropic.claude-sonnet-5-20260101")).toBe(
+      "claude-sonnet-5",
+    );
+  });
+
   it("leaves CLIProxyAPI gateway wire IDs unnormalized", () => {
     expect(normalizeClaudeRuntimeModelId("claude-fable-5-dd-3.1-kraps-esum")).toBeNull();
     expect(normalizeClaudeRuntimeModelId("claude-fable-5-dd-6.4-korg")).toBeNull();

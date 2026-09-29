@@ -52,8 +52,10 @@ Gateway models launch with raw decoded IDs through the standard Claude path, plu
 - Custom non-family models pin the five family/subagent vars (`ANTHROPIC_DEFAULT_*_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`) to the selected model. User-set values win; first-party models are untouched.
 - Image attachments check known `inputModalities`: a model known to be text-only gets a local-file path hint instead of image blocks. Unknown modalities keep forwarding images.
 - Mid-session switches the SDK control plane rejects (`Couldn't confirm model ...`) relaunch the query on the resumed session with the new model.
+- Per-model effort levels come from the Codex-shape catalog (`?client_version`), not from the Anthropic `/v1/models` shape, which carries no effort data. A model the catalog lists gets exactly the levels it advertises; a model it does not list keeps the full custom set. Ultra Code rides on `xhigh`, so it goes when `xhigh` does.
+- Claude is told the gateway model's real name and capabilities through `ANTHROPIC_CUSTOM_MODEL_OPTION_*` and `ANTHROPIC_DEFAULT_FABLE_MODEL_*`. Without them Claude Code does not recognize the id, assumes every effort level is supported, and attributes commits to Fable. The capability list carries the same `max_effort` / `xhigh_effort` tokens Claude Code's own model catalog uses.
 
-Deliberately not imported: Codex reasoning ceilings (they under-cap Claude Code — Grok `max` works there), per-model effort restrictions, Fast mode for non-manifest models, `[1m]` variant synthesis, and `supportedModels()` control-plane reads.
+Deliberately not imported: `[1m]` variant synthesis, Fast mode for non-manifest models, and `supportedModels()` control-plane reads.
 
 ## Quota
 

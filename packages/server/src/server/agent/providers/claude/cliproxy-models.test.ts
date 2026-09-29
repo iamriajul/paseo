@@ -872,6 +872,73 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       },
     ]);
   });
+
+  test("gives each gateway model the effort levels the gateway advertises", async () => {
+    const result = await appendCliproxyModelsToClaudeCatalog({
+      baseModels: base,
+      rows: [
+        {
+          id: "muse-spark-1.3-contributor",
+          label: "MuseSpark 1.3 (contributor)",
+          ownedBy: "upstream",
+          maxInputTokens: 200_000,
+          maxOutputTokens: 64_000,
+          rawListId: "claude-fable-5-dd-3.1c-snerputnoc",
+        },
+        {
+          id: "muse-spark-1.3",
+          label: "MuseSpark 1.3",
+          ownedBy: "upstream",
+          maxInputTokens: 200_000,
+          maxOutputTokens: 64_000,
+          rawListId: "claude-fable-5-dd-3.1-musespark",
+        },
+      ],
+      existingAdditionalModels: [],
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
+      getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
+      effortProfiles: new Map([
+        ["muse-spark-1.3-contributor", { maxEffort: false, xhighEffort: false }],
+        ["muse-spark-1.3", { maxEffort: true, xhighEffort: true }],
+      ]),
+    });
+
+    const ids = (id: string) =>
+      result.models.find((model) => model.id === id)?.thinkingOptions?.map((o) => o.id);
+    expect(ids("muse-spark-1.3-contributor")).toEqual(["low", "medium", "high"]);
+    expect(ids("muse-spark-1.3")).toEqual(["low", "medium", "high", "xhigh", "max", "ultracode"]);
+  });
+
+  test("keeps the full effort set for a gateway model the catalog does not describe", async () => {
+    const result = await appendCliproxyModelsToClaudeCatalog({
+      baseModels: base,
+      rows: [
+        {
+          id: "grok-4.5",
+          label: "Grok 4.5",
+          ownedBy: "xai",
+          maxInputTokens: 500_000,
+          maxOutputTokens: 65_536,
+          rawListId: "claude-fable-5-dd-5.4-korg",
+        },
+      ],
+      existingAdditionalModels: [],
+      lookupModelsDev: async () => ({ found: false, query: "unused" }),
+      // The real fallback is the shared custom-model set, not a per-call list.
+      getCustomThinkingOptions: () => [
+        { id: "low", label: "Low" },
+        { id: "medium", label: "Medium" },
+        { id: "high", label: "High" },
+        { id: "xhigh", label: "Extra High" },
+        { id: "max", label: "Max" },
+        { id: "ultracode", label: "Ultra Code" },
+      ],
+      effortProfiles: new Map(),
+    });
+    expect(
+      result.models.find((model) => model.id === "grok-4.5")?.thinkingOptions?.map((o) => o.id),
+    ).toEqual(["low", "medium", "high", "xhigh", "max", "ultracode"]);
+  });
 });
 
 describe("mergeAdditionalModelLimits", () => {

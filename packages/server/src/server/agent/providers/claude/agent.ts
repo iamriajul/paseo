@@ -37,6 +37,7 @@ import {
 import { mapClaudeProviderHeartbeatToolEvent } from "./provider-heartbeats.js";
 import {
   applyClaudeCustomModelEnvPins,
+  applyClaudeGatewayModelIdentityEnv,
   applyClaudeMaxContextTokensEnv,
   applyClaudeMaxOutputTokensEnv,
   applyClaudePromptCacheTtlEnv,
@@ -65,8 +66,14 @@ import {
   shouldRouteClaudeModelThroughCliproxyapi,
   type CliproxyAdditionalModelLimits,
   type CliproxyAgentModelDefinition,
+  type CliproxyAnthropicCredentials,
 } from "./cliproxy-models.js";
-import { fetchCliproxyAnthropicModels } from "../../gateway/models.js";
+import {
+  buildCliproxyCapabilityList,
+  indexCliproxyEffortProfiles,
+  type CliproxyEffortProfile,
+} from "./cliproxy-effort.js";
+import { fetchCliproxyAnthropicModels, fetchGatewayCodexModels } from "../../gateway/models.js";
 import { parsePartialJsonObject } from "./partial-json.js";
 import { ClaudeSidechainTracker } from "./sidechain-tracker.js";
 import { ClaudeTaskState } from "./task-state.js";
@@ -493,8 +500,9 @@ interface ClaudeAgentSessionOptions {
   runtimeSettings?: ProviderRuntimeSettings;
   /** First-party Gateway routing (client sets it only when it applies). */
   gateway?: ResolvedGatewayConfig;
-  /** null until CLIProxyAPI discovery finishes. */
   cliproxyapiAdvertisedIds?: ReadonlySet<string> | null;
+  /** Per-model effort ceilings from the gateway's Codex-shape catalog. */
+  cliproxyEffortProfiles?: ReadonlyMap<string, CliproxyEffortProfile> | null;
   profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
@@ -1628,6 +1636,7 @@ export class ClaudeAgentClient implements AgentClient {
   private readonly runtimeSettings?: ProviderRuntimeSettings;
   private readonly gateway?: ResolvedGatewayConfig;
   private cliproxyapiAdvertisedIds: ReadonlySet<string> | null = null;
+  private cliproxyEffortProfiles: ReadonlyMap<string, CliproxyEffortProfile> | null = null;
   private profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
@@ -1674,6 +1683,7 @@ export class ClaudeAgentClient implements AgentClient {
       profileModels: this.profileModels,
       gateway: this.gateway,
       cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
+      cliproxyEffortProfiles: this.cliproxyEffortProfiles,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
       persistSession: options?.persistSession,
@@ -1706,6 +1716,7 @@ export class ClaudeAgentClient implements AgentClient {
       profileModels: this.profileModels,
       gateway: this.gateway,
       cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
+      cliproxyEffortProfiles: this.cliproxyEffortProfiles,
       handle,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
@@ -1769,6 +1780,7 @@ export class ClaudeAgentClient implements AgentClient {
             existingAdditionalModels: this.additionalModels ?? this.profileModels ?? [],
             lookupModelsDev: (id) => lookupModelsDevModel(id),
             getCustomThinkingOptions: () => getClaudeCustomModelThinkingOptions(),
+            effortProfiles: await this.fetchCliproxyEffortProfiles(credentials),
           });
           models = await this.persistCliproxyCatalogCapacity(nextModels, autoPersist);
         }
@@ -1784,6 +1796,41 @@ export class ClaudeAgentClient implements AgentClient {
       models,
       ...modeCatalog,
     };
+  }
+
+  /**
+   * Per-model effort ceilings from the gateway's Codex-shape catalog. The Anthropic
+   * `/v1/models` shape Paseo launches with carries no effort data, so this is the only
+   * place the gateway states which levels a model actually has. Failure is non-fatal:
+   * without it every gateway model keeps the full custom effort set.
+   */
+  private async fetchCliproxyEffortProfiles(
+    credentials: CliproxyAnthropicCredentials,
+  ): Promise<ReadonlyMap<string, CliproxyEffortProfile> | undefined> {
+    try {
+      const codexRows = await fetchGatewayCodexModels({
+        ...credentials,
+        expectGateway: true,
+        onWarning: (warning) => {
+          this.logger.warn(
+            { phase: "cliproxy_effort_discovery", code: warning.code },
+            "CLIProxyAPI effort discovery warning",
+          );
+        },
+      });
+      if (codexRows.length === 0) {
+        this.cliproxyEffortProfiles = new Map();
+        return undefined;
+      }
+      this.cliproxyEffortProfiles = indexCliproxyEffortProfiles(codexRows);
+      return this.cliproxyEffortProfiles;
+    } catch {
+      this.logger.warn(
+        { phase: "cliproxy_effort_discovery" },
+        "CLIProxyAPI effort discovery failed",
+      );
+      return undefined;
+    }
   }
 
   private async persistCliproxyCatalogCapacity(
@@ -2246,6 +2293,7 @@ class ClaudeAgentSession implements AgentSession {
   private readonly defaults?: { agents?: Record<string, AgentDefinition> };
   private readonly runtimeSettings?: ProviderRuntimeSettings;
   private readonly gateway?: ResolvedGatewayConfig;
+  private readonly cliproxyEffortProfiles: ReadonlyMap<string, CliproxyEffortProfile> | null;
   private readonly cliproxyapiAdvertisedIds: ReadonlySet<string> | null;
   private readonly profileModels?: Array<{
     id: string;
@@ -2340,6 +2388,7 @@ class ClaudeAgentSession implements AgentSession {
     this.runtimeSettings = options.runtimeSettings;
     this.gateway = options.gateway;
     this.cliproxyapiAdvertisedIds = options.cliproxyapiAdvertisedIds ?? null;
+    this.cliproxyEffortProfiles = options.cliproxyEffortProfiles ?? null;
     this.profileModels = options.profileModels;
     this.persistSession = options.persistSession;
     this.logger = options.logger.child({ agentId: this.agentId });
@@ -3659,7 +3708,9 @@ class ClaudeAgentSession implements AgentSession {
       overlays: [this.launchEnv],
     });
     const routed = this.applyCliproxyapiRoutingEnv(env);
-    const pinned = applyClaudeCustomModelEnvPins(routed, this.config.model);
+    const pinned = this.applyGatewayModelIdentityEnv(
+      applyClaudeCustomModelEnvPins(routed, this.config.model),
+    );
     const limitOptions = {
       modelId: this.config.model,
       profileModels: this.profileModels,
@@ -3701,6 +3752,37 @@ class ClaudeAgentSession implements AgentSession {
     }
     return next;
   }
+
+  /**
+   * Tell Claude Code the gateway model's real name and what it actually supports.
+   *
+   * Without this, Claude Code does not recognize the model id, falls back to its
+   * permissive effort default, and labels the row — and every commit trailer it
+   * writes — as Fable. The label comes from the discovered catalog, so a model the
+   * gateway advertises under its own name is named correctly.
+   */
+  private applyGatewayModelIdentityEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    if (
+      !this.gateway ||
+      !shouldRouteClaudeModelThroughCliproxyapi({
+        modelId: this.config.model,
+        advertisedIds: this.cliproxyapiAdvertisedIds,
+      })
+    ) {
+      return env;
+    }
+    const modelId = this.config.model;
+    if (typeof modelId !== "string") {
+      return env;
+    }
+    const profile = this.cliproxyEffortProfiles?.get(modelId);
+    return applyClaudeGatewayModelIdentityEnv(env, {
+      modelId,
+      displayName: profile?.label ?? modelId,
+      capabilities: buildCliproxyCapabilityList(profile),
+    });
+  }
+
   private async buildOptions(): Promise<ClaudeOptions> {
     const { thinking, effort, ultracode } = this.resolveThinkingConfig();
     const appendedSystemPrompt = this.buildAppendedSystemPrompt();

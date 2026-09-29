@@ -1,7 +1,7 @@
 import type { AgentModelDefinition, AgentSelectOption } from "../../agent-sdk-types.js";
 import { CLAUDE_DD_MODEL_PREFIX } from "../../gateway/models.js";
 
-type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+export type ClaudeEffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
 interface ClaudeModelManifestEntry {
   id: string;
@@ -22,21 +22,24 @@ interface ClaudeModelManifestEntry {
  * full Effort parity with the TUI, including Haiku — restored after upstream
  * collapsed Opus 5 to a single 1M row and stripped Haiku effort).
  */
-const CLAUDE_EFFORT_LEVELS = [
+export const CLAUDE_EFFORT_LEVELS = [
   "low",
   "medium",
   "high",
   "xhigh",
   "max",
 ] as const satisfies readonly ClaudeEffortLevel[];
-
-const CLAUDE_EFFORT_LABELS = {
+export const CLAUDE_EFFORT_LABELS = {
   low: "Low",
   medium: "Medium",
   high: "High",
   xhigh: "Extra High",
   max: "Max",
 } as const satisfies Record<ClaudeEffortLevel, string>;
+
+export function isClaudeEffortLevel(value: unknown): value is ClaudeEffortLevel {
+  return CLAUDE_EFFORT_LEVELS.includes(value as ClaudeEffortLevel);
+}
 
 export const CLAUDE_DEFAULT_THINKING_OPTION_ID = "high";
 

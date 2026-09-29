@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -318,8 +318,12 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // silently overwrites the first, and an unset var leaves an empty file that
     // reads the same as a missing launch.
     const out = (name: string) => join(home, `${name}.txt`);
+    // The stand-in lives in keepDir, not shimDir. The shim strips its own
+    // directory from PATH before launching, so a binary staged beside the shim
+    // is unresolvable the moment the strip works — the test would fail against
+    // a correct shim. keepDir is the entry that has to survive the strip.
     writeFileSync(
-      join(shimDir, `${harness}.exe`),
+      join(keepDir, `${harness}.exe`),
       [
         "@echo off",
         "echo MARKER_REAL_BINARY",
@@ -331,7 +335,13 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     return {
       shimDir,
       testPath: `${shimDir};${keepDir}`,
-      read: (name) => readFileSync(out(name), "utf8").trim(),
+      // A missing probe file means the binary never ran, which reads as a shim
+      // bug. Name it here instead of letting readFileSync throw ENOENT.
+      read: (name) => {
+        const file = out(name);
+        if (!existsSync(file)) return `<<${name}.txt never written: the binary did not run>>`;
+        return readFileSync(file, "utf8").trim();
+      },
     };
   }
 
@@ -357,6 +367,10 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   it("hands OpenCode parseable JSON, settling how set treats inner quotes", () => {
     const { testPath, read } = stageShim("opencode");
     const result = spawnShim("opencode", testPath);
+    // A shim that never launched the binary, or launched one that failed, is
+    // not a pass. Asserting the marker first means the JSON below is read from
+    // a run that actually reached the stand-in.
+    expect(result.stdout).toContain("MARKER_REAL_BINARY");
     expect(result.status).toBe(0);
 
     // If the value were escaped, this JSON.parse is what fails. The security
@@ -373,6 +387,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // The marker only prints from the stand-in, so its absence means the shim
     // ended at its own `goto :eof` instead of launching.
     expect(result.stdout).toContain("MARKER_REAL_BINARY");
+    expect(result.status).toBe(0);
   });
 
   it("passes a key-only Codex terminal through untouched", () => {

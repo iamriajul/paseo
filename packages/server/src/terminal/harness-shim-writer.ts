@@ -44,12 +44,18 @@ function shellQuote(value: string): string {
 /**
  * Emit a cmd.exe shim.
  *
- * The wrapper is named `claude.cmd` so a bare `claude` reaches it, and it strips
- * its own directory from PATH before launching the real binary — that strip is
- * the only thing keeping the wrapper from resolving to itself. The PATHEXT claim
- * in the old comment here was never verified on Windows and is not relied on:
- * the shim directory is prepended to PATH, and the real binary is reached by its
- * own absolute directory minus the shim directory.
+ * The wrapper is named `claude.cmd` and the shim directory is prepended to PATH,
+ * so a bare `claude` reaches the wrapper. It then strips its own directory from
+ * PATH and launches `claude.exe`, which is what keeps the wrapper from resolving
+ * to itself.
+ *
+ * PATHEXT is the reason that works. cmd only appends PATHEXT to an
+ * _extensionless_ name, so the bare `claude` picks up the shim directory's
+ * `claude.cmd` — and the explicit `claude.exe` launched afterwards skips
+ * PATHEXT entirely and so cannot land on `claude.cmd`. Launching bare `claude`
+ * there instead would resolve straight back to this wrapper, however the
+ * entries are ordered, because a name that already carries an extension is
+ * never re-resolved through PATHEXT.
  */
 export function buildCmdShimScript(
   harness: ShimmedHarness,

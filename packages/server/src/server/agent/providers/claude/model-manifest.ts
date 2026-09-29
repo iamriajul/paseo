@@ -523,8 +523,12 @@ export function normalizeClaudeRuntimeModelId(value: string | null | undefined):
     }
   }
 
+  // The lookahead keeps the provider-prefix tolerance above while refusing to let a minor
+  // release collapse onto the major it extends ("claude-sonnet-5-5" is not Sonnet 5).
+  // Anchoring instead would break the prefixed forms ("us.anthropic.claude-opus-4-8"). A
+  // run of 3+ digits is a dated spelling ("claude-opus-5-20260724-v1:0"), which does fold.
   const singleSegmentMatch = trimmed.match(
-    /claude[-_ ](fable|opus|sonnet|haiku)[-_ ]+(\d+)(\[1m\])?/i,
+    /claude[-_ ](fable|opus|sonnet|haiku)[-_ ]+(\d+)(?![-._]\d{1,2}(?!\d))/i,
   );
   if (!singleSegmentMatch) {
     return null;

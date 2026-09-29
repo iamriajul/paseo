@@ -208,6 +208,15 @@ describe("cmd shim generation", () => {
     expect(script).not.toContain('delims=:"');
   });
 
+  it("pins for /f's end-of-line to ;, so PATH stays one line", () => {
+    const script = cmdShimText();
+    // Without eol=; cmd breaks the input on every `;` and runs the body once
+    // per entry, so head and tail are reset each time and the loop keeps only
+    // the last entry. On a real PATH that discards System32 and everything
+    // else, leaving the harness an almost-empty environment.
+    expect(script).toContain('for /f "tokens=1* delims=; eol=;"');
+  });
+
   it("enables delayed expansion, which the strip loop's !VAR! reads depend on", () => {
     const script = cmdShimText();
     // Without it !PATH! and !stripped! are literal text, and the shim writes
@@ -305,13 +314,23 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // A realistic PATH, so the strip loop has entries to keep and the
     // restore-only-the-shim-dir branch is not the path under test.
     testPath: string;
+    // PATH as the shim should have left it, for asserting the strip kept
+    // everything it was supposed to.
+    keepDir: string;
     read: (name: string) => string;
   } {
     const home = makeHome();
     const shimDir = join(home, "shims");
     const keepDir = join(home, "keep");
-    mkdirSync(shimDir, { recursive: true });
-    mkdirSync(keepDir, { recursive: true });
+    // Two decoy entries on top of the two that matter. A two-entry PATH is the
+    // shape that hides an eol= bug: dropping everything but the last entry
+    // would still leave the stand-in resolvable. The real Windows PATH has
+    // System32 and friends in it, and losing those is the actual damage.
+    const decoyA = join(home, "decoy-a");
+    const decoyB = join(home, "decoy-b");
+    for (const dir of [shimDir, keepDir, decoyA, decoyB]) {
+      mkdirSync(dir, { recursive: true });
+    }
     writeFileSync(join(shimDir, `${harness}.cmd`), buildCmdShimScript(harness, gateway));
 
     // Each probe writes its own file: two echos into one path mean the second
@@ -327,6 +346,9 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
       [
         "@echo off",
         "echo MARKER_REAL_BINARY",
+        // The PATH the shim actually handed down, so the test can check the
+        // strip kept the decoys instead of only the entry holding the binary.
+        `echo %PATH%>${out("path")}`,
         `echo %OPENCODE_CONFIG_CONTENT%>${out("config")}`,
         `echo %OPENAI_BASE_URL%>${out("base")}`,
         "exit /b 0",
@@ -334,7 +356,8 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     );
     return {
       shimDir,
-      testPath: `${shimDir};${keepDir}`,
+      testPath: [shimDir, keepDir, decoyA, decoyB].join(";"),
+      keepDir,
       // A missing probe file means the binary never ran, which reads as a shim
       // bug. Name it here instead of letting readFileSync throw ENOENT.
       read: (name) => {
@@ -388,6 +411,23 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // ended at its own `goto :eof` instead of launching.
     expect(result.stdout).toContain("MARKER_REAL_BINARY");
     expect(result.status).toBe(0);
+  });
+
+  it("strips only its own directory, keeping the rest of PATH intact", () => {
+    // The damaging failure is a strip that keeps the last entry and discards
+    // the others: the harness would still resolve, and would resolve against a
+    // PATH with no System32 in it. The decoy dirs exist to be lost, so this
+    // fails when they do.
+    const { testPath, keepDir, read } = stageShim("claude");
+    spawnShim("claude", testPath);
+
+    const handedDown = read("path");
+    // The shim's own directory is gone, so the wrapper cannot recurse.
+    expect(handedDown).not.toContain("shims");
+    // Everything else survived, in order, with the real binary still findable.
+    expect(handedDown).toContain(keepDir);
+    expect(handedDown).toContain("decoy-a");
+    expect(handedDown).toContain("decoy-b");
   });
 
   it("passes a key-only Codex terminal through untouched", () => {

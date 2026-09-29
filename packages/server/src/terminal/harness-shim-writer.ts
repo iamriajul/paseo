@@ -113,6 +113,16 @@ export function buildCmdShimScript(
     // `for /f` reads a single line and splits it on one delimiter, so it cannot
     // both split on `;` and keep the remainder in one pass; the loop peels the
     // head off and reassembles.
+    //
+    // eol=; matters more than it looks. Without it `for /f` treats each PATH
+    // entry as its own line, so `in ("!rest!")` iterates the loop body once per
+    // entry and each iteration resets head and tail — the loop keeps only the
+    // last entry and discards the rest of PATH. On a real terminal PATH that
+    // silently removes System32 along with everything else, so the shim would
+    // hand the harness an almost-empty environment. Pinning eol makes the
+    // semicolon an ordinary character again, leaving `delims=;` as the only
+    // line break.
+    //
     // Delayed expansion is scoped to this subroutine, not enabled for the whole
     // script. The loop needs !VAR! because it rewrites PATH between iterations
     // and %PATH% would expand once at parse time. Left on globally, it would
@@ -141,7 +151,7 @@ export function buildCmdShimScript(
     "if not defined rest goto stripDone",
     'set "head="',
     'set "tail="',
-    'for /f "tokens=1* delims=;" %%A in ("!rest!") do (',
+    'for /f "tokens=1* delims=; eol=;" %%A in ("!rest!") do (',
     '  set "head=%%A"',
     '  set "tail=%%B"',
     ")",

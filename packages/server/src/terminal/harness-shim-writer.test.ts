@@ -216,7 +216,7 @@ describe("cmd shim generation", () => {
     expect(script).not.toContain('delims=:"');
   });
 
-  it("pins for /f's end-of-line to ;, so PATH stays one line", () => {
+  it("pins for /f's end-of-line to ; explicitly rather than by default", () => {
     const script = cmdShimText();
     // eol=; is cmd's default, so this asserts nothing about behavior — it pins
     // the value so a later reader does not "fix" the delimiter on the belief
@@ -344,10 +344,11 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     const home = makeHome();
     const shimDir = join(home, "shims");
     const keepDir = join(home, "keep");
-    // Two decoy entries on top of the two that matter. A two-entry PATH is the
-    // shape that hides an eol= bug: dropping everything but the last entry
-    // would still leave the stand-in resolvable. The real Windows PATH has
-    // System32 and friends in it, and losing those is the actual damage.
+    // Two decoy entries on top of the two that matter, so a strip that keeps
+    // only one entry and discards the rest still leaves the stand-in findable
+    // and passes. A four-entry PATH is what closes that shape. The real Windows
+    // PATH has System32 and friends in it, and losing those is the actual
+    // damage.
     const decoyA = join(home, "decoy-a");
     const decoyB = join(home, "decoy-b");
     for (const dir of [shimDir, keepDir, decoyA, decoyB]) {

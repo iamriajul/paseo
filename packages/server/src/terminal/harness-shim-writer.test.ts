@@ -295,31 +295,37 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   // binary at all. These run the generated script for real on Windows CI, which
   // is the only place the answer is knowable.
   //
-  // The shim launches `<harness>.exe`, so the stand-in for the real binary has
-  // to carry that name. A `.bat` under that name is what cmd.exe will run.
-  function stageShim(harness: "claude" | "codex" | "opencode"): { shimDir: string; out: string } {
+  // The shim launches `<harness>.exe`, and cmd appends PATHEXT only to
+  // extensionless names — so `claude.exe` will not resolve to `claude.exe.bat`.
+  // The stand-in has to be named `claude.exe` exactly. A PE cannot be built
+  // here, so the file is a batch script under that name: cmd runs it, and the
+  // loader is lenient about the mismatch.
+  function stageShim(harness: "claude" | "codex" | "opencode"): {
+    shimDir: string;
+    read: (name: string) => string;
+  } {
     const home = makeHome();
     const shimDir = join(home, "shims");
     mkdirSync(shimDir, { recursive: true });
     writeFileSync(join(shimDir, `${harness}.cmd`), buildCmdShimScript(harness, gateway));
-    // The probe reports the env it was handed and marks that it ran at all, so
-    // an assertion can tell "the launch never happened" from "the value was
-    // empty" — the two look the same in an env report alone.
-    const out = join(home, "out.txt");
+
+    // Each probe writes its own file: two echos into one path mean the second
+    // silently overwrites the first, and an unset var leaves an empty file that
+    // reads the same as a missing launch.
+    const out = (name: string) => join(home, `${name}.txt`);
     writeFileSync(
-      join(shimDir, `${harness}.exe.bat`),
+      join(shimDir, `${harness}.exe`),
       [
         "@echo off",
         "echo MARKER_REAL_BINARY",
-        `echo %OPENCODE_CONFIG_CONTENT%>${out}`,
-        `echo %OPENAI_BASE_URL%>${out}`,
+        `echo %OPENCODE_CONFIG_CONTENT%>${out("config")}`,
+        `echo %OPENAI_BASE_URL%>${out("base")}`,
         "exit /b 0",
       ].join("\r\n"),
     );
-    return { shimDir, out };
+    return { shimDir, read: (name) => readFileSync(out(name), "utf8").trim() };
   }
 
-  /** cmd.exe resolves PATHEXT, so the stand-in is found under its bare name. */
   function spawnShim(harness: string, shimDir: string, env: NodeJS.ProcessEnv = {}) {
     return spawnSync("cmd.exe", ["/c", harness], {
       encoding: "utf8",
@@ -330,14 +336,14 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   }
 
   it("hands OpenCode parseable JSON, settling how set treats inner quotes", () => {
-    const { shimDir, out } = stageShim("opencode");
+    const { shimDir, read } = stageShim("opencode");
     const result = spawnShim("opencode", shimDir);
     expect(result.status).toBe(0);
 
     // If the value were escaped, this JSON.parse is what fails. The security
     // review says a bare quote terminates the set command; the reviewer says it
     // does not. Whichever is true, the parse decides it.
-    const config = JSON.parse(readFileSync(out, "utf8").trim());
+    const config = JSON.parse(read("config"));
     expect(config.provider.cliproxyapi.options.baseURL).toBe("http://cpa.test:8317/v1");
     expect(config.provider.cliproxyapi.options.apiKey).toBe("sk-test");
   });
@@ -351,9 +357,9 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   });
 
   it("passes a key-only Codex terminal through untouched", () => {
-    const { shimDir, out } = stageShim("codex");
+    const { shimDir, read } = stageShim("codex");
     spawnShim("codex", shimDir, { OPENAI_API_KEY: "sk-mine" });
     // The endpoint must not be repointed at the gateway.
-    expect(readFileSync(out, "utf8").trim()).toBe("");
+    expect(read("base")).toBe("");
   });
 });

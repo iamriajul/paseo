@@ -7,6 +7,7 @@ import type { ModelsDevCandidate, ModelsDevLookupResult } from "../../../models-
 
 import { type CliproxyAnthropicModelRow } from "../../gateway/models.js";
 import { normalizeClaudeRuntimeModelId } from "./model-manifest.js";
+import { buildCliproxyThinkingOptions, type CliproxyEffortProfile } from "./cliproxy-effort.js";
 
 export interface CliproxyAnthropicEnvironment {
   ANTHROPIC_BASE_URL?: string;
@@ -50,6 +51,8 @@ export interface AppendCliproxyModelsOptions {
   existingAdditionalModels: readonly CliproxyAdditionalModelLimits[];
   lookupModelsDev: (modelId: string) => Promise<ModelsDevLookupResult>;
   getCustomThinkingOptions: () => AgentSelectOption[];
+  /** Per-model effort ceilings from the gateway's Codex-shape catalog, when fetched. */
+  effortProfiles?: ReadonlyMap<string, CliproxyEffortProfile>;
 }
 
 export async function resolveCliproxyAnthropicCredentials(
@@ -137,7 +140,15 @@ export async function appendCliproxyModelsToClaudeCatalog(
     }
     existingIds.add(row.id);
     additions.push(
-      mapCliproxyModelRowToAgentModel(row, capacity, options.getCustomThinkingOptions()),
+      mapCliproxyModelRowToAgentModel(
+        row,
+        capacity,
+        // Prefer the gateway's advertised ceiling; fall back to the shared custom
+        // set for a slug the Codex-shape catalog does not list.
+        options.effortProfiles
+          ? buildCliproxyThinkingOptions(options.effortProfiles.get(row.id))
+          : options.getCustomThinkingOptions(),
+      ),
     );
   }
 

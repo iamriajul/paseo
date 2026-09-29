@@ -1,5 +1,3 @@
-import { useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { GatewayStatsGetResponseMessage } from "@getpaseo/protocol/messages";
 import { useFetchQuery } from "@/data/query";
@@ -10,11 +8,14 @@ type GatewayStatsClient = Pick<DaemonClient, "getGatewayStats">;
 type GatewayStatsPayload = GatewayStatsGetResponseMessage["payload"];
 
 /**
- * Zero, not a window: the figure describes the last request that model served,
- * so a cached one is wrong rather than merely old, and the caller refetches on
- * every open.
+ * Polled while the tooltip is open so someone watching throughput sees it move
+ * rather than getting one frozen number. Three seconds is a deliberate floor,
+ * not a ceiling: below it the readings stop being about a request and start
+ * being about the poll, and each tick is a WebSocket round trip on the client
+ * that has to render it. The Gateway read is in-process history — it makes no
+ * upstream call — so the cost is ours, not the provider's.
  */
-export const GATEWAY_STATS_STALE_TIME_MS = 0;
+export const GATEWAY_STATS_POLL_MS = 3_000;
 
 export function gatewayStatsQueryKey(
   serverId: string | null | undefined,
@@ -60,11 +61,9 @@ export function pickGatewayStatsSample(
 }
 
 /**
- * Throughput for the selected model, read only while the context-meter tooltip
- * is open. Every open refetches, so the figure is the rate of the most recent
- * request rather than something an interval kept warm. No polling: the Gateway
- * read does no upstream work, so there is nothing to gain from asking more
- * often than the user looks.
+ * Throughput for the selected model, polled only while the context-meter
+ * tooltip is open. Closing the tooltip stops the interval with it, so a
+ * background or idle session costs nothing.
  */
 export function useGatewayStats({
   serverId,
@@ -76,8 +75,11 @@ export function useGatewayStats({
   provider: string | null | undefined;
   model: string | null | undefined;
   enabled: boolean;
-}): { sample: GatewayStatsPayload["sample"]; refresh: () => Promise<void> } {
-  const queryClient = useQueryClient();
+}): {
+  sample: GatewayStatsPayload["sample"];
+  /** True while a poll is in flight or has landed recently — the live dot. */
+  isLive: boolean;
+} {
   const client = useHostRuntimeClient(serverId ?? "");
   const isConnected = useHostRuntimeIsConnected(serverId ?? "");
   const supportsGatewayStats = useHostFeature(serverId, "cliproxyapiStats");
@@ -89,10 +91,9 @@ export function useGatewayStats({
     provider,
     model,
   });
-  const queryKey = gatewayStatsQueryKey(serverId, provider, model);
 
   const query = useFetchQuery<GatewayStatsPayload, Error>({
-    queryKey,
+    queryKey: gatewayStatsQueryKey(serverId, provider, model),
     queryFn: () => {
       if (!client || !provider || !model) {
         throw new Error("Host connection is not ready");
@@ -102,24 +103,9 @@ export function useGatewayStats({
     enabled: enabled && canFetch,
     retry: false,
     dataShape: "value",
-    staleTimeMs: GATEWAY_STATS_STALE_TIME_MS,
+    staleTimeMs: GATEWAY_STATS_POLL_MS,
+    refetchInterval: GATEWAY_STATS_POLL_MS,
   });
 
-  const refresh = useCallback(async () => {
-    if (!canFetch) {
-      return;
-    }
-    await queryClient.fetchQuery<GatewayStatsPayload>({
-      queryKey,
-      queryFn: async () => {
-        if (!client || !provider || !model) {
-          throw new Error("Host connection is not ready");
-        }
-        return client.getGatewayStats({ provider, model });
-      },
-      staleTime: GATEWAY_STATS_STALE_TIME_MS,
-    });
-  }, [canFetch, client, model, provider, queryClient, queryKey]);
-
-  return { sample: pickGatewayStatsSample(query.data), refresh };
+  return { sample: pickGatewayStatsSample(query.data), isLive: enabled && canFetch };
 }

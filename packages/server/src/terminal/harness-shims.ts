@@ -37,6 +37,25 @@ export function isShimmedHarness(value: string): value is ShimmedHarness {
   return (SHIMMED_HARNESSES as readonly string[]).includes(value);
 }
 
+/**
+ * Env vars that suppress a shim's injection when the terminal already has one.
+ *
+ * Whole-harness rather than per-variable: codex's env and its argv have to move
+ * together, so letting a user keep `OPENAI_API_KEY` while the shim replaced
+ * `OPENAI_BASE_URL` would send their key to the gateway. The lists are the
+ * terminal-side spelling of the agent path's opt-out rules in
+ * docs/cliproxyapi.md — a terminal that already routes a harness keeps doing so.
+ */
+const SHIM_CONFLICT_ENV: Record<ShimmedHarness, readonly string[]> = {
+  claude: ["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+  codex: ["OPENAI_BASE_URL"],
+  opencode: ["OPENCODE_CONFIG_CONTENT"],
+};
+
+export function shimConflictEnv(harness: ShimmedHarness): readonly string[] {
+  return SHIM_CONFLICT_ENV[harness];
+}
+
 export interface HarnessShimEnv {
   /** Env the shim sets for the real binary. */
   readonly env: Record<string, string>;
@@ -71,26 +90,31 @@ function codexProviderArgs(gateway: ResolvedGatewayConfig): string[] {
 /**
  * The gateway provider record a shim injects into `OPENCODE_CONFIG_CONTENT`.
  *
- * Only the record — never a whole config document. OpenCode merges this env
- * over whatever the user already has, and a config that carried a `provider`
- * map of its own would replace those entries wholesale. The agent path's
- * `mergeOpenCodeGatewayProviderRecord` bakes the same "existing providers
- * survive, a user-defined `provider.cliproxyapi` wins" rule into the object it
- * merges; here the same rule holds because OpenCode performs the merge, and
- * because the id is the same one the agent path uses.
+ * Wrapped in a `provider` key, because that is the shape OpenCode's own merge
+ * expects: config sources are deep-merged in order, so a document carrying
+ * `provider` joins the user's existing provider map rather than replacing it. A
+ * bare record has no `provider` key to merge into, so the gateway provider never
+ * registers at all.
+ *
+ * The inline layer merges *after* the user's config files, so a
+ * `provider.cliproxyapi` written in `opencode.json` loses to this one. The
+ * opt-out is the env var: the shim leaves a value the terminal already set
+ * alone, and `PASEO_CLIPROXYAPI_DISABLE_SHIM=1` skips the shim entirely.
  */
 function openCodeConfigContent(gateway: ResolvedGatewayConfig): string {
   // Same normalization as the Codex argv above, for the same reason.
   const baseUrl = codexGatewayEnv(gateway).OPENAI_BASE_URL;
   return JSON.stringify({
-    [GATEWAY_PROVIDER_ID]: {
-      npm: "@ai-sdk/openai-compatible",
-      name: "CLIProxyAPI",
-      options: {
-        baseURL: baseUrl,
-        apiKey: gateway.apiKey,
+    provider: {
+      [GATEWAY_PROVIDER_ID]: {
+        npm: "@ai-sdk/openai-compatible",
+        name: "CLIProxyAPI",
+        options: {
+          baseURL: baseUrl,
+          apiKey: gateway.apiKey,
+        },
+        models: {},
       },
-      models: {},
     },
   });
 }

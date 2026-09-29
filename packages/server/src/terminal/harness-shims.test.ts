@@ -3,6 +3,7 @@ import {
   CLIPROXYAPI_SHIM_DISABLE_ENV,
   buildHarnessShimEnv,
   isShimmedHarness,
+  shimConflictEnv,
   terminalHarnessGatewayEnv,
 } from "./harness-shims.js";
 import type { ResolvedGatewayConfig } from "../server/agent/gateway/config.js";
@@ -36,16 +37,28 @@ describe("buildHarnessShimEnv", () => {
     expect(joined).toContain("requires_openai_auth=false");
   });
 
-  it("gives OpenCode a bare provider record, not a whole config document", () => {
+  it("gives OpenCode a config document carrying the record under provider", () => {
     const { env } = buildHarnessShimEnv("opencode", gateway);
     const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT);
-    // The record is the document. Emitting {provider:{…}} instead would make
-    // OpenCode's own merge replace a user's existing provider map, so this
-    // asserts the absence of that wrapper as much as the record's presence.
-    expect(config.provider).toBeUndefined();
-    expect(config.cliproxyapi.npm).toBe("@ai-sdk/openai-compatible");
-    expect(config.cliproxyapi.options.baseURL).toBe("http://cpa.test:8317/v1");
-    expect(config.cliproxyapi.options.apiKey).toBe("sk-test");
+    // OpenCode deep-merges config sources in order, keyed on the schema's
+    // top-level names. A bare {cliproxyapi:…} has no `provider` key to merge
+    // into, so the provider never registers — the wrapper is required, not
+    // cosmetic, and the doc comment in harness-shims.ts records why.
+    expect(config.provider.cliproxyapi.npm).toBe("@ai-sdk/openai-compatible");
+    expect(config.provider.cliproxyapi.options.baseURL).toBe("http://cpa.test:8317/v1");
+    expect(config.provider.cliproxyapi.options.apiKey).toBe("sk-test");
+  });
+
+  it("names the env vars that suppress each shim", () => {
+    // Whole-harness, so a user's OPENAI_API_KEY is never left pointing at a
+    // gateway they did not ask for.
+    expect(shimConflictEnv("codex")).toEqual(["OPENAI_BASE_URL"]);
+    expect(shimConflictEnv("claude")).toEqual([
+      "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+    ]);
+    expect(shimConflictEnv("opencode")).toEqual(["OPENCODE_CONFIG_CONTENT"]);
   });
 
   it("normalizes a base url that already carries /v1", () => {

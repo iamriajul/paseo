@@ -113,6 +113,33 @@ describe.skipIf(process.platform === "win32")("generated shim behavior", () => {
     expect(result.stdout).toContain("BASE=\n");
   });
 
+  it("leaves a terminal that already routes the harness alone", () => {
+    // The whole-harness rule, behaviorally: a terminal that exports its own
+    // endpoint keeps it, and no gateway value leaks in alongside it.
+    const home = makeHome();
+    const shimDir = ensureHarnessShims(home, gateway)!;
+    const realDir = join(home, "realbin");
+    writeFileSync(
+      join(mkdirSync(realDir, { recursive: true }), "codex"),
+      ["#!/bin/sh", `echo "BASE=$OPENAI_BASE_URL"`, `echo "KEY=$OPENAI_API_KEY"`].join("\n"),
+      { mode: 0o755 },
+    );
+
+    const result = spawnSync(join(shimDir, "codex"), [], {
+      encoding: "utf8",
+      env: {
+        PATH: `${shimDir}:${realDir}`,
+        HOME: home,
+        OPENAI_BASE_URL: "https://my-own-endpoint.test",
+        OPENAI_API_KEY: "sk-mine",
+      },
+    });
+
+    expect(result.stdout).toContain("BASE=https://my-own-endpoint.test");
+    // The key must not be silently repointed at the gateway.
+    expect(result.stdout).not.toContain("sk-test");
+  });
+
   it("resolves past itself when the shell invokes it by bare name", () => {
     // This is how a real terminal reaches the shim: the user types `claude`, the
     // shell runs `command -v claude`, and PATH hands back a bare name. The shim
@@ -155,15 +182,71 @@ describe("cmd shim generation", () => {
     // `delims=:` would split `C:\Users` into `C` and `\Users`, dropping every
     // entry after the first and leaving the shim directory in PATH — which is
     // what made the wrapper resolve to itself.
-    expect(script).toContain('delims=;"');
+    expect(script).toContain("delims=;");
     expect(script).not.toContain('delims=:"');
   });
 
-  it("matches its own directory by substring so drive letters survive", () => {
+  it("enables delayed expansion, which the strip loop's !VAR! reads depend on", () => {
     const script = cmdShimText();
-    // %~dp0 keeps its trailing backslash, which a `;`-split segment never has,
-    // so an exact segment comparison could not match and nothing was stripped.
+    // Without it !PATH! and !stripped! are literal text, and the shim writes
+    // that literal back into the real process's PATH.
+    expect(script).toContain("setlocal EnableExtensions EnableDelayedExpansion");
+  });
+
+  it("reaches the real binary on both the injected and the passthrough path", () => {
+    const script = cmdShimText();
+    const launches = script.split("\r\n").filter((line) => line.startsWith("claude.exe"));
+    // Both routes launch; the strip has to live in a subroutine, because an
+    // inlined copy ends the script at its own `goto :eof` before the launch.
+    expect(launches).toHaveLength(2);
+    expect(script).toContain("call :stripSelfFromPath");
+    // One copy only — two inlined copies collided on the subroutine labels.
+    expect(script.match(/^:stripLoop$/gm)).toHaveLength(1);
+    expect(script.match(/^:keepEntry$/gm)).toHaveLength(1);
+  });
+
+  it("normalizes the trailing backslash before matching its own directory", () => {
+    const script = cmdShimText();
+    // %~dp0 ends in a backslash that a PATH segment never has, so the two
+    // sides are trimmed to a common form and compared exactly.
     expect(script).toContain('set "self_dir=%~dp0"');
-    expect(script).toContain("find /I /C");
+    expect(script).toContain('set "self_dir=!self_dir:~0,-1!"');
+    expect(script).toContain('if /I "!entry!"=="!self_dir!" goto :eof');
+  });
+
+  it("keeps the shim directory when PATH holds nothing else", () => {
+    const script = cmdShimText();
+    // An empty stripped result means every entry matched self. Handing the
+    // child an empty PATH is worse than the recursion this guards against.
+    expect(script).toContain(":restoreOriginalPath");
+    expect(script).toContain('set "PATH=!self_path!"');
+  });
+
+  it("leaves a terminal that already routes the harness alone", () => {
+    const script = cmdShimText();
+    // Checked before the gateway env is set, so the user's own routing survives
+    // instead of being overwritten by the shim.
+    const guard = script.indexOf("if defined ANTHROPIC_BASE_URL goto passthrough");
+    const injection = script.indexOf('set "ANTHROPIC_BASE_URL=');
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(injection);
+    expect(script).toContain(":passthrough");
+  });
+
+  it("tests the trailing backslash unquoted", () => {
+    const script = cmdShimText();
+    // cmd.exe has no escape character, so `if "x"=="\"` closes the quote early
+    // and never matches — which would leave the shim directory in PATH.
+    expect(script).toContain('if "!self_dir:~-1!"==\\ goto trimSelfSlash');
+    expect(script).toContain('if "!entry:~-1!"==\\ set');
+    expect(script).not.toContain('=="\\"');
+  });
+
+  it("escapes a quote in an env value with a backslash, not a caret", () => {
+    // OpenCode's config content is JSON, so this runs on every invocation.
+    // `^"` escapes the closing quote of the set command and truncates it.
+    const script = buildCmdShimScript("opencode", gateway);
+    expect(script).toContain('\\"provider\\"');
+    expect(script).not.toContain('^"provider^"');
   });
 });

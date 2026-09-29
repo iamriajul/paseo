@@ -71,12 +71,14 @@ Set `PASEO_DISABLE_GATEWAY_CACHE=1` to skip the cache entirely. Both vitest conf
 
 The table above covers Paseo-managed agents. A terminal tab runs the harness as an ordinary child process, so the agent path injects nothing there. With a Gateway configured, Paseo writes three shims into `$PASEO_HOME/harness-shims` and puts that directory on terminal PATH:
 
-| Harness  | Shim applies                                                                                 | Opt-out                     |
-| -------- | -------------------------------------------------------------------------------------------- | --------------------------- |
-| Claude   | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` | settings.json `env` block   |
-| Codex    | `OPENAI_*` plus a `model_providers.cliproxyapi` map, which Codex only accepts from argv      | —                           |
-| OpenCode | `OPENCODE_CONFIG_CONTENT` with an inline `cliproxyapi` provider record                       | user `provider.cliproxyapi` |
-| OMP      | none — `LITELLM_BASE_URL` / `LITELLM_API_KEY` go straight into the terminal env              | terminal `LITELLM_*` env    |
+| Harness  | Shim applies                                                                                 | Opt-out                                                |
+| -------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Claude   | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` | terminal `ANTHROPIC_*`, or a settings.json `env` block |
+| Codex    | `OPENAI_*` plus a `model_providers.cliproxyapi` map, which Codex only accepts from argv      | terminal `OPENAI_BASE_URL`                             |
+| OpenCode | `OPENCODE_CONFIG_CONTENT` with a `provider` map carrying the `cliproxyapi` record            | terminal `OPENCODE_CONFIG_CONTENT`                     |
+| OMP      | none — `LITELLM_BASE_URL` / `LITELLM_API_KEY` go straight into the terminal env              | terminal `LITELLM_*` env                               |
+
+The opt-out is whole-harness, not per-variable: a shim that set `OPENAI_BASE_URL` while a terminal had exported its own `OPENAI_API_KEY` would send that key to the gateway. A terminal that already routes a harness keeps doing so, which is the terminal-side spelling of the agent path's rules above.
 
 Shims rather than plain env, for two reasons. Codex only reads `model_providers` from argv, so env cannot route it at all; and injected env would put three gateway credentials in front of every unrelated process in the shell. The shim removes its own directory from PATH before exec'ing the real binary, so only the harness invocation sees the injection — and because that strip uses `$0`, a shim reached by bare name (`claude`, as typed in a terminal) resolves past itself correctly.
 
@@ -92,7 +94,9 @@ Shims are rewritten on every terminal create, so editing `agents.cliproxyapi` re
 
 `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` is an undocumented internal flag (verified against the binary, not a published contract). It makes Claude read `/v1/models` at `[Bootstrap]` so the TUI model picker lists Gateway slugs. If a future Claude release drops it, terminal model discovery regresses and the shim's env becomes inert; the rest of the routing still works.
 
-OpenCode's shim sets `OPENCODE_CONFIG_CONTENT` to the provider record itself, not to a config document with a `provider` key. OpenCode merges that value over whatever the user already configured, so a record that arrived wrapped in `provider` would replace a user's own provider map instead of joining it. The same "existing providers survive, a user-defined `provider.cliproxyapi` wins" rule the agent path enforces in `mergeOpenCodeGatewayProviderRecord` therefore holds here by construction: the injected id is the same one, and OpenCode performs the merge.
+OpenCode's shim sets `OPENCODE_CONFIG_CONTENT` to a config document whose `provider` map carries the `cliproxyapi` record. The wrapper is load-bearing: OpenCode deep-merges its config sources in order, keyed on the schema's top-level names, so a bare `{cliproxyapi: …}` has no `provider` key to merge into and the provider never registers. A document that does carry `provider` joins the user's existing map instead of replacing it, which is why the shim can route OpenCode without touching the user's config files.
+
+That merge runs after the user's config files, so a `provider.cliproxyapi` written in `opencode.json` loses to the shim's record — the reverse of the agent path, where the user's record wins. Exporting `OPENCODE_CONFIG_CONTENT` in the terminal is the way to keep yours.
 
 The shim registers the provider with an empty `models` map. The agent path populates the live catalog; a terminal session gets the provider but picks its model from OpenCode's own picker.
 

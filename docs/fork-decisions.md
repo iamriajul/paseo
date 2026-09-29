@@ -672,6 +672,7 @@ cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
 ```
+
 ## cliproxyapi-terminal-tui-routing
 
 **terminal tabs route harnesses through CLIProxyAPI, via generated shims**

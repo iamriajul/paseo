@@ -42,7 +42,13 @@ export function buildStatsTableRows(sample: GatewayStatsSample): StatsTableRow[]
 // daemon reports a usable record, so an older Gateway build, a model that has
 // not run, and a provider that is not CLIProxyAPI-routed all hide the section
 // instead of showing an error.
-export function GatewayStatsSection({ sample }: { sample: GatewayStatsSample | null }) {
+export function GatewayStatsSection({
+  sample,
+  isLive = false,
+}: {
+  sample: GatewayStatsSample | null;
+  isLive?: boolean;
+}) {
   if (!sample) {
     return null;
   }
@@ -54,7 +60,12 @@ export function GatewayStatsSection({ sample }: { sample: GatewayStatsSample | n
   return (
     <>
       <View style={styles.divider} />
-      <Text style={styles.title}>{gatewayStatsCopy.title}</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>{gatewayStatsCopy.title}</Text>
+        {/* The dot says the numbers below are still being refreshed, so a
+            reader knows a flat value is a settled request and not a stale one. */}
+        {isLive ? <View style={styles.liveDot} /> : null}
+      </View>
       <View style={styles.rows}>
         {rows.map((row, index) => (
           <Fragment key={row.label}>
@@ -87,6 +98,17 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: "600",
     lineHeight: theme.fontSize.sm * 1.4,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1.5],
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: theme.colors.statusDotSuccess,
   },
   rows: {
     gap: theme.spacing[1],

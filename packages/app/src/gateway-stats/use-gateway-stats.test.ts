@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import { canFetchGatewayStats, pickGatewayStatsSample } from "./use-gateway-stats";
+import {
+  canFetchGatewayStats,
+  GATEWAY_STATS_POLL_MS,
+  pickGatewayStatsSample,
+} from "./use-gateway-stats";
 
 const client = {} as Pick<DaemonClient, "getGatewayStats">;
 
@@ -49,5 +53,14 @@ describe("pickGatewayStatsSample", () => {
   test("renders nothing for an unsupported host or a model with no record", () => {
     expect(pickGatewayStatsSample({ requestId: "t1", supported: false, sample: null })).toBeNull();
     expect(pickGatewayStatsSample(undefined)).toBeNull();
+  });
+});
+
+describe("GATEWAY_STATS_POLL_MS", () => {
+  test("polls often enough to read as live without flooding the socket", () => {
+    // The read is our own in-process history, not an upstream call, so the
+    // ceiling is render and transport cost rather than a provider rate limit.
+    expect(GATEWAY_STATS_POLL_MS).toBeGreaterThanOrEqual(3_000);
+    expect(GATEWAY_STATS_POLL_MS).toBeLessThanOrEqual(5_000);
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import type { ComponentProps } from "react";
 import { Pressable, Text, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
@@ -132,8 +133,6 @@ export function ContextWindowMeter({
     model: model ?? null,
     enabled: isTooltipOpen,
   });
-  const percentage =
-    maxTokens !== null && usedTokens !== null ? getUsagePercentage(maxTokens, usedTokens) : null;
   const handleTooltipOpenChange = useCallback(
     (nextOpen: boolean) => {
       setIsTooltipOpen(nextOpen);
@@ -144,6 +143,8 @@ export function ContextWindowMeter({
     },
     [refreshGatewayQuota, refreshProviderUsage],
   );
+  const percentage =
+    maxTokens !== null && usedTokens !== null ? getUsagePercentage(maxTokens, usedTokens) : null;
   const geometry = getMeterGeometry(showPercentage, glyphSize);
 
   // No usage yet: reserve the footprint with a track-only ring while a session is
@@ -192,6 +193,7 @@ export function ContextWindowMeter({
       delayDuration={0}
       enabledOnDesktop
       enabledOnMobile
+      interactive
     >
       <TooltipTrigger asChild triggerRefProp="ref">
         <Pressable
@@ -235,29 +237,68 @@ export function ContextWindowMeter({
           ) : null}
         </Pressable>
       </TooltipTrigger>
-      <TooltipContent side="top" align="center" offset={8}>
-        <View style={styles.tooltipContent}>
-          <Text style={styles.tooltipTitle}>{t("contextWindow.title")}</Text>
-          <Text style={styles.tooltipText}>
-            {t("contextWindow.used", { percentage: roundedPercentage })}
-          </Text>
-          <Text style={styles.tooltipDetail}>
-            {t("contextWindow.tokens", {
-              used: formatTokenCount(usedTokens),
-              max: formatTokenCount(maxTokens),
-            })}
-          </Text>
-          {formattedSessionCost ? (
-            <Text style={styles.tooltipDetail}>
-              {t("contextWindow.sessionCost", { cost: formattedSessionCost })}
-            </Text>
-          ) : null}
-          <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
-          <GatewayQuotaSection view={gatewayQuotaView} />
-          <GatewayStatsSection sample={gatewayStatsSample} isLive={gatewayStatsIsLive} />
-        </View>
+      <TooltipContent side="top" align="center" offset={8} maxWidth={320}>
+        <MeterTooltipBody
+          usedTokens={usedTokens}
+          maxTokens={maxTokens}
+          formattedSessionCost={formattedSessionCost}
+          providerUsageView={providerUsageView}
+          gatewayQuotaView={gatewayQuotaView}
+          gatewayStatsSample={gatewayStatsSample}
+          gatewayStatsIsLive={gatewayStatsIsLive}
+          provider={provider}
+          serverId={serverId}
+        />
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+function MeterTooltipBody({
+  usedTokens,
+  maxTokens,
+  formattedSessionCost,
+  providerUsageView,
+  gatewayQuotaView,
+  gatewayStatsSample,
+  gatewayStatsIsLive,
+  provider,
+  serverId,
+}: {
+  usedTokens: number;
+  maxTokens: number;
+  formattedSessionCost: string | null;
+  providerUsageView: ComponentProps<typeof ProviderUsageTooltipSection>["view"];
+  gatewayQuotaView: ComponentProps<typeof GatewayQuotaSection>["view"];
+  gatewayStatsSample: ComponentProps<typeof GatewayStatsSection>["sample"];
+  gatewayStatsIsLive: boolean;
+  provider: string | null | undefined;
+  serverId: string | undefined;
+}) {
+  const { t } = useTranslation();
+  const percentage = getUsagePercentage(maxTokens, usedTokens) ?? 0;
+  const roundedPercentage = Math.round(percentage);
+  return (
+    <View style={styles.tooltipContent}>
+      <Text style={styles.tooltipTitle}>{t("contextWindow.title")}</Text>
+      <Text style={styles.tooltipText}>
+        {t("contextWindow.used", { percentage: roundedPercentage })}
+      </Text>
+      <Text style={styles.tooltipDetail}>
+        {t("contextWindow.tokens", {
+          used: formatTokenCount(usedTokens),
+          max: formatTokenCount(maxTokens),
+        })}
+      </Text>
+      {formattedSessionCost ? (
+        <Text style={styles.tooltipDetail}>
+          {t("contextWindow.sessionCost", { cost: formattedSessionCost })}
+        </Text>
+      ) : null}
+      <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
+      <GatewayQuotaSection view={gatewayQuotaView} serverId={serverId ?? null} />
+      <GatewayStatsSection sample={gatewayStatsSample} isLive={gatewayStatsIsLive} />
+    </View>
   );
 }
 

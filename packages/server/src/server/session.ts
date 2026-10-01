@@ -1385,12 +1385,13 @@ export class Session {
     return owner;
   }
 
-  // COMPAT(timelineItemCapabilities): plugin items added in v0.8.0, notifications in v0.7.2.
-  // Remove after 2027-03-07 once the supported client floor is >= v0.8.0.
+  // COMPAT(timelineItemCapabilities): plugin items added in v0.8.0, resume items in v0.8.1,
+  // notifications in v0.7.2. Remove after 2027-03-29 once the supported client floor is >= v0.8.1.
   private supportsTimelineItem(item: { type: string }, source?: object): boolean {
     let capability: ClientCapability;
     if (item.type === "notification") capability = CLIENT_CAPS.timelineNotifications;
     else if (item.type === "plugin") capability = CLIENT_CAPS.pluginTimelineItems;
+    else if (item.type === "resume") capability = CLIENT_CAPS.resumeTimelineItems;
     else return true;
     return source ? this.supportsForSource(capability, source) : this.supports(capability);
   }

@@ -76,6 +76,8 @@ export function estimateStreamItemHeight({
       return 88;
     case "compaction":
       return 72;
+    case "resume":
+      return 72;
     default:
       return 120;
   }

@@ -41,6 +41,7 @@ import {
   Plus,
   TriangleAlertIcon,
   Scissors,
+  Power,
   MicVocal,
   FileSymlink,
 } from "lucide-react-native";
@@ -93,6 +94,7 @@ import {
   useAssistantLinkPress,
 } from "@/assistant-file-links";
 import { getCompactionMarkerLabel } from "./message-compaction-label";
+import { getResumeMarkerLabel } from "./message-resume-label";
 import { useAssistantImage } from "@/assistant-image/use-assistant-image";
 import {
   AttachmentFrame,
@@ -2237,6 +2239,50 @@ export const CompactionMarker = memo(function CompactionMarker({
         <Text style={compactionStylesheet.text}>{label}</Text>
       </View>
       <View style={compactionStylesheet.line} />
+    </View>
+  );
+});
+
+interface ResumeMarkerProps {
+  reason: "power_cut" | "manual";
+}
+
+const resumeStylesheet = StyleSheet.create((theme) => ({
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+    gap: theme.spacing[2],
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.border,
+  },
+  label: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  text: {
+    fontFamily: theme.fontFamily.ui,
+    fontSize: 13,
+    color: theme.colors.foregroundMuted,
+  },
+}));
+
+export const ResumeMarker = memo(function ResumeMarker({ reason }: ResumeMarkerProps) {
+  const label = getResumeMarkerLabel({ reason });
+
+  return (
+    <View style={resumeStylesheet.container}>
+      <View style={resumeStylesheet.line} />
+      <View style={resumeStylesheet.label}>
+        <Power size={12} color="#a1a1aa" />
+        <Text style={resumeStylesheet.text}>{label}</Text>
+      </View>
+      <View style={resumeStylesheet.line} />
     </View>
   );
 });

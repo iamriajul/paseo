@@ -400,6 +400,10 @@ export const ja: TranslationResources = {
       withTokens: "コンテキストを圧縮しました（{{tokens}}Kトークン）",
       completed: "コンテキストを圧縮しました",
     },
+    resume: {
+      poweredOff: "予期しないシャットダウン後に再開しました",
+      manual: "再開しました",
+    },
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

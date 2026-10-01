@@ -5,7 +5,12 @@ import type { Logger } from "pino";
 import { writeJsonFileAtomic } from "../atomic-file.js";
 import type { AgentManager } from "./agent-manager.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
-import { sendPromptToAgent } from "./agent-prompt.js";
+import {
+  formatSystemNotificationPrompt,
+  restoreFinishNotifications,
+  sendPromptToAgent,
+} from "./agent-prompt.js";
+import { ensureAgentLoaded } from "./agent-loading.js";
 import {
   CLIENT_SHUTDOWN_RPC_REASON,
   DEFAULT_CLIENT_RESTART_RPC_REASON,
@@ -169,6 +174,11 @@ export async function autoResumeRunningAgents(
   options: AutoResumeOptions,
 ): Promise<AutoResumeResult> {
   const { paseoHome, agentManager, agentStorage, logger, sendPrompt } = options;
+
+  // Every finish-notification subscription lives in daemon memory, so this boot
+  // starts with none of them. Restore before any early return below: a parent
+  // goes silent after ANY daemon restart, not only after a power cut.
+  await restoreFinishNotifications({ agentManager, agentStorage, logger });
   const send = sendPrompt ?? sendPromptToAgent;
   const enabled = options.enabled ?? true;
   const prompt = options.prompt?.trim() ? options.prompt.trim() : DEFAULT_AUTO_RESUME_PROMPT;
@@ -255,11 +265,26 @@ export async function autoResumeRunningAgents(
     const results = await Promise.allSettled(
       batch.map(async (agentId) => {
         try {
+          // Load before marking: agents restore lazily, and appendTimelineItem
+          // throws for an agent with no live snapshot. Marking first also pins
+          // the marker ahead of the agent's first output — send returns as soon
+          // as the provider run is in flight, so emitting after it would race
+          // the response and strand the marker mid-message.
+          await ensureAgentLoaded(agentId, { agentManager, agentStorage, logger });
+          await agentManager.appendTimelineItem(agentId, {
+            type: "resume",
+            reason: "power_cut",
+            ...(pendingRecord?.capturedAt ? { interruptedAt: pendingRecord.capturedAt } : {}),
+          });
           await send({
             agentManager,
             agentStorage,
             agentId,
-            prompt,
+            // Wrapped so the agent reads this as daemon context rather than a
+            // user turn, and so the prompt is suppressed from the timeline and
+            // from history replay. The human-facing record of the restart is the
+            // resume marker above.
+            prompt: formatSystemNotificationPrompt(prompt),
             logger,
             unarchive: false,
           });

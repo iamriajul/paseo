@@ -395,6 +395,10 @@ export const zhCN: TranslationResources = {
       withTokens: "上下文已压缩（{{tokens}}K tokens）",
       completed: "上下文已压缩",
     },
+    resume: {
+      poweredOff: "意外关闭后已恢复",
+      manual: "已恢复",
+    },
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

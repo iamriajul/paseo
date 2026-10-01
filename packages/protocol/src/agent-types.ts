@@ -366,6 +366,15 @@ export interface CompactionTimelineItem {
   preTokens?: number;
 }
 
+export interface ResumeTimelineItem {
+  [key: string]: unknown;
+  type: "resume";
+  /** Why the agent is being resumed. */
+  reason: "power_cut" | "manual";
+  /** RFC3339 string of the capture time when reason is power_cut. */
+  interruptedAt?: string;
+}
+
 export interface PluginTimelineItem {
   type: "plugin";
   id: string;
@@ -396,6 +405,7 @@ export type AgentTimelineItem =
       message: string;
     }
   | CompactionTimelineItem
+  | ResumeTimelineItem
   | PluginTimelineItem;
 
 export type AgentStreamEvent =

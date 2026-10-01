@@ -624,3 +624,17 @@ Gateway `/v1/models` rows arrive as `supported_reasoning_levels: [{ effort }]` w
 ```bash
 npx vitest run packages/server/src/server/agent/providers/codex-catalog.test.ts --bail=1
 ```
+
+## foreign-agent-tab-isolation
+
+**isolate agent tabs and pins to their owning workspace**
+
+Workspace tab reconciliation checks known foreign agents (`foreignAgentIds`) and prunes them from `pinnedAgentIds` and visible tabs so cross-workspace leaks cannot persist. Route open-intent consumption in `HostWorkspaceRouteContent` requires screen focus and redirects foreign agent open intents to their authoritative workspace instead of pinning them into the active workspace.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/stores/workspace-layout-store.test.ts src/workspace-tabs/agent-visibility.test.ts --bail=1
+```
+
+```
+
+```

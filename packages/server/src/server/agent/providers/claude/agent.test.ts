@@ -21,6 +21,7 @@ import {
 } from "./agent.js";
 import { createImportDescriptorScheduler } from "./import-descriptor-scheduler.js";
 import { claudeProjectDirSync } from "./project-dir.js";
+import { resetGatewayResponseCacheForTests } from "../../gateway/http-response-cache.js";
 import { streamSession } from "../test-utils/session-stream-adapter.js";
 import type {
   ImportableProviderSession,
@@ -53,6 +54,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  resetGatewayResponseCacheForTests();
 });
 
 function createCapturingLogger(): { logger: Logger; warnings: unknown[][] } {

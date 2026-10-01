@@ -390,6 +390,63 @@ resume agents that were running when daemon shut down unexpectedly (SIGTERM/powe
 npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail=1
 ```
 
+## agent-notification-restore-after-restart
+
+**a parent hears from its children again after the daemon restarts**
+
+`setupFinishNotification` holds its subscription in daemon memory and nothing persists the child's `notifyOnFinish` choice — the parent link exists only as the child's parent-agent label. Any daemon restart therefore left every parent permanently deaf: children finished, asked for permission, or got closed and no notification arrived, so the parent sat waiting on work that had already landed. `restoreFinishNotifications` walks stored records at boot and re-arms every child whose parent is still unarchived. It runs on every boot, not just after a power cut, and it sits ahead of the auto-resume sweep's early returns so an intentional restart restores too.
+
+The fix is in `setupFinishNotification`, not in the restore. Its closing guard treated a missing child snapshot as "gone" and unsubscribed on the same line it subscribed — but agents restore lazily, so after a restart every stored child has no snapshot yet, and the parent went deaf with no error anywhere. `allowUnloadedChild` splits the two cases the guard was conflating: an absent snapshot means "not loaded yet", while `lifecycle: "closed"` and a deleted agent mean gone and still stop the watch immediately. The restore arms straight from stored records and never loads an agent, so no provider session is resumed just to keep a subscription alive.
+
+```bash
+grep -q 'restoreFinishNotifications' packages/server/src/server/agent/agent-prompt.ts packages/server/src/server/agent/agent-auto-resume.ts
+grep -q 'allowUnloadedChild' packages/server/src/server/agent/agent-prompt.ts
+npx vitest run packages/server/src/server/agent/agent-prompt.test.ts --bail=1
+```
+
+## agent-auto-resume-system-envelope
+
+**the resume prompt is a system injection, not a user turn**
+
+The auto-resume prompt used to dispatch as an ordinary `user_message`, so the app drew it as a bubble that looked like the user had typed it, and the agent treated it as a request. It now goes through `formatSystemNotificationPrompt`, the same `<paseo-system>` envelope chat mentions and finish notifications already use, which `isSystemInjectedEnvelope` suppresses from the live stream, history replay, and timeline persistence. The human-facing record of the restart is the resume marker above, which is what carries `interruptedAt`. `DEFAULT_AUTO_RESUME_PROMPT` stays the public, configurable string, so `daemon.autoResumeRunningAgents.prompt` and `PASEO_AUTO_RESUME_PROMPT` keep working unchanged.
+
+The marker is appended before the send, not after: `sendPromptToAgent` returns once the provider run is in flight, so emitting afterwards raced the agent's first response and stranded the marker mid-message.
+
+```bash
+npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail=1
+grep -q 'formatSystemNotificationPrompt(prompt)' packages/server/src/server/agent/agent-auto-resume.ts
+! grep -q 'prompt,$' packages/server/src/server/agent/agent-auto-resume.ts
+```
+
+## agent-auto-resume-timeline-marker
+
+**the daemon marks a resumed agent in the timeline, and only capable clients receive the marker**
+
+The auto-resume sweep already replays a prompt; this adds a visible record of it. Before dispatching, the sweep appends a `{type:"resume", reason:"power_cut", interruptedAt}` timeline item, rendered app-side as a bordered marker beside the existing compaction one. `interruptedAt` carries the pending file's `capturedAt`; a `reason` of `manual` carries no `interruptedAt`. The item goes through `appendTimelineItem`, which needs a live snapshot — hence the `ensureAgentLoaded` that precedes it, and the load doubles as the resume path the sweep was already about to take.
+
+`ResumeTimelineItem` joins `AgentTimelineItem` in both the protocol and the server's own copy of that union, and the `resume` branch joins the pure `AgentTimelineItemPayloadSchema` union — optional fields only, so a six-month-old app still parses the message and an old daemon never sends one. Delivery is gated once on `CLIENT_CAPS.resumeTimelineItems` in `supportsTimelineItem`, the same one-place detection the notification and plugin item gates use; no fallback path renders a degraded variant.
+
+```bash
+npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts packages/protocol/src/messages.wire-compat.test.ts --bail=1
+grep -q 'z.literal("resume")' packages/protocol/src/messages.ts
+grep -q 'CLIENT_CAPS.resumeTimelineItems' packages/server/src/server/session.ts packages/client/src/connection/index.ts
+grep -q 'resumeTimelineItems: "resume_timeline_items"' packages/protocol/src/client-capabilities.ts
+```
+
+## agent-auto-resume-app-marker
+
+**the app renders the resume timeline item as a marker beside the compaction one**
+
+`ResumeItem` joins `StreamItem`, so the reducer appends one marker per resume event — same `createUniqueTimelineId` + `finalizeActiveThoughts` shape as the compaction case — and the replica cache stores it under a `z.strictObject` union member so a cached timeline round-trips instead of being dropped. `ResumeMarker` reuses the compaction marker's visual language verbatim (two `flex: 1` 1px rules in `theme.colors.border` around a centred muted label), differing only in the `Power` glyph; the label comes from `message.resume.*` via a sibling `message-resume-label.ts` helper, matching the compaction helper, so no English literal reaches the component. Both plugin projection and web height estimation treat `resume` like `compaction` so a marker is neither invisible to a plugin transform nor mis-measured by the virtualizer.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/components/message-resume-label.test.ts src/types/stream.test.ts src/i18n/resources.test.ts --bail=1
+grep -q 'kind: z.literal("resume")' packages/app/src/runtime/replica-cache/index.ts
+grep -q 'case "resume":' packages/app/src/agent-stream/view.tsx packages/app/src/plugins/timeline/projection.ts packages/app/src/agent-stream/web-virtualization.ts
+grep -q 'i18n.t("message.resume' packages/app/src/components/message-resume-label.ts
+! grep -q 'Resumed after an unexpected shutdown' packages/app/src/components/message.tsx
+```
+
 ## schedule-run-live-work
 
 **a scheduled run keeps its workspace while the work it started is still running**

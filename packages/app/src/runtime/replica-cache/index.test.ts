@@ -487,6 +487,36 @@ describe("ReplicaCache", () => {
     expect((await reader.readTimeline(SERVER_ID, "agent-1"))?.items).toEqual([pluginItem]);
   });
 
+  it("round-trips resume timeline items with and without an interruption timestamp", async () => {
+    const storage = new MemoryStorage();
+    const writer = createCache(storage);
+    const resumed: StreamItem = {
+      kind: "resume",
+      id: "resume-power_cut-1",
+      reason: "power_cut",
+      interruptedAt: "2026-08-01T02:14:00.000Z",
+      timestamp: new Date("2026-08-01T02:15:00.000Z"),
+      timelineCursor: { epoch: "epoch-1", seq: 12 },
+    };
+    const manual: StreamItem = {
+      kind: "resume",
+      id: "resume-manual-1",
+      reason: "manual",
+      timestamp: new Date("2026-08-01T03:00:00.000Z"),
+      timelineCursor: { epoch: "epoch-1", seq: 13 },
+    };
+    writer.commitTimeline(SERVER_ID, "agent-1", {
+      agentId: "agent-1",
+      items: [resumed, manual],
+      range: { epoch: "epoch-1", startSeq: 12, endSeq: 13 },
+      hasOlder: true,
+    });
+    await writer.flush();
+
+    const reader = createCache(storage);
+    expect((await reader.readTimeline(SERVER_ID, "agent-1"))?.items).toEqual([resumed, manual]);
+  });
+
   it("drops cached plugin timeline items without a plugin-local id", async () => {
     const storage = new MemoryStorage();
     const writer = createCache(storage);

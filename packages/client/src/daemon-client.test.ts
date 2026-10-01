@@ -899,6 +899,7 @@ test("advertises client capabilities in hello", async () => {
       terminal_reflowable_snapshot: true,
       timeline_notifications: true,
       plugin_timeline_items: true,
+      resume_timeline_items: true,
       workspace_setup_blocked: true,
       browser_host: {
         supportedCommands: ["list_tabs"],

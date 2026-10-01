@@ -392,6 +392,10 @@ export const ko: TranslationResources = {
       withTokens: "컨텍스트가 압축되었습니다 ({{tokens}}K 토큰)",
       completed: "컨텍스트가 압축되었습니다",
     },
+    resume: {
+      poweredOff: "예기치 않은 종료 후 재개됨",
+      manual: "재개됨",
+    },
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

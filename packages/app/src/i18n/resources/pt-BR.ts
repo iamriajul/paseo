@@ -395,6 +395,10 @@ export const ptBR: TranslationResources = {
       withTokens: "Contexto compactado ({{tokens}}K tokens)",
       completed: "Contexto compactado",
     },
+    resume: {
+      poweredOff: "Retomado após um desligamento inesperado",
+      manual: "Retomado",
+    },
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

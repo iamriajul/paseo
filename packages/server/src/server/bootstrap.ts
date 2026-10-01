@@ -140,6 +140,7 @@ import {
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import { TaskStore } from "./tasks/task-store.js";
 import { UiStateStore } from "./ui-state/store.js";
+import { withTimeout } from "../utils/promise-timeout.js";
 import {
   createPaseoToolCatalog,
   type PaseoToolHostDependencies,
@@ -246,6 +247,16 @@ import { ManagedPluginSources } from "./plugins/managed-source.js";
 
 const MCP_DEBUG_BATCH_LIMIT = 10;
 const MCP_DEBUG_SECRET = "[redacted]";
+
+/**
+ * How long boot waits for provider catalogs before resuming agents anyway.
+ *
+ * A missing provider binary is the common slow case, and the catalog only has to be
+ * warm before auto-resume fires. Two seconds covers a same-network gateway on a cold
+ * start; anything slower resumes against a partial catalog, which is degraded but
+ * never blocked.
+ */
+const BOOT_CATALOG_WARMUP_TIMEOUT_MS = 2_000;
 const DOWNLOAD_OPEN_FLAGS =
   process.platform === "win32" ? constants.O_RDONLY : constants.O_RDONLY | constants.O_NOFOLLOW;
 
@@ -1434,19 +1445,39 @@ export async function createPaseoDaemon(
     { elapsed: elapsed() },
     `Agent registry loaded (${persistedRecords.length} record${persistedRecords.length === 1 ? "" : "s"}); agents will initialize on demand`,
   );
+  // Resolve provider catalogs before anything resumes a session. Without this a
+  // power-loss resume launches with an empty catalog, so a gateway model falls back
+  // to an assumed 200K window and the resumed transcript is compacted against that
+  // wrong ceiling.
+  //
+  // Bounded, and off the critical path: a missing or slow provider binary must not
+  // hold up the daemon, so a timeout resumes against a partial catalog — degraded,
+  // never blocked. Concurrent with listen either way.
+  const bootCatalogWarmup = withTimeout(
+    providerSnapshotManager.refreshSettingsSnapshot(),
+    BOOT_CATALOG_WARMUP_TIMEOUT_MS,
+    "Boot provider catalog warm-up timed out",
+  ).catch((error) => {
+    logger.warn({ err: error }, "Boot provider catalog warm-up did not complete");
+  });
+
   // Backstop for power-loss / UPS / manual shutdown without heartbeat:
   // resume every agent that was still running when the daemon went down
   // by sending a lightweight "resume" turn after the registry is available.
-  void autoResumeRunningAgents({
-    paseoHome: config.paseoHome,
-    agentManager,
-    agentStorage,
-    logger,
-    enabled: config.autoResumeRunningAgents?.enabled ?? true,
-    prompt: config.autoResumeRunningAgents?.prompt ?? "Resume - there was a power cut",
-  }).catch((error) => {
-    logger.warn({ err: error }, "Auto-resume for running agents failed");
-  });
+  void bootCatalogWarmup
+    .then(() =>
+      autoResumeRunningAgents({
+        paseoHome: config.paseoHome,
+        agentManager,
+        agentStorage,
+        logger,
+        enabled: config.autoResumeRunningAgents?.enabled ?? true,
+        prompt: config.autoResumeRunningAgents?.prompt ?? "Resume - there was a power cut",
+      }),
+    )
+    .catch((error) => {
+      logger.warn({ err: error }, "Auto-resume for running agents failed");
+    });
   logger.info(
     "Voice mode configured for agent-scoped resume flow (no dedicated voice assistant provider)",
   );

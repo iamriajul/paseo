@@ -47,6 +47,8 @@ export interface FetchCliproxyAnthropicModelsOptions {
   token: string;
   fetchImpl?: typeof fetch;
   onWarning?: (warning: CliproxyAnthropicModelsWarning) => void;
+  /** Receives each catalog page discovery accepted, for caching without a second request. */
+  onRawPage?: (url: string, payload: unknown) => void;
   /**
    * Skip CLIProxyAPI detection: the caller routes explicitly (first-party
    * `agents.cliproxyapi`) instead of auto-detecting a custom endpoint.
@@ -159,6 +161,9 @@ export async function fetchCliproxyAnthropicModels(
       return [];
     }
     pendingFingerprintCheck = false;
+    // Every page discovery consumed, so a caller caching the catalog captures the
+    // whole thing without a second request.
+    options.onRawPage?.(url, payload);
     let addedDecodedIds = 0;
     for (const value of page.data) {
       const decodedModel = decodeCliproxyAnthropicModel(value);
@@ -393,6 +398,28 @@ function mapGatewayCodexModelRow(value: unknown): GatewayCodexModelRow | null {
     supportedReasoningEfforts,
     hidden: visibility.includes("hide"),
   };
+}
+
+/**
+ * The catalog request URL a base URL resolves to. Discovery pages through it, so it
+ * doubles as the cache key: the first page is the one a single-shot replay needs.
+ */
+export function buildCliproxyModelsRequestUrl(baseUrl: string): string | null {
+  return buildCliproxyModelsUrl(baseUrl);
+}
+
+/** Decode one cached catalog page back into discovery rows. */
+export function mapCliproxyModelsPayload(payload: unknown): CliproxyAnthropicModelRow[] {
+  const page = parseCliproxyAnthropicModelsPage(payload);
+  if (!page) return [];
+  const rows: CliproxyAnthropicModelRow[] = [];
+  for (const value of page.data) {
+    const decoded = decodeCliproxyAnthropicModel(value);
+    if (!decoded) continue;
+    const row = mapCliproxyAnthropicModelRow(value, decoded);
+    if (row) rows.push(row);
+  }
+  return rows;
 }
 
 function buildCliproxyModelsUrl(baseUrl: string, afterId?: string): string | null {

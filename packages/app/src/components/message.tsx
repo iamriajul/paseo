@@ -44,6 +44,7 @@ import {
   Info,
   MicVocal,
   Plus,
+  Power,
   Scissors,
   TriangleAlertIcon,
   XCircle,
@@ -81,6 +82,7 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Defs, Rect, Stop, LinearGradient as SvgLinearGradient } from "react-native-svg";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { getResumeMarkerLabel } from "./message-resume-label";
 import { capAssistantMessageForRender, getUtf8ByteLength } from "./assistant-message-render-limit";
 import { getTurnDurationLabel } from "./assistant-turn-footer-label";
 import { getCompactionMarkerLabel } from "./message-compaction-label";
@@ -1431,6 +1433,50 @@ export const CompactionMarker = memo(function CompactionMarker({
         <Text style={compactionStylesheet.text}>{label}</Text>
       </View>
       <View style={compactionStylesheet.line} />
+    </View>
+  );
+});
+
+interface ResumeMarkerProps {
+  reason: "power_cut" | "manual";
+}
+
+const resumeStylesheet = StyleSheet.create((theme) => ({
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+    gap: theme.spacing[2],
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.border,
+  },
+  label: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  text: {
+    fontFamily: theme.fontFamily.ui,
+    fontSize: 13,
+    color: theme.colors.foregroundMuted,
+  },
+}));
+
+export const ResumeMarker = memo(function ResumeMarker({ reason }: ResumeMarkerProps) {
+  const label = getResumeMarkerLabel({ reason });
+
+  return (
+    <View style={resumeStylesheet.container}>
+      <View style={resumeStylesheet.line} />
+      <View style={resumeStylesheet.label}>
+        <Power size={12} color="#a1a1aa" />
+        <Text style={resumeStylesheet.text}>{label}</Text>
+      </View>
+      <View style={resumeStylesheet.line} />
     </View>
   );
 });

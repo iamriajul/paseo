@@ -46,6 +46,8 @@ export const CLIENT_CAPS = {
   workspaceSetupObservation: "workspace_setup_observation",
   // COMPAT(workspaceSetupBlocked): added in v0.8.0, remove after 2027-03-07 once client floor >= v0.8.0.
   workspaceSetupBlocked: "workspace_setup_blocked",
+  // COMPAT(resumeTimelineItems): added in v0.8.1, remove after 2027-03-29 once client floor >= v0.8.1.
+  resumeTimelineItems: "resume_timeline_items",
   browserHost: "browser_host",
 } as const;
 

@@ -86,6 +86,7 @@ export type StreamItem =
   | TodoListItem
   | NotificationItem
   | CompactionItem
+  | ResumeItem
   | PluginTimelineStreamItem;
 
 export type UserMessageImageAttachment = AttachmentMetadata;
@@ -805,6 +806,16 @@ export interface CompactionItem {
   status: "loading" | "completed";
   trigger?: "auto" | "manual";
   preTokens?: number;
+}
+
+export interface ResumeItem {
+  kind: "resume";
+  id: string;
+  timelineCursor?: TimelinePosition;
+  turnId?: string;
+  timestamp: Date;
+  reason: "power_cut" | "manual";
+  interruptedAt?: string;
 }
 
 export interface PluginTimelineStreamItem {
@@ -1603,6 +1614,17 @@ function reduceTimelineEvent(
     }
     case "compaction":
       return reduceTimelineCompaction(state, item, timestamp, timelineCursor);
+    case "resume": {
+      const resume: ResumeItem = {
+        kind: "resume",
+        id: createUniqueTimelineId(state, "resume", item.reason, timestamp),
+        ...(timelineCursor ? { timelineCursor } : {}),
+        timestamp,
+        reason: item.reason,
+        interruptedAt: item.interruptedAt,
+      };
+      return [...state, resume];
+    }
     case "plugin":
       return appendPluginTimelineItem(state, item, timestamp, timelineCursor);
     default:

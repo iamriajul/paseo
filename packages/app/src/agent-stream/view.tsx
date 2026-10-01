@@ -38,6 +38,7 @@ import {
   ToolCall,
   TodoListCard,
   CompactionMarker,
+  ResumeMarker,
   MessageOuterSpacingProvider,
   type InlinePathTarget,
 } from "@/components/message";
@@ -1239,6 +1240,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 preTokens={item.preTokens}
               />
             );
+
+          case "resume":
+            return <ResumeMarker reason={item.reason} />;
 
           case "plugin":
             return (

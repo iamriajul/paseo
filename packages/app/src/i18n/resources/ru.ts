@@ -407,6 +407,10 @@ export const ru: TranslationResources = {
       withTokens: "Контекст сжат ({{tokens}} тыс. токенов)",
       completed: "Контекст сжат",
     },
+    resume: {
+      poweredOff: "Возобновлено после неожиданного отключения",
+      manual: "Возобновлено",
+    },
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

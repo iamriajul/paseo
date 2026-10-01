@@ -2495,3 +2495,77 @@ it("retains agent-message provenance through live delivery and repeated history"
   expect(replay).toHaveLength(1);
   expect(replay[0]).toMatchObject({ payload: { data: { agentMessage } } });
 });
+
+describe("resume timeline items", () => {
+  it("appends one marker per resume event, preserving the reason and interruption time", () => {
+    const timestamp = new Date("2026-08-01T02:15:00.000Z");
+    const state = hydrateStreamState(
+      [
+        {
+          event: {
+            type: "timeline",
+            provider: "pi",
+            item: {
+              type: "resume",
+              reason: "power_cut",
+              interruptedAt: "2026-08-01T02:14:00.000Z",
+            },
+          },
+          timestamp,
+        },
+        {
+          event: {
+            type: "timeline",
+            provider: "pi",
+            item: { type: "resume", reason: "manual" },
+          },
+          timestamp,
+        },
+      ],
+      { source: "canonical" },
+    );
+
+    expect(
+      state.map((item) =>
+        item.kind === "resume"
+          ? { kind: item.kind, reason: item.reason, interruptedAt: item.interruptedAt }
+          : { kind: item.kind },
+      ),
+    ).toEqual([
+      {
+        kind: "resume",
+        reason: "power_cut",
+        interruptedAt: "2026-08-01T02:14:00.000Z",
+      },
+      { kind: "resume", reason: "manual", interruptedAt: undefined },
+    ]);
+  });
+
+  it("keeps repeated resume markers in the same millisecond distinct", () => {
+    const timestamp = new Date("2026-08-01T02:15:00.000Z");
+    const state = hydrateStreamState(
+      [
+        {
+          event: {
+            type: "timeline",
+            provider: "pi",
+            item: { type: "resume", reason: "manual" },
+          },
+          timestamp,
+        },
+        {
+          event: {
+            type: "timeline",
+            provider: "pi",
+            item: { type: "resume", reason: "manual" },
+          },
+          timestamp,
+        },
+      ],
+      { source: "canonical" },
+    );
+
+    expect(state.filter((item) => item.kind === "resume")).toHaveLength(2);
+    expect(new Set(state.map((item) => item.id)).size).toBe(state.length);
+  });
+});

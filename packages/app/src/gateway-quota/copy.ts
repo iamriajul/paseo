@@ -8,4 +8,6 @@ export const gatewayQuotaCopy = {
   clientUnavailable: "Host connection is not ready",
   missingContext: "Select a CLIProxyAPI model to see quota",
   coolingDown: "Cooling down",
+  readyCount: "ready",
+  coolingDownCount: "cooling down",
 } as const;

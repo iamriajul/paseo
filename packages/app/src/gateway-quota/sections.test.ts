@@ -1,7 +1,17 @@
 import { describe, expect, test } from "vitest";
 
-import { buildGatewayQuotaSections } from "./sections";
-import type { GatewayQuotaPayload } from "./types";
+import { buildGatewayQuotaSections, summarizeGatewayQuota } from "./sections";
+import type { GatewayQuotaAccount, GatewayQuotaPayload } from "./types";
+
+function account(overrides: Partial<GatewayQuotaAccount> = {}): GatewayQuotaAccount {
+  return {
+    provider: "xai",
+    type: "oauth",
+    inCooldown: false,
+    windows: [],
+    ...overrides,
+  };
+}
 
 function payload(overrides: Partial<GatewayQuotaPayload> = {}): GatewayQuotaPayload {
   return {
@@ -19,48 +29,55 @@ describe("buildGatewayQuotaSections", () => {
     expect(buildGatewayQuotaSections(payload({ accounts: [] }))).toEqual([]);
   });
 
-  test("groups accounts with headings and window bars", () => {
+  test("maps accounts with stable keys", () => {
+    const first = account({
+      provider: "xai",
+      name: "xai-a***b.json",
+      plan: "Pro",
+      windows: [{ name: "5h", usedPct: 51, resetsAt: "2026-09-25T15:00:00Z" }],
+    });
+    const second = account({ provider: "codex", inCooldown: true, windows: [{ name: "7d" }] });
+    const sections = buildGatewayQuotaSections(payload({ accounts: [first, second] }));
+
+    expect(sections.map((section) => section.key)).toEqual(["xai/xai-a***b.json", "codex/1"]);
+    expect(sections[0]?.account).toBe(first);
+    expect(sections[1]?.account).toBe(second);
+  });
+
+  test("sorts usable accounts by load and cooling-down accounts last", () => {
     const sections = buildGatewayQuotaSections(
       payload({
         accounts: [
-          {
+          account({
             provider: "xai",
-            name: "xai-a***b.json",
-            type: "oauth",
-            plan: "Pro",
-            inCooldown: false,
-            windows: [{ name: "5h", usedPct: 51, resetsAt: "2026-09-25T15:00:00Z" }],
-          },
-          {
+            name: "drained",
+            windows: [{ name: "5h", usedPct: 90 }],
+          }),
+          account({ provider: "codex", windows: [{ name: "7d", usedPct: 5 }] }),
+          account({
             provider: "codex",
-            type: "api",
+            name: "cooling",
             inCooldown: true,
-            windows: [{ name: "7d" }],
-          },
+            windows: [{ name: "7d", usedPct: 1 }],
+          }),
         ],
       }),
     );
 
-    expect(sections).toEqual([
-      {
-        key: "xai/xai-a***b.json",
-        heading: "xai · Pro · xai-a***b.json",
-        inCooldown: false,
-        windows: [
-          {
-            id: "xai/xai-a***b.json/5h/0",
-            label: "5h",
-            usedPct: 51,
-            resetsAt: "2026-09-25T15:00:00Z",
-          },
-        ],
-      },
-      {
-        key: "codex/1",
-        heading: "codex",
-        inCooldown: true,
-        windows: [{ id: "codex/1/7d/0", label: "7d", usedPct: null, resetsAt: null }],
-      },
+    expect(sections.map((section) => section.key)).toEqual([
+      "codex/1",
+      "xai/drained",
+      "codex/cooling",
     ]);
+  });
+
+  test("summarizes ready and cooling-down counts", () => {
+    const sections = buildGatewayQuotaSections(
+      payload({
+        accounts: [account({ provider: "codex" }), account({ provider: "xai", inCooldown: true })],
+      }),
+    );
+
+    expect(summarizeGatewayQuota(sections)).toEqual({ total: 2, ready: 1, coolingDown: 1 });
   });
 });

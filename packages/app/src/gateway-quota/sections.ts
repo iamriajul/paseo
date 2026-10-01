@@ -1,36 +1,54 @@
-import type { GatewayQuotaPayload } from "./types";
-import type { ProviderUsageWindow } from "@/provider-usage/types";
+import type { GatewayQuotaAccount, GatewayQuotaPayload } from "./types";
 
 export interface GatewayQuotaSectionModel {
   key: string;
-  heading: string;
-  inCooldown: boolean;
-  windows: ProviderUsageWindow[];
+  account: GatewayQuotaAccount;
+}
+
+export interface GatewayQuotaSummary {
+  total: number;
+  ready: number;
+  coolingDown: number;
+}
+
+/** Worst (highest) used window on the account, so the most drained account sorts last. */
+function worstUsedPct(account: GatewayQuotaAccount): number {
+  let worst = -1;
+  for (const window of account.windows) {
+    if (window.usedPct != null) worst = Math.max(worst, window.usedPct);
+  }
+  return worst;
 }
 
 /**
- * Group quota accounts CPAMC-style for display. Returns no sections when the
- * Gateway predates the quota endpoint or no account serves the model, so the
- * tooltip hides the section instead of showing an error.
+ * Order accounts for display: usable accounts first (least used), the
+ * cooling-down ones last. Returns no sections when the Gateway predates the
+ * quota endpoint or no account serves the model, so the tooltip hides the
+ * section instead of showing an error.
  */
 export function buildGatewayQuotaSections(
   payload: GatewayQuotaPayload,
 ): GatewayQuotaSectionModel[] {
   if (!payload.supported || payload.accounts.length === 0) return [];
-  return payload.accounts.map((account, index) => {
-    const headingParts = [account.provider];
-    if (account.plan) headingParts.push(account.plan);
-    if (account.name) headingParts.push(account.name);
-    return {
+  return payload.accounts
+    .map((account, index) => ({
       key: `${account.provider}/${account.name ?? index}`,
-      heading: headingParts.join(" · "),
-      inCooldown: account.inCooldown,
-      windows: account.windows.map((window, windowIndex) => ({
-        id: `${account.provider}/${account.name ?? index}/${window.name}/${windowIndex}`,
-        label: window.name,
-        usedPct: window.usedPct ?? null,
-        resetsAt: window.resetsAt ?? null,
-      })),
-    };
-  });
+      account,
+    }))
+    .sort((a, b) => {
+      if (a.account.inCooldown !== b.account.inCooldown) return a.account.inCooldown ? 1 : -1;
+      const usedDelta = worstUsedPct(a.account) - worstUsedPct(b.account);
+      if (usedDelta !== 0) return usedDelta;
+      const providerDelta = a.account.provider.localeCompare(b.account.provider);
+      if (providerDelta !== 0) return providerDelta;
+      return (a.account.name ?? "").localeCompare(b.account.name ?? "");
+    });
+}
+
+export function summarizeGatewayQuota(sections: GatewayQuotaSectionModel[]): GatewayQuotaSummary {
+  let coolingDown = 0;
+  for (const section of sections) {
+    if (section.account.inCooldown) coolingDown += 1;
+  }
+  return { total: sections.length, ready: sections.length - coolingDown, coolingDown };
 }

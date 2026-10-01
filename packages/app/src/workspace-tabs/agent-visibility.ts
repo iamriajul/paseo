@@ -6,10 +6,16 @@ import { normalizeWorkspaceOpaqueId } from "@/utils/workspace-identity";
 export interface WorkspaceAgentVisibility {
   activeAgentIds: Set<string>;
   autoOpenAgentIds: Set<string>;
+  foreignAgentIds?: Set<string>;
 }
 
 function agentBelongsToWorkspace(agent: Agent, workspaceId: string): boolean {
   return normalizeWorkspaceOpaqueId(agent.workspaceId) === workspaceId;
+}
+
+function isForeignWorkspaceAgent(agent: Agent, workspaceId: string): boolean {
+  const agentWorkspaceId = normalizeWorkspaceOpaqueId(agent.workspaceId);
+  return agentWorkspaceId !== null && agentWorkspaceId !== workspaceId;
 }
 
 export function deriveWorkspaceAgentVisibility(input: {
@@ -23,16 +29,22 @@ export function deriveWorkspaceAgentVisibility(input: {
     return {
       activeAgentIds: new Set<string>(),
       autoOpenAgentIds: new Set<string>(),
+      foreignAgentIds: new Set<string>(),
     };
   }
 
   const activeAgentIds = new Set<string>();
   const autoOpenAgentIds = new Set<string>();
+  const foreignAgentIds = new Set<string>();
   const agentsById = new Map<string, Agent>([
     ...(agentDetails?.entries() ?? []),
     ...(sessionAgents?.entries() ?? []),
   ]);
-  for (const agent of sessionAgents?.values() ?? []) {
+  for (const agent of agentsById.values()) {
+    if (isForeignWorkspaceAgent(agent, workspaceId)) {
+      foreignAgentIds.add(agent.id);
+      continue;
+    }
     if (!agentBelongsToWorkspace(agent, workspaceId)) {
       continue;
     }
@@ -44,7 +56,7 @@ export function deriveWorkspaceAgentVisibility(input: {
       }
     }
   }
-  return { activeAgentIds, autoOpenAgentIds };
+  return { activeAgentIds, autoOpenAgentIds, foreignAgentIds };
 }
 
 export function buildWorkspaceTabSnapshot(input: {
@@ -61,6 +73,9 @@ export function buildWorkspaceTabSnapshot(input: {
     terminalsHydrated: input.terminalsHydrated,
     activeAgentIds: input.agentVisibility.activeAgentIds,
     autoOpenAgentIds: input.agentVisibility.autoOpenAgentIds,
+    ...(input.agentVisibility.foreignAgentIds
+      ? { foreignAgentIds: input.agentVisibility.foreignAgentIds }
+      : {}),
     knownTerminalIds: input.knownTerminalIds,
     standaloneTerminalIds: input.standaloneTerminalIds,
     hasActivePendingTerminalCreate: input.hasActivePendingTerminalCreate,
@@ -68,13 +83,16 @@ export function buildWorkspaceTabSnapshot(input: {
   };
 }
 
+const EMPTY_SET = new Set<string>();
+
 export function workspaceAgentVisibilityEqual(
   a: WorkspaceAgentVisibility,
   b: WorkspaceAgentVisibility,
 ): boolean {
   return (
     setsEqual(a.activeAgentIds, b.activeAgentIds) &&
-    setsEqual(a.autoOpenAgentIds, b.autoOpenAgentIds)
+    setsEqual(a.autoOpenAgentIds, b.autoOpenAgentIds) &&
+    setsEqual(a.foreignAgentIds ?? EMPTY_SET, b.foreignAgentIds ?? EMPTY_SET)
   );
 }
 

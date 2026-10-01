@@ -55,7 +55,17 @@ Gateway models launch with raw decoded IDs through the standard Claude path, plu
 - Per-model effort levels come from the Codex-shape catalog (`?client_version`), not from the Anthropic `/v1/models` shape, which carries no effort data. A model the catalog lists gets exactly the levels it advertises; a model it does not list keeps the full custom set. Ultra Code rides on `xhigh`, so it goes when `xhigh` does.
 - Claude is told the gateway model's real name and capabilities through `ANTHROPIC_CUSTOM_MODEL_OPTION_*` and `ANTHROPIC_DEFAULT_FABLE_MODEL_*`. Without them Claude Code does not recognize the id, assumes every effort level is supported, and attributes commits to Fable. The capability list carries the same `max_effort` / `xhigh_effort` tokens Claude Code's own model catalog uses.
 
-Deliberately not imported: `[1m]` variant synthesis, Fast mode for non-manifest models, and `supportedModels()` control-plane reads.
+## Boot and gateway outages
+
+The daemon resolves provider catalogs before it resumes anything that was running when it went down, so a power-loss resume launches against a warm catalog rather than an empty one. Without that ordering a gateway model falls back to Claude Code's assumed 200K window and the resumed transcript is compacted against that wrong ceiling.
+
+Catalog responses are cached under `$PASEO_HOME/cache/cliproxyapi/`, one file per request URL. Discovery prefers a live catalog; it falls back to the cache only when the gateway answered with no models, and logs that it did. With neither a live nor a cached catalog, the daemon logs that gateway models will assume 200K, because that is the failure a user would otherwise only discover as a silent compaction.
+
+Set `PASEO_DISABLE_GATEWAY_CACHE=1` to skip the cache entirely. Both vitest configs set it, so suites never write a gateway cache into a real `$PASEO_HOME`.
+
+## Out of scope
+
+- `[1m]` variant synthesis, Fast mode for non-manifest models, and `supportedModels()` control-plane reads.
 
 ## Quota
 

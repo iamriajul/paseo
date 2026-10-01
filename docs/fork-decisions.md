@@ -635,6 +635,12 @@ Workspace tab reconciliation checks known foreign agents (`foreignAgentIds`) and
 npm test --workspace=@getpaseo/app -- src/stores/workspace-layout-store.test.ts src/workspace-tabs/agent-visibility.test.ts --bail=1
 ```
 
-```
+## gateway-boot-catalog-cache
 
+**the daemon resolves provider catalogs before resuming, and keeps a raw-response gateway cache**
+
+Discovery was lazy, so `autoResumeRunningAgents` ran at boot with an empty catalog: gateway models launched with no `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, Claude Code assumed 200K, and the resumed transcript was compacted against that wrong ceiling. Boot now awaits `refreshSettingsSnapshot` before auto-resume, concurrent with `listen` so the daemon still starts promptly. Catalog responses are cached one file per request URL under `$PASEO_HOME/cache/cliproxyapi/`; a live catalog always wins, the cache stands in only when the gateway returned no models, and having neither logs the 200K assumption instead of failing silently. `PASEO_DISABLE_GATEWAY_CACHE=1` skips the cache and is set by both vitest configs, so no suite writes a gateway cache into a real `$PASEO_HOME`.
+
+```bash
+npx vitest run packages/server/src/server/agent/gateway/http-response-cache.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
 ```

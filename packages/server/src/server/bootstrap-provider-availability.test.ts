@@ -117,5 +117,8 @@ describe("bootstrap provider availability", () => {
       await daemon.stop().catch(() => undefined);
       await daemon.agentManager.flush().catch(() => undefined);
     }
-  });
+    // Boot resolves in ~5s here on a loaded machine, and it probes a PATH stripped to
+    // git alone. The default 5s budget sits exactly on that boundary, so this test
+    // fails intermittently on main as well.
+  }, 30_000);
 });

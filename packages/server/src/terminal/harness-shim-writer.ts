@@ -114,14 +114,21 @@ export function buildCmdShimScript(
     // both split on `;` and keep the remainder in one pass; the loop peels the
     // head off and reassembles.
     //
-    // eol=; is restated on purpose. It is the default, and spelling it out is
-    // what stops a reader "fixing" the delimiter later. The default eol applies
-    // to *file* parsing, where it drops `;`-prefixed comment lines; with a
-    // quoted literal string the value is one line, so only `delims` splits it.
-    // An earlier note here claimed the opposite — that `delims=;` alone made
-    // cmd break the input on every semicolon and the loop kept just the last
-    // entry. That was wrong, and BuildXL's CopyCMakeDeps.bat, leiningen's
-    // lein.bat, and lsc.cmd all use this exact form to walk PATH.
+    // eol must be left at its default here. Pinning it as `eol=;` — which this
+    // did, on the belief that restating the default was merely explicit — makes
+    // the whole strip a no-op: the child is handed PATH unchanged, so the shim
+    // directory stays on PATH and the wrapper can resolve to itself. That is
+    // what the Windows run showed, with every entry intact and in order.
+    //
+    // eol names the character that marks a line as a comment and that line is
+    // then skipped; delims is what actually splits the value. Setting both to
+    // `;` is not a restatement of anything. Every working instance of this
+    // idiom splits PATH with delims alone — BuildXL's CopyCMakeDeps.bat,
+    // leiningen's lein.bat, lsc.cmd, and SS64's own argument reference.
+    //
+    // This corrects an earlier note here that claimed the opposite: that
+    // delims=; alone made cmd break the input and keep only the last entry.
+    // That was wrong, and so was the fix built on it.
     //
     // Delayed expansion is scoped to this subroutine, not enabled for the whole
     // script. The loop needs !VAR! because it rewrites PATH between iterations
@@ -151,7 +158,7 @@ export function buildCmdShimScript(
     "if not defined rest goto stripDone",
     'set "head="',
     'set "tail="',
-    'for /f "tokens=1* delims=; eol=;" %%A in ("!rest!") do (',
+    'for /f "tokens=1* delims=;" %%A in ("!rest!") do (',
     '  set "head=%%A"',
     '  set "tail=%%B"',
     ")",

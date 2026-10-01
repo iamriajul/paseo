@@ -216,15 +216,15 @@ describe("cmd shim generation", () => {
     expect(script).not.toContain('delims=:"');
   });
 
-  it("pins for /f's end-of-line to ; explicitly rather than by default", () => {
+  it("splits PATH on delims alone, with no eol pinning", () => {
     const script = cmdShimText();
-    // eol=; is cmd's default, so this asserts nothing about behavior — it pins
-    // the value so a later reader does not "fix" the delimiter on the belief
-    // that the two interact. The default eol governs *file* parsing, where it
-    // drops `;`-prefixed comment lines; a quoted literal string is one line, and
-    // only `delims` splits it. BuildXL's CopyCMakeDeps.bat and leiningen's
-    // lein.bat walk PATH with this exact form.
-    expect(script).toContain('for /f "tokens=1* delims=; eol=;"');
+    // eol must stay at its default. Setting `eol=;` alongside `delims=;` turns
+    // the strip into a no-op — the Windows run handed the child PATH unchanged,
+    // shim directory and all — so this asserts both halves: delims is present
+    // and eol is absent. An earlier version of this test pinned eol=; as an
+    // explicit restatement of the default, which is what shipped the bug.
+    expect(script).toContain('for /f "tokens=1* delims=;"');
+    expect(script).not.toContain("eol=");
   });
 
   it("enables delayed expansion, which the strip loop's !VAR! reads depend on", () => {
@@ -537,10 +537,11 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   });
 
   it("strips only its own directory, keeping the rest of PATH intact", () => {
-    // The damaging failure is a strip that keeps the last entry and discards
-    // the others: the harness would still resolve, and would resolve against a
-    // PATH with no System32 in it. The decoy dirs exist to be lost, so this
-    // fails when they do.
+    // Two failure shapes, both damaging, and the decoy entries exist to catch
+    // each. A strip that removes nothing leaves the shim directory on PATH, so
+    // the wrapper can resolve to itself and recurse. A strip that keeps one
+    // entry and discards the rest still resolves the harness, but against a PATH
+    // with no System32 in it. The first shape is what actually shipped.
     const { testPath, keepDir, probeScript, read } = stageShim("claude");
     spawnShim("claude", testPath, {}, [probeScript]);
 

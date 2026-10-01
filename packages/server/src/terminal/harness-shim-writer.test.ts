@@ -321,14 +321,10 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   // `%1 is not a valid Win32 application`, so the launch would fail whatever
   // the shim did. An earlier version of this test staged one anyway, on the
   // claim that "the loader is lenient about the mismatch". That was never
-  // checked, and it was wrong — it made these tests pass for reasons that had
-  // nothing to do with the shim. `%ComSpec%` is a real PE on every Windows
-  // install, so it is copied under the harness name. Staging a batch script
-  // instead would test cmd's loader, not the shim.
+  // checked, and it was wrong.
   //
-  // A copied cmd.exe is a faithful stand-in: the shim runs it with the same
-  // argv any harness would get, and the batch lines below are what the copied
-  // exe then executes.
+  // node is the stand-in rather than cmd.exe, for the reason given at the
+  // staging site below.
   function stageShim(harness: "claude" | "codex" | "opencode"): {
     shimDir: string;
     // A realistic PATH, so the strip loop has entries to keep and the
@@ -365,23 +361,33 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // is unresolvable the moment the strip works — the test would fail against
     // a correct shim. keepDir is the entry that has to survive the strip.
     //
-    // The copy of cmd.exe is invoked with the probe script as its argument, so
+    // The copy of node.exe is invoked with the probe script as its argument, so
     // `%*` carrying it through the shim is load-bearing: a shim that dropped the
     // user's arguments would launch the copy with nothing to run and write no
     // probe. That is a real shim bug this now catches.
-    const probeScript = join(home, "probe.cmd");
+    //
+    // The stand-in is node, not cmd.exe. cmd.exe was tried first and cannot
+    // stand in for a harness: given a bare .cmd path it prints a prompt and runs
+    // nothing, so the test needed to pass `/c` through the shim's `%*` to reach
+    // it — and the stand-in then parsed that `/c` as its own command, which is
+    // where "DNS server not authoritative for zone" came from. The shim had
+    // launched correctly throughout. node takes the path and runs it, needing no
+    // `/c`, so `%*` carries exactly what a user would have typed. The repo
+    // already stages binaries this way in spawn.launch-regression.test.ts.
+    const probeScript = join(home, "probe.js");
     writeFileSync(
       probeScript,
       [
-        "@echo off",
-        "echo MARKER_REAL_BINARY",
-        // The PATH the shim actually handed down, so the test can check the
-        // strip kept the decoys instead of only the entry holding the binary.
-        `echo %PATH%>${out("path")}`,
-        `echo %OPENCODE_CONFIG_CONTENT%>${out("config")}`,
-        `echo %OPENAI_BASE_URL%>${out("base")}`,
-        "exit /b 0",
-      ].join("\r\n"),
+        `const { writeFileSync } = require("node:fs");`,
+        // Probe reads the environment the shim handed down, which is the whole
+        // thing under test: the injected vars, and the PATH after the strip.
+        // The keys are the probe names, matching the `out()` helper below.
+        `const out = ${JSON.stringify({ path: out("path"), config: out("config"), base: out("base") })};`,
+        `console.log("MARKER_REAL_BINARY");`,
+        `writeFileSync(out.path, String(process.env.PATH ?? ""));`,
+        `writeFileSync(out.config, String(process.env.OPENCODE_CONFIG_CONTENT ?? ""));`,
+        `writeFileSync(out.base, String(process.env.OPENAI_BASE_URL ?? ""));`,
+      ].join("\n"),
     );
     // The trap lives in the shim, not the probe, so it fires the moment the
     // shim reaches its launch line — before cmd tries to resolve or start
@@ -403,7 +409,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
       ),
     );
     const exe = join(keepDir, `${harness}.exe`);
-    copyFileSync(cmdExePath(), exe);
+    copyFileSync(process.execPath, exe);
     return {
       shimDir,
       testPath: [shimDir, keepDir, decoyA, decoyB].join(";"),
@@ -422,10 +428,11 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     };
   }
 
-  // PATH is narrowed to the shim directory so the shim is what resolves, but
-  // that leaves no way to find cmd.exe itself — PATH is also how the child
-  // process is located, so it has to be named absolutely. SystemRoot goes
-  // along for the ride because cmd refuses to start without it.
+  // The real cmd that runs the shim — distinct from the stand-in the shim
+  // launches. PATH is narrowed to the shim directory so the shim is what
+  // resolves, but that leaves no way to find cmd.exe itself — PATH is also how
+  // the child process is located, so it has to be named absolutely. SystemRoot
+  // goes along for the ride because cmd refuses to start without it.
   function cmdExePath(): string {
     return (
       process.env.ComSpec ?? join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe")
@@ -438,20 +445,25 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     env: NodeJS.ProcessEnv = {},
     args: string[] = [],
   ) {
-    // Everything after cmd's own `/c` must reach it as ONE string, which is why
-    // the line is joined here instead of spread across the spawn vector. The
-    // repo joins the same line for node-pty in terminal.ts for the same reason.
+    // The `/c` belongs to THIS cmd, not to the shim's `%*`. The shim is what
+    // takes the user's arguments and forwards them to the stand-in, so the only
+    // thing `%*` may carry is the probe path — the one a real user would type.
+    //
+    // Passing `/c` through was the bug behind five identical-looking Windows
+    // failures. The stand-in is a copy of cmd.exe, so it received
+    // `cmd.exe /c probe.cmd`, treated the inner `/c` as its own command, and
+    // fell through to resolving the URL sitting in its inherited environment —
+    // which is where "DNS server not authoritative for zone" came from. The
+    // shim had launched correctly the whole time; the test was asking the wrong
+    // process to run the probe.
+    //
+    // Everything after cmd's `/c` must reach it as ONE string, which is why the
+    // line is joined here instead of spread across the spawn vector. The repo
+    // joins the same line for node-pty in terminal.ts for the same reason.
     //
     // The probe path is quoted so the spaces mkdtemp's Temp directory carries
     // survive cmd's tokenizer; `/s` strips only the outer quotes, and this line
     // starts with the bare harness name, so the quoted path is left intact.
-    //
-    // The `/c` before the probe is the part that is easy to miss. The stand-in
-    // is a copy of cmd.exe, and cmd handed a bare batch path prints its prompt
-    // and waits instead of running the file — a failing run produced a cmd
-    // prompt and nothing else. `/c <script>` is the documented way to have cmd
-    // run a batch file and exit, and it rides through the shim's `%*`, so this
-    // also proves the shim forwards its arguments.
     const commandLine = [harness, ...args].join(" ");
     const result = spawnSync(cmdExePath(), ["/d", "/s", "/c", commandLine], {
       encoding: "utf8",
@@ -484,7 +496,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("hands OpenCode parseable JSON, settling how set treats inner quotes", () => {
     const { testPath, probeScript, read } = stageShim("opencode");
-    const result = spawnShim("opencode", testPath, {}, ["/c", `"${probeScript}"`]);
+    const result = spawnShim("opencode", testPath, {}, [`"${probeScript}"`]);
     // A shim that never launched the binary, or launched one that failed, is
     // not a pass. Asserting the marker first means the JSON below is read from
     // a run that actually reached the stand-in.
@@ -506,7 +518,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("reaches the real binary instead of resolving to itself", () => {
     const { testPath, probeScript, read } = stageShim("claude");
-    const result = spawnShim("claude", testPath, {}, ["/c", `"${probeScript}"`]);
+    const result = spawnShim("claude", testPath, {}, [`"${probeScript}"`]);
     // The marker only prints from the stand-in, so its absence means the shim
     // ended at its own `goto :eof` instead of launching.
     expect(read("trap"), "shim never reached its launch line").toBe("TRAP_SIM_REACHED");
@@ -520,7 +532,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // PATH with no System32 in it. The decoy dirs exist to be lost, so this
     // fails when they do.
     const { testPath, keepDir, probeScript, read } = stageShim("claude");
-    spawnShim("claude", testPath, {}, ["/c", `"${probeScript}"`]);
+    spawnShim("claude", testPath, {}, [`"${probeScript}"`]);
 
     const handedDown = read("path");
     // The shim's own directory is gone, so the wrapper cannot recurse.
@@ -533,7 +545,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("passes a key-only Codex terminal through untouched", () => {
     const { testPath, probeScript, read } = stageShim("codex");
-    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" }, ["/c", `"${probeScript}"`]);
+    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" }, [`"${probeScript}"`]);
     // The endpoint must not be repointed at the gateway.
     expect(read("base")).toBe("");
   });

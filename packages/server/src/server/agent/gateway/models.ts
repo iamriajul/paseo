@@ -47,6 +47,8 @@ export interface FetchCliproxyAnthropicModelsOptions {
   token: string;
   fetchImpl?: typeof fetch;
   onWarning?: (warning: CliproxyAnthropicModelsWarning) => void;
+  /** Receives each catalog page discovery accepted, for caching without a second request. */
+  onRawPage?: (url: string, payload: unknown) => void;
   /**
    * Skip CLIProxyAPI detection: the caller routes explicitly (first-party
    * `agents.cliproxyapi`) instead of auto-detecting a custom endpoint.
@@ -159,6 +161,9 @@ export async function fetchCliproxyAnthropicModels(
       return [];
     }
     pendingFingerprintCheck = false;
+    // Every page discovery consumed, so a caller caching the catalog captures the
+    // whole thing without a second request.
+    options.onRawPage?.(url, payload);
     let addedDecodedIds = 0;
     for (const value of page.data) {
       const decodedModel = decodeCliproxyAnthropicModel(value);
@@ -403,25 +408,7 @@ export function buildCliproxyModelsRequestUrl(baseUrl: string): string | null {
   return buildCliproxyModelsUrl(baseUrl);
 }
 
-/** Fetch one catalog page verbatim, for caching. Returns null when unavailable. */
-export async function fetchCliproxyModelsPayload(
-  url: string,
-  token: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<unknown | null> {
-  try {
-    const response = await fetchImpl(url, {
-      headers: { Authorization: `Bearer ${token}`, "Anthropic-Version": "2023-06-01" },
-      signal: AbortSignal.timeout(CLIPROXY_MODELS_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-/** Decode a cached catalog payload back into discovery rows. */
+/** Decode one cached catalog page back into discovery rows. */
 export function mapCliproxyModelsPayload(payload: unknown): CliproxyAnthropicModelRow[] {
   const page = parseCliproxyAnthropicModelsPage(payload);
   if (!page) return [];

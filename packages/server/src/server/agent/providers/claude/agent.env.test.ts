@@ -71,6 +71,9 @@ describe("Claude SDK env", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    // The catalog cache is process-wide; without this a gateway that answered in
+    // one test satisfies a later test that expects discovery to fail.
+    resetGatewayResponseCacheForTests();
   });
 
   test("forwards launch-context env through Claude process env", async () => {
@@ -951,6 +954,59 @@ describe("Claude SDK env", () => {
       } finally {
         await session.close();
       }
+    } finally {
+      resetGatewayResponseCacheForTests();
+      await fs.rm(configDir, { recursive: true, force: true });
+      await fs.rm(cacheHome, { recursive: true, force: true });
+    }
+  });
+
+  test("caches the pages discovery already fetched, without a second request", async () => {
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-env-"));
+    const cacheHome = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-cache-"));
+    try {
+      vi.stubEnv("PASEO_HOME", cacheHome);
+      vi.stubEnv("PASEO_DISABLE_GATEWAY_CACHE", "0");
+      resetGatewayResponseCacheForTests();
+      vi.stubEnv("ANTHROPIC_BASE_URL", "http://cpa.example");
+      vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "test-token");
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "claude-fable-5-dd-5.4-korg",
+                  display_name: "Grok 4.5",
+                  owned_by: "xai",
+                  max_input_tokens: 500_000,
+                  max_tokens: 65_536,
+                },
+              ],
+              has_more: false,
+            }),
+            { status: 200, headers: { "content-type": "application/json", "x-cpa-version": "1" } },
+          ),
+      );
+      vi.stubGlobal("fetch", fetchImpl);
+
+      const client = new ClaudeAgentClient({
+        logger: createTestLogger(),
+        queryFactory: vi.fn(() => createQueryMock([])),
+        resolveBinary: async () => "/test/claude/bin",
+        configDir,
+        resolveVersion: async () => "2.1.219",
+        profileModels: [],
+      });
+      await client.fetchCatalog({ scope: "global", force: true });
+
+      // Gateway requests only: the Anthropic catalog plus the Codex-shape effort
+      // catalog, and nothing more. Caching must reuse the response discovery already
+      // received rather than issuing a third request. models.dev is unrelated.
+      const gatewayCalls = fetchImpl.mock.calls.filter(([url]) =>
+        String(url).startsWith("http://cpa.example"),
+      );
+      expect(gatewayCalls).toHaveLength(2);
     } finally {
       resetGatewayResponseCacheForTests();
       await fs.rm(configDir, { recursive: true, force: true });

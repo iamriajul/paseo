@@ -8,65 +8,75 @@ import { resolvePaseoHome } from "../../paseo-home.js";
 const CACHE_RELATIVE_PATH = ["cache", "cliproxyapi"] as const;
 
 /**
- * One cached HTTP response per request URL.
+ * How long a cached catalog may stand in for the gateway.
  *
- * The payload is stored exactly as the gateway sent it, so every consumer reads
- * the same bytes and no consumer can drift from another through a derived field.
+ * The fallback exists for a boot where the gateway is unreachable, so the useful
+ * window is hours, not weeks. Past this a stale window is worse than none: an
+ * over-estimate buys a context-length error from the backend, and an under-estimate
+ * silently compacts again — the failure this cache exists to prevent.
+ */
+export const GATEWAY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * One cached HTTP response per catalog. Pages are stored exactly as the gateway
+ * sent them, so every consumer reads the same bytes and no consumer can drift from
+ * another through a derived field.
  */
 const CachedResponseSchema = z.object({
   fetchedAtMs: z.number(),
-  payload: z.unknown(),
+  /** One entry per request URL: the first page, then each `after_id` page. */
+  pages: z.record(z.string(), z.unknown()),
 });
 
 export interface CachedGatewayResponse {
   fetchedAtMs: number;
-  payload: unknown;
+  pages: Record<string, unknown>;
 }
 
 /** In-memory mirror so a warm daemon never re-reads the file. */
 const memoryCache = new Map<string, CachedGatewayResponse>();
 
+function cacheDisabled(): boolean {
+  return process.env.PASEO_DISABLE_GATEWAY_CACHE === "1";
+}
+
 /**
- * Cache key for a request. The full URL is encoded, not just its path, so the
- * Anthropic and Codex catalog requests — which differ only by query string —
- * cannot collide on one file.
+ * Cache key for a catalog. The full URL is encoded, not just its path, so the
+ * Anthropic and Codex catalog requests — which differ only by query string — cannot
+ * collide, and so every page of one catalog shares a single file.
  */
 function cacheKeyForUrl(url: string): string {
   return Buffer.from(url, "utf8").toString("base64url");
 }
 
 /**
- * Resolve the cache file for a request URL, or null when caching is disabled.
- *
- * Tests run under two different vitest configs — the repo root one has no setup
- * files — so isolation cannot rely on $PASEO_HOME being redirected. This env flag
- * makes the guarantee hold regardless of which runner a suite uses.
+ * The file backing a catalog, keyed by the gateway's first-page URL. Null when
+ * caching is disabled, which both vitest configs request so no suite writes a
+ * gateway cache into a real `$PASEO_HOME`.
  */
-export function gatewayCacheFilePath(url: string): string | null {
-  if (process.env.PASEO_DISABLE_GATEWAY_CACHE === "1") {
+export function gatewayCacheFilePath(firstPageUrl: string): string | null {
+  if (cacheDisabled()) {
     return null;
   }
-  return path.join(resolvePaseoHome(), ...CACHE_RELATIVE_PATH, `${cacheKeyForUrl(url)}.json`);
+  return path.join(
+    resolvePaseoHome(),
+    ...CACHE_RELATIVE_PATH,
+    `${cacheKeyForUrl(firstPageUrl)}.json`,
+  );
 }
 
 export function resetGatewayResponseCacheForTests(): void {
   memoryCache.clear();
 }
 
-/**
- * Read a cached gateway response, or null when it was never written or is
- * unreadable. A damaged cache file is a miss, never a boot failure.
- */
-export async function readCachedGatewayResponse(
-  url: string,
-): Promise<CachedGatewayResponse | null> {
-  const key = cacheKeyForUrl(url);
+async function readCachedEntry(firstPageUrl: string): Promise<CachedGatewayResponse | null> {
+  const key = cacheKeyForUrl(firstPageUrl);
   const cached = memoryCache.get(key);
   if (cached) {
     return cached;
   }
 
-  const filePath = gatewayCacheFilePath(url);
+  const filePath = gatewayCacheFilePath(firstPageUrl);
   if (!filePath) {
     return null;
   }
@@ -93,25 +103,55 @@ export async function readCachedGatewayResponse(
 
   const response: CachedGatewayResponse = {
     fetchedAtMs: parsed.data.fetchedAtMs,
-    payload: parsed.data.payload,
+    pages: parsed.data.pages,
   };
   memoryCache.set(key, response);
   return response;
 }
 
 /**
- * Cache a gateway response. Best-effort: a failed write leaves the daemon working
- * from the live response, so callers do not need to handle a write error.
+ * Read a cached catalog, or null when it was never written, is unreadable, or has
+ * aged out. Every failure here returns a miss rather than throwing, because this
+ * runs on the daemon's startup path.
  */
-export async function writeCachedGatewayResponse(url: string, payload: unknown): Promise<void> {
-  const response: CachedGatewayResponse = { fetchedAtMs: Date.now(), payload };
-  memoryCache.set(cacheKeyForUrl(url), response);
-  const filePath = gatewayCacheFilePath(url);
+export async function readCachedGatewayResponse(
+  firstPageUrl: string,
+  options: { now?: () => number; maxAgeMs?: number } = {},
+): Promise<CachedGatewayResponse | null> {
+  if (cacheDisabled()) {
+    return null;
+  }
+  const entry = await readCachedEntry(firstPageUrl);
+  if (!entry) {
+    return null;
+  }
+  const now = options.now ?? Date.now;
+  const maxAgeMs = options.maxAgeMs ?? GATEWAY_CACHE_MAX_AGE_MS;
+  if (now() - entry.fetchedAtMs > maxAgeMs) {
+    return null;
+  }
+  return entry;
+}
+
+/**
+ * Cache the catalog pages discovery just consumed. Best-effort: a failed write
+ * leaves the daemon working from the live catalog.
+ */
+export async function writeCachedGatewayResponse(
+  firstPageUrl: string,
+  pages: Record<string, unknown>,
+): Promise<void> {
+  if (cacheDisabled()) {
+    return;
+  }
+  const entry: CachedGatewayResponse = { fetchedAtMs: Date.now(), pages };
+  memoryCache.set(cacheKeyForUrl(firstPageUrl), entry);
+  const filePath = gatewayCacheFilePath(firstPageUrl);
   if (!filePath) {
     return;
   }
   try {
-    await writeJsonFileAtomic(filePath, response);
+    await writeJsonFileAtomic(filePath, entry);
   } catch {
     // Disk cache is best-effort; the in-memory copy still serves this session.
   }

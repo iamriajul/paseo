@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
+  GATEWAY_CACHE_MAX_AGE_MS,
   gatewayCacheFilePath,
   readCachedGatewayResponse,
   resetGatewayResponseCacheForTests,
@@ -12,6 +13,7 @@ import {
 
 describe("gateway http response cache", () => {
   let paseoHome: string;
+  const FIRST_PAGE_URL = "http://gw.example/v1/models";
 
   beforeEach(async () => {
     paseoHome = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-gw-cache-"));
@@ -28,7 +30,7 @@ describe("gateway http response cache", () => {
     await fs.rm(paseoHome, { recursive: true, force: true });
   });
 
-  function gatewayPayload(maxInputTokens: number) {
+  function gatewayPage(maxInputTokens: number) {
     return {
       data: [
         {
@@ -44,38 +46,35 @@ describe("gateway http response cache", () => {
   }
 
   test("returns nothing before anything is cached", async () => {
-    expect(await readCachedGatewayResponse("http://gw.example/v1/models")).toBeNull();
+    expect(await readCachedGatewayResponse(FIRST_PAGE_URL)).toBeNull();
   });
 
-  test("round-trips the raw payload for a URL", async () => {
-    const url = "http://gw.example/v1/models";
-    const payload = gatewayPayload(1_048_576);
-    await writeCachedGatewayResponse(url, payload);
+  test("round-trips every page under one file", async () => {
+    const secondPageUrl = "http://gw.example/v1/models?after_id=abc";
+    await writeCachedGatewayResponse(FIRST_PAGE_URL, {
+      [FIRST_PAGE_URL]: gatewayPage(1_048_576),
+      [secondPageUrl]: gatewayPage(524_288),
+    });
 
-    const cached = await readCachedGatewayResponse(url);
+    const cached = await readCachedGatewayResponse(FIRST_PAGE_URL);
 
-    expect(cached?.payload).toEqual(payload);
-    expect(cached?.fetchedAtMs).toBeGreaterThan(0);
+    expect(Object.keys(cached?.pages ?? {})).toEqual([FIRST_PAGE_URL, secondPageUrl]);
+    expect(cached?.pages[FIRST_PAGE_URL]).toEqual(gatewayPage(1_048_576));
   });
 
-  test("keys distinct query strings to distinct files", async () => {
-    const anthropic = "http://gw.example/v1/models";
+  test("keys distinct catalogs to distinct files", async () => {
+    const anthropic = FIRST_PAGE_URL;
     const codex = "http://gw.example/v1/models?client_version=0.155.1";
-    await writeCachedGatewayResponse(anthropic, gatewayPayload(1_000_000));
-    await writeCachedGatewayResponse(codex, { models: [{ slug: "grok-4.5" }] });
+    await writeCachedGatewayResponse(anthropic, { [anthropic]: gatewayPage(1_000_000) });
+    await writeCachedGatewayResponse(codex, { [codex]: { models: [{ slug: "grok-4.5" }] } });
 
     expect(gatewayCacheFilePath(anthropic)).not.toBe(gatewayCacheFilePath(codex));
-    expect((await readCachedGatewayResponse(anthropic))?.payload).toEqual(
-      gatewayPayload(1_000_000),
-    );
-    expect((await readCachedGatewayResponse(codex))?.payload).toEqual({
-      models: [{ slug: "grok-4.5" }],
-    });
+    expect(Object.keys((await readCachedGatewayResponse(codex))?.pages ?? {})).toEqual([codex]);
   });
 
-  test("a later read for an unwritten URL misses instead of returning another URL's payload", async () => {
-    await writeCachedGatewayResponse("http://gw.example/v1/models?client_version=1", {
-      models: [{ slug: "a" }],
+  test("misses rather than returning another catalog's pages", async () => {
+    await writeCachedGatewayResponse(FIRST_PAGE_URL, {
+      [FIRST_PAGE_URL]: gatewayPage(1_000_000),
     });
 
     expect(
@@ -84,19 +83,76 @@ describe("gateway http response cache", () => {
   });
 
   test("degrades to a miss when the cached file is corrupt", async () => {
-    const url = "http://gw.example/v1/models";
-    await writeCachedGatewayResponse(url, gatewayPayload(1_000_000));
-    const filePath = gatewayCacheFilePath(url);
-    await fs.writeFile(filePath, "{not json", "utf8");
+    await writeCachedGatewayResponse(FIRST_PAGE_URL, {
+      [FIRST_PAGE_URL]: gatewayPage(1_000_000),
+    });
+    const filePath = gatewayCacheFilePath(FIRST_PAGE_URL);
+    await fs.writeFile(filePath!, "{not json", "utf8");
     resetGatewayResponseCacheForTests();
 
-    expect(await readCachedGatewayResponse(url)).toBeNull();
+    expect(await readCachedGatewayResponse(FIRST_PAGE_URL)).toBeNull();
   });
 
-  test("caches under the shared cliproxyapi cache folder", async () => {
-    const filePath = gatewayCacheFilePath("http://gw.example/v1/models");
+  test("ignores a catalog older than the max age", async () => {
+    await writeCachedGatewayResponse(FIRST_PAGE_URL, {
+      [FIRST_PAGE_URL]: gatewayPage(1_000_000),
+    });
 
-    expect(filePath.startsWith(path.join(paseoHome, "cache", "cliproxyapi"))).toBe(true);
-    expect(path.extname(filePath)).toBe(".json");
+    const laterThanMaxAge = await readCachedGatewayResponse(FIRST_PAGE_URL, {
+      now: () => Date.now() + GATEWAY_CACHE_MAX_AGE_MS + 1,
+    });
+
+    expect(laterThanMaxAge).toBeNull();
+  });
+
+  test("still serves a catalog within the max age", async () => {
+    await writeCachedGatewayResponse(FIRST_PAGE_URL, {
+      [FIRST_PAGE_URL]: gatewayPage(1_000_000),
+    });
+
+    const withinMaxAge = await readCachedGatewayResponse(FIRST_PAGE_URL, {
+      now: () => Date.now() + GATEWAY_CACHE_MAX_AGE_MS - 1,
+    });
+
+    expect(withinMaxAge?.pages[FIRST_PAGE_URL]).toEqual(gatewayPage(1_000_000));
+  });
+
+  test("caches under the shared cliproxyapi cache folder", () => {
+    const filePath = gatewayCacheFilePath(FIRST_PAGE_URL);
+
+    expect(filePath!.startsWith(path.join(paseoHome, "cache", "cliproxyapi"))).toBe(true);
+    expect(path.extname(filePath!)).toBe(".json");
+  });
+
+  describe("when PASEO_DISABLE_GATEWAY_CACHE=1", () => {
+    beforeEach(() => {
+      vi.stubEnv("PASEO_DISABLE_GATEWAY_CACHE", "1");
+    });
+
+    test("writes nothing to disk", async () => {
+      await writeCachedGatewayResponse(FIRST_PAGE_URL, {
+        [FIRST_PAGE_URL]: gatewayPage(1_000_000),
+      });
+
+      expect(gatewayCacheFilePath(FIRST_PAGE_URL)).toBeNull();
+      await expect(fs.readdir(path.join(paseoHome, "cache", "cliproxyapi"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    });
+
+    test("neither reads nor populates memory, whatever the order", async () => {
+      // A discovery that ran before the flag was set must not leak into a later
+      // read in the same process.
+      await writeCachedGatewayResponse(FIRST_PAGE_URL, {
+        [FIRST_PAGE_URL]: gatewayPage(1_000_000),
+      });
+      vi.stubEnv("PASEO_DISABLE_GATEWAY_CACHE", "1");
+      resetGatewayResponseCacheForTests();
+
+      expect(await readCachedGatewayResponse(FIRST_PAGE_URL)).toBeNull();
+
+      vi.stubEnv("PASEO_DISABLE_GATEWAY_CACHE", "0");
+      expect(await readCachedGatewayResponse(FIRST_PAGE_URL)).toBeNull();
+    });
   });
 });

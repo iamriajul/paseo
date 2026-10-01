@@ -81,7 +81,6 @@ import {
 import {
   buildCliproxyModelsRequestUrl,
   fetchCliproxyAnthropicModels,
-  fetchCliproxyModelsPayload,
   fetchGatewayCodexModels,
   mapCliproxyModelsPayload,
   type CliproxyAnthropicModelRow,
@@ -1759,11 +1758,17 @@ export class ClaudeAgentClient implements AgentClient {
       });
       if (credentials) {
         const modelListUrl = buildCliproxyModelsRequestUrl(credentials.baseUrl);
+        // Discovery already fetched these pages; caching them here costs no extra
+        // request and keeps the cached bytes identical to what was served.
+        const catalogPages: Record<string, unknown> = {};
         const rows = await fetchCliproxyAnthropicModels({
           ...credentials,
           expectGateway:
             this.gateway !== undefined &&
             gatewayBaseUrlsMatch(credentials.baseUrl, this.gateway.baseUrl),
+          onRawPage: (pageUrl, payload) => {
+            catalogPages[pageUrl] = payload;
+          },
           onWarning: (warning) => {
             this.logger.warn(
               {
@@ -1777,8 +1782,8 @@ export class ClaudeAgentClient implements AgentClient {
           },
         });
         // A live catalog is the authority; the cache only ever stands in for it.
-        if (rows.length > 0 && modelListUrl) {
-          await this.cacheLiveGatewayCatalog(modelListUrl, credentials.token);
+        if (rows.length > 0 && modelListUrl && Object.keys(catalogPages).length > 0) {
+          await writeCachedGatewayResponse(modelListUrl, catalogPages);
         }
         const usableRows =
           rows.length > 0 ? rows : ((await this.readCachedGatewayCatalogRows(modelListUrl)) ?? []);
@@ -1824,31 +1829,27 @@ export class ClaudeAgentClient implements AgentClient {
   }
 
   /**
-   * Persist the catalog the gateway just returned, keyed by request URL, so a later
-   * boot can reuse it when the gateway is unreachable.
-   */
-  private async cacheLiveGatewayCatalog(url: string, token: string): Promise<void> {
-    try {
-      const payload = await fetchCliproxyModelsPayload(url, token);
-      if (payload !== null) {
-        await writeCachedGatewayResponse(url, payload);
-      }
-    } catch {
-      // Caching is best-effort; the live catalog is already in use.
-    }
-  }
-
-  /**
-   * Replay a cached catalog into discovery rows. Returns null when nothing is cached,
-   * so the caller can tell "no cache" apart from "cache held no models".
+   * Replay a cached catalog into discovery rows. Returns null when nothing usable is
+   * cached, so the caller can tell "no cache" apart from "cache held no models".
    */
   private async readCachedGatewayCatalogRows(
-    url: string | null,
+    firstPageUrl: string | null,
   ): Promise<CliproxyAnthropicModelRow[] | null> {
-    if (!url) return null;
-    const cached = await readCachedGatewayResponse(url);
+    if (!firstPageUrl) return null;
+    const cached = await readCachedGatewayResponse(firstPageUrl);
     if (!cached) return null;
-    return mapCliproxyModelsPayload(cached.payload);
+    // Pages are keyed by the URL discovery requested them with, first page first, so
+    // a replay sees the same order and the same `last_id` continuations.
+    const rows: CliproxyAnthropicModelRow[] = [];
+    const seen = new Set<string>();
+    for (const payload of Object.values(cached.pages)) {
+      for (const row of mapCliproxyModelsPayload(payload)) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        rows.push(row);
+      }
+    }
+    return rows;
   }
 
   /**

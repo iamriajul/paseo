@@ -1440,9 +1440,9 @@ export async function createPaseoDaemon(
     `Agent registry loaded (${persistedRecords.length} record${persistedRecords.length === 1 ? "" : "s"}); agents will initialize on demand`,
   );
   // Resolve provider catalogs before anything resumes a session. Without this a
-  // power-loss resume launches with an empty catalog, so gateway models fall back to
-  // Claude Code's assumed 200K window and the resumed transcript is compacted against
-  // that wrong ceiling.
+  // power-loss resume launches with an empty catalog, so a gateway model falls back
+  // to an assumed 200K window and the resumed transcript is compacted against that
+  // wrong ceiling.
   //
   // Bounded, and off the critical path: a missing or slow provider binary must not
   // hold up the daemon, so a timeout resumes against a partial catalog — degraded,

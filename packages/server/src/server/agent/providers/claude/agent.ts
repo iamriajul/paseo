@@ -74,7 +74,17 @@ import {
   indexCliproxyEffortProfiles,
   type CliproxyEffortProfile,
 } from "./cliproxy-effort.js";
-import { fetchCliproxyAnthropicModels, fetchGatewayCodexModels } from "../../gateway/models.js";
+import {
+  readCachedGatewayResponse,
+  writeCachedGatewayResponse,
+} from "../../gateway/http-response-cache.js";
+import {
+  buildCliproxyModelsRequestUrl,
+  fetchCliproxyAnthropicModels,
+  fetchGatewayCodexModels,
+  mapCliproxyModelsPayload,
+  type CliproxyAnthropicModelRow,
+} from "../../gateway/models.js";
 import { parsePartialJsonObject } from "./partial-json.js";
 import { ClaudeSidechainTracker } from "./sidechain-tracker.js";
 import { ClaudeTaskState } from "./task-state.js";
@@ -1747,11 +1757,18 @@ export class ClaudeAgentClient implements AgentClient {
         configDir: this.configDir,
       });
       if (credentials) {
+        const modelListUrl = buildCliproxyModelsRequestUrl(credentials.baseUrl);
+        // Discovery already fetched these pages; caching them here costs no extra
+        // request and keeps the cached bytes identical to what was served.
+        const catalogPages: Record<string, unknown> = {};
         const rows = await fetchCliproxyAnthropicModels({
           ...credentials,
           expectGateway:
             this.gateway !== undefined &&
             gatewayBaseUrlsMatch(credentials.baseUrl, this.gateway.baseUrl),
+          onRawPage: (pageUrl, payload) => {
+            catalogPages[pageUrl] = payload;
+          },
           onWarning: (warning) => {
             this.logger.warn(
               {
@@ -1764,17 +1781,36 @@ export class ClaudeAgentClient implements AgentClient {
             );
           },
         });
-        this.cliproxyapiAdvertisedIds = new Set(rows.map((row) => row.id));
-        if (rows.length > 0) {
+        // A live catalog is the authority; the cache only ever stands in for it.
+        if (rows.length > 0 && modelListUrl && Object.keys(catalogPages).length > 0) {
+          await writeCachedGatewayResponse(modelListUrl, catalogPages);
+        }
+        const usableRows =
+          rows.length > 0 ? rows : ((await this.readCachedGatewayCatalogRows(modelListUrl)) ?? []);
+        if (usableRows.length > 0 && modelListUrl && rows.length === 0) {
+          this.logger.warn(
+            { phase: "cliproxy_discovery", source: "cache" },
+            "CLIProxyAPI discovery returned no models; using the last cached catalog",
+          );
+        }
+        this.cliproxyapiAdvertisedIds = new Set(usableRows.map((row) => row.id));
+        if (usableRows.length > 0) {
           const { models: nextModels, autoPersist } = await appendCliproxyModelsToClaudeCatalog({
             baseModels: models,
-            rows,
+            rows: usableRows,
             existingAdditionalModels: this.additionalModels ?? this.profileModels ?? [],
             lookupModelsDev: (id) => lookupModelsDevModel(id),
             getCustomThinkingOptions: () => getClaudeCustomModelThinkingOptions(),
             effortProfiles: await this.fetchCliproxyEffortProfiles(credentials),
           });
           models = await this.persistCliproxyCatalogCapacity(nextModels, autoPersist);
+        } else if (this.gateway) {
+          // Nothing to go on: say so, because Claude Code will assume 200K and
+          // compact the first resumed session against that wrong ceiling.
+          this.logger.warn(
+            { phase: "cliproxy_discovery", source: "none" },
+            "No gateway catalog and no cached copy; gateway models will fall back to an assumed 200K context window",
+          );
         }
       }
     } catch {
@@ -1790,6 +1826,30 @@ export class ClaudeAgentClient implements AgentClient {
       models,
       ...modeCatalog,
     };
+  }
+
+  /**
+   * Replay a cached catalog into discovery rows. Returns null when nothing usable is
+   * cached, so the caller can tell "no cache" apart from "cache held no models".
+   */
+  private async readCachedGatewayCatalogRows(
+    firstPageUrl: string | null,
+  ): Promise<CliproxyAnthropicModelRow[] | null> {
+    if (!firstPageUrl) return null;
+    const cached = await readCachedGatewayResponse(firstPageUrl);
+    if (!cached) return null;
+    // Pages are keyed by the URL discovery requested them with, first page first, so
+    // a replay sees the same order and the same `last_id` continuations.
+    const rows: CliproxyAnthropicModelRow[] = [];
+    const seen = new Set<string>();
+    for (const payload of Object.values(cached.pages)) {
+      for (const row of mapCliproxyModelsPayload(payload)) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        rows.push(row);
+      }
+    }
+    return rows;
   }
 
   /**

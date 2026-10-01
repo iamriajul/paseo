@@ -391,6 +391,10 @@ export const ar: TranslationResources = {
       withTokens: "تم ضغط السياق (رموز{{tokens}}K)",
       completed: "تم ضغط السياق",
     },
+    resume: {
+      poweredOff: "تمت الاستئناف بعد إيقاف غير متوقع",
+      manual: "تمت الاستئناف",
+    },
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

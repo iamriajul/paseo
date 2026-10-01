@@ -397,6 +397,10 @@ export const fr: TranslationResources = {
       withTokens: "Contexte compacté (jetons{{tokens}}K)",
       completed: "Contexte compacté",
     },
+    resume: {
+      poweredOff: "Reprise après un arrêt inattendu",
+      manual: "Reprise",
+    },
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

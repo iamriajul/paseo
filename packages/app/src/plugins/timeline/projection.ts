@@ -74,6 +74,12 @@ function sourceTimelineItem(item: StreamItem): AgentTimelineItem | null {
         ...(item.trigger ? { trigger: item.trigger } : {}),
         ...(item.preTokens !== undefined ? { preTokens: item.preTokens } : {}),
       };
+    case "resume":
+      return {
+        type: "resume",
+        reason: item.reason,
+        ...(item.interruptedAt ? { interruptedAt: item.interruptedAt } : {}),
+      };
     case "plugin":
       return null;
   }

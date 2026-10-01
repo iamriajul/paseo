@@ -77,6 +77,7 @@ Users can also detach an existing subagent from the subagents track. Detach is d
 Permission requests are notification checkpoints, not the end of that subscription. The caller is notified again after a permission response when the child finishes, errors, or requests another permission.
 The permission notification includes the normalized request plus the child and request IDs, so the caller can inspect it and respond without fetching agent status.
 A watched child that closes before its finish event also notifies the caller so delegated work cannot disappear silently during archive or workspace teardown.
+Subscriptions live in daemon memory and `notifyOnFinish` is never persisted — the parent link exists only as the child's `paseo.parent-agent-id` label. A daemon restart therefore drops every one of them, so `restoreFinishNotifications` re-arms each child whose parent is still unarchived on the next boot. It arms straight from stored records without loading the agents, because loading would resume every provider session in the registry on every start; `setupFinishNotification`'s `allowUnloadedChild` is what makes that safe. An agent that is closed or deleted still stops the watch immediately, so a restored watch never outlives its child.
 
 ## Provider-managed child agents
 

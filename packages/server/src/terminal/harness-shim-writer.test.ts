@@ -383,6 +383,25 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
         "exit /b 0",
       ].join("\r\n"),
     );
+    // The trap lives in the shim, not the probe, so it fires the moment the
+    // shim reaches its launch line — before cmd tries to resolve or start
+    // anything. Every earlier failure looked identical from the probe side
+    // (no files at all) no matter where it broke, which is what made four
+    // rounds of guessing possible. TRAP_SIM_REACHED separates the two cases:
+    //
+    //   absent  → the shim never reached its launch line at all
+    //   present → the shim ran, and the fault is between it and the probe
+    //
+    // It is injected into the generated script rather than asserted on, so it
+    // cannot mask a shim bug: it only appends an echo.
+    const trapPath = out("trap");
+    writeFileSync(
+      join(shimDir, `${harness}.cmd`),
+      buildCmdShimScript(harness, gateway).replace(
+        /^call :stripSelfFromPath$/m,
+        `echo TRAP_SIM_REACHED>${trapPath}\ncall :stripSelfFromPath`,
+      ),
+    );
     const exe = join(keepDir, `${harness}.exe`);
     copyFileSync(cmdExePath(), exe);
     return {
@@ -391,7 +410,10 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
       keepDir,
       probeScript,
       // A missing probe file means the binary never ran, which reads as a shim
-      // bug. Name it here instead of letting readFileSync throw ENOENT.
+      // bug. Name it here instead of letting readFileSync throw ENOENT. The
+      // marker assertions go through this so a failure says which stage broke:
+      // trap missing means the shim never launched, trap present means it did
+      // and the fault is downstream.
       read: (name) => {
         const file = out(name);
         if (!existsSync(file)) return `<<${name}.txt never written: the binary did not run>>`;
@@ -466,6 +488,11 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // A shim that never launched the binary, or launched one that failed, is
     // not a pass. Asserting the marker first means the JSON below is read from
     // a run that actually reached the stand-in.
+    //
+    // The trap distinguishes "the shim never ran" from "the shim ran and the
+    // stand-in was unreachable", which four rounds of failures could not tell
+    // apart from the probe files alone.
+    expect(read("trap"), "shim never reached its launch line").toBe("TRAP_SIM_REACHED");
     expect(result.stdout).toContain("MARKER_REAL_BINARY");
     expect(result.status).toBe(0);
 
@@ -478,10 +505,11 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
   });
 
   it("reaches the real binary instead of resolving to itself", () => {
-    const { testPath, probeScript } = stageShim("claude");
+    const { testPath, probeScript, read } = stageShim("claude");
     const result = spawnShim("claude", testPath, {}, ["/c", `"${probeScript}"`]);
     // The marker only prints from the stand-in, so its absence means the shim
     // ended at its own `goto :eof` instead of launching.
+    expect(read("trap"), "shim never reached its launch line").toBe("TRAP_SIM_REACHED");
     expect(result.stdout).toContain("MARKER_REAL_BINARY");
     expect(result.status).toBe(0);
   });

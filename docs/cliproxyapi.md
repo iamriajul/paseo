@@ -67,6 +67,24 @@ Set `PASEO_DISABLE_GATEWAY_CACHE=1` to skip the cache entirely. Both vitest conf
 
 - `[1m]` variant synthesis, Fast mode for non-manifest models, and `supportedModels()` control-plane reads.
 
+## Quota
+
+The composer meter tooltip shows per-model CLIProxyAPI quota for the agent's selected model through the `cliproxyapi.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`). The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.
+
+CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (observed live); current builds answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
+
+## Latest request
+
+The context-meter tooltip shows a "CLIProxyAPI latest request" section beside the quota section, reading `cliproxyapi.stats.get` (gated on `server_info.features.cliproxyapiStats`). It maps the model id with the same slug resolver quota uses and hits `/v1/last-request-stats`, which reports token and timing stats for the last request that model served.
+
+The section is a label/value table: first token, generating, then — below a rule — the derived total, throughput, and how long ago the request ran. The rule separates what the Gateway measured from what Paseo computes from it, which is how the reader sees that throughput is computed over generation time alone and not the total.
+
+It is read only while the tooltip is open, polled every 3s (`GATEWAY_STATS_POLL_MS`). Opening the tooltip starts the poll and closing it stops the interval with it, so a closed tooltip costs nothing. The poll exists because a throughput figure someone is watching should visibly move; the section is still scoped to the _last_ request rather than an aggregate, so the numbers re-render to the same model on every tick and a model that stops being served stops producing new rows.
+
+Everything that is not a usable 200 record — a model that has not run, a provider that is not CLIProxyAPI-routed, a Gateway build without the route — hides the section. There is no in-body empty state to distinguish those cases, so they render identically.
+
+The route was `/v1/last-request-tps` through CLIProxyAPI v8.0.901 and became `/v1/last-request-stats` in v8.0.902 — it reports more than throughput. The body is unchanged and the old path is not served, so a Gateway older than v8.0.902 answers 404 for both names. Assume the route is absent until you have probed the Gateway you run: the Gateway reachable while this shipped answered 401 on `/v1/quota` and an empty 404 here.
+
 ## Terminal tabs
 
 The table above covers Paseo-managed agents. A terminal tab runs the harness as an ordinary child process, so the agent path injects nothing there. With a Gateway configured, Paseo writes three shims into a shim directory under `$PASEO_HOME` — `harness-shims`, or `cmd-shims` on Windows where the wrappers are `.cmd` — and puts that directory on terminal PATH:
@@ -101,24 +119,6 @@ That merge runs after the user's config files, so a `provider.cliproxyapi` writt
 The shim registers the provider with an empty `models` map. The agent path populates the live catalog; a terminal session gets the provider but picks its model from OpenCode's own picker.
 
 Resolving routing writes the shims to disk, so it can fail — an unwritable `$PASEO_HOME`, a full disk. Terminal creation catches that and opens the terminal without routing, logging a warning. A terminal that loses its gateway is recoverable; a terminal that will not open is not.
-
-## Quota
-
-The composer meter tooltip shows per-model CLIProxyAPI quota for the agent's selected model through the `cliproxyapi.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`). The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.
-
-CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (observed live); current builds answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
-
-## Latest request
-
-The context-meter tooltip shows a "CLIProxyAPI latest request" section beside the quota section, reading `cliproxyapi.stats.get` (gated on `server_info.features.cliproxyapiStats`). It maps the model id with the same slug resolver quota uses and hits `/v1/last-request-stats`, which reports token and timing stats for the last request that model served.
-
-The section is a label/value table: first token, generating, then — below a rule — the derived total, throughput, and how long ago the request ran. The rule separates what the Gateway measured from what Paseo computes from it, which is how the reader sees that throughput is computed over generation time alone and not the total.
-
-It is read only while the tooltip is open, polled every 3s (`GATEWAY_STATS_POLL_MS`). Opening the tooltip starts the poll and closing it stops the interval with it, so a closed tooltip costs nothing. The poll exists because a throughput figure someone is watching should visibly move; the section is still scoped to the _last_ request rather than an aggregate, so the numbers re-render to the same model on every tick and a model that stops being served stops producing new rows.
-
-Everything that is not a usable 200 record — a model that has not run, a provider that is not CLIProxyAPI-routed, a Gateway build without the route — hides the section. There is no in-body empty state to distinguish those cases, so they render identically.
-
-The route was `/v1/last-request-tps` through CLIProxyAPI v8.0.901 and became `/v1/last-request-stats` in v8.0.902 — it reports more than throughput. The body is unchanged and the old path is not served, so a Gateway older than v8.0.902 answers 404 for both names. Assume the route is absent until you have probed the Gateway you run: the Gateway reachable while this shipped answered 401 on `/v1/quota` and an empty 404 here.
 
 ## Out of scope
 

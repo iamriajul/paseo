@@ -293,6 +293,7 @@ describe("workspace agent visibility", () => {
     });
 
     expect(result.activeAgentIds).toEqual(new Set<string>());
+    expect(result.foreignAgentIds).toEqual(new Set<string>(["other-ws-agent"]));
   });
 
   it("excludes agents without a workspaceId", () => {
@@ -306,6 +307,7 @@ describe("workspace agent visibility", () => {
     });
 
     expect(result.activeAgentIds).toEqual(new Set<string>());
+    expect(result.foreignAgentIds).toEqual(new Set<string>());
   });
 
   it("builds the tab reconciliation snapshot without callers unpacking agent visibility", () => {

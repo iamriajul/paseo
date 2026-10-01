@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { StyleSheet, View } from "react-native";
 import { useGlobalSearchParams, useLocalSearchParams, useRootNavigationState } from "expo-router";
 import { HostRouteBootstrapBoundary } from "@/components/host-route-bootstrap-boundary";
@@ -8,6 +8,7 @@ import {
   type ActiveWorkspaceSelection,
   useActiveWorkspaceSelection,
 } from "@/stores/navigation-active-workspace-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useHasHydratedWorkspaces, useWorkspaceExists } from "@/stores/session-store-hooks";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { WorkspaceScreen } from "@/screens/workspace/workspace-screen";
@@ -34,6 +35,8 @@ import {
   stripHostWorkspaceRouteEchoSearchFromBrowserUrlAfterCommit,
 } from "@/utils/host-route-browser";
 import { prepareWorkspaceTab } from "@/utils/workspace-navigation";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
+import { normalizeWorkspaceOpaqueId } from "@/utils/workspace-identity";
 import { isNative, isWeb } from "@/constants/platform";
 import { RenderProfile } from "@/utils/render-profiler";
 
@@ -97,11 +100,13 @@ function HostWorkspaceRouteContent() {
   const navigation = useNavigation();
   const rootNavigationState = useRootNavigationState();
   const hasHydratedWorkspaceLayoutStore = useWorkspaceLayoutStoreHydrated();
+  const isFocused = useIsFocused();
   const consumedIntentRef = useRef<string | null>(null);
   const [intentConsumed, setIntentConsumed] = useState(false);
   const params = useLocalSearchParams<{
     serverId?: string | string[];
     workspaceId?: string | string[];
+    open?: string | string[];
   }>();
   const globalParams = useGlobalSearchParams<{
     open?: string | string[];
@@ -111,7 +116,7 @@ function HostWorkspaceRouteContent() {
   const workspaceId = workspaceValue
     ? (decodeWorkspaceIdFromPathSegment(workspaceValue) ?? "")
     : "";
-  const openValue = getParamValue(globalParams.open);
+  const openValue = getParamValue(params.open) || getParamValue(globalParams.open);
   const hasHydratedWorkspaces = useHasHydratedWorkspaces(serverId);
   const workspaceExists = useWorkspaceExists(serverId, workspaceId);
   const openIntent = useMemo(() => parseWorkspaceOpenIntent(openValue), [openValue]);
@@ -128,6 +133,9 @@ function HostWorkspaceRouteContent() {
 
   useEffect(() => {
     if (!openValue) {
+      return;
+    }
+    if (!isFocused) {
       return;
     }
     if (!rootNavigationState?.key) {
@@ -153,12 +161,39 @@ function HostWorkspaceRouteContent() {
     consumedIntentRef.current = consumptionKey;
 
     if (openIntent) {
-      prepareWorkspaceTab({
-        serverId,
-        workspaceId,
-        target: getOpenIntentTarget(openIntent),
-        pin: openIntent.kind === "agent",
-      });
+      const isForeignAgent = Boolean(
+        openIntent.kind === "agent" &&
+        (() => {
+          const session = useSessionStore.getState().sessions[serverId];
+          const agent =
+            session?.agents.get(openIntent.agentId) ??
+            session?.agentDetails.get(openIntent.agentId);
+          const agentWorkspaceId = normalizeWorkspaceOpaqueId(agent?.workspaceId);
+          return agentWorkspaceId !== null && agentWorkspaceId !== workspaceId;
+        })(),
+      );
+
+      if (isForeignAgent && openIntent.kind === "agent") {
+        const session = useSessionStore.getState().sessions[serverId];
+        const agent =
+          session?.agents.get(openIntent.agentId) ?? session?.agentDetails.get(openIntent.agentId);
+        const realWorkspaceId = normalizeWorkspaceOpaqueId(agent?.workspaceId);
+        if (realWorkspaceId) {
+          navigateToAgent({
+            serverId,
+            workspaceId: realWorkspaceId,
+            agentId: openIntent.agentId,
+            pin: true,
+          });
+        }
+      } else {
+        prepareWorkspaceTab({
+          serverId,
+          workspaceId,
+          target: getOpenIntentTarget(openIntent),
+          pin: openIntent.kind === "agent",
+        });
+      }
     }
 
     // Expo Router's replace ignores query-param-only changes (findDivergentState
@@ -173,6 +208,7 @@ function HostWorkspaceRouteContent() {
     setIntentConsumed(true);
   }, [
     hasHydratedWorkspaceLayoutStore,
+    isFocused,
     isOpenIntentWaitingForWorkspace,
     navigation,
     openIntent,

@@ -3971,6 +3971,39 @@ describe("workspace-layout-store actions", () => {
     ).toEqual(["agent_archived-agent"]);
   });
 
+  it("prunes a foreign pinned agent that belongs to another workspace", () => {
+    const workspaceKey = createWorkspaceKey();
+    const store = workspaceLayoutStore.getState();
+
+    store.openTab({
+      workspaceKey,
+      target: { kind: "agent", agentId: "foreign-agent" },
+      intent: "reveal",
+      pin: true,
+    });
+    expect(
+      Array.from(workspaceLayoutStore.getState().pinnedAgentIdsByWorkspace[workspaceKey] ?? []),
+    ).toEqual(["foreign-agent"]);
+
+    store.reconcileTabs(workspaceKey, {
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: [],
+      autoOpenAgentIds: [],
+      foreignAgentIds: ["foreign-agent"],
+      standaloneTerminalIds: [],
+    });
+
+    expect(
+      workspaceLayoutStore
+        .getState()
+        .getWorkspaceTabs(workspaceKey)
+        .filter((tab) => tab.target.kind === "agent")
+        .map((tab) => tab.tabId),
+    ).toEqual([]);
+    expect(workspaceLayoutStore.getState().pinnedAgentIdsByWorkspace[workspaceKey]).toBeUndefined();
+  });
+
   it("restores the selected historical agent before any server data or cache is available", async () => {
     const workspaceKey = createWorkspaceKey();
     workspaceLayoutStore.getState().openTab({

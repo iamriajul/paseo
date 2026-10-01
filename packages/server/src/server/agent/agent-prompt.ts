@@ -6,7 +6,7 @@ import type {
   AgentRunOptions,
 } from "./agent-sdk-types.js";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
-import type { AgentStorage } from "./agent-storage.js";
+import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import { isStaleProviderSessionError } from "./stale-provider-session-error.js";
 import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
@@ -379,6 +379,17 @@ export interface SetupFinishNotificationParams {
   childAgentId: string;
   callerAgentId: string;
   requireParentOwnership?: boolean;
+  /**
+   * Keep watching when the child has no live snapshot yet.
+   *
+   * Agents load lazily, so after a daemon restart a stored child record has no
+   * agent until something touches it. Without this the guard at the end of
+   * `setupFinishNotification` treats "not loaded" as "gone", unsubscribes on
+   * the same line it subscribed, and the parent never hears from that child
+   * again. Default false preserves the original behaviour, where a closed or
+   * absent child must not leave a live listener behind.
+   */
+  allowUnloadedChild?: boolean;
   logger: Logger;
 }
 
@@ -439,6 +450,7 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
     childAgentId,
     callerAgentId,
     requireParentOwnership = false,
+    allowUnloadedChild = false,
     logger,
   } = params;
   let hasSeenRunning = false;
@@ -572,13 +584,20 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
     { agentId: childAgentId, replayState: false },
   );
 
-  // Check if the child is already running (catches the case where
-  // the lifecycle flipped before our subscribe call was processed).
-  // Do NOT treat an immediate "idle" as "finished" — the agent may
-  // not have started yet (streamAgent sets a pending run before
-  // transitioning to "running").
+  // A missing snapshot means one of two very different things. A closed or
+  // deleted agent is gone for good and must not keep a listener alive. An agent
+  // that simply has not been loaded yet is not: agents restore lazily, so the
+  // child can appear later and the subscription above already filters by id, so
+  // it will receive that agent's events whenever it arrives. Conflating the two
+  // silently deafens the parent.
   const childSnapshot = agentManager.getAgent(childAgentId);
-  if (!childSnapshot || childSnapshot.lifecycle === "closed") {
+  if (!childSnapshot) {
+    if (!allowUnloadedChild) {
+      stop();
+    }
+    return;
+  }
+  if (childSnapshot.lifecycle === "closed") {
     stop();
     return;
   }
@@ -587,4 +606,77 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
   } else if (childSnapshot.lifecycle === "error") {
     notifySafely("errored");
   }
+}
+
+export interface RestoreFinishNotificationsParams {
+  agentManager: AgentManager;
+  agentStorage: AgentStorage;
+  logger: Logger;
+}
+
+/**
+ * Re-arm every parent↔child finish subscription after a daemon restart.
+ *
+ * `setupFinishNotification` holds its subscription in memory only, and nothing
+ * persists the child's `notifyOnFinish` choice — the parent link lives purely in
+ * the child's parent-agent label. An unexpected shutdown therefore leaves every
+ * parent permanently deaf to its children: children finish, ask for permission,
+ * or get closed, and no notification ever arrives. The parent sits waiting.
+ *
+ * Runs once at boot over all stored records, not just the agents being resumed:
+ * a parent that was idle when the power went is exactly the parent that lost the
+ * most subscriptions.
+ */
+export async function restoreFinishNotifications(
+  params: RestoreFinishNotificationsParams,
+): Promise<number> {
+  const { agentManager, agentStorage, logger } = params;
+
+  let records: StoredAgentRecord[];
+  try {
+    records = await agentStorage.list();
+  } catch (error) {
+    logger.warn({ err: error }, "Failed to list agents to restore finish notifications");
+    return 0;
+  }
+
+  const unarchivedParents = new Set<string>();
+  for (const record of records) {
+    if (record.archivedAt || record.internal) continue;
+    unarchivedParents.add(record.id);
+  }
+  let armed = 0;
+
+  // Each child is armed directly from its stored record. Loading the agent here
+  // would resume every provider session in the registry on every daemon start,
+  // and there is no need: `allowUnloadedChild` keeps the subscription alive
+  // until the child actually loads, and the manager's per-agent filter means the
+  // listener sees nothing else in the meantime.
+  for (const record of records) {
+    if (record.archivedAt || record.internal) continue;
+    // A child that is already finished will never emit again, so a watch on it
+    // can only leak — and with no live snapshot `allowUnloadedChild` would keep
+    // it alive forever. Closing is terminal, so nothing is lost by skipping.
+    if (record.lastStatus === "closed") continue;
+    if (agentManager.getAgent(record.id)?.lifecycle === "closed") continue;
+    const parentAgentId = getParentAgentIdFromLabels(record.labels);
+    // A parent that is itself gone (archived, internal, or never created)
+    // cannot receive a notification, so arming the subscription would only leak
+    // a live listener per child.
+    if (!parentAgentId || !unarchivedParents.has(parentAgentId)) continue;
+
+    setupFinishNotification({
+      agentManager,
+      agentStorage,
+      childAgentId: record.id,
+      callerAgentId: parentAgentId,
+      requireParentOwnership: true,
+      allowUnloadedChild: true,
+      logger,
+    });
+    armed++;
+  }
+
+  logger.info({ armed }, "Restored parent finish notifications after restart");
+  return armed;
 }

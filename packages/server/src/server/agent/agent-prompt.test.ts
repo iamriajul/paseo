@@ -11,6 +11,7 @@ import { AgentStorage } from "./agent-storage.js";
 import {
   formatSystemNotificationPrompt,
   isSystemInjectedEnvelope,
+  restoreFinishNotifications,
   setupFinishNotification,
   waitForAgentRunStartWithTimeout,
 } from "./agent-prompt.js";
@@ -52,6 +53,9 @@ interface FinishNotificationScenarioOptions {
   requireParentOwnership?: boolean;
   parentPromptError?: Error;
   logger?: Logger;
+  /** Report the child as absent, as a deleted or never-created agent would. */
+  childIsLive?: boolean;
+  childLifecycle?: "idle" | "running" | "error" | "closed";
 }
 
 interface FinishNotificationScenario {
@@ -66,6 +70,7 @@ interface FinishNotificationScenario {
   parentPrompts(): string[];
   steerAttemptCount(): number;
   wasParentPrompted(): boolean;
+  liveSubscriberCount(): number;
 }
 
 function createFinishNotificationScenario(
@@ -79,7 +84,7 @@ function createFinishNotificationScenario(
 
   const childAgent: ManagedAgent = Object.create(null);
   Reflect.set(childAgent, "id", "child-agent");
-  Reflect.set(childAgent, "lifecycle", "idle");
+  Reflect.set(childAgent, "lifecycle", options?.childLifecycle ?? "idle");
   Reflect.set(childAgent, "config", { title: "Child Agent" });
   Reflect.set(childAgent, "pendingPermissions", new Map());
 
@@ -91,7 +96,9 @@ function createFinishNotificationScenario(
   const agentManager = new AgentManager({ clients: {}, logger: createTestLogger() });
   Reflect.set(agentManager, "getAgent", (agentId: string) => {
     if (agentId === "child-agent") {
-      return childAgent;
+      // `childIsLive: false` stands in for a child that is genuinely gone,
+      // which a real manager reports as absent rather than as "closed".
+      return options?.childIsLive === false ? null : childAgent;
     }
     if (agentId === "caller-agent") {
       return callerAgent;
@@ -252,6 +259,9 @@ function createFinishNotificationScenario(
     },
     steerAttemptCount() {
       return steerAttemptCount;
+    },
+    liveSubscriberCount() {
+      return subscriber ? 1 : 0;
     },
     wasParentPrompted() {
       return parentPrompted;
@@ -761,4 +771,145 @@ test("waiting for a run start still gives up at the run start budget", async () 
     vi.useRealTimers();
     await scenario.cleanup();
   }
+});
+
+interface RestoreScenario {
+  /** Make the child live, the way AgentManager does when it finishes loading. */
+  loadChild(): void;
+  runChildThenIdle(): Promise<void>;
+  parentPrompts(): string[];
+  restore(): Promise<number>;
+  liveSubscriberCount(): number;
+}
+
+/**
+ * Post-restart restore against a real AgentManager, so `subscribe` is the real
+ * multi-subscriber bus. The point is the whole chain — stored record, lazy
+ * load, arm, child finishes, parent is actually prompted — not a spy on the
+ * arming step alone.
+ */
+function createRestoreScenario(options?: { childLastStatus?: string }): RestoreScenario {
+  const logger = createTestLogger();
+  const agentManager = new AgentManager({ clients: {}, logger });
+  const parentPrompts: string[] = [];
+
+  const child: ManagedAgent = Object.create(null);
+  Reflect.set(child, "id", "child-agent");
+  Reflect.set(child, "lifecycle", "idle");
+  Reflect.set(child, "config", { title: "Child Agent" });
+  Reflect.set(child, "pendingPermissions", new Map());
+
+  const parent: ManagedAgent = Object.create(null);
+  Reflect.set(parent, "id", "parent-agent");
+  Reflect.set(parent, "lifecycle", "idle");
+  Reflect.set(parent, "config", { title: "Parent Agent" });
+  Reflect.set(parent, "pendingPermissions", new Map());
+
+  // The child stays unloaded until loadChild() — exactly the lazy state the
+  // restore has to cope with after a power cut.
+  let childLive = false;
+  Reflect.set(agentManager, "getAgent", (agentId: string) => {
+    if (agentId === "parent-agent") return parent;
+    if (agentId === "child-agent" && childLive) return child;
+    return null;
+  });
+  Reflect.set(agentManager, "getLastAssistantMessage", async () => "child output");
+  Reflect.set(agentManager, "tryRunOutOfBand", () => false);
+  Reflect.set(agentManager, "hasInFlightRun", () => false);
+  Reflect.set(agentManager, "steerOrReplaceActiveTurn", async () => ({ status: "inactive" }));
+  Reflect.set(agentManager, "streamAgent", (_agentId: string, prompt: string) => {
+    parentPrompts.push(prompt);
+    return (async function* noop() {})();
+  });
+
+  const agentStorage: AgentStorage = Object.create(AgentStorage.prototype);
+  Reflect.set(agentStorage, "list", async () => [
+    { id: "parent-agent", archivedAt: null, internal: false, labels: {}, lastStatus: "idle" },
+    {
+      id: "child-agent",
+      archivedAt: null,
+      internal: false,
+      lastStatus: options?.childLastStatus ?? "running",
+      labels: { "paseo.parent-agent-id": "parent-agent" },
+    },
+  ]);
+  Reflect.set(agentStorage, "get", async (agentId: string) =>
+    agentId === "child-agent"
+      ? { title: "Child Agent", labels: { "paseo.parent-agent-id": "parent-agent" } }
+      : null,
+  );
+
+  // Drive the real subscriber set: AgentManager keeps one list, so every
+  // subscription this scenario arms (the restore watcher and the finish
+  // notification) receives the same events.
+  const subscribers: Array<(event: AgentManagerEvent) => void> = [];
+  Reflect.set(agentManager, "subscribe", (callback: (event: AgentManagerEvent) => void) => {
+    subscribers.push(callback);
+    return () => {
+      subscribers.splice(subscribers.indexOf(callback), 1);
+    };
+  });
+  // Snapshot first: a callback may unsubscribe itself while being invoked,
+  // which would otherwise mutate the list mid-iteration.
+  const emit = (event: AgentManagerEvent) => {
+    for (const callback of subscribers.slice()) callback(event);
+  };
+
+  return {
+    loadChild() {
+      childLive = true;
+      emit({ type: "agent_state", agent: child });
+    },
+    async runChildThenIdle() {
+      Reflect.set(child, "lifecycle", "running");
+      emit({ type: "agent_state", agent: child });
+      Reflect.set(child, "lifecycle", "idle");
+      emit({ type: "agent_state", agent: child });
+      // setupFinishNotification serializes notifications on a promise chain, so
+      // the parent prompt lands a microtask after the idle event.
+      await vi.waitFor(() => expect(parentPrompts.length).toBeGreaterThan(0));
+    },
+    parentPrompts: () => parentPrompts,
+    restore: () => restoreFinishNotifications({ agentManager, agentStorage, logger }),
+    liveSubscriberCount: () => subscribers.length,
+  };
+}
+
+test("the restore arms no watch for a child that was already closed", async () => {
+  // A stored-closed child has no live snapshot, so allowUnloadedChild would
+  // otherwise keep its listener alive forever with nothing that can ever fire.
+  const scenario = createRestoreScenario({ childLastStatus: "closed" });
+
+  expect(await scenario.restore()).toBe(0);
+  expect(scenario.liveSubscriberCount()).toBe(0);
+});
+
+test("a restored parent is notified when its child finishes after a restart", async () => {
+  const scenario = createRestoreScenario();
+
+  // The child record exists but is not loaded yet — the state every restart
+  // leaves behind — so the restore has to arm it anyway.
+  expect(await scenario.restore()).toBe(1);
+  expect(scenario.parentPrompts()).toEqual([]);
+
+  scenario.loadChild();
+  await scenario.runChildThenIdle();
+
+  expect(scenario.parentPrompts()).toEqual([
+    formatSystemNotificationPrompt(
+      "Agent child-agent (Child Agent) finished.\n\n<agent-response>\nchild output\n</agent-response>",
+    ),
+  ]);
+});
+
+test("watching an absent child stops instead of leaking a listener", () => {
+  const scenario = createFinishNotificationScenario({ childIsLive: false });
+  scenario.startWatchingChild();
+  expect(scenario.liveSubscriberCount()).toBe(0);
+});
+
+test("watching a closed child stops instead of leaking a listener", () => {
+  const scenario = createFinishNotificationScenario({ childLifecycle: "closed" });
+  scenario.startWatchingChild();
+  expect(scenario.liveSubscriberCount()).toBe(0);
 });

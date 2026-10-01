@@ -800,6 +800,11 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
     preTokens: z.number().optional(),
   }),
   z.object({
+    type: z.literal("resume"),
+    reason: z.enum(["power_cut", "manual"]),
+    interruptedAt: z.string().optional(),
+  }),
+  z.object({
     type: z.literal("plugin"),
     id: z.string(),
     pluginId: PluginIdSchema,

@@ -396,6 +396,10 @@ export const es: TranslationResources = {
       withTokens: "Contexto compactado (tokens{{tokens}}K)",
       completed: "Contexto compactado",
     },
+    resume: {
+      poweredOff: "Reanudado tras un apagado inesperado",
+      manual: "Reanudado",
+    },
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

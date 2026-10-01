@@ -13,7 +13,9 @@ import {
   readPendingAutoResume,
   writePendingAutoResume,
 } from "./agent-auto-resume.js";
+import { formatSystemNotificationPrompt, isSystemInjectedEnvelope } from "./agent-prompt.js";
 import type { StoredAgentRecord } from "./agent-storage.js";
+import type { AgentManager } from "./agent-manager.js";
 
 function createLogger() {
   return pino({ level: "silent" });
@@ -31,6 +33,27 @@ function makeRecord(overrides: Partial<StoredAgentRecord> & { id: string }): Sto
     persistence: { provider: "claude", sessionId: `sess-${overrides.id}` },
     ...overrides,
   } as StoredAgentRecord;
+}
+
+/**
+ * Minimal AgentManager double: the resume sweep restores notifications and
+ * appends the marker through it, and neither needs a real provider session.
+ * `getAgent` reports a live snapshot so `ensureAgentLoaded` short-circuits
+ * instead of trying to resume a provider session that does not exist here.
+ */
+function makeManager(overrides: Record<string, unknown> = {}) {
+  const appended: Array<{ agentId: string; item: { type: string } }> = [];
+  const manager = {
+    getAgent: () => ({ id: "agent", lifecycle: "idle", pendingPermissions: new Set() }),
+    waitForAgentClose: async () => undefined,
+    subscribe: () => () => undefined,
+    appendTimelineItem: async (agentId: string, item: { type: string }) => {
+      appended.push({ agentId, item });
+      return { seq: appended.length, epoch: "epoch-1" };
+    },
+    ...overrides,
+  } as unknown as AgentManager;
+  return { manager, appended };
 }
 
 describe("agent-auto-resume pending file helpers", () => {
@@ -230,7 +253,7 @@ describe("autoResumeRunningAgents", () => {
         get: async (id: string) => records.find((r) => r.id === id) ?? null,
       } as unknown as import("./agent-storage.js").AgentStorage;
 
-      const manager = {} as import("./agent-manager.js").AgentManager;
+      const { manager } = makeManager();
 
       const sendMock = vi.fn(async () => ({ disposition: "turn_started" }));
 
@@ -275,7 +298,7 @@ describe("autoResumeRunningAgents", () => {
         list: async () => records,
         get: async (id: string) => records.find((r) => r.id === id) ?? null,
       } as unknown as import("./agent-storage.js").AgentStorage;
-      const manager = {} as import("./agent-manager.js").AgentManager;
+      const { manager } = makeManager();
       const sendMock = vi.fn(async () => ({ disposition: "turn_started" }));
       const result = await autoResumeRunningAgents({
         paseoHome: dir,
@@ -302,7 +325,7 @@ describe("autoResumeRunningAgents", () => {
         list: async () => [makeRecord({ id: "a", lastStatus: "running" })],
         get: async (id: string) => makeRecord({ id, lastStatus: "running" }),
       } as unknown as import("./agent-storage.js").AgentStorage;
-      const manager = {} as import("./agent-manager.js").AgentManager;
+      const { manager } = makeManager();
       const sendMock = vi.fn(async () => ({ disposition: "turn_started" }));
       const result = await autoResumeRunningAgents({
         paseoHome: dir,
@@ -330,7 +353,7 @@ describe("autoResumeRunningAgents", () => {
         list: async () => [makeRecord({ id: "a", lastStatus: "closed" })],
         get: async (id: string) => makeRecord({ id, lastStatus: "closed" }),
       } as unknown as import("./agent-storage.js").AgentStorage;
-      const manager = {} as import("./agent-manager.js").AgentManager;
+      const { manager } = makeManager();
       const sendMock = vi.fn(async () => ({ disposition: "turn_started" }));
       const result = await autoResumeRunningAgents({
         paseoHome: dir,
@@ -362,7 +385,7 @@ describe("autoResumeRunningAgents", () => {
         list: async () => records,
         get: async (id: string) => records.find((r) => r.id === id) ?? null,
       } as unknown as import("./agent-storage.js").AgentStorage;
-      const manager = {} as import("./agent-manager.js").AgentManager;
+      const { manager } = makeManager();
       const sendMock = vi.fn(async ({ agentId }: { agentId: string }) => {
         if (agentId === id1) throw new Error("provider unavailable");
         return { disposition: "turn_started" };
@@ -394,7 +417,7 @@ describe("autoResumeRunningAgents", () => {
         list: async () => records,
         get: async () => records[0],
       } as unknown as import("./agent-storage.js").AgentStorage;
-      const manager = {} as import("./agent-manager.js").AgentManager;
+      const { manager } = makeManager();
       const sendMock = vi.fn(async () => ({ disposition: "turn_started" }));
       await autoResumeRunningAgents({
         paseoHome: dir,
@@ -404,7 +427,9 @@ describe("autoResumeRunningAgents", () => {
         sendPrompt: sendMock as unknown as typeof import("./agent-prompt.js").sendPromptToAgent,
       });
       expect(sendMock).toHaveBeenCalledWith(
-        expect.objectContaining({ prompt: DEFAULT_AUTO_RESUME_PROMPT }),
+        expect.objectContaining({
+          prompt: formatSystemNotificationPrompt(DEFAULT_AUTO_RESUME_PROMPT),
+        }),
       );
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -421,7 +446,7 @@ describe("autoResumeRunningAgents", () => {
         list: async () => records,
         get: async () => records[0],
       } as unknown as import("./agent-storage.js").AgentStorage;
-      const manager = {} as import("./agent-manager.js").AgentManager;
+      const { manager } = makeManager();
       const sendMock = vi.fn(async () => ({ disposition: "turn_started" }));
       await autoResumeRunningAgents({
         paseoHome: dir,
@@ -431,7 +456,9 @@ describe("autoResumeRunningAgents", () => {
         prompt: "  custom resume  ",
         sendPrompt: sendMock as unknown as typeof import("./agent-prompt.js").sendPromptToAgent,
       });
-      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ prompt: "custom resume" }));
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: formatSystemNotificationPrompt("custom resume") }),
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -449,7 +476,7 @@ describe("autoResumeRunningAgents", () => {
         list: async () => records,
         get: async (id: string) => records.find((r) => r.id === id) ?? null,
       } as unknown as import("./agent-storage.js").AgentStorage;
-      const manager = {} as import("./agent-manager.js").AgentManager;
+      const { manager } = makeManager();
       let concurrent = 0;
       let maxObserved = 0;
       const sendMock = vi.fn(async () => {
@@ -469,6 +496,72 @@ describe("autoResumeRunningAgents", () => {
       });
       expect(maxObserved).toBeLessThanOrEqual(2);
       expect(sendMock).toHaveBeenCalledTimes(6);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("appends a resume marker and does not send a bare user turn", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "paseo-auto-resume-"));
+    const logger = createLogger();
+    try {
+      const id = "99999999-9999-4999-8999-999999999999";
+      await writePendingAutoResume(dir, [id], logger);
+      const records: StoredAgentRecord[] = [makeRecord({ id, lastStatus: "running" })];
+      const storage = {
+        list: async () => records,
+        get: async () => records[0],
+      } as unknown as import("./agent-storage.js").AgentStorage;
+      const { manager, appended } = makeManager();
+      const sendMock = vi.fn(async () => ({ disposition: "turn_started" }));
+
+      await autoResumeRunningAgents({
+        paseoHome: dir,
+        agentManager: manager,
+        agentStorage: storage,
+        logger,
+        sendPrompt: sendMock as unknown as typeof import("./agent-prompt.js").sendPromptToAgent,
+      });
+
+      expect(appended).toEqual([
+        { agentId: id, item: expect.objectContaining({ type: "resume", reason: "power_cut" }) },
+      ]);
+      const dispatched = sendMock.mock.calls[0][0].prompt;
+      expect(isSystemInjectedEnvelope(dispatched)).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("records the shutdown capture time on the marker", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "paseo-auto-resume-"));
+    const logger = createLogger();
+    try {
+      const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const capturedAt = "2026-09-29T00:00:00.000Z";
+      await writeFile(
+        getPendingAutoResumePath(dir),
+        JSON.stringify({ agentIds: [id], capturedAt }),
+        "utf8",
+      );
+      const records: StoredAgentRecord[] = [makeRecord({ id, lastStatus: "running" })];
+      const storage = {
+        list: async () => records,
+        get: async () => records[0],
+      } as unknown as import("./agent-storage.js").AgentStorage;
+      const { manager, appended } = makeManager();
+
+      await autoResumeRunningAgents({
+        paseoHome: dir,
+        agentManager: manager,
+        agentStorage: storage,
+        logger,
+        sendPrompt: vi.fn(async () => ({
+          disposition: "turn_started",
+        })) as unknown as typeof import("./agent-prompt.js").sendPromptToAgent,
+      });
+
+      expect(appended[0]?.item).toMatchObject({ interruptedAt: capturedAt });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

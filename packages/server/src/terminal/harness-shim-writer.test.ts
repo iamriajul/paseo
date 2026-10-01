@@ -398,15 +398,39 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     //   absent  → the shim never reached its launch line at all
     //   present → the shim ran, and the fault is between it and the probe
     //
+    // The loop state is captured alongside it. The strip has now been wrong
+    // three times on paper, and the shim is the only thing that can say what
+    // its variables actually held: head, tail, rest, stripped and self_dir
+    // after the subroutine returns. Reading those back is the difference
+    // between another theory and a measurement.
+    //
     // It is injected into the generated script rather than asserted on, so it
-    // cannot mask a shim bug: it only appends an echo.
+    // cannot mask a shim bug: it only appends echoes.
     const trapPath = out("trap");
+    const statePath = out("state");
     writeFileSync(
       join(shimDir, `${harness}.cmd`),
-      buildCmdShimScript(harness, gateway).replace(
-        /^call :stripSelfFromPath$/m,
-        `echo TRAP_SIM_REACHED>${trapPath}\ncall :stripSelfFromPath`,
-      ),
+      buildCmdShimScript(harness, gateway)
+        .replace(
+          /^call :stripSelfFromPath$/m,
+          `echo TRAP_SIM_REACHED>${trapPath}\ncall :stripSelfFromPath`,
+        )
+        // Anchored on the endlocal line, which every path reaches — including
+        // the `goto applyPath` jump, which a block placed at the :applyPath
+        // label would be stepped over.
+        .replace(
+          /^endlocal & set "PATH=%new_path%"$/m,
+          [
+            `echo PATH_IN=!PATH!>${statePath}`,
+            `echo SELFDIR_IN=!self_dir!>>${statePath}`,
+            `echo HEAD_IN=!head!>>${statePath}`,
+            `echo TAIL_IN=!tail!>>${statePath}`,
+            `echo REST_IN=!rest!>>${statePath}`,
+            `echo STRIPPED_IN=!stripped!>>${statePath}`,
+            `echo NEW_PATH_IN=!new_path!>>${statePath}`,
+            `endlocal & set "PATH=%new_path%"`,
+          ].join("\n"),
+        ),
     );
     const exe = join(keepDir, `${harness}.exe`);
     copyFileSync(process.execPath, exe);
@@ -547,7 +571,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
     const handedDown = read("path");
     // The shim's own directory is gone, so the wrapper cannot recurse.
-    expect(handedDown).not.toContain("shims");
+    expect(handedDown, `shim-internal state:\n${read("state")}`).not.toContain("shims");
     // Everything else survived, in order, with the real binary still findable.
     expect(handedDown).toContain(keepDir);
     expect(handedDown).toContain("decoy-a");

@@ -33,6 +33,14 @@ import { getOverlayRoot, OVERLAY_Z } from "@/lib/overlay-root";
 
 type Side = "top" | "bottom" | "left" | "right";
 type Align = "start" | "center" | "end";
+type TimeoutHandle = ReturnType<typeof setTimeout>;
+
+/**
+ * Grace window between leaving the trigger and closing an interactive
+ * tooltip. Lets the pointer cross the offset gap onto the content without
+ * the tooltip vanishing mid-travel.
+ */
+const TOOLTIP_CLOSE_GRACE_MS = 150;
 
 interface Rect {
   x: number;
@@ -40,14 +48,18 @@ interface Rect {
   width: number;
   height: number;
 }
-
 interface TooltipContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
   triggerRef: React.RefObject<View | null>;
+  contentRef: React.RefObject<View | null>;
   enabled: boolean;
   openOnPress: boolean;
-  delayDuration: number;
+  interactive: boolean;
+  scheduleOpen: () => void;
+  cancelPendingOpen: () => void;
+  scheduleGracefulClose: () => void;
+  cancelPendingClose: () => void;
 }
 
 const TooltipContext = createContext<TooltipContextValue | null>(null);
@@ -231,6 +243,7 @@ export function Tooltip({
   delayDuration = 0,
   enabledOnDesktop = true,
   enabledOnMobile = false,
+  interactive = false,
   children,
 }: PropsWithChildren<{
   open?: boolean;
@@ -239,13 +252,66 @@ export function Tooltip({
   delayDuration?: number;
   enabledOnDesktop?: boolean;
   enabledOnMobile?: boolean;
+  /**
+   * Keep the tooltip open while the pointer is over its content, so the
+   * content can hold pressables and scroll views. Matches the hover-card
+   * safe-zone pattern: close only after the pointer leaves both trigger and
+   * content, past a short grace window.
+   */
+  interactive?: boolean;
 }>): ReactElement {
   const triggerRef = useRef<View>(null);
+  const contentRef = useRef<View>(null);
+  const openTimerRef = useRef<TimeoutHandle | null>(null);
+  const closeTimerRef = useRef<TimeoutHandle | null>(null);
   const [isOpen, setIsOpen] = useControllableOpenState({
     open,
     defaultOpen,
     onOpenChange,
   });
+  const setOpenRef = useRef(setIsOpen);
+  setOpenRef.current = setIsOpen;
+  const cancelPendingOpen = useCallback(() => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  }, []);
+  const cancelPendingClose = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+  const scheduleOpen = useCallback(() => {
+    cancelPendingOpen();
+    cancelPendingClose();
+    if (delayDuration <= 0) {
+      setOpenRef.current(true);
+      return;
+    }
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      setOpenRef.current(true);
+    }, delayDuration);
+  }, [cancelPendingClose, cancelPendingOpen, delayDuration]);
+  const scheduleGracefulClose = useCallback(() => {
+    cancelPendingOpen();
+    cancelPendingClose();
+    // The pointer may be crossing the gap toward the content. Give it a beat
+    // to land there (hover-card uses the same grace pattern) before closing.
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setOpenRef.current(false);
+    }, TOOLTIP_CLOSE_GRACE_MS);
+  }, [cancelPendingClose, cancelPendingOpen]);
+
+  useEffect(() => {
+    return () => {
+      cancelPendingOpen();
+      cancelPendingClose();
+    };
+  }, [cancelPendingClose, cancelPendingOpen]);
 
   const isCompact = useIsCompactFormFactor();
   const opensOnPress = isNative || isCompact;
@@ -256,6 +322,7 @@ export function Tooltip({
       open: isOpen,
       setOpen: setIsOpen,
       triggerRef,
+      contentRef,
       enabled,
       openOnPress: opensOnPress,
       delayDuration,
@@ -282,53 +349,32 @@ export function TooltipTrigger({
   triggerRefProp?: string;
 }): ReactElement {
   const ctx = useTooltipContext("TooltipTrigger");
-  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearOpenTimer = useCallback(() => {
-    if (openTimerRef.current) {
-      clearTimeout(openTimerRef.current);
-      openTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleOpen = useCallback(() => {
-    if (!ctx.enabled || disabled) return;
-    clearOpenTimer();
-    if (ctx.delayDuration <= 0) {
-      ctx.setOpen(true);
-      return;
-    }
-    openTimerRef.current = setTimeout(() => {
-      ctx.setOpen(true);
-      openTimerRef.current = null;
-    }, ctx.delayDuration);
-  }, [clearOpenTimer, ctx, disabled]);
 
   const close = useCallback(() => {
-    clearOpenTimer();
+    ctx.cancelPendingClose();
+    ctx.cancelPendingOpen();
     ctx.setOpen(false);
-  }, [clearOpenTimer, ctx]);
-
-  useEffect(() => {
-    return () => {
-      clearOpenTimer();
-    };
-  }, [clearOpenTimer]);
+  }, [ctx]);
 
   const handleHoverIn = useCallback(
     (e?: unknown) => {
       if (isCallable(onHoverIn)) onHoverIn(e);
-      scheduleOpen();
+      if (!ctx.enabled || disabled) return;
+      ctx.scheduleOpen();
     },
-    [onHoverIn, scheduleOpen],
+    [ctx, disabled, onHoverIn],
   );
 
   const handleHoverOut = useCallback(
     (e?: unknown) => {
       if (isCallable(onHoverOut)) onHoverOut(e);
+      if (ctx.interactive && isWeb) {
+        ctx.scheduleGracefulClose();
+        return;
+      }
       close();
     },
-    [onHoverOut, close],
+    [close, ctx, onHoverOut],
   );
 
   const handleFocus = useCallback(
@@ -336,10 +382,11 @@ export function TooltipTrigger({
       if (isCallable(onFocus)) onFocus(e);
       if (!ctx.enabled || disabled) return;
       if (!shouldOpenOnFocus()) return;
-      clearOpenTimer();
+      ctx.cancelPendingClose();
+      ctx.cancelPendingOpen();
       ctx.setOpen(true);
     },
-    [clearOpenTimer, ctx, disabled, onFocus],
+    [ctx, disabled, onFocus],
   );
 
   const handleBlur = useCallback(
@@ -357,13 +404,14 @@ export function TooltipTrigger({
         return;
       }
       if (ctx.openOnPress) {
-        clearOpenTimer();
+        ctx.cancelPendingClose();
+        ctx.cancelPendingOpen();
         ctx.setOpen(true);
         return;
       }
       close();
     },
-    [clearOpenTimer, close, ctx, disabled, onPress],
+    [close, ctx, disabled, onPress],
   );
 
   const triggerProps = {
@@ -509,8 +557,39 @@ export function TooltipContent({
   const contentStyle = useMemo(() => [styles.content, style], [style]);
 
   const handleDismiss = useCallback(() => ctx.setOpen(false), [ctx]);
+  const handleContentPointerEnter = useCallback(() => ctx.cancelPendingClose(), [ctx]);
+  const handleContentPointerLeave = useCallback(() => ctx.setOpen(false), [ctx]);
 
+  const interactiveContentHandlers = useMemo(
+    () =>
+      isWeb && ctx.interactive
+        ? {
+            // RN Web passes these through to the DOM node. Entering the
+            // content cancels the trigger-leave grace close; leaving it
+            // closes immediately — the pointer is already outside both.
+            onPointerEnter: handleContentPointerEnter,
+            onPointerLeave: handleContentPointerLeave,
+          }
+        : null,
+    [ctx, handleContentPointerEnter, handleContentPointerLeave],
+  );
   if (!ctx.open || !ctx.enabled) return null;
+
+  const surface = (
+    <FloatingSurface
+      ref={ctx.contentRef}
+      entering={FadeIn.duration(80)}
+      exiting={FadeOut.duration(80)}
+      collapsable={false}
+      testID={testID}
+      onLayout={handleLayout}
+      style={contentStyle}
+      frameStyle={frameStyle}
+      {...interactiveContentHandlers}
+    >
+      {children}
+    </FloatingSurface>
+  );
 
   // On web, avoid React Native's <Modal/> implementation (it uses <dialog> and can
   // steal focus / disrupt hover). Rendering via Portal + position:fixed keeps the

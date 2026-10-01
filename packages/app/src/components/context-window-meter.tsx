@@ -164,7 +164,6 @@ export function ContextWindowMeter({
   const closeSheet = useCallback(() => setIsSheetOpen(false), []);
   const percentage =
     maxTokens !== null && usedTokens !== null ? getUsagePercentage(maxTokens, usedTokens) : null;
-
   const geometry = getMeterGeometry(showPercentage, glyphSize);
 
   const context = useMemo(
@@ -300,6 +299,54 @@ export function ContextWindowMeter({
         />
       </HoverCardContent>
     </HoverCard>
+  );
+}
+
+function MeterTooltipBody({
+  usedTokens,
+  maxTokens,
+  formattedSessionCost,
+  providerUsageView,
+  gatewayQuotaView,
+  gatewayStatsSample,
+  gatewayStatsIsLive,
+  provider,
+  serverId,
+}: {
+  usedTokens: number;
+  maxTokens: number;
+  formattedSessionCost: string | null;
+  providerUsageView: ComponentProps<typeof ProviderUsageTooltipSection>["view"];
+  gatewayQuotaView: ComponentProps<typeof GatewayQuotaSection>["view"];
+  gatewayStatsSample: ComponentProps<typeof GatewayStatsSection>["sample"];
+  gatewayStatsIsLive: boolean;
+  provider: string | null | undefined;
+  serverId: string | undefined;
+}) {
+  const { t } = useTranslation();
+  const percentage = getUsagePercentage(maxTokens, usedTokens) ?? 0;
+  const roundedPercentage = Math.round(percentage);
+  return (
+    <View style={styles.tooltipContent}>
+      <Text style={styles.tooltipTitle}>{t("contextWindow.title")}</Text>
+      <Text style={styles.tooltipText}>
+        {t("contextWindow.used", { percentage: roundedPercentage })}
+      </Text>
+      <Text style={styles.tooltipDetail}>
+        {t("contextWindow.tokens", {
+          used: formatTokenCount(usedTokens),
+          max: formatTokenCount(maxTokens),
+        })}
+      </Text>
+      {formattedSessionCost ? (
+        <Text style={styles.tooltipDetail}>
+          {t("contextWindow.sessionCost", { cost: formattedSessionCost })}
+        </Text>
+      ) : null}
+      <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
+      <GatewayQuotaSection view={gatewayQuotaView} serverId={serverId ?? null} />
+      <GatewayStatsSection sample={gatewayStatsSample} isLive={gatewayStatsIsLive} />
+    </View>
   );
 }
 

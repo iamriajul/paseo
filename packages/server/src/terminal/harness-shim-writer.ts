@@ -144,10 +144,16 @@ export function buildCmdShimScript(
     // exact: an earlier substring match could not tell the shim directory from
     // a longer path that merely started with it.
     //
-    // The trailing backslash is tested unquoted. cmd.exe has no escape
-    // character, so a quoted "\" closes the quote early and the test never
-    // matches, which would leave the shim directory in PATH.
-    'if "!self_dir:~-1!"==\\ goto trimSelfSlash',
+    // The backslash is held in BACKSLASH and compared against a variable, never
+    // written literally. Two things go wrong if it is: IF's documented form
+    // spaces `==` (`IF [/I] "item1" == "item2"`), and a literal \ butted against
+    // `==` with no space makes the substring operator's argument unparseable, so
+    // the test silently never fires. That is what shipped: self_dir kept its
+    // trailing backslash, so every PATH entry retained one and nothing ever
+    // matched self_dir — the strip completed without removing anything. The
+    // Windows run showed self_dir still ending in \ while PATH came back whole.
+    'set "BACKSLASH=\\"',
+    'if /I "!self_dir:~-1!" == "!BACKSLASH!" goto trimSelfSlash',
     "goto selfDirReady",
     ":trimSelfSlash",
     'set "self_dir=!self_dir:~0,-1!"',
@@ -186,8 +192,9 @@ export function buildCmdShimScript(
     "rem Keep one PATH entry, unless it is this shim's own directory.",
     ":keepEntry",
     'set "entry=%~1"',
-    'if "!entry:~-1!"==\\ set "entry=!entry:~0,-1!"',
-    'if /I "!entry!"=="!self_dir!" goto :eof',
+    // Same fix as the self_dir test above, and the same BACKSLASH set by it.
+    'if /I "!entry:~-1!" == "!BACKSLASH!" set "entry=!entry:~0,-1!"',
+    'if /I "!entry!" == "!self_dir!" goto :eof',
     "if not defined stripped goto keepFirstEntry",
     'set "stripped=!stripped!;%~1"',
     "goto :eof",

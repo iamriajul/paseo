@@ -252,7 +252,7 @@ describe("cmd shim generation", () => {
     // sides are trimmed to a common form and compared exactly.
     expect(script).toContain('set "self_dir=%~dp0"');
     expect(script).toContain('set "self_dir=!self_dir:~0,-1!"');
-    expect(script).toContain('if /I "!entry!"=="!self_dir!" goto :eof');
+    expect(script).toContain('if /I "!entry!" == "!self_dir!" goto :eof');
   });
 
   it("keeps the shim directory when PATH holds nothing else", () => {
@@ -298,13 +298,26 @@ describe("cmd shim generation", () => {
     expect(setline).toBeLessThan(call);
   });
 
-  it("tests the trailing backslash unquoted", () => {
+  it("spaces every == and compares the backslash through a variable", () => {
     const script = cmdShimText();
-    // cmd.exe has no escape character, so `if "x"=="\"` closes the quote early
-    // and never matches — which would leave the shim directory in PATH.
-    expect(script).toContain('if "!self_dir:~-1!"==\\ goto trimSelfSlash');
-    expect(script).toContain('if "!entry:~-1!"==\\ set');
-    expect(script).not.toContain('=="\\"');
+    // The trailing backslash is compared against BACKSLASH, with `==` spaced on
+    // both sides.
+    //
+    // This test used to require the opposite — an unquoted literal \ fused
+    // against `==` — on the belief that cmd has no escape character so a quoted
+    // "\" would close the quote. The premise was true and the conclusion was
+    // not: IF's documented form is `IF [/I] "item1" == "item2"`, and a literal
+    // \ with no space before == left the comparison unparseable, so the test
+    // never fired. self_dir kept its trailing backslash and matched no PATH
+    // entry, and the strip returned PATH untouched.
+    expect(script).toContain('set "BACKSLASH=\\"');
+    expect(script).toContain('if /I "!self_dir:~-1!" == "!BACKSLASH!" goto trimSelfSlash');
+    expect(script).toContain('if /I "!entry:~-1!" == "!BACKSLASH!" set');
+    expect(script).toContain('if /I "!entry!" == "!self_dir!" goto :eof');
+    // Nothing may fuse an operator to a literal backslash again. Scoped to a
+    // backslash: the disable guard compares against the literal "1", which is
+    // a normal string comparison and not the defect this guards.
+    expect(script).not.toMatch(/==\s*\\/);
   });
 });
 

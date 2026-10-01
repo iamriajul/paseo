@@ -635,7 +635,6 @@ Workspace tab reconciliation checks known foreign agents (`foreignAgentIds`) and
 npm test --workspace=@getpaseo/app -- src/stores/workspace-layout-store.test.ts src/workspace-tabs/agent-visibility.test.ts --bail=1
 ```
 
-
 ## gateway-boot-catalog-cache
 
 **the daemon resolves provider catalogs before resuming, and keeps a raw-response gateway cache**

@@ -395,6 +395,46 @@ function mapGatewayCodexModelRow(value: unknown): GatewayCodexModelRow | null {
   };
 }
 
+/**
+ * The catalog request URL a base URL resolves to. Discovery pages through it, so it
+ * doubles as the cache key: the first page is the one a single-shot replay needs.
+ */
+export function buildCliproxyModelsRequestUrl(baseUrl: string): string | null {
+  return buildCliproxyModelsUrl(baseUrl);
+}
+
+/** Fetch one catalog page verbatim, for caching. Returns null when unavailable. */
+export async function fetchCliproxyModelsPayload(
+  url: string,
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<unknown | null> {
+  try {
+    const response = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${token}`, "Anthropic-Version": "2023-06-01" },
+      signal: AbortSignal.timeout(CLIPROXY_MODELS_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Decode a cached catalog payload back into discovery rows. */
+export function mapCliproxyModelsPayload(payload: unknown): CliproxyAnthropicModelRow[] {
+  const page = parseCliproxyAnthropicModelsPage(payload);
+  if (!page) return [];
+  const rows: CliproxyAnthropicModelRow[] = [];
+  for (const value of page.data) {
+    const decoded = decodeCliproxyAnthropicModel(value);
+    if (!decoded) continue;
+    const row = mapCliproxyAnthropicModelRow(value, decoded);
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
 function buildCliproxyModelsUrl(baseUrl: string, afterId?: string): string | null {
   const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
   if (!normalizedBaseUrl) return null;

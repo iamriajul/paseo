@@ -1428,19 +1428,31 @@ export async function createPaseoDaemon(
     { elapsed: elapsed() },
     `Agent registry loaded (${persistedRecords.length} record${persistedRecords.length === 1 ? "" : "s"}); agents will initialize on demand`,
   );
+  // Resolve provider catalogs before anything resumes a session. Without this a
+  // power-loss resume launches with an empty catalog, so gateway models fall back to
+  // Claude Code's assumed 200K window and the resumed transcript is compacted against
+  // that wrong ceiling. Concurrent with listen, so the daemon stays responsive.
+  const bootCatalogWarmup = providerSnapshotManager.refreshSettingsSnapshot().catch((error) => {
+    logger.warn({ err: error }, "Boot provider catalog warm-up failed");
+  });
+
   // Backstop for power-loss / UPS / manual shutdown without heartbeat:
   // resume every agent that was still running when the daemon went down
   // by sending a lightweight "resume" turn after the registry is available.
-  void autoResumeRunningAgents({
-    paseoHome: config.paseoHome,
-    agentManager,
-    agentStorage,
-    logger,
-    enabled: config.autoResumeRunningAgents?.enabled ?? true,
-    prompt: config.autoResumeRunningAgents?.prompt ?? "Resume - there was a power cut",
-  }).catch((error) => {
-    logger.warn({ err: error }, "Auto-resume for running agents failed");
-  });
+  void bootCatalogWarmup
+    .then(() =>
+      autoResumeRunningAgents({
+        paseoHome: config.paseoHome,
+        agentManager,
+        agentStorage,
+        logger,
+        enabled: config.autoResumeRunningAgents?.enabled ?? true,
+        prompt: config.autoResumeRunningAgents?.prompt ?? "Resume - there was a power cut",
+      }),
+    )
+    .catch((error) => {
+      logger.warn({ err: error }, "Auto-resume for running agents failed");
+    });
   logger.info(
     "Voice mode configured for agent-scoped resume flow (no dedicated voice assistant provider)",
   );

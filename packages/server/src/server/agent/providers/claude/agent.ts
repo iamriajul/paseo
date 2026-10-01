@@ -74,7 +74,18 @@ import {
   indexCliproxyEffortProfiles,
   type CliproxyEffortProfile,
 } from "./cliproxy-effort.js";
-import { fetchCliproxyAnthropicModels, fetchGatewayCodexModels } from "../../gateway/models.js";
+import {
+  readCachedGatewayResponse,
+  writeCachedGatewayResponse,
+} from "../../gateway/http-response-cache.js";
+import {
+  buildCliproxyModelsRequestUrl,
+  fetchCliproxyAnthropicModels,
+  fetchCliproxyModelsPayload,
+  fetchGatewayCodexModels,
+  mapCliproxyModelsPayload,
+  type CliproxyAnthropicModelRow,
+} from "../../gateway/models.js";
 import { parsePartialJsonObject } from "./partial-json.js";
 import { ClaudeSidechainTracker } from "./sidechain-tracker.js";
 import { ClaudeTaskState } from "./task-state.js";
@@ -1747,6 +1758,7 @@ export class ClaudeAgentClient implements AgentClient {
         configDir: this.configDir,
       });
       if (credentials) {
+        const modelListUrl = buildCliproxyModelsRequestUrl(credentials.baseUrl);
         const rows = await fetchCliproxyAnthropicModels({
           ...credentials,
           expectGateway:
@@ -1764,17 +1776,36 @@ export class ClaudeAgentClient implements AgentClient {
             );
           },
         });
-        this.cliproxyapiAdvertisedIds = new Set(rows.map((row) => row.id));
-        if (rows.length > 0) {
+        // A live catalog is the authority; the cache only ever stands in for it.
+        if (rows.length > 0 && modelListUrl) {
+          await this.cacheLiveGatewayCatalog(modelListUrl, credentials.token);
+        }
+        const usableRows =
+          rows.length > 0 ? rows : ((await this.readCachedGatewayCatalogRows(modelListUrl)) ?? []);
+        if (usableRows.length > 0 && modelListUrl && rows.length === 0) {
+          this.logger.warn(
+            { phase: "cliproxy_discovery", source: "cache" },
+            "CLIProxyAPI discovery returned no models; using the last cached catalog",
+          );
+        }
+        this.cliproxyapiAdvertisedIds = new Set(usableRows.map((row) => row.id));
+        if (usableRows.length > 0) {
           const { models: nextModels, autoPersist } = await appendCliproxyModelsToClaudeCatalog({
             baseModels: models,
-            rows,
+            rows: usableRows,
             existingAdditionalModels: this.additionalModels ?? this.profileModels ?? [],
             lookupModelsDev: (id) => lookupModelsDevModel(id),
             getCustomThinkingOptions: () => getClaudeCustomModelThinkingOptions(),
             effortProfiles: await this.fetchCliproxyEffortProfiles(credentials),
           });
           models = await this.persistCliproxyCatalogCapacity(nextModels, autoPersist);
+        } else if (this.gateway) {
+          // Nothing to go on: say so, because Claude Code will assume 200K and
+          // compact the first resumed session against that wrong ceiling.
+          this.logger.warn(
+            { phase: "cliproxy_discovery", source: "none" },
+            "No gateway catalog and no cached copy; gateway models will fall back to an assumed 200K context window",
+          );
         }
       }
     } catch {
@@ -1790,6 +1821,34 @@ export class ClaudeAgentClient implements AgentClient {
       models,
       ...modeCatalog,
     };
+  }
+
+  /**
+   * Persist the catalog the gateway just returned, keyed by request URL, so a later
+   * boot can reuse it when the gateway is unreachable.
+   */
+  private async cacheLiveGatewayCatalog(url: string, token: string): Promise<void> {
+    try {
+      const payload = await fetchCliproxyModelsPayload(url, token);
+      if (payload !== null) {
+        await writeCachedGatewayResponse(url, payload);
+      }
+    } catch {
+      // Caching is best-effort; the live catalog is already in use.
+    }
+  }
+
+  /**
+   * Replay a cached catalog into discovery rows. Returns null when nothing is cached,
+   * so the caller can tell "no cache" apart from "cache held no models".
+   */
+  private async readCachedGatewayCatalogRows(
+    url: string | null,
+  ): Promise<CliproxyAnthropicModelRow[] | null> {
+    if (!url) return null;
+    const cached = await readCachedGatewayResponse(url);
+    if (!cached) return null;
+    return mapCliproxyModelsPayload(cached.payload);
   }
 
   /**

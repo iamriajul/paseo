@@ -84,6 +84,9 @@ export default defineConfig({
     // Fake-timer suites freeze p-throttle's clock, so a real per-second cap deadlocks them.
     env: {
       PASEO_GIT_MAX_PROCESSES_PER_SECOND: "10000",
+      // The repo-root config has no setup files, so suites run here would write
+      // gateway catalog cache into the developer's real $PASEO_HOME.
+      PASEO_DISABLE_GATEWAY_CACHE: "1",
     },
     exclude: [...configDefaults.exclude, "**/.claude/**", "**/.dev/**"],
   },

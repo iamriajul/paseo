@@ -94,24 +94,28 @@ describe("gateway http response cache", () => {
   });
 
   test("ignores a catalog older than the max age", async () => {
+    // Pin the clock relative to the write: elapsed wall time between the write and
+    // the read must not decide the assertion.
+    const writtenAt = Date.now();
     await writeCachedGatewayResponse(FIRST_PAGE_URL, {
       [FIRST_PAGE_URL]: gatewayPage(1_000_000),
     });
 
     const laterThanMaxAge = await readCachedGatewayResponse(FIRST_PAGE_URL, {
-      now: () => Date.now() + GATEWAY_CACHE_MAX_AGE_MS + 1,
+      now: () => writtenAt + GATEWAY_CACHE_MAX_AGE_MS + 60_000,
     });
 
     expect(laterThanMaxAge).toBeNull();
   });
 
   test("still serves a catalog within the max age", async () => {
+    const writtenAt = Date.now();
     await writeCachedGatewayResponse(FIRST_PAGE_URL, {
       [FIRST_PAGE_URL]: gatewayPage(1_000_000),
     });
 
     const withinMaxAge = await readCachedGatewayResponse(FIRST_PAGE_URL, {
-      now: () => Date.now() + GATEWAY_CACHE_MAX_AGE_MS - 1,
+      now: () => writtenAt + GATEWAY_CACHE_MAX_AGE_MS - 60_000,
     });
 
     expect(withinMaxAge?.pages[FIRST_PAGE_URL]).toEqual(gatewayPage(1_000_000));

@@ -461,9 +461,19 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // line is joined here instead of spread across the spawn vector. The repo
     // joins the same line for node-pty in terminal.ts for the same reason.
     //
-    // The probe path is quoted so the spaces mkdtemp's Temp directory carries
-    // survive cmd's tokenizer; `/s` strips only the outer quotes, and this line
-    // starts with the bare harness name, so the quoted path is left intact.
+    // The probe path is passed UNQUOTED, and that is load-bearing in both
+    // directions.
+    //
+    // Quoting it does not work: cmd does not strip quotes when handing `%*` to
+    // the child, so node receives `"C:\...\probe.js"` and looks for a module
+    // whose name contains quote characters — `Cannot find module
+    // 'D:\...\"C:\...\probe.js"'`. That was the last failing run.
+    //
+    // Not quoting it works because mkdtemp's Windows temp path has no spaces:
+    // GitHub runners use 8.3 short names, so the path arrives as
+    // `C:\Users\RUNNER~1\AppData\Local\Temp\paseo-shim-test-XXXX\probe.js`. A
+    // space would need quoting that cmd would then forward, which is why the
+    // runner's short names are load-bearing here rather than incidental.
     const commandLine = [harness, ...args].join(" ");
     const result = spawnSync(cmdExePath(), ["/d", "/s", "/c", commandLine], {
       encoding: "utf8",
@@ -496,7 +506,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("hands OpenCode parseable JSON, settling how set treats inner quotes", () => {
     const { testPath, probeScript, read } = stageShim("opencode");
-    const result = spawnShim("opencode", testPath, {}, [`"${probeScript}"`]);
+    const result = spawnShim("opencode", testPath, {}, [probeScript]);
     // A shim that never launched the binary, or launched one that failed, is
     // not a pass. Asserting the marker first means the JSON below is read from
     // a run that actually reached the stand-in.
@@ -518,7 +528,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("reaches the real binary instead of resolving to itself", () => {
     const { testPath, probeScript, read } = stageShim("claude");
-    const result = spawnShim("claude", testPath, {}, [`"${probeScript}"`]);
+    const result = spawnShim("claude", testPath, {}, [probeScript]);
     // The marker only prints from the stand-in, so its absence means the shim
     // ended at its own `goto :eof` instead of launching.
     expect(read("trap"), "shim never reached its launch line").toBe("TRAP_SIM_REACHED");
@@ -532,7 +542,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
     // PATH with no System32 in it. The decoy dirs exist to be lost, so this
     // fails when they do.
     const { testPath, keepDir, probeScript, read } = stageShim("claude");
-    spawnShim("claude", testPath, {}, [`"${probeScript}"`]);
+    spawnShim("claude", testPath, {}, [probeScript]);
 
     const handedDown = read("path");
     // The shim's own directory is gone, so the wrapper cannot recurse.
@@ -545,7 +555,7 @@ describe.skipIf(process.platform !== "win32")("generated cmd shim behavior", () 
 
   it("passes a key-only Codex terminal through untouched", () => {
     const { testPath, probeScript, read } = stageShim("codex");
-    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" }, [`"${probeScript}"`]);
+    spawnShim("codex", testPath, { OPENAI_API_KEY: "sk-mine" }, [probeScript]);
     // The endpoint must not be repointed at the gateway.
     expect(read("base")).toBe("");
   });

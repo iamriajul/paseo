@@ -148,6 +148,7 @@ import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import { TaskStore } from "./tasks/task-store.js";
 import { UiStateStore } from "./ui-state/store.js";
+import { withTimeout } from "../utils/promise-timeout.js";
 import {
   createPaseoToolCatalog,
   createPaseoAgentToolManifest,
@@ -261,6 +262,16 @@ import { ManagedPluginSources } from "./plugins/managed-source.js";
 
 const MCP_DEBUG_BATCH_LIMIT = 10;
 const MCP_DEBUG_SECRET = "[redacted]";
+
+/**
+ * How long boot waits for provider catalogs before resuming agents anyway.
+ *
+ * A missing provider binary is the common slow case, and the catalog only has to be
+ * warm before auto-resume fires. Two seconds covers a same-network gateway on a cold
+ * start; anything slower resumes against a partial catalog, which is degraded but
+ * never blocked.
+ */
+const BOOT_CATALOG_WARMUP_TIMEOUT_MS = 2_000;
 const DOWNLOAD_OPEN_FLAGS =
   process.platform === "win32" ? constants.O_RDONLY : constants.O_RDONLY | constants.O_NOFOLLOW;
 

@@ -640,6 +640,11 @@ export async function restoreFinishNotifications(
   // listener sees nothing else in the meantime.
   for (const record of records) {
     if (record.archivedAt || record.internal) continue;
+    // A child that is already finished will never emit again, so a watch on it
+    // can only leak — and with no live snapshot `allowUnloadedChild` would keep
+    // it alive forever. Closing is terminal, so nothing is lost by skipping.
+    if (record.lastStatus === "closed") continue;
+    if (agentManager.getAgent(record.id)?.lifecycle === "closed") continue;
     const parentAgentId = getParentAgentIdFromLabels(record.labels);
     // A parent that is itself gone (archived, internal, or never created)
     // cannot receive a notification, so arming the subscription would only leak

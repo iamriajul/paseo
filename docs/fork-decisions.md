@@ -401,6 +401,7 @@ The fix is in `setupFinishNotification`, not in the restore. Its closing guard t
 ```bash
 grep -q 'restoreFinishNotifications' packages/server/src/server/agent/agent-prompt.ts packages/server/src/server/agent/agent-auto-resume.ts
 grep -q 'allowUnloadedChild' packages/server/src/server/agent/agent-prompt.ts
+grep -q 'record.lastStatus === "closed"' packages/server/src/server/agent/agent-prompt.ts
 npx vitest run packages/server/src/server/agent/agent-prompt.test.ts --bail=1
 ```
 

@@ -776,7 +776,7 @@ test("waiting for a run start still gives up at the run start budget", async () 
 interface RestoreScenario {
   /** Make the child live, the way AgentManager does when it finishes loading. */
   loadChild(): void;
-  runChildThenIdle(): void;
+  runChildThenIdle(): Promise<void>;
   parentPrompts(): string[];
   restore(): Promise<number>;
   liveSubscriberCount(): number;
@@ -788,7 +788,7 @@ interface RestoreScenario {
  * load, arm, child finishes, parent is actually prompted — not a spy on the
  * arming step alone.
  */
-function createRestoreScenario(): RestoreScenario {
+function createRestoreScenario(options?: { childLastStatus?: string }): RestoreScenario {
   const logger = createTestLogger();
   const agentManager = new AgentManager({ clients: {}, logger });
   const parentPrompts: string[] = [];
@@ -824,11 +824,12 @@ function createRestoreScenario(): RestoreScenario {
 
   const agentStorage: AgentStorage = Object.create(AgentStorage.prototype);
   Reflect.set(agentStorage, "list", async () => [
-    { id: "parent-agent", archivedAt: null, internal: false, labels: {} },
+    { id: "parent-agent", archivedAt: null, internal: false, labels: {}, lastStatus: "idle" },
     {
       id: "child-agent",
       archivedAt: null,
       internal: false,
+      lastStatus: options?.childLastStatus ?? "running",
       labels: { "paseo.parent-agent-id": "parent-agent" },
     },
   ]);
@@ -873,6 +874,15 @@ function createRestoreScenario(): RestoreScenario {
     liveSubscriberCount: () => subscribers.length,
   };
 }
+
+test("the restore arms no watch for a child that was already closed", async () => {
+  // A stored-closed child has no live snapshot, so allowUnloadedChild would
+  // otherwise keep its listener alive forever with nothing that can ever fire.
+  const scenario = createRestoreScenario({ childLastStatus: "closed" });
+
+  expect(await scenario.restore()).toBe(0);
+  expect(scenario.liveSubscriberCount()).toBe(0);
+});
 
 test("a restored parent is notified when its child finishes after a restart", async () => {
   const scenario = createRestoreScenario();

@@ -400,6 +400,10 @@ export const en = {
       withTokens: "Context compacted ({{tokens}}K tokens)",
       completed: "Context compacted",
     },
+    resume: {
+      poweredOff: "Resumed after an unexpected shutdown",
+      manual: "Resumed",
+    },
   },
   importSession: {
     title: "Import session",

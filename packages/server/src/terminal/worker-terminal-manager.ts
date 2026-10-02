@@ -15,6 +15,7 @@ import type {
   TerminalStateSnapshot,
 } from "./terminal.js";
 import type { CaptureTerminalLinesResult } from "./terminal-capture.js";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 import type {
   TerminalActivityListener,
   TerminalActivityTransitionEvent,
@@ -93,6 +94,9 @@ interface WorkerTerminalManagerOptions {
   requestTimeoutMs?: number;
   forkWorker?: () => TerminalWorkerProcess;
   getTerminalActivityUrl?: () => string | null;
+  resolveGatewayRouting?: () => TerminalGatewayRouting;
+  /** Reports a routing failure that was swallowed so a terminal could still open. */
+  onGatewayRoutingError?: (error: unknown) => void;
 }
 
 function createActivityToken(): string {
@@ -685,6 +689,16 @@ export function createWorkerTerminalManager(
       const terminalId = options.id ?? randomUUID();
       const activityToken = createActivityToken();
       const terminalActivityUrl = managerOptions.getTerminalActivityUrl?.() ?? null;
+      // Resolved here, in the parent, because writing the shims is a filesystem
+      // side effect the worker should not own. Failing open: gateway routing
+      // decorates a terminal, and an unwritable $PASEO_HOME should cost the
+      // user their routing, not the terminal itself.
+      let gatewayRouting: TerminalGatewayRouting | undefined;
+      try {
+        gatewayRouting = managerOptions.resolveGatewayRouting?.();
+      } catch (error) {
+        managerOptions.onGatewayRoutingError?.(error);
+      }
       terminalActivityTokenById.set(terminalId, activityToken);
       let result: {
         terminal: RequiredWorkerTerminalInfo;
@@ -698,6 +712,7 @@ export function createWorkerTerminalManager(
             id: terminalId,
             activityToken,
             activityUrl: terminalActivityUrl,
+            ...(gatewayRouting ? { gatewayRouting } : {}),
           },
         })) as {
           terminal: RequiredWorkerTerminalInfo;

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { createExternalProcessEnv } from "../server/paseo-env.js";
 import { writePrivateFileAtomicSync } from "../server/private-files.js";
 import { findExecutable } from "../executable-resolution/executable-resolution.js";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 import type { TerminalCell, TerminalState } from "@getpaseo/protocol/messages";
 import { TerminalInputModeTracker } from "@getpaseo/protocol/terminal-input-mode";
 import { TerminalActivityTracker } from "./activity/terminal-activity-tracker.js";
@@ -128,6 +129,13 @@ export interface CreateTerminalOptions {
   title?: string;
   command?: string;
   args?: string[];
+  /**
+   * CLIProxyAPI routing for harness invocations, resolved per create.
+   *
+   * Terminal-only. The agent path already injects gateway env for Paseo-managed
+   * agents, so a shim here must never leak into provider env.
+   */
+  gatewayRouting?: TerminalGatewayRouting;
 }
 
 function toTerminalActivity(snapshot: {
@@ -159,6 +167,14 @@ interface BuildTerminalEnvironmentInput {
   zshShellIntegrationDir?: string;
   paseoCliBinDir?: string | null;
   paseoHookCliPath?: string | null;
+  /** Gateway shims to put on PATH. Written by the caller, per terminal. */
+  harnessShimDirectory?: string | null;
+  /**
+   * Gateway env for harnesses the shims do not cover (OMP).
+   *
+   * Applied under `env` so `registerCwdEnv` and per-create env still win.
+   */
+  gatewayEnv?: Record<string, string>;
 }
 
 interface EnsureNodePtySpawnHelperExecutableOptions {
@@ -492,12 +508,20 @@ function prepareZshShellIntegrationRuntimeDir(sourceDir = resolveZshShellIntegra
 export function buildTerminalEnvironment(
   input: BuildTerminalEnvironmentInput,
 ): Record<string, string> {
-  const baseEnv: Record<string, string> = createExternalProcessEnv(process.env, input.env, {
-    TERM: "xterm-256color",
-    TERM_PROGRAM: "kitty",
-  });
+  // gatewayEnv sits below input.env on purpose: a workspace's own routing,
+  // registered through registerCwdEnv, must not be overridden by the gateway.
+  const baseEnv: Record<string, string> = createExternalProcessEnv(
+    process.env,
+    input.gatewayEnv ?? {},
+    input.env,
+    {
+      TERM: "xterm-256color",
+      TERM_PROGRAM: "kitty",
+    },
+  );
+  const envWithShims = prependHarnessShimsToPath(baseEnv, input.harnessShimDirectory);
   const envWithAgentHooks = prependPaseoCliToPath(
-    baseEnv,
+    envWithShims,
     input.paseoCliBinDir === undefined ? resolvePaseoCliBinDir() : input.paseoCliBinDir,
   );
   const envWithHookCli = injectPaseoHookCli(
@@ -549,6 +573,27 @@ function prependPaseoCliToPath(
 
 function getPathEnvKey(env: Record<string, string>): string {
   return Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+}
+
+/**
+ * Put the harness shims ahead of the real binaries on PATH.
+ *
+ * Ahead, so a typed `claude` lands on the shim. The shim then removes this
+ * directory again before exec'ing the real binary, so nothing else in the shell
+ * observes the change.
+ */
+function prependHarnessShimsToPath(
+  env: Record<string, string>,
+  shimDirectory: string | null | undefined,
+): Record<string, string> {
+  if (!shimDirectory) {
+    return env;
+  }
+  const pathKey = getPathEnvKey(env);
+  return {
+    ...env,
+    [pathKey]: prependPathEntry(env[pathKey] ?? "", shimDirectory),
+  };
 }
 
 function prependPathEntry(currentPath: string, entry: string): string {
@@ -895,6 +940,7 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
     title: presetTitle,
     command,
     args = [],
+    gatewayRouting,
   } = options;
   const resolvedShell = shell ?? resolveDefaultTerminalShell();
 
@@ -953,6 +999,12 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
         ...activityEnv,
         PASEO_WORKSPACE_ID: workspaceId,
       },
+      ...(gatewayRouting
+        ? {
+            harnessShimDirectory: gatewayRouting.shimDirectory,
+            gatewayEnv: gatewayRouting.env,
+          }
+        : {}),
     }),
   });
 

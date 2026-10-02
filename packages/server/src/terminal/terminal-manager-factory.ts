@@ -1,8 +1,11 @@
-import type { TerminalManager } from "./terminal-manager.js";
+import type { TerminalManager, TerminalManagerOptions } from "./terminal-manager.js";
 import { createWorkerTerminalManager } from "./worker-terminal-manager.js";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 
-export interface ConfiguredTerminalManagerOptions {
-  getTerminalActivityUrl?: () => string | null;
+export interface ConfiguredTerminalManagerOptions extends TerminalManagerOptions {
+  resolveGatewayRouting?: () => TerminalGatewayRouting;
+  /** Reports a routing failure that was swallowed so a terminal could still open. */
+  onGatewayRoutingError?: (error: unknown) => void;
 }
 
 export function createConfiguredTerminalManager(

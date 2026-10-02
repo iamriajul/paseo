@@ -8,6 +8,7 @@ import type {
 import type { TerminalState } from "@getpaseo/protocol/messages";
 import type { TerminalActivity, TerminalActivityState } from "@getpaseo/protocol/terminal-activity";
 import type { CaptureTerminalLinesResult } from "./terminal-capture.js";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 
 export interface WorkerTerminalInfo {
   id: string;
@@ -31,6 +32,13 @@ export interface WorkerCreateTerminalOptions {
   cols?: number;
   activityToken?: string;
   activityUrl?: string | null;
+  /**
+   * Resolved in the parent and shipped to the worker, because the shims are
+   * written to disk here. `env.apiKey` therefore crosses the worker IPC
+   * boundary; the channel is local and the key is already in this process's
+   * env and on disk under `$PASEO_HOME`.
+   */
+  gatewayRouting?: TerminalGatewayRouting;
 }
 
 export interface WorkerKillAndWaitOptions {

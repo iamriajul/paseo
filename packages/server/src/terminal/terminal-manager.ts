@@ -1,5 +1,6 @@
 import {
   createTerminal,
+  type CreateTerminalOptions,
   type TerminalActivityTransition,
   type TerminalSession,
   type TerminalStateSnapshot,
@@ -11,6 +12,7 @@ import { resolve, sep } from "node:path";
 import { assertAbsolutePath, isSameOrDescendantPath } from "../server/path-utils.js";
 import type { TerminalActivity, TerminalActivityState } from "@getpaseo/protocol/terminal-activity";
 import { deriveTerminalActivityStatusBucket } from "@getpaseo/protocol/terminal-activity";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 
 export interface TerminalListItem {
   id: string;
@@ -95,10 +97,74 @@ export interface TerminalManager {
 
 export interface TerminalManagerOptions {
   getTerminalActivityUrl?: () => string | null;
+  /**
+   * Resolves CLIProxyAPI routing for a terminal being created.
+   *
+   * Called per create rather than once at boot so a gateway edit reaches new
+   * terminals without a daemon restart, and so a terminal created in a workspace
+   * that supplies its own env can be routed differently from one that does not.
+   */
+  resolveGatewayRouting?: () => TerminalGatewayRouting;
 }
 
 function createActivityToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+interface CreateTerminalRequest {
+  id?: string;
+  cwd: string;
+  workspaceId: string;
+  name?: string;
+  title?: string;
+  env?: Record<string, string>;
+  command?: string;
+  args?: string[];
+  rows?: number;
+  cols?: number;
+  activityToken?: string;
+  activityUrl?: string | null;
+  /**
+   * Pre-resolved routing. Set by the parent when this manager runs behind a
+   * worker; resolveGatewayRouting covers the in-process case.
+   */
+  gatewayRouting?: TerminalGatewayRouting;
+}
+
+/**
+ * Fold the manager's per-create state into the options `createTerminal` takes.
+ *
+ * Split out to keep `createTerminal` readable; every branch here is the same
+ * "omit the key when the caller did not ask for it" shape.
+ */
+function buildCreateTerminalOptions(input: {
+  options: CreateTerminalRequest;
+  terminalId: string;
+  defaultName: string;
+  activityToken: string;
+  activityUrl: string | null;
+  mergedEnv: Record<string, string> | undefined;
+  gatewayRouting: TerminalGatewayRouting | undefined;
+}): CreateTerminalOptions {
+  const { options } = input;
+  return {
+    id: input.terminalId,
+    cwd: options.cwd,
+    workspaceId: options.workspaceId,
+    name: options.name ?? input.defaultName,
+    ...(options.title ? { title: options.title } : {}),
+    ...(options.command ? { command: options.command } : {}),
+    ...(options.args ? { args: options.args } : {}),
+    ...(options.rows !== undefined ? { rows: options.rows } : {}),
+    ...(options.cols !== undefined ? { cols: options.cols } : {}),
+    ...(input.mergedEnv ? { env: input.mergedEnv } : {}),
+    ...(input.gatewayRouting ? { gatewayRouting: input.gatewayRouting } : {}),
+    activityEnv: {
+      PASEO_TERMINAL_ID: input.terminalId,
+      PASEO_ACTIVITY_TOKEN: input.activityToken,
+      ...(input.activityUrl ? { PASEO_TERMINAL_ACTIVITY_URL: input.activityUrl } : {}),
+    },
+  };
 }
 
 export function createTerminalManager(
@@ -308,20 +374,7 @@ export function createTerminalManager(
       return sessions;
     },
 
-    async createTerminal(options: {
-      id?: string;
-      cwd: string;
-      workspaceId: string;
-      name?: string;
-      title?: string;
-      env?: Record<string, string>;
-      command?: string;
-      args?: string[];
-      rows?: number;
-      cols?: number;
-      activityToken?: string;
-      activityUrl?: string | null;
-    }): Promise<TerminalSession> {
+    async createTerminal(options: CreateTerminalRequest): Promise<TerminalSession> {
       assertAbsolutePath(options.cwd);
 
       const terminals = terminalsByCwd.get(options.cwd) ?? [];
@@ -335,28 +388,23 @@ export function createTerminalManager(
         options.activityUrl === undefined
           ? (managerOptions.getTerminalActivityUrl?.() ?? null)
           : options.activityUrl;
-      const activityEnv = {
-        PASEO_TERMINAL_ID: terminalId,
-        PASEO_ACTIVITY_TOKEN: activityToken,
-        ...(terminalActivityUrl ? { PASEO_TERMINAL_ACTIVITY_URL: terminalActivityUrl } : {}),
-      };
       terminalActivityTokenById.set(terminalId, activityToken);
       let session: TerminalSession;
       try {
         session = registerSession(
-          await createTerminal({
-            id: terminalId,
-            cwd: options.cwd,
-            workspaceId: options.workspaceId,
-            name: options.name ?? defaultName,
-            ...(options.title ? { title: options.title } : {}),
-            ...(options.command ? { command: options.command } : {}),
-            ...(options.args ? { args: options.args } : {}),
-            ...(options.rows !== undefined ? { rows: options.rows } : {}),
-            ...(options.cols !== undefined ? { cols: options.cols } : {}),
-            ...(mergedEnv ? { env: mergedEnv } : {}),
-            activityEnv,
-          }),
+          await createTerminal(
+            buildCreateTerminalOptions({
+              options,
+              terminalId,
+              defaultName,
+              activityToken,
+              activityUrl: terminalActivityUrl,
+              mergedEnv,
+              // An explicit routing wins: the parent resolves it before shipping
+              // the request across the worker boundary.
+              gatewayRouting: options.gatewayRouting ?? managerOptions.resolveGatewayRouting?.(),
+            }),
+          ),
         );
       } catch (error) {
         terminalActivityTokenById.delete(terminalId);

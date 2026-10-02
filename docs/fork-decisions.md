@@ -654,9 +654,9 @@ npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/
 
 ## gateway-latest-request
 
-**CLIProxyAPI last-request stats in the context-meter tooltip, fetched on hover only**
+**CLIProxyAPI last-request stats in the context-meter tooltip, polled while it is open**
 
-The `cliproxyapi.stats.get` RPC (gated on `server_info.features.cliproxyapiStats`) reads `/v1/last-request-stats`, and the meter's tooltip renders a "CLIProxyAPI latest request" table next to quota: first token and generating above a rule, then the derived total, throughput, and age. It fetches on open and refetches on every re-open, with no interval: the value describes the _last_ request, so polling would keep asserting a rate for work that stopped. A missing route, an unrun model, and a bad key all hide the section. CLIProxyAPI renamed the route from `/v1/last-request-tps` to `/v1/last-request-stats` in v8.0.902 with the body unchanged and the old path dropped. Because the feature shipped unreleased, Paseo also renamed its own RPC from `cliproxyapi.tps.get` to `cliproxyapi.stats.get` rather than carry a wire alias forever for a name that was never public.
+The `cliproxyapi.stats.get` RPC (gated on `server_info.features.cliproxyapiStats`) reads `/v1/last-request-stats`, and the meter's tooltip renders a "CLIProxyAPI latest request" table next to quota: first token and generating above a rule, then the derived total, throughput, and age. It polls every 3s while the tooltip is open and stops with it, so someone watching throughput sees it move without a closed tooltip costing anything. A missing route, an unrun model, and a bad key all hide the section. CLIProxyAPI renamed the route from `/v1/last-request-tps` to `/v1/last-request-stats` in v8.0.902 with the body unchanged and the old path dropped. Because the feature shipped unreleased, Paseo also renamed its own RPC from `cliproxyapi.tps.get` to `cliproxyapi.stats.get` rather than carry a wire alias forever for a name that was never public.
 
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/stats.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
@@ -671,6 +671,18 @@ cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+```
+
+## cliproxyapi-terminal-tui-routing
+
+**terminal tabs route harnesses through CLIProxyAPI, via generated shims**
+
+A terminal tab launches harnesses as ordinary child processes, so the agent path never injects gateway routing there. Paseo writes `claude`, `codex`, and `opencode` shims into a shim directory under `$PASEO_HOME` (`harness-shims`, or `cmd-shims` on Windows where the wrappers are `.cmd`) and prepends that directory to terminal PATH; OMP reads `LITELLM_*` from env and needs no shim. Env alone would not do: Codex only accepts its `model_providers` map from argv, and injected env would put three gateway credentials in front of every unrelated process in the shell. Shims are rewritten per terminal create, so a gateway edit reaches new terminals without a daemon restart. `PASEO_CLIPROXYAPI_DISABLE_SHIM=1` bypasses one invocation. Terminal-only by construction — the shim directory never reaches provider env, where the agent path already injects the same routing.
+
+What a terminal gets is routing, not the full launch contract. A Claude terminal receives the endpoint and key only: Claude asks `/v1/models` for a model's id and description, so a Gateway model is one it does not recognise and runs at its 200k default no matter what the Gateway advertises. The agent path sets the window because it knows the model before launch; a TUI session picks afterwards. `ANTHROPIC_CUSTOM_MODEL_OPTION_*` and the Fable naming are likewise agent-path only. Do not read the shims as parity with the agent path — Codex and OpenCode terminals do reach their advertised limits, Claude does not.
+
+```bash
+npx vitest run packages/server/src/terminal/harness-shims.test.ts packages/server/src/terminal/harness-shim-writer.test.ts packages/server/src/terminal/harness-routing.test.ts packages/server/src/terminal/worker-terminal-manager.test.ts --bail=1
 ```
 
 ## gateway-codex-catalog-shape

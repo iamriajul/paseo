@@ -184,7 +184,11 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
     paddingRight: theme.spacing[2],
   },
-
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
   trailingAction: {
     minWidth: 28,
     minHeight: 28,

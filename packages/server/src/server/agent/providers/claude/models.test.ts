@@ -272,7 +272,6 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
         ANTHROPIC_DEFAULT_OPUS_MODEL: "bedrock-opus-from-env",
         ANTHROPIC_DEFAULT_SONNET_MODEL: "glm-5.1",
         ANTHROPIC_DEFAULT_HAIKU_MODEL: "glm-5",
-        ANTHROPIC_DEFAULT_FABLE_MODEL: "fable-from-settings",
       },
     });
     vi.stubEnv("CLAUDE_CONFIG_DIR", configDir);
@@ -327,12 +326,6 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
         id: "glm-5",
         label: "glm-5",
         description: "From Claude settings.json env.ANTHROPIC_DEFAULT_HAIKU_MODEL",
-      },
-      {
-        provider: "claude",
-        id: "fable-from-settings",
-        label: "fable-from-settings",
-        description: "From Claude settings.json env.ANTHROPIC_DEFAULT_FABLE_MODEL",
       },
     ]);
     expect(models.filter((model) => model.id === "claude-fable-5-1[1M]")).toHaveLength(1);

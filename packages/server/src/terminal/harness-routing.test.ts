@@ -69,10 +69,22 @@ describe("terminal gateway routing", () => {
   });
 
   it("adds no PATH entry and no env without a gateway", () => {
-    const env = spawnEnv({ paseoHome: makeHome(), gateway: null });
-    expect(env.LITELLM_BASE_URL).toBeUndefined();
-    const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
-    expect(env[pathKey]).not.toContain("harness-shims");
+    // buildTerminalEnvironment inherits the daemon's own process env, so a dev
+    // machine running behind CLIProxyAPI would leak LITELLM_* into every
+    // spawnEnv here. Drop it to observe only what a null gateway contributes.
+    const savedBaseUrl = process.env.LITELLM_BASE_URL;
+    const savedApiKey = process.env.LITELLM_API_KEY;
+    delete process.env.LITELLM_BASE_URL;
+    delete process.env.LITELLM_API_KEY;
+    try {
+      const env = spawnEnv({ paseoHome: makeHome(), gateway: null });
+      expect(env.LITELLM_BASE_URL).toBeUndefined();
+      const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+      expect(env[pathKey]).not.toContain("harness-shims");
+    } finally {
+      if (savedBaseUrl !== undefined) process.env.LITELLM_BASE_URL = savedBaseUrl;
+      if (savedApiKey !== undefined) process.env.LITELLM_API_KEY = savedApiKey;
+    }
   });
 
   it("leaves a workspace's own routing env in charge", () => {

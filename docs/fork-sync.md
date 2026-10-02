@@ -84,6 +84,15 @@ Regenerate it locally and commit the result as its own card:
 ./scripts/update-nix.sh
 ```
 
+Regenerate on a machine whose npm talks to the public registry. If your npm
+routes through a proxy or mirror, `npm install` bakes its URLs into every
+freshly fetched `resolved` entry and every CI install dies on unresolvable
+hosts. Check before committing:
+
+```bash
+grep -c "artifact-keeper\|cluster.local" package-lock.json   # must print 0
+```
+
 Do not wait for the `Nix Update Hash` workflow to fix it on first push: it runs after the sync lands and commits with `[skip ci]`. Regenerate the hash locally so the sync PR itself is green, and let the workflow cover later lockfile drift. See the `nix-update-hash-github-token` decision in [fork-decisions.md](fork-decisions.md) for why the job uses `GITHUB_TOKEN` instead of upstream's GitHub App credentials.
 
 ## What not to do

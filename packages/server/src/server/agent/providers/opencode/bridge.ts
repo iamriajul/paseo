@@ -152,6 +152,7 @@ export class OpenCodeBridge {
       baseUrl: this.requireBaseUrl(),
       token: this.token,
     });
+  }
   /**
    * Gateway rows for the injected provider's models map. Cached briefly so
    * dedicated-server spawns do not refetch per session; stale rows survive a

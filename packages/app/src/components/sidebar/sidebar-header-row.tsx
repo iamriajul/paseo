@@ -212,7 +212,11 @@ const styles = StyleSheet.create((theme) => ({
   shortcut: {
     marginLeft: "auto",
   },
-
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
   trailingAction: {
     minWidth: 28,
     minHeight: 28,

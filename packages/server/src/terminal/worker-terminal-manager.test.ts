@@ -970,3 +970,50 @@ it("removes a killed worker terminal from terminalExit without duplicate snapsho
     },
   ]);
 });
+
+it("opens a terminal unrouted when resolving gateway routing throws", async () => {
+  // Gateway routing decorates a terminal. An unwritable $PASEO_HOME must cost
+  // the user their routing, not the terminal, so the failure is swallowed and
+  // reported rather than propagated out of createTerminal.
+  const worker = new FakeTerminalWorker();
+  const routingErrors: unknown[] = [];
+  manager = createWorkerTerminalManager({
+    forkWorker: () => worker,
+    resolveGatewayRouting: () => {
+      throw new Error("ENOSPC: no space left on device");
+    },
+    onGatewayRoutingError: (error) => routingErrors.push(error),
+  });
+
+  const cwd = mkdtempSync(join(tmpdir(), "worker-terminal-manager-routing-"));
+  const createPromise = manager.createTerminal({ cwd, workspaceId: "ws-test" });
+  const createMessage = worker.sentMessages.find(
+    (message): message is Extract<typeof message, { type: "createTerminal" }> =>
+      message.type === "createTerminal",
+  );
+  // Assert the request the parent actually shipped, before answering it: the
+  // routing must be absent rather than half-built.
+  expect(createMessage?.options.gatewayRouting).toBeUndefined();
+
+  const terminalId = createMessage?.options.id;
+  expect(terminalId).toBeTruthy();
+  worker.emitWorkerMessage({
+    type: "response",
+    requestId: createMessage!.requestId,
+    ok: true,
+    result: {
+      terminal: {
+        id: terminalId!,
+        name: "Terminal",
+        cwd,
+        workspaceId: "ws-test",
+        activity: { state: "idle", changedAt: 0 },
+      },
+      state: createTerminalState(),
+    },
+  });
+
+  const session = await createPromise;
+  expect(session).toBeDefined();
+  expect(routingErrors).toHaveLength(1);
+});

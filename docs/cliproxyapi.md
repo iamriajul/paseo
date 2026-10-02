@@ -79,11 +79,48 @@ The context-meter tooltip shows a "CLIProxyAPI latest request" section beside th
 
 The section is a label/value table: first token, generating, then — below a rule — the derived total, throughput, and how long ago the request ran. The rule separates what the Gateway measured from what Paseo computes from it, which is how the reader sees that throughput is computed over generation time alone and not the total.
 
-It is read on hover only — no interval. Opening the tooltip fetches, and every re-open fetches again, because the figure describes the _last_ request: a polled one would keep asserting a rate for something that stopped happening.
+It is read only while the tooltip is open, polled every 3s (`GATEWAY_STATS_POLL_MS`). Opening the tooltip starts the poll and closing it stops the interval with it, so a closed tooltip costs nothing. The poll exists because a throughput figure someone is watching should visibly move; the section is still scoped to the _last_ request rather than an aggregate, so the numbers re-render to the same model on every tick and a model that stops being served stops producing new rows.
 
 Everything that is not a usable 200 record — a model that has not run, a provider that is not CLIProxyAPI-routed, a Gateway build without the route — hides the section. There is no in-body empty state to distinguish those cases, so they render identically.
 
 The route was `/v1/last-request-tps` through CLIProxyAPI v8.0.901 and became `/v1/last-request-stats` in v8.0.902 — it reports more than throughput. The body is unchanged and the old path is not served, so a Gateway older than v8.0.902 answers 404 for both names. Assume the route is absent until you have probed the Gateway you run: the Gateway reachable while this shipped answered 401 on `/v1/quota` and an empty 404 here.
+
+## Terminal tabs
+
+The table above covers Paseo-managed agents. A terminal tab runs the harness as an ordinary child process, so the agent path injects nothing there. With a Gateway configured, Paseo writes three shims into a shim directory under `$PASEO_HOME` — `harness-shims`, or `cmd-shims` on Windows where the wrappers are `.cmd` — and puts that directory on terminal PATH:
+
+| Harness  | Shim applies                                                                                 | Opt-out                                                |
+| -------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Claude   | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` | terminal `ANTHROPIC_*`, or a settings.json `env` block |
+| Codex    | `OPENAI_*` plus a `model_providers.cliproxyapi` map, which Codex only accepts from argv      | terminal `OPENAI_BASE_URL` or `OPENAI_API_KEY`         |
+| OpenCode | `OPENCODE_CONFIG_CONTENT` with a `provider` map carrying the `cliproxyapi` record            | terminal `OPENCODE_CONFIG_CONTENT`                     |
+| OMP      | none — `LITELLM_BASE_URL` / `LITELLM_API_KEY` go straight into the terminal env              | terminal `LITELLM_*` env                               |
+
+The opt-out is all-or-nothing per harness: a shim either injects its whole env and argv or none of it. Partially applying one would strand a terminal's own credentials against the gateway's endpoint — a codex terminal exporting its own `OPENAI_API_KEY` would keep that key while its endpoint was rerouted. A terminal that already routes a harness keeps doing so, which is the terminal-side spelling of the agent path's rules above.
+
+Shims rather than plain env, for two reasons. Codex only reads `model_providers` from argv, so env cannot route it at all; and injected env would put three gateway credentials in front of every unrelated process in the shell. The shim removes its own directory from PATH before exec'ing the real binary, so only the harness invocation sees the injection — and because that strip uses `$0`, a shim reached by bare name (`claude`, as typed in a terminal) resolves past itself correctly.
+
+`PASEO_CLIPROXYAPI_DISABLE_SHIM=1` runs one invocation against the real binary with nothing injected:
+
+```bash
+PASEO_CLIPROXYAPI_DISABLE_SHIM=1 claude
+```
+
+Shims are rewritten on every terminal create, so editing `agents.cliproxyapi` reaches new terminals without a daemon restart. Already-open terminals keep the gateway they started with.
+
+**Claude's settings.json wins.** An `env` block in `~/.claude/settings.json` overrides the shim, because the harness applies it after inheriting process env. The shim is a default, not an override: it helps when no file conflicts, and does nothing when one does. If you set `ANTHROPIC_BASE_URL` there, terminal Claude keeps using it — which is usually what you want, and is the same reason the file-based route is left alone.
+
+`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` is an undocumented internal flag (verified against the binary, not a published contract). It makes Claude read `/v1/models` at `[Bootstrap]` so the TUI model picker lists Gateway slugs. If a future Claude release drops it, terminal model discovery regresses and the shim's env becomes inert; the rest of the routing still works.
+
+**A Claude terminal gets the endpoint and the key, and nothing else.** No context window, no output limit, no per-model capability metadata — the shim cannot supply them, because Claude only asks `/v1/models` for a model's id and description and treats anything it does not recognise as a 200k model. The agent path can set the window because it knows the model before launch; a TUI session picks the model afterwards, and Claude reads no per-model window from a Gateway. So a Gateway model with a 1M window still runs at 200k in a terminal, and `CLAUDE_CODE_MAX_CONTEXT_TOKENS` does not change that on its own — Claude reads it only under `DISABLE_COMPACT`. Expect this to stay until Claude grows a surface for it.
+
+OpenCode's shim sets `OPENCODE_CONFIG_CONTENT` to a config document whose `provider` map carries the `cliproxyapi` record. The wrapper is load-bearing: OpenCode deep-merges its config sources in order, keyed on the schema's top-level names, so a bare `{cliproxyapi: …}` has no `provider` key to merge into and the provider never registers. A document that does carry `provider` joins the user's existing map instead of replacing it, which is why the shim can route OpenCode without touching the user's config files.
+
+That merge runs after the user's config files, so a `provider.cliproxyapi` written in `opencode.json` loses to the shim's record — the reverse of the agent path, where the user's record wins. Exporting `OPENCODE_CONFIG_CONTENT` in the terminal is the way to keep yours.
+
+The shim registers the provider with an empty `models` map. The agent path populates the live catalog; a terminal session gets the provider but picks its model from OpenCode's own picker.
+
+Resolving routing writes the shims to disk, so it can fail — an unwritable `$PASEO_HOME`, a full disk. Terminal creation catches that and opens the terminal without routing, logging a warning. A terminal that loses its gateway is recoverable; a terminal that will not open is not.
 
 ## Out of scope
 

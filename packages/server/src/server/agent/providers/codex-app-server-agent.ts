@@ -5492,7 +5492,7 @@ export class CodexAppServerAgentSession implements AgentSession {
       Object.assign(
         innerConfig,
         codexConfigForModel(
-          this.deps.customCodexConfig,
+          { ...this.deps.customCodexConfig },
           this.config.model,
           this.deps.cliproxyapiAdvertisedIds,
         ),

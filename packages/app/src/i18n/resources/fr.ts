@@ -1862,6 +1862,26 @@ export const fr: TranslationResources = {
       unmute: "Réactiver la voix en temps réel",
       stop: "Arrêtez la voix en temps réel et interrompez le tour",
     },
+
+    inputMode: {
+      always: "Toujours à l’écoute",
+      pushToTalk: "Appuyer pour parler",
+    },
+    pushToTalk: {
+      transmit: "Maintenir pour parler",
+      holdMobile: "Maintenez le micro pour parler",
+      holdDesktop: "Maintenez {{keys}} pour parler",
+      holdDesktopFallback: "Maintenez Espace pour parler",
+    },
+  },
+  readAloud: {
+    play: "Lire à voix haute",
+    playRewritten: "Lire à voix haute, reformulé pour la parole",
+    stop: "Arrêter la lecture à voix haute",
+    rewriting: "Reformulation pour la parole…",
+    errors: {
+      failed: "Lecture à voix haute impossible",
+    },
   },
   rewind: {
     tooltip: "Revenez à ce message",

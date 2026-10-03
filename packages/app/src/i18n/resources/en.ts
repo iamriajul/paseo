@@ -1834,6 +1834,25 @@ export const en = {
       unmute: "Unmute realtime voice",
       stop: "Stop realtime voice and interrupt turn",
     },
+    inputMode: {
+      always: "Always listening",
+      pushToTalk: "Push to talk",
+    },
+    pushToTalk: {
+      transmit: "Hold to talk",
+      holdMobile: "Hold the mic to talk",
+      holdDesktop: "Hold {{keys}} to talk",
+      holdDesktopFallback: "Hold Space to talk",
+    },
+  },
+  readAloud: {
+    play: "Read aloud",
+    playRewritten: "Read aloud, rewritten for speech",
+    stop: "Stop reading aloud",
+    rewriting: "Rewriting for speech…",
+    errors: {
+      failed: "Couldn't read this aloud",
+    },
   },
   rewind: {
     tooltip: "Rewind to this message",

@@ -1918,6 +1918,59 @@ test("sends and parses daemon config reload", async () => {
     overrideControlledPaths: [],
   });
 });
+test("gates speech rewrite on the daemon capability", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  await expect(
+    client.rewriteTextForSpeech("hello", { requestId: "rewrite-old-host" }),
+  ).rejects.toThrow("Update the host to rewrite text for speech.");
+  expect(mock.sent).toEqual([]);
+});
+
+test("sends and parses a speech rewrite", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen({ features: { voiceReadAloudRewrite: true } });
+  await connectPromise;
+
+  const response = client.rewriteTextForSpeech("hello **world**", { requestId: "rewrite-1" });
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "voice.read_aloud.rewrite.request",
+    text: "hello **world**",
+    requestId: "rewrite-1",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "voice.read_aloud.rewrite.response",
+      payload: { requestId: "rewrite-1", rewrittenText: "hello world", error: null },
+    }),
+  );
+
+  await expect(response).resolves.toEqual({
+    requestId: "rewrite-1",
+    rewrittenText: "hello world",
+    error: null,
+  });
+});
 
 test("gets a structured plugin log snapshot", async () => {
   const mock = createMockTransport();

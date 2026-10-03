@@ -1873,6 +1873,26 @@ export const zhCN: TranslationResources = {
       unmute: "取消静音 realtime voice",
       stop: "停止 realtime voice 并中断 turn",
     },
+
+    inputMode: {
+      always: "始终聆听",
+      pushToTalk: "按住说话",
+    },
+    pushToTalk: {
+      transmit: "按住说话",
+      holdMobile: "按住麦克风说话",
+      holdDesktop: "按住{{keys}}说话",
+      holdDesktopFallback: "按住空格说话",
+    },
+  },
+  readAloud: {
+    play: "朗读",
+    playRewritten: "改写为口语后朗读",
+    stop: "停止朗读",
+    rewriting: "正在改写为口语…",
+    errors: {
+      failed: "无法朗读",
+    },
   },
   rewind: {
     tooltip: "回退到此消息",

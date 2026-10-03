@@ -1905,6 +1905,26 @@ export const ko: TranslationResources = {
       unmute: "실시간 음성 음소거 해제",
       stop: "실시간 음성 중지 및 턴 중단",
     },
+
+    inputMode: {
+      always: "항상 듣기",
+      pushToTalk: "눌러서 말하기",
+    },
+    pushToTalk: {
+      transmit: "길게 눌러 말하기",
+      holdMobile: "마이크를 길게 눌러 말하세요",
+      holdDesktop: "{{keys}}를 길게 눌러 말하세요",
+      holdDesktopFallback: "스페이스를 길게 눌러 말하세요",
+    },
+  },
+  readAloud: {
+    play: "소리 내어 읽기",
+    playRewritten: "말하기용으로 다듬어 읽기",
+    stop: "소리 내어 읽기 중지",
+    rewriting: "말하기용으로 다듬는 중…",
+    errors: {
+      failed: "소리 내어 읽지 못했습니다",
+    },
   },
   rewind: {
     tooltip: "이 메시지로 되감기",

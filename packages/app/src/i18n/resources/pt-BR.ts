@@ -1925,6 +1925,26 @@ export const ptBR: TranslationResources = {
       unmute: "Ativar voz em tempo real",
       stop: "Parar voz em tempo real e interromper a resposta",
     },
+
+    inputMode: {
+      always: "Sempre ouvindo",
+      pushToTalk: "Aperte para falar",
+    },
+    pushToTalk: {
+      transmit: "Segure para falar",
+      holdMobile: "Segure o microfone para falar",
+      holdDesktop: "Segure {{keys}} para falar",
+      holdDesktopFallback: "Segure Espaço para falar",
+    },
+  },
+  readAloud: {
+    play: "Ler em voz alta",
+    playRewritten: "Ler em voz alta, reescrito para fala",
+    stop: "Parar leitura em voz alta",
+    rewriting: "Reescrevendo para fala…",
+    errors: {
+      failed: "Não foi possível ler em voz alta",
+    },
   },
   rewind: {
     tooltip: "Voltar para esta mensagem",

@@ -1915,6 +1915,26 @@ export const ja: TranslationResources = {
       unmute: "リアルタイム音声のミュートを解除",
       stop: "リアルタイム音声を停止してターンを中断",
     },
+
+    inputMode: {
+      always: "常時リスニング",
+      pushToTalk: "プッシュで話す",
+    },
+    pushToTalk: {
+      transmit: "長押しで話す",
+      holdMobile: "マイクを長押しして話す",
+      holdDesktop: "{{keys}}を長押しして話す",
+      holdDesktopFallback: "Spaceを長押しして話す",
+    },
+  },
+  readAloud: {
+    play: "読み上げる",
+    playRewritten: "話し言葉に整えて読み上げる",
+    stop: "読み上げを停止",
+    rewriting: "話し言葉に整えています…",
+    errors: {
+      failed: "読み上げできませんでした",
+    },
   },
   rewind: {
     tooltip: "このメッセージに巻き戻す",

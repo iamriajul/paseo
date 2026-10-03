@@ -117,6 +117,8 @@ import {
   type MarkdownCopyInlineTag,
 } from "@/assistant-selection-copy/markup";
 import { capAssistantMessageForRender, getUtf8ByteLength } from "./assistant-message-render-limit";
+import { ReadAloudButton, ReadAloudButtons } from "@/components/read-aloud-buttons";
+import { useHostFeature } from "@/runtime/host-features";
 export type { InlinePathTarget } from "@/assistant-file-links";
 export type { AssistantForkTarget };
 
@@ -168,7 +170,6 @@ const MARKDOWN_ALLOWED_IMAGE_HANDLERS = [
 ] as const;
 const MARKDOWN_TOP_LEVEL_MAX_EXCEEDED_ITEM = <Text key="dotdotdot">...</Text>;
 
-const ThemedMicVocal = withUnistyles(MicVocal);
 const ThemedFileSymlinkIcon = withUnistyles(FileSymlink);
 const ThemedTriangleAlertIcon = withUnistyles(TriangleAlertIcon);
 const ThemedChevronRightIcon = withUnistyles(ChevronRight);
@@ -786,6 +787,13 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     fontStyle: "italic",
     color: theme.colors.foregroundMuted,
+  },
+  readAloudRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    marginTop: theme.spacing[2],
+    minHeight: 24,
   },
   imageFrame: {
     width: "100%",
@@ -2025,34 +2033,111 @@ export const AssistantMessage = memo(function AssistantMessage({
           {t("agentStream.messageCapped", { bytes: fullMessageByteLength })}
         </Text>
       ) : null}
+      {phase === "complete" && message.trim() ? (
+        <AssistantReadAloudRow text={message} serverId={serverId} client={client} />
+      ) : null}
     </View>
   );
 });
+
+function AssistantReadAloudRow({
+  text,
+  serverId,
+  client,
+}: {
+  text: string;
+  serverId?: string;
+  client?: DaemonClient | null;
+}) {
+  const supportsRewrite = useHostFeature(serverId, "voiceReadAloudRewrite");
+  const [hovered, setHovered] = useState(false);
+  const handlePointerEnter = useCallback(() => setHovered(true), []);
+  const handlePointerLeave = useCallback(() => setHovered(false), []);
+  const isCompact = useIsCompactFormFactor();
+  return (
+    <View
+      style={assistantMessageStylesheet.readAloudRow}
+      onPointerEnter={isWeb ? handlePointerEnter : undefined}
+      onPointerLeave={isWeb ? handlePointerLeave : undefined}
+    >
+      <ReadAloudButtons
+        text={text}
+        client={client}
+        supportsRewrite={supportsRewrite}
+        visible={hovered || isNative || isCompact}
+      />
+    </View>
+  );
+}
 
 interface SpeakMessageProps {
   message: string;
   timestamp: number;
   disableOuterSpacing?: boolean;
+  isLastInSequence?: boolean;
 }
 
+function stopEventPropagation(event: GestureResponderEvent): void {
+  event.stopPropagation?.();
+}
+
+function getSpeakPreview(message: string): string {
+  const firstLine = message.split("\n", 1)[0] ?? "";
+  return firstLine.trim();
+}
+
+export const SpeakMessage = memo(function SpeakMessage({
+  message,
+  timestamp: _timestamp,
+  disableOuterSpacing,
+  isLastInSequence = false,
+}: SpeakMessageProps) {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const preview = useMemo(() => getSpeakPreview(message), [message]);
+  const handleToggle = useCallback(() => setIsExpanded((prev) => !prev), []);
+  const renderDetails = useCallback(
+    () => (
+      <View style={speakMessageStylesheet.detailContent}>
+        <MarkdownRenderer text={message} enableHtmlish={false} />
+      </View>
+    ),
+    [message],
+  );
+  const renderTrailing = useCallback(
+    () => (
+      <Pressable onPress={stopEventPropagation} style={speakMessageStylesheet.replaySlot}>
+        <ReadAloudButton text={message} kind="raw" supportsRewrite={false} visible />
+      </Pressable>
+    ),
+    [message],
+  );
+
+  return (
+    <ExpandableBadge
+      testID="speak-message"
+      label={t("message.speak.header")}
+      secondaryLabel={preview}
+      icon={MicVocal}
+      isExpanded={isExpanded}
+      onToggle={handleToggle}
+      renderDetails={renderDetails}
+      renderTrailing={renderTrailing}
+      isLastInSequence={isLastInSequence}
+      disableOuterSpacing={disableOuterSpacing}
+    />
+  );
+});
+
 const speakMessageStylesheet = StyleSheet.create((theme) => ({
-  container: {
-    paddingVertical: theme.spacing[3],
+  detailContent: {
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
   },
-  containerSpacing: {
-    marginBottom: theme.spacing[4],
-  },
-  header: {
-    flexDirection: "row",
+  replaySlot: {
+    flexShrink: 0,
     alignItems: "center",
-    gap: theme.spacing[2],
-    marginBottom: theme.spacing[2],
-  },
-  headerLabel: {
-    fontFamily: theme.fontFamily.ui,
-    fontSize: theme.fontSize.base,
-    fontWeight: theme.fontWeight.normal,
-    color: theme.colors.foregroundMuted,
+    justifyContent: "center",
   },
   text: {
     fontFamily: theme.fontFamily.ui,
@@ -2061,32 +2146,6 @@ const speakMessageStylesheet = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
   },
 }));
-
-export const SpeakMessage = memo(function SpeakMessage({
-  message,
-  timestamp: _timestamp,
-  disableOuterSpacing,
-}: SpeakMessageProps) {
-  const { t } = useTranslation();
-  const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
-  const containerStyle = useMemo(
-    () => [
-      speakMessageStylesheet.container,
-      !resolvedDisableOuterSpacing && speakMessageStylesheet.containerSpacing,
-    ],
-    [resolvedDisableOuterSpacing],
-  );
-
-  return (
-    <View testID="speak-message" style={containerStyle}>
-      <View style={speakMessageStylesheet.header}>
-        <ThemedMicVocal size={12} uniProps={foregroundMutedColorMapping} />
-        <Text style={speakMessageStylesheet.headerLabel}>{t("message.speak.header")}</Text>
-      </View>
-      <Text style={speakMessageStylesheet.text}>{message}</Text>
-    </View>
-  );
-});
 
 interface NotificationProps {
   level: "info" | "warning" | "error";
@@ -2380,6 +2439,7 @@ interface ExpandableBadgeProps {
   onOpenFile?: () => void;
   onDetailHoverChange?: (hovered: boolean) => void;
   renderDetails?: () => ReactNode;
+  renderTrailing?: () => ReactNode;
   isLoading?: boolean;
   isError?: boolean;
   isLastInSequence?: boolean;
@@ -2743,6 +2803,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   onOpenFile,
   onDetailHoverChange,
   renderDetails,
+  renderTrailing,
   isLoading = false,
   isError = false,
   isLastInSequence = false,
@@ -3042,6 +3103,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
             onOpenFileHoverIn={handleOpenFileHoverIn}
             onOpenFileHoverOut={handleOpenFileHoverOut}
           />
+          {renderTrailing?.()}
         </View>
       </Pressable>
       {detailContent ? (
@@ -3074,6 +3136,7 @@ function areExpandableBadgePropsEqual(previous: ExpandableBadgeProps, next: Expa
   if (previous.onOpenFile !== next.onOpenFile) return false;
   if (previous.onDetailHoverChange !== next.onDetailHoverChange) return false;
   if (previous.renderDetails !== next.renderDetails) return false;
+  if (previous.renderTrailing !== next.renderTrailing) return false;
   return true;
 }
 

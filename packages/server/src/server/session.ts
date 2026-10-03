@@ -130,7 +130,11 @@ import { parsePluginClientId } from "./plugins/plugin-session-identity.js";
 import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
 import { buildAgentPrompt } from "./agent/prompt-attachments.js";
 import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
-import { listMetadataOpenAIModels } from "./agent/metadata-openai-client.js";
+import {
+  isMetadataCustomEndpointReady,
+  listMetadataOpenAIModels,
+} from "./agent/metadata-openai-client.js";
+import { rewriteWithCustomEndpoint } from "./session/voice/voice-read-aloud-rewrite.js";
 import { lookupModelsDevModel } from "./models-dev/catalog.js";
 import {
   getAgentStreamEventTurnId,
@@ -1713,6 +1717,73 @@ export class Session {
     });
   }
 
+  private async handleVoiceReadAloudRewriteRequest(
+    msg: Extract<SessionInboundMessage, { type: "voice.read_aloud.rewrite.request" }>,
+  ): Promise<void> {
+    const endpoint = this.daemonConfigStore.get().metadataGeneration.customEndpoint;
+    if (!isMetadataCustomEndpointReady(endpoint)) {
+      this.emit({
+        type: "voice.read_aloud.rewrite.response",
+        payload: {
+          requestId: msg.requestId,
+          rewrittenText: null,
+          error: {
+            code: "endpoint_not_configured",
+            message: "Custom metadata endpoint is not configured",
+          },
+        },
+      });
+      return;
+    }
+    if (!msg.text.trim()) {
+      this.emit({
+        type: "voice.read_aloud.rewrite.response",
+        payload: {
+          requestId: msg.requestId,
+          rewrittenText: null,
+          error: { code: "empty_text", message: "Text must not be empty" },
+        },
+      });
+      return;
+    }
+    try {
+      const result = await rewriteWithCustomEndpoint({ text: msg.text, endpoint });
+      if ("error" in result) {
+        this.emit({
+          type: "voice.read_aloud.rewrite.response",
+          payload: {
+            requestId: msg.requestId,
+            rewrittenText: null,
+            error: {
+              code:
+                result.error.code === "endpoint_not_configured"
+                  ? "endpoint_not_configured"
+                  : "rewrite_failed",
+              message: result.error.message,
+            },
+          },
+        });
+        return;
+      }
+      this.emit({
+        type: "voice.read_aloud.rewrite.response",
+        payload: { requestId: msg.requestId, rewrittenText: result.rewrittenText, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "voice.read_aloud.rewrite.response",
+        payload: {
+          requestId: msg.requestId,
+          rewrittenText: null,
+          error: {
+            code: "rewrite_failed",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+      });
+    }
+  }
+
   public getRuntimeMetrics(): SessionRuntimeMetrics {
     const terminalMetrics = this.terminalController.getMetrics();
     const workspaceGitMetrics = this.workspaceGitObserver.getMetrics();
@@ -3073,6 +3144,8 @@ export class Session {
     switch (msg.type) {
       case "metadataGeneration.customEndpoint.listModels.request":
         return this.handleMetadataCustomEndpointListModelsRequest(msg);
+      case "voice.read_aloud.rewrite.request":
+        return this.handleVoiceReadAloudRewriteRequest(msg);
       case "models.dev.lookup_model.request":
         return this.handleModelsDevLookupModelRequest(msg);
       default:

@@ -1940,6 +1940,26 @@ export const es: TranslationResources = {
       unmute: "Activar voz en tiempo real",
       stop: "Detener la voz en tiempo real e interrumpir el turno.",
     },
+
+    inputMode: {
+      always: "Escucha siempre",
+      pushToTalk: "Pulsar para hablar",
+    },
+    pushToTalk: {
+      transmit: "Mantén para hablar",
+      holdMobile: "Mantén el micrófono para hablar",
+      holdDesktop: "Mantén {{keys}} para hablar",
+      holdDesktopFallback: "Mantén Espacio para hablar",
+    },
+  },
+  readAloud: {
+    play: "Leer en voz alta",
+    playRewritten: "Leer en voz alta, reescrito para voz",
+    stop: "Dejar de leer en voz alta",
+    rewriting: "Reescribiendo para voz…",
+    errors: {
+      failed: "No se pudo leer en voz alta",
+    },
   },
   rewind: {
     tooltip: "Rebobinar a este mensaje",

@@ -23,6 +23,7 @@ import {
   type SidebarStatusSubtitle,
 } from "@/components/sidebar/display-preferences/workspace-subtitle";
 import { isNative } from "@/constants/platform";
+import type { VoiceInputMode } from "@/voice/voice-input-mode";
 import {
   DEFAULT_CONTENT_MAX_WIDTH,
   FONT_SIZE,
@@ -45,7 +46,7 @@ export type PullRequestOpenLocation = "main" | "side" | "explorer";
 /** What a sidebar workspace row shows in the space to the right of its title. */
 export type SidebarWorkspaceTrailing = "diff" | "timestamp" | "none";
 export type ToolCallDetailLevel = "overview" | "detailed";
-
+export type { VoiceInputMode };
 /** Curated attention chimes for agent/terminal interrupts. Default soft. */
 export type AttentionSoundPreset =
   | "soft"
@@ -142,6 +143,7 @@ export interface AppSettings {
   autoExpandReasoning: boolean;
   toolCallDetailLevel: ToolCallDetailLevel;
   chatOutlineEnabled: boolean;
+  voiceInputMode: VoiceInputMode;
   vimKeybindings: boolean;
   /** When true, unfocused attention focuses Paseo and opens the target. Default off. */
   attentionIntrusiveMode: boolean;
@@ -209,6 +211,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   autoExpandReasoning: false,
   toolCallDetailLevel: "detailed",
   chatOutlineEnabled: true,
+  voiceInputMode: "always",
   vimKeybindings: false,
   attentionIntrusiveMode: false,
   attentionOsBubbleEnabled: true,
@@ -318,6 +321,7 @@ const StoredAppSettingsSchema = z
     // COMPAT(compactToolCalls): migrated in v0.1.105, remove after 2027-01-12.
     compactToolCalls: z.boolean().optional().catch(undefined),
     chatOutlineEnabled: z.boolean().catch(true),
+    voiceInputMode: z.enum(["always", "pushToTalk"]).catch("always"),
     vimKeybindings: z.boolean().catch(false),
     attentionIntrusiveMode: z.boolean().catch(false),
     attentionOsBubbleEnabled: z.boolean().catch(true),

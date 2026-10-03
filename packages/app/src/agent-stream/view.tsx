@@ -1005,7 +1005,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             data.detail.input.trim()
           ) {
             return (
-              <SpeakMessage message={data.detail.input} timestamp={item.timestamp.getTime()} />
+              <SpeakMessage
+                message={data.detail.input}
+                timestamp={item.timestamp.getTime()}
+                isLastInSequence={isLastInSequence}
+              />
             );
           }
 

@@ -714,3 +714,18 @@ Discovery was lazy, so `autoResumeRunningAgents` ran at boot with an empty catal
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/http-response-cache.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
 ```
+
+## voice-read-aloud-push-to-talk
+
+**replayable Speak history rows, read-aloud on any message, push-to-talk voice input**
+
+Speak tool calls render as collapsed badges (mic icon + "Spoke" + first-line preview, markdown on expand) with a replay button; every completed assistant message gets raw + sparkle-rewrite read-aloud buttons via on-device TTS, the rewrite going through `voice.read_aloud.rewrite` on the custom metadata endpoint only. Voice mode gains a persisted Always / Push-to-talk toggle with client-side transmit gating (chunks dropped unless transmitting, release commits the utterance via `voice_audio_chunk.isLast` + `commitUtterance`).
+
+```bash
+npx vitest run packages/protocol/src/messages.voice-read-aloud-rewrite.test.ts --bail=1
+npx vitest run packages/server/src/server/session/voice/voice-read-aloud-rewrite.test.ts packages/server/src/server/session/voice/voice-turn-controller.test.ts packages/server/src/server/session/voice/voice-session.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/components/read-aloud-buttons.test.ts src/voice/read-aloud-player.test.ts src/voice/read-aloud-voice.test.ts src/voice/voice-runtime.test.ts --bail=1
+grep -q "voice.read_aloud.rewrite.request" packages/protocol/src/messages.ts
+grep -q "commitUtterance" packages/server/src/server/session/voice/voice-turn-controller.ts
+grep -q "pushToTalk" packages/app/src/voice/voice-runtime.ts
+```

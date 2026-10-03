@@ -144,8 +144,9 @@ function isValidCatalogModel(value: unknown): boolean {
 
 /**
  * Normalizes a raw model record to ensure it contains all required fields of
- * Codex's `ModelInfo` serde struct, setting `context_window` and `max_context_window`
- * to the full advertised capacity and enabling 100% effective context window for 1M+ models.
+ * Codex's `ModelInfo` serde struct, keeping `context_window` at the advertised
+ * working window and `max_context_window` as the ceiling above it, and enabling
+ * 100% effective context window for 1M+ models.
  *
  * Gateway-discovered rows only carry a subset (`slug`, `display_name`,
  * `supported_reasoning_levels: [{ effort }]` without `description`, and
@@ -239,9 +240,10 @@ export interface BuildCodexCatalogOptions {
 
 /**
  * Build a merged model catalog combining bundled models and Gateway-discovered models.
- * Gateway models take precedence on slug collision and have their full context window preserved.
- * Bundled models with higher `max_context_window` (such as `gpt-5.4` at 1M) have their `context_window`
- * expanded so they are not constrained to the 272k default.
+ * Gateway models take precedence on slug collision and have their advertised context
+ * window preserved. Each model keeps the working window Codex advertises for it; a
+ * larger `max_context_window` stays a ceiling rather than becoming the window, so a
+ * bundled model is not lifted past the limit its account is entitled to.
  */
 export function buildCodexCatalog(options: BuildCodexCatalogOptions): {
   models: Array<Record<string, unknown>>;

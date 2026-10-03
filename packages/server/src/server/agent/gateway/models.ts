@@ -383,10 +383,10 @@ function mapGatewayCodexModelRow(value: unknown): GatewayCodexModelRow | null {
   const description = trimNonEmpty(value.description);
   const rawContext = readFiniteNumber(value.context_window);
   const rawMaxContext = readFiniteNumber(value.max_context_window);
-  const contextWindow =
-    rawContext !== undefined || rawMaxContext !== undefined
-      ? Math.max(rawContext ?? 0, rawMaxContext ?? 0)
-      : undefined;
+  // Prefer the advertised working window over the long-context ceiling; see
+  // resolveCatalogWindowLimits in codex-catalog.ts for why the max is not the
+  // window a session gets.
+  const contextWindow = rawContext ?? rawMaxContext;
   const defaultReasoningEffort = trimNonEmpty(value.default_reasoning_level);
 
   return {

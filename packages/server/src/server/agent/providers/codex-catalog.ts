@@ -55,10 +55,12 @@ function resolveCatalogWindowLimits(record: Record<string, unknown>): {
 } {
   const rawContext = readFinitePositiveNumber(record.context_window);
   const rawMaxContext = readFinitePositiveNumber(record.max_context_window);
-  const contextWindow =
-    rawMaxContext !== undefined || rawContext !== undefined
-      ? Math.max(rawContext ?? 0, rawMaxContext ?? 0)
-      : CODEX_FALLBACK_DEFAULT_CONTEXT_WINDOW;
+  // `context_window` is the window a session actually gets; `max_context_window`
+  // is the ceiling a long-context entitlement can raise it to. Codex advertises
+  // e.g. gpt-6 as 272k/872k, so taking the max here hands every session the
+  // unentitled ceiling and delays auto-compact past the real limit. Fall back to
+  // the ceiling only when no working window was advertised at all.
+  const contextWindow = rawContext ?? rawMaxContext ?? CODEX_FALLBACK_DEFAULT_CONTEXT_WINDOW;
   const maxContextWindow = Math.max(rawMaxContext ?? 0, contextWindow);
   const effectivePercent =
     contextWindow >= CODEX_LONG_CONTEXT_WINDOW_THRESHOLD

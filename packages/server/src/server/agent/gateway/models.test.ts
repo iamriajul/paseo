@@ -124,7 +124,7 @@ describe("fetchGatewayCodexModels", () => {
     await expect(fetchGatewayCodexModels({ ...base, fetchImpl: badShape })).resolves.toEqual([]);
   });
 
-  test("uses max_context_window when larger than context_window and invokes onRawModels", async () => {
+  test("prefers context_window over a larger max_context_window and invokes onRawModels", async () => {
     const rawModels: unknown[] = [];
     const fetchImpl = vi.fn(async () =>
       codexResponse([
@@ -145,12 +145,34 @@ describe("fetchGatewayCodexModels", () => {
       {
         slug: "gpt-5.4",
         displayName: "GPT 5.4",
-        contextWindow: 1_000_000,
+        contextWindow: 272_000,
         supportedReasoningEfforts: [],
         hidden: false,
       },
     ]);
     expect(rawModels).toHaveLength(1);
     expect((rawModels[0] as { slug: string }).slug).toBe("gpt-5.4");
+  });
+
+  test("falls back to max_context_window when context_window is absent", async () => {
+    const fetchImpl = vi.fn(async () =>
+      codexResponse([
+        {
+          slug: "gateway-1m",
+          display_name: "Gateway 1M",
+          max_context_window: 1_000_000,
+        },
+      ]),
+    );
+    const rows = await fetchGatewayCodexModels({ ...base, fetchImpl });
+    expect(rows).toEqual([
+      {
+        slug: "gateway-1m",
+        displayName: "Gateway 1M",
+        contextWindow: 1_000_000,
+        supportedReasoningEfforts: [],
+        hidden: false,
+      },
+    ]);
   });
 });

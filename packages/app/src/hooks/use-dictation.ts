@@ -390,6 +390,71 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     ensureFinalTranscript,
   ]);
 
+  const confirmDictationForPolish = useCallback(async (): Promise<string | null> => {
+    if (actionGateRef.current.confirming) {
+      return null;
+    }
+    if (!isRecordingRef.current || isProcessingRef.current) {
+      return null;
+    }
+    const confirmAllowed = canConfirm ? canConfirm() : true;
+    if (!confirmAllowed) {
+      return null;
+    }
+
+    actionGateRef.current.confirming = true;
+    setError(null);
+    stopDurationTracking();
+    setIsProcessing(true);
+    isProcessingRef.current = true;
+
+    const attemptId = attemptGuardRef.current.next();
+
+    try {
+      await audio.stop();
+      attemptGuardRef.current.assertCurrent(attemptId);
+
+      setStatus("uploading");
+      isRecordingRef.current = false;
+      setIsRecording(false);
+
+      const finalSeq = senderRef.current?.getFinalSeq() ?? -1;
+      if (finalSeq < 0) {
+        handleStreamingTranscriptionSuccess("", generateMessageId());
+        return null;
+      }
+
+      const transcriptText = await ensureFinalTranscript(finalSeq);
+      attemptGuardRef.current.assertCurrent(attemptId);
+      const polishedSource =
+        transcriptText.trim().length > 0
+          ? transcriptText.trim()
+          : latestPartialTranscriptRef.current.trim();
+      setIsProcessing(false);
+      isProcessingRef.current = false;
+      setDuration(0);
+      setStatus("idle");
+      clearStreamingState();
+      return polishedSource || null;
+    } catch (err) {
+      if (err instanceof Error && err.name === "AttemptCancelledError") {
+        return null;
+      }
+      handleDictationFailure(err);
+      return null;
+    } finally {
+      actionGateRef.current.confirming = false;
+    }
+  }, [
+    audio,
+    canConfirm,
+    clearStreamingState,
+    handleDictationFailure,
+    handleStreamingTranscriptionSuccess,
+    stopDurationTracking,
+    ensureFinalTranscript,
+  ]);
+
   const retryFailedDictation = useCallback(async () => {
     if (!senderRef.current?.hasSegments()) {
       return;
@@ -465,6 +530,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     startDictation,
     cancelDictation,
     confirmDictation,
+    confirmDictationForPolish,
     retryFailedDictation,
     discardFailedDictation,
     reset,

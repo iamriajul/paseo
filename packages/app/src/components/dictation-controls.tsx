@@ -1,8 +1,9 @@
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useMemo } from "react";
 import { View, Text, Pressable } from "react-native";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import { X, ArrowUp, RefreshCcw, Check, Mic, Pencil } from "lucide-react-native";
+import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
+import { X, ArrowUp, RefreshCcw, Check, Mic, Pencil, Sparkles } from "lucide-react-native";
+import type { Theme } from "@/styles/theme";
 import { useTranslation } from "react-i18next";
 import { VolumeMeter } from "./volume-meter";
 import { FOOTER_HEIGHT } from "@/constants/layout";
@@ -21,6 +22,10 @@ interface DictationControlsProps {
   onAcceptAndSend: () => void;
   onRetry?: () => void;
   onDiscard?: () => void;
+  onPolish?: () => void;
+  polishAvailable?: boolean;
+  isPolishing?: boolean;
+  polishError?: string | null;
   disabled?: boolean;
 }
 
@@ -150,12 +155,17 @@ export function DictationOverlay({
   onAcceptAndSend,
   onRetry,
   onDiscard,
+  onPolish,
+  polishAvailable,
+  isPolishing,
+  polishError,
 }: Omit<DictationControlsProps, "onStart" | "disabled" | "transcript"> & { errorText?: string }) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const isFailed = status === "failed";
   const showActiveState = isRecording || isProcessing || isFailed;
-  const actionsDisabled = isProcessing;
+  const showPolishAction = Boolean(polishAvailable && onPolish);
+  const actionsDisabled = isProcessing || isPolishing === true;
   const handleCancel = isFailed && onDiscard ? onDiscard : onCancel;
 
   const containerStyle = useMemo(
@@ -217,6 +227,11 @@ export function DictationOverlay({
               : t("message.dictation.failedRetry")}
           </Text>
         ) : null}
+        {polishError && !isFailed ? (
+          <Text numberOfLines={2} style={overlayTranscriptTextStyle}>
+            {polishError}
+          </Text>
+        ) : null}
       </View>
 
       <View style={overlayStyles.actionButtonsContainer}>
@@ -249,6 +264,26 @@ export function DictationOverlay({
                 strokeWidth={2.5}
               />
             </Pressable>
+            {showPolishAction ? (
+              <Pressable
+                onPress={onPolish}
+                accessibilityRole="button"
+                accessibilityLabel={t("message.dictation.polish")}
+                style={[overlayStyles.actionButton, OVERLAY_ACCEPT_BUTTON_BG]}
+                testID="dictation-polish"
+              >
+                <View style={overlayStyles.sparkleBadge}>
+                  <Pencil
+                    size={theme.iconSize.lg}
+                    color={theme.colors.accentForeground}
+                    strokeWidth={2.5}
+                  />
+                  <View style={overlayStyles.sparkleOverlay}>
+                    <ThemedSparklesIcon size={12} uniProps={sparklesColorMapping} />
+                  </View>
+                </View>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={onAcceptAndSend}
               accessibilityRole="button"
@@ -399,6 +434,19 @@ const overlayStyles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
+  sparkleBadge: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sparkleOverlay: {
+    position: "absolute",
+    top: -6,
+    right: -8,
+  },
 }));
 
 const OVERLAY_ACCEPT_BUTTON_BG = { backgroundColor: "rgba(255, 255, 255, 0.25)" };
+
+const ThemedSparklesIcon = withUnistyles(Sparkles);
+const sparklesColorMapping = (theme: Theme) => ({ color: theme.colors.accentForeground });

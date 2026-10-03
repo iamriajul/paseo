@@ -753,6 +753,16 @@ export class VoiceSession {
     });
   }
 
+  private async forwardVoiceModeChunk(
+    msg: Extract<SessionInboundMessage, { type: "voice_audio_chunk" }>,
+    chunkFormat: string,
+  ): Promise<void> {
+    await this.forwardAudioChunkToVoiceTurn(msg, chunkFormat);
+    if (msg.isLast && this.voiceTurnController) {
+      await this.voiceTurnController.commitUtterance();
+    }
+  }
+
   async handleAudioChunk(
     msg: Extract<SessionInboundMessage, { type: "voice_audio_chunk" }>,
   ): Promise<void> {
@@ -765,7 +775,7 @@ export class VoiceSession {
     const chunkFormat = msg.format || "audio/wav";
 
     if (this.isVoiceMode) {
-      await this.forwardAudioChunkToVoiceTurn(msg, chunkFormat);
+      await this.forwardVoiceModeChunk(msg, chunkFormat);
       return;
     }
 

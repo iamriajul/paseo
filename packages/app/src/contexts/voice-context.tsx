@@ -17,12 +17,15 @@ import {
   type VoiceRuntimeSnapshot,
   type VoiceRuntimeTelemetrySnapshot,
 } from "@/voice/voice-runtime";
+import type { VoiceInputMode } from "@/voice/voice-input-mode";
 
 interface VoiceContextValue extends VoiceRuntimeSnapshot {
   startVoice: (serverId: string, agentId: string) => Promise<void>;
   stopVoice: () => Promise<void>;
   isVoiceModeForAgent: (serverId: string, agentId: string) => boolean;
   toggleMute: () => void;
+  setInputMode: (mode: VoiceInputMode) => void;
+  setTransmitting: (transmitting: boolean) => void;
 }
 
 const EMPTY_SNAPSHOT: VoiceRuntimeSnapshot = {
@@ -32,6 +35,8 @@ const EMPTY_SNAPSHOT: VoiceRuntimeSnapshot = {
   isMuted: false,
   activeServerId: null,
   activeAgentId: null,
+  inputMode: "always",
+  isTransmitting: false,
 };
 
 const EMPTY_TELEMETRY: VoiceRuntimeTelemetrySnapshot = {
@@ -77,6 +82,8 @@ export function useVoiceOptional(): VoiceContextValue | null {
       stopVoice: runtime.stopVoice,
       isVoiceModeForAgent: runtime.isVoiceModeForAgent,
       toggleMute: runtime.toggleMute,
+      setInputMode: runtime.setInputMode,
+      setTransmitting: runtime.setTransmitting,
     };
   }, [snapshot, runtime]);
 }

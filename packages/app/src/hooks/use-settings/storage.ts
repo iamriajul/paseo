@@ -23,6 +23,7 @@ import {
   type SidebarStatusSubtitle,
 } from "@/components/sidebar/display-preferences/workspace-subtitle";
 import { isNative } from "@/constants/platform";
+import type { VoiceInputMode } from "@/voice/voice-input-mode";
 import {
   DEFAULT_CONTENT_MAX_WIDTH,
   FONT_SIZE,
@@ -48,6 +49,7 @@ export type PullRequestOpenLocation = "main" | "side" | "explorer";
 export type SidebarWorkspaceTrailing = "diff" | "timestamp" | "none";
 /** How much of an agent's work the chat shows between the user's message and the reply. */
 export type ChatDisplay = "full" | "collapseToolCalls" | "collapseTurns";
+export type { VoiceInputMode };
 
 /** Curated attention chimes for agent/terminal interrupts. Default soft. */
 export type AttentionSoundPreset =
@@ -143,6 +145,7 @@ export interface AppSettings {
   /** Server glyph next to host identity under a workspace title. Default on. */
   sidebarIdentityIcon: boolean;
   chatOutlineEnabled: boolean;
+  voiceInputMode: VoiceInputMode;
   vimKeybindings: boolean;
   sendShortcut: SendShortcut;
   filePanelAssociations: Record<string, string>;
@@ -210,6 +213,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   sidebarStatusSubtitle: DEFAULT_SIDEBAR_STATUS_SUBTITLE,
   sidebarIdentityIcon: true,
   chatOutlineEnabled: true,
+  voiceInputMode: "always",
   vimKeybindings: false,
   sendShortcut: "enter",
   filePanelAssociations: {},
@@ -322,6 +326,7 @@ const StoredAppSettingsSchema = z
     // COMPAT(compactToolCalls): migrated in v0.1.105, remove after 2027-01-12.
     compactToolCalls: z.boolean().optional().catch(undefined),
     chatOutlineEnabled: z.boolean().catch(true),
+    voiceInputMode: z.enum(["always", "pushToTalk"]).catch("always"),
     vimKeybindings: z.boolean().catch(false),
     sendShortcut: z.enum(["enter", "mod-enter"]).catch("enter"),
     filePanelAssociations: z.record(z.string(), z.string()).catch({}),

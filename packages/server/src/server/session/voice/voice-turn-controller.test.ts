@@ -515,6 +515,50 @@ describe("voice turn controller", () => {
     }
   });
 
+  it("commits the utterance and fires onSpeechStopped exactly once on explicit commit", async () => {
+    const harness = createControllerHarness();
+
+    await harness.controller.start();
+    harness.detector.emit("speech_started");
+    await settleSerialQueue();
+
+    await harness.controller.commitUtterance();
+
+    expect(harness.sttSessions[0]?.commitCount).toBe(1);
+    expect(harness.onSpeechStopped).toHaveBeenCalledTimes(1);
+  });
+
+  it("commitUtterance is a silent no-op when never capturing", async () => {
+    const harness = createControllerHarness();
+
+    await expect(harness.controller.commitUtterance()).resolves.toBeUndefined();
+
+    await harness.controller.start();
+    await harness.controller.commitUtterance();
+    await settleSerialQueue();
+
+    expect(harness.sttSessions[0]?.commitCount).toBe(0);
+    expect(harness.onSpeechStopped).not.toHaveBeenCalled();
+    expect(harness.onSpeechStarted).not.toHaveBeenCalled();
+    expect(harness.onFinalTranscript).not.toHaveBeenCalled();
+    expect(harness.onError).not.toHaveBeenCalled();
+  });
+
+  it("does not double-fire onSpeechStopped when the detector stops after an explicit commit", async () => {
+    const harness = createControllerHarness();
+
+    await harness.controller.start();
+    harness.detector.emit("speech_started");
+    await settleSerialQueue();
+
+    await harness.controller.commitUtterance();
+    harness.detector.emit("speech_stopped");
+    await settleSerialQueue();
+
+    expect(harness.sttSessions[0]?.commitCount).toBe(1);
+    expect(harness.onSpeechStopped).toHaveBeenCalledTimes(1);
+  });
+
   it("reports STT errors and attempts one reconnect", async () => {
     const harness = createControllerHarness();
 

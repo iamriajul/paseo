@@ -62,6 +62,7 @@ export interface VoiceTurnController {
   start(): Promise<void>;
   stop(): Promise<void>;
   appendClientChunk(input: { audioBase64: string; format: string }): Promise<void>;
+  commitUtterance(): Promise<void>;
 }
 
 interface TranscriptSegmentMeta {
@@ -537,6 +538,16 @@ export function createVoiceTurnController(params: {
             handleSttError(error);
           }
         }
+      });
+    },
+
+    async commitUtterance(): Promise<void> {
+      await runSerial(async () => {
+        if (state.status !== "capturing") {
+          return;
+        }
+
+        await handleSpeechStopped();
       });
     },
   };

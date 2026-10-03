@@ -1822,7 +1822,6 @@ export const ar: TranslationResources = {
       holdMobile: "اضغط باستمرار على الميكروفون للتحدث",
       holdDesktop: "اضغط باستمرار {{keys}} للتحدث",
       holdDesktopFallback: "اضغط باستمرار مسافة للتحدث",
-      holdKey: "اضغط باستمرار للتحدث",
     },
   },
   readAloud: {

@@ -1867,7 +1867,6 @@ export const es: TranslationResources = {
       holdMobile: "Mantén el micrófono para hablar",
       holdDesktop: "Mantén {{keys}} para hablar",
       holdDesktopFallback: "Mantén Espacio para hablar",
-      holdKey: "Mantén para hablar",
     },
   },
   readAloud: {

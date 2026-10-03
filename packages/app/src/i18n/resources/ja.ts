@@ -1842,7 +1842,6 @@ export const ja: TranslationResources = {
       holdMobile: "マイクを長押しして話す",
       holdDesktop: "{{keys}}を長押しして話す",
       holdDesktopFallback: "Spaceを長押しして話す",
-      holdKey: "長押しで話す",
     },
   },
   readAloud: {

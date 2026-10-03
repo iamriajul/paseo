@@ -1843,7 +1843,6 @@ export const en = {
       holdMobile: "Hold the mic to talk",
       holdDesktop: "Hold {{keys}} to talk",
       holdDesktopFallback: "Hold Space to talk",
-      holdKey: "Hold to talk",
     },
   },
   readAloud: {

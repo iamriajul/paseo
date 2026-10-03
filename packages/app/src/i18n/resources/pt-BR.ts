@@ -1852,7 +1852,6 @@ export const ptBR: TranslationResources = {
       holdMobile: "Segure o microfone para falar",
       holdDesktop: "Segure {{keys}} para falar",
       holdDesktopFallback: "Segure Espaço para falar",
-      holdKey: "Segure para falar",
     },
   },
   readAloud: {

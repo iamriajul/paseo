@@ -1854,7 +1854,6 @@ export const ru: TranslationResources = {
       holdMobile: "Удерживайте микрофон чтобы говорить",
       holdDesktop: "Удерживайте {{keys}} чтобы говорить",
       holdDesktopFallback: "Удерживайте пробел чтобы говорить",
-      holdKey: "Удерживай чтобы говорить",
     },
   },
   readAloud: {

@@ -202,7 +202,7 @@ export function RealtimeVoiceOverlay({
             accessibilityState={transmitAccessibilityState}
             style={muteButtonStyle}
           >
-            {isMuted && !isPushToTalk ? (
+            {isMuted ? (
               <MicOff
                 size={theme.iconSize.lg}
                 color={theme.colors.palette.white}

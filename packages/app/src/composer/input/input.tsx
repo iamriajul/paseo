@@ -1272,15 +1272,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       getInputSnapshot: () =>
         getComposerInputSnapshot(textInputRef.current, valueRef.current, selectionRef.current),
       replaceText,
-      runKeyboardAction: (action) => {
-        if (
-          action === "voice-mute-toggle" &&
-          isRealtimeVoiceForCurrentAgent &&
-          voice?.inputMode === "pushToTalk"
-        ) {
-          return true;
-        }
-        return runMessageInputKeyboardAction(action, {
+      runKeyboardAction: (action) =>
+        runMessageInputKeyboardAction(action, {
           focusInput: () => textInputRef.current?.focus(),
           isDictationRecording: isDictationActive,
           markTranscriptForSend: () => {
@@ -1292,8 +1285,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           toggleRealtimeVoice: handleToggleRealtimeVoiceShortcut,
           isRealtimeVoiceActive: isRealtimeVoiceForCurrentAgent,
           toggleRealtimeVoiceMute: () => voice?.toggleMute(),
-        });
-      },
+        }),
       getNativeElement: () => (isWeb ? getTextInputNativeElement(textInputRef.current) : null),
     }));
     const sendAfterTranscriptRef = useRef(false);

@@ -1801,7 +1801,6 @@ export const zhCN: TranslationResources = {
       holdMobile: "按住麦克风说话",
       holdDesktop: "按住{{keys}}说话",
       holdDesktopFallback: "按住空格说话",
-      holdKey: "按住说话",
     },
   },
   readAloud: {

@@ -1832,7 +1832,6 @@ export const ko: TranslationResources = {
       holdMobile: "마이크를 길게 눌러 말하세요",
       holdDesktop: "{{keys}}를 길게 눌러 말하세요",
       holdDesktopFallback: "스페이스를 길게 눌러 말하세요",
-      holdKey: "길게 눌러 말하기",
     },
   },
   readAloud: {

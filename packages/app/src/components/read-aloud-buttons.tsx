@@ -4,10 +4,7 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Sparkles, Square, Volume2 } from "lucide-react-native";
 import type { Theme } from "@/styles/theme";
-import {
-  createOnDeviceReadAloudEngine,
-  resetOnDeviceReadAloudVoiceCache,
-} from "@/voice/read-aloud-engine";
+import { resetOnDeviceReadAloudVoiceCache } from "@/voice/read-aloud-engine";
 import { useReadAloudPlayer } from "@/voice/use-read-aloud-player";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 
@@ -40,10 +37,6 @@ const sparklesColorMapping = (theme: Theme) => ({ color: theme.colors.accent });
 
 const READ_ALOUD_REWRITE_TIMEOUT_MS = 30_000;
 
-function useReadAloudEngine() {
-  return useMemo(createOnDeviceReadAloudEngine, []);
-}
-
 function ReadAloudButtonIcon({ active, kind }: { active: boolean; kind: ReadAloudKind }) {
   if (active) {
     return <ThemedSquareIcon size={13} uniProps={activeColorMapping} />;
@@ -70,8 +63,7 @@ export const ReadAloudButton = memo(function ReadAloudButton({
   testID,
 }: ReadAloudButtonProps) {
   const { t } = useTranslation();
-  const engine = useReadAloudEngine();
-  const { player, snapshot } = useReadAloudPlayer(engine);
+  const { player, snapshot } = useReadAloudPlayer();
   const [rewriteError, setRewriteError] = useState<string | null>(null);
   const [isRewriting, setIsRewriting] = useState(false);
   const requestRef = useRef(0);

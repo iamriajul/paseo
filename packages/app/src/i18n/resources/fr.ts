@@ -1872,7 +1872,6 @@ export const fr: TranslationResources = {
       holdMobile: "Maintenez le micro pour parler",
       holdDesktop: "Maintenez {{keys}} pour parler",
       holdDesktopFallback: "Maintenez Espace pour parler",
-      holdKey: "Maintenir pour parler",
     },
   },
   readAloud: {

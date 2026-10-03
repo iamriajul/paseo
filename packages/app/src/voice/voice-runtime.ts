@@ -852,7 +852,14 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
 
     setInputMode(mode) {
       patchSnapshot((prev) =>
-        prev.inputMode === mode ? prev : { ...prev, inputMode: mode, isTransmitting: false },
+        prev.inputMode === mode
+          ? prev
+          : {
+              ...prev,
+              inputMode: mode,
+              isTransmitting: false,
+              isMuted: mode === "pushToTalk" ? false : prev.isMuted,
+            },
       );
     },
 

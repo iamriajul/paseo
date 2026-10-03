@@ -54,11 +54,13 @@ describe("read aloud player", () => {
     const player = createReadAloudPlayer(engine);
 
     const first = player.speakRaw("first", "key-1");
-    await engine.stop();
-    await first;
+    await Promise.resolve();
+    const stopSecond = player.stop();
     const second = player.speakRaw("second", "key-2");
+    expect(player.getSnapshot().activeKey).toBe("key-2");
     await engine.stop();
-    await second;
+    await engine.stop();
+    await Promise.all([first, stopSecond, second]);
 
     expect(engine.spoken).toEqual(["first", "second"]);
     expect(player.getSnapshot().activeKey).toBeNull();

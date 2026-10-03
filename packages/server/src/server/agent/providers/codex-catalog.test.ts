@@ -42,7 +42,7 @@ describe("normalizeCodexCatalogModel", () => {
     });
   });
 
-  test("expands context_window to max_context_window when max is larger", () => {
+  test("keeps context_window as the working window when max_context_window is a larger ceiling", () => {
     const normalized = normalizeCodexCatalogModel({
       slug: "gpt-5.4",
       display_name: "GPT 5.4",
@@ -52,6 +52,20 @@ describe("normalizeCodexCatalogModel", () => {
 
     expect(normalized).toMatchObject({
       slug: "gpt-5.4",
+      context_window: 272_000,
+      max_context_window: 1_000_000,
+      effective_context_window_percent: 95,
+    });
+  });
+
+  test("falls back to max_context_window only when context_window is absent", () => {
+    const normalized = normalizeCodexCatalogModel({
+      slug: "gateway-1m",
+      max_context_window: 1_000_000,
+    });
+
+    expect(normalized).toMatchObject({
+      slug: "gateway-1m",
       context_window: 1_000_000,
       max_context_window: 1_000_000,
       effective_context_window_percent: 100,
@@ -142,11 +156,12 @@ describe("buildCodexCatalog", () => {
 
     expect(catalog.models).toHaveLength(3);
 
-    // gpt-6-astra from bundled: context_window expanded to max_context_window 872k
+    // gpt-6-astra from bundled: 872k is the long-context ceiling, not the working window
     expect(bySlug.get("gpt-6-astra")).toMatchObject({
       slug: "gpt-6-astra",
-      context_window: 872_000,
+      context_window: 272_000,
       max_context_window: 872_000,
+      effective_context_window_percent: 95,
     });
 
     // gpt-5.4 from gateway: gateway definition wins

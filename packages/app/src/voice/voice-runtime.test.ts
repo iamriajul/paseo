@@ -565,6 +565,21 @@ describe("voice runtime", () => {
     expect(vi.mocked(adapter.sendVoiceAudioChunk).mock.calls[1]?.[2]).toBe(true);
   });
 
+  it("drops push-to-talk chunks while muted even when transmitting", async () => {
+    const adapter = createSessionAdapter();
+    const { runtime } = createRuntime();
+    runtime.registerSession(adapter);
+    await runtime.startVoice("server-1", "agent-1");
+    runtime.setInputMode("pushToTalk");
+    runtime.toggleMute();
+    expect(runtime.getSnapshot().isMuted).toBe(true);
+
+    runtime.setTransmitting(true);
+    runtime.handleCapturePcm(new Uint8Array(320));
+    expect(adapter.sendVoiceAudioChunk).not.toHaveBeenCalled();
+    expect(runtime.getSnapshot().isMuted).toBe(true);
+  });
+
   it("sends the utterance-end marker when transmit stops in push-to-talk mode", async () => {
     const adapter = createSessionAdapter();
     const { runtime } = createRuntime();

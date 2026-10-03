@@ -190,30 +190,28 @@ export function RealtimeVoiceOverlay({
         </View>
 
         <View style={styles.actionsContainer}>
-          {isPushToTalk ? null : (
-            <Pressable
-              onPress={onToggleMute}
-              disabled={isSwitching}
-              accessibilityRole="button"
-              accessibilityLabel={resolveMuteAccessibilityLabel(isMuted, t)}
-              style={muteButtonStyle}
-            >
-              {isMuted ? (
-                <MicOff
-                  size={theme.iconSize.lg}
-                  color={theme.colors.palette.white}
-                  strokeWidth={2.5}
-                />
-              ) : (
-                <Mic size={theme.iconSize.lg} color={theme.colors.foreground} strokeWidth={2.5} />
-              )}
-            </Pressable>
-          )}
+          <Pressable
+            onPress={onToggleMute}
+            disabled={isSwitching}
+            accessibilityRole="button"
+            accessibilityLabel={resolveMuteAccessibilityLabel(isMuted, t)}
+            style={muteButtonStyle}
+          >
+            {isMuted ? (
+              <MicOff
+                size={theme.iconSize.lg}
+                color={theme.colors.palette.white}
+                strokeWidth={2.5}
+              />
+            ) : (
+              <Mic size={theme.iconSize.lg} color={theme.colors.foreground} strokeWidth={2.5} />
+            )}
+          </Pressable>
           {isPushToTalk ? (
             <Pressable
               onPressIn={startTransmit}
               onPressOut={stopTransmit}
-              disabled={isSwitching || isMuted}
+              disabled={isSwitching}
               accessibilityRole="button"
               accessibilityLabel={transmitAccessibilityLabel}
               accessibilityState={transmitAccessibilityState}

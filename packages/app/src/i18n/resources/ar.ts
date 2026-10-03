@@ -1812,6 +1812,27 @@ export const ar: TranslationResources = {
       unmute: "إلغاء كتم صوت الوقت الحقيقي",
       stop: "إيقاف الصوت في الوقت الحقيقي ومقاطعة الدوران",
     },
+
+    inputMode: {
+      always: "الاستماع دائمًا",
+      pushToTalk: "اضغط للتحدث",
+    },
+    pushToTalk: {
+      transmit: "اضغط باستمرار للتحدث",
+      holdMobile: "اضغط باستمرار على الميكروفون للتحدث",
+      holdDesktop: "اضغط باستمرار {{keys}} للتحدث",
+      holdDesktopFallback: "اضغط باستمرار مسافة للتحدث",
+      holdKey: "اضغط باستمرار للتحدث",
+    },
+  },
+  readAloud: {
+    play: "قراءة بصوت عالٍ",
+    playRewritten: "قراءة بصوت عالٍ بعد إعادة الصياغة للنطق",
+    stop: "إيقاف القراءة بصوت عالٍ",
+    rewriting: "جارٍ إعادة الصياغة للنطق…",
+    errors: {
+      failed: "تعذّرت القراءة بصوت عالٍ",
+    },
   },
   rewind: {
     tooltip: "الترجيع إلى هذه الرسالة",

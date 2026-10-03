@@ -2025,6 +2025,8 @@ export class VoiceAssistantWebSocketServer {
         commitsList: true,
         // COMPAT(metadataCustomEndpoint): added 2026-07-28, remove after 2027-01-28.
         metadataCustomEndpoint: true,
+        // COMPAT(voiceReadAloudRewrite): added in v0.10.0, remove gate after 2027-04-03 once daemon floor advertises it.
+        voiceReadAloudRewrite: true,
         // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
         modelsDevLookup: true,
         // COMPAT(commitBaseClassification): added in v0.2.0, remove gate after 2027-01-23.

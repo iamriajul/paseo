@@ -347,11 +347,11 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         }
         await client.setVoiceMode(enabled, agentId);
       },
-      sendVoiceAudioChunk: async (audioData, mimeType) => {
+      sendVoiceAudioChunk: async (audioData, mimeType, isLast) => {
         if (!client) {
           throw new Error(t("common.errors.daemonUnavailable"));
         }
-        await client.sendVoiceAudioChunk(audioData, mimeType);
+        await client.sendVoiceAudioChunk(audioData, mimeType, isLast);
       },
       audioPlayed: async (chunkId) => {
         if (!client) {

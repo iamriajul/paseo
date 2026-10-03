@@ -7,7 +7,7 @@ import {
   THINKING_TONE_NATIVE_PCM_BASE64,
   THINKING_TONE_NATIVE_PCM_DURATION_MS,
 } from "@/utils/thinking-tone.native-pcm";
-
+import type { VoiceInputMode } from "@/voice/voice-input-mode";
 const PCM_MIME_TYPE = "audio/pcm;rate=16000;bits=16";
 const KEEP_AWAKE_TAG = "paseo:voice";
 const THINKING_TONE_REPEAT_GAP_MS = 350;
@@ -44,6 +44,8 @@ export interface VoiceRuntimeSnapshot {
   isMuted: boolean;
   activeServerId: string | null;
   activeAgentId: string | null;
+  inputMode: VoiceInputMode;
+  isTransmitting: boolean;
 }
 
 export interface VoiceRuntimeTelemetrySnapshot {
@@ -55,7 +57,7 @@ export interface VoiceRuntimeTelemetrySnapshot {
 export interface VoiceSessionAdapter {
   serverId: string;
   setVoiceMode(enabled: boolean, agentId?: string): Promise<void>;
-  sendVoiceAudioChunk(audioData: string, mimeType: string): Promise<void>;
+  sendVoiceAudioChunk(audioData: string, mimeType: string, isLast?: boolean): Promise<void>;
   audioPlayed(chunkId: string): Promise<void>;
   abortRequest(): Promise<void>;
   setAssistantAudioPlaying(isPlaying: boolean): void;
@@ -131,6 +133,8 @@ const INITIAL_SNAPSHOT: VoiceRuntimeSnapshot = {
   isMuted: false,
   activeServerId: null,
   activeAgentId: null,
+  inputMode: "always",
+  isTransmitting: false,
 };
 
 const INITIAL_TELEMETRY: VoiceRuntimeTelemetrySnapshot = {
@@ -148,7 +152,9 @@ function snapshotsEqual(left: VoiceRuntimeSnapshot, right: VoiceRuntimeSnapshot)
     left.isVoiceSwitching === right.isVoiceSwitching &&
     left.isMuted === right.isMuted &&
     left.activeServerId === right.activeServerId &&
-    left.activeAgentId === right.activeAgentId
+    left.activeAgentId === right.activeAgentId &&
+    left.inputMode === right.inputMode &&
+    left.isTransmitting === right.isTransmitting
   );
 }
 
@@ -177,6 +183,8 @@ export interface VoiceRuntime {
   stopVoice(): Promise<void>;
   destroy(): Promise<void>;
   toggleMute(): void;
+  setInputMode(mode: VoiceInputMode): void;
+  setTransmitting(transmitting: boolean): void;
   isVoiceModeForAgent(serverId: string, agentId: string): boolean;
   shouldPlayVoiceAudio(serverId: string): boolean;
   onAssistantAudioStarted(serverId: string): void;
@@ -514,6 +522,9 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
       ) {
         return;
       }
+      if (state.snapshot.inputMode === "pushToTalk" && !state.snapshot.isTransmitting) {
+        return;
+      }
 
       const base64 = Buffer.from(chunk).toString("base64");
 
@@ -652,8 +663,10 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
     },
 
     handleCaptureVolume(level) {
+      const gatedLevel =
+        state.snapshot.inputMode === "pushToTalk" && !state.snapshot.isTransmitting ? 0 : level;
       const nowMs = Date.now();
-      const displayLevel = state.snapshot.isMuted ? 0 : level;
+      const displayLevel = state.snapshot.isMuted ? 0 : gatedLevel;
       publishDisplayVolume(displayLevel, nowMs);
       if (!state.snapshot.isVoiceMode || state.snapshot.isMuted) {
         patchTelemetry((prev) => ({
@@ -671,20 +684,10 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
       reconcileSegmentDurationTimer();
       reconcileCue();
     },
-
     handleAudioOutput(serverId, payload) {
-      if (
-        serverId !== state.snapshot.activeServerId ||
-        !state.snapshot.isVoiceMode ||
-        !payload.isVoiceMode
-      ) {
-        return;
-      }
-
       const groupId = payload.groupId ?? payload.id;
       const chunkIndex = payload.chunkIndex ?? 0;
       const decoded = decodeAudioChunk(payload.audio);
-
       let group = playback.groups.get(groupId);
       if (!group) {
         group = {
@@ -845,6 +848,33 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
       }
 
       patchSnapshot((prev) => ({ ...prev, isMuted: false }));
+    },
+
+    setInputMode(mode) {
+      patchSnapshot((prev) =>
+        prev.inputMode === mode ? prev : { ...prev, inputMode: mode, isTransmitting: false },
+      );
+    },
+
+    setTransmitting(transmitting) {
+      const wasTransmitting = state.snapshot.isTransmitting;
+      if (wasTransmitting === transmitting) {
+        return;
+      }
+      patchSnapshot((prev) => ({ ...prev, isTransmitting: transmitting }));
+      if (!transmitting && wasTransmitting) {
+        const activeSession = getActiveSession();
+        if (
+          activeSession &&
+          state.transportReady &&
+          state.snapshot.isVoiceMode &&
+          state.snapshot.inputMode === "pushToTalk"
+        ) {
+          void activeSession.adapter.sendVoiceAudioChunk("", PCM_MIME_TYPE, true).catch((error) => {
+            console.error(`[VoiceRuntime#${instanceId}] Failed to send utterance end:`, error);
+          });
+        }
+      }
     },
 
     isVoiceModeForAgent(serverId, agentId) {

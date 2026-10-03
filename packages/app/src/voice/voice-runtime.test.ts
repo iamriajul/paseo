@@ -534,4 +534,67 @@ describe("voice runtime", () => {
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
   });
+
+  it("streams chunks in always-listening mode without transmitting", async () => {
+    const adapter = createSessionAdapter();
+    const { runtime } = createRuntime();
+    runtime.registerSession(adapter);
+    await runtime.startVoice("server-1", "agent-1");
+
+    runtime.handleCapturePcm(new Uint8Array(320));
+    expect(adapter.sendVoiceAudioChunk).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops chunks in push-to-talk mode unless transmitting", async () => {
+    const adapter = createSessionAdapter();
+    const { runtime } = createRuntime();
+    runtime.registerSession(adapter);
+    await runtime.startVoice("server-1", "agent-1");
+    runtime.setInputMode("pushToTalk");
+
+    runtime.handleCapturePcm(new Uint8Array(320));
+    expect(adapter.sendVoiceAudioChunk).not.toHaveBeenCalled();
+
+    runtime.setTransmitting(true);
+    runtime.handleCapturePcm(new Uint8Array(320));
+    expect(adapter.sendVoiceAudioChunk).toHaveBeenCalledTimes(1);
+
+    runtime.setTransmitting(false);
+    runtime.handleCapturePcm(new Uint8Array(320));
+    expect(adapter.sendVoiceAudioChunk).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(adapter.sendVoiceAudioChunk).mock.calls[1]?.[2]).toBe(true);
+  });
+
+  it("sends the utterance-end marker when transmit stops in push-to-talk mode", async () => {
+    const adapter = createSessionAdapter();
+    const { runtime } = createRuntime();
+    runtime.registerSession(adapter);
+    await runtime.startVoice("server-1", "agent-1");
+    runtime.setInputMode("pushToTalk");
+
+    runtime.setTransmitting(true);
+    runtime.handleCapturePcm(new Uint8Array(320));
+    vi.mocked(adapter.sendVoiceAudioChunk).mockClear();
+
+    runtime.setTransmitting(false);
+    await Promise.resolve();
+    expect(adapter.sendVoiceAudioChunk).toHaveBeenCalledWith(
+      "",
+      "audio/pcm;rate=16000;bits=16",
+      true,
+    );
+  });
+
+  it("flattens the volume meter when push-to-talk is idle", async () => {
+    const adapter = createSessionAdapter();
+    const { runtime } = createRuntime();
+    runtime.registerSession(adapter);
+    await runtime.startVoice("server-1", "agent-1");
+    runtime.setInputMode("pushToTalk");
+
+    runtime.handleCaptureVolume(0.9);
+    vi.useFakeTimers();
+    expect(runtime.getTelemetrySnapshot().volume).toBe(0);
+    vi.useRealTimers();
+  });
 });

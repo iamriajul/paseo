@@ -28,6 +28,7 @@ import { RealtimeVoiceOverlay } from "@/components/realtime-voice-overlay";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useSessionStore } from "@/stores/session-store";
 import { useVoiceOptional } from "@/contexts/voice-context";
+import { useSettings } from "@/hooks/use-settings";
 import { useToast } from "@/contexts/toast-context";
 import { resolveVoiceUnavailableMessage } from "@/utils/server-info-capabilities";
 import {
@@ -50,6 +51,7 @@ import { useIosHardwareKeyboardSubmit } from "@/hooks/use-ios-hardware-keyboard-
 import { formatShortcut, type ShortcutKey } from "@/utils/format-shortcut";
 import { getShortcutOs } from "@/utils/shortcut-platform";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
+import type { VoiceInputMode } from "@/voice/voice-input-mode";
 import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
 import { isWeb } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -561,6 +563,10 @@ function MessageInputOverlay({
         isMuted: boolean;
         isVoiceSwitching: boolean;
         toggleMute: () => void;
+        inputMode: VoiceInputMode;
+        isTransmitting: boolean;
+        setInputMode: (mode: VoiceInputMode) => void;
+        setTransmitting: (transmitting: boolean) => void;
       }
     | null
     | undefined;
@@ -601,6 +607,10 @@ function MessageInputOverlay({
         isSwitching={voice.isVoiceSwitching}
         onToggleMute={voice.toggleMute}
         onStop={onRealtimeVoiceStop}
+        inputMode={voice.inputMode}
+        isTransmitting={voice.isTransmitting}
+        onInputModeChange={voice.setInputMode}
+        onTransmitChange={voice.setTransmitting}
       />
     );
   }
@@ -1262,8 +1272,15 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       getInputSnapshot: () =>
         getComposerInputSnapshot(textInputRef.current, valueRef.current, selectionRef.current),
       replaceText,
-      runKeyboardAction: (action) =>
-        runMessageInputKeyboardAction(action, {
+      runKeyboardAction: (action) => {
+        if (
+          action === "voice-mute-toggle" &&
+          isRealtimeVoiceForCurrentAgent &&
+          voice?.inputMode === "pushToTalk"
+        ) {
+          return true;
+        }
+        return runMessageInputKeyboardAction(action, {
           focusInput: () => textInputRef.current?.focus(),
           isDictationRecording: isDictationActive,
           markTranscriptForSend: () => {
@@ -1275,7 +1292,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           toggleRealtimeVoice: handleToggleRealtimeVoiceShortcut,
           isRealtimeVoiceActive: isRealtimeVoiceForCurrentAgent,
           toggleRealtimeVoiceMute: () => voice?.toggleMute(),
-        }),
+        });
+      },
       getNativeElement: () => (isWeb ? getTextInputNativeElement(textInputRef.current) : null),
     }));
     const sendAfterTranscriptRef = useRef(false);
@@ -1389,6 +1407,13 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       voiceServerId,
       voiceAgentId,
     );
+    const voiceInputMode = useSettings((settings) => settings.voiceInputMode);
+    useEffect(() => {
+      if (!isRealtimeVoiceForCurrentAgent) {
+        return;
+      }
+      voice?.setInputMode(voiceInputMode);
+    }, [isRealtimeVoiceForCurrentAgent, voice, voiceInputMode]);
     const showDictationOverlay = computeShouldShowDictationOverlay(
       isDictating,
       isDictationProcessing,

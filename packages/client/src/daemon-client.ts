@@ -574,6 +574,10 @@ type GatewayStatsPayload = GatewayStatsGetResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
 type DiagnosticsPayload = DiagnosticsResponse["payload"];
+export type VoiceReadAloudRewritePayload = Extract<
+  SessionOutboundMessage,
+  { type: "voice.read_aloud.rewrite.response" }
+>["payload"];
 type ReadProjectConfigPayload = Extract<
   SessionOutboundMessage,
   { type: "read_project_config_response" }
@@ -5783,6 +5787,17 @@ export class DaemonClient {
       error: payload.error,
     };
   }
+  async rewriteTextForSpeech(
+    text: string,
+    options?: { requestId?: string; timeout?: number },
+  ): Promise<VoiceReadAloudRewritePayload> {
+    this.requireVoiceReadAloudRewriteSupport();
+    return this.sendNamespacedCorrelatedSessionRequest<"voice.read_aloud.rewrite.response">({
+      requestId: options?.requestId,
+      message: { type: "voice.read_aloud.rewrite.request", text },
+      timeout: options?.timeout ?? 30_000,
+    });
+  }
 
   async lookupModelsDevModel(
     modelId: string,
@@ -6797,6 +6812,13 @@ export class DaemonClient {
     // COMPAT(daemonConfigReload): added in v0.4.0, remove gate after 2027-02-14.
     if (this.lastServerInfoMessage?.features?.daemonConfigReload !== true) {
       throw new Error("Update the host to reload daemon configuration.");
+    }
+  }
+
+  private requireVoiceReadAloudRewriteSupport(): void {
+    // COMPAT(voiceReadAloudRewrite): added in v0.10.0, remove gate after 2027-04-03 once daemon floor advertises it.
+    if (this.lastServerInfoMessage?.features?.voiceReadAloudRewrite !== true) {
+      throw new Error("Update the host to rewrite text for speech.");
     }
   }
 

@@ -585,6 +585,24 @@ describe("voice runtime", () => {
     );
   });
 
+  it("unmutes the engine when entering push-to-talk from muted", async () => {
+    const adapter = createSessionAdapter();
+    const engine = createAudioEngineMock();
+    vi.mocked(engine.isMuted).mockReturnValue(true);
+    const { runtime } = createRuntime({ engine });
+    runtime.registerSession(adapter);
+    await runtime.startVoice("server-1", "agent-1");
+    expect(runtime.getSnapshot().isMuted).toBe(true);
+
+    const toggleMute = vi.mocked(engine.toggleMute);
+    toggleMute.mockClear();
+    runtime.setInputMode("pushToTalk");
+    expect(toggleMute).toHaveBeenCalled();
+    expect(engine.isMuted()).toBe(true);
+    expect(runtime.getSnapshot().isMuted).toBe(false);
+    expect(runtime.getSnapshot().inputMode).toBe("pushToTalk");
+  });
+
   it("flattens the volume meter when push-to-talk is idle", async () => {
     const adapter = createSessionAdapter();
     const { runtime } = createRuntime();

@@ -84,9 +84,7 @@ export function RealtimeVoiceOverlay({
     }
     onTransmitChange(true);
   }, [isPushToTalk, isSwitching, onTransmitChange]);
-  const transmitAccessibilityLabel = isPushToTalk
-    ? t("realtimeVoice.pushToTalk.transmit")
-    : resolveMuteAccessibilityLabel(isMuted, t);
+  const transmitAccessibilityLabel = t("realtimeVoice.pushToTalk.transmit");
   const transmitAccessibilityState = useMemo(
     () => (isPushToTalk ? { selected: transmitHeld } : undefined),
     [isPushToTalk, transmitHeld],
@@ -192,26 +190,38 @@ export function RealtimeVoiceOverlay({
         </View>
 
         <View style={styles.actionsContainer}>
-          <Pressable
-            onPress={isPushToTalk ? undefined : onToggleMute}
-            onPressIn={isPushToTalk ? startTransmit : undefined}
-            onPressOut={isPushToTalk ? stopTransmit : undefined}
-            disabled={isSwitching}
-            accessibilityRole="button"
-            accessibilityLabel={transmitAccessibilityLabel}
-            accessibilityState={transmitAccessibilityState}
-            style={muteButtonStyle}
-          >
-            {isMuted ? (
-              <MicOff
-                size={theme.iconSize.lg}
-                color={theme.colors.palette.white}
-                strokeWidth={2.5}
-              />
-            ) : (
+          {isPushToTalk ? null : (
+            <Pressable
+              onPress={onToggleMute}
+              disabled={isSwitching}
+              accessibilityRole="button"
+              accessibilityLabel={resolveMuteAccessibilityLabel(isMuted, t)}
+              style={muteButtonStyle}
+            >
+              {isMuted ? (
+                <MicOff
+                  size={theme.iconSize.lg}
+                  color={theme.colors.palette.white}
+                  strokeWidth={2.5}
+                />
+              ) : (
+                <Mic size={theme.iconSize.lg} color={theme.colors.foreground} strokeWidth={2.5} />
+              )}
+            </Pressable>
+          )}
+          {isPushToTalk ? (
+            <Pressable
+              onPressIn={startTransmit}
+              onPressOut={stopTransmit}
+              disabled={isSwitching || isMuted}
+              accessibilityRole="button"
+              accessibilityLabel={transmitAccessibilityLabel}
+              accessibilityState={transmitAccessibilityState}
+              style={muteButtonStyle}
+            >
               <Mic size={theme.iconSize.lg} color={theme.colors.foreground} strokeWidth={2.5} />
-            )}
-          </Pressable>
+            </Pressable>
+          ) : null}
 
           <Pressable
             onPress={onStop}

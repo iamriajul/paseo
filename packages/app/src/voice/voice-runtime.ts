@@ -851,16 +851,22 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
     },
 
     setInputMode(mode) {
-      patchSnapshot((prev) =>
-        prev.inputMode === mode
-          ? prev
-          : {
-              ...prev,
-              inputMode: mode,
-              isTransmitting: false,
-              isMuted: mode === "pushToTalk" ? false : prev.isMuted,
-            },
-      );
+      if (mode === "pushToTalk" && deps.engine.isMuted()) {
+        deps.engine.toggleMute();
+      }
+      const previous = state.snapshot;
+      if (previous.inputMode === mode) {
+        if (mode === "pushToTalk" && previous.isMuted) {
+          patchSnapshot((prev) => ({ ...prev, isMuted: false }));
+        }
+        return;
+      }
+      patchSnapshot((prev) => ({
+        ...prev,
+        inputMode: mode,
+        isTransmitting: false,
+        isMuted: mode === "pushToTalk" ? false : prev.isMuted,
+      }));
     },
 
     setTransmitting(transmitting) {

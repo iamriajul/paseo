@@ -1,8 +1,9 @@
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useMemo } from "react";
 import { View, Text, Pressable } from "react-native";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import { X, ArrowUp, RefreshCcw, Check, Mic, Pencil } from "lucide-react-native";
+import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
+import { X, ArrowUp, RefreshCcw, Check, Mic, Pencil, Sparkles } from "lucide-react-native";
+import type { Theme } from "@/styles/theme";
 import { useTranslation } from "react-i18next";
 import { VolumeMeter } from "./volume-meter";
 import { FOOTER_HEIGHT } from "@/constants/layout";
@@ -21,6 +22,10 @@ interface DictationControlsProps {
   onAcceptAndSend: () => void;
   onRetry?: () => void;
   onDiscard?: () => void;
+  onPolish?: () => void;
+  polishAvailable?: boolean;
+  isPolishing?: boolean;
+  polishError?: string | null;
   disabled?: boolean;
 }
 
@@ -150,12 +155,18 @@ export function DictationOverlay({
   onAcceptAndSend,
   onRetry,
   onDiscard,
+  onPolish,
+  polishAvailable,
+  isPolishing,
+  polishError,
 }: Omit<DictationControlsProps, "onStart" | "disabled" | "transcript"> & { errorText?: string }) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const isFailed = status === "failed";
-  const showActiveState = isRecording || isProcessing || isFailed;
-  const actionsDisabled = isProcessing;
+  const isPolishingActive = isPolishing === true;
+  const showActiveState = isRecording || isProcessing || isFailed || isPolishingActive;
+  const showPolishAction = Boolean(polishAvailable && onPolish);
+  const actionsDisabled = isProcessing || isPolishingActive;
   const handleCancel = isFailed && onDiscard ? onDiscard : onCancel;
 
   const containerStyle = useMemo(
@@ -168,14 +179,6 @@ export function DictationOverlay({
       actionsDisabled && !isFailed && overlayStyles.buttonDisabled,
     ],
     [actionsDisabled, isFailed],
-  );
-  const overlayTimerTextStyle = useMemo(
-    () => [overlayStyles.timerText, { color: theme.colors.accentForeground }],
-    [theme.colors.accentForeground],
-  );
-  const overlayTranscriptTextStyle = useMemo(
-    () => [overlayStyles.transcriptText, { color: theme.colors.accentForeground, opacity: 0.95 }],
-    [theme.colors.accentForeground],
   );
   const overlayRetryButtonStyle = useMemo(
     () => [overlayStyles.actionButton, { backgroundColor: theme.colors.accentForeground }],
@@ -199,25 +202,13 @@ export function DictationOverlay({
         <X size={theme.iconSize.lg} color={theme.colors.accentForeground} strokeWidth={2.5} />
       </Pressable>
 
-      <View style={overlayStyles.centerContainer}>
-        <View style={overlayStyles.meterRow}>
-          <VolumeMeter
-            volume={volume}
-            isMuted={false}
-            isSpeaking={false}
-            orientation="horizontal"
-            color={theme.colors.accentForeground}
-          />
-          <Text style={overlayTimerTextStyle}>{formatDuration(duration)}</Text>
-        </View>
-        {isFailed ? (
-          <Text numberOfLines={2} style={overlayTranscriptTextStyle}>
-            {errorText
-              ? t("message.dictation.failed", { error: errorText })
-              : t("message.dictation.failedRetry")}
-          </Text>
-        ) : null}
-      </View>
+      <DictationOverlayTranscript
+        volume={volume}
+        duration={duration}
+        isFailed={isFailed}
+        errorText={errorText}
+        polishError={polishError}
+      />
 
       <View style={overlayStyles.actionButtonsContainer}>
         {actionsDisabled ? (
@@ -225,6 +216,7 @@ export function DictationOverlay({
             <LoadingSpinner size="small" color={theme.colors.accentForeground} />
           </View>
         ) : null}
+        <DictationOverlayPolishStatus isPolishingActive={isPolishingActive} isFailed={isFailed} />
         {!actionsDisabled && isFailed ? (
           <Pressable
             onPress={onRetry}
@@ -249,6 +241,11 @@ export function DictationOverlay({
                 strokeWidth={2.5}
               />
             </Pressable>
+            <DictationPolishAction
+              visible={showPolishAction}
+              onPolish={onPolish}
+              polishLabel={t("message.dictation.polish")}
+            />
             <Pressable
               onPress={onAcceptAndSend}
               accessibilityRole="button"
@@ -261,6 +258,107 @@ export function DictationOverlay({
         ) : null}
       </View>
     </View>
+  );
+}
+
+function DictationOverlayTranscript({
+  volume,
+  duration,
+  isFailed,
+  errorText,
+  polishError,
+}: {
+  volume: number;
+  duration: number;
+  isFailed: boolean;
+  errorText?: string;
+  polishError?: string | null;
+}) {
+  const { theme } = useUnistyles();
+  const { t } = useTranslation();
+  const timerTextStyle = useMemo(
+    () => [overlayStyles.timerText, { color: theme.colors.accentForeground }],
+    [theme.colors.accentForeground],
+  );
+  const transcriptTextStyle = useMemo(
+    () => [overlayStyles.transcriptText, { color: theme.colors.accentForeground, opacity: 0.95 }],
+    [theme.colors.accentForeground],
+  );
+  return (
+    <View style={overlayStyles.centerContainer}>
+      <View style={overlayStyles.meterRow}>
+        <VolumeMeter
+          volume={volume}
+          isMuted={false}
+          isSpeaking={false}
+          orientation="horizontal"
+          color={theme.colors.accentForeground}
+        />
+        <Text style={timerTextStyle}>{formatDuration(duration)}</Text>
+      </View>
+      {isFailed ? (
+        <Text numberOfLines={2} style={transcriptTextStyle}>
+          {errorText
+            ? t("message.dictation.failed", { error: errorText })
+            : t("message.dictation.failedRetry")}
+        </Text>
+      ) : null}
+      {polishError && !isFailed ? (
+        <Text numberOfLines={2} style={transcriptTextStyle}>
+          {polishError}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function DictationOverlayPolishStatus({
+  isPolishingActive,
+  isFailed,
+}: {
+  isPolishingActive: boolean;
+  isFailed: boolean;
+}) {
+  const { theme } = useUnistyles();
+  const { t } = useTranslation();
+  const statusTextStyle = useMemo(
+    () => [overlayStyles.transcriptText, { color: theme.colors.accentForeground, opacity: 0.95 }],
+    [theme.colors.accentForeground],
+  );
+  if (!isPolishingActive || isFailed) {
+    return null;
+  }
+  return <Text style={statusTextStyle}>{t("message.dictation.polishing")}</Text>;
+}
+
+function DictationPolishAction({
+  visible,
+  onPolish,
+  polishLabel,
+}: {
+  visible: boolean;
+  onPolish?: () => void;
+  polishLabel: string;
+}) {
+  const { theme } = useUnistyles();
+  if (!visible) {
+    return null;
+  }
+  return (
+    <Pressable
+      onPress={onPolish}
+      accessibilityRole="button"
+      accessibilityLabel={polishLabel}
+      style={[overlayStyles.actionButton, OVERLAY_ACCEPT_BUTTON_BG]}
+      testID="dictation-polish"
+    >
+      <View style={overlayStyles.sparkleBadge}>
+        <Pencil size={theme.iconSize.lg} color={theme.colors.accentForeground} strokeWidth={2.5} />
+        <View style={overlayStyles.sparkleOverlay}>
+          <ThemedSparklesIcon size={12} uniProps={sparklesColorMapping} />
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
@@ -399,6 +497,19 @@ const overlayStyles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
+  sparkleBadge: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sparkleOverlay: {
+    position: "absolute",
+    top: -6,
+    right: -8,
+  },
 }));
 
 const OVERLAY_ACCEPT_BUTTON_BG = { backgroundColor: "rgba(255, 255, 255, 0.25)" };
+
+const ThemedSparklesIcon = withUnistyles(Sparkles);
+const sparklesColorMapping = (theme: Theme) => ({ color: theme.colors.accentForeground });

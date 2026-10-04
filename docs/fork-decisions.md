@@ -719,7 +719,7 @@ npx vitest run packages/server/src/server/agent/gateway/http-response-cache.test
 
 **replayable Speak history rows, read-aloud on any message, push-to-talk voice input**
 
-Speak tool calls render as collapsed badges (mic icon + "Spoke" + first-line preview, markdown on expand) with a replay button; every completed assistant message gets raw + sparkle-rewrite read-aloud buttons via on-device TTS, the rewrite going through `voice.read_aloud.rewrite` on the custom metadata endpoint only. Voice mode gains a persisted Always / Push-to-talk toggle with client-side transmit gating (chunks dropped unless transmitting, release commits the utterance via `voice_audio_chunk.isLast` + `commitUtterance`).
+Speak tool calls render as collapsed badges (mic icon + "Spoke" + first-line preview, markdown on expand) with a replay button; every completed assistant turn gets one raw + sparkle-rewrite read-aloud pair in the turn footer beside fork/copy (whole-turn text via on-device TTS), the rewrite going through `voice.read_aloud.rewrite` on the custom metadata endpoint only. Voice mode gains a persisted Always / Push-to-talk toggle with client-side transmit gating (chunks dropped unless transmitting, release commits the utterance via `voice_audio_chunk.isLast` + `commitUtterance`).
 
 ```bash
 npx vitest run packages/protocol/src/messages.voice-read-aloud-rewrite.test.ts --bail=1
@@ -728,6 +728,7 @@ npm test --workspace=@getpaseo/app -- src/components/read-aloud-buttons.test.ts 
 grep -q "voice.read_aloud.rewrite.request" packages/protocol/src/messages.ts
 grep -q "commitUtterance" packages/server/src/server/session/voice/voice-turn-controller.ts
 grep -q "pushToTalk" packages/app/src/voice/voice-runtime.ts
+grep -q "readAloud={readAloud}" packages/app/src/agent-stream/turn-footer.tsx
 ```
 
 ## voice-dictation-ai-polish

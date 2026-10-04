@@ -16,6 +16,7 @@ interface ReadAloudButtonProps {
   client?: DaemonClient | null;
   supportsRewrite: boolean;
   visible?: boolean;
+  onActivityChange?: (kind: ReadAloudKind, active: boolean) => void;
   testID?: string;
 }
 
@@ -24,6 +25,7 @@ interface ReadAloudButtonGroupProps {
   client?: DaemonClient | null;
   supportsRewrite: boolean;
   visible?: boolean;
+  onActivityChange?: (kind: ReadAloudKind, active: boolean) => void;
   testID?: string;
 }
 
@@ -60,6 +62,7 @@ export const ReadAloudButton = memo(function ReadAloudButton({
   client,
   supportsRewrite,
   visible = true,
+  onActivityChange,
   testID,
 }: ReadAloudButtonProps) {
   const { t } = useTranslation();
@@ -70,12 +73,16 @@ export const ReadAloudButton = memo(function ReadAloudButton({
 
   const buttonKey = useMemo(() => `${kind}:${text}`, [kind, text]);
   const isActive = snapshot.activeKey === buttonKey && snapshot.state.status === "speaking";
+  const isOwnActivity = isRewriting || rewriteError !== null || isActive;
   const showControls = shouldShowReadAloudControls({
-    visible,
+    visible: visible || isOwnActivity,
     isActive,
     isRewriting,
     hasError: rewriteError !== null,
   });
+  useEffect(() => {
+    onActivityChange?.(kind, isOwnActivity);
+  }, [kind, isOwnActivity, onActivityChange]);
 
   const accessibilityLabel = useMemo(() => {
     if (isActive) {
@@ -98,6 +105,12 @@ export const ReadAloudButton = memo(function ReadAloudButton({
       requestRef.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      onActivityChange?.(kind, false);
+    };
+  }, [kind, onActivityChange]);
 
   const handlePress = useCallback(async () => {
     const requestId = requestRef.current + 1;
@@ -177,6 +190,7 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
   client,
   supportsRewrite,
   visible = true,
+  onActivityChange,
   testID,
 }: ReadAloudButtonGroupProps) {
   return (
@@ -187,6 +201,7 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
         client={client}
         supportsRewrite={supportsRewrite}
         visible={visible}
+        onActivityChange={onActivityChange}
         testID={testID ? `${testID}-raw` : undefined}
       />
       <ReadAloudButton
@@ -195,6 +210,7 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
         client={client}
         supportsRewrite={supportsRewrite}
         visible={visible}
+        onActivityChange={onActivityChange}
         testID={testID ? `${testID}-rewritten` : undefined}
       />
     </View>

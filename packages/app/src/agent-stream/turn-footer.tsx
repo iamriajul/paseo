@@ -4,6 +4,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { SPACING, type Theme } from "@/styles/theme";
 import type { TurnTiming } from "@/timeline/turn-time";
 import type { StreamItem } from "@/types/stream";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import {
   collectAssistantResponseContentForStreamRenderStrategy,
   type StreamStrategy,
@@ -48,6 +49,8 @@ export const TurnFooter = memo(function TurnFooter({
   strategy,
   supportsTimelineCursor,
   supportsNativeFork = false,
+  serverId,
+  client,
   onForkAssistantTurn,
   onForkInFlightTurn,
 }: {
@@ -57,6 +60,8 @@ export const TurnFooter = memo(function TurnFooter({
   strategy: TurnContentStrategy;
   supportsTimelineCursor: boolean;
   supportsNativeFork?: boolean;
+  serverId?: string;
+  client?: DaemonClient | null;
   onForkAssistantTurn?: AssistantTurnForkHandler;
   onForkInFlightTurn?: InFlightTurnForkHandler;
 }) {
@@ -81,6 +86,8 @@ export const TurnFooter = memo(function TurnFooter({
       startIndex={host.startIndex}
       supportsTimelineCursor={supportsTimelineCursor}
       supportsNativeFork={supportsNativeFork}
+      serverId={serverId}
+      client={client}
       onForkAssistantTurn={onForkAssistantTurn}
     />
   );
@@ -93,6 +100,8 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
   startIndex,
   supportsTimelineCursor,
   supportsNativeFork = false,
+  serverId,
+  client,
   onForkAssistantTurn,
 }: {
   strategy: TurnContentStrategy;
@@ -101,6 +110,8 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
   startIndex: number;
   supportsTimelineCursor: boolean;
   supportsNativeFork?: boolean;
+  serverId?: string;
+  client?: DaemonClient | null;
   onForkAssistantTurn?: AssistantTurnForkHandler;
 }) {
   return (
@@ -112,6 +123,8 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
         startIndex={startIndex}
         supportsTimelineCursor={supportsTimelineCursor}
         supportsNativeFork={supportsNativeFork}
+        serverId={serverId}
+        client={client}
         onForkAssistantTurn={onForkAssistantTurn}
       />
     </TurnFooterRow>
@@ -169,6 +182,8 @@ function CompletedTurnFooter({
   startIndex,
   supportsTimelineCursor,
   supportsNativeFork = false,
+  serverId,
+  client,
   onForkAssistantTurn,
 }: {
   strategy: TurnContentStrategy;
@@ -177,9 +192,11 @@ function CompletedTurnFooter({
   startIndex: number;
   supportsTimelineCursor: boolean;
   supportsNativeFork?: boolean;
+  serverId?: string;
+  client?: DaemonClient | null;
   onForkAssistantTurn?: AssistantTurnForkHandler;
 }) {
-  const getContent = useCallback(
+  const turnText = useMemo(
     () =>
       collectAssistantResponseContentForStreamRenderStrategy({
         strategy,
@@ -188,6 +205,7 @@ function CompletedTurnFooter({
       }),
     [strategy, items, startIndex],
   );
+  const getContent = useCallback(() => turnText, [turnText]);
   const boundary = resolveAssistantTurnForkBoundary({
     items,
     startIndex,
@@ -202,6 +220,10 @@ function CompletedTurnFooter({
     },
     [boundary, onForkAssistantTurn],
   );
+  const readAloud = useMemo(
+    () => (turnText.trim() ? { text: turnText, serverId, client } : null),
+    [turnText, serverId, client],
+  );
   return (
     <View style={stylesheet.turnFooterSlot}>
       <AssistantTurnFooter
@@ -210,6 +232,7 @@ function CompletedTurnFooter({
         durationMs={timing?.durationMs}
         onFork={boundary && onForkAssistantTurn ? handleFork : undefined}
         showNativeForkOption={supportsNativeFork}
+        readAloud={readAloud}
       />
     </View>
   );

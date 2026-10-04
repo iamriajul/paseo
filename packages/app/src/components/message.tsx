@@ -770,11 +770,21 @@ function AssistantTurnFooterReadAloud({
   const supportsRewrite = useHostFeature(serverId, "voiceReadAloudRewrite");
   const isCompact = useIsCompactFormFactor();
   const { snapshot } = useReadAloudPlayer();
-  // Keep the slot visible while speaking/rewriting: the stop control must
-  // survive the cursor leaving the footer, and the player state covers the
-  // case where playback started from another turn's identical text.
-  const isPlaying = snapshot.state.status !== "idle";
-  const revealed = footerHovered || isNative || isCompact || isPlaying;
+  const [rewritingCount, setRewritingCount] = useState(0);
+  const handleRewritingChange = useCallback(
+    (rewriting: boolean) => setRewritingCount((count) => count + (rewriting ? 1 : -1)),
+    [],
+  );
+  // Keep the slot visible while this turn has player activity: the stop
+  // control must survive the cursor leaving the footer. Match on the
+  // button keys (kind + text) so only this turn's own rewrite/speech —
+  // never another turn's — holds its slot open. rewritingCount covers the
+  // rewrite window before the player goes non-idle.
+  const activityKey = useMemo(() => `raw:${text}`, [text]);
+  const rewrittenKey = useMemo(() => `rewritten:${text}`, [text]);
+  const isOwnActivity =
+    rewritingCount > 0 || snapshot.activeKey === activityKey || snapshot.activeKey === rewrittenKey;
+  const revealed = footerHovered || isNative || isCompact || isOwnActivity;
   return (
     <View
       style={assistantTurnFooterStylesheet.readAloudSlot}
@@ -793,7 +803,8 @@ function AssistantTurnFooterReadAloud({
           client={client}
           supportsRewrite={supportsRewrite}
           visible
-          forceVisible={revealed}
+          activityKey={activityKey}
+          onRewritingChange={handleRewritingChange}
         />
       </View>
     </View>

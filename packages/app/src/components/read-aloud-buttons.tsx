@@ -16,6 +16,8 @@ interface ReadAloudButtonProps {
   client?: DaemonClient | null;
   supportsRewrite: boolean;
   visible?: boolean;
+  activityKey?: string | null;
+  onRewritingChange?: (rewriting: boolean) => void;
   testID?: string;
 }
 
@@ -24,6 +26,8 @@ interface ReadAloudButtonGroupProps {
   client?: DaemonClient | null;
   supportsRewrite: boolean;
   visible?: boolean;
+  activityKey?: string | null;
+  onRewritingChange?: (rewriting: boolean) => void;
   testID?: string;
 }
 
@@ -60,6 +64,8 @@ export const ReadAloudButton = memo(function ReadAloudButton({
   client,
   supportsRewrite,
   visible = true,
+  activityKey = null,
+  onRewritingChange,
   testID,
 }: ReadAloudButtonProps) {
   const { t } = useTranslation();
@@ -70,8 +76,11 @@ export const ReadAloudButton = memo(function ReadAloudButton({
 
   const buttonKey = useMemo(() => `${kind}:${text}`, [kind, text]);
   const isActive = snapshot.activeKey === buttonKey && snapshot.state.status === "speaking";
+  const isOwnActivity =
+    activityKey !== null &&
+    (isRewriting || rewriteError !== null || snapshot.activeKey === activityKey);
   const showControls = shouldShowReadAloudControls({
-    visible,
+    visible: visible || isOwnActivity,
     isActive,
     isRewriting,
     hasError: rewriteError !== null,
@@ -91,7 +100,12 @@ export const ReadAloudButton = memo(function ReadAloudButton({
     setRewriteError(null);
     setIsRewriting(false);
     requestRef.current += 1;
-  }, [text, kind]);
+    onRewritingChange?.(false);
+  }, [text, kind, onRewritingChange]);
+
+  useEffect(() => {
+    onRewritingChange?.(isRewriting);
+  }, [isRewriting, onRewritingChange]);
 
   useEffect(() => {
     return () => {
@@ -177,9 +191,14 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
   client,
   supportsRewrite,
   visible = true,
-  forceVisible = false,
+  activityKey = null,
+  onRewritingChange,
   testID,
-}: ReadAloudButtonGroupProps & { forceVisible?: boolean }) {
+}: ReadAloudButtonGroupProps) {
+  const handleRewritingChange = useCallback(
+    (rewriting: boolean) => onRewritingChange?.(rewriting),
+    [onRewritingChange],
+  );
   return (
     <View style={readAloudButtonStylesheet.group}>
       <ReadAloudButton
@@ -187,7 +206,9 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
         kind="raw"
         client={client}
         supportsRewrite={supportsRewrite}
-        visible={forceVisible ? true : visible}
+        visible={visible}
+        activityKey={activityKey}
+        onRewritingChange={handleRewritingChange}
         testID={testID ? `${testID}-raw` : undefined}
       />
       <ReadAloudButton
@@ -195,7 +216,9 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
         kind="rewritten"
         client={client}
         supportsRewrite={supportsRewrite}
-        visible={forceVisible ? true : visible}
+        visible={visible}
+        activityKey={activityKey}
+        onRewritingChange={handleRewritingChange}
         testID={testID ? `${testID}-rewritten` : undefined}
       />
     </View>

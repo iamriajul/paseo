@@ -36,6 +36,8 @@ import { RealtimeVoiceOverlay } from "@/components/realtime-voice-overlay";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useSessionStore } from "@/stores/session-store";
 import { useVoiceOptional } from "@/contexts/voice-context";
+import { createPolishRecordingHandler } from "./dictation-polish";
+import { useDictationPolishState } from "./dictation-polish-state";
 import { useSettings } from "@/hooks/use-settings";
 import { useToast } from "@/contexts/toast-context";
 import { resolveVoiceUnavailableMessage } from "@/utils/server-info-capabilities";
@@ -567,6 +569,10 @@ function MessageInputOverlay({
   onCancelRecording,
   onAcceptRecording,
   onAcceptAndSendRecording,
+  onPolishRecording,
+  polishAvailable,
+  isPolishingRecording,
+  polishRecordingError,
   onRetryFailedRecording,
   onDiscardFailedRecording,
   onRealtimeVoiceStop,
@@ -594,6 +600,10 @@ function MessageInputOverlay({
   onCancelRecording: () => Promise<void>;
   onAcceptRecording: () => Promise<void>;
   onAcceptAndSendRecording: () => Promise<void>;
+  onPolishRecording?: () => Promise<void>;
+  polishAvailable?: boolean;
+  isPolishingRecording?: boolean;
+  polishRecordingError?: string | null;
   onRetryFailedRecording: () => void;
   onDiscardFailedRecording: () => void;
   onRealtimeVoiceStop: () => void;
@@ -610,6 +620,10 @@ function MessageInputOverlay({
         onCancel={onCancelRecording}
         onAccept={onAcceptRecording}
         onAcceptAndSend={onAcceptAndSendRecording}
+        onPolish={onPolishRecording}
+        polishAvailable={polishAvailable}
+        isPolishing={isPolishingRecording}
+        polishError={polishRecordingError}
         onRetry={dictationStatus === "failed" ? onRetryFailedRecording : undefined}
         onDiscard={dictationStatus === "failed" ? onDiscardFailedRecording : undefined}
       />
@@ -1041,8 +1055,9 @@ function computeShouldShowDictationOverlay(
   isDictating: boolean,
   isDictationProcessing: boolean,
   dictationStatus: string,
+  isPolishing = false,
 ): boolean {
-  return isDictating || isDictationProcessing || dictationStatus === "failed";
+  return isDictating || isDictationProcessing || dictationStatus === "failed" || isPolishing;
 }
 
 function computeIsDictationStartEnabled(
@@ -1546,6 +1561,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       startDictation,
       cancelDictation,
       confirmDictation,
+      confirmDictationForPolish,
       retryFailedDictation,
       discardFailedDictation,
     } = useDictation({
@@ -1556,6 +1572,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       canConfirm: canConfirmDictation,
       enableDuration: true,
     });
+    const dictationPolish = useDictationPolishState(client);
 
     const isRealtimeVoiceForCurrentAgent = computeIsRealtimeVoiceForAgent(
       voice,
@@ -1573,6 +1590,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       isDictating,
       isDictationProcessing,
       dictationStatus,
+      dictationPolish.isPolishing,
     );
     const showRealtimeOverlay = isRealtimeVoiceForCurrentAgent;
     const showOverlay = showDictationOverlay || showRealtimeOverlay;
@@ -1628,6 +1646,27 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       sendAfterTranscriptRef.current = true;
       await confirmDictation();
     }, [confirmDictation]);
+
+    const setTranscriptAutoSend = useCallback((next: boolean) => {
+      sendAfterTranscriptRef.current = next;
+    }, []);
+    const handlePolishRecording = useMemo(
+      () =>
+        createPolishRecordingHandler({
+          confirmDictationForPolish,
+          polishTranscript: dictationPolish.polishTranscript,
+          clearPolishError: dictationPolish.clearPolishError,
+          handleDictationTranscript,
+          setAutoSend: setTranscriptAutoSend,
+        }),
+      [
+        confirmDictationForPolish,
+        dictationPolish.polishTranscript,
+        dictationPolish.clearPolishError,
+        handleDictationTranscript,
+        setTranscriptAutoSend,
+      ],
+    );
 
     const handleRetryFailedRecording = useCallback(() => {
       void retryFailedDictation();
@@ -2200,6 +2239,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             onCancelRecording={handleCancelRecording}
             onAcceptRecording={handleAcceptRecording}
             onAcceptAndSendRecording={handleAcceptAndSendRecording}
+            onPolishRecording={handlePolishRecording}
+            polishAvailable={dictationPolish.supportsPolish}
+            isPolishingRecording={dictationPolish.isPolishing}
+            polishRecordingError={dictationPolish.polishError}
             onRetryFailedRecording={handleRetryFailedRecording}
             onDiscardFailedRecording={handleDiscardFailedRecording}
             onRealtimeVoiceStop={handleRealtimeVoiceStop}

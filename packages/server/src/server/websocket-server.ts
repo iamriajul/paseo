@@ -2032,7 +2032,8 @@ export class VoiceAssistantWebSocketServer {
         metadataCustomEndpoint: true,
         // COMPAT(voiceReadAloudRewrite): added in v0.10.0, remove gate after 2027-04-03 once daemon floor advertises it.
         voiceReadAloudRewrite: true,
-        // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
+        // COMPAT(voiceDictationPolish): added in v0.10.0, remove gate after 2027-04-03 once daemon floor advertises it.
+        voiceDictationPolish: true,
         modelsDevLookup: true,
         // COMPAT(commitBaseClassification): added in v0.2.0, remove gate after 2027-01-23.
         commitBaseClassification: true,

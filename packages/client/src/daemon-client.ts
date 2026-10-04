@@ -585,6 +585,10 @@ export type VoiceReadAloudRewritePayload = Extract<
   SessionOutboundMessage,
   { type: "voice.read_aloud.rewrite.response" }
 >["payload"];
+export type VoiceDictationPolishPayload = Extract<
+  SessionOutboundMessage,
+  { type: "voice.dictation.polish.response" }
+>["payload"];
 type ReadProjectConfigPayload = Extract<
   SessionOutboundMessage,
   { type: "read_project_config_response" }
@@ -5821,6 +5825,17 @@ export class DaemonClient {
       timeout: options?.timeout ?? 30_000,
     });
   }
+  async polishDictationText(
+    text: string,
+    options?: { requestId?: string; timeout?: number },
+  ): Promise<VoiceDictationPolishPayload> {
+    this.requireVoiceDictationPolishSupport();
+    return this.sendNamespacedCorrelatedSessionRequest<"voice.dictation.polish.response">({
+      requestId: options?.requestId,
+      message: { type: "voice.dictation.polish.request", text },
+      timeout: options?.timeout ?? 30_000,
+    });
+  }
 
   async lookupModelsDevModel(
     modelId: string,
@@ -6941,6 +6956,13 @@ export class DaemonClient {
     // COMPAT(voiceReadAloudRewrite): added in v0.10.0, remove gate after 2027-04-03 once daemon floor advertises it.
     if (this.lastServerInfoMessage?.features?.voiceReadAloudRewrite !== true) {
       throw new Error("Update the host to rewrite text for speech.");
+    }
+  }
+
+  private requireVoiceDictationPolishSupport(): void {
+    // COMPAT(voiceDictationPolish): added in v0.10.0, remove gate after 2027-04-03 once daemon floor advertises it.
+    if (this.lastServerInfoMessage?.features?.voiceDictationPolish !== true) {
+      throw new Error("Update the host to polish dictated text.");
     }
   }
 

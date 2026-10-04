@@ -1780,6 +1780,11 @@ export const VoiceReadAloudRewriteRequestSchema = z.object({
   text: z.string(),
   requestId: z.string(),
 });
+export const VoiceDictationPolishRequestSchema = z.object({
+  type: z.literal("voice.dictation.polish.request"),
+  text: z.string(),
+  requestId: z.string(),
+});
 
 export const ModelsDevLookupModelRequestSchema = z.object({
   type: z.literal("models.dev.lookup_model.request"),
@@ -3499,6 +3504,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   DictationStreamFinishMessageSchema,
   DictationStreamCancelMessageSchema,
   VoiceReadAloudRewriteRequestSchema,
+  VoiceDictationPolishRequestSchema,
   CreateAgentRequestMessageSchema,
   ListProviderModelsRequestMessageSchema,
   ListProviderModesRequestMessageSchema,
@@ -4023,6 +4029,8 @@ export const ServerInfoStatusPayloadSchema = z
         metadataCustomEndpoint: z.boolean().optional(),
         // COMPAT(voiceReadAloudRewrite): added in v0.10.0, remove gate after 2027-04-03 once daemon floor advertises it.
         voiceReadAloudRewrite: z.boolean().optional(),
+        // COMPAT(voiceDictationPolish): added in v0.10.0, remove gate after 2027-04-03 once daemon floor advertises it.
+        voiceDictationPolish: z.boolean().optional(),
         // COMPAT(modelsDevLookup): added in v0.2.921, remove after 2027-02-05 once daemon floor >= v0.2.921.
         modelsDevLookup: z.boolean().optional(),
         // COMPAT(projectCustomIcon): added in v0.2.0, remove after 2027-01-20.
@@ -5467,6 +5475,21 @@ export const VoiceReadAloudRewriteResponseSchema = z.object({
     .object({
       requestId: z.string(),
       rewrittenText: z.string().nullable(),
+      error: z
+        .object({
+          code: z.string(),
+          message: z.string(),
+        })
+        .nullable(),
+    })
+    .passthrough(),
+});
+export const VoiceDictationPolishResponseSchema = z.object({
+  type: z.literal("voice.dictation.polish.response"),
+  payload: z
+    .object({
+      requestId: z.string(),
+      polishedText: z.string().nullable(),
       error: z
         .object({
           code: z.string(),
@@ -7562,6 +7585,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   SetDaemonConfigResponseMessageSchema,
   MetadataCustomEndpointListModelsResponseSchema,
   VoiceReadAloudRewriteResponseSchema,
+  VoiceDictationPolishResponseSchema,
   ModelsDevLookupModelResponseSchema,
   ReadProjectConfigResponseMessageSchema,
   WriteProjectConfigResponseMessageSchema,
@@ -7832,6 +7856,8 @@ export type DaemonConfigReloadResponse = z.infer<typeof DaemonConfigReloadRespon
 export type DiagnosticsResponse = z.infer<typeof DiagnosticsResponseSchema>;
 export type VoiceReadAloudRewriteResponse = z.infer<typeof VoiceReadAloudRewriteResponseSchema>;
 export type VoiceReadAloudRewritePayload = VoiceReadAloudRewriteResponse["payload"];
+export type VoiceDictationPolishResponse = z.infer<typeof VoiceDictationPolishResponseSchema>;
+export type VoiceDictationPolishPayload = VoiceDictationPolishResponse["payload"];
 export type GetProvidersSnapshotResponseMessage = z.infer<
   typeof GetProvidersSnapshotResponseMessageSchema
 >;

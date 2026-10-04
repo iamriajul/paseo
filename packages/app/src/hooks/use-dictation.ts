@@ -336,16 +336,19 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     }
   }, [audio, clearStreamingState, reportError, stopDurationTracking]);
 
-  const confirmDictation = useCallback(async () => {
+  const stopAndFinalizeRecording = useCallback(async (): Promise<{
+    ok: boolean;
+    finalSeq: number;
+  }> => {
     if (actionGateRef.current.confirming) {
-      return;
+      return { ok: false, finalSeq: -1 };
     }
     if (!isRecordingRef.current || isProcessingRef.current) {
-      return;
+      return { ok: false, finalSeq: -1 };
     }
     const confirmAllowed = canConfirm ? canConfirm() : true;
     if (!confirmAllowed) {
-      return;
+      return { ok: false, finalSeq: -1 };
     }
 
     actionGateRef.current.confirming = true;
@@ -365,6 +368,25 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       setIsRecording(false);
 
       const finalSeq = senderRef.current?.getFinalSeq() ?? -1;
+      return { ok: true, finalSeq };
+    } catch (err) {
+      if (!(err instanceof Error) || err.name !== "AttemptCancelledError") {
+        handleDictationFailure(err);
+      }
+      actionGateRef.current.confirming = false;
+      return { ok: false, finalSeq: -1 };
+    }
+  }, [audio, canConfirm, handleDictationFailure, stopDurationTracking]);
+
+  const confirmDictation = useCallback(async () => {
+    const started = await stopAndFinalizeRecording();
+    if (!started.ok) {
+      return;
+    }
+    const attemptId = attemptGuardRef.current.next();
+
+    try {
+      const finalSeq = started.finalSeq;
       if (finalSeq < 0) {
         handleStreamingTranscriptionSuccess("", generateMessageId());
         return;
@@ -382,11 +404,52 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       actionGateRef.current.confirming = false;
     }
   }, [
-    audio,
-    canConfirm,
     handleDictationFailure,
     handleStreamingTranscriptionSuccess,
-    stopDurationTracking,
+    stopAndFinalizeRecording,
+    ensureFinalTranscript,
+  ]);
+
+  const confirmDictationForPolish = useCallback(async (): Promise<string | null> => {
+    const started = await stopAndFinalizeRecording();
+    if (!started.ok) {
+      return null;
+    }
+    const attemptId = attemptGuardRef.current.next();
+
+    try {
+      const finalSeq = started.finalSeq;
+      if (finalSeq < 0) {
+        handleStreamingTranscriptionSuccess("", generateMessageId());
+        return null;
+      }
+
+      const transcriptText = await ensureFinalTranscript(finalSeq);
+      attemptGuardRef.current.assertCurrent(attemptId);
+      const polishedSource =
+        transcriptText.trim().length > 0
+          ? transcriptText.trim()
+          : latestPartialTranscriptRef.current.trim();
+      setIsProcessing(false);
+      isProcessingRef.current = false;
+      setDuration(0);
+      setStatus("idle");
+      clearStreamingState();
+      return polishedSource || null;
+    } catch (err) {
+      if (err instanceof Error && err.name === "AttemptCancelledError") {
+        return null;
+      }
+      handleDictationFailure(err);
+      return null;
+    } finally {
+      actionGateRef.current.confirming = false;
+    }
+  }, [
+    clearStreamingState,
+    handleDictationFailure,
+    handleStreamingTranscriptionSuccess,
+    stopAndFinalizeRecording,
     ensureFinalTranscript,
   ]);
 
@@ -465,6 +528,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     startDictation,
     cancelDictation,
     confirmDictation,
+    confirmDictationForPolish,
     retryFailedDictation,
     discardFailedDictation,
     reset,

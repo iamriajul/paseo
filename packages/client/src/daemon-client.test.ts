@@ -1972,6 +1972,60 @@ test("sends and parses a speech rewrite", async () => {
   });
 });
 
+test("gates dictation polish on the daemon capability", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  await expect(
+    client.polishDictationText("hello", { requestId: "polish-old-host" }),
+  ).rejects.toThrow("Update the host to polish dictated text.");
+  expect(mock.sent).toEqual([]);
+});
+
+test("sends and parses a dictation polish", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen({ features: { voiceDictationPolish: true } });
+  await connectPromise;
+
+  const response = client.polishDictationText("um hello", { requestId: "polish-1" });
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "voice.dictation.polish.request",
+    text: "um hello",
+    requestId: "polish-1",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "voice.dictation.polish.response",
+      payload: { requestId: "polish-1", polishedText: "Hello.", error: null },
+    }),
+  );
+
+  await expect(response).resolves.toEqual({
+    requestId: "polish-1",
+    polishedText: "Hello.",
+    error: null,
+  });
+});
+
 test("gets a structured plugin log snapshot", async () => {
   const mock = createMockTransport();
   const client = new DaemonClient({

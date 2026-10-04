@@ -729,3 +729,19 @@ grep -q "voice.read_aloud.rewrite.request" packages/protocol/src/messages.ts
 grep -q "commitUtterance" packages/server/src/server/session/voice/voice-turn-controller.ts
 grep -q "pushToTalk" packages/app/src/voice/voice-runtime.ts
 ```
+
+## voice-dictation-ai-polish
+
+**AI-polish button for voice-dictated drafts via the custom metadata endpoint only**
+
+The dictation overlay gains a sparkle-badged polish action next to insert: the raw transcript is confirmed first, polished through `voice.dictation.polish` (custom metadata endpoint only, own faithful-cleanup prompt — never the read-aloud prompt), and the result lands back in the composer for review with send staying manual. Fail-closed like read-aloud: the button hides without the `voiceDictationPolish` host feature.
+
+```bash
+npx vitest run packages/protocol/src/messages.voice-dictation-polish.test.ts --bail=1
+npx vitest run packages/server/src/server/session/voice/voice-dictation-polish.test.ts --bail=1
+npx vitest run packages/client/src/daemon-client.test.ts --bail=1 -t "dictation polish"
+npm test --workspace=@getpaseo/app -- src/voice/use-dictation-polish.test.ts src/i18n/resources.test.ts --bail=1
+grep -q "voice.dictation.polish.request" packages/protocol/src/messages.ts
+grep -q "buildDictationPolishPrompt" packages/server/src/server/session/voice/voice-dictation-polish.ts
+grep -q "confirmDictationForPolish" packages/app/src/hooks/use-dictation.ts
+```

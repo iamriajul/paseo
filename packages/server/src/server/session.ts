@@ -136,6 +136,7 @@ import {
 } from "./agent/metadata-openai-client.js";
 import { rewriteWithCustomEndpoint } from "./session/voice/voice-read-aloud-rewrite.js";
 import { lookupModelsDevModel } from "./models-dev/catalog.js";
+import { polishWithCustomEndpoint } from "./session/voice/voice-dictation-polish.js";
 import {
   getAgentStreamEventTurnId,
   type AgentPersistenceHandle,
@@ -1784,6 +1785,73 @@ export class Session {
     }
   }
 
+  private async handleVoiceDictationPolishRequest(
+    msg: Extract<SessionInboundMessage, { type: "voice.dictation.polish.request" }>,
+  ): Promise<void> {
+    const endpoint = this.daemonConfigStore.get().metadataGeneration.customEndpoint;
+    if (!isMetadataCustomEndpointReady(endpoint)) {
+      this.emit({
+        type: "voice.dictation.polish.response",
+        payload: {
+          requestId: msg.requestId,
+          polishedText: null,
+          error: {
+            code: "endpoint_not_configured",
+            message: "Custom metadata endpoint is not configured",
+          },
+        },
+      });
+      return;
+    }
+    if (!msg.text.trim()) {
+      this.emit({
+        type: "voice.dictation.polish.response",
+        payload: {
+          requestId: msg.requestId,
+          polishedText: null,
+          error: { code: "empty_text", message: "Text must not be empty" },
+        },
+      });
+      return;
+    }
+    try {
+      const result = await polishWithCustomEndpoint({ text: msg.text, endpoint });
+      if ("error" in result) {
+        this.emit({
+          type: "voice.dictation.polish.response",
+          payload: {
+            requestId: msg.requestId,
+            polishedText: null,
+            error: {
+              code:
+                result.error.code === "endpoint_not_configured"
+                  ? "endpoint_not_configured"
+                  : "rewrite_failed",
+              message: result.error.message,
+            },
+          },
+        });
+        return;
+      }
+      this.emit({
+        type: "voice.dictation.polish.response",
+        payload: { requestId: msg.requestId, polishedText: result.polishedText, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "voice.dictation.polish.response",
+        payload: {
+          requestId: msg.requestId,
+          polishedText: null,
+          error: {
+            code: "rewrite_failed",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+      });
+    }
+  }
+
   public getRuntimeMetrics(): SessionRuntimeMetrics {
     const terminalMetrics = this.terminalController.getMetrics();
     const workspaceGitMetrics = this.workspaceGitObserver.getMetrics();
@@ -3146,6 +3214,8 @@ export class Session {
         return this.handleMetadataCustomEndpointListModelsRequest(msg);
       case "voice.read_aloud.rewrite.request":
         return this.handleVoiceReadAloudRewriteRequest(msg);
+      case "voice.dictation.polish.request":
+        return this.handleVoiceDictationPolishRequest(msg);
       case "models.dev.lookup_model.request":
         return this.handleModelsDevLookupModelRequest(msg);
       default:

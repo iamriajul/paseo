@@ -27,7 +27,7 @@ interface ReadAloudButtonGroupProps {
   supportsRewrite: boolean;
   visible?: boolean;
   activityKey?: string | null;
-  onRewritingChange?: (rewriting: boolean) => void;
+  onRewritingChange?: (kind: ReadAloudKind, rewriting: boolean) => void;
   testID?: string;
 }
 
@@ -195,8 +195,12 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
   onRewritingChange,
   testID,
 }: ReadAloudButtonGroupProps) {
-  const handleRewritingChange = useCallback(
-    (rewriting: boolean) => onRewritingChange?.(rewriting),
+  const handleRawRewritingChange = useCallback(
+    (rewriting: boolean) => onRewritingChange?.("raw", rewriting),
+    [onRewritingChange],
+  );
+  const handleRewrittenRewritingChange = useCallback(
+    (rewriting: boolean) => onRewritingChange?.("rewritten", rewriting),
     [onRewritingChange],
   );
   return (
@@ -208,7 +212,7 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
         supportsRewrite={supportsRewrite}
         visible={visible}
         activityKey={activityKey}
-        onRewritingChange={handleRewritingChange}
+        onRewritingChange={handleRawRewritingChange}
         testID={testID ? `${testID}-raw` : undefined}
       />
       <ReadAloudButton
@@ -218,7 +222,7 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
         supportsRewrite={supportsRewrite}
         visible={visible}
         activityKey={activityKey}
-        onRewritingChange={handleRewritingChange}
+        onRewritingChange={handleRewrittenRewritingChange}
         testID={testID ? `${testID}-rewritten` : undefined}
       />
     </View>

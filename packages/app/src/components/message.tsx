@@ -756,6 +756,8 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   );
 });
 
+const EMPTY_REWRITING_KINDS: ReadonlySet<string> = new Set();
+
 function AssistantTurnFooterReadAloud({
   text,
   serverId,
@@ -770,20 +772,34 @@ function AssistantTurnFooterReadAloud({
   const supportsRewrite = useHostFeature(serverId, "voiceReadAloudRewrite");
   const isCompact = useIsCompactFormFactor();
   const { snapshot } = useReadAloudPlayer();
-  const [rewritingCount, setRewritingCount] = useState(0);
-  const handleRewritingChange = useCallback(
-    (rewriting: boolean) => setRewritingCount((count) => count + (rewriting ? 1 : -1)),
-    [],
-  );
+  const [rewritingKinds, setRewritingKinds] = useState<ReadonlySet<string>>(EMPTY_REWRITING_KINDS);
+  const handleRewritingChange = useCallback((kind: string, rewriting: boolean) => {
+    setRewritingKinds((previous) => {
+      if (rewriting) {
+        if (previous.has(kind)) {
+          return previous;
+        }
+        return new Set(previous).add(kind);
+      }
+      if (!previous.has(kind)) {
+        return previous;
+      }
+      const next = new Set(previous);
+      next.delete(kind);
+      return next;
+    });
+  }, []);
   // Keep the slot visible while this turn has player activity: the stop
   // control must survive the cursor leaving the footer. Match on the
   // button keys (kind + text) so only this turn's own rewrite/speech —
-  // never another turn's — holds its slot open. rewritingCount covers the
+  // never another turn's — holds its slot open. rewritingKinds covers the
   // rewrite window before the player goes non-idle.
   const activityKey = useMemo(() => `raw:${text}`, [text]);
   const rewrittenKey = useMemo(() => `rewritten:${text}`, [text]);
   const isOwnActivity =
-    rewritingCount > 0 || snapshot.activeKey === activityKey || snapshot.activeKey === rewrittenKey;
+    rewritingKinds.size > 0 ||
+    snapshot.activeKey === activityKey ||
+    snapshot.activeKey === rewrittenKey;
   const revealed = footerHovered || isNative || isCompact || isOwnActivity;
   return (
     <View

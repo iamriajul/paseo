@@ -9,6 +9,7 @@ export function useDictationPolishState(client: DaemonClient | null) {
     "voiceDictationPolish",
   );
   const supportsPolish = resolveDictationPolishAvailability(client, supportsFlag);
-  const { isPolishing, polishError, polishTranscript } = useDictationPolish(client);
-  return { supportsPolish, isPolishing, polishError, polishTranscript };
+  const { isPolishing, polishError, polishTranscript, clearPolishError } =
+    useDictationPolish(client);
+  return { supportsPolish, isPolishing, polishError, polishTranscript, clearPolishError };
 }

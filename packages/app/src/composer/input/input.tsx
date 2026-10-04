@@ -1491,12 +1491,14 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         createPolishRecordingHandler({
           confirmDictationForPolish,
           polishTranscript: dictationPolish.polishTranscript,
+          clearPolishError: dictationPolish.clearPolishError,
           handleDictationTranscript,
           setAutoSend: setTranscriptAutoSend,
         }),
       [
         confirmDictationForPolish,
         dictationPolish.polishTranscript,
+        dictationPolish.clearPolishError,
         handleDictationTranscript,
         setTranscriptAutoSend,
       ],

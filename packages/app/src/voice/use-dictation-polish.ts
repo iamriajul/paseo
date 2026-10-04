@@ -44,6 +44,10 @@ export function useDictationPolish(client: DaemonClient | null) {
   const [polishError, setPolishError] = useState<string | null>(null);
   const requestRef = useRef(0);
 
+  const clearPolishError = useCallback(() => {
+    setPolishError(null);
+  }, []);
+
   const polishTranscript = useCallback(
     async (text: string): Promise<string | null> => {
       const requestId = requestRef.current + 1;
@@ -69,5 +73,5 @@ export function useDictationPolish(client: DaemonClient | null) {
     [client, t],
   );
 
-  return { isPolishing, polishError, polishTranscript };
+  return { isPolishing, polishError, polishTranscript, clearPolishError };
 }

@@ -13,6 +13,7 @@ describe("createPolishRecordingHandler", () => {
       polishTranscript: async (text: string) => `${text}!`,
       handleDictationTranscript,
       setAutoSend,
+      clearPolishError: vi.fn(),
     });
     await handler();
     expect(setAutoSend).toHaveBeenCalledWith(false);
@@ -29,21 +30,25 @@ describe("createPolishRecordingHandler", () => {
       polishTranscript,
       handleDictationTranscript,
       setAutoSend: vi.fn(),
+      clearPolishError: vi.fn(),
     });
     await handler();
     expect(polishTranscript).not.toHaveBeenCalled();
     expect(handleDictationTranscript).not.toHaveBeenCalled();
   });
 
-  it("falls back to the raw transcript when polish fails", async () => {
+  it("falls back to the raw transcript and clears the error when polish fails", async () => {
     const handleDictationTranscript = vi.fn();
+    const clearPolishError = vi.fn();
     const handler = createPolishRecordingHandler({
       confirmDictationForPolish: async () => "hello",
       polishTranscript: async () => null,
       handleDictationTranscript,
       setAutoSend: vi.fn(),
+      clearPolishError,
     });
     await handler();
+    expect(clearPolishError).toHaveBeenCalledTimes(1);
     expect(handleDictationTranscript).toHaveBeenCalledWith("hello", {
       requestId: "dictation-polish-fallback",
     });

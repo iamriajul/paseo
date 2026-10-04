@@ -622,6 +622,24 @@ const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: STREAM_METADATA_FONT_SIZE,
   },
+  // Pinned slot for the footer read-aloud pair: always mounted so the footer
+  // never shifts when the buttons reveal, hidden via opacity on web wide
+  // (hover.md failure mode 2 — conditional rendering would reflow the label).
+  readAloudSlot: {
+    minHeight: 24,
+    minWidth: 56,
+    justifyContent: "center",
+  },
+  readAloudContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  readAloudVisible: {
+    opacity: 1,
+  },
+  readAloudHidden: {
+    opacity: 0,
+  },
 }));
 
 const TIMESTAMP_REVEAL_MS = 3000;
@@ -640,6 +658,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   readAloud = null,
 }: AssistantTurnFooterProps) {
   const [hovered, setHovered] = useState(false);
+  const [footerHovered, setFooterHovered] = useState(false);
   const [pressedReveal, setPressedReveal] = useState(false);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -670,6 +689,8 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
 
   const handleHoverIn = useCallback(() => setHovered(true), []);
   const handleHoverOut = useCallback(() => setHovered(false), []);
+  const handleFooterPointerEnter = useCallback(() => setFooterHovered(true), []);
+  const handleFooterPointerLeave = useCallback(() => setFooterHovered(false), []);
   const handlePress = useCallback(() => {
     if (isWeb || !canSwap) return;
     if (revealTimerRef.current) {
@@ -690,7 +711,11 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   const canFork = Boolean(onFork);
 
   return (
-    <View style={assistantTurnFooterStylesheet.container}>
+    <View
+      style={assistantTurnFooterStylesheet.container}
+      onPointerEnter={isWeb ? handleFooterPointerEnter : undefined}
+      onPointerLeave={isWeb ? handleFooterPointerLeave : undefined}
+    >
       <TurnCopyButton
         getContent={getContent}
         containerStyle={assistantTurnFooterStylesheet.copyButton}
@@ -698,11 +723,12 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
       {canFork ? (
         <AssistantForkMenu onFork={handleFork} showNativeTabOption={showNativeForkOption} />
       ) : null}
-      {readAloud && readAloud.text.trim() ? (
+      {readAloud ? (
         <AssistantTurnFooterReadAloud
           text={readAloud.text}
           serverId={readAloud.serverId}
           client={readAloud.client}
+          footerHovered={footerHovered}
         />
       ) : null}
       {primaryLabel ? (
@@ -733,27 +759,30 @@ function AssistantTurnFooterReadAloud({
   text,
   serverId,
   client,
+  footerHovered,
 }: {
   text: string;
   serverId?: string;
   client?: DaemonClient | null;
+  footerHovered: boolean;
 }) {
   const supportsRewrite = useHostFeature(serverId, "voiceReadAloudRewrite");
-  const [hovered, setHovered] = useState(false);
-  const handlePointerEnter = useCallback(() => setHovered(true), []);
-  const handlePointerLeave = useCallback(() => setHovered(false), []);
   const isCompact = useIsCompactFormFactor();
   return (
     <View
-      onPointerEnter={isWeb ? handlePointerEnter : undefined}
-      onPointerLeave={isWeb ? handlePointerLeave : undefined}
+      style={assistantTurnFooterStylesheet.readAloudSlot}
+      pointerEvents={footerHovered || isNative || isCompact ? "auto" : "none"}
     >
-      <ReadAloudButtons
-        text={text}
-        client={client}
-        supportsRewrite={supportsRewrite}
-        visible={hovered || isNative || isCompact}
-      />
+      <View
+        style={[
+          assistantTurnFooterStylesheet.readAloudContent,
+          footerHovered || isNative || isCompact
+            ? assistantTurnFooterStylesheet.readAloudVisible
+            : assistantTurnFooterStylesheet.readAloudHidden,
+        ]}
+      >
+        <ReadAloudButtons text={text} client={client} supportsRewrite={supportsRewrite} visible />
+      </View>
     </View>
   );
 }

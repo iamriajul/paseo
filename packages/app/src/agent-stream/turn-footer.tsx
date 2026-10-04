@@ -197,7 +197,7 @@ function CompletedTurnFooter({
   client?: DaemonClient | null;
   onForkAssistantTurn?: AssistantTurnForkHandler;
 }) {
-  const getContent = useCallback(
+  const turnText = useMemo(
     () =>
       collectAssistantResponseContentForStreamRenderStrategy({
         strategy,
@@ -206,6 +206,7 @@ function CompletedTurnFooter({
       }),
     [strategy, items, startIndex],
   );
+  const getContent = useCallback(() => turnText, [turnText]);
   const boundary = resolveAssistantTurnForkBoundary({
     items,
     startIndex,
@@ -220,18 +221,9 @@ function CompletedTurnFooter({
     },
     [boundary, onForkAssistantTurn],
   );
-  const readAloudText = useMemo(
-    () =>
-      collectAssistantResponseContentForStreamRenderStrategy({
-        strategy,
-        items,
-        startIndex,
-      }),
-    [strategy, items, startIndex],
-  );
   const readAloud = useMemo(
-    () => (readAloudText.trim() ? { text: readAloudText, serverId, client } : null),
-    [readAloudText, serverId, client],
+    () => (turnText.trim() ? { text: turnText, serverId, client } : null),
+    [turnText, serverId, client],
   );
   return (
     <View style={stylesheet.turnFooterSlot}>

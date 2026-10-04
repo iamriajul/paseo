@@ -115,6 +115,7 @@ import {
 } from "@/assistant-selection-copy/markup";
 import { capAssistantMessageForRender, getUtf8ByteLength } from "./assistant-message-render-limit";
 import { ReadAloudButton, ReadAloudButtons } from "@/components/read-aloud-buttons";
+import { useReadAloudPlayer } from "@/voice/use-read-aloud-player";
 import { useHostFeature } from "@/runtime/host-features";
 export type { InlinePathTarget } from "@/assistant-file-links";
 export type { AssistantForkTarget };
@@ -768,15 +769,21 @@ function AssistantTurnFooterReadAloud({
 }) {
   const supportsRewrite = useHostFeature(serverId, "voiceReadAloudRewrite");
   const isCompact = useIsCompactFormFactor();
+  const { snapshot } = useReadAloudPlayer();
+  // Keep the slot visible while speaking/rewriting: the stop control must
+  // survive the cursor leaving the footer, and the player state covers the
+  // case where playback started from another turn's identical text.
+  const isPlaying = snapshot.state.status !== "idle";
+  const revealed = footerHovered || isNative || isCompact || isPlaying;
   return (
     <View
       style={assistantTurnFooterStylesheet.readAloudSlot}
-      pointerEvents={footerHovered || isNative || isCompact ? "auto" : "none"}
+      pointerEvents={revealed ? "auto" : "none"}
     >
       <View
         style={[
           assistantTurnFooterStylesheet.readAloudContent,
-          footerHovered || isNative || isCompact
+          revealed
             ? assistantTurnFooterStylesheet.readAloudVisible
             : assistantTurnFooterStylesheet.readAloudHidden,
         ]}

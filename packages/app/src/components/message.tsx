@@ -788,7 +788,13 @@ function AssistantTurnFooterReadAloud({
             : assistantTurnFooterStylesheet.readAloudHidden,
         ]}
       >
-        <ReadAloudButtons text={text} client={client} supportsRewrite={supportsRewrite} visible />
+        <ReadAloudButtons
+          text={text}
+          client={client}
+          supportsRewrite={supportsRewrite}
+          visible
+          forceVisible={revealed}
+        />
       </View>
     </View>
   );

@@ -177,8 +177,9 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
   client,
   supportsRewrite,
   visible = true,
+  forceVisible = false,
   testID,
-}: ReadAloudButtonGroupProps) {
+}: ReadAloudButtonGroupProps & { forceVisible?: boolean }) {
   return (
     <View style={readAloudButtonStylesheet.group}>
       <ReadAloudButton
@@ -186,7 +187,7 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
         kind="raw"
         client={client}
         supportsRewrite={supportsRewrite}
-        visible={visible}
+        visible={forceVisible ? true : visible}
         testID={testID ? `${testID}-raw` : undefined}
       />
       <ReadAloudButton
@@ -194,7 +195,7 @@ export const ReadAloudButtons = memo(function ReadAloudButtons({
         kind="rewritten"
         client={client}
         supportsRewrite={supportsRewrite}
-        visible={visible}
+        visible={forceVisible ? true : visible}
         testID={testID ? `${testID}-rewritten` : undefined}
       />
     </View>

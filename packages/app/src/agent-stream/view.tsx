@@ -181,6 +181,8 @@ function renderStreamItemWithTurnFooter(input: {
   strategy: TurnContentStrategy;
   supportsTimelineCursor: boolean;
   supportsNativeFork?: boolean;
+  serverId?: string;
+  client?: DaemonClient | null;
   onForkAssistantTurn?: AssistantTurnForkHandler;
 }): ReactNode {
   if (!input.content) {
@@ -196,6 +198,8 @@ function renderStreamItemWithTurnFooter(input: {
       startIndex={footerHost.startIndex}
       supportsTimelineCursor={input.supportsTimelineCursor}
       supportsNativeFork={input.supportsNativeFork}
+      serverId={input.serverId}
+      client={input.client}
       onForkAssistantTurn={input.onForkAssistantTurn}
     />
   ) : null;
@@ -1152,13 +1156,17 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           strategy: streamRenderStrategy,
           supportsTimelineCursor: supportsAgentForkContextCursor,
           supportsNativeFork,
+          serverId: resolvedServerId,
+          client,
           onForkAssistantTurn: readOnly ? undefined : handleForkAssistantTurn,
         });
       },
       [
+        client,
         handleForkAssistantTurn,
         readOnly,
         renderStreamItemContent,
+        resolvedServerId,
         streamRenderStrategy,
         supportsAgentForkContextCursor,
         supportsNativeFork,
@@ -1189,17 +1197,21 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             strategy={streamRenderStrategy}
             supportsTimelineCursor={supportsAgentForkContextCursor}
             supportsNativeFork={supportsNativeFork}
+            serverId={resolvedServerId}
+            client={client}
             onForkAssistantTurn={readOnly ? undefined : handleForkAssistantTurn}
             onForkInFlightTurn={readOnly ? undefined : handleForkInFlightTurn}
           />
         ) : null,
       [
+        client,
         handleForkAssistantTurn,
         handleForkInFlightTurn,
         readOnly,
         isTurnActive,
         baseRenderModel.turnTiming.runningStartedAt,
         bottomTurnFooterHost,
+        resolvedServerId,
         streamRenderStrategy,
         supportsAgentForkContextCursor,
         supportsNativeFork,

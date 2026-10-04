@@ -587,6 +587,11 @@ interface AssistantTurnFooterProps {
   onFork?: (target: AssistantForkTarget) => Promise<void> | void;
   /** Offer experimental Claude native fork in the fork menu. */
   showNativeForkOption?: boolean;
+  readAloud?: {
+    text: string;
+    serverId?: string;
+    client?: DaemonClient | null;
+  } | null;
 }
 
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
@@ -632,6 +637,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   durationMs,
   onFork,
   showNativeForkOption = false,
+  readAloud = null,
 }: AssistantTurnFooterProps) {
   const [hovered, setHovered] = useState(false);
   const [pressedReveal, setPressedReveal] = useState(false);
@@ -692,6 +698,13 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
       {canFork ? (
         <AssistantForkMenu onFork={handleFork} showNativeTabOption={showNativeForkOption} />
       ) : null}
+      {readAloud && readAloud.text.trim() ? (
+        <AssistantTurnFooterReadAloud
+          text={readAloud.text}
+          serverId={readAloud.serverId}
+          client={readAloud.client}
+        />
+      ) : null}
       {primaryLabel ? (
         <Pressable
           onPress={handlePress}
@@ -715,6 +728,35 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
     </View>
   );
 });
+
+function AssistantTurnFooterReadAloud({
+  text,
+  serverId,
+  client,
+}: {
+  text: string;
+  serverId?: string;
+  client?: DaemonClient | null;
+}) {
+  const supportsRewrite = useHostFeature(serverId, "voiceReadAloudRewrite");
+  const [hovered, setHovered] = useState(false);
+  const handlePointerEnter = useCallback(() => setHovered(true), []);
+  const handlePointerLeave = useCallback(() => setHovered(false), []);
+  const isCompact = useIsCompactFormFactor();
+  return (
+    <View
+      onPointerEnter={isWeb ? handlePointerEnter : undefined}
+      onPointerLeave={isWeb ? handlePointerLeave : undefined}
+    >
+      <ReadAloudButtons
+        text={text}
+        client={client}
+        supportsRewrite={supportsRewrite}
+        visible={hovered || isNative || isCompact}
+      />
+    </View>
+  );
+}
 
 interface LiveElapsedProps {
   startedAt: Date;
@@ -785,13 +827,6 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     fontStyle: "italic",
     color: theme.colors.foregroundMuted,
-  },
-  readAloudRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    marginTop: theme.spacing[2],
-    minHeight: 24,
   },
   imageFrame: {
     width: "100%",
@@ -2034,42 +2069,9 @@ export const AssistantMessage = memo(function AssistantMessage({
           {t("agentStream.messageCapped", { bytes: fullMessageByteLength })}
         </Text>
       ) : null}
-      {phase === "complete" && message.trim() ? (
-        <AssistantReadAloudRow text={message} serverId={serverId} client={client} />
-      ) : null}
     </View>
   );
 });
-
-function AssistantReadAloudRow({
-  text,
-  serverId,
-  client,
-}: {
-  text: string;
-  serverId?: string;
-  client?: DaemonClient | null;
-}) {
-  const supportsRewrite = useHostFeature(serverId, "voiceReadAloudRewrite");
-  const [hovered, setHovered] = useState(false);
-  const handlePointerEnter = useCallback(() => setHovered(true), []);
-  const handlePointerLeave = useCallback(() => setHovered(false), []);
-  const isCompact = useIsCompactFormFactor();
-  return (
-    <View
-      style={assistantMessageStylesheet.readAloudRow}
-      onPointerEnter={isWeb ? handlePointerEnter : undefined}
-      onPointerLeave={isWeb ? handlePointerLeave : undefined}
-    >
-      <ReadAloudButtons
-        text={text}
-        client={client}
-        supportsRewrite={supportsRewrite}
-        visible={hovered || isNative || isCompact}
-      />
-    </View>
-  );
-}
 
 interface SpeakMessageProps {
   message: string;

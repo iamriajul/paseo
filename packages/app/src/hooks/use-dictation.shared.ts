@@ -25,6 +25,7 @@ export interface UseDictationResult {
   startDictation: () => Promise<void>;
   cancelDictation: () => Promise<void>;
   confirmDictation: () => Promise<void>;
+  confirmDictationForPolish: () => Promise<string | null>;
   retryFailedDictation: () => Promise<void>;
   discardFailedDictation: () => void;
   reset: () => void;

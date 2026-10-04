@@ -995,8 +995,9 @@ function computeShouldShowDictationOverlay(
   isDictating: boolean,
   isDictationProcessing: boolean,
   dictationStatus: string,
+  isPolishing = false,
 ): boolean {
-  return isDictating || isDictationProcessing || dictationStatus === "failed";
+  return isDictating || isDictationProcessing || dictationStatus === "failed" || isPolishing;
 }
 
 function computeIsDictationStartEnabled(
@@ -1426,6 +1427,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       isDictating,
       isDictationProcessing,
       dictationStatus,
+      dictationPolish.isPolishing,
     );
     const showRealtimeOverlay = isRealtimeVoiceForCurrentAgent;
     const showOverlay = showDictationOverlay || showRealtimeOverlay;

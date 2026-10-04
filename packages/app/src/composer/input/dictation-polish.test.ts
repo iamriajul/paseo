@@ -35,7 +35,7 @@ describe("createPolishRecordingHandler", () => {
     expect(handleDictationTranscript).not.toHaveBeenCalled();
   });
 
-  it("does nothing when polish fails", async () => {
+  it("falls back to the raw transcript when polish fails", async () => {
     const handleDictationTranscript = vi.fn();
     const handler = createPolishRecordingHandler({
       confirmDictationForPolish: async () => "hello",
@@ -44,7 +44,9 @@ describe("createPolishRecordingHandler", () => {
       setAutoSend: vi.fn(),
     });
     await handler();
-    expect(handleDictationTranscript).not.toHaveBeenCalled();
+    expect(handleDictationTranscript).toHaveBeenCalledWith("hello", {
+      requestId: "dictation-polish-fallback",
+    });
   });
 });
 

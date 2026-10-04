@@ -13,10 +13,9 @@ export function createPolishRecordingHandler(ctx: DictationPolishContext) {
     }
     ctx.setAutoSend(false);
     const polished = await ctx.polishTranscript(raw);
-    if (!polished) {
-      return;
-    }
-    ctx.handleDictationTranscript(polished, { requestId: "dictation-polish" });
+    ctx.handleDictationTranscript(polished ?? raw, {
+      requestId: polished ? "dictation-polish" : "dictation-polish-fallback",
+    });
   };
 }
 

@@ -115,7 +115,6 @@ import {
 } from "@/assistant-selection-copy/markup";
 import { capAssistantMessageForRender, getUtf8ByteLength } from "./assistant-message-render-limit";
 import { ReadAloudButton, ReadAloudButtons } from "@/components/read-aloud-buttons";
-import { useReadAloudPlayer } from "@/voice/use-read-aloud-player";
 import { useHostFeature } from "@/runtime/host-features";
 export type { InlinePathTarget } from "@/assistant-file-links";
 export type { AssistantForkTarget };
@@ -756,7 +755,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   );
 });
 
-const EMPTY_REWRITING_KINDS: ReadonlySet<string> = new Set();
+const EMPTY_ACTIVE_KINDS: ReadonlySet<string> = new Set();
 
 function AssistantTurnFooterReadAloud({
   text,
@@ -771,11 +770,10 @@ function AssistantTurnFooterReadAloud({
 }) {
   const supportsRewrite = useHostFeature(serverId, "voiceReadAloudRewrite");
   const isCompact = useIsCompactFormFactor();
-  const { snapshot } = useReadAloudPlayer();
-  const [rewritingKinds, setRewritingKinds] = useState<ReadonlySet<string>>(EMPTY_REWRITING_KINDS);
-  const handleRewritingChange = useCallback((kind: string, rewriting: boolean) => {
-    setRewritingKinds((previous) => {
-      if (rewriting) {
+  const [activeKinds, setActiveKinds] = useState<ReadonlySet<string>>(EMPTY_ACTIVE_KINDS);
+  const handleActivityChange = useCallback((kind: string, active: boolean) => {
+    setActiveKinds((previous) => {
+      if (active) {
         if (previous.has(kind)) {
           return previous;
         }
@@ -789,17 +787,12 @@ function AssistantTurnFooterReadAloud({
       return next;
     });
   }, []);
-  // Keep the slot visible while this turn has player activity: the stop
-  // control must survive the cursor leaving the footer. Match on the
-  // button keys (kind + text) so only this turn's own rewrite/speech —
-  // never another turn's — holds its slot open. rewritingKinds covers the
-  // rewrite window before the player goes non-idle.
-  const activityKey = useMemo(() => `raw:${text}`, [text]);
-  const rewrittenKey = useMemo(() => `rewritten:${text}`, [text]);
-  const isOwnActivity =
-    rewritingKinds.size > 0 ||
-    snapshot.activeKey === activityKey ||
-    snapshot.activeKey === rewrittenKey;
+  // Keep the slot visible while either button reports activity (rewriting,
+  // error, or speaking): the stop control and error text must survive the
+  // cursor leaving the footer. Each button derives this from its own state
+  // plus its own player key, so only this turn's own activity — never
+  // another turn's — holds its slot open.
+  const isOwnActivity = activeKinds.size > 0;
   const revealed = footerHovered || isNative || isCompact || isOwnActivity;
   return (
     <View
@@ -819,8 +812,7 @@ function AssistantTurnFooterReadAloud({
           client={client}
           supportsRewrite={supportsRewrite}
           visible
-          activityKey={activityKey}
-          onRewritingChange={handleRewritingChange}
+          onActivityChange={handleActivityChange}
         />
       </View>
     </View>

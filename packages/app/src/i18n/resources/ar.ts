@@ -2508,6 +2508,11 @@ export const ar: TranslationResources = {
     general: {
       title: "عام",
       sending: "الإرسال",
+      display: "العرض",
+      keepAwake: {
+        label: "إبقاء الشاشة مضاءة",
+        description: "منع إطفاء الشاشة أثناء فتح Paseo",
+      },
       browserData: {
         title: "بيانات المتصفح",
         siteData: "ملفات تعريف الارتباط وبيانات المواقع",

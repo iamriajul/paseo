@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { GatewayStatsSample } from "@getpaseo/protocol/messages";
-import { formatAgo } from "@/provider-usage/format";
+import { formatAgo } from "@/usage/format";
 import { formatDuration, formatThroughput, gatewayStatsCopy } from "./copy";
 
 export interface StatsTableRow {

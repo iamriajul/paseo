@@ -958,11 +958,11 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
           rawListId: "claude-sonnet-5",
         },
         {
-          id: "claude-sonnet-5-5",
-          label: "Claude Sonnet 5.5",
+          id: "claude-sonnet-5-9",
+          label: "Claude Sonnet 5.9",
           ownedBy: "anthropic",
           maxInputTokens: 1_000_000,
-          rawListId: "claude-sonnet-5-5",
+          rawListId: "claude-sonnet-5-9",
         },
       ],
       existingAdditionalModels: [],
@@ -970,9 +970,9 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       getCustomThinkingOptions: () => [{ id: "max", label: "Max" }],
     });
 
-    expect(result.advertisedIds).toEqual(["claude-sonnet-5", "claude-sonnet-5-5"]);
-    const minor = result.models.find((model) => model.id === "claude-sonnet-5-5");
-    expect(minor?.label).toBe("Claude Sonnet 5.5");
+    expect(result.advertisedIds).toEqual(["claude-sonnet-5", "claude-sonnet-5-9"]);
+    const minor = result.models.find((model) => model.id === "claude-sonnet-5-9");
+    expect(minor?.label).toBe("Claude Sonnet 5.9");
     expect(minor?.contextWindowMaxTokens).toBe(1_000_000);
     // The manifest's own Sonnet 5 row keeps its window rather than taking the 1M overlay.
     expect(

@@ -1,6 +1,7 @@
+import { useMemo } from "react";
 import { withUnistyles } from "react-native-unistyles";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
-import { getProviderIcon } from "@/components/provider-icons";
+import { useProviderIcon } from "@/components/provider-icons";
 import type { CommandCenterIcon, CommandCenterIconProps } from "./contributions";
 
 const commandCenterProviderIcons = new Map<AgentProvider, CommandCenterIcon>();
@@ -9,10 +10,15 @@ export function getCommandCenterProviderIcon(provider: AgentProvider): CommandCe
   const cached = commandCenterProviderIcons.get(provider);
   if (cached) return cached;
 
-  const ProviderIcon = withUnistyles(getProviderIcon(provider), (theme) => ({
-    color: theme.colors.foregroundMuted,
-  }));
   function CommandCenterProviderIcon({ size }: CommandCenterIconProps) {
+    const Icon = useProviderIcon(provider);
+    const ProviderIcon = useMemo(
+      () =>
+        withUnistyles(Icon, (theme) => ({
+          color: theme.colors.foregroundMuted,
+        })),
+      [Icon],
+    );
     return <ProviderIcon size={size} />;
   }
   commandCenterProviderIcons.set(provider, CommandCenterProviderIcon);

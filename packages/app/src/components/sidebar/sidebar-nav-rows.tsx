@@ -165,7 +165,6 @@ function SidebarSearchRow() {
   );
 }
 
-
 function SidebarSchedulesRow({ onBeforeNavigate }: SidebarNavRowProps) {
   const { t } = useTranslation();
   const pathname = usePathname();

@@ -15,6 +15,8 @@ interface SidebarBacklogRowProps {
   onBeforeNavigate?: () => void;
 }
 
+const backlogAddIconColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+
 /**
  * Fork-owned Backlog entry rendered alongside the preference-driven
  * SidebarNavRows. It stays outside the nav model on purpose: the model's
@@ -46,24 +48,21 @@ export const SidebarBacklogRow = memo(function SidebarBacklogRow({
         testID="sidebar-backlog-add"
         hitSlop={8}
       >
-        <ThemedPlus
-          size={ICON_SIZE.sm}
-          uniProps={(theme: Theme) => ({ color: theme.colors.foregroundMuted })}
-        />
+        <ThemedPlus size={ICON_SIZE.sm} uniProps={backlogAddIconColorMapping} />
       </Pressable>
     ),
     [ThemedPlus, handleCreateTask],
   );
 
-   return (
-     <SidebarHeaderRow
-       icon={ListTodo}
-       label={t("sidebar.sections.backlog")}
-       onPress={handlePress}
-       isActive={pathname.includes("/backlog")}
-       testID="sidebar-backlog"
-       variant="compact"
+  return (
+    <SidebarHeaderRow
+      icon={ListTodo}
+      label={t("sidebar.sections.backlog")}
+      onPress={handlePress}
+      isActive={pathname.includes("/backlog")}
+      testID="sidebar-backlog"
+      variant="compact"
       trailing={addButton}
-     />
-   );
+    />
+  );
 });

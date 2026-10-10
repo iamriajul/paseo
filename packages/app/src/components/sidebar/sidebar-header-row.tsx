@@ -11,13 +11,6 @@ type SidebarHeaderRowVariant = "header" | "compact" | "inline";
 
 export type SidebarRowIcon = ComponentType<{ size: number; color: string }>;
 
-interface SidebarHeaderRowAction {
-  icon: LucideIcon;
-  onPress: () => void;
-  accessibilityLabel: string;
-  testID?: string;
-}
-
 interface SidebarHeaderRowProps {
   icon: SidebarRowIcon | null;
   label: string;
@@ -171,7 +164,6 @@ const styles = StyleSheet.create((theme) => ({
     // Match the project rows' inner padding so the icons align on one vertical
     // edge with the list below.
     paddingHorizontal: theme.spacing[2],
-
   },
   iconSpacer: { width: densityIconBox("md"), height: densityIconBox("md") },
   iconSpacerCompact: { width: densityIconBox("sm"), height: densityIconBox("sm") },
@@ -180,7 +172,6 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foregroundMuted,
-    flexShrink: 1,
   },
   labelHighlighted: {
     color: theme.colors.foreground,
@@ -190,18 +181,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[1],
     paddingRight: theme.spacing[2],
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
-  },
-  trailingAction: {
-    minWidth: 28,
-    minHeight: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: theme.borderRadius.md,
   },
 }));
 

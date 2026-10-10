@@ -3012,7 +3012,12 @@ function WorkspaceScreenContent({
 
   const handleCloseOtherTabsInPane = useCallback(
     async (tabId: string, paneTabs: WorkspaceTabDescriptor[]) => {
-      const tabsToClose = paneTabs.filter((tab) => tab.tabId !== tabId);
+      // The Todo list is persistent utility chrome, not a closable document:
+      // bulk-close spares it (Chrome spares pinned tabs the same way), while
+      // its own Close entry still dismisses it.
+      const tabsToClose = paneTabs.filter(
+        (tab) => tab.tabId !== tabId && tab.target.kind !== "todo",
+      );
       await handleBulkCloseTabs({
         tabsToClose,
         title: t("workspace.tabs.confirmations.closeOtherTabsTitle"),

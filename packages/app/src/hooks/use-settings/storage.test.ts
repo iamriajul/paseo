@@ -50,6 +50,26 @@ describe("loadAppSettingsFromStorage", () => {
     });
     expect((await loadAppSettingsFromStorage(deps)).sendBehavior).toBe("steer");
   });
+  it("defaults keepScreenAwake to true and round-trips an explicit opt-out", async () => {
+    const empty = makeDeps({
+      storage: createInMemoryKeyValueStorage({}),
+    });
+    expect((await loadAppSettingsFromStorage(empty)).keepScreenAwake).toBe(true);
+
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ keepScreenAwake: false }),
+      }),
+    });
+    expect((await loadAppSettingsFromStorage(deps)).keepScreenAwake).toBe(false);
+
+    await saveAppSettings({
+      queryClient: new QueryClient(),
+      updates: { keepScreenAwake: false },
+      deps,
+    });
+    expect((await loadAppSettingsFromStorage(deps)).keepScreenAwake).toBe(false);
+  });
 
   it("keeps valid settings when another build wrote unknown fields or enum values", async () => {
     const stored = {

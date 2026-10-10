@@ -2208,6 +2208,11 @@ export const ru: TranslationResources = {
     general: {
       title: "Основные",
       sending: "Отправка",
+      display: "Экран",
+      keepAwake: {
+        label: "Не выключать экран",
+        description: "Не давать экрану гаснуть, пока открыт Paseo",
+      },
       browserData: {
         title: "Данные браузера",
         siteData: "Файлы cookie и данные сайтов",

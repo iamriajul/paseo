@@ -146,6 +146,12 @@ describe("captureRunningAgentsForShutdown", () => {
           { id: "init-1", lifecycle: "initializing", internal: false },
           { id: "error-1", lifecycle: "error", internal: false },
           { id: "internal-running", lifecycle: "running", internal: true },
+          {
+            id: "hub-owned-running",
+            lifecycle: "running",
+            internal: false,
+            owner: { kind: "daemon", daemonId: "d1", executionId: "e1" },
+          },
         ],
       } as unknown as import("./agent-manager.js").AgentManager;
       await captureRunningAgentsForShutdown(dir, manager, logger);
@@ -154,6 +160,7 @@ describe("captureRunningAgentsForShutdown", () => {
       expect(ids).not.toContain("idle-1");
       expect(ids).not.toContain("error-1");
       expect(ids).not.toContain("internal-running");
+      expect(ids).not.toContain("hub-owned-running");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

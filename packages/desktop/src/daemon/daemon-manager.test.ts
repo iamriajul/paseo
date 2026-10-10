@@ -82,6 +82,22 @@ vi.mock("./cli/external.js", () => ({
   runExternalCliTextCommand: mocks.runExternalCliTextCommand,
 }));
 
+/** A live managed-daemon lock so status probes take the CLI path, not the idle early return. */
+function writeInstanceLock(): void {
+  mkdirSync(mocks.paseoHome, { recursive: true });
+  writeFileSync(
+    path.join(mocks.paseoHome, "paseo.pid"),
+    JSON.stringify({
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      hostname: hostname(),
+      uid: process.getuid?.() ?? 0,
+      listen: "127.0.0.1:6767",
+      desktopManaged: true,
+    }),
+  );
+}
+
 describe("daemon-manager commands", () => {
   let fixtureRoot: string;
 
@@ -183,6 +199,7 @@ describe("daemon-manager commands", () => {
     expect(await handler({ listen: "localhost:6799" })).toBeNull();
   });
   it("remembers the local daemon serverId so Browser registration can skip CLI", async () => {
+    writeInstanceLock();
     mocks.runExternalCliJsonCommand.mockResolvedValue({
       localDaemon: "running",
       connectedDaemon: "reachable",
@@ -201,6 +218,7 @@ describe("daemon-manager commands", () => {
   });
 
   it("keeps the last known daemon serverId when a later status probe fails", async () => {
+    writeInstanceLock();
     mocks.runExternalCliJsonCommand
       .mockResolvedValueOnce({
         localDaemon: "running",

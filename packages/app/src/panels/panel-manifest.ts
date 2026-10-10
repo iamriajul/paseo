@@ -89,7 +89,9 @@ const manifests = {
     kind: "todo",
     supportedHosts: ["explorer", "main"],
     showCloseButton: false,
-    singleton: true,
+    // Not singleton: the + menu always offers Todo, matching the behavior the
+    // explorer rail menu pins.
+    singleton: false,
     resourceKey: () => "todo",
   },
   files: {

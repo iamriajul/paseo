@@ -70,14 +70,16 @@ function renderTrigger({
   childDisabled,
   onPress,
   onOpenChange,
+  enabledOnMobile,
 }: {
   childDisabled: boolean;
   onPress: () => void;
   onOpenChange?: (open: boolean) => void;
+  enabledOnMobile?: boolean;
 }): void {
   act(() => {
     root?.render(
-      <Tooltip onOpenChange={onOpenChange}>
+      <Tooltip onOpenChange={onOpenChange} enabledOnMobile={enabledOnMobile}>
         <TooltipTrigger asChild>
           <Pressable disabled={childDisabled} onPress={onPress} testID="trigger">
             <Text>Send</Text>
@@ -119,7 +121,7 @@ describe("TooltipTrigger", () => {
   it("opens an enabled tooltip on native press at a non-compact breakpoint", () => {
     const onOpenChange = vi.fn();
 
-    renderTrigger({ childDisabled: false, onPress: vi.fn(), onOpenChange });
+    renderTrigger({ childDisabled: false, onPress: vi.fn(), onOpenChange, enabledOnMobile: true });
     pressTrigger();
 
     expect(onOpenChange).toHaveBeenCalledWith(true);

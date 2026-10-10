@@ -37,4 +37,12 @@ export const usageCopy = {
   displayRemaining: "Remaining",
   showInSidebar: "Summary in sidebar",
   showInSidebarHint: "Pinned windows show in the sidebar footer",
+  resetQuota: "Reset quota",
+  cancel: "Cancel",
+  resetQuotaConfirmTitle: "Reset Codex quota?",
+  resetQuotaConfirmMessage:
+    "This consumes one available reset and immediately resets eligible Codex usage windows.",
+  resetQuotaSuccessTitle: "Quota reset",
+  resetQuotaNoopTitle: "No reset applied",
+  resetQuotaFailedTitle: "Unable to reset quota",
 } as const;

@@ -72,3 +72,54 @@ test("request failures terminate with an error response and no updates", async (
     },
   ]);
 });
+
+test("emits a reset-quota response for a supported provider", async () => {
+  const emitted: SessionOutboundMessage[] = [];
+  const usage = new UsageSession({
+    emit: (message) => emitted.push(message),
+    resetProviderQuota: async (providerId: string) => ({
+      providerId,
+      code: "reset",
+      windowsReset: 2,
+      message: "Reset quota consumed. Windows reset: 2.",
+    }),
+    logger: pino({ level: "silent" }),
+  });
+  await usage.handleResetQuotaRequest({
+    type: "provider.usage.reset_quota.request",
+    providerId: "codex",
+    requestId: "rq1",
+  });
+  expect(emitted).toEqual([
+    {
+      type: "provider.usage.reset_quota.response",
+      payload: {
+        requestId: "rq1",
+        providerId: "codex",
+        code: "reset",
+        windowsReset: 2,
+        message: "Reset quota consumed. Windows reset: 2.",
+      },
+    },
+  ]);
+});
+
+test("surfaces a reset failure as an rpc_error envelope", async () => {
+  const emitted: SessionOutboundMessage[] = [];
+  const usage = new UsageSession({
+    emit: (message) => emitted.push(message),
+    resetProviderQuota: async () => {
+      throw new Error("Codex auth is unavailable");
+    },
+    logger: pino({ level: "silent" }),
+  });
+  await usage.handleResetQuotaRequest({
+    type: "provider.usage.reset_quota.request",
+    providerId: "codex",
+    requestId: "rq2",
+  });
+  expect(emitted[0]).toMatchObject({
+    type: "rpc_error",
+    payload: { requestId: "rq2", code: "provider_usage_reset_quota_failed" },
+  });
+});

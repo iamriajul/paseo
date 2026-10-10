@@ -1,6 +1,6 @@
-import { RotateCw } from "lucide-react-native";
-import { useCallback, useMemo } from "react";
-import { Text, View, type StyleProp, type TextStyle } from "react-native";
+import { RotateCcw, RotateCw } from "lucide-react-native";
+import { useCallback, useMemo, useState } from "react";
+import { Alert, Text, View, type StyleProp, type TextStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   extraMutedIconColorMapping,
@@ -13,11 +13,12 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative } from "@/constants/platform";
 import { useCompactTimeAgo } from "@/hooks/use-time-ago";
+import { confirmDialog } from "@/utils/confirm-dialog";
 import { UsageBalanceBar } from "./balance-bar";
 import { usageCopy } from "./copy";
 import type { UsageDisplay } from "./display";
 import { formatUsageFreshness, type UsageRefresh } from "./model";
-import { useReportRefresh } from "./queries";
+import { resetProviderUsageQuota, useReportRefresh } from "./queries";
 import { UsageSourceIcon } from "./source-icon";
 import type { UsageReport, UsageReportEntry, UsageWindow } from "./types";
 import { UsageWindowBar } from "./window-bar";
@@ -54,6 +55,7 @@ function reportMessages(entry: UsageReportEntry): string[] {
 
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
+const ThemedResetIcon = withUnistyles(RotateCcw);
 
 export function UsageCard({
   serverId,
@@ -122,6 +124,9 @@ export function UsageCard({
             onRefresh={refresh}
             compact={isCompact}
           />
+        ) : null}
+        {entry.sourceId === "codex" && usage.status === "available" ? (
+          <CodexResetQuotaButton serverId={serverId} onReset={refresh} compact={isCompact} />
         ) : null}
       </View>
 
@@ -258,6 +263,62 @@ function UsageRefreshButton({
         <ThemedLoadingSpinner size={iconSize} uniProps={extraMutedIconColorMapping} />
       ) : (
         <ThemedRotateCw size={iconSize} uniProps={extraMutedIconColorMapping} />
+      )}
+    </ToolbarButton>
+  );
+}
+
+/** Consumes one Codex reset credit after confirmation, then force-refreshes the card. */
+function CodexResetQuotaButton({
+  serverId,
+  onReset,
+  compact,
+}: {
+  serverId: string;
+  onReset: () => void;
+  compact: boolean;
+}) {
+  const [resetting, setResetting] = useState(false);
+  const iconSize = paneContentToolbarIconSize(compact);
+  const handlePress = useCallback(async () => {
+    const confirmed = await confirmDialog({
+      title: usageCopy.resetQuotaConfirmTitle,
+      message: usageCopy.resetQuotaConfirmMessage,
+      confirmLabel: usageCopy.resetQuota,
+      cancelLabel: usageCopy.cancel,
+      destructive: true,
+    });
+    if (!confirmed) return;
+    setResetting(true);
+    try {
+      const result = await resetProviderUsageQuota(serverId, "codex");
+      Alert.alert(
+        result.code === "reset" ? usageCopy.resetQuotaSuccessTitle : usageCopy.resetQuotaNoopTitle,
+        result.message ?? usageCopy.resetQuotaSuccessTitle,
+      );
+      onReset();
+    } catch (error) {
+      Alert.alert(
+        usageCopy.resetQuotaFailedTitle,
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setResetting(false);
+    }
+  }, [serverId, onReset]);
+  return (
+    <ToolbarButton
+      label={usageCopy.resetQuota}
+      compact={compact}
+      disabled={resetting}
+      onPress={handlePress}
+      style={compact ? styles.refreshButtonCompact : styles.refreshButton}
+      testID="usage-reset-quota"
+    >
+      {resetting ? (
+        <ThemedLoadingSpinner size={iconSize} uniProps={extraMutedIconColorMapping} />
+      ) : (
+        <ThemedResetIcon size={iconSize} uniProps={extraMutedIconColorMapping} />
       )}
     </ToolbarButton>
   );

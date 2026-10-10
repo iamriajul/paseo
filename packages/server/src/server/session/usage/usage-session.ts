@@ -9,7 +9,15 @@ export interface UsageSessionOptions {
     listUsageReports(options: ListUsageReportsOptions): Promise<UsageReportEntry[]>;
     listLegacyUsage(): Promise<{ fetchedAt: string; providers: ProviderUsage[] }>;
   };
+  resetProviderQuota?: (providerId: string) => Promise<ProviderUsageResetQuotaResult>;
   logger: pino.Logger;
+}
+
+export interface ProviderUsageResetQuotaResult {
+  providerId: string;
+  code: string;
+  windowsReset: number | null;
+  message: string | null;
 }
 
 export class UsageSession {
@@ -70,6 +78,41 @@ export class UsageSession {
           requestType: msg.type,
           error: `Failed to list provider usage: ${err.message}`,
           code: "provider_usage_list_failed",
+        },
+      });
+    }
+  }
+
+  async handleResetQuotaRequest(
+    msg: Extract<SessionInboundMessage, { type: "provider.usage.reset_quota.request" }>,
+  ): Promise<void> {
+    try {
+      const reset = this.options.resetProviderQuota;
+      if (!reset) throw new Error("Quota reset is unavailable");
+      const result = await reset(msg.providerId);
+      this.options.emit({
+        type: "provider.usage.reset_quota.response",
+        payload: {
+          requestId: msg.requestId,
+          providerId: result.providerId,
+          code: result.code,
+          windowsReset: result.windowsReset,
+          message: result.message,
+        },
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.options.logger.error(
+        { err, providerId: msg.providerId },
+        "Failed to reset provider quota",
+      );
+      this.options.emit({
+        type: "rpc_error",
+        payload: {
+          requestId: msg.requestId,
+          requestType: msg.type,
+          error: `Failed to reset provider quota: ${err.message}`,
+          code: "provider_usage_reset_quota_failed",
         },
       });
     }

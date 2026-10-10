@@ -48,6 +48,14 @@ function agentUsageQueryKey(serverId: string, agentId: string) {
   return [...hostUsageQueryKey(serverId), "agent", agentId] as const;
 }
 
+/**
+ * Consume one reset credit for a provider. Callers refresh the report with
+ * forceRefresh afterwards so the card never shows the pre-reset list as current.
+ */
+export async function resetProviderUsageQuota(serverId: string, providerId: string) {
+  return requireClient(serverId).resetProviderUsageQuota({ providerId });
+}
+
 function requireClient(serverId: string) {
   const client = getHostRuntimeStore().getClient(serverId);
   if (!client) throw new Error(usageCopy.clientUnavailable);

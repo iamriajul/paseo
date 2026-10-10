@@ -311,7 +311,6 @@ describe("ProviderCatalogSession", () => {
     });
   });
 
-
   it("emits unsupported quota when the provider is not gateway-routed", async () => {
     const { subsystem, emitted } = makeSubsystem({
       snapshot: {

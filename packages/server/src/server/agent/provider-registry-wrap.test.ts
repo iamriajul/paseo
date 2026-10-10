@@ -181,11 +181,6 @@ class FakeSession implements AgentSession {
     };
   }
 
-  async steerActiveTurn() {
-    this.recordedCalls.push("steerActiveTurn");
-    return { status: "accepted" as const };
-  }
-
   async stopBackgroundTask() {
     this.recordedCalls.push("stopBackgroundTask");
   }
@@ -229,6 +224,7 @@ describe("wrapSessionProvider", () => {
 
     expect(session.steers).toEqual([
       { prompt: "follow-up", options: { expectedTurnId: "turn-1" } },
+      { prompt: "nudge", options: { expectedTurnId: "turn-1" } },
     ]);
     expect(session.recordedCalls).toEqual([
       "steerActiveTurn",
@@ -276,6 +272,7 @@ describe("wrapSessionProvider", () => {
     const session: AgentSession = new FakeSession();
     session.steerActiveTurn = undefined;
     expect(wrapSessionProvider("custom-claude", session).steerActiveTurn).toBeUndefined();
+  });
 
   test("wrapped sessions expose official steerActiveTurn and do not need session.steer", async () => {
     const session = new FakeSession();

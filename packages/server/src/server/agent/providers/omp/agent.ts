@@ -38,8 +38,6 @@ import {
   type ListImportableSessionsOptions,
   type ProviderCatalog,
   type ProviderRefreshContext,
-  type SteerActiveTurnOptions,
-  type SteerResult,
   type ToolCallDetail,
 } from "../../agent-sdk-types.js";
 import type { PaseoToolCatalog } from "../../tools/types.js";
@@ -1139,34 +1137,6 @@ export class OmpAgentSession implements AgentSession {
         turnId,
       });
     }
-  }
-
-  async steerActiveTurn(
-    prompt: AgentPromptInput,
-    options: SteerActiveTurnOptions,
-  ): Promise<SteerResult> {
-    if (!this.activeTurnId || this.activeTurnId !== options.expectedTurnId) {
-      return { status: "unavailable" };
-    }
-    const payload = convertPromptInput(prompt, { model: this.state.model });
-    if (!payload.text.trim() && (payload.images?.length ?? 0) === 0) {
-      return { status: "unavailable" };
-    }
-    if (options.clientMessageId) {
-      // Correlate a later runtime user-message event with the client draft id.
-      this.activeClientMessageId = options.clientMessageId;
-    }
-    this.logger.info(
-      {
-        sessionId: this.state.sessionId,
-        turnId: this.activeTurnId,
-        hasClientMessageId: Boolean(options.clientMessageId),
-        imageCount: payload.images?.length ?? 0,
-      },
-      "Steering OMP runtime session",
-    );
-    this.runtimeSession.steer(payload.text, payload.images);
-    return { status: "accepted" };
   }
 
   async revertConversation(input: { messageId: string }): Promise<void> {

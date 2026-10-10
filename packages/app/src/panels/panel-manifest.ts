@@ -46,11 +46,15 @@ const manifests = {
   background_task: {
     kind: "background_task",
     supportedHosts: ["main", "explorer"],
+    showCloseButton: true,
+    singleton: false,
     resourceKey: (target) => `${target.parentAgentId}:${target.taskId}`,
   },
   loop: {
     kind: "loop",
     supportedHosts: ["main", "explorer"],
+    showCloseButton: true,
+    singleton: false,
     resourceKey: (target) => target.loopId,
   },
   terminal: {
@@ -70,6 +74,8 @@ const manifests = {
   codeServer: {
     kind: "codeServer",
     supportedHosts: ["main"],
+    showCloseButton: true,
+    singleton: false,
     resourceKey: (target) => target.codeServerId,
   },
   changes_tree: {
@@ -82,6 +88,8 @@ const manifests = {
   todo: {
     kind: "todo",
     supportedHosts: ["explorer", "main"],
+    showCloseButton: false,
+    singleton: true,
     resourceKey: () => "todo",
   },
   files: {

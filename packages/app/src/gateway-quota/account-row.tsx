@@ -5,8 +5,8 @@
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { ModelProviderGlyph } from "@/components/model-browser";
-import { formatResetLabel } from "@/provider-usage/format";
-import { ProviderUsageWindowBar } from "@/provider-usage/window-bar";
+import { formatResetLabel } from "@/usage/format";
+import { UsageWindowBar } from "@/usage/window-bar";
 import { ICON_SIZE } from "@/styles/theme";
 import { gatewayQuotaCopy } from "./copy";
 import type { GatewayQuotaAccount } from "./types";
@@ -33,6 +33,9 @@ const ACCOUNT_ICON_IDS: Record<string, string> = {
   zai: "zai",
   zhipu: "zai",
 };
+
+/** Gateway rows are never pinnable; UsageWindowBar still requires the callback. */
+const noopPinToggle = (): void => {};
 
 function gatewayAccountIconId(provider: string): string {
   return ACCOUNT_ICON_IDS[provider.toLowerCase()] ?? provider.toLowerCase();
@@ -88,7 +91,16 @@ export function GatewayQuotaAccountRow({
       {windows.length > 0 ? (
         <View style={[styles.windows, compact && styles.windowsCompact]}>
           {windows.map((window) => (
-            <ProviderUsageWindowBar key={window.id} window={window} />
+            <UsageWindowBar
+              key={window.id}
+              window={window}
+              displayAs="used"
+              pinnable={false}
+              pinned={false}
+              onTogglePin={noopPinToggle}
+              pinLabel=""
+              pinTestID={`gateway-quota-pin-${window.id}`}
+            />
           ))}
         </View>
       ) : null}

@@ -326,8 +326,24 @@ export function Tooltip({
       enabled,
       openOnPress: opensOnPress,
       delayDuration,
+      interactive,
+      scheduleOpen,
+      cancelPendingOpen,
+      scheduleGracefulClose,
+      cancelPendingClose,
     }),
-    [isOpen, setIsOpen, enabled, opensOnPress, delayDuration],
+    [
+      isOpen,
+      setIsOpen,
+      enabled,
+      opensOnPress,
+      delayDuration,
+      interactive,
+      scheduleOpen,
+      cancelPendingOpen,
+      scheduleGracefulClose,
+      cancelPendingClose,
+    ],
   );
 
   return <TooltipContext.Provider value={value}>{children}</TooltipContext.Provider>;
@@ -557,39 +573,6 @@ export function TooltipContent({
   const contentStyle = useMemo(() => [styles.content, style], [style]);
 
   const handleDismiss = useCallback(() => ctx.setOpen(false), [ctx]);
-  const handleContentPointerEnter = useCallback(() => ctx.cancelPendingClose(), [ctx]);
-  const handleContentPointerLeave = useCallback(() => ctx.setOpen(false), [ctx]);
-
-  const interactiveContentHandlers = useMemo(
-    () =>
-      isWeb && ctx.interactive
-        ? {
-            // RN Web passes these through to the DOM node. Entering the
-            // content cancels the trigger-leave grace close; leaving it
-            // closes immediately — the pointer is already outside both.
-            onPointerEnter: handleContentPointerEnter,
-            onPointerLeave: handleContentPointerLeave,
-          }
-        : null,
-    [ctx, handleContentPointerEnter, handleContentPointerLeave],
-  );
-  if (!ctx.open || !ctx.enabled) return null;
-
-  const surface = (
-    <FloatingSurface
-      ref={ctx.contentRef}
-      entering={FadeIn.duration(80)}
-      exiting={FadeOut.duration(80)}
-      collapsable={false}
-      testID={testID}
-      onLayout={handleLayout}
-      style={contentStyle}
-      frameStyle={frameStyle}
-      {...interactiveContentHandlers}
-    >
-      {children}
-    </FloatingSurface>
-  );
 
   // On web, avoid React Native's <Modal/> implementation (it uses <dialog> and can
   // steal focus / disrupt hover). Rendering via Portal + position:fixed keeps the

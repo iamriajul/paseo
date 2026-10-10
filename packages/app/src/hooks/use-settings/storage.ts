@@ -140,7 +140,6 @@ export interface AppSettings {
   sidebarStatusSubtitle: SidebarStatusSubtitle;
   /** Server glyph next to host identity under a workspace title. Default on. */
   sidebarIdentityIcon: boolean;
-  autoExpandReasoning: boolean;
   toolCallDetailLevel: ToolCallDetailLevel;
   chatOutlineEnabled: boolean;
   voiceInputMode: VoiceInputMode;
@@ -210,7 +209,6 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   autoExpandReasoning: false,
   sidebarStatusSubtitle: DEFAULT_SIDEBAR_STATUS_SUBTITLE,
   sidebarIdentityIcon: true,
-  autoExpandReasoning: false,
   toolCallDetailLevel: "detailed",
   chatOutlineEnabled: true,
   voiceInputMode: "always",
@@ -315,7 +313,6 @@ const StoredAppSettingsSchema = z
     autoExpandReasoning: z.boolean().catch(false),
     sidebarStatusSubtitle: z.enum(["host", "project"]).catch(DEFAULT_SIDEBAR_STATUS_SUBTITLE),
     sidebarIdentityIcon: z.boolean().catch(true),
-    autoExpandReasoning: z.boolean().catch(false),
     toolCallDetailLevel: z
       .enum(["overview", "detailed"])
       .or(z.literal("concise").transform(() => "overview" as const))

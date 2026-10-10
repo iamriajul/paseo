@@ -201,6 +201,7 @@ import { gatewayBaseUrlsMatch, type ResolvedGatewayConfig } from "../../gateway/
 import { withTimeout } from "../../../../utils/promise-timeout.js";
 import { terminateWithTreeKill } from "../../../../utils/tree-kill.js";
 import { execCommand } from "../../../../utils/spawn.js";
+import type { ExternalProcessEnv } from "../../../paseo-env.js";
 import { composeSystemPromptParts } from "../../system-prompt.js";
 import { lookupModelsDevModel } from "../../../models-dev/catalog.js";
 
@@ -567,6 +568,7 @@ function errorToMessageString(error: unknown): string {
  */
 function isClaudeTurnInit(message: SDKMessage): boolean {
   return message.type === "system" && message.subtype === "init";
+}
 function renderClaudeTextOnlyImageHint(image: { data: string; mimeType: string }): string {
   try {
     const materialized = materializeProviderImage({
@@ -3839,7 +3841,7 @@ class ClaudeAgentSession implements AgentSession {
       sessionKey: this.usageSessionKey,
     };
   }
-  private buildSdkEnv(): NodeJS.ProcessEnv {
+  private buildSdkEnv(): ExternalProcessEnv {
     const env = createProviderEnv({
       baseEnv: process.env,
       runtimeSettings: this.runtimeSettings,
@@ -3871,9 +3873,12 @@ class ClaudeAgentSession implements AgentSession {
     const withOutput = applyClaudeMaxOutputTokensEnv(withContext, configuredMaxOutput, {
       overwrite: configuredMaxOutput !== undefined,
     });
-    return applyClaudeAutoCompactWindowEnv(withOutput, configuredAutoCompactWindow, {
+    const autoCompacted = applyClaudeAutoCompactWindowEnv(withOutput, configuredAutoCompactWindow, {
       overwrite: profileOwnsWindow,
     });
+    // Every step above only sets string values or deletes keys, so the ProcessEnv chain stays
+    // string-valued like the ExternalProcessEnv it started from.
+    return autoCompacted as ExternalProcessEnv;
   }
 
   private applyCliproxyapiRoutingEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

@@ -12,6 +12,10 @@ import type { Theme } from "@/styles/theme";
 import { ContextWindowDetails } from "./context-window-details";
 import { ContextWindowSheet } from "./context-window-sheet";
 
+import { GatewayQuotaSection } from "@/gateway-quota/section";
+import { useGatewayQuota } from "@/gateway-quota/use-gateway-quota";
+import { GatewayStatsSection } from "@/gateway-stats/section";
+import { useGatewayStats } from "@/gateway-stats/use-gateway-stats";
 interface ContextWindowMeterProps {
   serverId: string;
   agentId: string;
@@ -19,7 +23,10 @@ interface ContextWindowMeterProps {
   usedTokens: number | null;
   totalCostUsd?: number | null;
   showPercentage?: boolean;
-
+  /** The Paseo provider key, selecting the per-model Gateway quota section. */
+  provider?: string | null;
+  /** The selected model id, selecting the per-model Gateway quota section. */
+  model?: string | null;
   /** Optional glyph envelope for icon-toolbar alignment. */
   glyphSize?: number;
 }
@@ -142,6 +149,37 @@ const ContextWindowRing = withUnistyles(function ContextWindowRing({
   );
 });
 
+/**
+ * CLIProxyAPI quota and latest-request sections for the meter popover. Mounted
+ * inside each details surface (sheet, tooltip, hover card), all of which
+ * unmount their content while closed — so the reads and the 3s stats poll only
+ * run while someone is looking. Each section hides itself when the host,
+ * provider, or model has nothing to show.
+ */
+function GatewayMeterSections({
+  serverId,
+  provider,
+  model,
+}: {
+  serverId: string;
+  provider: string | null | undefined;
+  model: string | null | undefined;
+}) {
+  const { view: gatewayQuotaView } = useGatewayQuota(serverId, provider, model);
+  const { sample: gatewayStatsSample, isLive: gatewayStatsIsLive } = useGatewayStats({
+    serverId,
+    provider,
+    model,
+    enabled: true,
+  });
+  return (
+    <>
+      <GatewayQuotaSection view={gatewayQuotaView} serverId={serverId} />
+      <GatewayStatsSection sample={gatewayStatsSample} isLive={gatewayStatsIsLive} />
+    </>
+  );
+}
+
 export function ContextWindowMeter({
   serverId,
   agentId,
@@ -149,7 +187,8 @@ export function ContextWindowMeter({
   usedTokens,
   totalCostUsd,
   showPercentage = false,
-
+  provider,
+  model,
   glyphSize,
 }: ContextWindowMeterProps) {
   const { t } = useTranslation();
@@ -222,6 +261,7 @@ export function ContextWindowMeter({
             showTitle={false}
             refreshable
           />
+          <GatewayMeterSections serverId={serverId} provider={provider} model={model} />
         </ContextWindowSheet>
       </>
     );
@@ -263,6 +303,7 @@ export function ContextWindowMeter({
             showTitle
             refreshable={false}
           />
+          <GatewayMeterSections serverId={serverId} provider={provider} model={model} />
         </TooltipContent>
       </Tooltip>
     );
@@ -297,56 +338,9 @@ export function ContextWindowMeter({
           showTitle
           refreshable
         />
+        <GatewayMeterSections serverId={serverId} provider={provider} model={model} />
       </HoverCardContent>
     </HoverCard>
-  );
-}
-
-function MeterTooltipBody({
-  usedTokens,
-  maxTokens,
-  formattedSessionCost,
-  providerUsageView,
-  gatewayQuotaView,
-  gatewayStatsSample,
-  gatewayStatsIsLive,
-  provider,
-  serverId,
-}: {
-  usedTokens: number;
-  maxTokens: number;
-  formattedSessionCost: string | null;
-  providerUsageView: ComponentProps<typeof ProviderUsageTooltipSection>["view"];
-  gatewayQuotaView: ComponentProps<typeof GatewayQuotaSection>["view"];
-  gatewayStatsSample: ComponentProps<typeof GatewayStatsSection>["sample"];
-  gatewayStatsIsLive: boolean;
-  provider: string | null | undefined;
-  serverId: string | undefined;
-}) {
-  const { t } = useTranslation();
-  const percentage = getUsagePercentage(maxTokens, usedTokens) ?? 0;
-  const roundedPercentage = Math.round(percentage);
-  return (
-    <View style={styles.tooltipContent}>
-      <Text style={styles.tooltipTitle}>{t("contextWindow.title")}</Text>
-      <Text style={styles.tooltipText}>
-        {t("contextWindow.used", { percentage: roundedPercentage })}
-      </Text>
-      <Text style={styles.tooltipDetail}>
-        {t("contextWindow.tokens", {
-          used: formatTokenCount(usedTokens),
-          max: formatTokenCount(maxTokens),
-        })}
-      </Text>
-      {formattedSessionCost ? (
-        <Text style={styles.tooltipDetail}>
-          {t("contextWindow.sessionCost", { cost: formattedSessionCost })}
-        </Text>
-      ) : null}
-      <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
-      <GatewayQuotaSection view={gatewayQuotaView} serverId={serverId ?? null} />
-      <GatewayStatsSection sample={gatewayStatsSample} isLive={gatewayStatsIsLive} />
-    </View>
   );
 }
 

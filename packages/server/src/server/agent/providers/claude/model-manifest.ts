@@ -149,7 +149,7 @@ export const CLAUDE_MODEL_MANIFEST = [
     minimumClaudeCodeVersion: "2.1.284",
     defaultThinkingOptionId: "medium",
     contextWindowMaxTokens: 1_000_000,
-    effortLevels: CLAUDE_EFFORT_LEVELS.xhigh,
+    effortLevels: CLAUDE_EFFORT_LEVELS,
   },
   {
     id: "claude-sonnet-5",
@@ -226,7 +226,7 @@ export const CLAUDE_MODEL_MANIFEST = [
     minimumClaudeCodeVersion: "2.1.293",
     defaultThinkingOptionId: "medium",
     contextWindowMaxTokens: 1_000_000,
-    effortLevels: CLAUDE_EFFORT_LEVELS.xhigh,
+    effortLevels: CLAUDE_EFFORT_LEVELS,
     supportsThinkingDisabled: true,
   },
   {

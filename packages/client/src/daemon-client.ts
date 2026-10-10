@@ -6067,6 +6067,7 @@ export class DaemonClient {
       active = false;
       unsubscribe();
     }
+  }
   async resetProviderUsageQuota(options: {
     providerId: string;
     requestId?: string;

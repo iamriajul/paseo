@@ -19,7 +19,6 @@ export type {
   AgentProviderNotice,
   AgentTaskItem,
 };
-export type { AgentProviderNotice, AgentTaskItem };
 export type AgentModelDefinition = ProtocolAgentModelDefinition;
 
 export type AgentProvider = string;

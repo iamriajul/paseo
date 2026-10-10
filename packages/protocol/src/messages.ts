@@ -1978,6 +1978,7 @@ export const UsageListReportsRequestMessageSchema = z.object({
   requestId: z.string(),
   reportIds: z.array(z.string()).optional(),
   forceRefresh: z.boolean().optional(),
+});
 export const GatewayQuotaGetRequestMessageSchema = z.object({
   type: z.literal("cliproxyapi.quota.get.request"),
   requestId: z.string(),
@@ -6895,6 +6896,7 @@ export const UsageListReportsUpdateMessageSchema = z.object({
 export const UsageListReportsResponseMessageSchema = z.object({
   type: z.literal("usage.list_reports.response"),
   payload: z.object({ requestId: z.string(), error: z.string().nullable() }),
+});
 export const ProviderUsageResetQuotaResponseMessageSchema = z.object({
   type: z.literal("provider.usage.reset_quota.response"),
   payload: z.object({

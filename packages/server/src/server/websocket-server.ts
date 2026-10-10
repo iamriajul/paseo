@@ -614,9 +614,8 @@ export class VoiceAssistantWebSocketServer {
   private eventLoopDelayMonitor: ReturnType<typeof monitorEventLoopDelay> | null = null;
   private unsubscribeSpeechReadiness: (() => void) | null = null;
   private unsubscribeDaemonConfigChange: (() => void) | null = null;
-1:   private readonly taskStore: TaskStore;
+  private readonly taskStore: TaskStore;
   private readonly uiStateStore: UiStateStore;
-2:     this.wss = this.createWebSocketServer(wsConfig, auth);
   private unsubscribeTerminalActivity: (() => void) | null = null;
   private readonly browserToolsBroker: BrowserToolsBroker | null;
   private readonly hubRelationships: HubRelationshipManagement | null;
@@ -782,9 +781,7 @@ export class VoiceAssistantWebSocketServer {
       });
     });
 
-1:   private readonly taskStore: TaskStore;
-  private readonly uiStateStore: UiStateStore;
-2:     this.wss = this.createWebSocketServer(wsConfig, auth);
+    this.wss = this.createWebSocketServer(wsConfig, auth);
     this.startRuntimeMetricsInterval();
     this.startApplicationSocketLeaseInterval();
 

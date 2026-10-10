@@ -50,11 +50,9 @@ import {
 import { derivePendingPermissionKey } from "@/utils/agent-snapshots";
 import { useToast } from "@/contexts/toast-context";
 import { toErrorMessage } from "@/utils/error-messages";
-import { toDaemonServerInfo } from "@/utils/server-info";
 import { showProviderNoticeToast } from "@/utils/provider-notice-toast";
 import { applyCheckoutStatusUpdateFromEvent } from "@/git/checkout-status-cache";
 import { resyncProviderSubagents, useProviderSubagentStore } from "@/subagents/provider-store";
-import { useProviderSubagentStore } from "@/subagents/provider-store";
 import { useBackgroundTaskStore } from "@/background-tasks/store";
 import { useProviderHeartbeatStore } from "@/heartbeats/provider-store";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
@@ -332,7 +330,6 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   );
 
   useEffect(() => {
-
     const unregister = voiceRuntime?.registerSession({
       serverId,
       setVoiceMode: async (enabled, agentId) => {

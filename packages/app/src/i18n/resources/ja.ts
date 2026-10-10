@@ -2568,6 +2568,11 @@ export const ja: TranslationResources = {
           "外観、プロバイダー、プロジェクト、スマートフォンのペアリングをもう一度設定します",
         action: "セットアップを再表示",
       },
+      display: "表示",
+      keepAwake: {
+        label: "画面をオンのままにする",
+        description: "Paseoを開いている間、画面がオフにならないようにする",
+      },
       browserData: {
         title: "ブラウザーデータ",
         siteData: "Cookie とサイトデータ",

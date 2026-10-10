@@ -2519,6 +2519,11 @@ export const zhCN: TranslationResources = {
         description: "重新设置外观、提供方、项目和手机配对",
         action: "再次显示设置",
       },
+      display: "显示",
+      keepAwake: {
+        label: "保持屏幕常亮",
+        description: "在 Paseo 打开期间防止屏幕熄灭",
+      },
       browserData: {
         title: "浏览器数据",
         siteData: "Cookie 和网站数据",

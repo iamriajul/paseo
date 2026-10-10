@@ -2665,6 +2665,11 @@ export const en = {
         description: "Walk through appearance, providers, projects and phone pairing again",
         action: "Show setup again",
       },
+      display: "Display",
+      keepAwake: {
+        label: "Keep screen awake",
+        description: "Prevent the screen from turning off while Paseo is open",
+      },
       browserData: {
         title: "Browser data",
         siteData: "Cookies and site data",

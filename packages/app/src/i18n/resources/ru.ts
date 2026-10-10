@@ -2580,6 +2580,11 @@ export const ru: TranslationResources = {
         description: "Снова пройти оформление, провайдеры, проекты и привязку телефона",
         action: "Показать настройку снова",
       },
+      display: "Экран",
+      keepAwake: {
+        label: "Не выключать экран",
+        description: "Не давать экрану гаснуть, пока открыт Paseo",
+      },
       browserData: {
         title: "Данные браузера",
         siteData: "Файлы cookie и данные сайтов",

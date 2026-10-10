@@ -2595,6 +2595,11 @@ export const fr: TranslationResources = {
           "Reprendre l'apparence, les fournisseurs, les projets et l'appairage du téléphone",
         action: "Afficher la configuration",
       },
+      display: "Affichage",
+      keepAwake: {
+        label: "Maintenir l'écran allumé",
+        description: "Empêche l'écran de s'éteindre tant que Paseo est ouvert",
+      },
       browserData: {
         title: "Données du navigateur",
         siteData: "Cookies et données des sites",

@@ -2579,6 +2579,11 @@ export const ar: TranslationResources = {
         description: "أعد المرور على المظهر والمزوّدين والمشاريع وإقران الهاتف",
         action: "إظهار الإعداد مجددًا",
       },
+      display: "العرض",
+      keepAwake: {
+        label: "إبقاء الشاشة مضاءة",
+        description: "منع إطفاء الشاشة أثناء فتح Paseo",
+      },
       browserData: {
         title: "بيانات المتصفح",
         siteData: "ملفات تعريف الارتباط وبيانات المواقع",

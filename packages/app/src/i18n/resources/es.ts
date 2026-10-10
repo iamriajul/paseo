@@ -2590,6 +2590,11 @@ export const es: TranslationResources = {
           "Vuelve a recorrer apariencia, proveedores, proyectos y emparejamiento del teléfono",
         action: "Mostrar configuración de nuevo",
       },
+      display: "Pantalla",
+      keepAwake: {
+        label: "Mantener la pantalla encendida",
+        description: "Evita que la pantalla se apague mientras Paseo está abierto",
+      },
       browserData: {
         title: "Datos del navegador",
         siteData: "Cookies y datos de sitios",

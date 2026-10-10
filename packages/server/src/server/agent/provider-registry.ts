@@ -530,7 +530,6 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
     respondToPermission: (requestId, response) => inner.respondToPermission(requestId, response),
     describePersistence: () => mapPersistenceHandle(provider, inner.describePersistence()),
     interrupt: () => inner.interrupt(),
-    steerActiveTurn: inner.steerActiveTurn?.bind(inner),
     stopBackgroundTask: inner.stopBackgroundTask?.bind(inner),
     readBackgroundTaskOutput: inner.readBackgroundTaskOutput?.bind(inner),
     resolveNativeForkUpToMessageId: inner.resolveNativeForkUpToMessageId?.bind(inner),
@@ -1016,7 +1015,6 @@ function addDerivedProviders(
         baseFactory(logger, mergedRuntimeSettings, {
           managedProcesses: options.managedProcesses,
           openCodeBridge: options.openCodeBridge,
-          providerParams,
           profileModels: [...(override.models ?? []), ...(override.additionalModels ?? [])],
           customProvider: {
             id: providerId,

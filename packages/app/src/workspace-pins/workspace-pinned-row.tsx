@@ -18,7 +18,12 @@ export function WorkspacePinnedTargetsRow({
   purpose: WorkspaceTabLaunchPurpose;
   paneId?: string;
 }): ReactElement | null {
-  const groups = useWorkspaceTabLaunchCatalog({ serverId, purpose, host: "main" });
+  const groups = useWorkspaceTabLaunchCatalog({
+    serverId,
+    purpose,
+    host: "main",
+    surface: "panel",
+  });
   const itemsById = useMemo(() => {
     const map = new Map<string, WorkspaceTabLaunchItem>();
     for (const group of groups) {

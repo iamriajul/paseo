@@ -162,7 +162,6 @@ export function useWorkspaceTabLaunchCatalog(input: {
         Icon: todoPresentation.icon,
         disabled: false,
         panelKind: "todo",
-        toggleTarget: BUILT_IN_SELECTIONS.todo.target,
         launch: launchSelection(BUILT_IN_SELECTIONS.todo),
       },
       diff: {
@@ -201,7 +200,6 @@ export function useWorkspaceTabLaunchCatalog(input: {
         Icon: AppWindow,
         disabled: false,
         panelKind: "codeServer",
-        toggleTarget: null,
         hidden: !launcher.showCodeServer,
         launch: launchSelection(BUILT_IN_SELECTIONS.codeServer),
       },

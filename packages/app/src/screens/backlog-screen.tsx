@@ -57,7 +57,7 @@ import { SegmentedControl, type SegmentedControlOption } from "@/components/ui/s
 import { useFetchQuery } from "@/data/query";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { TaskVideoPreview } from "@/components/tasks/task-video-preview";
-import { MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import {
   resolveBacklogViewMode,
   useBacklogPreferences,
@@ -2252,7 +2252,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   content: {
     width: "100%",
-    maxWidth: MAX_CONTENT_WIDTH,
+    maxWidth: theme.contentMaxWidth,
     flex: 1,
     minHeight: 0,
   },

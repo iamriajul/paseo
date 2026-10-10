@@ -3800,6 +3800,8 @@ test("model overrides preserve negotiated plugin capabilities and connection shu
     await manager.shutdown();
     manager.destroy();
   }
+});
+
 describe("ProviderSnapshotManager gateway routing", () => {
   const gateway = { baseUrl: "http://gateway:8317", apiKey: "sk-test" };
 

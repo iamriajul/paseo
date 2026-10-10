@@ -20,4 +20,13 @@ export const usageCopy = {
   get clientUnavailable() {
     return i18n.t("providerUsage.clientUnavailable");
   },
+  // Fork Codex quota reset; plain English until the fork adds these to the i18n resources.
+  resetQuota: "Reset quota",
+  cancel: "Cancel",
+  resetQuotaConfirmTitle: "Reset Codex quota?",
+  resetQuotaConfirmMessage:
+    "This consumes one available reset and immediately resets eligible Codex usage windows.",
+  resetQuotaSuccessTitle: "Quota reset",
+  resetQuotaNoopTitle: "No reset applied",
+  resetQuotaFailedTitle: "Unable to reset quota",
 } as const;

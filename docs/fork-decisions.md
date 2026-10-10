@@ -141,10 +141,10 @@ npx vitest run packages/app/src/utils/app-visibility.test.ts --bail=1 -t guest
 
 **Settings can reset Codex credits**
 
-Settings quota card resets Codex credits; resetQuota bumps generation so a pre-reset in-flight list is not shown as current usage
+The Codex usage card resets credits through `provider.usage.reset_quota` (daemon.manage), served by UsageSession from the Codex OAuth reset-credits endpoint with one token refresh; the card force-refreshes afterwards so a pre-reset in-flight list is not shown as current usage
 
 ```bash
-npx vitest run packages/server/src/services/quota-fetcher/service.test.ts --bail=1
+npx vitest run packages/server/src/server/session/usage/codex-quota-reset.test.ts packages/server/src/server/session/usage/usage-session.test.ts --bail=1
 ```
 
 ## metadata-endpoint-persist
@@ -295,8 +295,11 @@ npx vitest run packages/server/src/server/agent/provider-snapshot-manager.test.t
 dispatch uses official steerActiveTurn only; fork session.steer / steerAgent / composer steer flag / unmounted Queue-steer copy are gone; COMPAT wire steer boolean and supportsSteer stay
 
 ```bash
-npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts packages/protocol/src/messages.steer.test.ts packages/protocol/src/messages.active-turn-behavior.test.ts packages/app/src/composer/actions.test.ts packages/server/src/server/agent/providers/omp/agent.test.ts --bail=1
+npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts packages/protocol/src/messages.steer.test.ts packages/protocol/src/messages.active-turn-behavior.test.ts packages/app/src/composer/actions.test.ts --bail=1
+npm run test:unit --workspace=@getpaseo/server -- src/server/agent/providers/omp/agent.test.ts --bail=1
 ```
+
+The omp suite runs through the server workspace on purpose: root `npx vitest` applies the 5s default timeout, and the prompt-rejection tests wait out the 5s no-turn settle window. The server config gives them 30s.
 
 ## workspace-mark-unread
 
@@ -624,9 +627,9 @@ npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/
 
 ## gateway-quota
 
-**per-model Gateway quota in the composer tooltip, hidden when unsupported**
+**per-model Gateway quota in the context-meter popover, hidden when unsupported**
 
-The `gateway.quota.get` RPC (gated on `server_info.features.gatewayQuota`) maps the agent's Paseo model id to a Gateway slug and fetches `/v1/quota`, cached 60 seconds, only for Gateway-routed providers. Old Gateways without the route answer empty-body 404s; those and every other failure return `supported: false` and the tooltip renders nothing instead of an error.
+The `gateway.quota.get` RPC (gated on `server_info.features.gatewayQuota`) maps the agent's Paseo model id to a Gateway slug and fetches `/v1/quota`, cached 60 seconds, only for Gateway-routed providers. Old Gateways without the route answer empty-body 404s; those and every other failure return `supported: false` and the popover renders nothing instead of an error. The sections mount inside each meter surface (sheet, tooltip, hover card), which unmount while closed, so reads and the stats poll only run while open.
 
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/quota.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1

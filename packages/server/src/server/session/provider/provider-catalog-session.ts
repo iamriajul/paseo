@@ -19,7 +19,7 @@ import {
   type ProviderSnapshotEntry,
 } from "../../agent/agent-sdk-types.js";
 import type { ProviderAvailability } from "../../agent/agent-manager.js";
-import { getCachedGatewayQuota, resolveGatewayQuotaSlug } from "../../agent/gateway/quota.js";
+import { getCachedGatewayQuota } from "../../agent/gateway/quota.js";
 import { resolveGatewayModelSlug } from "../../agent/gateway/slug.js";
 import { fetchGatewayStats, type GatewayStatsResult } from "../../agent/gateway/stats.js";
 import { expandTilde } from "../../../utils/path.js";

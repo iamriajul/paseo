@@ -2226,6 +2226,11 @@ export const fr: TranslationResources = {
     general: {
       title: "Général",
       sending: "Envoi",
+      display: "Affichage",
+      keepAwake: {
+        label: "Maintenir l'écran allumé",
+        description: "Empêche l'écran de s'éteindre tant que Paseo est ouvert",
+      },
       browserData: {
         title: "Données du navigateur",
         siteData: "Cookies et données des sites",

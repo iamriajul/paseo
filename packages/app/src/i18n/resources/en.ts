@@ -2295,6 +2295,11 @@ export const en = {
     general: {
       title: "General",
       sending: "Sending",
+      display: "Display",
+      keepAwake: {
+        label: "Keep screen awake",
+        description: "Prevent the screen from turning off while Paseo is open",
+      },
       browserData: {
         title: "Browser data",
         siteData: "Cookies and site data",

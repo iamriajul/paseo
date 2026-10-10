@@ -137,6 +137,8 @@ export interface AppSettings {
   attentionSoundEnabled: boolean;
   /** Built-in attention sound preset. Default soft. */
   attentionSoundPreset: AttentionSoundPreset;
+  /** When true, keep the screen on while the app is open. Mobile only; default on. */
+  keepScreenAwake: boolean;
   /** Desktop-only preferences for implicit opens into the ordinary side pane. */
   openInSidePane: OpenInSidePanePreferences;
   pullRequestOpenLocation: PullRequestOpenLocation;
@@ -197,6 +199,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   attentionOsBubbleEnabled: true,
   attentionSoundEnabled: true,
   attentionSoundPreset: "soft",
+  keepScreenAwake: true,
   openInSidePane: DEFAULT_OPEN_IN_SIDE_PANE_PREFERENCES,
   pullRequestOpenLocation: "explorer",
 };
@@ -305,6 +308,7 @@ const StoredAppSettingsSchema = z
       .transform((value) => (value === "classic" ? "bell" : value))
       .pipe(z.enum(ATTENTION_SOUND_PRESETS))
       .catch("soft"),
+    keepScreenAwake: z.boolean().catch(true),
     openInSidePane: z
       .object({
         explorerFiles: z.boolean().catch(false),

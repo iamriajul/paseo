@@ -41,6 +41,7 @@ import { WorkspacePinShortcutHandler } from "@/components/workspace-pin-shortcut
 import { WorkspaceRenameHost } from "@/components/workspace-rename-host";
 import { CompactExplorerSidebarHost } from "@/components/compact-explorer-sidebar-host";
 import { ProviderSettingsHost } from "@/components/provider-settings-host";
+import { KeepScreenAwakeController } from "@/components/keep-screen-awake-controller";
 import { WorkspaceSetupDialog } from "@/components/workspace-setup-dialog";
 import { WorkspaceShortcutTargetsSubscriber } from "@/components/workspace-shortcut-targets-subscriber";
 import { FloatingPanelPortalHost } from "@/components/ui/floating-panel-portal";
@@ -676,6 +677,7 @@ function ProvidersWrapper({ children }: { children: ReactNode }) {
         <DesktopWindowControlsSync />
         <OfferLinkListener />
         <HostSessionManager />
+        <KeepScreenAwakeController />
         <FaviconStatusSync />
         {children}
       </VoiceProvider>

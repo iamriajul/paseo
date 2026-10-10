@@ -325,7 +325,7 @@ npx vitest run packages/server/src/server/authorization/index.test.ts --bail=1 -
 
 **per-workspace todo list in explorer sidebar, left sidebar, and composer**
 
-workspace-scoped todo checklist with Apple Notes style UI, Explorer sidebar tab, left sidebar progress indicator, and composer pill. Default Explorer focus stays Changes so Cmd+E matches official; the extra Todo tab would otherwise become the last-tab default.
+workspace-scoped todo checklist with Apple Notes style UI, Explorer sidebar tab, left sidebar progress indicator, and composer pill. Default Explorer focus stays Changes so Cmd+E matches official; the extra Todo tab would otherwise become the last-tab default. The Todo tab is persistent utility chrome: bulk close-others spares it (`handleCloseOtherTabsInPane` filters `target.kind !== "todo"`, `packages/app/src/screens/workspace/workspace-screen.tsx`), so the Explorer bulk-close count matches official's two-tab default; its own Close entry still dismisses it.
 
 v0.7.0 plugin navigation imports expo-router from the registry. Root `npx vitest` does not apply the app vitest config (JSX transform, `__DEV__`, expo-router mock), so run these through the app workspace.
 

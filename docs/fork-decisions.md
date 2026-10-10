@@ -387,7 +387,7 @@ npx vitest run packages/app/src/components/sidebar/workspace-meta-row/meta-items
 
 **auto-resume running agents after power cut**
 
-resume agents that were running when daemon shut down unexpectedly (SIGTERM/powercut/UPS) by sending 'Resume - there was a power cut' on next boot; intentional daemon stop via client_shutdown_rpc skips
+resume agents that were running when daemon shut down unexpectedly (SIGTERM/powercut/UPS) by sending 'Resume - there was a power cut' on next boot; intentional daemon stop via client_shutdown_rpc skips; Hub-owned executions (owner kind daemon) never resume at daemon level — the Hub protocol replays or closes them itself, and resuming resurrects agents Hub already closed
 
 ```bash
 npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail=1

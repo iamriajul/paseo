@@ -114,6 +114,8 @@ const RESUMABLE_PERSISTED_STATUSES: ReadonlySet<StoredAgentRecord["lastStatus"]>
 function isResumablePersistedRecord(record: StoredAgentRecord): boolean {
   if (record.archivedAt) return false;
   if (record.internal) return false;
+  // Hub-owned executions stay under Hub authority (see capture filter above).
+  if (record.owner?.kind === "daemon") return false;
   if (!RESUMABLE_PERSISTED_STATUSES.has(record.lastStatus)) return false;
   // A record with no provider session has nothing to resume into. Prompting it does not
   // continue anything -- it starts a fresh turn on a dead agent, which throws inside
@@ -146,6 +148,11 @@ export async function captureRunningAgentsForShutdown(
       RESUMABLE_PERSISTED_STATUSES.has(agent.lifecycle as StoredAgentRecord["lastStatus"]),
     )
     .filter((agent) => !agent.internal)
+    // Hub-owned agents stay under Hub authority across restarts: the Hub
+    // protocol replays or closes their executions itself, and a daemon-level
+    // resume resurrects agents Hub already closed (duplicate creates then see
+    // a live agent instead of a closed one).
+    .filter((agent) => agent.owner?.kind !== "daemon")
     .map((agent) => agent.id);
 
   await writePendingAutoResume(paseoHome, runningAgents, logger, reason);
@@ -235,6 +242,10 @@ export async function autoResumeRunningAgents(
       continue;
     }
     if (rec.internal) {
+      skipped++;
+      continue;
+    }
+    if (rec.owner?.kind === "daemon") {
       skipped++;
       continue;
     }

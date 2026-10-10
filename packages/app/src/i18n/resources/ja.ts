@@ -2281,6 +2281,11 @@ export const ja: TranslationResources = {
     general: {
       title: "一般",
       sending: "送信",
+      display: "表示",
+      keepAwake: {
+        label: "画面をオンのままにする",
+        description: "Paseoを開いている間、画面がオフにならないようにする",
+      },
       browserData: {
         title: "ブラウザーデータ",
         siteData: "Cookie とサイトデータ",

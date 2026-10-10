@@ -2237,6 +2237,11 @@ export const zhCN: TranslationResources = {
     general: {
       title: "通用",
       sending: "发送",
+      display: "显示",
+      keepAwake: {
+        label: "保持屏幕常亮",
+        description: "在 Paseo 打开期间防止屏幕熄灭",
+      },
       browserData: {
         title: "浏览器数据",
         siteData: "Cookie 和网站数据",

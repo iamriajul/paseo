@@ -746,3 +746,17 @@ grep -q "voice.dictation.polish.request" packages/protocol/src/messages.ts
 grep -q "buildDictationPolishPrompt" packages/server/src/server/session/voice/voice-dictation-polish.ts
 grep -q "confirmDictationForPolish" packages/app/src/hooks/use-dictation.ts
 ```
+
+## mobile-keep-screen-awake
+
+**Keep Screen Awake setting holds a wake lock while the app is open**
+
+`keepScreenAwake` (default on) persists in app settings with a General → Display toggle on native only. KeepScreenAwakeController holds the `paseo:keep-screen-awake` expo-keep-awake tag while the app is open, gated on settings load so opted-out cold starts never flash a transient lock. The tag is distinct from the voice runtime's `paseo:voice`, so toggling the setting never drops a lock an active voice session needs.
+
+```bash
+npx vitest run packages/app/src/hooks/use-settings/storage.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/components/keep-screen-awake-controller.test.tsx src/screens/settings/general/keep-awake-section.test.tsx --bail=1
+grep -q "keepScreenAwake" packages/app/src/hooks/use-settings/storage.ts
+grep -q "paseo:keep-screen-awake" packages/app/src/components/keep-screen-awake-controller.tsx
+grep -q "KeepAwakeSection" packages/app/src/screens/settings-screen.tsx
+```

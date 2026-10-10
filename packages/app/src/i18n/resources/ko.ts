@@ -2270,6 +2270,11 @@ export const ko: TranslationResources = {
     general: {
       title: "일반",
       sending: "전송",
+      display: "디스플레이",
+      keepAwake: {
+        label: "화면 켜짐 유지",
+        description: "Paseo가 열려 있는 동안 화면이 꺼지지 않도록 합니다",
+      },
       browserData: {
         title: "브라우저 데이터",
         siteData: "쿠키 및 사이트 데이터",

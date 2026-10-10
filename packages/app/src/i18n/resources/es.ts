@@ -2305,6 +2305,11 @@ export const es: TranslationResources = {
     general: {
       title: "General",
       sending: "Envío",
+      display: "Pantalla",
+      keepAwake: {
+        label: "Mantener la pantalla encendida",
+        description: "Evita que la pantalla se apague mientras Paseo está abierto",
+      },
       browserData: {
         title: "Datos del navegador",
         siteData: "Cookies y datos de sitios",

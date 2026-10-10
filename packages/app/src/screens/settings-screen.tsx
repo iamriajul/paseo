@@ -54,6 +54,7 @@ import { TerminalSection } from "@/screens/settings/terminal/terminal-section";
 import { ChatSection } from "@/screens/settings/chat/chat-section";
 import { SidebarNavSection } from "@/screens/settings/sidebar/sidebar-nav-section";
 import { SendingSection } from "@/screens/settings/general/sending-section";
+import { KeepAwakeSection } from "@/screens/settings/general/keep-awake-section";
 import {
   useAppSettings,
   useSettings,
@@ -1369,6 +1370,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
           return (
             <>
               <GeneralSection settings={settings} handleLanguageChange={handleLanguageChange} />
+              <KeepAwakeSection />
               <SendingSection />
               {isDesktopApp ? <OpenLocationSection /> : null}
             </>

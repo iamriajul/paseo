@@ -2290,6 +2290,11 @@ export const ptBR: TranslationResources = {
     general: {
       title: "Geral",
       sending: "Envio",
+      display: "Tela",
+      keepAwake: {
+        label: "Manter a tela ligada",
+        description: "Impede que a tela desligue enquanto o Paseo estiver aberto",
+      },
       browserData: {
         title: "Dados do navegador",
         siteData: "Cookies e dados de sites",

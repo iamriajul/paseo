@@ -608,7 +608,26 @@ export interface ExplorerRenameEntryParams {
 
 export type ExplorerEntryMutationResult =
   | { status: "ok"; path: string }
-  | { status: "error"; error: string };
+  | { status: "error"; error: string; alreadyExists?: boolean };
+
+export interface ExplorerMoveStagedUploadParams {
+  root: string;
+  parentPath: string;
+  name: string;
+  stagedPath: string;
+  overwrite?: boolean;
+}
+
+function validateExplorerEntryName(name: string): { name: string } | { error: string } {
+  const trimmedName = name.trim();
+  if (!trimmedName || trimmedName === "." || trimmedName === "..") {
+    return { error: "Invalid name" };
+  }
+  if (trimmedName.includes("/") || trimmedName.includes("\\")) {
+    return { error: "Name cannot contain path separators" };
+  }
+  return { name: trimmedName };
+}
 
 export async function createExplorerEntry({
   root,
@@ -616,13 +635,11 @@ export async function createExplorerEntry({
   name,
   kind,
 }: ExplorerCreateEntryParams): Promise<ExplorerEntryMutationResult> {
-  const trimmedName = name.trim();
-  if (!trimmedName || trimmedName === "." || trimmedName === "..") {
-    return { status: "error", error: "Invalid name" };
+  const validated = validateExplorerEntryName(name);
+  if ("error" in validated) {
+    return { status: "error", error: validated.error };
   }
-  if (trimmedName.includes("/") || trimmedName.includes("\\")) {
-    return { status: "error", error: "Name cannot contain path separators" };
-  }
+  const trimmedName = validated.name;
 
   try {
     const parent = await resolveScopedPath({ root, relativePath: parentPath });
@@ -705,13 +722,11 @@ export async function renameExplorerEntry({
   relativePath,
   name,
 }: ExplorerRenameEntryParams): Promise<ExplorerEntryMutationResult> {
-  const trimmedName = name.trim();
-  if (!trimmedName || trimmedName === "." || trimmedName === "..") {
-    return { status: "error", error: "Invalid name" };
+  const validated = validateExplorerEntryName(name);
+  if ("error" in validated) {
+    return { status: "error", error: validated.error };
   }
-  if (trimmedName.includes("/") || trimmedName.includes("\\")) {
-    return { status: "error", error: "Name cannot contain path separators" };
-  }
+  const trimmedName = validated.name;
 
   try {
     const source = await resolveScopedPath({ root, relativePath });
@@ -793,6 +808,65 @@ export async function deleteExplorerEntry({
     if (isMissingEntryError(error)) {
       return { status: "error", error: "File or folder no longer exists" };
     }
+    return { status: "error", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function moveStagedUploadIntoWorkspace({
+  root,
+  parentPath,
+  name,
+  stagedPath,
+  overwrite = false,
+}: ExplorerMoveStagedUploadParams): Promise<ExplorerEntryMutationResult> {
+  const validated = validateExplorerEntryName(name);
+  if ("error" in validated) {
+    return { status: "error", error: validated.error };
+  }
+  const trimmedName = validated.name;
+
+  try {
+    const parent = await resolveScopedPath({ root, relativePath: parentPath });
+    const parentStats = await fs.stat(parent.resolvedPath);
+    if (!parentStats.isDirectory()) {
+      return { status: "error", error: "Parent path is not a directory" };
+    }
+    const targetPath = path.join(parent.resolvedPath, trimmedName);
+    const existing = await fs.lstat(targetPath).catch((error: unknown) => {
+      if (isMissingEntryError(error)) {
+        return null;
+      }
+      throw error;
+    });
+    if (existing?.isDirectory()) {
+      return { status: "error", error: `A folder named "${trimmedName}" already exists` };
+    }
+    if (existing && !overwrite) {
+      return { status: "error", error: `"${trimmedName}" already exists`, alreadyExists: true };
+    }
+    // The staged upload may live on another mount, so copy onto the destination
+    // filesystem first: the original stays untouched until the rename below.
+    const temporaryPath = path.join(
+      parent.resolvedPath,
+      `.${trimmedName}.paseo-${randomUUID()}.tmp`,
+    );
+    try {
+      await fs.copyFile(stagedPath, temporaryPath);
+      if (existing?.isFile() && process.platform !== "win32") {
+        await fs.chmod(temporaryPath, existing.mode & 0o7777);
+      }
+      await fs.rename(temporaryPath, targetPath);
+    } finally {
+      await fs.unlink(temporaryPath).catch(() => undefined);
+    }
+    return {
+      status: "ok",
+      path: normalizeRelativePath({
+        root,
+        targetPath: path.join(parent.requestedPath, trimmedName),
+      }),
+    };
+  } catch (error) {
     return { status: "error", error: error instanceof Error ? error.message : String(error) };
   }
 }

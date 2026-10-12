@@ -20,6 +20,7 @@ import {
   duplicateExplorerEntry,
   getExplorerFileVersion,
   getDownloadableFileInfo,
+  moveStagedUploadIntoWorkspace,
   readExplorerFileBytes,
   readExplorerFile,
   renameExplorerEntry,
@@ -841,6 +842,159 @@ describe("file explorer service", () => {
       ).resolves.toMatchObject({ status: "error" });
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("moves staged uploads into the workspace, replacing files but never folders", async () => {
+    const root = await createTempDir("paseo-entry-upload-");
+    const staging = await createTempDir("paseo-entry-upload-staging-");
+    try {
+      const staged = path.join(staging, "notes.txt");
+      await writeFile(staged, "uploaded", "utf8");
+      await expect(
+        moveStagedUploadIntoWorkspace({
+          root,
+          parentPath: ".",
+          name: "notes.txt",
+          stagedPath: staged,
+        }),
+      ).resolves.toEqual({ status: "ok", path: "notes.txt" });
+      expect(await readFile(path.join(root, "notes.txt"), "utf8")).toBe("uploaded");
+      expect((await stat(staged)).isFile()).toBe(true);
+
+      await createExplorerEntry({ root, parentPath: ".", name: "docs", kind: "directory" });
+      const nestedStaged = path.join(staging, "guide.md");
+      await writeFile(nestedStaged, "guide", "utf8");
+      await expect(
+        moveStagedUploadIntoWorkspace({
+          root,
+          parentPath: "docs",
+          name: "guide.md",
+          stagedPath: nestedStaged,
+        }),
+      ).resolves.toEqual({ status: "ok", path: "docs/guide.md" });
+
+      const replacementStaged = path.join(staging, "replacement.txt");
+      await writeFile(replacementStaged, "replaced", "utf8");
+      await expect(
+        moveStagedUploadIntoWorkspace({
+          root,
+          parentPath: ".",
+          name: "notes.txt",
+          stagedPath: replacementStaged,
+        }),
+      ).resolves.toEqual({
+        status: "error",
+        error: '"notes.txt" already exists',
+        alreadyExists: true,
+      });
+      expect(await readFile(path.join(root, "notes.txt"), "utf8")).toBe("uploaded");
+      await expect(
+        moveStagedUploadIntoWorkspace({
+          root,
+          parentPath: ".",
+          name: "notes.txt",
+          stagedPath: replacementStaged,
+          overwrite: true,
+        }),
+      ).resolves.toEqual({ status: "ok", path: "notes.txt" });
+      expect(await readFile(path.join(root, "notes.txt"), "utf8")).toBe("replaced");
+
+      const folderCollisionStaged = path.join(staging, "collision.txt");
+      await writeFile(folderCollisionStaged, "nope", "utf8");
+      await expect(
+        moveStagedUploadIntoWorkspace({
+          root,
+          parentPath: ".",
+          name: "docs",
+          stagedPath: folderCollisionStaged,
+        }),
+      ).resolves.toEqual({
+        status: "error",
+        error: 'A folder named "docs" already exists',
+      });
+
+      const separatorStaged = path.join(staging, "separator.txt");
+      await writeFile(separatorStaged, "nope", "utf8");
+      await expect(
+        moveStagedUploadIntoWorkspace({
+          root,
+          parentPath: ".",
+          name: "../escape.txt",
+          stagedPath: separatorStaged,
+        }),
+      ).resolves.toEqual({ status: "error", error: "Name cannot contain path separators" });
+
+      const missingParentStaged = path.join(staging, "missing.txt");
+      await writeFile(missingParentStaged, "nope", "utf8");
+      const missingParent = await moveStagedUploadIntoWorkspace({
+        root,
+        parentPath: "nope",
+        name: "missing.txt",
+        stagedPath: missingParentStaged,
+      });
+      expect(missingParent.status).toBe("error");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(staging, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform !== "win32" && process.getuid?.() !== 0)(
+    "keeps the original when a staged replace cannot complete",
+    async () => {
+      const root = await createTempDir("paseo-entry-upload-failed-");
+      const staging = await createTempDir("paseo-entry-upload-failed-staging-");
+      try {
+        await writeFile(path.join(root, "notes.txt"), "original", "utf8");
+        const staged = path.join(staging, "notes.txt");
+        await writeFile(staged, "replacement", "utf8");
+        await chmod(root, 0o555);
+        try {
+          const result = await moveStagedUploadIntoWorkspace({
+            root,
+            parentPath: ".",
+            name: "notes.txt",
+            stagedPath: staged,
+            overwrite: true,
+          });
+          expect(result.status).toBe("error");
+        } finally {
+          await chmod(root, 0o755);
+        }
+        expect(await readFile(path.join(root, "notes.txt"), "utf8")).toBe("original");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(staging, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("preserves the executable bit when an upload replaces a script", async () => {
+    const root = await createTempDir("paseo-entry-upload-mode-");
+    const staging = await createTempDir("paseo-entry-upload-mode-staging-");
+    try {
+      const target = path.join(root, "run.sh");
+      await writeFile(target, "old", "utf8");
+      await chmod(target, 0o755);
+      const staged = path.join(staging, "run.sh");
+      await writeFile(staged, "new", "utf8");
+      await expect(
+        moveStagedUploadIntoWorkspace({
+          root,
+          parentPath: ".",
+          name: "run.sh",
+          stagedPath: staged,
+          overwrite: true,
+        }),
+      ).resolves.toEqual({ status: "ok", path: "run.sh" });
+      expect(await readFile(target, "utf8")).toBe("new");
+      if (process.platform !== "win32") {
+        expect((await stat(target)).mode & 0o777).toBe(0o755);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(staging, { recursive: true, force: true });
     }
   });
 });

@@ -516,6 +516,12 @@ export const es: TranslationResources = {
         cancel: "Cancelar",
         failed: "No se pudieron descartar los cambios",
       },
+      confirmOverwrite: {
+        title: "¿Sobrescribir los archivos existentes?",
+        message: "{{names}} serán reemplazados por esta subida.",
+        confirm: "Sobrescribir",
+        cancel: "Cancelar",
+      },
     },
     fileExplorer: {
       sort: {
@@ -534,6 +540,8 @@ export const es: TranslationResources = {
         refreshing: "Actualizar archivos",
         hideHiddenFiles: "Ocultar archivos ocultos",
         showHiddenFiles: "Mostrar archivos ocultos",
+        upload: "Subir archivos",
+        uploading: "Subiendo archivos",
       },
       empty: {
         noFiles: "Sin archivos",
@@ -550,6 +558,9 @@ export const es: TranslationResources = {
         duplicateFailed: "No se pudo duplicar la entrada",
         revealFailed: "No se pudo mostrar la entrada",
         deleteFailed: "No se pudo eliminar la entrada",
+        uploadFailed: "No se pudieron subir los archivos",
+        uploadTargetMissing: "La carpeta seleccionada ya no está disponible.",
+        foldersSkipped: "Las carpetas no se pueden subir.",
       },
       draft: {
         filePlaceholder: "Nombre del archivo",

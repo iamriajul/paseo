@@ -2,6 +2,7 @@ import { SessionDelivery } from "../owned-subscriptions/index.js";
 import {
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -9,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import pino from "pino";
 import {
   decodeFileTransferFrame,
@@ -79,6 +80,13 @@ function uploadFrame(args: Parameters<typeof encodeFileTransferFrame>[0]): FileT
     throw new Error("Expected a file transfer frame");
   }
   return frame;
+}
+
+function hasResponseOfType(
+  emitted: SessionOutboundMessage[],
+  type: SessionOutboundMessage["type"],
+): boolean {
+  return emitted.some((entry) => entry.type === type);
 }
 
 describe("WorkspaceFilesSession", () => {
@@ -609,6 +617,268 @@ describe("WorkspaceFilesSession", () => {
     if (!file) throw new Error("Expected uploaded file");
     expect(file.path.startsWith(join(paseoHome, "uploads"))).toBe(true);
     expect(readFileSync(file.path, "utf8")).toBe("hello world");
+    await ownership.close();
+  });
+
+  test("writes an entry upload through transfer frames into the workspace", async () => {
+    const cwd = makeDir("workspace-files-entry-upload-");
+    const { subsystem, emitted, paseoHome } = makeSubsystem();
+
+    const source = {};
+    const ownership = new SessionDelivery((_source, message) => {
+      emitted.push(message);
+    });
+    ownership.attach(source, true);
+    const request = {
+      type: "fs.entry.upload.request",
+      cwd,
+      parentPath: ".",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 11,
+      requestId: "req-entry-upload",
+    } as const;
+    await ownership.request(source, request, async () =>
+      subsystem.handleFileEntryUploadRequest(request, ownership),
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileBegin,
+        requestId: "req-entry-upload",
+        metadata: {
+          mime: "text/plain",
+          size: 11,
+          encoding: "binary",
+          modifiedAt: "2026-05-02T00:00:00.000Z",
+          fileName: "notes.txt",
+        },
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileChunk,
+        requestId: "req-entry-upload",
+        payload: new TextEncoder().encode("hello world"),
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({ opcode: FileTransferOpcode.FileEnd, requestId: "req-entry-upload" }),
+      source,
+    );
+    await vi.waitFor(() => {
+      expect(hasResponseOfType(emitted, "fs.entry.upload.response")).toBe(true);
+      expect(readdirSync(join(paseoHome, "uploads"))).toEqual([]);
+    });
+
+    const message = emitted.find((entry) => entry.type === "fs.entry.upload.response");
+    if (message?.type !== "fs.entry.upload.response") {
+      throw new Error("expected a fs.entry.upload.response message");
+    }
+    expect(message.payload).toEqual({
+      cwd,
+      parentPath: ".",
+      path: "notes.txt",
+      success: true,
+      error: null,
+      requestId: "req-entry-upload",
+    });
+    expect(readFileSync(join(cwd, "notes.txt"), "utf8")).toBe("hello world");
+    await ownership.close();
+  });
+
+  test("reports an entry upload failure without writing to the workspace", async () => {
+    const cwd = makeDir("workspace-files-entry-upload-error-");
+    const { subsystem, emitted } = makeSubsystem();
+
+    const source = {};
+    const ownership = new SessionDelivery((_source, message) => {
+      emitted.push(message);
+    });
+    ownership.attach(source, true);
+    const request = {
+      type: "fs.entry.upload.request",
+      cwd,
+      parentPath: "missing",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      requestId: "req-entry-upload-error",
+    } as const;
+    await ownership.request(source, request, async () =>
+      subsystem.handleFileEntryUploadRequest(request, ownership),
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileBegin,
+        requestId: "req-entry-upload-error",
+        metadata: {
+          mime: "text/plain",
+          size: 5,
+          encoding: "binary",
+          modifiedAt: "2026-05-02T00:00:00.000Z",
+          fileName: "notes.txt",
+        },
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileChunk,
+        requestId: "req-entry-upload-error",
+        payload: new TextEncoder().encode("hello"),
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({ opcode: FileTransferOpcode.FileEnd, requestId: "req-entry-upload-error" }),
+      source,
+    );
+    await vi.waitFor(() => {
+      expect(hasResponseOfType(emitted, "fs.entry.upload.response")).toBe(true);
+    });
+
+    const message = emitted.find((entry) => entry.type === "fs.entry.upload.response");
+    if (message?.type !== "fs.entry.upload.response") {
+      throw new Error("expected a fs.entry.upload.response message");
+    }
+    expect(message.payload.success).toBe(false);
+    expect(message.payload.path).toBeNull();
+    expect(message.payload.error).toEqual(expect.any(String));
+    expect(existsSync(join(cwd, "notes.txt"))).toBe(false);
+    await ownership.close();
+  });
+
+  test("refuses an entry upload that would replace without overwrite", async () => {
+    const cwd = makeDir("workspace-files-entry-upload-refuse-");
+    writeFileSync(join(cwd, "notes.txt"), "original");
+    const { subsystem, emitted } = makeSubsystem();
+
+    const source = {};
+    const ownership = new SessionDelivery((_source, message) => {
+      emitted.push(message);
+    });
+    ownership.attach(source, true);
+    const request = {
+      type: "fs.entry.upload.request",
+      cwd,
+      parentPath: ".",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 11,
+      requestId: "req-entry-upload-refuse",
+    } as const;
+    await ownership.request(source, request, async () =>
+      subsystem.handleFileEntryUploadRequest(request, ownership),
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileBegin,
+        requestId: "req-entry-upload-refuse",
+        metadata: {
+          mime: "text/plain",
+          size: 11,
+          encoding: "binary",
+          modifiedAt: "2026-05-02T00:00:00.000Z",
+          fileName: "notes.txt",
+        },
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileChunk,
+        requestId: "req-entry-upload-refuse",
+        payload: new TextEncoder().encode("hello world"),
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({ opcode: FileTransferOpcode.FileEnd, requestId: "req-entry-upload-refuse" }),
+      source,
+    );
+    await vi.waitFor(() => {
+      expect(hasResponseOfType(emitted, "fs.entry.upload.response")).toBe(true);
+    });
+
+    const message = emitted.find((entry) => entry.type === "fs.entry.upload.response");
+    if (message?.type !== "fs.entry.upload.response") {
+      throw new Error("expected a fs.entry.upload.response message");
+    }
+    expect(message.payload).toEqual({
+      cwd,
+      parentPath: ".",
+      path: null,
+      success: false,
+      error: '"notes.txt" already exists',
+      alreadyExists: true,
+      requestId: "req-entry-upload-refuse",
+    });
+    expect(readFileSync(join(cwd, "notes.txt"), "utf8")).toBe("original");
+    await ownership.close();
+  });
+
+  test("replaces an existing entry when overwrite is set", async () => {
+    const cwd = makeDir("workspace-files-entry-upload-overwrite-");
+    writeFileSync(join(cwd, "notes.txt"), "original");
+    const { subsystem, emitted } = makeSubsystem();
+
+    const source = {};
+    const ownership = new SessionDelivery((_source, message) => {
+      emitted.push(message);
+    });
+    ownership.attach(source, true);
+    const request = {
+      type: "fs.entry.upload.request",
+      cwd,
+      parentPath: ".",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 11,
+      overwrite: true,
+      requestId: "req-entry-upload-overwrite",
+    } as const;
+    await ownership.request(source, request, async () =>
+      subsystem.handleFileEntryUploadRequest(request, ownership),
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileBegin,
+        requestId: "req-entry-upload-overwrite",
+        metadata: {
+          mime: "text/plain",
+          size: 11,
+          encoding: "binary",
+          modifiedAt: "2026-05-02T00:00:00.000Z",
+          fileName: "notes.txt",
+        },
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileChunk,
+        requestId: "req-entry-upload-overwrite",
+        payload: new TextEncoder().encode("hello world"),
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({ opcode: FileTransferOpcode.FileEnd, requestId: "req-entry-upload-overwrite" }),
+      source,
+    );
+    await vi.waitFor(() => {
+      expect(hasResponseOfType(emitted, "fs.entry.upload.response")).toBe(true);
+    });
+
+    const message = emitted.find((entry) => entry.type === "fs.entry.upload.response");
+    if (message?.type !== "fs.entry.upload.response") {
+      throw new Error("expected a fs.entry.upload.response message");
+    }
+    expect(message.payload.success).toBe(true);
+    expect(message.payload.path).toBe("notes.txt");
+    expect(readFileSync(join(cwd, "notes.txt"), "utf8")).toBe("hello world");
     await ownership.close();
   });
 });

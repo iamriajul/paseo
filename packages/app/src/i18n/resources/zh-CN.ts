@@ -510,6 +510,12 @@ export const zhCN: TranslationResources = {
         cancel: "取消",
         failed: "放弃更改失败",
       },
+      confirmOverwrite: {
+        title: "覆盖现有文件？",
+        message: "{{names}} 将被此次上传替换。",
+        confirm: "覆盖",
+        cancel: "取消",
+      },
     },
     fileExplorer: {
       sort: {
@@ -528,6 +534,8 @@ export const zhCN: TranslationResources = {
         refreshing: "正在刷新文件",
         hideHiddenFiles: "隐藏隐藏文件",
         showHiddenFiles: "显示隐藏文件",
+        upload: "上传文件",
+        uploading: "正在上传文件",
       },
       empty: {
         noFiles: "没有文件",
@@ -544,6 +552,9 @@ export const zhCN: TranslationResources = {
         duplicateFailed: "复制条目失败",
         revealFailed: "显示条目失败",
         deleteFailed: "删除条目失败",
+        uploadFailed: "上传文件失败",
+        uploadTargetMissing: "所选文件夹已不可用。",
+        foldersSkipped: "无法上传文件夹。",
       },
       draft: {
         filePlaceholder: "文件名",

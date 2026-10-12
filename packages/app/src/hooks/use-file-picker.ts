@@ -4,7 +4,11 @@ import { File } from "expo-file-system";
 import { getDesktopHost, isElectronRuntime } from "@/desktop/host";
 import { isWeb } from "@/constants/platform";
 import { getMimeTypeFromPath } from "@/attachments/file-types";
-import { readDesktopFileBytes, type SelectedFile } from "@/attachments/selected-file";
+import {
+  selectedFileFromDesktopPath,
+  selectedFileFromWebFile,
+  type SelectedFile,
+} from "@/attachments/selected-file";
 
 async function pickFilesWithDesktopDialog(): Promise<SelectedFile[] | null> {
   const dialog = getDesktopHost()?.dialog;
@@ -27,15 +31,7 @@ async function pickFilesWithDesktopDialog(): Promise<SelectedFile[] | null> {
     return null;
   }
 
-  const result: SelectedFile[] = [];
-
-  for (const filePath of paths) {
-    const fileName = filePath.split("/").pop() ?? filePath.split("\\").pop() ?? filePath;
-    const mimeType = getMimeTypeFromPath(filePath);
-    result.push({ fileName, mimeType, readBytes: () => readDesktopFileBytes(filePath) });
-  }
-
-  return result;
+  return paths.map(selectedFileFromDesktopPath);
 }
 
 function pickFilesWithWebInput(): Promise<SelectedFile[] | null> {
@@ -52,15 +48,7 @@ function pickFilesWithWebInput(): Promise<SelectedFile[] | null> {
         return;
       }
 
-      const result: SelectedFile[] = [];
-      for (const file of files) {
-        result.push({
-          fileName: file.name,
-          mimeType: file.type || getMimeTypeFromPath(file.name),
-          readBytes: async () => new Uint8Array(await file.arrayBuffer()),
-        });
-      }
-      resolve(result);
+      resolve(files.map(selectedFileFromWebFile));
     });
 
     input.addEventListener("cancel", () => {

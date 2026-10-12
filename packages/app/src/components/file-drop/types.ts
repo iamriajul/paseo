@@ -20,4 +20,6 @@ export interface FileDropSink {
   onFiles?: (images: ImageAttachment[]) => void;
   onGenericFiles?: (items: DroppedItem[]) => void;
   onWorkspaceFile?: (payload: WorkspaceFileDragPayload) => void;
+  /** Dropped folders are never delivered as files; their count arrives here. */
+  onSkippedDirectories?: (count: number) => void;
 }

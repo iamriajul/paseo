@@ -98,6 +98,9 @@ describe("describeCron", () => {
     expect(describeCron({ type: "cron", expression: "0 9 * * 1-5" })).toBe("Weekdays at 09:00 UTC");
     expect(describeCron({ type: "cron", expression: "0 9 * * 0,6" })).toBe("Weekends at 09:00 UTC");
     expect(describeCron({ type: "cron", expression: "0 9 * * 1" })).toBe("Mondays at 09:00 UTC");
+    expect(
+      describeCron({ type: "cron", expression: "30 14 12 10 *", timezone: "America/New_York" }),
+    ).toBe("Oct 12 at 14:30 America/New_York");
   });
 
   it("labels fixed-time cron cadences with their stored timezone", () => {

@@ -818,4 +818,29 @@ describe("schedule form model", () => {
       isolation: "worktree",
     });
   });
+
+  it("initializes prompt and one-shot timer cadence when scheduling an agent prompt", () => {
+    const form = open({
+      mode: "create",
+      agentTarget: {
+        agentId: "agent-123",
+        initialPrompt: "Please continue with the refactor after quota resets",
+        asUserMessage: true,
+      },
+      defaults: {
+        serverId: "host-a",
+        projectTargets: PROJECT_TARGETS,
+        timezone: "America/New_York",
+      },
+    });
+
+    const state = form.getState();
+    expect(state.targetKind).toBe("agent");
+    expect(state.prompt).toBe("Please continue with the refactor after quota resets");
+    expect(state.maxRuns).toBe("1");
+    expect(state.cadence).toMatchObject({
+      type: "cron",
+      timezone: "America/New_York",
+    });
+  });
 });

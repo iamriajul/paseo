@@ -117,6 +117,13 @@ export const ja: TranslationResources = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "プロンプトをスケジュール",
+      editScheduledPrompt: "スケジュールされたプロンプトを編集",
+      promptPlaceholder: "このエージェントに送信するプロンプトを入力...",
+      submitSchedule: "プロンプトをスケジュール",
+      scheduledSuccess: "プロンプトがスケジュールされました",
+    },
     placeholders: {
       desktop: "エージェントにメッセージ、@ファイル、/コマンドや/スキルを入力",
       mobile: "メッセージ、@ファイル、/コマンド",

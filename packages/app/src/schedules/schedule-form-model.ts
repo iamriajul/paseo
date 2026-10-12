@@ -26,7 +26,7 @@ import {
 } from "@/provider-selection/resolve-agent-form";
 import { buildProviderDefinitions } from "@/utils/provider-definitions";
 import { shortenPath } from "@/utils/shorten-path";
-import { normalizeScheduleFormCadence } from "./schedule-cadence-options";
+import { buildTimerCadence, normalizeScheduleFormCadence } from "./schedule-cadence-options";
 import { PROJECT_OPTION_PREFIX, type ScheduleProjectTarget } from "./schedule-project-targets";
 
 export interface ScheduleFormDisplay {
@@ -43,8 +43,13 @@ export interface ScheduleFormHost {
 export interface ScheduleFormSnapshot {
   mode: "create" | "edit";
   schedule?: ScheduleSummary & { serverId?: string; serverName?: string };
-  /** When set, the form targets an existing agent (heartbeat create/edit). */
-  agentTarget?: { agentId: string };
+  /** When set, the form targets an existing agent (heartbeat or scheduled prompt create/edit). */
+  agentTarget?: {
+    agentId: string;
+    label?: string;
+    initialPrompt?: string;
+    asUserMessage?: boolean;
+  };
   hosts: readonly ScheduleFormHost[];
   defaults: {
     serverId?: string | null;
@@ -634,6 +639,30 @@ function updateDerivedState(input: {
   return { ...nextState, disclosure, canSubmit: resolveCanSubmit({ ...nextState, disclosure }) };
 }
 
+function resolveInitialPrompt(snapshot: ScheduleFormSnapshot): string {
+  return snapshot.agentTarget?.initialPrompt ?? snapshot.schedule?.prompt ?? "";
+}
+
+function resolveInitialMaxRuns(snapshot: ScheduleFormSnapshot): string {
+  if (snapshot.schedule) {
+    return formatInitialMaxRuns(snapshot.schedule);
+  }
+  if (snapshot.agentTarget?.asUserMessage) {
+    return "1";
+  }
+  return "";
+}
+
+function resolveInitialCadence(snapshot: ScheduleFormSnapshot, timezone: string): CronCadence {
+  if (snapshot.schedule) {
+    return normalizeScheduleFormCadence(snapshot.schedule.cadence, timezone);
+  }
+  if (snapshot.agentTarget?.asUserMessage) {
+    return buildTimerCadence(30, timezone);
+  }
+  return normalizeScheduleFormCadence(DEFAULT_CADENCE, timezone);
+}
+
 function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
   const selectedServerId = resolveInitialServerId(snapshot);
   const config = newAgentConfig(snapshot.schedule);
@@ -649,10 +678,10 @@ function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
     selectedServerId,
     workingDir,
   });
-  const initialCadence = normalizeScheduleFormCadence(
-    snapshot.schedule?.cadence ?? DEFAULT_CADENCE,
-    snapshot.defaults.timezone ?? DEFAULT_TIMEZONE,
-  );
+  const timezone = snapshot.defaults.timezone ?? DEFAULT_TIMEZONE;
+  const initialPrompt = resolveInitialPrompt(snapshot);
+  const initialMaxRuns = resolveInitialMaxRuns(snapshot);
+  const initialCadence = resolveInitialCadence(snapshot, timezone);
   const initialModel = config?.model ?? "";
   const initialMode = config?.modeId ?? "";
   const initialThinking = config?.thinkingOptionId ?? "";
@@ -660,8 +689,8 @@ function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
     mode: snapshot.mode,
     targetKind,
     name: snapshot.schedule?.name ?? "",
-    prompt: snapshot.schedule?.prompt ?? "",
-    maxRuns: formatInitialMaxRuns(snapshot.schedule),
+    prompt: initialPrompt,
+    maxRuns: initialMaxRuns,
     cadence: initialCadence,
     submitCadence: resolveInitialSubmitCadence(snapshot.schedule, initialCadence),
     hosts: [...snapshot.hosts],

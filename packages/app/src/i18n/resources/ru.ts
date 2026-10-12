@@ -117,6 +117,13 @@ export const ru: TranslationResources = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "Запланировать запрос",
+      editScheduledPrompt: "Редактировать запланированный запрос",
+      promptPlaceholder: "Напишите запрос для отправки агенту...",
+      submitSchedule: "Запланировать запрос",
+      scheduledSuccess: "Запрос запланирован",
+    },
     placeholders: {
       desktop: "Напишите агенту сообщение, отметьте @files или используйте /commands и /skills.",
       mobile: "Сообщение,@files,/commands",

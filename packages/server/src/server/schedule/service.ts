@@ -1066,46 +1066,70 @@ export class ScheduleService {
     runId: string,
   ): Promise<ScheduleExecutionResult> {
     if (schedule.target.type === "agent") {
-      const wrappedPrompt = formatSystemNotificationPrompt(buildScheduleFireBody(schedule, runId));
-      const record = await this.agentStorage.get(schedule.target.agentId);
-      if (!record) {
-        throw new ScheduleTargetGoneError(`Agent ${schedule.target.agentId} no longer exists`);
-      }
-      if (record.archivedAt) {
-        throw new ScheduleTargetGoneError(`Agent ${schedule.target.agentId} is archived`);
-      }
+      return this.executeAgentSchedule(schedule, runId);
+    }
+    return this.executeNewAgentSchedule(schedule, runId);
+  }
 
-      const agent = await ensureAgentLoaded(schedule.target.agentId, {
-        agentManager: this.agentManager,
-        agentStorage: this.agentStorage,
-        logger: this.logger,
-      });
-      if (this.agentManager.hasInFlightRun(agent.id)) {
-        throw new Error(`Agent ${agent.id} already has an active run`);
-      }
-      await startAgentRun(this.agentManager, agent.id, wrappedPrompt, this.logger, {
-        replaceRunning: true,
-        activeTurnBehavior: "steer",
-      });
-      const waitResult = await this.agentManager.waitForAgentEvent(agent.id, {
-        waitForActive: true,
-      });
-      if (waitResult.permission) {
-        throw new Error(`Scheduled agent ${agent.id} is waiting for permission`);
-      }
-      if (waitResult.status === "error") {
-        throw new Error(waitResult.lastMessage ?? `Scheduled agent ${agent.id} failed`);
-      }
-      return {
-        agentId: agent.id,
-        output: buildRunOutput({
-          output: null,
-          timelineText: "",
-          finalText: waitResult.lastMessage ?? "",
-        }),
-      };
+  private async executeAgentSchedule(
+    schedule: StoredSchedule,
+    runId: string,
+  ): Promise<ScheduleExecutionResult> {
+    if (schedule.target.type !== "agent") {
+      throw new Error("executeAgentSchedule requires an agent target");
+    }
+    const record = await this.agentStorage.get(schedule.target.agentId);
+    if (!record) {
+      throw new ScheduleTargetGoneError(`Agent ${schedule.target.agentId} no longer exists`);
+    }
+    if (record.archivedAt) {
+      throw new ScheduleTargetGoneError(`Agent ${schedule.target.agentId} is archived`);
     }
 
+    const agent = await ensureAgentLoaded(schedule.target.agentId, {
+      agentManager: this.agentManager,
+      agentStorage: this.agentStorage,
+      logger: this.logger,
+    });
+    if (this.agentManager.hasInFlightRun(agent.id)) {
+      if (schedule.target.asUserMessage) {
+        await this.agentManager.waitForAgentEvent(agent.id, {
+          waitForActive: true,
+        });
+      } else {
+        throw new Error(`Agent ${agent.id} already has an active run`);
+      }
+    }
+    const promptToDeliver = schedule.target.asUserMessage
+      ? schedule.prompt
+      : formatSystemNotificationPrompt(buildScheduleFireBody(schedule, runId));
+    await startAgentRun(this.agentManager, agent.id, promptToDeliver, this.logger, {
+      replaceRunning: true,
+      activeTurnBehavior: "steer",
+    });
+    const waitResult = await this.agentManager.waitForAgentEvent(agent.id, {
+      waitForActive: true,
+    });
+    if (waitResult.permission) {
+      throw new Error(`Scheduled agent ${agent.id} is waiting for permission`);
+    }
+    if (waitResult.status === "error") {
+      throw new Error(waitResult.lastMessage ?? `Scheduled agent ${agent.id} failed`);
+    }
+    return {
+      agentId: agent.id,
+      output: buildRunOutput({
+        output: null,
+        timelineText: "",
+        finalText: waitResult.lastMessage ?? "",
+      }),
+    };
+  }
+
+  private async executeNewAgentSchedule(
+    schedule: StoredSchedule,
+    runId: string,
+  ): Promise<ScheduleExecutionResult> {
     const config = schedule.target.type === "new-agent" ? schedule.target.config : null;
     if (!config) {
       throw new Error(`Schedule ${schedule.id} target changed during execution`);

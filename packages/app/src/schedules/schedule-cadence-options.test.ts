@@ -3,6 +3,9 @@ import {
   CADENCE_PRESET_OPTIONS,
   normalizeScheduleFormCadence,
   resolveCronPresetId,
+  buildTimerCadence,
+  buildTimerPresetCadence,
+  resolveCronPresetDisplay,
 } from "./schedule-cadence-options";
 
 describe("schedule cadence form options", () => {
@@ -52,5 +55,28 @@ describe("schedule cadence form options", () => {
       timezone: "Europe/Madrid",
     });
     expect(resolveCronPresetId(cadence)).toBe("custom");
+  });
+
+  it("builds a timer cadence from a minute delay", () => {
+    const fixedNow = new Date("2026-10-12T14:00:00.000Z");
+    const cadence = buildTimerCadence(30, "America/New_York", fixedNow);
+    expect(cadence.type).toBe("cron");
+    expect(cadence.timezone).toBe("America/New_York");
+    expect(cadence.expression).toBe("30 10 12 10 *");
+  });
+
+  it("builds timer preset cadences", () => {
+    const fixedNow = new Date("2026-10-12T14:00:00.000Z");
+    const cadence = buildTimerPresetCadence("in-15m", "America/New_York", fixedNow);
+    expect(cadence?.expression).toBe("15 10 12 10 *");
+  });
+
+  it("displays calendar date-time cron expressions with readable format", () => {
+    const display = resolveCronPresetDisplay({
+      type: "cron",
+      expression: "30 14 12 10 *",
+      timezone: "America/New_York",
+    });
+    expect(display.label).toBe("Oct 12 at 14:30 America/New_York");
   });
 });

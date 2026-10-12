@@ -116,6 +116,13 @@ export const ar: TranslationResources = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "جدولة المطالبة",
+      editScheduledPrompt: "تعديل المطالبة المجدولة",
+      promptPlaceholder: "اكتب المطالبة لإرسالها إلى هذا الوكيل...",
+      submitSchedule: "جدولة المطالبة",
+      scheduledSuccess: "تمت جدولة المطالبة",
+    },
     placeholders: {
       desktop: "أرسل رسالة إلى الوكيل أو ضع علامة على @files أو استخدم /commands و /skills",
       mobile: "الرسالة، @files ، /commands",

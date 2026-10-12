@@ -757,6 +757,75 @@ describe("ScheduleService", () => {
     ]);
   });
 
+  test("delivers agent-target schedule with asUserMessage directly without system envelope", async () => {
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    const steerOrReplace = vi.spyOn(manager, "steerOrReplaceActiveTurn");
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+    });
+    const schedule = await service.create({
+      prompt: "Continue implementing feature X after quota reset",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id, asUserMessage: true },
+      maxRuns: 1,
+    });
+
+    await service.runOnce(schedule.id);
+
+    expect(steerOrReplace).toHaveBeenCalledTimes(1);
+    expect(steerOrReplace.mock.calls[0]).toEqual([
+      agent.id,
+      "Continue implementing feature X after quota reset",
+      undefined,
+    ]);
+  });
+
+  test("agent-target schedule with asUserMessage and maxRuns: 1 completes after firing on tick", async () => {
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+    });
+    const schedule = await service.create({
+      prompt: "One-shot prompt to agent",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id, asUserMessage: true },
+      maxRuns: 1,
+    });
+
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+
+    const inspected = await service.inspect(schedule.id);
+    expect(inspected.status).toBe("completed");
+    expect(inspected.nextRunAt).toBeNull();
+    expect(inspected.runs).toHaveLength(1);
+    expect(inspected.runs[0].status).toBe("succeeded");
+  });
+
   test("titles scheduled new agents from the schedule prompt", async () => {
     const manager = new AgentManager({
       logger: createTestLogger(),

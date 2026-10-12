@@ -112,6 +112,13 @@ export const en = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "Schedule prompt",
+      editScheduledPrompt: "Edit scheduled prompt",
+      promptPlaceholder: "Write the prompt to send to this agent...",
+      submitSchedule: "Schedule prompt",
+      scheduledSuccess: "Prompt scheduled",
+    },
     placeholders: {
       desktop: "Message the agent, tag @files, or use /commands and /skills",
       mobile: "Message, @files, /commands",

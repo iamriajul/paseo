@@ -753,3 +753,18 @@ grep -q "keepScreenAwake" packages/app/src/hooks/use-settings/storage.ts
 grep -q "paseo:keep-screen-awake" packages/app/src/components/keep-screen-awake-controller.tsx
 grep -q "KeepAwakeSection" packages/app/src/screens/settings-screen.tsx
 ```
+
+## files-pane-upload
+
+**upload files into the workspace Files pane via toolbar button or drag-drop**
+
+The Files pane toolbar gains an Upload button (system picker) and the pane accepts file drops. The target is the selected folder, else the selected file's parent, else the workspace root; existing names go through confirm-then-overwrite, enforced server-side by the `overwrite` flag with `alreadyExists` on conflict. Transport is `fs.entry.upload.request/response` over the binary file-transfer frames: the daemon stages in `PASEO_HOME/uploads`, then temp-copies onto the destination filesystem and renames over the target, so the original survives a failed replace and the executable bit is preserved. Dropped folders are skipped with a toast. Gated on `server_info.features.fsEntryUpload`, so old daemons hide the button and disable drop.
+
+```bash
+npx vitest run packages/server/src/server/file-explorer/service.test.ts packages/server/src/server/session/files/workspace-files-session.test.ts packages/server/src/server/file-upload/index.test.ts --bail=1
+npx vitest run packages/client/src/daemon-client.test.ts --bail=1 -t "upload"
+npm test --workspace=@getpaseo/app -- src/file-explorer/upload-target.test.ts src/components/file-drop/partition-dropped-files.test.ts src/composer/attachments/drop.test.ts src/i18n/resources.test.ts --bail=1
+grep -q "fs.entry.upload.request" packages/protocol/src/messages.ts
+grep -q "moveStagedUploadIntoWorkspace" packages/server/src/server/file-explorer/service.ts
+grep -q "fsEntryUpload" packages/app/src/components/file-explorer-pane.tsx
+```

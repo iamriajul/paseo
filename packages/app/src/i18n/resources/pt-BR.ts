@@ -515,6 +515,12 @@ export const ptBR: TranslationResources = {
         cancel: "Cancelar",
         failed: "Falha ao descartar alterações",
       },
+      confirmOverwrite: {
+        title: "Substituir os arquivos existentes?",
+        message: "{{names}} serão substituídos por este envio.",
+        confirm: "Substituir",
+        cancel: "Cancelar",
+      },
     },
     fileExplorer: {
       sort: {
@@ -533,6 +539,8 @@ export const ptBR: TranslationResources = {
         refreshing: "Atualizando arquivos",
         hideHiddenFiles: "Ocultar arquivos ocultos",
         showHiddenFiles: "Mostrar arquivos ocultos",
+        upload: "Enviar arquivos",
+        uploading: "Enviando arquivos",
       },
       empty: {
         noFiles: "Nenhum arquivo",
@@ -549,6 +557,9 @@ export const ptBR: TranslationResources = {
         duplicateFailed: "Falha ao duplicar entrada",
         revealFailed: "Falha ao mostrar entrada",
         deleteFailed: "Falha ao excluir entrada",
+        uploadFailed: "Falha ao enviar arquivos",
+        uploadTargetMissing: "A pasta selecionada não está mais disponível.",
+        foldersSkipped: "Pastas não podem ser enviadas.",
       },
       draft: {
         filePlaceholder: "Nome do arquivo",

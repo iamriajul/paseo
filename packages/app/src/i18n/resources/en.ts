@@ -507,6 +507,12 @@ export const en = {
         cancel: "Cancel",
         failed: "Failed to discard changes",
       },
+      confirmOverwrite: {
+        title: "Overwrite existing files?",
+        message: "{{names}} will be replaced by this upload.",
+        confirm: "Overwrite",
+        cancel: "Cancel",
+      },
     },
     fileExplorer: {
       sort: {
@@ -525,6 +531,8 @@ export const en = {
         refreshing: "Refreshing files",
         hideHiddenFiles: "Hide hidden files",
         showHiddenFiles: "Show hidden files",
+        upload: "Upload files",
+        uploading: "Uploading files",
       },
       empty: {
         noFiles: "No files",
@@ -541,6 +549,9 @@ export const en = {
         duplicateFailed: "Failed to duplicate entry",
         revealFailed: "Failed to reveal entry",
         deleteFailed: "Failed to delete entry",
+        uploadFailed: "Failed to upload files",
+        uploadTargetMissing: "The selected folder is no longer available.",
+        foldersSkipped: "Folders can't be uploaded.",
       },
       draft: {
         filePlaceholder: "File name",

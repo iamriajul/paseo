@@ -3,7 +3,11 @@ import {
   isRasterImageFile,
   isRasterImagePath,
 } from "@/attachments/file-types";
-import { readDesktopFileBytes, type SelectedFile } from "@/attachments/selected-file";
+import {
+  readDesktopFileBytes,
+  selectedFileFromWebFile,
+  type SelectedFile,
+} from "@/attachments/selected-file";
 import type { DroppedItem } from "@/components/file-drop/types";
 
 interface DroppedAttachmentsRuntime {
@@ -13,6 +17,16 @@ interface DroppedAttachmentsRuntime {
 const defaultRuntime: DroppedAttachmentsRuntime = {
   readDesktopFileBytes,
 };
+
+interface DroppedItemsOptions {
+  runtime?: DroppedAttachmentsRuntime;
+  /**
+   * Keep raster images in the result. Consumers that handle raw bytes
+   * themselves (e.g. the file explorer uploading into the workspace) set this;
+   * the composer leaves images for its image-attachment path.
+   */
+  includeImages?: boolean;
+}
 
 function fileNameFromPath(path: string): string {
   const segments = path.split(/[/\\]/);
@@ -27,25 +41,22 @@ function fileNameFromPath(path: string): string {
 
 export function droppedItemsToSelectedFiles(
   items: DroppedItem[],
-  runtime: DroppedAttachmentsRuntime = defaultRuntime,
+  options: DroppedItemsOptions = {},
 ): SelectedFile[] {
+  const runtime = options.runtime ?? defaultRuntime;
+  const includeImages = options.includeImages ?? false;
   const files: SelectedFile[] = [];
 
   for (const item of items) {
     if (item.kind === "web-file") {
-      if (isRasterImageFile(item.file)) {
+      if (!includeImages && isRasterImageFile(item.file)) {
         continue;
       }
-      const file = item.file;
-      files.push({
-        fileName: file.name,
-        mimeType: file.type || getMimeTypeFromPath(file.name),
-        readBytes: async () => new Uint8Array(await file.arrayBuffer()),
-      });
+      files.push(selectedFileFromWebFile(item.file));
       continue;
     }
 
-    if (isRasterImagePath(item.path)) {
+    if (!includeImages && isRasterImagePath(item.path)) {
       continue;
     }
     const path = item.path;

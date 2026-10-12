@@ -243,6 +243,32 @@ describe("file uploads", () => {
     });
     expect(readFileSync(path, "utf8")).toBe("hello world");
   });
+
+  it("discards a completed upload's staging directory and ignores malformed ids", async () => {
+    const paseoHome = makePaseoHome();
+    const uploads = new FileUploadStore({ paseoHome });
+
+    uploads.beginUpload({
+      type: "file.upload.request",
+      fileName: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      modifiedAt: "2026-05-02T00:00:00.000Z",
+      requestId: "req-discard",
+    });
+    await uploads.receiveFrame(uploadBegins("req-discard"));
+    await uploads.receiveFrame(uploadChunk("req-discard", "hello"));
+    const finished = await uploads.receiveFrame(uploadEnds("req-discard"));
+    const uploadId = finished?.payload.file?.id;
+    if (!uploadId) throw new Error("Expected a finished upload");
+    expect(existsSync(join(paseoHome, "uploads", uploadId))).toBe(true);
+
+    await uploads.discardCompletedUpload(uploadId);
+    expect(existsSync(join(paseoHome, "uploads", uploadId))).toBe(false);
+
+    await expect(uploads.discardCompletedUpload("../escape")).resolves.toBeUndefined();
+    await expect(uploads.discardCompletedUpload("upload_missing")).resolves.toBeUndefined();
+  });
 });
 
 let uploadCount = 0;

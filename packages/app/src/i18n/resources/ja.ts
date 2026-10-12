@@ -516,6 +516,12 @@ export const ja: TranslationResources = {
         cancel: "キャンセル",
         failed: "変更の破棄に失敗しました",
       },
+      confirmOverwrite: {
+        title: "既存のファイルを上書きしますか？",
+        message: "{{names}} はこのアップロードによって置き換えられます。",
+        confirm: "上書き",
+        cancel: "キャンセル",
+      },
     },
     fileExplorer: {
       sort: {
@@ -534,6 +540,8 @@ export const ja: TranslationResources = {
         refreshing: "ファイルを更新中",
         hideHiddenFiles: "隠しファイルを非表示",
         showHiddenFiles: "隠しファイルを表示",
+        upload: "ファイルをアップロード",
+        uploading: "ファイルをアップロード中",
       },
       empty: {
         noFiles: "ファイルなし",
@@ -550,6 +558,9 @@ export const ja: TranslationResources = {
         duplicateFailed: "エントリの複製に失敗しました",
         revealFailed: "エントリの表示に失敗しました",
         deleteFailed: "エントリの削除に失敗しました",
+        uploadFailed: "ファイルのアップロードに失敗しました",
+        uploadTargetMissing: "選択したフォルダーは利用できなくなりました。",
+        foldersSkipped: "フォルダーはアップロードできません。",
       },
       draft: {
         filePlaceholder: "ファイル名",

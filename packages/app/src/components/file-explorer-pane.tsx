@@ -27,7 +27,15 @@ import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles"
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import * as Clipboard from "expo-clipboard";
-import { ChevronDown, Eye, EyeOff, FilePlus, FolderPlus, RotateCw } from "lucide-react-native";
+import {
+  ChevronDown,
+  Eye,
+  EyeOff,
+  FilePlus,
+  FolderPlus,
+  RotateCw,
+  Upload,
+} from "lucide-react-native";
 import { MaterialFileIcon } from "@/components/material-file-icon";
 import {
   TreeChevron,
@@ -74,8 +82,21 @@ import {
   type ExplorerTreeRow,
 } from "@/file-explorer/tree";
 import { useWorkspaceFileDragSource } from "@/attachments/use-workspace-file-drag-source";
+import type { SelectedFile } from "@/attachments/selected-file";
+import { droppedItemsToSelectedFiles } from "@/composer/attachments/drop";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { useToast } from "@/contexts/toast-context";
+import { FileDropZone } from "@/components/file-drop/file-drop-zone";
+import { useFileDrop } from "@/components/file-drop/use-file-drop";
+import type { DroppedItem, FileDropSink } from "@/components/file-drop/types";
+import { useFilePicker } from "@/hooks/use-file-picker";
+import {
+  findBatchDuplicateNames,
+  findExplorerEntryByPath,
+  findUploadConflicts,
+  formatUploadConflictNames,
+  resolveUploadParentPath,
+} from "@/file-explorer/upload-target";
 import { openDesktopTarget, useDesktopOpenTargets } from "@/workspace/desktop-open-targets";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { useOpenDirectoryInEditor } from "@/workspace/open-in-editor/directory";
@@ -439,6 +460,7 @@ export function FileExplorerPane({
     renameEntry,
     duplicateEntry,
     deleteEntry,
+    uploadEntry,
     selectExplorerEntry,
   } = useFileExplorerActions({
     serverId,
@@ -469,7 +491,14 @@ export function FileExplorerPane({
   const fsEntryDuplicateEnabled = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.fsEntryDuplicate === true,
   );
+  // COMPAT(fsEntryUpload): added in v0.11.901, remove gate after 2027-02-12.
+  const fsEntryUploadEnabled = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.fsEntryUpload === true,
+  );
   const [pendingEdit, setPendingEdit] = useState<ExplorerPendingEdit | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const uploadLockRef = useRef(false);
+  const { pickFiles } = useFilePicker();
   const downloadFile = useFileDownload({
     serverId,
     workspaceId,
@@ -1049,6 +1078,164 @@ export function FileExplorerPane({
     });
   }, [requestDirectoryListing]);
 
+  const selectedEntry = useMemo(
+    () => (selectedEntryPath ? findExplorerEntryByPath(directories, selectedEntryPath) : null),
+    [directories, selectedEntryPath],
+  );
+
+  const confirmOverwriteUpload = useCallback(
+    (names: readonly string[]) =>
+      confirmDialog({
+        title: t("workspace.fileActions.confirmOverwrite.title"),
+        message: t("workspace.fileActions.confirmOverwrite.message", {
+          names: formatUploadConflictNames(names),
+        }),
+        confirmLabel: t("workspace.fileActions.confirmOverwrite.confirm"),
+        cancelLabel: t("workspace.fileActions.confirmOverwrite.cancel"),
+        destructive: true,
+      }),
+    [t],
+  );
+
+  const handleUploadSelectedFiles = useCallback(
+    async (files: SelectedFile[]) => {
+      if (files.length === 0 || !hasWorkspaceScope || !workspaceStateKey || uploadLockRef.current) {
+        return;
+      }
+      if (selectedEntryPath !== null && !selectedEntry) {
+        toast.error(t("workspace.fileExplorer.errors.uploadTargetMissing"));
+        return;
+      }
+      const parentPath = resolveUploadParentPath(selectedEntry);
+      uploadLockRef.current = true;
+      setIsUploading(true);
+      try {
+        const freshDirectory = await requestDirectoryListing(parentPath, {
+          recordHistory: false,
+          setCurrentPath: false,
+        });
+        const conflictDirectories = freshDirectory
+          ? new Map([[freshDirectory.path, freshDirectory]])
+          : directories;
+        const trimmedNames = files.map((file) => file.fileName.trim());
+        const existingConflicts = findUploadConflicts({
+          parentPath,
+          fileNames: trimmedNames,
+          directories: conflictDirectories,
+        });
+        const shownConflicts = [
+          ...new Set([...existingConflicts, ...findBatchDuplicateNames(trimmedNames)]),
+        ];
+        let confirmed = shownConflicts.length === 0;
+        if (!confirmed) {
+          confirmed = await confirmOverwriteUpload(shownConflicts);
+          if (!confirmed) {
+            return;
+          }
+        }
+        const existingSet = new Set(existingConflicts.map((name) => name.toLowerCase()));
+        const seenInBatch = new Set<string>();
+        const failures: { name: string; error: string | null }[] = [];
+        let lastUploadedPath: string | null = null;
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index];
+          const key = trimmedNames[index].toLowerCase();
+          const isRepeat = seenInBatch.has(key);
+          seenInBatch.add(key);
+          const needsOverwrite = existingSet.has(key) || isRepeat;
+          try {
+            const bytes = await file.readBytes();
+            const outcome = await uploadSingleFile({
+              trimmedName: trimmedNames[index],
+              needsOverwrite,
+              send: (overwrite) =>
+                uploadEntry({
+                  parentPath,
+                  name: file.fileName,
+                  mimeType: file.mimeType,
+                  bytes,
+                  overwrite,
+                }),
+              confirm: confirmOverwriteUpload,
+            });
+            if (outcome.uploadedPath) {
+              lastUploadedPath = outcome.uploadedPath;
+            } else {
+              failures.push({ name: file.fileName, error: outcome.error });
+            }
+          } catch (cause) {
+            failures.push({
+              name: file.fileName,
+              error: cause instanceof Error ? cause.message : String(cause),
+            });
+          }
+        }
+        if (lastUploadedPath) {
+          selectExplorerEntry(lastUploadedPath);
+          if (parentPath !== ".") {
+            setExpandedPathsForWorkspace(workspaceStateKey, (currentPaths) =>
+              setExpandedDirectoryPath({
+                currentExpandedPaths: currentPaths,
+                directoryPath: parentPath,
+                expanded: true,
+              }),
+            );
+          }
+        }
+        if (failures.length === 1) {
+          toast.error(failures[0].error ?? t("workspace.fileExplorer.errors.uploadFailed"));
+        } else if (failures.length > 1) {
+          toast.error(t("workspace.fileExplorer.errors.uploadFailed"));
+        }
+      } finally {
+        uploadLockRef.current = false;
+        setIsUploading(false);
+      }
+    },
+    [
+      confirmOverwriteUpload,
+      directories,
+      hasWorkspaceScope,
+      requestDirectoryListing,
+      selectExplorerEntry,
+      selectedEntry,
+      selectedEntryPath,
+      setExpandedPathsForWorkspace,
+      t,
+      toast,
+      uploadEntry,
+      workspaceStateKey,
+    ],
+  );
+
+  const handleUploadButtonPress = useCallback(() => {
+    void (async () => {
+      try {
+        const files = await pickFiles();
+        if (!files) {
+          return;
+        }
+        await handleUploadSelectedFiles(files);
+      } catch (cause) {
+        toast.error(
+          cause instanceof Error ? cause.message : t("workspace.fileExplorer.errors.uploadFailed"),
+        );
+      }
+    })();
+  }, [handleUploadSelectedFiles, pickFiles, t, toast]);
+
+  const handleDropItems = useCallback(
+    (items: DroppedItem[]) => {
+      const files = droppedItemsToSelectedFiles(items, { includeImages: true });
+      void handleUploadSelectedFiles(files);
+    },
+    [handleUploadSelectedFiles],
+  );
+
+  const handleDropSkipped = useCallback(() => {
+    toast.show(t("workspace.fileExplorer.errors.foldersSkipped"), { variant: "warning" });
+  }, [t, toast]);
+
   if (!hasWorkspaceScope) {
     return (
       <View style={styles.centerState}>
@@ -1064,25 +1251,32 @@ export function FileExplorerPane({
       }}
       style={styles.container}
     >
-      <FileExplorerPaneContent
-        error={error}
-        isCompact={isCompact}
-        showInitialLoading={showInitialLoading}
-        showBackFromError={showBackFromError}
-        listRows={listRows}
-        onNewEntryAtRoot={fsEntryOpsEnabled ? handleNewEntry : undefined}
-        currentSortLabel={currentSortLabel}
-        isRefreshFetching={isRefreshFetching}
-        treeListRef={treeListRef}
-        scrollbar={scrollbar}
-        renderTreeRow={renderTreeRow}
-        handleSortCycle={handleSortCycle}
-        handleToggleHiddenFiles={handleToggleHiddenFiles}
-        handleRefresh={handleRefresh}
-        handleBackFromError={handleBackFromError}
-        handleRetry={handleRetry}
-        sortTriggerStyle={sortTriggerStyle}
-      />
+      <FileDropZone style={styles.dropZone} disabled={!fsEntryUploadEnabled || isUploading}>
+        <FileExplorerPaneContent
+          error={error}
+          isCompact={isCompact}
+          showInitialLoading={showInitialLoading}
+          showBackFromError={showBackFromError}
+          listRows={listRows}
+          onNewEntryAtRoot={fsEntryOpsEnabled ? handleNewEntry : undefined}
+          onUploadPress={fsEntryUploadEnabled ? handleUploadButtonPress : undefined}
+          isUploading={isUploading}
+          onDropItems={fsEntryUploadEnabled ? handleDropItems : undefined}
+          onDropSkipped={fsEntryUploadEnabled ? handleDropSkipped : undefined}
+          dropDisabled={!fsEntryUploadEnabled || isUploading}
+          currentSortLabel={currentSortLabel}
+          isRefreshFetching={isRefreshFetching}
+          treeListRef={treeListRef}
+          scrollbar={scrollbar}
+          renderTreeRow={renderTreeRow}
+          handleSortCycle={handleSortCycle}
+          handleToggleHiddenFiles={handleToggleHiddenFiles}
+          handleRefresh={handleRefresh}
+          handleBackFromError={handleBackFromError}
+          handleRetry={handleRetry}
+          sortTriggerStyle={sortTriggerStyle}
+        />
+      </FileDropZone>
     </View>
   );
 }
@@ -1145,6 +1339,11 @@ interface FileExplorerPaneContentProps {
   showBackFromError: boolean;
   listRows: ExplorerListRow[];
   onNewEntryAtRoot?: (parentPath: string, kind: "file" | "directory") => void;
+  onUploadPress?: () => void;
+  isUploading: boolean;
+  onDropItems?: (items: DroppedItem[]) => void;
+  onDropSkipped?: () => void;
+  dropDisabled: boolean;
   currentSortLabel: string;
   isRefreshFetching: boolean;
   treeListRef: RefObject<FlatList<ExplorerListRow> | null>;
@@ -1168,6 +1367,11 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
     showBackFromError,
     listRows,
     onNewEntryAtRoot,
+    onUploadPress,
+    isUploading,
+    onDropItems,
+    onDropSkipped,
+    dropDisabled,
     currentSortLabel,
     isRefreshFetching,
     treeListRef,
@@ -1182,6 +1386,24 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
   } = props;
 
   const showHiddenFiles = usePanelStore((state) => state.explorerShowHiddenFiles);
+
+  const handleDropFiles = useCallback(
+    (items: DroppedItem[]) => {
+      onDropItems?.(items);
+    },
+    [onDropItems],
+  );
+  const handleSkippedDirectories = useCallback(() => {
+    onDropSkipped?.();
+  }, [onDropSkipped]);
+  const dropSink = useMemo<FileDropSink>(
+    () => ({
+      onGenericFiles: handleDropFiles,
+      onSkippedDirectories: handleSkippedDirectories,
+    }),
+    [handleDropFiles, handleSkippedDirectories],
+  );
+  useFileDrop(dropSink, { disabled: dropDisabled });
 
   const handleNewFileAtRoot = useCallback(() => {
     onNewEntryAtRoot?.(".", "file");
@@ -1272,6 +1494,32 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
               </ToolbarButton>
             </>
           ) : null}
+          {onUploadPress ? (
+            <ToolbarButton
+              label={
+                isUploading
+                  ? t("workspace.fileExplorer.actions.uploading")
+                  : t("workspace.fileExplorer.actions.upload")
+              }
+              compact={isCompact}
+              disabled={isUploading}
+              hitSlop={8}
+              testID="files-upload"
+              onPress={onUploadPress}
+            >
+              {isUploading ? (
+                <LoadingSpinner
+                  size={paneContentToolbarIconSize(isCompact)}
+                  color={theme.colors.foregroundExtraMuted}
+                />
+              ) : (
+                <Upload
+                  size={paneContentToolbarIconSize(isCompact)}
+                  color={theme.colors.foregroundExtraMuted}
+                />
+              )}
+            </ToolbarButton>
+          ) : null}
           <ToolbarButton
             label={hiddenFilesToggleAccessibilityLabel}
             selected={!showHiddenFiles}
@@ -1358,6 +1606,45 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
       </ContextMenu>
     </View>
   );
+}
+
+interface UploadSingleFileResult {
+  success: boolean;
+  path: string | null;
+  error: string | null;
+  alreadyExists?: boolean;
+}
+
+interface UploadSingleFileOutcome {
+  uploadedPath: string | null;
+  error: string | null;
+}
+
+/**
+ * Upload one file, retrying once with overwrite after a confirm when the
+ * server reports the entry appeared between the conflict check and the send.
+ */
+async function uploadSingleFile(args: {
+  trimmedName: string;
+  needsOverwrite: boolean;
+  send: (overwrite: boolean) => Promise<UploadSingleFileResult | null>;
+  confirm: (names: readonly string[]) => Promise<boolean>;
+}): Promise<UploadSingleFileOutcome> {
+  const payload = await args.send(args.needsOverwrite);
+  if (payload?.success && payload.path) {
+    return { uploadedPath: payload.path, error: null };
+  }
+  if (payload?.alreadyExists && !args.needsOverwrite) {
+    const retryConfirmed = await args.confirm([args.trimmedName]);
+    if (retryConfirmed) {
+      const retry = await args.send(true);
+      if (retry?.success && retry.path) {
+        return { uploadedPath: retry.path, error: null };
+      }
+      return { uploadedPath: null, error: retry?.error ?? null };
+    }
+  }
+  return { uploadedPath: null, error: payload?.error ?? null };
 }
 
 function deriveExplorerFields(state: AgentFileExplorerState | undefined) {
@@ -1653,6 +1940,9 @@ function getErrorRecoveryPath(state: AgentFileExplorerState | undefined): string
 
 const styles = StyleSheet.create((theme) => ({
   container: {
+    flex: 1,
+  },
+  dropZone: {
     flex: 1,
   },
   desktopSplit: {

@@ -515,6 +515,12 @@ export const fr: TranslationResources = {
         cancel: "Annuler",
         failed: "Impossible d’abandonner les modifications",
       },
+      confirmOverwrite: {
+        title: "Écraser les fichiers existants ?",
+        message: "{{names}} seront remplacés par ce téléversement.",
+        confirm: "Écraser",
+        cancel: "Annuler",
+      },
     },
     fileExplorer: {
       sort: {
@@ -533,6 +539,8 @@ export const fr: TranslationResources = {
         refreshing: "Actualisation des fichiers…",
         hideHiddenFiles: "Masquer les fichiers cachés",
         showHiddenFiles: "Afficher les fichiers cachés",
+        upload: "Téléverser des fichiers",
+        uploading: "Téléversement des fichiers",
       },
       empty: {
         noFiles: "Aucun fichier",
@@ -549,6 +557,9 @@ export const fr: TranslationResources = {
         duplicateFailed: "Impossible de dupliquer l’élément",
         revealFailed: "Impossible d’afficher l’élément",
         deleteFailed: "Impossible de supprimer l’élément",
+        uploadFailed: "Échec du téléversement des fichiers",
+        uploadTargetMissing: "Le dossier sélectionné n'est plus disponible.",
+        foldersSkipped: "Les dossiers ne peuvent pas être téléversés.",
       },
       draft: {
         filePlaceholder: "Nom du fichier",

@@ -73,6 +73,17 @@ export class FileUploadStore {
     return () => this.cancel(upload);
   }
 
+  /**
+   * Remove a finished upload's staging directory, e.g. after its file was
+   * moved into a workspace. Unknown or malformed ids are ignored.
+   */
+  async discardCompletedUpload(uploadId: string): Promise<void> {
+    if (!/^upload_[A-Za-z0-9-]+$/.test(uploadId)) {
+      return;
+    }
+    await rm(join(this.paseoHome, "uploads", uploadId), { recursive: true, force: true });
+  }
+
   async receiveFrame(
     frame: FileTransferFrame,
     source: object = this.defaultSource,

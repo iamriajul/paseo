@@ -587,6 +587,17 @@ export interface FileUploadInput {
   requestId?: string;
   chunkSize?: number;
 }
+
+export interface FileEntryUploadInput {
+  cwd: string;
+  parentPath: string;
+  name: string;
+  mimeType: string;
+  bytes: Uint8Array | ArrayBuffer;
+  overwrite?: boolean;
+  requestId?: string;
+  chunkSize?: number;
+}
 export type FileUploadResult = FileUploadResponse["payload"];
 type FileDownloadTokenPayload = FileDownloadTokenResponse["payload"];
 type ListProviderFeaturesPayload = ListProviderFeaturesResponseMessage["payload"];
@@ -5678,22 +5689,74 @@ export class DaemonClient {
     if (!bytes) {
       throw new Error("File bytes are required.");
     }
-    // The file frames bypass the send queue, so start only on an open connection.
-    await this.whenConnected();
-    const uploadTransport = this.transport;
-    const resolvedRequestId = this.createRequestId(input.requestId);
     const modifiedAt = input.modifiedAt ?? new Date().toISOString();
-    const responsePromise = this.sendCorrelatedRequest({
-      requestId: resolvedRequestId,
-      message: {
+    return this.sendUploadFrames({
+      requestId: input.requestId,
+      buildMessage: (requestId, size) => ({
         type: "file.upload.request",
         fileName: input.fileName,
         mimeType: input.mimeType,
-        size: bytes.byteLength,
+        size,
         modifiedAt,
-        requestId: resolvedRequestId,
-      },
+        requestId,
+      }),
       responseType: "file.upload.response",
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      bytes,
+      modifiedAt,
+      chunkSize: input.chunkSize,
+    });
+  }
+
+  async uploadFileEntry(
+    input: FileEntryUploadInput,
+  ): Promise<CorrelatedResponsePayload<"fs.entry.upload.response">> {
+    const bytes = asUint8Array(input.bytes);
+    if (!bytes) {
+      throw new Error("File bytes are required.");
+    }
+    const modifiedAt = new Date().toISOString();
+    return this.sendUploadFrames({
+      requestId: input.requestId,
+      buildMessage: (requestId, size) => ({
+        type: "fs.entry.upload.request",
+        cwd: input.cwd,
+        parentPath: input.parentPath,
+        name: input.name,
+        mimeType: input.mimeType,
+        size,
+        overwrite: input.overwrite ?? false,
+        requestId,
+      }),
+      responseType: "fs.entry.upload.response",
+      fileName: input.name,
+      mimeType: input.mimeType,
+      bytes,
+      modifiedAt,
+      chunkSize: input.chunkSize,
+    });
+  }
+
+  private async sendUploadFrames<TResponseType extends CorrelatedResponseType>(options: {
+    requestId?: string;
+    buildMessage: (requestId: string, size: number) => SessionInboundMessage;
+    responseType: TResponseType;
+    fileName: string;
+    mimeType: string;
+    bytes: Uint8Array;
+    modifiedAt: string;
+    chunkSize?: number;
+  }): Promise<CorrelatedResponsePayload<TResponseType>> {
+    const { bytes } = options;
+    // The file frames bypass the send queue, so start only on an open connection.
+    await this.whenConnected();
+    const uploadTransport = this.transport;
+    const resolvedRequestId = this.createRequestId(options.requestId);
+    const responsePromise = this.sendCorrelatedRequest({
+      requestId: resolvedRequestId,
+      message: options.buildMessage(resolvedRequestId, bytes.byteLength),
+      responseType: options.responseType,
       options: { skipQueue: true },
     });
 
@@ -5714,16 +5777,16 @@ export class DaemonClient {
           opcode: FileTransferOpcode.FileBegin,
           requestId: resolvedRequestId,
           metadata: {
-            mime: input.mimeType,
+            mime: options.mimeType,
             size: bytes.byteLength,
             encoding: "binary",
-            modifiedAt,
-            fileName: input.fileName,
+            modifiedAt: options.modifiedAt,
+            fileName: options.fileName,
           },
         }),
       );
 
-      const chunkSize = input.chunkSize ?? 128 * 1024;
+      const chunkSize = options.chunkSize ?? 128 * 1024;
       for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
         // Native WebSocket.send encodes binary synchronously. Let rendering and
         // incoming messages run between bounded pieces on every platform.

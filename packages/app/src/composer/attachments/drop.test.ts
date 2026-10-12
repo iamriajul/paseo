@@ -36,13 +36,15 @@ describe("composer dropped attachments", () => {
         { kind: "desktop-path", path: posixPath },
       ],
       {
-        readDesktopFileBytes: async (path) => {
-          readPaths.push(path);
-          const bytes = bytesByPath.get(path);
-          if (!bytes) {
-            throw new Error(`Unexpected desktop read: ${path}`);
-          }
-          return bytes;
+        runtime: {
+          readDesktopFileBytes: async (path) => {
+            readPaths.push(path);
+            const bytes = bytesByPath.get(path);
+            if (!bytes) {
+              throw new Error(`Unexpected desktop read: ${path}`);
+            }
+            return bytes;
+          },
         },
       },
     );
@@ -56,5 +58,18 @@ describe("composer dropped attachments", () => {
     expect(await files[0]?.readBytes()).toEqual(new Uint8Array([1, 2, 3]));
     expect(await files[1]?.readBytes()).toEqual(new Uint8Array([4, 5]));
     expect(readPaths).toEqual([windowsPath, posixPath]);
+  });
+
+  it("keeps raster images when the consumer handles raw bytes itself", async () => {
+    const imageFile = new File([new Uint8Array([0])], "screen.png", { type: "image/png" });
+
+    const files = droppedItemsToSelectedFiles([{ kind: "web-file", file: imageFile }], {
+      includeImages: true,
+    });
+
+    expect(files.map(({ fileName, mimeType }) => ({ fileName, mimeType }))).toEqual([
+      { fileName: "screen.png", mimeType: "image/png" },
+    ]);
+    expect(await files[0]?.readBytes()).toEqual(new Uint8Array(await imageFile.arrayBuffer()));
   });
 });

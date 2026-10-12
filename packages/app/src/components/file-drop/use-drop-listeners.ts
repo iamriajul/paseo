@@ -11,6 +11,7 @@ import {
 } from "@/attachments/file-types";
 import { isWeb } from "@/constants/platform";
 import type { DroppedItem, DroppedPathItem, FileDropSink } from "./types";
+import { partitionDroppedFiles } from "./partition-dropped-files";
 import {
   parseWorkspaceFileDragPayload,
   WORKSPACE_FILE_DRAG_MIME,
@@ -253,7 +254,13 @@ export function useDropListeners({
           }
         }
 
-        const files = Array.from(e.dataTransfer?.files ?? []);
+        const { files, skippedDirectoryCount } = partitionDroppedFiles(
+          Array.from(e.dataTransfer?.files ?? []),
+          e.dataTransfer?.items,
+        );
+        if (skippedDirectoryCount > 0) {
+          sink.onSkippedDirectories?.(skippedDirectoryCount);
+        }
         const genericItems: DroppedItem[] = files.map((file) => ({
           kind: "web-file",
           file,

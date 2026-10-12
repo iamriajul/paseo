@@ -510,6 +510,12 @@ export const ar: TranslationResources = {
         cancel: "إلغاء",
         failed: "فشل تجاهل التغييرات",
       },
+      confirmOverwrite: {
+        title: "استبدال الملفات الموجودة؟",
+        message: "سيتم استبدال {{names}} بهذا الرفع.",
+        confirm: "استبدال",
+        cancel: "إلغاء",
+      },
     },
     fileExplorer: {
       sort: {
@@ -528,6 +534,8 @@ export const ar: TranslationResources = {
         refreshing: "تحديث الملفات",
         hideHiddenFiles: "إخفاء الملفات المخفية",
         showHiddenFiles: "إظهار الملفات المخفية",
+        upload: "رفع الملفات",
+        uploading: "جارٍ رفع الملفات",
       },
       empty: {
         noFiles: "لا توجد ملفات",
@@ -544,6 +552,9 @@ export const ar: TranslationResources = {
         duplicateFailed: "فشل تكرار العنصر",
         revealFailed: "فشل إظهار العنصر",
         deleteFailed: "فشل حذف العنصر",
+        uploadFailed: "فشل رفع الملفات",
+        uploadTargetMissing: "المجلد المحدد لم يعد متوفرًا.",
+        foldersSkipped: "لا يمكن رفع المجلدات.",
       },
       draft: {
         filePlaceholder: "اسم الملف",

@@ -1,5 +1,5 @@
 import type pino from "pino";
-import type { SessionDelivery } from "../owned-subscriptions/index.js";
+import type { OwnedOperation, SessionDelivery } from "../owned-subscriptions/index.js";
 import type { FileVersion } from "@getpaseo/protocol/messages";
 import { getErrorMessage } from "@getpaseo/protocol/error-utils";
 import {
@@ -13,8 +13,10 @@ import type {
   FileEntryDeleteRequest,
   FileEntryDuplicateRequest,
   FileEntryRenameRequest,
+  FileEntryUploadRequest,
   FileExplorerRequest,
   FileUploadRequest,
+  FileUploadResponse,
   FileSubscribeRequest,
   FileUnsubscribeRequest,
   FileWriteRequest,
@@ -29,6 +31,7 @@ import {
   duplicateExplorerEntry,
   getDownloadableFileInfo,
   listDirectoryEntries,
+  moveStagedUploadIntoWorkspace,
   readExplorerFile,
   renameExplorerEntry,
   streamExplorerFile,
@@ -388,6 +391,99 @@ export class WorkspaceFilesSession {
         .release()
         .catch((error) => this.logger.error({ err: error }, "Upload cleanup failed"));
     });
+  }
+
+  handleFileEntryUploadRequest(request: FileEntryUploadRequest, ownership: SessionDelivery): void {
+    let cancel: (() => Promise<void>) | undefined;
+    const operation = ownership.operation(
+      (message) =>
+        message.type === "fs.entry.upload.response" &&
+        message.payload.requestId === request.requestId,
+      () => cancel?.(),
+    );
+    cancel = this.fileUploads.beginUpload(
+      {
+        type: "file.upload.request",
+        fileName: request.name,
+        mimeType: request.mimeType,
+        size: request.size,
+        modifiedAt: new Date().toISOString(),
+        requestId: request.requestId,
+      },
+      operation.source,
+      (staged) => {
+        void this.finishFileEntryUpload({ operation, request, staged });
+      },
+    );
+  }
+
+  private async finishFileEntryUpload(args: {
+    operation: OwnedOperation;
+    request: FileEntryUploadRequest;
+    staged: FileUploadResponse | null;
+  }): Promise<void> {
+    const { operation, request, staged } = args;
+    if (!staged) {
+      await operation.release().catch((error) => this.logUploadCleanupError(error));
+      return;
+    }
+    const emitError = (error: string, alreadyExists?: boolean) => {
+      operation.emit({
+        type: "fs.entry.upload.response",
+        payload: {
+          cwd: request.cwd,
+          parentPath: request.parentPath,
+          path: null,
+          success: false,
+          error,
+          alreadyExists,
+          requestId: request.requestId,
+        },
+      });
+    };
+    try {
+      const stagedFile = staged.payload.error ? null : staged.payload.file;
+      if (!stagedFile) {
+        emitError(staged.payload.error ?? "Upload failed.");
+        return;
+      }
+      const result = await moveStagedUploadIntoWorkspace({
+        root: request.cwd,
+        parentPath: request.parentPath,
+        name: request.name,
+        stagedPath: stagedFile.path,
+        overwrite: request.overwrite ?? false,
+      });
+      if (result.status === "ok") {
+        operation.emit({
+          type: "fs.entry.upload.response",
+          payload: {
+            cwd: request.cwd,
+            parentPath: request.parentPath,
+            path: result.path,
+            success: true,
+            error: null,
+            requestId: request.requestId,
+          },
+        });
+      } else {
+        emitError(result.error, result.alreadyExists);
+      }
+    } catch (error) {
+      emitError(getErrorMessage(error));
+    } finally {
+      const stagedFile = staged.payload.file;
+      if (stagedFile) {
+        await this.fileUploads
+          .discardCompletedUpload(stagedFile.id)
+          .catch((error) => this.logUploadCleanupError(error));
+      }
+      await operation.release().catch((error) => this.logUploadCleanupError(error));
+    }
+  }
+
+  private logUploadCleanupError(error: unknown): void {
+    this.logger.error({ err: error }, "Upload cleanup failed");
   }
 
   async handleFileTransferFrame(frame: FileTransferFrame, source: object): Promise<void> {

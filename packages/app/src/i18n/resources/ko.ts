@@ -511,6 +511,12 @@ export const ko: TranslationResources = {
         cancel: "취소",
         failed: "변경 사항을 버리지 못했습니다",
       },
+      confirmOverwrite: {
+        title: "기존 파일을 덮어쓰시겠습니까?",
+        message: "{{names}}이(가) 이 업로드로 대체됩니다.",
+        confirm: "덮어쓰기",
+        cancel: "취소",
+      },
     },
     fileExplorer: {
       sort: {
@@ -529,6 +535,8 @@ export const ko: TranslationResources = {
         refreshing: "파일 새로고침 중",
         hideHiddenFiles: "숨겨진 파일 숨기기",
         showHiddenFiles: "숨겨진 파일 표시",
+        upload: "파일 업로드",
+        uploading: "파일 업로드 중",
       },
       empty: {
         noFiles: "파일 없음",
@@ -545,6 +553,9 @@ export const ko: TranslationResources = {
         duplicateFailed: "항목을 복제하지 못했습니다",
         revealFailed: "항목을 표시하지 못했습니다",
         deleteFailed: "항목을 삭제하지 못했습니다",
+        uploadFailed: "파일을 업로드하지 못했습니다",
+        uploadTargetMissing: "선택한 폴더를 더 이상 사용할 수 없습니다.",
+        foldersSkipped: "폴더는 업로드할 수 없습니다.",
       },
       draft: {
         filePlaceholder: "파일 이름",

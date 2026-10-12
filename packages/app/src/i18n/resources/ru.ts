@@ -515,6 +515,12 @@ export const ru: TranslationResources = {
         cancel: "Отмена",
         failed: "Не удалось отменить изменения",
       },
+      confirmOverwrite: {
+        title: "Перезаписать существующие файлы?",
+        message: "{{names}} будут заменены этой загрузкой.",
+        confirm: "Перезаписать",
+        cancel: "Отмена",
+      },
     },
     fileExplorer: {
       sort: {
@@ -533,6 +539,8 @@ export const ru: TranslationResources = {
         refreshing: "Обновление файлов",
         hideHiddenFiles: "Скрыть скрытые файлы",
         showHiddenFiles: "Показать скрытые файлы",
+        upload: "Загрузить файлы",
+        uploading: "Загрузка файлов",
       },
       empty: {
         noFiles: "Нет файлов",
@@ -549,6 +557,9 @@ export const ru: TranslationResources = {
         duplicateFailed: "Не удалось создать копию элемента",
         revealFailed: "Не удалось показать расположение элемента",
         deleteFailed: "Не удалось удалить элемент",
+        uploadFailed: "Не удалось загрузить файлы",
+        uploadTargetMissing: "Выбранная папка больше недоступна.",
+        foldersSkipped: "Папки нельзя загрузить.",
       },
       draft: {
         filePlaceholder: "Имя файла",

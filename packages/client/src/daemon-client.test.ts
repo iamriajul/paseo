@@ -3450,6 +3450,174 @@ test("uploadFile sends metadata request and file bytes as binary chunks", async 
   });
 });
 
+test("uploadFileEntry sends the workspace destination with file bytes as binary chunks", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const responsePromise = client.uploadFileEntry({
+    cwd: "/tmp/project",
+    parentPath: "docs",
+    name: "notes.txt",
+    mimeType: "text/plain",
+    bytes: new TextEncoder().encode("hello world"),
+    requestId: "req-entry-upload",
+    chunkSize: 5,
+  });
+
+  await vi.waitFor(() => {
+    const frames = mock.sent.slice(1).map(assertUint8Array).map(decodeFileTransferFrame);
+    expect(frames.at(-1)?.opcode).toBe(FileTransferOpcode.FileEnd);
+  });
+
+  const request = JSON.parse(assertStr(mock.sent[0]));
+  expect(request).toEqual({
+    type: "session",
+    message: {
+      type: "fs.entry.upload.request",
+      cwd: "/tmp/project",
+      parentPath: "docs",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 11,
+      overwrite: false,
+      requestId: "req-entry-upload",
+    },
+  });
+  expect(mock.sent.slice(1).map(assertUint8Array).map(decodeFileTransferFrame)).toEqual([
+    {
+      opcode: FileTransferOpcode.FileBegin,
+      requestId: "req-entry-upload",
+      metadata: {
+        mime: "text/plain",
+        size: 11,
+        encoding: "binary",
+        modifiedAt: expect.any(String),
+        fileName: "notes.txt",
+      },
+      payload: new Uint8Array(),
+    },
+    {
+      opcode: FileTransferOpcode.FileChunk,
+      requestId: "req-entry-upload",
+      payload: new TextEncoder().encode("hello"),
+    },
+    {
+      opcode: FileTransferOpcode.FileChunk,
+      requestId: "req-entry-upload",
+      payload: new TextEncoder().encode(" worl"),
+    },
+    {
+      opcode: FileTransferOpcode.FileChunk,
+      requestId: "req-entry-upload",
+      payload: new TextEncoder().encode("d"),
+    },
+    {
+      opcode: FileTransferOpcode.FileEnd,
+      requestId: "req-entry-upload",
+      payload: new Uint8Array(),
+    },
+  ]);
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "fs.entry.upload.response",
+      payload: {
+        cwd: "/tmp/project",
+        parentPath: "docs",
+        path: "docs/notes.txt",
+        success: true,
+        error: null,
+        requestId: "req-entry-upload",
+      },
+    }),
+  );
+
+  await expect(responsePromise).resolves.toEqual({
+    cwd: "/tmp/project",
+    parentPath: "docs",
+    path: "docs/notes.txt",
+    success: true,
+    error: null,
+    requestId: "req-entry-upload",
+  });
+});
+
+test("uploadFileEntry forwards an explicit overwrite flag", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const responsePromise = client.uploadFileEntry({
+    cwd: "/tmp/project",
+    parentPath: ".",
+    name: "notes.txt",
+    mimeType: "text/plain",
+    bytes: new TextEncoder().encode("hello"),
+    overwrite: true,
+    requestId: "req-entry-overwrite",
+  });
+
+  await vi.waitFor(() => {
+    const frames = mock.sent.slice(1).map(assertUint8Array).map(decodeFileTransferFrame);
+    expect(frames.at(-1)?.opcode).toBe(FileTransferOpcode.FileEnd);
+  });
+
+  expect(JSON.parse(assertStr(mock.sent[0]))).toEqual({
+    type: "session",
+    message: {
+      type: "fs.entry.upload.request",
+      cwd: "/tmp/project",
+      parentPath: ".",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      overwrite: true,
+      requestId: "req-entry-overwrite",
+    },
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "fs.entry.upload.response",
+      payload: {
+        cwd: "/tmp/project",
+        parentPath: ".",
+        path: "notes.txt",
+        success: true,
+        error: null,
+        requestId: "req-entry-overwrite",
+      },
+    }),
+  );
+
+  await expect(responsePromise).resolves.toMatchObject({ success: true });
+});
+
 test("normalizes workspace_setup_progress into a workspace-scoped daemon event", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

@@ -13,10 +13,12 @@ const ScheduleCreateTargetSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("self"),
     agentId: z.guid(),
+    asUserMessage: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("agent"),
     agentId: z.guid(),
+    asUserMessage: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("new-agent"),

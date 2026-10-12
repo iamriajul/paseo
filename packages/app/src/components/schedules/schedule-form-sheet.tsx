@@ -1,3 +1,4 @@
+import { isTimerPresetId } from "@/schedules/schedule-cadence-options";
 import equal from "fast-deep-equal";
 import {
   useCallback,
@@ -64,8 +65,14 @@ export interface ScheduleFormSheetProps {
   onClose: () => void;
   mode: "create" | "edit";
   schedule?: ScheduleSummary;
-  /** Create a heartbeat against an existing agent (composer + menu). */
-  agentTarget?: { agentId: string; label?: string };
+  /** Create a heartbeat or scheduled prompt against an existing agent (composer + menu). */
+  agentTarget?: {
+    agentId: string;
+    label?: string;
+    initialPrompt?: string;
+    asUserMessage?: boolean;
+  };
+  onScheduled?: () => void;
 }
 
 function parseMaxRuns(raw: string): number | null {
@@ -112,7 +119,7 @@ function openKey(props: ScheduleFormSheetProps): string {
     return `edit:${props.serverId ?? ""}:${props.schedule?.id ?? ""}`;
   }
   if (props.agentTarget) {
-    return `create-agent:${props.serverId ?? ""}:${props.agentTarget.agentId}`;
+    return `create-agent:${props.serverId ?? ""}:${props.agentTarget.agentId}:${props.agentTarget.asUserMessage ? "prompt" : "hb"}:${props.agentTarget.initialPrompt ?? ""}`;
   }
   return `create:${props.serverId ?? ""}`;
 }
@@ -133,7 +140,14 @@ function buildSnapshot(input: {
   mode: "create" | "edit";
   serverId: string | undefined;
   schedule: ScheduleSummary | undefined;
-  agentTarget: { agentId: string; label?: string } | undefined;
+  agentTarget:
+    | {
+        agentId: string;
+        label?: string;
+        initialPrompt?: string;
+        asUserMessage?: boolean;
+      }
+    | undefined;
   hosts: readonly ScheduleFormHost[];
   projectTargets: ReturnType<typeof buildScheduleProjectTargets>;
   preferences: FormPreferences;
@@ -145,7 +159,14 @@ function buildSnapshot(input: {
   return {
     mode: input.mode,
     schedule,
-    agentTarget: input.agentTarget ? { agentId: input.agentTarget.agentId } : undefined,
+    agentTarget: input.agentTarget
+      ? {
+          agentId: input.agentTarget.agentId,
+          label: input.agentTarget.label,
+          initialPrompt: input.agentTarget.initialPrompt,
+          asUserMessage: input.agentTarget.asUserMessage,
+        }
+      : undefined,
     hosts: input.hosts,
     defaults: {
       serverId: resolveCreateServerId({
@@ -246,6 +267,7 @@ function OpenScheduleFormSheet({
   mode,
   schedule,
   agentTarget,
+  onScheduled,
 }: ScheduleFormSheetProps & { onDismiss: () => void }): ReactElement {
   const controlSize: FieldControlSize = useIsCompactFormFactor() ? "md" : "sm";
   const { projects } = useProjects();
@@ -333,11 +355,13 @@ function OpenScheduleFormSheet({
     if (!state.submitCadence || prompt.length === 0) {
       return false;
     }
+    const maxRuns = parseMaxRuns(state.maxRuns);
     if (mode === "edit" && schedule) {
       await updateSchedule({
         id: schedule.id,
         prompt,
         cadence: state.submitCadence,
+        ...(maxRuns != null ? { maxRuns } : {}),
       });
       return true;
     }
@@ -345,17 +369,27 @@ function OpenScheduleFormSheet({
     if (!agentId) {
       return false;
     }
+    const asUserMessage = Boolean(
+      agentTarget?.asUserMessage ||
+      (schedule?.target.type === "agent" && schedule.target.asUserMessage),
+    );
     await createSchedule({
       prompt,
       cadence: requireCronCadence(state.submitCadence),
-      target: { type: "agent", agentId },
+      target: {
+        type: "agent",
+        agentId,
+        ...(asUserMessage ? { asUserMessage: true } : {}),
+      },
+      ...(maxRuns != null ? { maxRuns } : {}),
     });
     return true;
   }, [
-    agentTarget?.agentId,
+    agentTarget,
     createSchedule,
     mode,
     schedule,
+    state.maxRuns,
     state.prompt,
     state.submitCadence,
     updateSchedule,
@@ -425,20 +459,28 @@ function OpenScheduleFormSheet({
       const submitted =
         state.targetKind === "agent" ? await submitAgentTarget() : await submitNewAgent();
       if (submitted) {
+        onScheduled?.();
         onClose();
       }
     } catch (error) {
       model.setSubmitError(toErrorMessage(error));
     }
-  }, [canSubmit, model, onClose, state.targetKind, submitAgentTarget, submitNewAgent]);
+  }, [canSubmit, model, onClose, onScheduled, state.targetKind, submitAgentTarget, submitNewAgent]);
 
   const handleSubmitPress = useCallback(() => {
     void handleSubmit();
   }, [handleSubmit]);
 
+  const isAgentPrompt = Boolean(
+    agentTarget?.asUserMessage ||
+    (schedule?.target.type === "agent" && schedule.target.asUserMessage),
+  );
   const isAgentTargetForm = state.targetKind === "agent";
   const header = useMemo<SheetHeader>(() => {
     if (mode === "edit") {
+      if (isAgentPrompt) {
+        return { title: "Edit scheduled prompt" };
+      }
       return {
         title:
           schedule?.target.type === "agent" || isAgentTargetForm
@@ -446,18 +488,24 @@ function OpenScheduleFormSheet({
             : "Edit schedule",
       };
     }
+    if (isAgentPrompt) {
+      return { title: "Schedule prompt" };
+    }
     return { title: isAgentTargetForm ? "New heartbeat" : "New schedule" };
-  }, [isAgentTargetForm, mode, schedule?.target.type]);
+  }, [isAgentPrompt, isAgentTargetForm, mode, schedule?.target.type]);
 
   const submitLabel = useMemo(() => {
     if (mode === "edit") {
       return "Save changes";
     }
+    if (isAgentPrompt) {
+      return "Schedule prompt";
+    }
     if (isAgentTargetForm) {
       return "Create heartbeat";
     }
     return "Create schedule";
-  }, [isAgentTargetForm, mode]);
+  }, [isAgentPrompt, isAgentTargetForm, mode]);
 
   const footer = useMemo(
     () => (
@@ -502,6 +550,7 @@ function OpenScheduleFormSheet({
         controlSize={controlSize}
         cadenceError={cadenceError}
         mutationServerId={mutationServerId}
+        isAgentPrompt={isAgentPrompt}
       />
     </AdaptiveModalSheet>
   );
@@ -515,6 +564,7 @@ interface ScheduleFormFieldsProps {
   controlSize: FieldControlSize;
   cadenceError: string | null;
   mutationServerId: string;
+  isAgentPrompt?: boolean;
 }
 
 function ScheduleFormFields({
@@ -525,7 +575,17 @@ function ScheduleFormFields({
   controlSize,
   cadenceError,
   mutationServerId,
+  isAgentPrompt = false,
 }: ScheduleFormFieldsProps): ReactElement {
+  const handlePresetSelect = useCallback(
+    (presetId: string) => {
+      if (isTimerPresetId(presetId)) {
+        model.setMaxRuns("1");
+      }
+    },
+    [model],
+  );
+
   if (state.targetKind === "agent") {
     return (
       <>
@@ -537,7 +597,11 @@ function ScheduleFormFields({
             accessibilityLabel="Prompt"
             initialValue={state.prompt}
             onChangeText={model.setPrompt}
-            placeholder="What should this agent do on each heartbeat?"
+            placeholder={
+              isAgentPrompt
+                ? "Write the prompt to send to this agent..."
+                : "What should this agent do on each heartbeat?"
+            }
             style={styles.multilineInput}
             multiline
             numberOfLines={4}
@@ -549,6 +613,8 @@ function ScheduleFormFields({
           onChange={model.setCadence}
           error={cadenceError ?? undefined}
           size={controlSize}
+          includeTimers={isAgentPrompt}
+          onPresetSelect={handlePresetSelect}
         />
         {state.submitError ? <Text style={styles.submitError}>{state.submitError}</Text> : null}
       </>

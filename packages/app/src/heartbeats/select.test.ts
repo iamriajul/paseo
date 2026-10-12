@@ -65,6 +65,16 @@ describe("selectPaseoHeartbeatRows", () => {
       cadence: { type: "cron", expression: "0 9 * * *" },
     }),
     makeSchedule({
+      id: "hb-scheduled-prompt",
+      name: null,
+      prompt: "Continue work when quota resets",
+      target: { type: "agent", agentId, asUserMessage: true },
+      status: "active",
+      nextRunAt: "2026-10-12T15:00:00.000Z",
+      cadence: { type: "cron", expression: "0 15 12 10 *" },
+      maxRuns: 1,
+    }),
+    makeSchedule({
       id: "hb-completed",
       target: { type: "agent", agentId },
       status: "completed",
@@ -90,7 +100,7 @@ describe("selectPaseoHeartbeatRows", () => {
       serverId,
       schedules,
     });
-    expect(rows.map((row) => row.id)).toEqual(["hb-active", "hb-paused"]);
+    expect(rows.map((row) => row.id)).toEqual(["hb-active", "hb-paused", "hb-scheduled-prompt"]);
   });
 
   it("maps cadence labels and status onto paseo rows", () => {

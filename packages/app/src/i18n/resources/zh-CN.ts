@@ -116,6 +116,13 @@ export const zhCN: TranslationResources = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "定时提示词",
+      editScheduledPrompt: "编辑定时提示词",
+      promptPlaceholder: "输入要发送给此智能体的提示词...",
+      submitSchedule: "定时提示词",
+      scheduledSuccess: "提示词已定时",
+    },
     placeholders: {
       desktop: "给 Agent 发消息，标记 @files，或使用 /commands 和 /skills",
       mobile: "发消息，@files，/commands",

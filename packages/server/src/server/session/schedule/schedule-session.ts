@@ -70,7 +70,13 @@ export class ScheduleSession {
     try {
       const target =
         request.target.type === "self"
-          ? { type: "agent" as const, agentId: request.target.agentId }
+          ? {
+              type: "agent" as const,
+              agentId: request.target.agentId,
+              ...(request.target.asUserMessage !== undefined
+                ? { asUserMessage: request.target.asUserMessage }
+                : {}),
+            }
           : request.target;
       const schedule = await this.scheduleService.create({
         prompt: request.prompt,

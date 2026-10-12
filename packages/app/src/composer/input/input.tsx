@@ -27,7 +27,15 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
-import { ArrowUp, Mic, MicOff, CornerDownLeft, Plus, Square } from "lucide-react-native";
+import {
+  ArrowUp,
+  CalendarClock,
+  Mic,
+  MicOff,
+  CornerDownLeft,
+  Plus,
+  Square,
+} from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useDictation } from "@/hooks/use-dictation";
 import { hasFinePointer } from "@/hooks/use-fine-pointer";
@@ -80,6 +88,7 @@ import {
 const ComposerTextInput = withUnistyles(EditingTextInput, (theme) => ({
   placeholderTextColor: theme.colors.surface4,
 }));
+const ThemedCalendarClock = withUnistyles(CalendarClock);
 import {
   resolveSendTooltipLabel,
   resolveSubmitAccessibilityHint,
@@ -201,6 +210,8 @@ export interface MessageInputProps {
   textReplacement: TextReplacement;
   /** Replaces the submit icon with this label, still inside the composer's own toolbar row. */
   submitLabel?: string;
+  onSchedulePrompt?: () => void;
+  canSchedulePrompt?: boolean;
 }
 
 export interface MessageInputRef {
@@ -868,6 +879,57 @@ function SendButtonTooltip({
   );
 }
 
+function ScheduleButtonTooltip({
+  visible,
+  disabled,
+  isConnected,
+  onPress,
+  buttonIconSize,
+  accessibilityLabel,
+  tooltipLabel,
+}: {
+  visible: boolean;
+  disabled: boolean;
+  isConnected: boolean;
+  onPress: (() => void) | undefined;
+  buttonIconSize: number;
+  accessibilityLabel: string;
+  tooltipLabel: string;
+}) {
+  if (!visible || !onPress) return null;
+  const isButtonDisabled = disabled || !isConnected;
+  return (
+    <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+      <TooltipTrigger
+        onPress={onPress}
+        disabled={isButtonDisabled}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        testID="composer-schedule-button"
+        style={styles.scheduleButton}
+      >
+        {({ hovered }: { hovered?: boolean }) => (
+          <View
+            style={[
+              styles.scheduleButtonContent,
+              hovered && styles.iconButtonHovered,
+              isButtonDisabled && styles.buttonDisabled,
+            ]}
+          >
+            <ThemedCalendarClock
+              size={buttonIconSize}
+              uniProps={hovered ? iconForegroundMapping : iconForegroundMutedMapping}
+            />
+          </View>
+        )}
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center" offset={8}>
+        <Text style={styles.tooltipText}>{tooltipLabel}</Text>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 type PrimaryActionKind = "send" | "active" | "none";
 
 function hasSendableComposerContent(input: {
@@ -1089,6 +1151,10 @@ function getWebTextAreaImpl(current: ComposerTextInputHandle | null): TextAreaHa
   return null;
 }
 
+function computeShouldSubmitOnEnter(web: boolean, compact: boolean): boolean {
+  return web && !compact;
+}
+
 function getComposerInputSnapshot(
   current: ComposerTextInputHandle | null,
   fallbackText: string,
@@ -1170,6 +1236,8 @@ interface ResolvedMessageInputProps {
   readOnly: boolean;
   textReplacement: TextReplacement;
   submitLabel: string | undefined;
+  onSchedulePrompt: (() => void) | undefined;
+  canSchedulePrompt: boolean;
 }
 
 function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInputProps {
@@ -1218,6 +1286,8 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
     readOnly: props.readOnly ?? false,
     textReplacement: props.textReplacement,
     submitLabel: props.submitLabel,
+    onSchedulePrompt: props.onSchedulePrompt,
+    canSchedulePrompt: props.canSchedulePrompt ?? false,
   };
 }
 
@@ -1296,6 +1366,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       readOnly,
       textReplacement,
       submitLabel,
+      onSchedulePrompt,
+      canSchedulePrompt,
     } = resolveMessageInputProps(props);
     const { isPaneFocused } = useComposerKeyboardScope();
     const mode = resolveComposerInputMode(inputMode);
@@ -1821,7 +1893,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     );
 
     const shouldHandleWebKeyPress = isWeb;
-    const shouldSubmitOnEnter = isWeb && !isCompact;
+    const shouldSubmitOnEnter = computeShouldSubmitOnEnter(isWeb, isCompact);
 
     const handleDesktopKeyPress = useCallback(
       (event: WebTextInputKeyPressEvent) => {
@@ -2192,6 +2264,15 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
               dictationToggleKeys={dictationToggleKeys}
             />
             {rightContent}
+            <ScheduleButtonTooltip
+              visible={canSchedulePrompt}
+              disabled={disabled}
+              isConnected={isConnected}
+              onPress={onSchedulePrompt}
+              buttonIconSize={buttonIconSize}
+              accessibilityLabel={t("composer.schedule.schedulePrompt")}
+              tooltipLabel={t("composer.schedule.schedulePrompt")}
+            />
             {sendButton}
           </View>
         </View>
@@ -2217,6 +2298,9 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         voiceMuteToggleKeys,
         dictationToggleKeys,
         rightContent,
+        canSchedulePrompt,
+        onSchedulePrompt,
+        buttonIconSize,
         sendButton,
       ],
     );

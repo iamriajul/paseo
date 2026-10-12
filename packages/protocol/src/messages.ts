@@ -4184,6 +4184,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentProfiles: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
+        // COMPAT(scheduledPrompt): added in v0.12.0, remove after 2027-04-12.
+        scheduledPrompt: z.boolean().optional(),
       })
       .optional(),
   })

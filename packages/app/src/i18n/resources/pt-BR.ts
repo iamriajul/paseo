@@ -117,6 +117,13 @@ export const ptBR: TranslationResources = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "Agendar prompt",
+      editScheduledPrompt: "Editar prompt agendado",
+      promptPlaceholder: "Escreva o prompt para enviar a este agente...",
+      submitSchedule: "Agendar prompt",
+      scheduledSuccess: "Prompt agendado",
+    },
     placeholders: {
       desktop: "Envie uma mensagem ao agente, marque @files ou use /commands e /skills",
       mobile: "Mensagem, @files, /commands",

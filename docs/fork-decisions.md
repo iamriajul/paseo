@@ -768,3 +768,18 @@ grep -q "fs.entry.upload.request" packages/protocol/src/messages.ts
 grep -q "moveStagedUploadIntoWorkspace" packages/server/src/server/file-explorer/service.ts
 grep -q "fsEntryUpload" packages/app/src/components/file-explorer-pane.tsx
 ```
+
+## scheduled-agent-prompts
+
+**schedule a prompt on any running agent with one-shot timers or calendar cadences**
+
+The composer toolbar gains a Schedule prompt action (CalendarClock icon) beside the Send button. The schedule sheet supports one-shot timer presets ("In 15 minutes", "In 30 minutes", "In 1 hour", "In 2 hours", "In 4 hours", "Tomorrow 9:00") and custom cron, prefilled with the composer draft. On schedule, the composer clears, a confirmation toast appears, and the scheduled prompt appears in the Heartbeats / Scheduled Prompts track above the composer with countdown labels ("in 30m"). Scheduled prompts target the agent with `asUserMessage: true` and `maxRuns: 1`. On fire, the daemon delivers the prompt directly to the agent as a real user message (waiting if an active turn is in-flight) rather than wrapping it in a system notification envelope, so the user's prompt appears in the conversation timeline and the agent runs autonomously. Gated on `server_info.features.scheduledPrompt`.
+
+```bash
+npx vitest run packages/protocol/src/schedule/cadence.test.ts packages/protocol/src/schedule/types.test.ts --bail=1
+npx vitest run packages/server/src/server/schedule/service.test.ts -t "agent-target schedule" --bail=1
+npm test --workspace=@getpaseo/app -- src/schedules/schedule-cadence-options.test.ts src/schedules/schedule-form-model.test.ts src/heartbeats/select.test.ts src/composer/schedule-prompt.test.ts --bail=1
+grep -q "scheduledPrompt" packages/protocol/src/messages.ts
+grep -q "asUserMessage" packages/server/src/server/schedule/service.ts
+grep -q "composer-schedule-button" packages/app/src/composer/input/input.tsx
+```

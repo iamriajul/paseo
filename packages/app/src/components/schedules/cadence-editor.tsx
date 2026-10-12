@@ -7,6 +7,9 @@ import { Field, FormTextInput } from "@/components/ui/form-field";
 import { SelectField, type SelectFieldOption } from "@/components/ui/select-field";
 import {
   CADENCE_PRESET_OPTIONS,
+  TIMER_PRESET_OPTIONS,
+  buildTimerPresetCadence,
+  isTimerPresetId,
   normalizeScheduleFormCadence,
   resolveCronPresetDisplay,
   resolveCronPresetId,
@@ -21,6 +24,8 @@ export interface CadenceEditorProps {
   onChange: (next: ScheduleCadence) => void;
   error?: string;
   size?: FieldControlSize;
+  includeTimers?: boolean;
+  onPresetSelect?: (presetId: string) => void;
 }
 
 const PRESET_OPTIONS: SelectFieldOption<string>[] = CADENCE_PRESET_OPTIONS.map((option) => ({
@@ -29,6 +34,21 @@ const PRESET_OPTIONS: SelectFieldOption<string>[] = CADENCE_PRESET_OPTIONS.map((
   label: option.label,
   testID: `schedule-cadence-preset-${option.id}`,
 }));
+
+const TIMER_OPTIONS: SelectFieldOption<string>[] = [
+  ...TIMER_PRESET_OPTIONS.map((option) => ({
+    id: option.id,
+    value: option.id,
+    label: option.label,
+    testID: `schedule-cadence-preset-${option.id}`,
+  })),
+  ...CADENCE_PRESET_OPTIONS.map((option) => ({
+    id: option.id,
+    value: option.id,
+    label: option.label,
+    testID: `schedule-cadence-preset-${option.id}`,
+  })),
+];
 
 function getCronPreview(expression: string, timezone: string, error: string | null): string | null {
   if (error || !expression) {
@@ -41,7 +61,14 @@ function buildCronCadence(expression: string, timezone: string): CronCadence {
   return { type: "cron", expression, timezone };
 }
 
-export function CadenceEditor({ value, onChange, error, size = "md" }: CadenceEditorProps) {
+export function CadenceEditor({
+  value,
+  onChange,
+  error,
+  size = "md",
+  includeTimers = false,
+  onPresetSelect,
+}: CadenceEditorProps) {
   const deviceTimeZone = useMemo(getDeviceTimeZone, []);
   const normalizedValue = normalizeScheduleFormCadence(value, deviceTimeZone);
   const [cronText, setCronText] = useState(() => normalizedValue.expression);
@@ -60,6 +87,16 @@ export function CadenceEditor({ value, onChange, error, size = "md" }: CadenceEd
 
   const handlePresetChange = useCallback(
     (presetId: string) => {
+      onPresetSelect?.(presetId);
+      if (isTimerPresetId(presetId)) {
+        const timerCadence = buildTimerPresetCadence(presetId, cronTimeZone);
+        if (timerCadence) {
+          setCronText(timerCadence.expression);
+          bumpFieldResetKey();
+          onChange(timerCadence);
+        }
+        return;
+      }
       const preset = CADENCE_PRESET_OPTIONS.find((option) => option.id === presetId);
       if (!preset) {
         return;
@@ -68,7 +105,7 @@ export function CadenceEditor({ value, onChange, error, size = "md" }: CadenceEd
       bumpFieldResetKey();
       onChange(buildCronCadence(preset.expression, cronTimeZone));
     },
-    [cronTimeZone, onChange],
+    [cronTimeZone, onChange, onPresetSelect],
   );
 
   const handleCronChange = useCallback(
@@ -93,7 +130,7 @@ export function CadenceEditor({ value, onChange, error, size = "md" }: CadenceEd
           label="Cadence"
           value={selectedPresetId === "custom" ? null : selectedPresetId}
           selectedDisplay={selectedPresetDisplay}
-          options={PRESET_OPTIONS}
+          options={includeTimers ? TIMER_OPTIONS : PRESET_OPTIONS}
           onChange={handlePresetChange}
           placeholder="Select cadence"
           emptyText="No cadences found"

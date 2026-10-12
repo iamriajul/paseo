@@ -56,6 +56,7 @@ function targetIdentity(target: ScheduleTarget): unknown {
     return {
       type: target.type,
       agentId: target.agentId,
+      asUserMessage: target.asUserMessage ?? false,
     };
   }
 

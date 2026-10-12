@@ -117,6 +117,13 @@ export const es: TranslationResources = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "Programar indicación",
+      editScheduledPrompt: "Editar indicación programada",
+      promptPlaceholder: "Escribe la indicación que se enviará a este agente...",
+      submitSchedule: "Programar indicación",
+      scheduledSuccess: "Indicación programada",
+    },
     placeholders: {
       desktop: "Envíe un mensaje al agente, etiquete@fileso use/commandsy/skills",
       mobile: "Mensaje,@files,/commands",

@@ -95,6 +95,48 @@ export function formatCadence(cadence: ScheduleCadence): string {
  * expression is valid but not one of the recognized patterns (callers fall
  * back to showing the raw expression).
  */
+function describeCalendarCron(input: {
+  minute: string;
+  hour: string;
+  dayOfMonth: string;
+  month: string;
+  dayOfWeek: string;
+  timezone?: string;
+}): string | null {
+  const { minute, hour, dayOfMonth, month, dayOfWeek, timezone } = input;
+  if (dayOfWeek !== "*") return null;
+  if (
+    !/^\d+$/.test(minute) ||
+    !/^\d+$/.test(hour) ||
+    !/^\d+$/.test(dayOfMonth) ||
+    !/^\d+$/.test(month)
+  ) {
+    return null;
+  }
+  const hourNum = Number.parseInt(hour, 10);
+  const minuteNum = Number.parseInt(minute, 10);
+  const domNum = Number.parseInt(dayOfMonth, 10);
+  const monthNum = Number.parseInt(month, 10);
+  const MONTH_SHORT = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const monthName = MONTH_SHORT[monthNum - 1] ?? `Month ${monthNum}`;
+  const time = `${pad2(hourNum)}:${pad2(minuteNum)}`;
+  const tz = timezone ?? "UTC";
+  return `${monthName} ${domNum} at ${time} ${tz}`;
+}
+
 export function describeCron(cadence: CronCadence): string | null {
   const trimmed = cadence.expression.trim();
   if (validateCron(trimmed) !== null) {
@@ -112,6 +154,18 @@ export function describeCron(cadence: CronCadence): string | null {
 
   if (minute === "*" && hour === "*" && isWildcardMonth && isWildcardDom && dayOfWeek === "*") {
     return "Every minute";
+  }
+
+  const calendarDesc = describeCalendarCron({
+    minute,
+    hour,
+    dayOfMonth,
+    month,
+    dayOfWeek,
+    timezone: cadence.timezone,
+  });
+  if (calendarDesc) {
+    return calendarDesc;
   }
 
   if (!isLiteralMinute || !isWildcardMonth || !isWildcardDom) {

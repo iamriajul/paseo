@@ -118,6 +118,13 @@ export const fr: TranslationResources = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "Planifier l'instruction",
+      editScheduledPrompt: "Modifier l'instruction planifiée",
+      promptPlaceholder: "Écrivez l'instruction à envoyer à cet agent...",
+      submitSchedule: "Planifier l'instruction",
+      scheduledSuccess: "Instruction planifiée",
+    },
     placeholders: {
       desktop: "Écrivez à l’agent, mentionnez des @fichiers ou utilisez les /commandes et /skills",
       mobile: "Message, @fichiers, /commandes",

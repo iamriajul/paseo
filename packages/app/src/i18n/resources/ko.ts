@@ -116,6 +116,13 @@ export const ko: TranslationResources = {
     },
   },
   composer: {
+    schedule: {
+      schedulePrompt: "프롬프트 예약",
+      editScheduledPrompt: "예약된 프롬프트 편집",
+      promptPlaceholder: "이 에이전트에 보낼 프롬프트를 작성하세요...",
+      submitSchedule: "프롬프트 예약",
+      scheduledSuccess: "프롬프트가 예약되었습니다",
+    },
     placeholders: {
       desktop: "에이전트에게 메시지를 보내거나 @files 태그, /commands, /skills를 사용하세요",
       mobile: "메시지, @files, /commands",

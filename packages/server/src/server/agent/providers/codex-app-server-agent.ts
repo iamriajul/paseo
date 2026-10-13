@@ -7368,6 +7368,13 @@ export class CodexAppServerAgentClient implements AgentClient {
     return buildCodexCustomProviderConfig(this.runtimeSettings, this.deps.customProvider);
   }
 
+  // Provider env carries per-provider overrides (OPENAI_BASE_URL, keys) and rarely
+  // PASEO_HOME. Falling back to it alone resolves `~/.paseo` and reads/writes the
+  // catalog outside the daemon's home, so only an explicit provider value wins.
+  private catalogPaseoHome(): string {
+    return resolvePaseoHome({ ...process.env, ...this.runtimeSettings?.env });
+  }
+
   private resolveGoalsEnabled(): Promise<boolean> {
     if (!this.goalsEnabledPromise) {
       this.goalsEnabledPromise = (async () => {
@@ -7455,8 +7462,7 @@ export class CodexAppServerAgentClient implements AgentClient {
       args.push("--enable", "goals");
     }
     const catalogPath =
-      this.modelCatalogPath ??
-      resolveCodexModelCatalogPath({ paseoHome: resolvePaseoHome(this.runtimeSettings?.env) });
+      this.modelCatalogPath ?? resolveCodexModelCatalogPath({ paseoHome: this.catalogPaseoHome() });
     if (catalogPath) {
       args.push("-c", `model_catalog_json="${catalogPath}"`);
     }
@@ -7481,9 +7487,7 @@ export class CodexAppServerAgentClient implements AgentClient {
 
   private async ensureGatewayCatalog(): Promise<void> {
     if (this.modelCatalogPath && this.cliproxyapiAdvertisedIds) return;
-    const existing = resolveCodexModelCatalogPath({
-      paseoHome: resolvePaseoHome(this.runtimeSettings?.env),
-    });
+    const existing = resolveCodexModelCatalogPath({ paseoHome: this.catalogPaseoHome() });
     if (existing) {
       this.modelCatalogPath = existing;
     }
@@ -7810,7 +7814,7 @@ export class CodexAppServerAgentClient implements AgentClient {
           });
           const catalogPath = writeCodexCatalogJsonFile({
             catalog,
-            paseoHome: resolvePaseoHome(this.runtimeSettings?.env),
+            paseoHome: this.catalogPaseoHome(),
           });
           this.modelCatalogPath = catalogPath;
         } catch (err) {

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { configDefaults, defineConfig } from "vitest/config";
 
@@ -89,9 +90,10 @@ export default defineConfig({
     // Fake-timer suites freeze p-throttle's clock, so a real per-second cap deadlocks them.
     env: {
       PASEO_GIT_MAX_PROCESSES_PER_SECOND: "10000",
-      // The repo-root config has no setup files, so suites run here would write
-      // gateway catalog cache into the developer's real $PASEO_HOME.
+      // The repo-root config has no setup files, so suites run here would otherwise
+      // write gateway caches and codex-model-catalog.json into the real $PASEO_HOME.
       PASEO_DISABLE_GATEWAY_CACHE: "1",
+      PASEO_HOME: fs.mkdtempSync(path.join(os.tmpdir(), "paseo-root-test-home-")),
     },
     exclude: [...configDefaults.exclude, "**/.claude/**", "**/.dev/**"],
     // The website installs its own React; bundling its router lets tests render website components

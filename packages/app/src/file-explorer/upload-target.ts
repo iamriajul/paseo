@@ -82,3 +82,51 @@ export function formatUploadConflictNames(conflicts: readonly string[]): string 
   }
   return shown.join(", ");
 }
+
+export interface UploadSingleFileResult {
+  success: boolean;
+  path: string | null;
+  error: string | null;
+  alreadyExists?: boolean;
+}
+
+export interface UploadSingleFileOutcome {
+  uploadedPath: string | null;
+  error: string | null;
+  cancelled?: boolean;
+}
+
+/**
+ * Upload one file, retrying once with overwrite after a confirm when the
+ * server reports the entry appeared between the conflict check and the send.
+ */
+export async function uploadSingleFile(args: {
+  trimmedName: string;
+  needsOverwrite: boolean;
+  send: (overwrite: boolean) => Promise<UploadSingleFileResult | null>;
+  confirm: (names: readonly string[]) => Promise<boolean>;
+}): Promise<UploadSingleFileOutcome> {
+  try {
+    const payload = await args.send(args.needsOverwrite);
+    if (payload?.success && payload.path) {
+      return { uploadedPath: payload.path, error: null };
+    }
+    if (payload?.alreadyExists && !args.needsOverwrite) {
+      const retryConfirmed = await args.confirm([args.trimmedName]);
+      if (!retryConfirmed) {
+        return { uploadedPath: null, error: null, cancelled: true };
+      }
+      const retry = await args.send(true);
+      if (retry?.success && retry.path) {
+        return { uploadedPath: retry.path, error: null };
+      }
+      return { uploadedPath: null, error: retry?.error ?? null };
+    }
+    return { uploadedPath: null, error: payload?.error ?? null };
+  } catch (cause) {
+    return {
+      uploadedPath: null,
+      error: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
+}

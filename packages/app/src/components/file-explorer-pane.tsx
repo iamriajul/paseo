@@ -96,6 +96,7 @@ import {
   findUploadConflicts,
   formatUploadConflictNames,
   resolveUploadParentPath,
+  uploadSingleFile,
 } from "@/file-explorer/upload-target";
 import { openDesktopTarget, useDesktopOpenTargets } from "@/workspace/desktop-open-targets";
 import { useOpenDirectoryInEditor } from "@/workspace/open-in-editor/directory";
@@ -1119,9 +1120,8 @@ export function FileExplorerPane({
         const shownConflicts = [
           ...new Set([...existingConflicts, ...findBatchDuplicateNames(trimmedNames)]),
         ];
-        let confirmed = shownConflicts.length === 0;
-        if (!confirmed) {
-          confirmed = await confirmOverwriteUpload(shownConflicts);
+        if (shownConflicts.length > 0) {
+          const confirmed = await confirmOverwriteUpload(shownConflicts);
           if (!confirmed) {
             return;
           }
@@ -1136,31 +1136,26 @@ export function FileExplorerPane({
           const isRepeat = seenInBatch.has(key);
           seenInBatch.add(key);
           const needsOverwrite = existingSet.has(key) || isRepeat;
-          try {
-            const bytes = await file.readBytes();
-            const outcome = await uploadSingleFile({
-              trimmedName: trimmedNames[index],
-              needsOverwrite,
-              send: (overwrite) =>
-                uploadEntry({
-                  parentPath,
-                  name: file.fileName,
-                  mimeType: file.mimeType,
-                  bytes,
-                  overwrite,
-                }),
-              confirm: confirmOverwriteUpload,
-            });
-            if (outcome.uploadedPath) {
-              lastUploadedPath = outcome.uploadedPath;
-            } else {
-              failures.push({ name: file.fileName, error: outcome.error });
-            }
-          } catch (cause) {
-            failures.push({
-              name: file.fileName,
-              error: cause instanceof Error ? cause.message : String(cause),
-            });
+          let bytes: Uint8Array | undefined;
+          const outcome = await uploadSingleFile({
+            trimmedName: trimmedNames[index],
+            needsOverwrite,
+            send: async (overwrite) => {
+              bytes ??= await file.readBytes();
+              return uploadEntry({
+                parentPath,
+                name: file.fileName,
+                mimeType: file.mimeType,
+                bytes,
+                overwrite,
+              });
+            },
+            confirm: confirmOverwriteUpload,
+          });
+          if (outcome.uploadedPath) {
+            lastUploadedPath = outcome.uploadedPath;
+          } else if (!outcome.cancelled) {
+            failures.push({ name: file.fileName, error: outcome.error });
           }
         }
         if (lastUploadedPath) {
@@ -1175,10 +1170,9 @@ export function FileExplorerPane({
             );
           }
         }
-        if (failures.length === 1) {
-          toast.error(failures[0].error ?? t("workspace.fileExplorer.errors.uploadFailed"));
-        } else if (failures.length > 1) {
-          toast.error(t("workspace.fileExplorer.errors.uploadFailed"));
+        if (failures.length > 0) {
+          const detail = failures.length === 1 ? failures[0].error : null;
+          toast.error(detail ?? t("workspace.fileExplorer.errors.uploadFailed"));
         }
       } finally {
         uploadLockRef.current = false;
@@ -1601,45 +1595,6 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
       </ContextMenu>
     </View>
   );
-}
-
-interface UploadSingleFileResult {
-  success: boolean;
-  path: string | null;
-  error: string | null;
-  alreadyExists?: boolean;
-}
-
-interface UploadSingleFileOutcome {
-  uploadedPath: string | null;
-  error: string | null;
-}
-
-/**
- * Upload one file, retrying once with overwrite after a confirm when the
- * server reports the entry appeared between the conflict check and the send.
- */
-async function uploadSingleFile(args: {
-  trimmedName: string;
-  needsOverwrite: boolean;
-  send: (overwrite: boolean) => Promise<UploadSingleFileResult | null>;
-  confirm: (names: readonly string[]) => Promise<boolean>;
-}): Promise<UploadSingleFileOutcome> {
-  const payload = await args.send(args.needsOverwrite);
-  if (payload?.success && payload.path) {
-    return { uploadedPath: payload.path, error: null };
-  }
-  if (payload?.alreadyExists && !args.needsOverwrite) {
-    const retryConfirmed = await args.confirm([args.trimmedName]);
-    if (retryConfirmed) {
-      const retry = await args.send(true);
-      if (retry?.success && retry.path) {
-        return { uploadedPath: retry.path, error: null };
-      }
-      return { uploadedPath: null, error: retry?.error ?? null };
-    }
-  }
-  return { uploadedPath: null, error: payload?.error ?? null };
 }
 
 function deriveExplorerFields(state: AgentFileExplorerState | undefined) {

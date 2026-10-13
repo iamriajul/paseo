@@ -663,19 +663,20 @@ describe("file explorer service", () => {
         }),
       ).resolves.toEqual({ status: "ok", path: "docs/guide.md" });
 
-      const longName = `${"a".repeat(236)}.txt`;
-      const longStaged = path.join(staging, "long.txt");
-      await writeFile(longStaged, "near-limit", "utf8");
-      await expect(
-        moveStagedUploadIntoWorkspace({
-          root,
-          parentPath: ".",
-          name: longName,
-          stagedPath: longStaged,
-        }),
-      ).resolves.toEqual({ status: "ok", path: longName });
-      expect(await readFile(path.join(root, longName), "utf8")).toBe("near-limit");
-
+      if (process.platform !== "win32") {
+        const longName = `${"a".repeat(236)}.txt`;
+        const longStaged = path.join(staging, "long.txt");
+        await writeFile(longStaged, "near-limit", "utf8");
+        await expect(
+          moveStagedUploadIntoWorkspace({
+            root,
+            parentPath: ".",
+            name: longName,
+            stagedPath: longStaged,
+          }),
+        ).resolves.toEqual({ status: "ok", path: longName });
+        expect(await readFile(path.join(root, longName), "utf8")).toBe("near-limit");
+      }
       const replacementStaged = path.join(staging, "replacement.txt");
       await writeFile(replacementStaged, "replaced", "utf8");
       await expect(

@@ -601,8 +601,11 @@ npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-effort
 
 Gateway-discovered models and base models routed through CLIProxyAPI use their advertised context window instead of being capped to Codex's 272k fallback window (258k usable). The catalog overlays advertised context windows onto existing models, writes a merged `codex-model-catalog.json` for `codex app-server`, passes `model_context_window` in thread configuration, and preserves the full context window in usage tracking.
 
+The catalog lives in the daemon's `$PASEO_HOME`. A provider `env` that sets `PASEO_HOME` overrides it; any other provider `env` (a derived provider's `OPENAI_*`) does not, so it cannot redirect the catalog to `~/.paseo`. Before this, a test run overwrote the real catalog with fixture rows, and gateway models absent from that file compacted at Codex's own default window. The repo-root vitest config sets a temp `PASEO_HOME` for the same reason.
+
 ```bash
 npx vitest run packages/server/src/server/agent/providers/codex-catalog.test.ts packages/server/src/server/agent/gateway/models.test.ts --bail=1
+npx vitest run packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1 -t "daemon PASEO_HOME"
 ```
 
 ## gateway-opencode-provider

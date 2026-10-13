@@ -31,6 +31,7 @@ import {
   normalizeCodexOutputSchema,
   toAgentUsage,
 } from "./codex-app-server-agent.js";
+import type { ProviderRuntimeSettings } from "../provider-launch-config.js";
 
 describe("mapCodexPlanUpdateToTodo", () => {
   test("preserves checklist progress without creating a plan card", () => {
@@ -7432,7 +7433,7 @@ describe("Codex Gateway model discovery", () => {
       gateway?: { baseUrl: string; apiKey: string };
       customProvider?: { id: string; label: string; extends: string };
     },
-    runtimeSettings?: { env?: Record<string, string> },
+    runtimeSettings?: ProviderRuntimeSettings,
   ): CodexAppServerAgentClient {
     const provider = new CodexAppServerAgentClient(createTestLogger(), runtimeSettings, deps);
     const internals = castInternals<{
@@ -7514,6 +7515,41 @@ describe("Codex Gateway model discovery", () => {
       expect(catalog.models.map((model) => model.id).sort()).toEqual(["gpt-5.4", "gw-derived"]);
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+
+  test("writes the Gateway catalog into the daemon PASEO_HOME when provider env omits it", async () => {
+    const daemonHome = await mkdtemp(path.join(tmpdir(), "paseo-codex-catalog-home-"));
+    const previousHome = process.env.PASEO_HOME;
+    process.env.PASEO_HOME = daemonHome;
+    const appServer = createFakeCodexAppServer({ "model/list": () => baseModelListResponse() });
+    // CI has no `codex` binary, and the catalog write is skipped when the launch
+    // prefix cannot resolve. An override keeps the test off the host's install.
+    const provider = createCatalogProvider(
+      appServer,
+      { customProvider: { id: "cliproxyapi", label: "CLIProxyAPI", extends: "codex" } },
+      {
+        command: { mode: "replace", argv: [process.execPath] },
+        env: { OPENAI_BASE_URL: `${GATEWAY_BASE_URL}/v1`, OPENAI_API_KEY: GATEWAY_API_KEY },
+      },
+    );
+    stubGatewayFetch(
+      { models: [{ slug: "gw-home", display_name: "Home Model", context_window: 1_048_576 }] },
+      [],
+    );
+    try {
+      await provider.fetchCatalog({ scope: "global", force: false });
+      const written = JSON.parse(
+        readFileSync(path.join(daemonHome, "codex-model-catalog.json"), "utf8"),
+      ) as { models: Array<{ slug: string; context_window: number }> };
+      expect(written.models.find((model) => model.slug === "gw-home")?.context_window).toBe(
+        1_048_576,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousHome === undefined) delete process.env.PASEO_HOME;
+      else process.env.PASEO_HOME = previousHome;
+      rmSync(daemonHome, { recursive: true, force: true });
     }
   });
 

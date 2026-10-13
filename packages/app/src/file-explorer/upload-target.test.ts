@@ -6,6 +6,7 @@ import {
   findUploadConflicts,
   formatUploadConflictNames,
   resolveUploadParentPath,
+  uploadSingleFile,
 } from "./upload-target";
 
 function makeEntry(name: string, path: string, kind: ExplorerEntry["kind"]): ExplorerEntry {
@@ -117,5 +118,53 @@ describe("upload target", () => {
     expect(formatUploadConflictNames(["1", "2", "3", "4", "5", "6"])).toBe(
       '"1", "2", "3", "4", "5", …',
     );
+  });
+
+  it("retries with overwrite when confirmed and marks dismissed retry confirms as cancelled", async () => {
+    const confirmedCalls: boolean[] = [];
+    const confirmedOutcome = await uploadSingleFile({
+      trimmedName: "race.txt",
+      needsOverwrite: false,
+      send: async (overwrite) => {
+        confirmedCalls.push(overwrite);
+        if (!overwrite) {
+          return {
+            success: false,
+            path: null,
+            error: '"race.txt" already exists',
+            alreadyExists: true,
+          };
+        }
+        return { success: true, path: "race.txt", error: null };
+      },
+      confirm: async (names) => {
+        expect(names).toEqual(["race.txt"]);
+        return true;
+      },
+    });
+    expect(confirmedCalls).toEqual([false, true]);
+    expect(confirmedOutcome).toEqual({ uploadedPath: "race.txt", error: null });
+
+    const dismissedCalls: boolean[] = [];
+    const dismissedOutcome = await uploadSingleFile({
+      trimmedName: "race.txt",
+      needsOverwrite: false,
+      send: async (overwrite) => {
+        dismissedCalls.push(overwrite);
+        return {
+          success: false,
+          path: null,
+          error: '"race.txt" already exists',
+          alreadyExists: true,
+        };
+      },
+      confirm: async () => false,
+    });
+    expect(dismissedCalls).toEqual([false]);
+    expect(dismissedOutcome).toEqual({
+      uploadedPath: null,
+      error: null,
+      cancelled: true,
+    });
   });
 });

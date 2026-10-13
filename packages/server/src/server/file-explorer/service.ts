@@ -846,10 +846,7 @@ export async function moveStagedUploadIntoWorkspace({
     }
     // The staged upload may live on another mount, so copy onto the destination
     // filesystem first: the original stays untouched until the rename below.
-    const temporaryPath = path.join(
-      parent.resolvedPath,
-      `.${trimmedName}.paseo-${randomUUID()}.tmp`,
-    );
+    const temporaryPath = path.join(parent.resolvedPath, `.paseo-upload-${randomUUID()}.tmp`);
     try {
       await fs.copyFile(stagedPath, temporaryPath);
       if (existing?.isFile() && process.platform !== "win32") {

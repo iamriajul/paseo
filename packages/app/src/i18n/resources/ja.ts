@@ -419,6 +419,7 @@ export const ja: TranslationResources = {
       completed: "コンテキストを圧縮しました",
     },
     resume: {
+      rateLimitCooldown: en.message.resume.rateLimitCooldown,
       poweredOff: "予期しないシャットダウン後に再開しました",
       manual: "再開しました",
     },
@@ -673,6 +674,7 @@ export const ja: TranslationResources = {
     sheet: {
       openAsTab: "タブで開く",
     },
+    agentSettings: en.workspace.agentSettings,
     tabs: {
       loading: "読み込み中...",
       modified: "未保存の変更",
@@ -697,6 +699,7 @@ export const ja: TranslationResources = {
         copyAgentId: "エージェントIDをコピー",
         copyTerminalId: "ターミナルIDをコピー",
         copyFilePath: "ファイルパスをコピー",
+        agentSettings: en.workspace.tabs.menu.agentSettings,
         rename: "名前を変更",
         closeAbove: "上のタブを閉じる",
         closeBelow: "下のタブを閉じる",
@@ -3014,6 +3017,12 @@ export const ja: TranslationResources = {
           update: "スキルを更新",
           delete: "スキルを削除",
         },
+      },
+      rateLimitAutoResume: {
+        title: "レート制限時の自動再開",
+        hint: "APIレート制限のクールダウンやモデル復旧後にエージェントセッションを自動再開します",
+        accessibilityLabel: "レート制限時の自動再開",
+        error: "自動再開設定を更新できませんでした",
       },
       orchestration: {
         title: "オーケストレーション",

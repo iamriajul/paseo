@@ -372,7 +372,7 @@ export interface ResumeTimelineItem {
   [key: string]: unknown;
   type: "resume";
   /** Why the agent is being resumed. */
-  reason: "power_cut" | "manual";
+  reason: "power_cut" | "manual" | "rate_limit_retry";
   /** RFC3339 string of the capture time when reason is power_cut. */
   interruptedAt?: string;
 }

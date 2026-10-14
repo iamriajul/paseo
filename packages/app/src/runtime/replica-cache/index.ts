@@ -157,7 +157,7 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...TimelineItemBaseShape,
     kind: z.literal("resume"),
-    reason: z.enum(["power_cut", "manual"]),
+    reason: z.enum(["power_cut", "manual", "rate_limit_retry"]),
     interruptedAt: z.string().optional(),
   }),
   z.strictObject({

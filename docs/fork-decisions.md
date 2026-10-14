@@ -786,3 +786,18 @@ grep -q "scheduledPrompt" packages/protocol/src/messages.ts
 grep -q "asUserMessage" packages/server/src/server/schedule/service.ts
 grep -q "composer-schedule-button" packages/app/src/composer/input/input.tsx
 ```
+
+## rate-limit-cooldown-auto-resume
+
+**automatically resume agent sessions after API rate limit and model cooldown recovery**
+
+When API quota exhaustion or model cooldown occurs and a recovery timestamp is known (`RETRY_AFTER:<UTC_DATETIME>` suffix), the daemon schedules a timer to automatically resume the session with `<paseo-system>Resume - rate limit cooldown has ended</paseo-system>` and a `rate_limit_retry` timeline marker. The feature is enabled by default with a host-level setting (`autoResumeOnRateLimit`) and per-agent tab settings ("Agent settings..." modal, stored in agent labels as `rate_limit_auto_resume`). While a rate limit cooldown timer is active, scheduled agent heartbeats are skipped to avoid redundant provider requests and timeline noise. Pending retries survive daemon restarts via `pending-rate-limit-auto-resumes.json`.
+
+```bash
+npx vitest run packages/server/src/server/agent/agent-rate-limit-auto-resume.test.ts --bail=1
+npx vitest run packages/server/src/server/schedule/service.test.ts -t "agent-target schedule skips execution when rate limit cooldown is active" --bail=1
+npx vitest run packages/app/src/screens/workspace/use-workspace-agent-settings.test.tsx packages/app/src/components/message-resume-label.test.ts --bail=1
+grep -q "autoResumeOnRateLimit" packages/protocol/src/messages.ts
+grep -q "rate_limit_retry" packages/protocol/src/agent-types.ts
+grep -q "agent-settings" packages/app/src/screens/workspace/workspace-tab-menu.ts
+```

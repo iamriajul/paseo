@@ -148,6 +148,10 @@ import {
   WorkspaceTabRenameModal,
 } from "@/screens/workspace/use-workspace-tab-rename";
 import {
+  useWorkspaceAgentSettings,
+  WorkspaceAgentSettingsModal,
+} from "@/screens/workspace/use-workspace-agent-settings";
+import {
   WorkspaceDesktopTabsRow,
   type WorkspaceDesktopTabRowItem,
 } from "@/screens/workspace/workspace-desktop-tabs-row";
@@ -1743,6 +1747,11 @@ function WorkspaceScreenContent({
   });
 
   const [hoveredCloseTabKey, setHoveredCloseTabKey] = useState<string | null>(null);
+  const { activeAgentSettings, handleOpenAgentSettings, handleCloseAgentSettings } =
+    useWorkspaceAgentSettings({
+      normalizedServerId,
+      isRouteFocused,
+    });
   const { handleRenameTab, renamingTab, handleRenameModalSubmit, handleRenameModalClose } =
     useWorkspaceTabRename({
       client,
@@ -3469,6 +3478,7 @@ function WorkspaceScreenContent({
             onCopyFilePath={handleCopyFilePath}
             onReloadAgent={handleReloadAgent}
             onRenameTab={handleRenameTab}
+            onOpenAgentSettings={handleOpenAgentSettings}
             onCloseTab={handleCloseTabById}
             onCloseTabsAbove={handleCloseTabsToLeft}
             onCloseTabsBelow={handleCloseTabsToRight}
@@ -3518,6 +3528,7 @@ function WorkspaceScreenContent({
       handleOpenSetupTab,
       handleReloadAgent,
       handleRenameTab,
+      handleOpenAgentSettings,
       handleSelectSwitcherTab,
       handleToggleExplorerSidebar,
       isMobile,
@@ -3560,6 +3571,7 @@ function WorkspaceScreenContent({
         onCopyFilePath={handleCopyFilePath}
         onReloadAgent={handleReloadAgent}
         onRenameTab={handleRenameTab}
+        onOpenAgentSettings={handleOpenAgentSettings}
         onCloseTabsToLeft={handleCloseTabsToLeftInPane}
         onCloseTabsToRight={handleCloseTabsToRightInPane}
         onCloseOtherTabs={handleCloseOtherTabsInPane}
@@ -3595,6 +3607,7 @@ function WorkspaceScreenContent({
     handleCopyFilePath,
     handleReloadAgent,
     handleRenameTab,
+    handleOpenAgentSettings,
     handleCloseTabsToLeftInPane,
     handleCloseTabsToRightInPane,
     handleCloseOtherTabsInPane,
@@ -3658,6 +3671,7 @@ function WorkspaceScreenContent({
             onCopyFilePath={handleCopyFilePath}
             onReloadAgent={handleReloadAgent}
             onRenameTab={handleRenameTab}
+            onOpenAgentSettings={handleOpenAgentSettings}
             onCloseTabsToLeft={handleCloseTabsToLeft}
             onCloseTabsToRight={handleCloseTabsToRight}
             onCloseOtherTabs={handleCloseOtherTabs}
@@ -3703,6 +3717,7 @@ function WorkspaceScreenContent({
         onCopyFilePath={handleCopyFilePath}
         onReloadAgent={handleReloadAgent}
         onRenameTab={handleRenameTab}
+        onOpenAgentSettings={handleOpenAgentSettings}
         onCloseTabsToLeft={handleCloseTabsToLeftInPane}
         onCloseTabsToRight={handleCloseTabsToRightInPane}
         onCloseOtherTabs={handleCloseOtherTabsInPane}
@@ -3744,6 +3759,7 @@ function WorkspaceScreenContent({
     handleCopyFilePath,
     handleReloadAgent,
     handleRenameTab,
+    handleOpenAgentSettings,
     handleCloseTabsToLeftInPane,
     handleCloseTabsToRightInPane,
     handleCloseOtherTabsInPane,
@@ -3846,6 +3862,13 @@ function WorkspaceScreenContent({
           renamingTab={isRouteFocused ? renamingTab : null}
           onSubmit={handleRenameModalSubmit}
           onClose={handleRenameModalClose}
+        />
+        <WorkspaceAgentSettingsModal
+          activeAgentSettings={activeAgentSettings}
+          client={client}
+          normalizedServerId={normalizedServerId}
+          queryClient={queryClient}
+          onClose={handleCloseAgentSettings}
         />
       </View>
     </RenderProfile>

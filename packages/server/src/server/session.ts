@@ -1478,6 +1478,22 @@ export class Session {
     return source ? this.supportsForSource(capability, source) : this.supports(capability);
   }
 
+  // COMPAT(rateLimitResumeReason): added in v0.11.2, remove after 2027-04-13 once client floor >= v0.11.2.
+  private normalizeTimelineItemForClient<T extends { type: string }>(item: T, source?: object): T {
+    if (
+      item.type === "resume" &&
+      (item as unknown as { reason?: string }).reason === "rate_limit_retry"
+    ) {
+      const supportsRateLimitResume = source
+        ? this.supportsForSource(CLIENT_CAPS.rateLimitResumeReason, source)
+        : this.supports(CLIENT_CAPS.rateLimitResumeReason);
+      if (!supportsRateLimitResume) {
+        return { ...item, reason: "manual" };
+      }
+    }
+    return item;
+  }
+
   private forwardAgentStream(
     event: Extract<AgentManagerEvent, { type: "agent_stream" }>,
     serializedEvent: Extract<SessionOutboundMessage, { type: "agent_stream" }>["payload"]["event"],
@@ -1499,6 +1515,25 @@ export class Session {
       type: "agent_stream",
       payload: this.buildAgentStreamPayload(event, serializedEvent),
     };
+    const buildClientMessage = (source?: object): SessionOutboundMessage => {
+      if (serializedEvent.type !== "timeline") {
+        return message;
+      }
+      const normalizedItem = this.normalizeTimelineItemForClient(serializedEvent.item, source);
+      if (normalizedItem === serializedEvent.item) {
+        return message;
+      }
+      return {
+        ...message,
+        payload: {
+          ...message.payload,
+          event: {
+            ...serializedEvent,
+            item: normalizedItem as unknown as typeof serializedEvent.item,
+          },
+        },
+      };
+    };
     for (const subscription of this.timelineSubscriptions.values()) {
       const source = subscription.owner.source;
       if (!subscription.agentIds.has(event.agentId)) continue;
@@ -1513,7 +1548,7 @@ export class Session {
         !this.supportsTimelineItem(serializedEvent.item, source)
       )
         continue;
-      subscription.owner.emit(message);
+      subscription.owner.emit(buildClientMessage(source));
     }
     // COMPAT(ownedSubscriptions): added in v0.8.0, remove implicit timeline delivery after 2027-03-09.
     for (const [source, { capabilities }] of this.clientSources) {
@@ -1528,14 +1563,14 @@ export class Session {
         (subscription) =>
           subscription.owner.source === source && subscription.agentIds.has(event.agentId),
       );
-      if (!alreadyDelivered) this.onMessageToSource?.(source, message);
+      if (!alreadyDelivered) this.onMessageToSource?.(source, buildClientMessage(source));
     }
     if (
       this.clientSources.size === 0 &&
       !this.supports(CLIENT_CAPS.selectiveAgentTimeline) &&
       this.timelineSubscriptions.size === 0
     )
-      this.emit(message);
+      this.emit(buildClientMessage());
   }
 
   supports(capability: ClientCapability): boolean {
@@ -5472,10 +5507,11 @@ export class Session {
       if (!this.supportsTimelineItem(row.item, source)) {
         continue;
       }
+      const item = this.normalizeTimelineItemForClient(row.item, source);
       const event = serializeAgentStreamEvent({
         type: "timeline",
         provider,
-        item: row.item,
+        item: item as unknown as typeof row.item,
         ...(row.turnId ? { turnId: row.turnId } : {}),
         timestamp: row.timestamp,
       });
@@ -8475,9 +8511,12 @@ export class Session {
         selectedTimeline.endSeq !== null
           ? { epoch: selectedTimeline.timeline.epoch, seq: selectedTimeline.endSeq }
           : null;
-      const entries = selectedTimeline.entries.filter((entry) =>
-        this.supportsTimelineItem(entry.item, source),
-      );
+      const entries = selectedTimeline.entries
+        .filter((entry) => this.supportsTimelineItem(entry.item, source))
+        .map((entry) => {
+          const item = this.normalizeTimelineItemForClient(entry.item, source);
+          return item === entry.item ? entry : Object.assign({}, entry, { item });
+        });
 
       this.emitForSource(
         {
@@ -9010,7 +9049,12 @@ export class Session {
           limit: msg.limit ?? (direction === "after" ? 0 : 200),
         },
       );
-      const rows = timeline.rows.filter((row) => this.supportsTimelineItem(row.item, source));
+      const rows = timeline.rows
+        .filter((row) => this.supportsTimelineItem(row.item, source))
+        .map((row) => {
+          const item = this.normalizeTimelineItemForClient(row.item, source);
+          return item === row.item ? row : Object.assign({}, row, { item });
+        });
       this.emitForSource(
         {
           type: "agent.provider_subagents.timeline.get.response",

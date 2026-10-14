@@ -418,6 +418,7 @@ export const ru: TranslationResources = {
       completed: "Контекст сжат",
     },
     resume: {
+      rateLimitCooldown: en.message.resume.rateLimitCooldown,
       poweredOff: "Возобновлено после неожиданного отключения",
       manual: "Возобновлено",
     },
@@ -673,6 +674,7 @@ export const ru: TranslationResources = {
     sheet: {
       openAsTab: "Открыть во вкладке",
     },
+    agentSettings: en.workspace.agentSettings,
     tabs: {
       loading: "Загрузка...",
       modified: "Несохранённые изменения",
@@ -697,6 +699,7 @@ export const ru: TranslationResources = {
         copyAgentId: "Скопировать идентификатор агента",
         copyTerminalId: "Скопировать идентификатор терминала",
         copyFilePath: "Скопировать путь к файлу",
+        agentSettings: en.workspace.tabs.menu.agentSettings,
         rename: "Переименовать",
         closeAbove: "Закрыть вкладки выше",
         closeBelow: "Закрыть вкладки ниже",
@@ -3035,6 +3038,12 @@ export const ru: TranslationResources = {
           update: "Обновить навык",
           delete: "Удалить навык",
         },
+      },
+      rateLimitAutoResume: {
+        title: "Автовозобновление при лимитах запросов",
+        hint: "Автоматически возобновлять сеансы агентов после периода охлаждения лимита API или восстановления модели",
+        accessibilityLabel: "Автовозобновление при лимитах запросов",
+        error: "Не удалось обновить настройку автовозобновления",
       },
       orchestration: {
         title: "Оркестрация",

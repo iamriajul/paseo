@@ -415,6 +415,7 @@ export const zhCN: TranslationResources = {
     },
     resume: {
       poweredOff: "意外关闭后已恢复",
+      rateLimitCooldown: "速率限制冷却后已恢复",
       manual: "已恢复",
     },
   },
@@ -666,6 +667,7 @@ export const zhCN: TranslationResources = {
     sheet: {
       openAsTab: "作为标签页打开",
     },
+    agentSettings: en.workspace.agentSettings,
     tabs: {
       loading: "正在加载...",
       modified: "未保存的更改",
@@ -690,6 +692,7 @@ export const zhCN: TranslationResources = {
         copyAgentId: "复制 Agent ID",
         copyTerminalId: "复制 Terminal ID",
         copyFilePath: "Copy file path",
+        agentSettings: en.workspace.tabs.menu.agentSettings,
         rename: "重命名",
         closeAbove: "关闭上方标签",
         closeBelow: "关闭下方标签",
@@ -2959,6 +2962,12 @@ export const zhCN: TranslationResources = {
           update: "更新 skill",
           delete: "删除 skill",
         },
+      },
+      rateLimitAutoResume: {
+        title: "速率限制自动恢复",
+        hint: "在 API 速率限制冷却或模型恢复后自动恢复代理会话",
+        accessibilityLabel: "速率限制自动恢复",
+        error: "无法更新自动恢复设置",
       },
       orchestration: {
         title: "编排",

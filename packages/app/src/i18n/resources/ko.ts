@@ -415,6 +415,7 @@ export const ko: TranslationResources = {
       completed: "컨텍스트가 압축되었습니다",
     },
     resume: {
+      rateLimitCooldown: en.message.resume.rateLimitCooldown,
       poweredOff: "예기치 않은 종료 후 재개됨",
       manual: "재개됨",
     },
@@ -667,6 +668,7 @@ export const ko: TranslationResources = {
     sheet: {
       openAsTab: "탭으로 열기",
     },
+    agentSettings: en.workspace.agentSettings,
     tabs: {
       loading: "불러오는 중...",
       modified: "저장되지 않은 변경사항",
@@ -691,6 +693,7 @@ export const ko: TranslationResources = {
         copyAgentId: "에이전트 ID 복사",
         copyTerminalId: "터미널 ID 복사",
         copyFilePath: "파일 경로 복사",
+        agentSettings: en.workspace.tabs.menu.agentSettings,
         rename: "이름 변경",
         closeAbove: "위쪽 탭 닫기",
         closeBelow: "아래쪽 탭 닫기",
@@ -3001,6 +3004,12 @@ export const ko: TranslationResources = {
           update: "스킬 업데이트",
           delete: "스킬 삭제",
         },
+      },
+      rateLimitAutoResume: {
+        title: "속도 제한 시 자동 재개",
+        hint: "API 속도 제한 쿨다운 또는 모델 복구 후 에이전트 세션을 자동으로 재개합니다",
+        accessibilityLabel: "속도 제한 시 자동 재개",
+        error: "자동 재개 설정을 업데이트할 수 없습니다",
       },
       orchestration: {
         title: "오케스트레이션",

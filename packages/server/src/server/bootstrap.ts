@@ -5,6 +5,7 @@ import {
   createJsonFinishSubscriptionStore,
 } from "./agent/finish-subscriptions/index.js";
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
+import { AgentRateLimitAutoResumeManager } from "./agent/agent-rate-limit-auto-resume.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
@@ -444,6 +445,7 @@ export interface PaseoDaemonConfig {
     maxProcessConcurrency: number;
   };
   autoArchiveAfterMerge?: boolean;
+  autoResumeOnRateLimit?: boolean;
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
   terminalProfiles?: TerminalProfile[];
@@ -612,10 +614,23 @@ function resolveInitialMetadataCustomEndpoint(
   };
 }
 
+function resolveInitialProfileConfig(
+  config: ResolvedDaemonSettings,
+): Pick<MutableDaemonConfig, "terminalProfiles" | "agentProfiles"> {
+  const profiles: Pick<MutableDaemonConfig, "terminalProfiles" | "agentProfiles"> = {};
+  if (config.terminalProfiles !== undefined) {
+    profiles.terminalProfiles = config.terminalProfiles;
+  }
+  if (config.agentProfiles !== undefined) {
+    profiles.agentProfiles = config.agentProfiles;
+  }
+  return profiles;
+}
+
 function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): MutableDaemonConfig {
   const providers = config.providerOverrides ?? {};
 
-  const initialConfig: MutableDaemonConfig = {
+  return {
     relay: createInitialRelayConfig(config),
     mcp: {
       enabled: config.mcpEnabled ?? true,
@@ -637,23 +652,15 @@ function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): Mutab
       customEndpoint: resolveInitialMetadataCustomEndpoint(config.metadataGeneration),
     },
     autoArchiveAfterMerge: config.autoArchiveAfterMerge ?? false,
+    autoResumeOnRateLimit: config.autoResumeOnRateLimit ?? true,
     enableTerminalAgentHooks: config.enableTerminalAgentHooks ?? false,
     idleRuntimeCleanup: config.idleRuntimeCleanup !== false,
     appendSystemPrompt: config.appendSystemPrompt ?? "",
     pluginsEnabled: config.pluginsEnabled ?? false,
     plugins: config.plugins ?? {},
     skills: { selection: config.skillSelection },
+    ...resolveInitialProfileConfig(config),
   };
-
-  if (config.terminalProfiles !== undefined) {
-    initialConfig.terminalProfiles = config.terminalProfiles;
-  }
-
-  if (config.agentProfiles !== undefined) {
-    initialConfig.agentProfiles = config.agentProfiles;
-  }
-
-  return initialConfig;
 }
 
 // eslint-disable-next-line complexity
@@ -1099,6 +1106,19 @@ export async function createPaseoDaemon(
     resolvePaseoToolPolicy: (provider) =>
       resolvePaseoToolPolicy(provider, daemonConfigStore.get().providers),
     logger,
+  });
+  const rateLimitAutoResumeManager = new AgentRateLimitAutoResumeManager({
+    paseoHome: config.paseoHome,
+    agentManager,
+    agentStorage,
+    daemonConfigStore,
+    logger,
+  });
+  agentManager.setRateLimitAutoResumeManager(rateLimitAutoResumeManager);
+  daemonConfigStore.onFieldChange("daemon.autoResumeOnRateLimit", () => {
+    if (daemonConfigStore.get().autoResumeOnRateLimit === false) {
+      rateLimitAutoResumeManager.cancelAll();
+    }
   });
   const syncPluginProviders = () => {
     agentManager.updateProviderRegistry(
@@ -1568,6 +1588,7 @@ export async function createPaseoDaemon(
         prompt: config.autoResumeRunningAgents?.prompt ?? "Resume - there was a power cut",
       }),
     )
+    .then(() => rateLimitAutoResumeManager.bootstrap())
     .catch((error) => {
       logger.warn({ err: error }, "Auto-resume for running agents failed");
     });

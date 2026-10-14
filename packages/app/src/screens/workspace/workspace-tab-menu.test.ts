@@ -48,6 +48,7 @@ describe("buildWorkspaceTabMenuEntries", () => {
       "Copy resume command",
       "Copy agent id",
       "Rename",
+      "Agent settings...",
       "Close to the left",
       "Close to the right",
       "Close other tabs",
@@ -79,6 +80,7 @@ describe("buildWorkspaceTabMenuEntries", () => {
       "Copy resume command",
       "Copy agent id",
       "Rename",
+      "Agent settings...",
       "Close tabs above",
       "Close tabs below",
       "Close other tabs",
@@ -147,6 +149,38 @@ describe("buildWorkspaceTabMenuEntries", () => {
         tooltip: "Reload agent to update skills, MCPs or login status.",
       }),
     );
+  });
+
+  it("invokes onOpenAgentSettings when agent settings is selected", () => {
+    const onOpenAgentSettings = vi.fn();
+    const tab = createAgentTab();
+    const entries = buildWorkspaceTabMenuEntries({
+      surface: "desktop",
+      tab,
+      index: 0,
+      tabCount: 1,
+      menuTestIDBase: "workspace-tab-context-agent_123",
+      onCopyResumeCommand: vi.fn(),
+      onCopyAgentId: vi.fn(),
+      onCopyTerminalId: vi.fn(),
+      onCopyFilePath: vi.fn(),
+      onReloadAgent: vi.fn(),
+      onRenameTab: vi.fn(),
+      onOpenAgentSettings,
+      onCloseTab: vi.fn(),
+      onCloseTabsBefore: vi.fn(),
+      onCloseTabsAfter: vi.fn(),
+      onCloseOtherTabs: vi.fn(),
+    });
+
+    const settingsEntry = entries.find(
+      (entry) => entry.kind === "item" && entry.key === "agent-settings",
+    );
+    if (!settingsEntry || settingsEntry.kind !== "item") {
+      throw new Error("Agent settings entry missing");
+    }
+    settingsEntry.onSelect();
+    expect(onOpenAgentSettings).toHaveBeenCalledWith(tab);
   });
 
   it("invokes onRenameTab when the rename entry is selected for agent tabs", () => {

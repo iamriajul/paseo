@@ -412,6 +412,7 @@ export const en = {
     },
     resume: {
       poweredOff: "Resumed after an unexpected shutdown",
+      rateLimitCooldown: "Resumed after rate limit cooldown",
       manual: "Resumed",
     },
   },
@@ -663,6 +664,13 @@ export const en = {
     sheet: {
       openAsTab: "Open as tab",
     },
+    agentSettings: {
+      title: "Agent settings",
+      rateLimitAutoResume: "Auto-resume on rate limits",
+      rateLimitAutoResumeHint:
+        "Automatically resume this agent after API rate limit cooldown or model recovery",
+      disabledGloballyHint: "Disabled globally in Host Settings",
+    },
     tabs: {
       loading: "Loading...",
       modified: "Unsaved changes",
@@ -688,6 +696,7 @@ export const en = {
         copyTerminalId: "Copy terminal id",
         copyFilePath: "Copy file path",
         rename: "Rename",
+        agentSettings: "Agent settings...",
         closeAbove: "Close tabs above",
         closeBelow: "Close tabs below",
         closeLeft: "Close to the left",
@@ -3110,6 +3119,12 @@ export const en = {
           update: "Update skill",
           delete: "Delete skill",
         },
+      },
+      rateLimitAutoResume: {
+        title: "Auto-resume on rate limits",
+        hint: "Automatically resume agent sessions after API rate limit cooldown or model recovery",
+        accessibilityLabel: "Auto-resume on rate limits",
+        error: "Unable to update auto-resume setting",
       },
       orchestration: {
         title: "Orchestration",

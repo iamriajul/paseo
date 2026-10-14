@@ -418,6 +418,7 @@ export const ptBR: TranslationResources = {
       completed: "Contexto compactado",
     },
     resume: {
+      rateLimitCooldown: en.message.resume.rateLimitCooldown,
       poweredOff: "Retomado após um desligamento inesperado",
       manual: "Retomado",
     },
@@ -671,6 +672,7 @@ export const ptBR: TranslationResources = {
     sheet: {
       openAsTab: "Abrir como aba",
     },
+    agentSettings: en.workspace.agentSettings,
     tabs: {
       loading: "Carregando...",
       modified: "Alterações não salvas",
@@ -695,6 +697,7 @@ export const ptBR: TranslationResources = {
         copyAgentId: "Copiar ID do agente",
         copyTerminalId: "Copiar ID do terminal",
         copyFilePath: "Copiar caminho do arquivo",
+        agentSettings: en.workspace.tabs.menu.agentSettings,
         rename: "Renomear",
         closeAbove: "Fechar abas acima",
         closeBelow: "Fechar abas abaixo",
@@ -3025,6 +3028,12 @@ export const ptBR: TranslationResources = {
           update: "Atualizar skill",
           delete: "Excluir skill",
         },
+      },
+      rateLimitAutoResume: {
+        title: "Retomada automática em limites de taxa",
+        hint: "Retomar automaticamente sessões do agente após resfriamento do limite de taxa de API ou recuperação do modelo",
+        accessibilityLabel: "Retomada automática em limites de taxa",
+        error: "Não foi possível atualizar a configuração de retomada automática",
       },
       orchestration: {
         title: "Orquestração",

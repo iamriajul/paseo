@@ -36,6 +36,7 @@ type RouterHandler = (message: RouterMessage) => void;
 type RouterClient = Parameters<typeof mountServerDataPushRouter>[0]["client"];
 
 const daemonConfig: MutableDaemonConfig = {
+  autoResumeOnRateLimit: true,
   relay: { enabled: false },
   mcp: { injectIntoAgents: true },
   browserTools: { enabled: false },

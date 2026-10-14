@@ -302,6 +302,7 @@ export const MutableDaemonConfigSchema = z
     resumeOnStartup: z.boolean().optional(),
     resumePrompt: z.string().optional(),
     appendSystemPrompt: z.string().default(""),
+    autoResumeOnRateLimit: z.boolean().default(true),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
@@ -349,6 +350,7 @@ export const MutableDaemonConfigPatchSchema = z
     resumeOnStartup: z.boolean().optional(),
     resumePrompt: z.string().optional(),
     appendSystemPrompt: z.string().optional(),
+    autoResumeOnRateLimit: z.boolean().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     pluginsEnabled: z.boolean().optional(),
@@ -855,7 +857,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
   }),
   z.object({
     type: z.literal("resume"),
-    reason: z.enum(["power_cut", "manual"]),
+    reason: z.enum(["power_cut", "manual", "rate_limit_retry"]),
     interruptedAt: z.string().optional(),
   }),
   z.object({

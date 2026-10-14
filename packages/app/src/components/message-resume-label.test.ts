@@ -8,6 +8,9 @@ describe("getResumeMarkerLabel", () => {
     expect(getResumeMarkerLabel({ reason: "power_cut" })).toBe(
       "Resumed after an unexpected shutdown",
     );
+    expect(getResumeMarkerLabel({ reason: "rate_limit_retry" })).toBe(
+      "Resumed after rate limit cooldown",
+    );
     expect(getResumeMarkerLabel({ reason: "manual" })).toBe("Resumed");
   });
 
@@ -15,6 +18,7 @@ describe("getResumeMarkerLabel", () => {
     await i18n.changeLanguage("zh-CN");
     try {
       expect(getResumeMarkerLabel({ reason: "power_cut" })).toBe("意外关闭后已恢复");
+      expect(getResumeMarkerLabel({ reason: "rate_limit_retry" })).toBe("速率限制冷却后已恢复");
     } finally {
       await i18n.changeLanguage("en");
     }

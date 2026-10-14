@@ -5916,7 +5916,7 @@ export class DaemonClient {
       );
 
       if (settled) return await responsePromise;
-      const chunkSize = input.chunkSize ?? 128 * 1024;
+      const chunkSize = options.chunkSize ?? 128 * 1024;
       for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
         // Native WebSocket.send encodes binary synchronously. Let rendering and
         // incoming messages run between bounded pieces on every platform.

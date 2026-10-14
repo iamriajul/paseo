@@ -271,6 +271,7 @@ type ScheduleAgentManager = Pick<
     | "runAgent"
     | "waitForAgentEvent"
     | "waitForAgentClose"
+    | "getRateLimitAutoResumeManager"
   >;
 
 interface ScheduleWorkspaceCreateInput {
@@ -1084,6 +1085,21 @@ export class ScheduleService {
     }
     if (record.archivedAt) {
       throw new ScheduleTargetGoneError(`Agent ${schedule.target.agentId} is archived`);
+    }
+
+    if (this.agentManager.getRateLimitAutoResumeManager?.()?.hasPending(schedule.target.agentId)) {
+      this.logger.info(
+        { agentId: schedule.target.agentId, scheduleId: schedule.id },
+        "Skipping heartbeat: rate limit cooldown is active",
+      );
+      return {
+        agentId: schedule.target.agentId,
+        output: buildRunOutput({
+          output: null,
+          timelineText: "",
+          finalText: "Skipped: rate limit cooldown active",
+        }),
+      };
     }
 
     const agent = await ensureAgentLoaded(schedule.target.agentId, {

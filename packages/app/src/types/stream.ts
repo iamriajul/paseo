@@ -814,7 +814,7 @@ export interface ResumeItem {
   timelineCursor?: TimelinePosition;
   turnId?: string;
   timestamp: Date;
-  reason: "power_cut" | "manual";
+  reason: "power_cut" | "manual" | "rate_limit_retry";
   interruptedAt?: string;
 }
 

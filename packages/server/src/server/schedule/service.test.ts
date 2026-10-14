@@ -826,6 +826,45 @@ describe("ScheduleService", () => {
     expect(inspected.runs[0].status).toBe("succeeded");
   });
 
+  test("agent-target schedule skips execution when rate limit cooldown is active", async () => {
+    const steerOrReplace = vi.fn(async () => ({ status: "steered" as const }));
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    manager.steerOrReplaceActiveTurn = steerOrReplace as typeof manager.steerOrReplaceActiveTurn;
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+
+    manager.setRateLimitAutoResumeManager({
+      hasPending: (id: string) => id === agent.id,
+    } as unknown as import("../agent/agent-rate-limit-auto-resume.js").AgentRateLimitAutoResumeManager);
+
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+    });
+    const schedule = await service.create({
+      prompt: "Heartbeat check",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id },
+    });
+
+    await service.runOnce(schedule.id);
+
+    expect(steerOrReplace).not.toHaveBeenCalled();
+    const inspected = await service.inspect(schedule.id);
+    expect(inspected.runs).toHaveLength(1);
+    expect(inspected.runs[0].status).toBe("succeeded");
+    expect(inspected.runs[0].output).toBe("Skipped: rate limit cooldown active");
+  });
+
   test("titles scheduled new agents from the schedule prompt", async () => {
     const manager = new AgentManager({
       logger: createTestLogger(),

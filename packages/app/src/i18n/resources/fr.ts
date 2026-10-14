@@ -419,6 +419,7 @@ export const fr: TranslationResources = {
       completed: "Contexte compacté",
     },
     resume: {
+      rateLimitCooldown: en.message.resume.rateLimitCooldown,
       poweredOff: "Reprise après un arrêt inattendu",
       manual: "Reprise",
     },
@@ -674,6 +675,7 @@ export const fr: TranslationResources = {
     sheet: {
       openAsTab: "Ouvrir dans un onglet",
     },
+    agentSettings: en.workspace.agentSettings,
     tabs: {
       loading: "Chargement…",
       modified: "Modifications non enregistrées",
@@ -698,6 +700,7 @@ export const fr: TranslationResources = {
         copyAgentId: "Copier l’ID de l’agent",
         copyTerminalId: "Copier l’ID du terminal",
         copyFilePath: "Copier le chemin du fichier",
+        agentSettings: en.workspace.tabs.menu.agentSettings,
         rename: "Renommer",
         closeAbove: "Fermer les onglets au-dessus",
         closeBelow: "Fermer les onglets en dessous",
@@ -3110,6 +3113,12 @@ export const fr: TranslationResources = {
           update: "Mettre à jour le skill",
           delete: "Supprimer le skill",
         },
+      },
+      rateLimitAutoResume: {
+        title: "Reprise automatique lors des limites de débit",
+        hint: "Reprendre automatiquement les sessions d'agent après le temps de recharge du quota de l'API ou la récupération du modèle",
+        accessibilityLabel: "Reprise automatique lors des limites de débit",
+        error: "Impossible de mettre à jour le paramètre de reprise automatique",
       },
       orchestration: {
         title: "Orchestration",

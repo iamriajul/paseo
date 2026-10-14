@@ -1,4 +1,13 @@
 import type { AgentAddress } from "./addresses.js";
+
+export const AGENT_LABEL_RATE_LIMIT_AUTO_RESUME = "rate_limit_auto_resume";
+
+export function isRateLimitAutoResumeDisabled(
+  labels: Record<string, unknown> | null | undefined,
+): boolean {
+  return labels?.[AGENT_LABEL_RATE_LIMIT_AUTO_RESUME] === "false";
+}
+
 export const PARENT_SERVER_ID_LABEL = "paseo.parent-server-id";
 export const PARENT_AGENT_ID_LABEL = "paseo.parent-agent-id";
 const OPEN_AGENT_TAB_LABEL_PREFIX = "paseo.open-agent-tab.";

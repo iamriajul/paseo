@@ -6,6 +6,7 @@ export interface HeartbeatPayload {
   deviceType: "web" | "mobile";
   focusedAgentId: string | null;
   focusedTerminalId: string | null;
+  openWorkspaceId: string | null;
   lastActivityAt: string;
   appVisible: boolean;
   appVisibilityChangedAt?: string;
@@ -21,6 +22,7 @@ export interface ClientActivityTrackerInput {
   deviceType: "web" | "mobile";
   initialFocusedAgentId: string | null;
   initialFocusedTerminalId: string | null;
+  initialOpenWorkspaceId: string | null;
   initialAppVisible: boolean;
   now: () => number;
   onAppResumed?: (awayMs: number) => void;
@@ -31,6 +33,7 @@ export interface ClientActivityTracker {
   maybeSendImmediateHeartbeat(): void;
   setFocusedAgentId(id: string | null): void;
   setFocusedTerminalId(id: string | null): void;
+  setOpenWorkspaceId(id: string | null): void;
   notifyAppVisibility(visible: boolean): { changed: boolean };
   notifySystemIdleMs(idleMs: number | null): void;
   sendHeartbeat(): void;
@@ -46,6 +49,7 @@ export function createClientActivityTracker(
   let backgroundedAtMs: number | null = appVisible ? null : now();
   let focusedAgentId = input.initialFocusedAgentId;
   let focusedTerminalId = input.initialFocusedTerminalId;
+  let openWorkspaceId = input.initialOpenWorkspaceId;
   let lastImmediateHeartbeatAtMs = 0;
 
   function sendHeartbeat(): void {
@@ -54,6 +58,7 @@ export function createClientActivityTracker(
       deviceType,
       focusedAgentId,
       focusedTerminalId,
+      openWorkspaceId,
       lastActivityAt: new Date(lastActivityAtMs).toISOString(),
       appVisible,
       appVisibilityChangedAt: new Date(appVisibilityChangedAtMs).toISOString(),
@@ -84,6 +89,12 @@ export function createClientActivityTracker(
     setFocusedTerminalId(id) {
       if (focusedTerminalId === id) return;
       focusedTerminalId = id;
+      recordUserActivity();
+      sendHeartbeat();
+    },
+    setOpenWorkspaceId(id) {
+      if (openWorkspaceId === id) return;
+      openWorkspaceId = id;
       recordUserActivity();
       sendHeartbeat();
     },

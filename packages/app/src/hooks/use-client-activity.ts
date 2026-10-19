@@ -5,6 +5,7 @@ import { getIsElectron, isWeb, isNative } from "@/constants/platform";
 import { getIsAppActivelyVisible } from "@/utils/app-visibility";
 import { readDesktopSystemIdleTimeMs } from "@/desktop/electron/idle";
 import { invokeDesktopCommand } from "@/desktop/electron/invoke";
+import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import {
   type ClientActivityTracker,
   createClientActivityTracker,
@@ -14,6 +15,7 @@ import {
 
 interface ClientActivityOptions {
   client: DaemonClient;
+  serverId: string;
   focusedAgentId: string | null;
   focusedTerminalId: string | null;
   onAppResumed?: (awayMs: number) => void;
@@ -27,10 +29,13 @@ interface ClientActivityOptions {
  */
 export function useClientActivity({
   client,
+  serverId,
   focusedAgentId,
   focusedTerminalId,
   onAppResumed,
 }: ClientActivityOptions): void {
+  const selection = useActiveWorkspaceSelection();
+  const openWorkspaceId = selection?.serverId === serverId ? selection.workspaceId : null;
   const onAppResumedRef = useRef(onAppResumed);
   onAppResumedRef.current = onAppResumed;
 
@@ -41,6 +46,7 @@ export function useClientActivity({
       deviceType: isWeb ? "web" : "mobile",
       initialFocusedAgentId: focusedAgentId,
       initialFocusedTerminalId: focusedTerminalId,
+      initialOpenWorkspaceId: openWorkspaceId,
       initialAppVisible: getIsAppActivelyVisible(AppState.currentState),
       now: () => Date.now(),
       onAppResumed: (awayMs) => onAppResumedRef.current?.(awayMs),
@@ -135,6 +141,12 @@ export function useClientActivity({
   useEffect(() => {
     tracker.setFocusedTerminalId(focusedTerminalId);
   }, [focusedTerminalId, tracker]);
+
+  // Send heartbeat when the open workspace changes, including a blur or a
+  // selection that belongs to another connection.
+  useEffect(() => {
+    tracker.setOpenWorkspaceId(openWorkspaceId);
+  }, [openWorkspaceId, tracker]);
 
   // Periodic heartbeat gated by connection status.
   useEffect(() => {

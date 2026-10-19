@@ -1160,6 +1160,11 @@ export class AgentManager {
     return retired;
   }
 
+  /** Includes internal agents. `listAgents` hides those from clients. */
+  listAgentsIncludingInternal(): ManagedAgent[] {
+    return Array.from(this.agents.values()).map((agent) => Object.assign({}, agent));
+  }
+
   async listImportableSessions(
     options?: ImportablePersistedAgentQueryOptions,
   ): Promise<ManagedImportableSessionsResult> {

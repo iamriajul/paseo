@@ -371,6 +371,12 @@ Background workspaces, a new Markdown renderer with selection across paragraphs 
 
 - Fixed intermittent text clipping in iOS chats and Markdown previews ([#6445](https://github.com/getpaseo/paseo/pull/6445))
 
+## 0.11.907 - 2026-10-19
+
+### Changed
+
+- Changed a workspace with no agent activity for 6 hours to stop the 3-minute git fetch and forge pull-request poll until it is opened or an agent runs. ([#130](https://github.com/iamriajul/paseo/pull/130))
+
 ## 0.11.1 - 2026-10-07
 
 ### Added

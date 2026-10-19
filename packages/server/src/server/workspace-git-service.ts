@@ -249,6 +249,11 @@ export interface WorkspaceGitService {
   scheduleRefreshForCwd(cwd: string): void;
   onWorkspaceStateMayHaveChanged(cwd: string): void;
   invalidateForge(cwd: string): void;
+  /**
+   * Make remote poll match `cwds`. Watchers, listeners, and local refresh
+   * stay. The same set twice does not clear a live fetch interval.
+   */
+  applyRemotePoll(cwds: ReadonlySet<string>): void;
   getMetrics(): WorkspaceGitServiceMetrics;
   dispose(): Promise<void>;
 }
@@ -456,6 +461,11 @@ interface RepoGitTarget {
     { change: WorkspaceGitRemoteRefChange; expiresAtMs: number }
   >;
   knownRemoteRefs: Set<string> | null;
+  /**
+   * Set by `ensureRepoTarget` after the origin check. `syncRemotePoll` is
+   * synchronous and will not start a fetch timer until this is true.
+   */
+  originKnown: boolean;
   closed: boolean;
 }
 
@@ -633,6 +643,11 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
   >({ max: WORKSPACE_GIT_AUXILIARY_CACHE_MAX });
   private readonly checkoutDiffCache = new CheckoutDiffCache(() => this.deps.now().getTime());
   private watcherErrorCallbackCount = 0;
+  /**
+   * Null until the first apply. A service nothing has gated keeps today's
+   * fetch and PR poll. An applied set, including an empty one, is the gate.
+   */
+  private remotePollCwds: ReadonlySet<string> | null = null;
   constructor(options: WorkspaceGitServiceOptions) {
     this.logger = options.logger.child({ module: "workspace-git-service" });
     this.paseoHome = options.paseoHome;
@@ -673,6 +688,30 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
         this.removeWorkspaceListener(cwd, listener);
       },
     };
+  }
+
+  applyRemotePoll(cwds: ReadonlySet<string>): void {
+    this.assertNotDisposed();
+    const next = new Set<string>();
+    for (const cwd of cwds) {
+      next.add(resolve(cwd));
+    }
+    const previous = this.remotePollCwds;
+    if (previous && setsEqual(previous, next)) return;
+    this.remotePollCwds = next;
+    const touched = new Set<string>([
+      ...(previous ?? []),
+      ...next,
+      ...this.workspaceTargets.keys(),
+    ]);
+    for (const cwd of touched) {
+      const wasAdmitted = previous === null || previous.has(cwd);
+      this.syncRemotePoll(cwd, next.has(cwd) && !wasAdmitted);
+    }
+  }
+
+  private isRemotePollAdmitted(cwd: string): boolean {
+    return this.remotePollCwds === null || this.remotePollCwds.has(cwd);
   }
 
   onSnapshotUpdated(listener: WorkspaceGitSnapshotUpdatedListener): WorkspaceGitSubscription {
@@ -2154,6 +2193,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     const existingTarget = this.repoTargets.get(repoGitRoot);
     if (existingTarget) {
       existingTarget.workspaceKeys.add(workspaceTarget.cwd);
+      this.syncRemotePoll(workspaceTarget.cwd);
       return;
     }
 
@@ -2179,6 +2219,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       bufferedFetchMetadataEvents: [],
       recentFetchRemoteRefChanges: new Map(),
       knownRemoteRefs: null,
+      originKnown: false,
       closed: false,
     };
     this.repoTargets.set(repoGitRoot, repoTarget);
@@ -2205,13 +2246,11 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     if (repoTarget.closed || this.repoTargets.get(repoGitRoot) !== repoTarget) {
       return;
     }
-    if (!hasOrigin) {
+    repoTarget.originKnown = hasOrigin;
+    if (repoTarget.closed || this.repoTargets.get(repoGitRoot) !== repoTarget) {
       return;
     }
-    repoTarget.intervalId = setInterval(() => {
-      void this.runRepoFetch(repoTarget);
-    }, BACKGROUND_GIT_FETCH_INTERVAL_MS);
-    void this.runRepoFetch(repoTarget);
+    this.syncRemotePoll(fetchWorkspaceTarget.cwd);
   }
 
   private async startRepoMetadataObservation(
@@ -2782,10 +2821,79 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       );
     }
 
-    this.updateForgePrStatusPollForTarget(target);
+    this.syncRemotePoll(target.cwd);
   }
 
-  private updateForgePrStatusPollForTarget(target: WorkspaceGitTarget): void {
+  /**
+   * The only place that creates or clears a repo fetch interval, and the only
+   * place that starts or stops PR retain for the remote-poll set.
+   * `entered` is the quiet-to-admitted transition, which polls a generic forge
+   * immediately. An already-admitted checkout keeps today's first-poll delay.
+   */
+  private syncRemotePoll(cwd: string, entered = false): void {
+    const target = this.workspaceTargets.get(cwd);
+    if (!target || !this.isActiveObservedWorkspaceTarget(target)) {
+      const repoTarget = target?.repoGitRoot ? this.repoTargets.get(target.repoGitRoot) : undefined;
+      if (repoTarget) this.releaseRepoFetchIfUnadmitted(repoTarget);
+      return;
+    }
+    if (!this.isRemotePollAdmitted(cwd)) {
+      this.stopForgePrStatusPollForTarget(target);
+      const repoTarget = target.repoGitRoot ? this.repoTargets.get(target.repoGitRoot) : undefined;
+      if (repoTarget) this.releaseRepoFetchIfUnadmitted(repoTarget);
+      return;
+    }
+    this.updateForgePrStatusPollForTarget(target, {
+      genericPollImmediately: entered && target.forgePrStatusPollSubscription === null,
+    });
+    const repoTarget = target.repoGitRoot ? this.repoTargets.get(target.repoGitRoot) : undefined;
+    if (repoTarget) this.armRepoFetch(repoTarget);
+  }
+
+  private releaseRepoFetchIfUnadmitted(repoTarget: RepoGitTarget): void {
+    if (!repoTarget.intervalId) return;
+    for (const workspaceKey of repoTarget.workspaceKeys) {
+      const workspaceTarget = this.workspaceTargets.get(workspaceKey);
+      if (
+        workspaceTarget &&
+        this.isRemotePollAdmitted(workspaceKey) &&
+        this.isActiveObservedWorkspaceTarget(workspaceTarget)
+      ) {
+        return;
+      }
+    }
+    // Null the handle before clearInterval so a throw cannot leave a live
+    // timer this object still points at.
+    const intervalId = repoTarget.intervalId;
+    repoTarget.intervalId = null;
+    clearInterval(intervalId);
+  }
+
+  private armRepoFetch(repoTarget: RepoGitTarget): void {
+    if (repoTarget.closed || repoTarget.intervalId || !repoTarget.originKnown) return;
+    let admitted = false;
+    for (const workspaceKey of repoTarget.workspaceKeys) {
+      const workspaceTarget = this.workspaceTargets.get(workspaceKey);
+      if (
+        workspaceTarget &&
+        this.isRemotePollAdmitted(workspaceKey) &&
+        this.isActiveObservedWorkspaceTarget(workspaceTarget)
+      ) {
+        admitted = true;
+        break;
+      }
+    }
+    if (!admitted) return;
+    repoTarget.intervalId = setInterval(() => {
+      void this.runRepoFetch(repoTarget);
+    }, BACKGROUND_GIT_FETCH_INTERVAL_MS);
+    void this.runRepoFetch(repoTarget);
+  }
+
+  private updateForgePrStatusPollForTarget(
+    target: WorkspaceGitTarget,
+    options?: { genericPollImmediately?: boolean },
+  ): void {
     if (target.listeners.size === 0) {
       this.stopForgePrStatusPollForTarget(target);
       return;
@@ -2818,7 +2926,9 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     if (target.forgePrStatusPollKey === pollKey && target.forgePrStatusPollSubscription) {
       return;
     }
-    const pollImmediately = previousPollKey !== null && previousPollKey !== pollKey;
+    const pollImmediately =
+      options?.genericPollImmediately === true ||
+      (previousPollKey !== null && previousPollKey !== pollKey);
 
     this.stopForgePrStatusPollForTarget(target);
     target.forgePrStatusPollKey = pollKey;
@@ -3032,8 +3142,11 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     if (target.closed || this.workspaceTargets.get(target.cwd) !== target) {
       return;
     }
+    const polledRequest = this.isRemotePollAdmitted(target.cwd)
+      ? request
+      : { ...request, includeForge: false };
     try {
-      await this.requestWorkspaceSnapshot(target, request);
+      await this.requestWorkspaceSnapshot(target, polledRequest);
     } catch (error) {
       if (this.disposed || target.closed) {
         return;
@@ -3509,7 +3622,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     }
     target.latestSnapshot = snapshot;
     if (target.listeners.size > 0) {
-      this.updateForgePrStatusPollForTarget(target);
+      this.syncRemotePoll(target.cwd);
     }
     const fingerprint = JSON.stringify(snapshot);
     const fingerprintMatches = target.latestFingerprint === fingerprint;

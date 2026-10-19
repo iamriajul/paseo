@@ -1,7 +1,9 @@
+import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { useProviderIcon } from "@/components/provider-icons";
 import type { PanelDescriptor } from "@/panels/panel-registry";
 import { useSessionStore, selectAgentTurnPresentation, type Agent } from "@/stores/session-store";
+import { useIsRateLimitCooldownActive } from "@/rate-limit-cooldown/use-rate-limit-cooldown";
 import { deriveSidebarStateBucket } from "@/utils/sidebar-agent-state";
 
 function formatProviderLabel(provider: Agent["provider"]): string {
@@ -46,11 +48,19 @@ export function useAgentDescriptor(
         requiresAttention: agent?.requiresAttention ?? false,
         attentionReason: agent?.attentionReason ?? null,
         isTurnActive: selectAgentTurnPresentation(session, target.agentId).isActive,
+        rateLimitCooldown: agent?.rateLimitCooldown ?? null,
       };
     }),
   );
+  const { t } = useTranslation();
   const icon = useProviderIcon(descriptorState.provider, context.serverId);
-  return buildAgentDescriptor({ ...descriptorState, icon });
+  const isCooldown = useIsRateLimitCooldownActive(descriptorState.rateLimitCooldown);
+  const { rateLimitCooldown: _rateLimitCooldown, ...state } = descriptorState;
+  return buildAgentDescriptor({
+    ...state,
+    icon,
+    cooldownTitle: isCooldown ? t("rateLimitCooldown.title") : null,
+  });
 }
 
 export function buildAgentDescriptor(input: {
@@ -62,22 +72,28 @@ export function buildAgentDescriptor(input: {
   attentionReason: Agent["attentionReason"];
   isTurnActive: boolean;
   icon: PanelDescriptor["icon"];
+  /** Set while a rate-limit cooldown is active; the tab reads as waiting on the cooldown. */
+  cooldownTitle?: string | null;
 }): PanelDescriptor {
   const provider = input.provider;
   const label = resolveAgentLabel(input.title);
+  const providerLabel = formatProviderLabel(provider);
+  const cooldownTitle = input.cooldownTitle ?? null;
 
   return {
     label: label ?? "",
-    subtitle: `${formatProviderLabel(provider)} agent`,
-    tooltip: label ?? `${formatProviderLabel(provider)} agent`,
+    subtitle: cooldownTitle ?? `${providerLabel} agent`,
+    tooltip: cooldownTitle
+      ? `${label ?? providerLabel} · ${cooldownTitle}`
+      : (label ?? `${providerLabel} agent`),
     titleState: label ? "ready" : "loading",
     icon: input.icon,
     statusBucket: input.status
       ? deriveSidebarStateBucket({
           status: input.isTurnActive ? "running" : input.status,
           pendingPermissionCount: input.pendingPermissionCount,
-          requiresAttention: input.requiresAttention,
-          attentionReason: input.attentionReason,
+          requiresAttention: input.requiresAttention || cooldownTitle !== null,
+          attentionReason: cooldownTitle ? null : input.attentionReason,
         })
       : null,
   };

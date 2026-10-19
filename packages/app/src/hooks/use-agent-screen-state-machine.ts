@@ -5,6 +5,7 @@ import type {
   AgentProvider,
 } from "@getpaseo/protocol/agent-types";
 import type { ViewedTimelineStatus } from "@/timeline/viewed-timeline-sync";
+import type { AgentRateLimitCooldownPayload } from "@getpaseo/protocol/messages";
 
 export interface AgentScreenAgent {
   serverId: string;
@@ -24,6 +25,7 @@ export interface AgentScreenAgent {
   } | null;
   features?: readonly AgentFeature[];
   lastError?: string | null;
+  rateLimitCooldown?: AgentRateLimitCooldownPayload | null;
   projectPlacement?: {
     projectKey?: string;
     projectName?: string;

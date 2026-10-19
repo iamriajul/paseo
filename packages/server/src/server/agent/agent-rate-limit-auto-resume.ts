@@ -9,14 +9,21 @@ import { formatSystemNotificationPrompt, sendPromptToAgent } from "./agent-promp
 import { ensureAgentLoaded } from "./agent-loading.js";
 import type { DaemonConfigStore } from "../daemon-config-store.js";
 import { isRateLimitAutoResumeDisabled } from "@getpaseo/protocol/agent-labels";
+import type { AgentRateLimitCooldownPayload } from "@getpaseo/protocol/messages";
 
 export const DEFAULT_RATE_LIMIT_AUTO_RESUME_PROMPT = "Resume - rate limit cooldown has ended";
 export const RATE_LIMIT_AUTO_RESUME_PENDING_FILE = "pending-rate-limit-auto-resumes.json";
 export const MAX_CONSECUTIVE_AUTO_RESUMES = 10;
 
-// Matches RETRY_AFTER:YYYY-MM-DDTHH:MM:SSZ or with fractional seconds (.123Z) at the end of a message
+export const RATE_LIMIT_ERROR_HEURISTIC =
+  /(?:429|rate[_\s-]?limit|cooldown|cooling down|quota|too many requests)/i;
+
+export type RateLimitResumeTriggerResult = { resumed: true } | { resumed: false; reason: string };
+
+// Matches RETRY_AFTER:YYYY-MM-DDTHH:MM:SSZ or with fractional seconds (.123Z)
+// Allows preceding whitespace/brackets/quotes/start, optional space after colon, and trailing boundaries.
 export const RETRY_AFTER_PATTERN =
-  /(?:^|\s)RETRY_AFTER:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s*$/;
+  /(?:^|[\s"'([<{])RETRY_AFTER:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)(?=[^\w]|$)/i;
 
 export function extractRetryAfterTimestamp(text: string | null | undefined): Date | null {
   if (!text) return null;
@@ -103,6 +110,10 @@ export interface AgentRateLimitAutoResumeManagerDependencies {
   paseoHome: string;
   agentManager: Pick<AgentManager, "appendTimelineItem" | "getAgent"> & {
     hasInFlightRun?: (agentId: string) => boolean;
+    setRateLimitCooldown?: (
+      agentId: string,
+      cooldown: AgentRateLimitCooldownPayload | null,
+    ) => void;
   };
   agentStorage: AgentStorage;
   daemonConfigStore: Pick<DaemonConfigStore, "get">;
@@ -141,6 +152,10 @@ export class AgentRateLimitAutoResumeManager {
     this.consecutiveResumes.delete(agentId);
   }
 
+  getConsecutiveResumes(agentId: string): number {
+    return this.consecutiveResumes.get(agentId) ?? 0;
+  }
+
   hasPending(agentId: string): boolean {
     return this.activeTimers.has(agentId);
   }
@@ -167,6 +182,9 @@ export class AgentRateLimitAutoResumeManager {
   }
 
   scheduleIfNeeded(agentId: string, text: string | null | undefined): boolean {
+    if (!text || !RATE_LIMIT_ERROR_HEURISTIC.test(text)) {
+      return false;
+    }
     const retryDate = extractRetryAfterTimestamp(text);
     if (!retryDate) {
       return false;
@@ -208,12 +226,19 @@ export class AgentRateLimitAutoResumeManager {
       retryAfter: iso,
     });
 
+    this.agentManager.setRateLimitCooldown?.(agentId, {
+      scheduledFor: iso,
+      retryAfter: iso,
+      consecutiveResumes: this.consecutiveResumes.get(agentId) ?? 0,
+    });
+
     void this.persistActiveTimers();
     return true;
   }
 
   cancel(agentId: string): void {
     this.nextEpoch(agentId);
+    this.agentManager.setRateLimitCooldown?.(agentId, null);
     if (!this.activeTimers.has(agentId)) return;
     this.cancelTimerOnly(agentId);
     void this.persistActiveTimers();
@@ -221,8 +246,9 @@ export class AgentRateLimitAutoResumeManager {
   }
 
   cancelAll(): void {
-    for (const entry of this.activeTimers.values()) {
+    for (const [agentId, entry] of this.activeTimers.entries()) {
       clearTimeout(entry.timeout);
+      this.agentManager.setRateLimitCooldown?.(agentId, null);
     }
     this.activeTimers.clear();
     for (const agentId of this.agentEpochs.keys()) {
@@ -265,8 +291,12 @@ export class AgentRateLimitAutoResumeManager {
     await this.persistenceChain;
   }
 
-  async triggerResume(agentId: string, expectedEpoch?: number): Promise<void> {
+  async triggerResume(
+    agentId: string,
+    expectedEpoch?: number,
+  ): Promise<RateLimitResumeTriggerResult> {
     this.cancelTimerOnly(agentId);
+    this.agentManager.setRateLimitCooldown?.(agentId, null);
     void this.persistActiveTimers();
 
     if (expectedEpoch !== undefined && this.agentEpochs.get(agentId) !== expectedEpoch) {
@@ -274,7 +304,7 @@ export class AgentRateLimitAutoResumeManager {
         { agentId },
         "Rate limit auto-resume aborted: epoch moved before execution",
       );
-      return;
+      return { resumed: false, reason: "Resume superseded by another turn" };
     }
 
     if (!this.isEnabledForAgent(agentId)) {
@@ -282,16 +312,16 @@ export class AgentRateLimitAutoResumeManager {
         { agentId },
         "Rate limit auto-resume aborted: no longer enabled or agent archived",
       );
-      return;
+      return { resumed: false, reason: "Rate limit auto-resume is disabled or agent is archived" };
     }
 
     const agent = this.agentManager.getAgent(agentId);
     if (!agent || agent.lifecycle === "closed") {
-      return;
+      return { resumed: false, reason: "Agent is closed" };
     }
     const stored = await this.agentStorage.get(agentId);
     if (stored?.archivedAt) {
-      return;
+      return { resumed: false, reason: "Agent is archived" };
     }
 
     const consecutiveCount = (this.consecutiveResumes.get(agentId) ?? 0) + 1;
@@ -301,7 +331,10 @@ export class AgentRateLimitAutoResumeManager {
         { agentId, consecutiveCount },
         "Rate limit auto-resume aborted: exceeded maximum consecutive auto-resumes",
       );
-      return;
+      return {
+        resumed: false,
+        reason: `Maximum consecutive auto-resumes (${MAX_CONSECUTIVE_AUTO_RESUMES}) exceeded`,
+      };
     }
 
     this.logger.info({ agentId }, "Executing auto-resume after rate limit cooldown");
@@ -317,7 +350,7 @@ export class AgentRateLimitAutoResumeManager {
           { agentId },
           "Rate limit auto-resume aborted: epoch moved during loading",
         );
-        return;
+        return { resumed: false, reason: "Resume superseded by another turn" };
       }
 
       if (this.agentManager.hasInFlightRun?.(agentId)) {
@@ -325,7 +358,7 @@ export class AgentRateLimitAutoResumeManager {
           { agentId },
           "Rate limit auto-resume aborted: agent already has an in-flight run",
         );
-        return;
+        return { resumed: false, reason: "Agent already has an active in-flight run" };
       }
 
       await this.agentManager.appendTimelineItem(agentId, {
@@ -343,8 +376,62 @@ export class AgentRateLimitAutoResumeManager {
       });
 
       this.logger.info({ agentId }, "Rate limit auto-resume continuation dispatched successfully");
+      return { resumed: true };
     } catch (error) {
       this.logger.warn({ err: error, agentId }, "Failed to execute rate limit auto-resume");
+      return {
+        resumed: false,
+        reason: (error as Error).message || "Failed to execute resume prompt",
+      };
+    }
+  }
+
+  async restorePendingTimers(): Promise<void> {
+    const records = await readPendingRateLimitRecords(this.paseoHome, this.logger);
+    if (records.length === 0) return;
+
+    const globalConfig = this.daemonConfigStore.get();
+    if (globalConfig.autoResumeOnRateLimit === false) {
+      return;
+    }
+
+    const now = Date.now();
+    for (const record of records) {
+      const stored = await this.agentStorage.get(record.agentId);
+      if (!stored || stored.archivedAt) {
+        continue;
+      }
+      if (isRateLimitAutoResumeDisabled(stored.labels)) {
+        continue;
+      }
+      const targetDate = new Date(record.scheduledFor);
+      if (Number.isNaN(targetDate.getTime())) {
+        continue;
+      }
+
+      if (targetDate.getTime() > now && !this.activeTimers.has(record.agentId)) {
+        const delayMs = targetDate.getTime() - now;
+        this.logger.info(
+          { agentId: record.agentId, scheduledFor: record.scheduledFor, delayMs },
+          "Restoring rate limit auto-resume timer",
+        );
+        const scheduledEpoch = this.nextEpoch(record.agentId);
+        const timeout = setTimeout(() => {
+          void this.triggerResume(record.agentId, scheduledEpoch);
+        }, delayMs);
+        timeout.unref?.();
+
+        this.activeTimers.set(record.agentId, {
+          timeout,
+          scheduledFor: targetDate,
+          retryAfter: record.retryAfter,
+        });
+
+        this.agentManager.setRateLimitCooldown?.(record.agentId, {
+          scheduledFor: targetDate.toISOString(),
+          retryAfter: record.retryAfter,
+        });
+      }
     }
   }
 
@@ -354,7 +441,7 @@ export class AgentRateLimitAutoResumeManager {
 
     this.logger.info(
       { count: records.length },
-      "Restoring pending rate limit auto-resume timers after restart",
+      "Processing pending rate limit auto-resume timers after restart",
     );
 
     const now = Date.now();
@@ -383,7 +470,7 @@ export class AgentRateLimitAutoResumeManager {
           "Rate limit cooldown expired during downtime, triggering immediate resume",
         );
         await this.triggerResume(record.agentId);
-      } else {
+      } else if (!this.activeTimers.has(record.agentId)) {
         const delayMs = targetDate.getTime() - now;
         this.logger.info(
           { agentId: record.agentId, scheduledFor: record.scheduledFor, delayMs },
@@ -398,6 +485,11 @@ export class AgentRateLimitAutoResumeManager {
         this.activeTimers.set(record.agentId, {
           timeout,
           scheduledFor: targetDate,
+          retryAfter: record.retryAfter,
+        });
+
+        this.agentManager.setRateLimitCooldown?.(record.agentId, {
+          scheduledFor: targetDate.toISOString(),
           retryAfter: record.retryAfter,
         });
       }

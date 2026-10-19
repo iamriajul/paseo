@@ -2536,7 +2536,22 @@ export class Session {
     record: StoredAgentRecord,
     registeredProviderIds = new Set(this.providerSnapshotManager.listRegisteredProviderIds()),
   ): AgentSnapshotPayload {
-    return buildStoredAgentPayload(record, registeredProviderIds);
+    const pendingCooldown = this.agentManager
+      .getRateLimitAutoResumeManager?.()
+      ?.getPending(record.id);
+    const rateLimitCooldown = pendingCooldown
+      ? {
+          scheduledFor: pendingCooldown.scheduledFor.toISOString(),
+          retryAfter: pendingCooldown.retryAfter,
+          consecutiveResumes:
+            this.agentManager
+              .getRateLimitAutoResumeManager?.()
+              ?.getConsecutiveResumes?.(record.id) ?? 0,
+        }
+      : undefined;
+    return buildStoredAgentPayload(record, registeredProviderIds, {
+      rateLimitCooldown,
+    });
   }
 
   private isProviderVisibleToClient(provider: string): boolean {
@@ -3174,6 +3189,10 @@ export class Session {
     switch (msg.type) {
       case "agent.detach.request":
         return this.handleDetachAgentRequest(msg.agentId, msg.requestId);
+      case "agent.rate_limit_cooldown.resume.request":
+        return this.handleResumeRateLimitCooldownRequest(msg.agentId, msg.requestId);
+      case "agent.rate_limit_cooldown.cancel.request":
+        return this.handleCancelRateLimitCooldownRequest(msg.agentId, msg.requestId);
       default:
         return undefined;
     }
@@ -3957,6 +3976,86 @@ export class Session {
         payload: {
           requestId,
           agentId,
+          accepted: false,
+          error: message,
+        },
+      });
+    }
+  }
+
+  private async handleResumeRateLimitCooldownRequest(
+    agentId: string,
+    requestId: string,
+  ): Promise<void> {
+    this.sessionLogger.info({ agentId, requestId }, "Resuming agent from rate limit cooldown");
+    try {
+      const manager = this.agentManager.getRateLimitAutoResumeManager();
+      if (!manager) {
+        this.emit({
+          type: "agent.rate_limit_cooldown.resume.response",
+          payload: {
+            requestId,
+            accepted: false,
+            error: "Rate limit auto resume manager not available",
+          },
+        });
+        return;
+      }
+      const result = await manager.triggerResume(agentId);
+      if (!result.resumed) {
+        this.emit({
+          type: "agent.rate_limit_cooldown.resume.response",
+          payload: {
+            requestId,
+            accepted: false,
+            error: result.reason,
+          },
+        });
+        return;
+      }
+      this.emit({
+        type: "agent.rate_limit_cooldown.resume.response",
+        payload: {
+          requestId,
+          accepted: true,
+        },
+      });
+    } catch (error) {
+      const message = getErrorMessageOr(error, "Failed to resume rate limit cooldown");
+      this.sessionLogger.warn({ err: error, agentId, requestId }, message);
+      this.emit({
+        type: "agent.rate_limit_cooldown.resume.response",
+        payload: {
+          requestId,
+          accepted: false,
+          error: message,
+        },
+      });
+    }
+  }
+
+  private async handleCancelRateLimitCooldownRequest(
+    agentId: string,
+    requestId: string,
+  ): Promise<void> {
+    this.sessionLogger.info({ agentId, requestId }, "Canceling agent rate limit cooldown");
+    try {
+      const manager = this.agentManager.getRateLimitAutoResumeManager();
+      manager?.cancel(agentId);
+      this.emit({
+        type: "agent.rate_limit_cooldown.cancel.response",
+        payload: {
+          requestId,
+          accepted: true,
+        },
+      });
+    } catch (error) {
+      const message = getErrorMessageOr(error, "Failed to cancel rate limit cooldown");
+      this.sessionLogger.warn({ err: error, agentId, requestId }, message);
+      this.emit({
+        type: "agent.rate_limit_cooldown.cancel.response",
+        payload: {
+          requestId,
           accepted: false,
           error: message,
         },

@@ -21,6 +21,7 @@ export interface StreamHistoryBoundary {
 export interface StreamRenderAuxiliary {
   pendingPermissions: ReactNode;
   turnFooter: ReactNode;
+  rateLimitCooldown?: ReactNode;
 }
 
 export interface AgentStreamRenderModel {

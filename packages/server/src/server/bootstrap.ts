@@ -1115,6 +1115,7 @@ export async function createPaseoDaemon(
     logger,
   });
   agentManager.setRateLimitAutoResumeManager(rateLimitAutoResumeManager);
+  await rateLimitAutoResumeManager.restorePendingTimers();
   daemonConfigStore.onFieldChange("daemon.autoResumeOnRateLimit", () => {
     if (daemonConfigStore.get().autoResumeOnRateLimit === false) {
       rateLimitAutoResumeManager.cancelAll();

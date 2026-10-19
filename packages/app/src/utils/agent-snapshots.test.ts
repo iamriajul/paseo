@@ -1,3 +1,4 @@
+import type { Agent } from "@/stores/session-store";
 import { describe, expect, it } from "vitest";
 import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
@@ -32,6 +33,7 @@ function createSnapshot(
     persistence: input.persistence ?? null,
     title: input.title ?? null,
     labels: (input.labels ?? {}) as AgentSnapshotPayload["labels"],
+    rateLimitCooldown: input.rateLimitCooldown,
   };
 }
 
@@ -113,5 +115,22 @@ describe("normalizeAgentSnapshot", () => {
     expect(missing.parentAgentId).toBeNull();
     expect(empty.parentAgentId).toBeNull();
     expect(nonString.parentAgentId).toBeNull();
+  });
+
+  it("normalizes and projects rateLimitCooldown", () => {
+    const cooldown = {
+      scheduledFor: "2026-10-20T02:00:12.000Z",
+      retryAfter: "2026-10-20T02:00:12.000Z",
+      consecutiveResumes: 2,
+    };
+    const snapshot = createSnapshot({
+      rateLimitCooldown: cooldown,
+    });
+
+    const normalized = normalizeAgentSnapshot(snapshot, "server-1");
+    expect(normalized.rateLimitCooldown).toEqual(cooldown);
+
+    const projected = projectAgentSnapshot(normalized as unknown as Agent);
+    expect(projected.rateLimitCooldown).toEqual(cooldown);
   });
 });

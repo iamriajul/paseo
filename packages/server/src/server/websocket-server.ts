@@ -2244,6 +2244,8 @@ export class VoiceAssistantWebSocketServer {
         agentConfigApply: true,
         // COMPAT(scheduledPrompt): added in v0.12.0, remove after 2027-04-12.
         scheduledPrompt: true,
+        // COMPAT(rateLimitCooldownControls): added in v0.12.0, remove after 2027-04-18.
+        rateLimitCooldownControls: true,
       },
     };
   }

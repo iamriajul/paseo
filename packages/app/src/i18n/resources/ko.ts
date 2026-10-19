@@ -420,6 +420,15 @@ export const ko: TranslationResources = {
       manual: "재개됨",
     },
   },
+  rateLimitCooldown: {
+    title: "요율 제한 쿨다운 활성화됨",
+    bannerMessage: "모델 쿨다운 진행 중입니다. {{countdown}} 후({{time}})에 자동으로 재개됩니다.",
+    pillLabel: "쿨다운 · {{countdown}}",
+    resumeNow: "지금 재개",
+    cancel: "자동 재개 취소",
+    resumesAt: "{{time}}에 자동 재개 예정",
+    attemptBadge: "시도 {{current}} / {{max}}",
+  },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
     title: "세션 가져오기",

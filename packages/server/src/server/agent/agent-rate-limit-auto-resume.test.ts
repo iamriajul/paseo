@@ -23,7 +23,7 @@ describe("extractRetryAfterTimestamp", () => {
   });
 
   it("extracts timestamp with fractional seconds", () => {
-    const text = "Error RETRY_AFTER:2026-10-13T17:30:00.500Z";
+    const text = "Rate limit error RETRY_AFTER:2026-10-13T17:30:00.500Z";
     const date = extractRetryAfterTimestamp(text);
     expect(date).not.toBeNull();
     expect(date?.toISOString()).toBe("2026-10-13T17:30:00.500Z");
@@ -36,9 +36,10 @@ describe("extractRetryAfterTimestamp", () => {
     expect(date?.toISOString()).toBe("2026-10-13T17:30:00.000Z");
   });
 
-  it("returns null when space is after colon", () => {
+  it("extracts timestamp even when space is after colon", () => {
     const text = "RETRY_AFTER: 2026-10-13T17:30:00Z";
-    expect(extractRetryAfterTimestamp(text)).toBeNull();
+    const date = extractRetryAfterTimestamp(text);
+    expect(date?.toISOString()).toBe("2026-10-13T17:30:00.000Z");
   });
 
   it("returns null for non-UTC or malformed date", () => {
@@ -46,9 +47,15 @@ describe("extractRetryAfterTimestamp", () => {
     expect(extractRetryAfterTimestamp("RETRY_AFTER:not-a-dateZ")).toBeNull();
   });
 
-  it("returns null if RETRY_AFTER is not at the end of the text", () => {
-    const text = "RETRY_AFTER:2026-10-13T17:30:00Z please wait 5 minutes";
-    expect(extractRetryAfterTimestamp(text)).toBeNull();
+  it("extracts timestamp when RETRY_AFTER is followed by trailing punctuation or text", () => {
+    const text1 = "RETRY_AFTER:2026-10-13T17:30:00Z please wait 5 minutes";
+    expect(extractRetryAfterTimestamp(text1)?.toISOString()).toBe("2026-10-13T17:30:00.000Z");
+
+    const text2 = "cooling down (last error: RETRY_AFTER:2026-10-13T17:30:00.000Z).";
+    expect(extractRetryAfterTimestamp(text2)?.toISOString()).toBe("2026-10-13T17:30:00.000Z");
+
+    const text3 = "RETRY_AFTER:2026-10-13T17:30:00Z\n\ncode: 429";
+    expect(extractRetryAfterTimestamp(text3)?.toISOString()).toBe("2026-10-13T17:30:00.000Z");
   });
 });
 
@@ -93,9 +100,10 @@ describe("AgentRateLimitAutoResumeManager", () => {
     }));
     const sendPrompt = vi.fn().mockResolvedValue({ disposition: "turn_started" });
 
+    const setRateLimitCooldown = vi.fn();
     const manager = new AgentRateLimitAutoResumeManager({
       paseoHome: tmpDir,
-      agentManager: { appendTimelineItem, getAgent, hasInFlightRun },
+      agentManager: { appendTimelineItem, getAgent, hasInFlightRun, setRateLimitCooldown },
       agentStorage: { get: getStored } as unknown as AgentStorage,
       daemonConfigStore: {
         get: () =>
@@ -107,7 +115,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
       sendPrompt,
     });
 
-    return { manager, appendTimelineItem, getAgent, sendPrompt };
+    return { manager, appendTimelineItem, getAgent, sendPrompt, setRateLimitCooldown };
   }
 
   it("schedules auto-resume and executes after delay", async () => {
@@ -143,7 +151,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
 
   it("respects global disabled setting", () => {
     const { manager } = createHarness({ globalEnabled: false });
-    const text = "Error RETRY_AFTER:2026-10-13T17:30:00Z";
+    const text = "Rate limit error RETRY_AFTER:2026-10-13T17:30:00Z";
     const scheduled = manager.scheduleIfNeeded("agent-1", text);
     expect(scheduled).toBe(false);
     expect(manager.hasPending("agent-1")).toBe(false);
@@ -153,7 +161,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
     const { manager } = createHarness({
       agentLabels: { [AGENT_LABEL_RATE_LIMIT_AUTO_RESUME]: "false" },
     });
-    const text = "Error RETRY_AFTER:2026-10-13T17:30:00Z";
+    const text = "Rate limit error RETRY_AFTER:2026-10-13T17:30:00Z";
     const scheduled = manager.scheduleIfNeeded("agent-1", text);
     expect(scheduled).toBe(false);
     expect(manager.hasPending("agent-1")).toBe(false);
@@ -164,7 +172,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
     vi.setSystemTime(now);
 
     const { manager, appendTimelineItem } = createHarness();
-    manager.scheduleIfNeeded("agent-1", "Error RETRY_AFTER:2026-10-13T12:05:00Z");
+    manager.scheduleIfNeeded("agent-1", "Rate limit error RETRY_AFTER:2026-10-13T12:05:00Z");
     expect(manager.hasPending("agent-1")).toBe(true);
 
     manager.cancel("agent-1");
@@ -180,7 +188,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
     vi.setSystemTime(now);
 
     const { manager } = createHarness();
-    manager.scheduleIfNeeded("agent-persist", "Error RETRY_AFTER:2026-10-13T12:10:00Z");
+    manager.scheduleIfNeeded("agent-persist", "Rate limit error RETRY_AFTER:2026-10-13T12:10:00Z");
     await manager.waitForPersistence();
 
     const records = await readPendingRateLimitRecords(tmpDir);
@@ -242,12 +250,12 @@ describe("AgentRateLimitAutoResumeManager", () => {
     const time2 = "2026-10-13T12:15:00.000Z";
 
     // Turn 1 arrives with initial cooldown
-    manager.scheduleIfNeeded("agent-1", `Error RETRY_AFTER:${time1}`);
+    manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${time1}`);
     expect(manager.hasPending("agent-1")).toBe(true);
     expect(manager.getPending("agent-1")?.retryAfter).toBe(time1);
 
     // Turn 2 arrives with extended cooldown before timer fires
-    manager.scheduleIfNeeded("agent-1", `Error RETRY_AFTER:${time2}`);
+    manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${time2}`);
     expect(manager.hasPending("agent-1")).toBe(true);
     expect(manager.getPending("agent-1")?.retryAfter).toBe(time2);
 
@@ -270,7 +278,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
 
     const { manager, appendTimelineItem } = createHarness();
     const retryTime = "2026-10-13T12:05:00.000Z";
-    manager.scheduleIfNeeded("agent-1", `Error RETRY_AFTER:${retryTime}`);
+    manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime}`);
 
     // Cancel while timer is armed
     manager.cancel("agent-1");
@@ -287,7 +295,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
       hasInFlightRun: () => true,
     });
     const retryTime = "2026-10-13T12:05:00.000Z";
-    manager.scheduleIfNeeded("agent-1", `Error RETRY_AFTER:${retryTime}`);
+    manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime}`);
 
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
     expect(appendTimelineItem).not.toHaveBeenCalled();
@@ -302,22 +310,80 @@ describe("AgentRateLimitAutoResumeManager", () => {
     // Trigger 10 resumes consecutively
     for (let i = 1; i <= 10; i++) {
       const retryTime = new Date(now + i * 1000).toISOString();
-      manager.scheduleIfNeeded("agent-1", `Error RETRY_AFTER:${retryTime}`);
+      manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime}`);
       await vi.advanceTimersByTimeAsync(1000);
     }
     expect(appendTimelineItem).toHaveBeenCalledTimes(10);
 
     // 11th should be capped
     const retryTime11 = new Date(now + 12000).toISOString();
-    manager.scheduleIfNeeded("agent-1", `Error RETRY_AFTER:${retryTime11}`);
+    manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime11}`);
     await vi.advanceTimersByTimeAsync(2000);
     expect(appendTimelineItem).toHaveBeenCalledTimes(10);
 
     // Reset allows resuming again
     manager.resetConsecutiveResumes("agent-1");
     const retryTime12 = new Date(now + 15000).toISOString();
-    manager.scheduleIfNeeded("agent-1", `Error RETRY_AFTER:${retryTime12}`);
+    manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime12}`);
     await vi.advanceTimersByTimeAsync(3000);
     expect(appendTimelineItem).toHaveBeenCalledTimes(11);
+  });
+  it("notifies agentManager.setRateLimitCooldown when scheduling, canceling, and triggering", async () => {
+    const now = new Date("2026-10-13T12:00:00.000Z").getTime();
+    vi.setSystemTime(now);
+
+    const { manager, setRateLimitCooldown } = createHarness();
+    const retryTime = "2026-10-13T12:05:00.000Z";
+
+    manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime}`);
+    expect(setRateLimitCooldown).toHaveBeenCalledWith("agent-1", {
+      scheduledFor: retryTime,
+      retryAfter: retryTime,
+      consecutiveResumes: 0,
+    });
+
+    manager.cancel("agent-1");
+    expect(setRateLimitCooldown).toHaveBeenCalledWith("agent-1", null);
+  });
+
+  it("restores active timers into memory via restorePendingTimers", async () => {
+    const now = new Date("2026-10-13T12:00:00.000Z").getTime();
+    vi.setSystemTime(now);
+
+    const { manager, setRateLimitCooldown } = createHarness();
+    const futureTime = "2026-10-13T12:10:00.000Z";
+
+    await writePendingRateLimitRecords(tmpDir, [
+      {
+        agentId: "agent-early",
+        scheduledFor: futureTime,
+        retryAfter: futureTime,
+        createdAt: "2026-10-13T12:00:00.000Z",
+      },
+    ]);
+
+    expect(manager.hasPending("agent-early")).toBe(false);
+    await manager.restorePendingTimers();
+
+    expect(manager.hasPending("agent-early")).toBe(true);
+    expect(setRateLimitCooldown).toHaveBeenCalledWith("agent-early", {
+      scheduledFor: futureTime,
+      retryAfter: futureTime,
+    });
+  });
+  it("rejects text with RETRY_AFTER if rate limit error heuristic is missing", () => {
+    const { manager } = createHarness();
+    const future = "2026-10-13T12:05:00.000Z";
+    // Text explaining the header without rate limit or quota words
+    const text = `The server header format is RETRY_AFTER:${future}`;
+    expect(manager.scheduleIfNeeded("agent-1", text)).toBe(false);
+    expect(manager.hasPending("agent-1")).toBe(false);
+  });
+
+  it("returns abort reason when triggerResume cannot execute", async () => {
+    const { manager } = createHarness({ archived: true });
+    const result = await manager.triggerResume("agent-1");
+    expect(result.resumed).toBe(false);
+    expect(result.reason).toContain("archived");
   });
 });

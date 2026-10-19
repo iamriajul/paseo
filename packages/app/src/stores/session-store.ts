@@ -36,6 +36,7 @@ import type {
 import type {
   ServerInfoStatusPayload,
   ProjectPlacementPayload,
+  AgentRateLimitCooldownPayload,
   ServerCapabilities,
   WorkspaceDescriptorPayload,
   WorkspaceProjectDescriptorPayload,
@@ -99,6 +100,7 @@ export interface Agent {
   archivedAt?: Date | null;
   parentAgentId: string | null;
   labels: Record<string, string>;
+  rateLimitCooldown?: AgentRateLimitCooldownPayload | null;
   projectPlacement?: ProjectPlacementPayload | null;
 }
 

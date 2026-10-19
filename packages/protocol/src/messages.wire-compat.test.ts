@@ -7,6 +7,7 @@ import {
   AgentSnapshotPayloadSchema,
   AgentTimelineItemPayloadSchema,
   ServerInfoStatusPayloadSchema,
+  SessionInboundMessageSchema,
   SessionOutboundMessageSchema,
   WSHelloMessageSchema,
   WorkspaceSetupSnapshotSchema,
@@ -594,4 +595,79 @@ test("resume timeline item wire compatibility across client versions", () => {
   };
   expect(legacyResumeSchema.parse(downgradedItem)).toEqual(downgradedItem);
   expect(AgentTimelineItemPayloadSchema.parse(downgradedItem)).toEqual(downgradedItem);
+});
+
+test("agent rate limit cooldown wire compatibility across client versions", () => {
+  const baseSnapshot = {
+    id: "agent-123",
+    provider: "claude",
+    cwd: "/workspace",
+    model: "claude-opus-5-5",
+    thinkingOptionId: null,
+    effectiveThinkingOptionId: null,
+    createdAt: "2026-10-18T10:00:00.000Z",
+    updatedAt: "2026-10-18T10:05:00.000Z",
+    lastUserMessageAt: null,
+    status: "idle",
+    capabilities: {
+      supportsStreaming: true,
+      supportsSessionPersistence: true,
+      supportsDynamicModes: true,
+      supportsMcpServers: true,
+      supportsReasoningStream: true,
+      supportsToolInvocations: true,
+    },
+    currentModeId: null,
+    availableModes: [],
+    pendingPermissions: [],
+    persistence: null,
+    title: "Test Agent",
+    labels: {},
+  };
+
+  const parsedWithout = AgentSnapshotPayloadSchema.parse(baseSnapshot);
+  expect(parsedWithout.rateLimitCooldown).toBeUndefined();
+
+  const snapshotWithCooldown = {
+    ...baseSnapshot,
+    rateLimitCooldown: {
+      scheduledFor: "2026-10-20T02:00:12.000Z",
+      retryAfter: "2026-10-20T02:00:12.000Z",
+      consecutiveResumes: 1,
+    },
+  };
+  const parsedWith = AgentSnapshotPayloadSchema.parse(snapshotWithCooldown);
+  expect(parsedWith.rateLimitCooldown).toEqual(snapshotWithCooldown.rateLimitCooldown);
+
+  const inboundResume = {
+    type: "agent.rate_limit_cooldown.resume.request",
+    requestId: "req-1",
+    agentId: "agent-123",
+  };
+  expect(SessionInboundMessageSchema.parse(inboundResume)).toEqual(inboundResume);
+
+  const outboundResume = {
+    type: "agent.rate_limit_cooldown.resume.response",
+    payload: {
+      requestId: "req-1",
+      accepted: true,
+    },
+  };
+  expect(SessionOutboundMessageSchema.parse(outboundResume)).toEqual(outboundResume);
+
+  const inboundCancel = {
+    type: "agent.rate_limit_cooldown.cancel.request",
+    requestId: "req-2",
+    agentId: "agent-123",
+  };
+  expect(SessionInboundMessageSchema.parse(inboundCancel)).toEqual(inboundCancel);
+
+  const outboundCancel = {
+    type: "agent.rate_limit_cooldown.cancel.response",
+    payload: {
+      requestId: "req-2",
+      accepted: true,
+    },
+  };
+  expect(SessionOutboundMessageSchema.parse(outboundCancel)).toEqual(outboundCancel);
 });

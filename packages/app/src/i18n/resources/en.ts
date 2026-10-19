@@ -416,6 +416,16 @@ export const en = {
       manual: "Resumed",
     },
   },
+  rateLimitCooldown: {
+    title: "Rate limit cooldown active",
+    bannerMessage:
+      "Model cooldown in progress. Resuming automatically in {{countdown}} (at {{time}}).",
+    pillLabel: "Cooldown · {{countdown}}",
+    resumeNow: "Resume now",
+    cancel: "Cancel auto-resume",
+    resumesAt: "Scheduled to auto-resume at {{time}}",
+    attemptBadge: "Attempt {{current}} of {{max}}",
+  },
   importSession: {
     title: "Import session",
     chooseHostTitle: "Import from host",

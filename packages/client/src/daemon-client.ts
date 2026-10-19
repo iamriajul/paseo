@@ -3492,6 +3492,36 @@ export class DaemonClient {
     }
   }
 
+  async resumeRateLimitCooldown(agentId: string): Promise<void> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.rate_limit_cooldown.resume.response">(
+        {
+          message: {
+            type: "agent.rate_limit_cooldown.resume.request",
+            agentId,
+          },
+        },
+      );
+    if (!payload.accepted) {
+      throw new Error(payload.error ?? "Failed to resume agent");
+    }
+  }
+
+  async cancelRateLimitCooldown(agentId: string): Promise<void> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.rate_limit_cooldown.cancel.response">(
+        {
+          message: {
+            type: "agent.rate_limit_cooldown.cancel.request",
+            agentId,
+          },
+        },
+      );
+    if (!payload.accepted) {
+      throw new Error(payload.error ?? "Failed to cancel rate limit cooldown");
+    }
+  }
+
   async updateAgent(
     agentId: string,
     updates: { name?: string; labels?: Record<string, string> },

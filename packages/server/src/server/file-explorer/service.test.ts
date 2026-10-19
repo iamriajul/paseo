@@ -323,6 +323,40 @@ describe("file explorer service", () => {
     }
   });
 
+  it("advertises Office document types on the streaming path clients actually use", async () => {
+    const root = await createTempDir("paseo-file-explorer-office-");
+    const cases: Array<[string, string]> = [
+      ["brief.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+      ["macro.docm", "application/vnd.ms-word.document.macroenabled.12"],
+      ["letter.dotx", "application/vnd.openxmlformats-officedocument.wordprocessingml.template"],
+      ["form.dotm", "application/vnd.ms-word.template.macroenabled.12"],
+      ["model.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+      ["budget.xlsm", "application/vnd.ms-excel.sheet.macroenabled.12"],
+      ["template.xltx", "application/vnd.openxmlformats-officedocument.spreadsheetml.template"],
+      ["macro-template.xltm", "application/vnd.ms-excel.template.macroenabled.12"],
+      ["deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+      ["slides.pptm", "application/vnd.ms-powerpoint.presentation.macroenabled.12"],
+      ["theme.potx", "application/vnd.openxmlformats-officedocument.presentationml.template"],
+      ["talk.potm", "application/vnd.ms-powerpoint.template.macroenabled.12"],
+    ];
+
+    try {
+      for (const [name, mimeType] of cases) {
+        await writeFile(path.join(root, name), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]));
+        let advertised: { kind: unknown; mimeType: unknown } | null = null;
+        await streamExplorerFile({ root, relativePath: name }, async (file) => {
+          advertised = { kind: file.kind, mimeType: file.mimeType };
+          for await (const _chunk of file.chunks) {
+            // Drain without asserting on bytes; the header carries kind/mime.
+          }
+        });
+        expect(advertised, name).toEqual({ kind: "binary", mimeType });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("identifies PDF files for clients that can preview them", async () => {
     const root = await createTempDir("paseo-file-explorer-");
 

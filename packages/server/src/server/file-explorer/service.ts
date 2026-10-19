@@ -98,6 +98,20 @@ const TEXT_MIME_TYPES: Record<string, string> = {
 
 const BINARY_MIME_TYPES: Record<string, string> = {
   ".pdf": "application/pdf",
+  // Extension wins over content sniffing, same as PDF, so the pane can tell a
+  // document from a zip. Kept in step with packages/app/src/file-explorer/office.ts.
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".docm": "application/vnd.ms-word.document.macroenabled.12",
+  ".dotx": "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+  ".dotm": "application/vnd.ms-word.template.macroenabled.12",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".xlsm": "application/vnd.ms-excel.sheet.macroenabled.12",
+  ".xltx": "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+  ".xltm": "application/vnd.ms-excel.template.macroenabled.12",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".pptm": "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+  ".potx": "application/vnd.openxmlformats-officedocument.presentationml.template",
+  ".potm": "application/vnd.ms-powerpoint.template.macroenabled.12",
   ".zip": "application/zip",
   ".gz": "application/gzip",
   ".mp3": "audio/mpeg",

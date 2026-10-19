@@ -18,4 +18,28 @@ describe("shouldPersistFilePreviewMedia", () => {
     ).toBe(false);
     expect(shouldPersistFilePreviewMedia({ kind: "text", mime: "text/plain" })).toBe(false);
   });
+
+  it("persists office documents the pane can render, including unlabeled ones", () => {
+    expect(
+      shouldPersistFilePreviewMedia({
+        kind: "binary",
+        mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        path: "brief.docx",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistFilePreviewMedia({
+        kind: "binary",
+        mime: "application/octet-stream",
+        path: "deck.pptx",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistFilePreviewMedia({
+        kind: "binary",
+        mime: "application/octet-stream",
+        path: "blob.bin",
+      }),
+    ).toBe(false);
+  });
 });

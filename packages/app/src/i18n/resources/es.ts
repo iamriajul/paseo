@@ -424,6 +424,16 @@ export const es: TranslationResources = {
       manual: "Reanudado",
     },
   },
+  rateLimitCooldown: {
+    title: "Enfriamiento por límite de tasa activo",
+    bannerMessage:
+      "Enfriamiento del modelo en curso. Reanudación automática en {{countdown}} (a las {{time}}).",
+    pillLabel: "Enfriamiento · {{countdown}}",
+    resumeNow: "Reanudar ahora",
+    cancel: "Cancelar autorreanudación",
+    resumesAt: "Programado para autorreanudar a las {{time}}",
+    attemptBadge: "Intento {{current}} de {{max}}",
+  },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
     title: "Importar sesión",

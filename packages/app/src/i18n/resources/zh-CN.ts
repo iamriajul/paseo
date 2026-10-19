@@ -419,6 +419,15 @@ export const zhCN: TranslationResources = {
       manual: "已恢复",
     },
   },
+  rateLimitCooldown: {
+    title: "速率限制冷却中",
+    bannerMessage: "模型正在冷却中。将在 {{countdown}} 后（{{time}}）自动恢复。",
+    pillLabel: "冷却中 · {{countdown}}",
+    resumeNow: "立即恢复",
+    cancel: "取消自动恢复",
+    resumesAt: "计划于 {{time}} 自动恢复",
+    attemptBadge: "尝试 {{current}} / {{max}}",
+  },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
     title: "导入会话",

@@ -424,6 +424,15 @@ export const ja: TranslationResources = {
       manual: "再開しました",
     },
   },
+  rateLimitCooldown: {
+    title: "レート制限クールダウン待機中",
+    bannerMessage: "モデルのクールダウン中です。{{countdown}} 後（{{time}}）に自動再開します。",
+    pillLabel: "クールダウン · {{countdown}}",
+    resumeNow: "今すぐ再開",
+    cancel: "自動再開をキャンセル",
+    resumesAt: "{{time}} に自動再開予定",
+    attemptBadge: "試行 {{current}} / {{max}}",
+  },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
     title: "セッションをインポート",

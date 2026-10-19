@@ -423,6 +423,16 @@ export const ptBR: TranslationResources = {
       manual: "Retomado",
     },
   },
+  rateLimitCooldown: {
+    title: "Tempo de espera de limite de taxa ativo",
+    bannerMessage:
+      "Tempo de espera do modelo em andamento. Retomada automática em {{countdown}} (às {{time}}).",
+    pillLabel: "Espera · {{countdown}}",
+    resumeNow: "Retomar agora",
+    cancel: "Cancelar retomada automática",
+    resumesAt: "Retomada automática agendada para {{time}}",
+    attemptBadge: "Tentativa {{current}} de {{max}}",
+  },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
     title: "Importar sessão",

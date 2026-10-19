@@ -419,6 +419,16 @@ export const ar: TranslationResources = {
       manual: "تمت الاستئناف",
     },
   },
+  rateLimitCooldown: {
+    title: "فترة تبريد حد المعدل نشطة",
+    bannerMessage:
+      "فترة تبريد النموذج جارية. سيتم الاستئناف تلقائيًا خلال {{countdown}} (في {{time}}).",
+    pillLabel: "تبريد · {{countdown}}",
+    resumeNow: "استئناف الآن",
+    cancel: "إلغاء الاستئناف التلقائي",
+    resumesAt: "مجدول للاستئناف التلقائي في {{time}}",
+    attemptBadge: "المحاولة {{current}} من {{max}}",
+  },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
     title: "جلسة الاستيراد",

@@ -424,6 +424,16 @@ export const fr: TranslationResources = {
       manual: "Reprise",
     },
   },
+  rateLimitCooldown: {
+    title: "Refroidissement limite de débit actif",
+    bannerMessage:
+      "Refroidissement du modèle en cours. Reprise automatique dans {{countdown}} (à {{time}}).",
+    pillLabel: "Refroidissement · {{countdown}}",
+    resumeNow: "Reprendre maintenant",
+    cancel: "Annuler la reprise automatique",
+    resumesAt: "Reprise automatique prévue à {{time}}",
+    attemptBadge: "Tentative {{current}} sur {{max}}",
+  },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
     title: "Importer une session",

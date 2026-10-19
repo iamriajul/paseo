@@ -129,18 +129,30 @@ import { isLoopbackHttpUrl, rewriteWithVscodeProxyUri } from "@/utils/localhost-
 import { openExternalUrl } from "@/utils/open-external-url";
 import { useStreamHistoryWindow } from "./use-stream-history-window";
 import { PluginTimelineItemView, useInstalledTimelineTransform } from "@/plugins/timeline";
+import { RateLimitCooldownBanner } from "@/rate-limit-cooldown/rate-limit-cooldown-banner";
 
 function renderLiveAuxiliaryNode(input: {
   pendingPermissions: ReactNode;
   turnFooter: ReactNode;
+  rateLimitCooldown?: ReactNode;
   bottomOverlayInset: number;
 }): ReactNode {
-  if (!input.pendingPermissions && !input.turnFooter && input.bottomOverlayInset === 0) {
+  if (
+    !input.pendingPermissions &&
+    !input.turnFooter &&
+    !input.rateLimitCooldown &&
+    input.bottomOverlayInset === 0
+  ) {
     return null;
   }
   return (
     <>
       {input.turnFooter}
+      {input.rateLimitCooldown ? (
+        <View style={stylesheet.contentWrapper}>
+          <View style={stylesheet.listHeaderContent}>{input.rateLimitCooldown}</View>
+        </View>
+      ) : null}
       {input.pendingPermissions ? (
         <View style={stylesheet.contentWrapper}>
           <View style={stylesheet.listHeaderContent}>{input.pendingPermissions}</View>
@@ -1347,6 +1359,19 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         supportsNativeFork,
       ],
     );
+    const rateLimitCooldownNode = useMemo(
+      () =>
+        context.rateLimitCooldown ? (
+          <RateLimitCooldownBanner
+            serverId={resolvedServerId}
+            agentId={agentId}
+            cooldown={context.rateLimitCooldown}
+            onToastError={toast?.error}
+          />
+        ) : null,
+      [context.rateLimitCooldown, resolvedServerId, agentId, toast],
+    );
+
     const renderModel = useMemo<AgentStreamRenderModel>(() => {
       return {
         ...baseRenderModel,
@@ -1354,9 +1379,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         auxiliary: {
           pendingPermissions: pendingPermissionsNode,
           turnFooter: turnFooterNode,
+          rateLimitCooldown: rateLimitCooldownNode,
         },
       };
-    }, [baseRenderModel, pendingPermissionsNode, turnFooterNode]);
+    }, [baseRenderModel, pendingPermissionsNode, turnFooterNode, rateLimitCooldownNode]);
 
     const emptyStateStyle = useMemo(() => [stylesheet.emptyState, stylesheet.contentWrapper], []);
     const scrollToBottomContainerStyle = useMemo(
@@ -1441,9 +1467,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       return renderLiveAuxiliaryNode({
         pendingPermissions: auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
+        rateLimitCooldown: auxiliary.rateLimitCooldown,
         bottomOverlayInset,
       });
-    }, [auxiliary.pendingPermissions, auxiliary.turnFooter, bottomOverlayTailClearance]);
+    }, [
+      auxiliary.pendingPermissions,
+      auxiliary.turnFooter,
+      auxiliary.rateLimitCooldown,
+      bottomOverlayTailClearance,
+    ]);
 
     const renderers = useMemo<StreamSegmentRenderers>(
       () => ({
@@ -1617,6 +1649,7 @@ function collectAgentScreenAgentDiffs(left: AgentScreenAgent, right: AgentScreen
     reasons.push("agent.capabilities");
   }
   if (left.lastError !== right.lastError) reasons.push("agent.lastError");
+  if (left.rateLimitCooldown !== right.rateLimitCooldown) reasons.push("agent.rateLimitCooldown");
   reasons.push(...collectAgentSetupDiffs(left, right));
   reasons.push(...collectAgentProjectPlacementDiffs(left.projectPlacement, right.projectPlacement));
   return reasons;

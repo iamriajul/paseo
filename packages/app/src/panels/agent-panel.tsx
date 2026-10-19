@@ -107,6 +107,7 @@ import { derivePendingPermissionKey, normalizeAgentSnapshot } from "@/utils/agen
 import { applyLegacyDaemonWorkspaceOwnership } from "@/workspace/legacy-daemon-workspaces";
 import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
 import { buildDraftAgentSetup, type ClientSlashCommand } from "@/client-slash-commands";
+import { useIsRateLimitCooldownActive } from "@/rate-limit-cooldown/use-rate-limit-cooldown";
 
 interface ChatAgentStateShape {
   serverId: string | null;
@@ -122,6 +123,7 @@ interface ChatAgentStateShape {
   runtimeInfo?: Agent["runtimeInfo"];
   features?: Agent["features"];
   lastError?: Agent["lastError"] | null;
+  rateLimitCooldown?: Agent["rateLimitCooldown"] | null;
 }
 
 interface ChatAgentSelectedState extends ChatAgentStateShape {
@@ -158,6 +160,7 @@ const EMPTY_CHAT_AGENT_STATE: ChatAgentSelectedState = {
   archivedAt: null,
   requiresAttention: false,
   attentionReason: null,
+  rateLimitCooldown: null,
 };
 
 function selectChatAgentState(
@@ -184,6 +187,7 @@ function selectChatAgentState(
     archivedAt: agent.archivedAt ?? null,
     requiresAttention: agent.requiresAttention ?? false,
     attentionReason: agent.attentionReason ?? null,
+    rateLimitCooldown: agent.rateLimitCooldown ?? null,
   };
 }
 
@@ -208,6 +212,7 @@ function buildChatAgentFromState(
     runtimeInfo: state.runtimeInfo,
     features: state.features,
     lastError: state.lastError ?? null,
+    rateLimitCooldown: state.rateLimitCooldown ?? null,
     projectPlacement,
   };
 }
@@ -1131,6 +1136,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   // With a composer the parent is a pill above it; without one, the box takes the composer's place.
   const parentPillAgentId = showsComposer ? parentAgentId : null;
   const hasForkTracks = useForkAgentTrackPresence({ serverId, agentId });
+  const isCooldownActive = useIsRateLimitCooldownActive(agentState.rateLimitCooldown);
   const hasVisibleAgentTracks =
     hasAgentTracks({
       parentAgentId: parentPillAgentId,
@@ -1138,7 +1144,9 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
       tasks,
       archiveFinishedStatus: archiveFinishedSubagents.status,
       hasPluginComposerPills,
-    }) || hasForkTracks;
+    }) ||
+    hasForkTracks ||
+    isCooldownActive;
   const rawAgentInputDraft = useAgentInputDraft({
     draftKey: buildDraftStoreKey({
       serverId,

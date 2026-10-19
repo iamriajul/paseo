@@ -423,6 +423,16 @@ export const ru: TranslationResources = {
       manual: "Возобновлено",
     },
   },
+  rateLimitCooldown: {
+    title: "Активно ограничение скорости",
+    bannerMessage:
+      "Идет период ожидания модели. Автовозобновление через {{countdown}} (в {{time}}).",
+    pillLabel: "Ожидание · {{countdown}}",
+    resumeNow: "Возобновить сейчас",
+    cancel: "Отменить автовозобновление",
+    resumesAt: "Запланировано автовозобновление в {{time}}",
+    attemptBadge: "Попытка {{current}} из {{max}}",
+  },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
     title: "Импортировать сессию",

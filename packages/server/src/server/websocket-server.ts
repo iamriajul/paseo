@@ -205,6 +205,7 @@ interface WebSocketServerConfig {
   daemonStatusRpc?: boolean;
   relayConfig?: boolean;
   startPaused?: boolean;
+  gitRemotePoll?: SessionOptions["gitRemotePoll"];
 }
 
 type WebSocketRuntimeMetrics = SessionRuntimeMetrics & CheckoutDiffMetrics;
@@ -305,6 +306,7 @@ function createFallbackWorkspaceGitService(): WorkspaceGitService {
     }),
     scheduleRefreshForCwd: () => {},
     onWorkspaceStateMayHaveChanged: () => {},
+    applyRemotePoll: () => {},
     invalidateForge: () => {},
     getMetrics: () => ({
       workspaceTargetCount: 0,
@@ -603,6 +605,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly checkoutDiffManager: CheckoutDiffManager;
   private readonly github: ForgeService;
   private readonly workspaceGitService: WorkspaceGitService;
+  private readonly gitRemotePoll: SessionOptions["gitRemotePoll"];
   private readonly workspaceAutoName: WorkspaceAutoName;
   private readonly downloadTokenStore: DownloadTokenStore;
   private readonly paseoHome: string;
@@ -793,6 +796,7 @@ export class VoiceAssistantWebSocketServer {
     this.checkoutDiffManager = requiredServices.checkoutDiffManager;
     this.github = github ?? createGitHubService();
     this.workspaceGitService = workspaceGitService ?? createFallbackWorkspaceGitService();
+    this.gitRemotePoll = wsConfig.gitRemotePoll;
     this.workspaceAutoName = workspaceAutoName;
     this.downloadTokenStore = downloadTokenStore;
     this.paseoHome = paseoHome;
@@ -1740,6 +1744,7 @@ export class VoiceAssistantWebSocketServer {
       github: this.github,
       workspaceGitService: this.workspaceGitService,
       workspaceRuntimeStore: this.workspaceRuntimeStore,
+      gitRemotePoll: this.gitRemotePoll,
       workspaceAutoName: this.workspaceAutoName,
       daemonConfigStore: this.daemonConfigStore,
       pluginRuntime: this.pluginRuntime,

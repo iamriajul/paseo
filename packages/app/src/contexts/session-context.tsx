@@ -257,6 +257,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   // Client activity tracking (heartbeat, push token registration)
   useClientActivity({
     client,
+    serverId,
     focusedAgentId,
     focusedTerminalId,
   });

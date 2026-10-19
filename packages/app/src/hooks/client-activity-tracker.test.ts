@@ -66,6 +66,7 @@ function buildTracker(
     deviceType: overrides.deviceType ?? "web",
     initialFocusedAgentId: overrides.initialFocusedAgentId ?? "agent-1",
     initialFocusedTerminalId: overrides.initialFocusedTerminalId ?? null,
+    initialOpenWorkspaceId: overrides.initialOpenWorkspaceId ?? null,
     initialAppVisible: overrides.initialAppVisible ?? true,
     now: clock.now,
     onAppResumed: overrides.onAppResumed,
@@ -129,6 +130,19 @@ describe("client activity tracker", () => {
     tracker.setFocusedAgentId("agent-1");
 
     expect(client.recordedHeartbeats).toHaveLength(0);
+  });
+
+  it("sends one heartbeat when the open workspace id changes", () => {
+    const { tracker, client, clock } = buildTracker({ initialOpenWorkspaceId: null });
+
+    clock.advance(5_000);
+    tracker.setOpenWorkspaceId("workspace-1");
+
+    expect(client.recordedHeartbeats).toHaveLength(1);
+    expect(client.latest()).toMatchObject({
+      openWorkspaceId: "workspace-1",
+      lastActivityAt: new Date(START_MS + 5_000).toISOString(),
+    });
   });
 
   it("sends one immediate heartbeat when the focused terminal changes", () => {

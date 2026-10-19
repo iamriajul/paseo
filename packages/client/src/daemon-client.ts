@@ -2669,6 +2669,7 @@ export class DaemonClient {
     deviceType: "web" | "mobile";
     focusedAgentId: string | null;
     focusedTerminalId?: string | null;
+    openWorkspaceId?: string | null;
     lastActivityAt: string;
     appVisible: boolean;
     appVisibilityChangedAt?: string;
@@ -2678,6 +2679,7 @@ export class DaemonClient {
       deviceType: params.deviceType,
       focusedAgentId: params.focusedAgentId,
       focusedTerminalId: params.focusedTerminalId ?? null,
+      openWorkspaceId: params.openWorkspaceId ?? null,
       lastActivityAt: params.lastActivityAt,
       appVisible: params.appVisible,
       appVisibilityChangedAt: params.appVisibilityChangedAt,

@@ -317,11 +317,12 @@ function createService(options?: CreateServiceTestOptions) {
         diffStat: await deps.getCheckoutShortstat(),
       };
     });
-  return new WorkspaceGitServiceImpl({
+  const service = new WorkspaceGitServiceImpl({
     logger: createLogger() as unknown as pino.Logger,
     paseoHome: "/tmp/paseo-test",
     deps,
   });
+  return service;
 }
 
 describe("WorkspaceGitServiceImpl", () => {

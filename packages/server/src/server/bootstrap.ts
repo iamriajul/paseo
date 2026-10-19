@@ -8,6 +8,10 @@ import {
 } from "./agent/finish-subscriptions/index.js";
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import { AgentRateLimitAutoResumeManager } from "./agent/agent-rate-limit-auto-resume.js";
+import {
+  createGitRemotePollGate,
+  type GitRemotePollGate,
+} from "./git-remote-poll/git-remote-poll-gate.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
@@ -1562,11 +1566,30 @@ export async function createPaseoDaemon(
   });
   logger.info({ elapsed: elapsed() }, "Schedule service initialized");
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");
+  let gitRemotePollGate: GitRemotePollGate | null = null;
   const persistedRecords = await agentStorage.list();
   logger.info(
     { elapsed: elapsed() },
     `Agent registry loaded (${persistedRecords.length} record${persistedRecords.length === 1 ? "" : "s"}); agents will initialize on demand`,
   );
+  gitRemotePollGate = createGitRemotePollGate({
+    workspaceGitService,
+    workspaceRegistry,
+    agentStorage,
+    agentManager: {
+      listAgents: () => agentManager.listAgentsIncludingInternal(),
+      subscribe: (callback) =>
+        agentManager.subscribe(
+          (event) => {
+            if (event.type === "agent_state") callback(event);
+          },
+          { includeInternal: true, replayState: false },
+        ),
+    },
+    now: () => Date.now(),
+    logger,
+  });
+  await gitRemotePollGate.start(persistedRecords);
   logger.info(
     "Voice mode configured for agent-scoped resume flow (no dedicated voice assistant provider)",
   );
@@ -1929,6 +1952,7 @@ export async function createPaseoDaemon(
                 daemonStatusRpc: dependencies.serverFeatureOverrides?.daemonStatusRpc,
                 relayConfig: dependencies.serverFeatureOverrides?.relayConfig,
                 startPaused: true,
+                gitRemotePoll: gitRemotePollGate,
               },
               workspaceAutoName,
               workspaceRuntimeStore,
@@ -2068,6 +2092,7 @@ export async function createPaseoDaemon(
   };
 
   const stop = async (options?: { keepTerminals?: boolean }) => {
+    gitRemotePollGate?.stop();
     const keepTerminals = options?.keepTerminals === true;
     let terminalShutdownError: unknown = null;
     localCredential = null;

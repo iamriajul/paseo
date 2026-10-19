@@ -25,6 +25,28 @@ const renderingPanels = [
     files: { extensions: ["pdf"] },
     fileKind: "binary",
   },
+  {
+    id: "builtin:office",
+    builtin: true,
+    // Kept in step with OFFICE_PREVIEW_FORMATS in packages/app/src/file-explorer/office.ts.
+    files: {
+      extensions: [
+        "docx",
+        "docm",
+        "dotx",
+        "dotm",
+        "xlsx",
+        "xlsm",
+        "xltx",
+        "xltm",
+        "pptx",
+        "pptm",
+        "potx",
+        "potm",
+      ],
+    },
+    fileKind: "binary",
+  },
 ] as const satisfies readonly FilePanelCandidate[];
 
 /**

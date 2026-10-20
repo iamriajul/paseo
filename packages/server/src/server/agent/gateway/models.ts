@@ -30,6 +30,7 @@ export interface CliproxyAnthropicModelRow {
   maxInputTokens?: number;
   maxOutputTokens?: number;
   rawListId: string;
+  claudeWebSearch?: boolean;
 }
 
 export interface GatewayCodexModelRow {
@@ -104,6 +105,7 @@ export async function fetchCliproxyAnthropicModels(
     Authorization: `Bearer ${options.token}`,
     "Anthropic-Version": "2023-06-01",
     "User-Agent": "claude-cli/paseo",
+    "X-CPA-Client": "paseo",
   };
 
   let afterId: string | undefined;
@@ -346,6 +348,11 @@ function mapCliproxyAnthropicModelRow(
   const ownedBy = readString(value.owned_by)?.trim() ?? "";
   const maxInputTokens = readFiniteNumber(value.max_input_tokens);
   const maxOutputTokens = readFiniteNumber(value.max_tokens);
+  const cpaCapabilities = isRecord(value.cpa_capabilities) ? value.cpa_capabilities : undefined;
+  const claudeWebSearch =
+    typeof cpaCapabilities?.claude_web_search === "boolean"
+      ? cpaCapabilities.claude_web_search
+      : undefined;
 
   return {
     id: decodedModel.id,
@@ -354,6 +361,7 @@ function mapCliproxyAnthropicModelRow(
     ...(maxInputTokens === undefined ? {} : { maxInputTokens }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     rawListId: decodedModel.rawListId,
+    ...(claudeWebSearch === undefined ? {} : { claudeWebSearch }),
   };
 }
 

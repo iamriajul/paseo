@@ -580,7 +580,7 @@ npx vitest run packages/server/src/server/agent/gateway/models.test.ts packages/
 
 **Claude Gateway launch: WebSearch rule, image gating, immediate capacity**
 
-Gateway-routed custom models disallow `WebSearch` (the Gateway does not serve it for non-Anthropic models), gate image blocks on known `inputModalities` with a file-hint fallback, merge auto-persisted limits (now including modalities) into the running client's in-memory models so the first post-discovery session launches with resolved capacity.
+Gateway-routed custom models disallow `WebSearch` unless the gateway advertises `cpa_capabilities.claude_web_search: true` (a proxy without the bit or with `false` still disallows it to prevent ungrounded or failing searches), gate image blocks on known `inputModalities` with a file-hint fallback, merge auto-persisted limits (now including modalities) into the running client's in-memory models so the first post-discovery session launches with resolved capacity.
 
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1

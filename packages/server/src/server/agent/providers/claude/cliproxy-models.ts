@@ -43,6 +43,8 @@ export interface AppendCliproxyModelsResult {
   autoPersist: CliproxyAdditionalModelLimits[];
   /** Every id CPA returned, including first-party ids whose windows we do not overlay. */
   advertisedIds: string[];
+  /** Every id whose CPA catalog row had claudeWebSearch === true. */
+  webSearchModelIds: string[];
 }
 
 export interface AppendCliproxyModelsOptions {
@@ -124,8 +126,12 @@ export async function appendCliproxyModelsToClaudeCatalog(
   const autoPersist: CliproxyAdditionalModelLimits[] = [];
 
   const advertisedIds: string[] = [];
+  const webSearchModelIds: string[] = [];
   for (const row of options.rows) {
     advertisedIds.push(row.id);
+    if (row.claudeWebSearch === true) {
+      webSearchModelIds.push(row.id);
+    }
     // Manifest owns these: 200k base, separate [1m] variant, Opus 5.5 always 1M.
     // CPA reports the base id as 1M, which would collapse that pair.
     if (normalizeClaudeRuntimeModelId(row.id)) continue;
@@ -159,7 +165,24 @@ export async function appendCliproxyModelsToClaudeCatalog(
     ),
     autoPersist,
     advertisedIds,
+    webSearchModelIds,
   };
+}
+
+/**
+ * True when the model id (with optional [1m] stripped) is in the set of
+ * gateway models whose catalog row explicitly advertised claude_web_search === true.
+ */
+export function cliproxyModelSupportsWebSearch(options: {
+  modelId: string | null | undefined;
+  webSearchModelIds: ReadonlySet<string> | null | undefined;
+}): boolean {
+  const modelId = options.modelId?.trim() ?? "";
+  if (!modelId || !options.webSearchModelIds) return false;
+  for (const candidate of cliproxyapiRouteIds(modelId)) {
+    if (options.webSearchModelIds.has(candidate)) return true;
+  }
+  return false;
 }
 
 /**

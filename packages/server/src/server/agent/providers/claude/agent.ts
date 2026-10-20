@@ -62,6 +62,7 @@ import {
 } from "./model-manifest.js";
 import {
   appendCliproxyModelsToClaudeCatalog,
+  cliproxyModelSupportsWebSearch,
   mergeAdditionalModelLimits,
   resolveCliproxyAnthropicCredentials,
   shouldRouteClaudeModelThroughCliproxyapi,
@@ -479,6 +480,8 @@ export interface ClaudeAgentClientOptions {
   runtimeSettings?: ProviderRuntimeSettings;
   /** First-party Gateway routing (registry sets it only when it applies). */
   gateway?: ResolvedGatewayConfig;
+  cliproxyapiAdvertisedIds?: ReadonlySet<string> | null;
+  cliproxyWebSearchModelIds?: ReadonlySet<string> | null;
   profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
@@ -522,6 +525,7 @@ interface ClaudeAgentSessionOptions {
   /** First-party Gateway routing (client sets it only when it applies). */
   gateway?: ResolvedGatewayConfig;
   cliproxyapiAdvertisedIds?: ReadonlySet<string> | null;
+  cliproxyWebSearchModelIds?: ReadonlySet<string> | null;
   /** Per-model effort ceilings from the gateway's Codex-shape catalog. */
   cliproxyEffortProfiles?: ReadonlyMap<string, CliproxyEffortProfile> | null;
   profileModels?: Array<{
@@ -1665,6 +1669,7 @@ export class ClaudeAgentClient implements AgentClient {
   private readonly runtimeSettings?: ProviderRuntimeSettings;
   private readonly gateway?: ResolvedGatewayConfig;
   private cliproxyapiAdvertisedIds: ReadonlySet<string> | null = null;
+  private cliproxyWebSearchModelIds: ReadonlySet<string> | null = null;
   private cliproxyEffortProfiles: ReadonlyMap<string, CliproxyEffortProfile> | null = null;
   private profileModels?: Array<{
     id: string;
@@ -1686,6 +1691,8 @@ export class ClaudeAgentClient implements AgentClient {
     this.logger = options.logger.child({ module: "agent", provider: "claude" });
     this.runtimeSettings = options.runtimeSettings;
     this.gateway = options.gateway;
+    this.cliproxyapiAdvertisedIds = options.cliproxyapiAdvertisedIds ?? null;
+    this.cliproxyWebSearchModelIds = options.cliproxyWebSearchModelIds ?? null;
     this.profileModels = options.profileModels;
     this.additionalModels = options.additionalModels;
     this.queryFactory = options.queryFactory;
@@ -1712,6 +1719,7 @@ export class ClaudeAgentClient implements AgentClient {
       profileModels: this.profileModels,
       gateway: this.gateway,
       cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
+      cliproxyWebSearchModelIds: this.cliproxyWebSearchModelIds,
       cliproxyEffortProfiles: this.cliproxyEffortProfiles,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
@@ -1745,6 +1753,7 @@ export class ClaudeAgentClient implements AgentClient {
       profileModels: this.profileModels,
       gateway: this.gateway,
       cliproxyapiAdvertisedIds: this.cliproxyapiAdvertisedIds,
+      cliproxyWebSearchModelIds: this.cliproxyWebSearchModelIds,
       cliproxyEffortProfiles: this.cliproxyEffortProfiles,
       handle,
       agentId: launchContext?.agentId,
@@ -1821,8 +1830,15 @@ export class ClaudeAgentClient implements AgentClient {
           );
         }
         this.cliproxyapiAdvertisedIds = new Set(usableRows.map((row) => row.id));
+        this.cliproxyWebSearchModelIds = new Set(
+          usableRows.filter((row) => row.claudeWebSearch === true).map((row) => row.id),
+        );
         if (usableRows.length > 0) {
-          const { models: nextModels, autoPersist } = await appendCliproxyModelsToClaudeCatalog({
+          const {
+            models: nextModels,
+            autoPersist,
+            webSearchModelIds,
+          } = await appendCliproxyModelsToClaudeCatalog({
             baseModels: models,
             rows: usableRows,
             existingAdditionalModels: this.additionalModels ?? this.profileModels ?? [],
@@ -1830,6 +1846,7 @@ export class ClaudeAgentClient implements AgentClient {
             getCustomThinkingOptions: () => getClaudeCustomModelThinkingOptions(),
             effortProfiles: await this.fetchCliproxyEffortProfiles(credentials),
           });
+          this.cliproxyWebSearchModelIds = new Set(webSearchModelIds);
           models = await this.persistCliproxyCatalogCapacity(nextModels, autoPersist);
         } else if (this.gateway) {
           // Nothing to go on: say so, because Claude Code will assume 200K and
@@ -2380,6 +2397,7 @@ class ClaudeAgentSession implements AgentSession {
   private readonly gateway?: ResolvedGatewayConfig;
   private readonly cliproxyEffortProfiles: ReadonlyMap<string, CliproxyEffortProfile> | null;
   private readonly cliproxyapiAdvertisedIds: ReadonlySet<string> | null;
+  private readonly cliproxyWebSearchModelIds: ReadonlySet<string> | null;
   private readonly profileModels?: Array<{
     id: string;
     contextWindowMaxTokens?: number;
@@ -2487,6 +2505,7 @@ class ClaudeAgentSession implements AgentSession {
     this.runtimeSettings = options.runtimeSettings;
     this.gateway = options.gateway;
     this.cliproxyapiAdvertisedIds = options.cliproxyapiAdvertisedIds ?? null;
+    this.cliproxyWebSearchModelIds = options.cliproxyWebSearchModelIds ?? null;
     this.cliproxyEffortProfiles = options.cliproxyEffortProfiles ?? null;
     this.profileModels = options.profileModels;
     this.harnessEnvironment = this.buildSdkEnv();
@@ -4026,15 +4045,19 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   /**
-   * Gateway-routed custom models run behind CLIProxyAPI, which does not serve
-   * Claude Code's first-party WebSearch tool. Disallow it so the model does not
-   * attempt searches that can never succeed.
+   * Gateway-routed custom models run behind CLIProxyAPI. Disallow WebSearch unless
+   * the gateway explicitly advertised claude_web_search === true for this model,
+   * so the model does not attempt searches that can never succeed or return ungrounded answers.
    */
   private applyGatewayDisallowedTools(base: ClaudeOptions, env: NodeJS.ProcessEnv): void {
     if (
       this.gateway &&
       isClaudeCustomNonFamilyModel(this.config.model) &&
       gatewayBaseUrlsMatch(env["ANTHROPIC_BASE_URL"], this.gateway.baseUrl) &&
+      !cliproxyModelSupportsWebSearch({
+        modelId: this.config.model,
+        webSearchModelIds: this.cliproxyWebSearchModelIds,
+      }) &&
       !base.disallowedTools?.includes("WebSearch")
     ) {
       base.disallowedTools = [...(base.disallowedTools ?? []), "WebSearch"];

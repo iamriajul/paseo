@@ -130,3 +130,18 @@ it("preserves provider-defined labels even when their IDs match a standard perio
     "Custom review allowance",
   );
 });
+
+describe("precise reset durations", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("keeps the next-smaller unit so a reset reads precisely", () => {
+    const at = (ms: number) => new Date(NOW + ms).toISOString();
+    expect(formatResetLabel(at((24 + 5) * 3600_000), false, NOW)).toBe("resets 1d 5h");
+    expect(formatResetLabel(at((5 * 60 + 30) * 60_000), false, NOW)).toBe("resets 5h 30m");
+    expect(formatResetLabel(at(5 * 3600_000), false, NOW)).toBe("resets 5h");
+    expect(formatResetLabel(at(45 * 60_000), false, NOW)).toBe("resets 45m");
+    expect(formatResetLabel(at(30_000), false, NOW)).toBe("resets <1m");
+  });
+});

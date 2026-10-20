@@ -50,43 +50,61 @@ export function formatDisplayPct(
     : t("providerUsage.values.remaining", { amount: percentage });
 }
 
-type RelativeDuration = { unit: "now" } | { unit: "minutes" | "hours" | "days"; count: number };
+type DurationUnit = "minutes" | "hours" | "days";
+// A fork extension: durations keep their next-smaller unit ("1d 5h", "5h 30m") so a quota
+// reset reads precisely, and anything under a minute reads "<1m" instead of "0m".
+type RelativeDuration =
+  | { unit: "now" }
+  | { unit: "lessThanMinute" }
+  | {
+      unit: DurationUnit;
+      count: number;
+      remainder?: { unit: Exclude<DurationUnit, "days">; count: number };
+    };
 
 function formatCount(value: number): string {
   return new Intl.NumberFormat(i18n.resolvedLanguage).format(value);
 }
 
-function relativeDuration(iso: string, now: number): RelativeDuration | null {
+export function relativeDuration(iso: string, now: number): RelativeDuration | null {
   const diffMs = new Date(iso).getTime() - now;
   if (!Number.isFinite(diffMs)) return null;
   if (diffMs <= 0) return { unit: "now" };
   const diffMinutes = Math.floor(diffMs / 60_000);
   const diffHours = Math.floor(diffMinutes / 60);
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays > 0) return { unit: "days", count: diffDays };
-  if (diffHours > 0) return { unit: "hours", count: diffHours };
-  return { unit: "minutes", count: diffMinutes };
+  const remHours = diffHours % 24;
+  const remMinutes = diffMinutes % 60;
+  if (diffDays > 0) {
+    return remHours > 0
+      ? { unit: "days", count: diffDays, remainder: { unit: "hours", count: remHours } }
+      : { unit: "days", count: diffDays };
+  }
+  if (diffHours > 0) {
+    return remMinutes > 0
+      ? { unit: "hours", count: diffHours, remainder: { unit: "minutes", count: remMinutes } }
+      : { unit: "hours", count: diffHours };
+  }
+  if (diffMinutes > 0) return { unit: "minutes", count: diffMinutes };
+  return { unit: "lessThanMinute" };
+}
+
+function formatDurationUnit(unit: DurationUnit, count: number, t: TFunction): string {
+  return t(`providerUsage.duration.${unit}`, { count, value: formatCount(count) });
 }
 
 function formatRelativeDuration(duration: RelativeDuration, t: TFunction): string | null {
   switch (duration.unit) {
     case "now":
       return null;
-    case "days":
-      return t("providerUsage.duration.days", {
-        count: duration.count,
-        value: formatCount(duration.count),
-      });
-    case "hours":
-      return t("providerUsage.duration.hours", {
-        count: duration.count,
-        value: formatCount(duration.count),
-      });
-    case "minutes":
-      return t("providerUsage.duration.minutes", {
-        count: duration.count,
-        value: formatCount(duration.count),
-      });
+    case "lessThanMinute":
+      return `<${formatDurationUnit("minutes", 1, t)}`;
+    default: {
+      const base = formatDurationUnit(duration.unit, duration.count, t);
+      return duration.remainder
+        ? `${base} ${formatDurationUnit(duration.remainder.unit, duration.remainder.count, t)}`
+        : base;
+    }
   }
 }
 
@@ -148,9 +166,9 @@ export function formatAgo(
   });
 }
 
-export function formatAgo(iso: string | null | undefined): string | null {
+export function formatAgo(iso: string | null | undefined, now = Date.now()): string | null {
   if (!iso) return null;
-  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMs = now - new Date(iso).getTime();
   if (!Number.isFinite(diffMs)) return null;
   if (diffMs < 60_000) return "just now";
   const diffMinutes = Math.floor(diffMs / 60_000);

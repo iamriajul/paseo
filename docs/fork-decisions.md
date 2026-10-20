@@ -824,3 +824,13 @@ A workspace directory leaves the 180s `git fetch` and the forge PR retain when i
 npx vitest run packages/server/src/server/git-remote-poll/git-remote-poll.test.ts --bail=1
 grep -q "listAgentsIncludingInternal" packages/server/src/server/bootstrap.ts
 ```
+
+## precise-relative-time-resets
+
+**dynamic, precise relative time duration for quota resets and usage windows**
+
+Relative duration formatting produces compact, high-precision labels: when 24h or more in the future, it formats days and hours (e.g. `1d5h`, `7d14h`), or just days on exact boundaries (`1d`, `7d`); when less than 24h, it formats hours and minutes (e.g. `5h30m`, `1h15m`), or just hours on exact boundaries (`5h`); when less than 1h, it formats minutes (`45m`) or `<1m`. This gives precise readability to CLIProxyAPI account quotas and usage reset labels without overflowing compact layout rails.
+
+```bash
+npx vitest run packages/app/src/usage/format.test.ts --bail=1
+```

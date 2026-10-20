@@ -1834,11 +1834,7 @@ export class ClaudeAgentClient implements AgentClient {
           usableRows.filter((row) => row.claudeWebSearch === true).map((row) => row.id),
         );
         if (usableRows.length > 0) {
-          const {
-            models: nextModels,
-            autoPersist,
-            webSearchModelIds,
-          } = await appendCliproxyModelsToClaudeCatalog({
+          const { models: nextModels, autoPersist } = await appendCliproxyModelsToClaudeCatalog({
             baseModels: models,
             rows: usableRows,
             existingAdditionalModels: this.additionalModels ?? this.profileModels ?? [],
@@ -1846,7 +1842,6 @@ export class ClaudeAgentClient implements AgentClient {
             getCustomThinkingOptions: () => getClaudeCustomModelThinkingOptions(),
             effortProfiles: await this.fetchCliproxyEffortProfiles(credentials),
           });
-          this.cliproxyWebSearchModelIds = new Set(webSearchModelIds);
           models = await this.persistCliproxyCatalogCapacity(nextModels, autoPersist);
         } else if (this.gateway) {
           // Nothing to go on: say so, because Claude Code will assume 200K and

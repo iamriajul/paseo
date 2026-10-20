@@ -43,8 +43,6 @@ export interface AppendCliproxyModelsResult {
   autoPersist: CliproxyAdditionalModelLimits[];
   /** Every id CPA returned, including first-party ids whose windows we do not overlay. */
   advertisedIds: string[];
-  /** Every id whose CPA catalog row had claudeWebSearch === true. */
-  webSearchModelIds: string[];
 }
 
 export interface AppendCliproxyModelsOptions {
@@ -126,12 +124,8 @@ export async function appendCliproxyModelsToClaudeCatalog(
   const autoPersist: CliproxyAdditionalModelLimits[] = [];
 
   const advertisedIds: string[] = [];
-  const webSearchModelIds: string[] = [];
   for (const row of options.rows) {
     advertisedIds.push(row.id);
-    if (row.claudeWebSearch === true) {
-      webSearchModelIds.push(row.id);
-    }
     // Manifest owns these: 200k base, separate [1m] variant, Opus 5.5 always 1M.
     // CPA reports the base id as 1M, which would collapse that pair.
     if (normalizeClaudeRuntimeModelId(row.id)) continue;
@@ -165,7 +159,6 @@ export async function appendCliproxyModelsToClaudeCatalog(
     ),
     autoPersist,
     advertisedIds,
-    webSearchModelIds,
   };
 }
 

@@ -1076,46 +1076,6 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
       result.models.find((model) => model.id === "claude-sonnet-5")?.contextWindowMaxTokens,
     ).toBeUndefined();
   });
-
-  test("collects webSearchModelIds for rows with claudeWebSearch true", async () => {
-    const result = await appendCliproxyModelsToClaudeCatalog({
-      baseModels: base,
-      rows: [
-        {
-          id: "grok-4.5",
-          label: "Grok 4.5",
-          ownedBy: "xai",
-          rawListId: "claude-fable-5-dd-5.4-korg",
-          claudeWebSearch: true,
-        },
-        {
-          id: "grok-4.6",
-          label: "Grok 4.6",
-          ownedBy: "xai",
-          rawListId: "claude-fable-5-dd-6.4-korg",
-          claudeWebSearch: false,
-        },
-        {
-          id: "claude-opus-4-8",
-          label: "Opus 4.8",
-          ownedBy: "anthropic",
-          rawListId: "claude-opus-4-8",
-          claudeWebSearch: true,
-        },
-        {
-          id: "qwen-max",
-          label: "Qwen Max",
-          ownedBy: "alibaba",
-          rawListId: "claude-fable-5-dd-xam-newq",
-        },
-      ],
-      existingAdditionalModels: [],
-      lookupModelsDev: async () => ({ found: false, query: "unused" }),
-      getCustomThinkingOptions: () => [],
-    });
-    expect(result.advertisedIds).toEqual(["grok-4.5", "grok-4.6", "claude-opus-4-8", "qwen-max"]);
-    expect(result.webSearchModelIds).toEqual(["grok-4.5", "claude-opus-4-8"]);
-  });
 });
 
 describe("mergeAdditionalModelLimits", () => {

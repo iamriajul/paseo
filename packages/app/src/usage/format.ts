@@ -57,7 +57,11 @@ interface DurationPart {
   count: number;
 }
 /** Two units, floored, so a countdown keeps moving: "2d 23h", "4h 59m", "37m". */
-type RelativeDuration = { kind: "now" } | { kind: "remaining"; parts: DurationPart[] };
+// A fork rule on upstream's shape: under a minute reads "<1m" instead of "0m" (precise-relative-time-resets).
+type RelativeDuration =
+  | { kind: "now" }
+  | { kind: "under-minute" }
+  | { kind: "remaining"; parts: DurationPart[] };
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -67,13 +71,14 @@ function formatCount(value: number): string {
   return new Intl.NumberFormat(i18n.resolvedLanguage).format(value);
 }
 
-function relativeDuration(iso: string, now: number): RelativeDuration | null {
+export function relativeDuration(iso: string, now: number): RelativeDuration | null {
   const diffMs = new Date(iso).getTime() - now;
   if (!Number.isFinite(diffMs)) return null;
   if (diffMs <= 0) return { kind: "now" };
   const days = Math.floor(diffMs / DAY_MS);
   const hours = Math.floor((diffMs % DAY_MS) / HOUR_MS);
   const minutes = Math.floor((diffMs % HOUR_MS) / MINUTE_MS);
+  if (days === 0 && hours === 0 && minutes === 0) return { kind: "under-minute" };
   if (days > 0) return remaining({ unit: "days", count: days }, { unit: "hours", count: hours });
   if (hours > 0)
     return remaining({ unit: "hours", count: hours }, { unit: "minutes", count: minutes });
@@ -93,9 +98,10 @@ function formatDurationPart(part: DurationPart, t: TFunction): string {
 }
 
 function formatRelativeDuration(
-  duration: Extract<RelativeDuration, { kind: "remaining" }>,
+  duration: Exclude<RelativeDuration, { kind: "now" }>,
   t: TFunction,
 ): string {
+  if (duration.kind === "under-minute") return `<${formatDurationPart({ unit: "minutes", count: 1 }, t)}`;
   const [first, second] = duration.parts.map((part) => formatDurationPart(part, t));
   return second ? t("providerUsage.duration.pair", { first, second }) : first;
 }
@@ -181,9 +187,9 @@ export function formatAgo(
   });
 }
 
-export function formatAgo(iso: string | null | undefined): string | null {
+export function formatAgo(iso: string | null | undefined, now = Date.now()): string | null {
   if (!iso) return null;
-  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMs = now - new Date(iso).getTime();
   if (!Number.isFinite(diffMs)) return null;
   if (diffMs < 60_000) return "just now";
   const diffMinutes = Math.floor(diffMs / 60_000);

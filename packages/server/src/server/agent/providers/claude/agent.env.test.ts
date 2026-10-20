@@ -778,6 +778,8 @@ describe("Claude SDK env", () => {
       model: string;
       baseUrl?: string;
       runtimeDisallowedTools?: string[];
+      catalogRows?: unknown[];
+      fromCache?: boolean;
     }): Promise<readonly string[] | undefined> {
       let captured: readonly string[] | undefined;
       const queryFactory = vi.fn(({ options: sdkOptions }: ClaudeQueryInput) => {
@@ -800,7 +802,14 @@ describe("Claude SDK env", () => {
         ]);
       });
       const runtimeSettings: ProviderRuntimeSettings = {
-        ...(options.baseUrl ? { env: { ANTHROPIC_BASE_URL: options.baseUrl } } : {}),
+        ...(options.baseUrl
+          ? {
+              env: {
+                ANTHROPIC_BASE_URL: options.baseUrl,
+                ANTHROPIC_AUTH_TOKEN: gateway.apiKey,
+              },
+            }
+          : {}),
         ...(options.runtimeDisallowedTools
           ? { disallowedTools: options.runtimeDisallowedTools }
           : {}),
@@ -811,7 +820,67 @@ describe("Claude SDK env", () => {
         resolveBinary: async () => "/test/claude/bin",
         gateway,
         runtimeSettings,
+        profileModels: [],
       });
+      if (options.catalogRows) {
+        if (options.fromCache) {
+          const cacheHome = await fs.mkdtemp(path.join(os.tmpdir(), "paseo-claude-search-cache-"));
+          try {
+            vi.stubEnv("PASEO_HOME", cacheHome);
+            vi.stubEnv("PASEO_DISABLE_GATEWAY_CACHE", "0");
+            resetGatewayResponseCacheForTests();
+
+            const fetchImpl = vi.fn(
+              async () =>
+                new Response(
+                  JSON.stringify({
+                    data: options.catalogRows,
+                    has_more: false,
+                  }),
+                  {
+                    status: 200,
+                    headers: { "content-type": "application/json", "x-cpa-version": "test" },
+                  },
+                ),
+            );
+            vi.stubGlobal("fetch", fetchImpl);
+
+            const warmClient = new ClaudeAgentClient({
+              logger: createTestLogger(),
+              queryFactory,
+              resolveBinary: async () => "/test/claude/bin",
+              gateway,
+              runtimeSettings,
+              profileModels: [],
+            });
+            await warmClient.fetchCatalog({ scope: "global", force: true });
+            resetGatewayResponseCacheForTests();
+
+            fetchImpl.mockRejectedValue(new Error("connect ECONNREFUSED"));
+            await client.fetchCatalog({ scope: "global", force: true });
+          } finally {
+            await fs.rm(cacheHome, { recursive: true, force: true });
+          }
+        } else {
+          vi.stubGlobal(
+            "fetch",
+            vi.fn(
+              async () =>
+                new Response(
+                  JSON.stringify({
+                    data: options.catalogRows,
+                    has_more: false,
+                  }),
+                  {
+                    status: 200,
+                    headers: { "content-type": "application/json", "x-cpa-version": "test" },
+                  },
+                ),
+            ),
+          );
+          await client.fetchCatalog({ scope: "global", force: true });
+        }
+      }
       const session = await client.createSession({
         provider: "claude",
         cwd: process.cwd(),
@@ -856,6 +925,76 @@ describe("Claude SDK env", () => {
         runtimeDisallowedTools: ["WebSearch"],
       });
       expect(disallowedTools).toEqual(["WebSearch"]);
+    });
+
+    test("allows WebSearch for gateway-routed custom models with claude_web_search: true", async () => {
+      const disallowedTools = await captureDisallowedTools({
+        model: "grok-4.5",
+        baseUrl: "http://127.0.0.1:8317/v1",
+        catalogRows: [
+          {
+            id: "claude-fable-5-dd-5.4-korg",
+            display_name: "Grok 4.5",
+            owned_by: "xai",
+            cpa_capabilities: { claude_web_search: true },
+          },
+        ],
+      });
+      expect(disallowedTools ?? []).not.toContain("WebSearch");
+    });
+
+    test("disallows WebSearch when gateway advertises claude_web_search: false", async () => {
+      const disallowedTools = await captureDisallowedTools({
+        model: "grok-4.5",
+        baseUrl: "http://127.0.0.1:8317/v1",
+        catalogRows: [
+          {
+            id: "claude-fable-5-dd-5.4-korg",
+            display_name: "Grok 4.5",
+            owned_by: "xai",
+            cpa_capabilities: { claude_web_search: false },
+          },
+        ],
+      });
+      expect(disallowedTools).toContain("WebSearch");
+    });
+
+    test.each([
+      ["string 'true'", "true"],
+      ["number 1", 1],
+      ["object {}", {}],
+      ["null", null],
+    ])("disallows WebSearch when claude_web_search is non-boolean (%s)", async (_, value) => {
+      const disallowedTools = await captureDisallowedTools({
+        model: "grok-4.5",
+        baseUrl: "http://127.0.0.1:8317/v1",
+        catalogRows: [
+          {
+            id: "claude-fable-5-dd-5.4-korg",
+            display_name: "Grok 4.5",
+            owned_by: "xai",
+            cpa_capabilities: { claude_web_search: value },
+          },
+        ],
+      });
+      expect(disallowedTools).toContain("WebSearch");
+    });
+
+    test("cached page replay preserves claude_web_search: true through mapCliproxyAnthropicModelRow", async () => {
+      const disallowedTools = await captureDisallowedTools({
+        model: "grok-4.5",
+        baseUrl: "http://127.0.0.1:8317/v1",
+        fromCache: true,
+        catalogRows: [
+          {
+            id: "claude-fable-5-dd-5.4-korg",
+            display_name: "Grok 4.5",
+            owned_by: "xai",
+            cpa_capabilities: { claude_web_search: true },
+          },
+        ],
+      });
+      expect(disallowedTools ?? []).not.toContain("WebSearch");
     });
   });
 

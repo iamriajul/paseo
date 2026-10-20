@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   appendCliproxyModelsToClaudeCatalog,
+  cliproxyModelSupportsWebSearch,
   mergeAdditionalModelLimits,
   resolveCliproxyAnthropicCredentials,
   shouldRouteClaudeModelThroughCliproxyapi,
@@ -11,6 +12,7 @@ import {
   fetchCliproxyAnthropicModels,
   isCliproxyNonChatModel,
   isOfficialCpaOwner,
+  mapCliproxyModelsPayload,
   responseHasCpaFingerprint,
 } from "../../gateway/models.js";
 
@@ -496,6 +498,101 @@ describe("fetchCliproxyAnthropicModels", () => {
     expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(fetchImpl.mock.calls.length).toBeLessThanOrEqual(CLIPROXY_MODELS_MAX_PAGES);
     expect(rows.map((r) => r.id)).toEqual(["claude-a"]);
+  });
+
+  test("sends X-CPA-Client paseo header on catalog requests", async () => {
+    let capturedHeaders: HeadersInit | undefined;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      capturedHeaders = init?.headers;
+      return new Response(JSON.stringify({ data: [], has_more: false }), {
+        status: 200,
+        headers: { "content-type": "application/json", "x-cpa-version": "1" },
+      });
+    });
+    await fetchCliproxyAnthropicModels({
+      baseUrl: "http://cpa.example",
+      token: "test-token",
+      fetchImpl,
+    });
+    expect(capturedHeaders).toMatchObject({
+      "X-CPA-Client": "paseo",
+      "User-Agent": "claude-cli/paseo",
+    });
+  });
+
+  test("decodes claude_web_search only when boolean", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "claude-fable-5-dd-5.4-korg",
+                display_name: "Grok 4.5",
+                cpa_capabilities: { claude_web_search: true },
+              },
+              {
+                id: "claude-fable-5-dd-6.4-korg",
+                display_name: "Grok 4.6",
+                cpa_capabilities: { claude_web_search: false },
+              },
+              {
+                id: "claude-fable-5-dd-7.4-korg",
+                display_name: "Grok 4.7",
+                cpa_capabilities: { claude_web_search: "true" },
+              },
+              {
+                id: "claude-fable-5-dd-8.4-korg",
+                display_name: "Grok 4.8",
+                cpa_capabilities: {},
+              },
+              {
+                id: "claude-fable-5-dd-9.4-korg",
+                display_name: "Grok 4.9",
+              },
+            ],
+            has_more: false,
+          }),
+          { status: 200, headers: { "content-type": "application/json", "x-cpa-version": "1" } },
+        ),
+    );
+    const rows = await fetchCliproxyAnthropicModels({
+      baseUrl: "http://cpa.example",
+      token: "t",
+      fetchImpl,
+    });
+    expect(rows.find((r) => r.id === "grok-4.5")?.claudeWebSearch).toBe(true);
+    expect(rows.find((r) => r.id === "grok-4.6")?.claudeWebSearch).toBe(false);
+    expect(rows.find((r) => r.id === "grok-4.7")?.claudeWebSearch).toBeUndefined();
+    expect(rows.find((r) => r.id === "grok-4.8")?.claudeWebSearch).toBeUndefined();
+    expect(rows.find((r) => r.id === "grok-4.9")?.claudeWebSearch).toBeUndefined();
+  });
+
+  test("replays cached page payloads preserving claudeWebSearch boolean", () => {
+    const rows = mapCliproxyModelsPayload({
+      data: [
+        {
+          id: "claude-fable-5-dd-5.4-korg",
+          display_name: "Grok 4.5",
+          cpa_capabilities: { claude_web_search: true },
+        },
+        {
+          id: "claude-fable-5-dd-6.4-korg",
+          display_name: "Grok 4.6",
+          cpa_capabilities: { claude_web_search: false },
+        },
+        {
+          id: "claude-fable-5-dd-7.4-korg",
+          display_name: "Grok 4.7",
+        },
+      ],
+      has_more: false,
+    });
+    expect(rows.map((r) => ({ id: r.id, claudeWebSearch: r.claudeWebSearch }))).toEqual([
+      { id: "grok-4.5", claudeWebSearch: true },
+      { id: "grok-4.6", claudeWebSearch: false },
+      { id: "grok-4.7", claudeWebSearch: undefined },
+    ]);
   });
 });
 
@@ -1028,5 +1125,84 @@ describe("mergeAdditionalModelLimits", () => {
         },
       ]),
     ).toBe(existing);
+  });
+});
+
+describe("cliproxyModelSupportsWebSearch", () => {
+  const webSearchIds = new Set(["grok-4.5", "gpt-5.6-sol"]);
+
+  test("returns true for advertised web search models", () => {
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "grok-4.5",
+        webSearchModelIds: webSearchIds,
+      }),
+    ).toBe(true);
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "gpt-5.6-sol",
+        webSearchModelIds: webSearchIds,
+      }),
+    ).toBe(true);
+  });
+
+  test("strips [1m] context flag when checking web search support", () => {
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "grok-4.5[1m]",
+        webSearchModelIds: webSearchIds,
+      }),
+    ).toBe(true);
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "grok-4.5[1M]",
+        webSearchModelIds: webSearchIds,
+      }),
+    ).toBe(true);
+  });
+
+  test("returns false for models without web search support", () => {
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "grok-4.6",
+        webSearchModelIds: webSearchIds,
+      }),
+    ).toBe(false);
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "unknown-model",
+        webSearchModelIds: webSearchIds,
+      }),
+    ).toBe(false);
+  });
+
+  test("returns false when webSearchModelIds is null or empty", () => {
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "grok-4.5",
+        webSearchModelIds: null,
+      }),
+    ).toBe(false);
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "grok-4.5",
+        webSearchModelIds: new Set(),
+      }),
+    ).toBe(false);
+  });
+
+  test("returns false for empty or null model id", () => {
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: "",
+        webSearchModelIds: webSearchIds,
+      }),
+    ).toBe(false);
+    expect(
+      cliproxyModelSupportsWebSearch({
+        modelId: null,
+        webSearchModelIds: webSearchIds,
+      }),
+    ).toBe(false);
   });
 });

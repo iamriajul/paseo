@@ -163,6 +163,22 @@ export async function appendCliproxyModelsToClaudeCatalog(
 }
 
 /**
+ * True when the model id (with optional [1m] stripped) is in the set of
+ * gateway models whose catalog row explicitly advertised claude_web_search === true.
+ */
+export function cliproxyModelSupportsWebSearch(options: {
+  modelId: string | null | undefined;
+  webSearchModelIds: ReadonlySet<string> | null | undefined;
+}): boolean {
+  const modelId = options.modelId?.trim() ?? "";
+  if (!modelId || !options.webSearchModelIds) return false;
+  for (const candidate of cliproxyapiRouteIds(modelId)) {
+    if (options.webSearchModelIds.has(candidate)) return true;
+  }
+  return false;
+}
+
+/**
  * CLIProxyAPI env is injected for the whole Claude provider. Use it only for
  * ids CPA advertised. A manifest model CPA did not list keeps the local
  * Claude Code login. Before discovery finishes, non-manifest models keep the

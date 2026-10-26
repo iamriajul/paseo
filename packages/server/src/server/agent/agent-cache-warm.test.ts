@@ -253,14 +253,14 @@ describe("AgentCacheWarmManager", () => {
     expect(sendPrompt).not.toHaveBeenCalled();
   });
 
-  it("triggers ping immediately if session was already idle past interval when enabled", async () => {
+  it("triggers ping immediately if session was already idle past interval but cache still warm", async () => {
     const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
     vi.setSystemTime(startTime);
 
-    // Last message was 60 minutes ago
-    const lastUserMessageAt = new Date(startTime - 60 * 60 * 1000);
+    // Last message was 59 minutes ago (past 58m interval, but within 60m cache window)
+    const lastResponseAt = new Date(startTime - 59 * 60 * 1000);
     const { manager, sendPrompt } = createHarness({
-      lastUserMessageAt,
+      lastResponseAt,
       featureEnabled: true,
     });
 
@@ -271,6 +271,35 @@ describe("AgentCacheWarmManager", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(sendPrompt).toHaveBeenCalledTimes(1);
     expect(manager.hasPending("agent-1")).toBe(false);
+  });
+
+  it("does not schedule or ping if cache has already expired when enabled", async () => {
+    const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+    vi.setSystemTime(startTime);
+
+    // Last message was 65 minutes ago (past 60m cache window)
+    const lastResponseAt = new Date(startTime - 65 * 60 * 1000);
+    const { manager, sendPrompt } = createHarness({
+      lastResponseAt,
+      featureEnabled: true,
+    });
+
+    manager.onFeatureToggled("agent-1", true);
+    expect(manager.hasPending("agent-1")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("refuses to schedule or ping for non-Claude models", () => {
+    const { manager, mockAgent } = createHarness({
+      featureEnabled: true,
+    });
+    mockAgent.config.model = "gemini-3.8-flash-high";
+
+    expect(manager.isFeatureEnabled(mockAgent.id)).toBe(false);
+    expect(manager.schedule(mockAgent.id)).toBe(false);
+    expect(manager.hasPending(mockAgent.id)).toBe(false);
   });
 
   it("bootstraps and schedules timers for all enabled loaded agents", () => {

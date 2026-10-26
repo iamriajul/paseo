@@ -43,3 +43,19 @@ export function isCacheWarmReply(text: string | null | undefined): boolean {
   const normalized = text.trim().toLowerCase();
   return normalized === "ok" || normalized === "ok." || normalized === "ok!";
 }
+
+export const CLAUDE_FAMILY_ALIASES = new Set(["opus", "sonnet", "haiku", "fable"]);
+
+export function isClaudeModel(modelId: string | null | undefined): boolean {
+  if (!modelId) return true;
+  const trimmed = modelId.trim().toLowerCase();
+  if (trimmed.includes("-dd-")) {
+    return false;
+  }
+  const bareModel = trimmed.split("/").pop() ?? "";
+  if (CLAUDE_FAMILY_ALIASES.has(bareModel)) {
+    return true;
+  }
+  const stripped = bareModel.replace(/^(?:us|eu|asia|ap)\.anthropic\./, "");
+  return stripped.startsWith("claude");
+}

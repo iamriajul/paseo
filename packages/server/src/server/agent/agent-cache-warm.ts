@@ -9,6 +9,7 @@ import {
   resolvePromptCacheWindows,
   isCacheWarmPrompt,
   isCacheWarmReply,
+  isClaudeModel,
 } from "@getpaseo/protocol/agent-cache-warm";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import type { AgentStorage } from "./agent-storage.js";
@@ -140,7 +141,11 @@ export class AgentCacheWarmManager {
 
   isFeatureEnabled(agentId: string): boolean {
     const agent = this.agentManager.getAgent(agentId);
-    if (!agent) {
+    if (!agent || agent.provider !== "claude") {
+      return false;
+    }
+    const modelId = agent.config?.model ?? agent.runtimeInfo?.model;
+    if (!isClaudeModel(modelId)) {
       return false;
     }
     return agent.config.featureValues?.[CLAUDE_CACHE_WARM_FEATURE_ID] === true;
@@ -149,6 +154,18 @@ export class AgentCacheWarmManager {
   onFeatureToggled(agentId: string, enabled: boolean): void {
     this.setConsecutivePings(agentId, 0);
     if (enabled) {
+      const agent = this.agentManager.getAgent(agentId);
+      if (agent) {
+        const lastTime = this.resolveAgentLastTime(agent);
+        const cacheWindowMs = resolveAgentCacheWindowMs(agent);
+        if (lastTime === null || this.now() - lastTime >= cacheWindowMs) {
+          this.logger.debug(
+            { agentId },
+            "Not scheduling cache warm ping on toggle: cache has already expired or no prior response",
+          );
+          return;
+        }
+      }
       this.schedule(agentId);
     } else {
       this.cancel(agentId);
@@ -180,13 +197,8 @@ export class AgentCacheWarmManager {
     this.onResponseOccurred(agentId, timestamp);
   }
 
-  private resolveAgentLastTime(agent: ManagedAgent): number {
-    return (
-      this.lastResponseTimestamps.get(agent.id) ??
-      agent.lastResponseAt?.getTime() ??
-      agent.updatedAt?.getTime() ??
-      this.now()
-    );
+  private resolveAgentLastTime(agent: ManagedAgent): number | null {
+    return this.lastResponseTimestamps.get(agent.id) ?? agent.lastResponseAt?.getTime() ?? null;
   }
 
   schedule(agentId: string): boolean {
@@ -209,7 +221,19 @@ export class AgentCacheWarmManager {
       return false;
     }
 
-    if (!agent.lastResponseAt && !agent.lastUserMessageAt) {
+    const lastTime = this.resolveAgentLastTime(agent);
+    if (lastTime === null) {
+      this.logger.debug({ agentId }, "Skipping cache warm schedule: no prior response recorded");
+      return false;
+    }
+
+    const cacheWindowMs = resolveAgentCacheWindowMs(agent);
+    const elapsedMs = this.now() - lastTime;
+    if (elapsedMs >= cacheWindowMs) {
+      this.logger.debug(
+        { agentId, elapsedMs, cacheWindowMs },
+        "Skipping cache warm schedule: cache has already expired",
+      );
       return false;
     }
 
@@ -224,8 +248,6 @@ export class AgentCacheWarmManager {
     }
 
     const intervalMs = resolveAgentCacheWarmIntervalMs(agent, this.configuredIntervalMs);
-    const lastTime = this.resolveAgentLastTime(agent);
-    const elapsedMs = this.now() - lastTime;
     const remainingMs = Math.max(0, intervalMs - elapsedMs);
 
     this.cancelTimerOnly(agentId);
@@ -274,9 +296,22 @@ export class AgentCacheWarmManager {
       return false;
     }
 
-    const intervalMs = resolveAgentCacheWarmIntervalMs(agent, this.configuredIntervalMs);
     const lastTime = this.resolveAgentLastTime(agent);
+    if (lastTime === null) {
+      return false;
+    }
+
+    const cacheWindowMs = resolveAgentCacheWindowMs(agent);
     const elapsedMs = this.now() - lastTime;
+    if (elapsedMs >= cacheWindowMs) {
+      this.logger.debug(
+        { agentId, elapsedMs, cacheWindowMs },
+        "Skipping cache warm ping: cache has already expired",
+      );
+      return false;
+    }
+
+    const intervalMs = resolveAgentCacheWarmIntervalMs(agent, this.configuredIntervalMs);
     if (elapsedMs < intervalMs) {
       this.logger.debug(
         { agentId, elapsedMs, intervalMs },

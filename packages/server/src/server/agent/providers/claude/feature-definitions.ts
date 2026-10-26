@@ -3,6 +3,7 @@ import type {
   AgentFeatureSelect,
   AgentFeatureToggle,
 } from "../../agent-sdk-types.js";
+import { isClaudeModel } from "@getpaseo/protocol/agent-cache-warm";
 import { claudeManifestModelSupportsFastMode } from "./model-manifest.js";
 
 export const CLAUDE_FAST_MODE_FEATURE: Omit<AgentFeatureToggle, "value"> = {
@@ -65,18 +66,20 @@ export function buildClaudeFeatures(input: {
     });
   }
 
-  // The Cache window (prompt_cache_ttl) select is always visible for Claude Code
-  // agents, defaulting to "default" (Automatic) if unset.
-  const promptCacheTtl = resolveClaudePromptCacheTtl(input.promptCacheTtl) ?? "default";
-  features.push({
-    ...CLAUDE_PROMPT_CACHE_TTL_FEATURE,
-    value: promptCacheTtl,
-  });
+  // The Cache window (prompt_cache_ttl) and cache warm-up features are only
+  // supported on first-party Claude models (starting with "claude", bare family aliases, or provider-prefixed).
+  if (isClaudeModel(input.modelId)) {
+    const promptCacheTtl = resolveClaudePromptCacheTtl(input.promptCacheTtl) ?? "default";
+    features.push({
+      ...CLAUDE_PROMPT_CACHE_TTL_FEATURE,
+      value: promptCacheTtl,
+    });
 
-  features.push({
-    ...CLAUDE_CACHE_WARM_FEATURE,
-    value: input.cacheWarmEnabled === true,
-  });
+    features.push({
+      ...CLAUDE_CACHE_WARM_FEATURE,
+      value: input.cacheWarmEnabled === true,
+    });
+  }
 
   return features;
 }

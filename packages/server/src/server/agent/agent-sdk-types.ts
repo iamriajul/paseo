@@ -193,6 +193,7 @@ export interface AgentRunOptions {
   resumeFrom?: AgentPersistenceHandle;
   maxThinkingTokens?: number;
   clientMessageId?: string;
+  isWarmPing?: boolean;
 }
 
 export interface AgentSteerOptions extends AgentRunOptions {

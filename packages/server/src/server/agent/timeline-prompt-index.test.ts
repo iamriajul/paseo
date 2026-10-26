@@ -51,4 +51,26 @@ describe("buildTimelinePromptIndex", () => {
     expect(result.prompts[0]?.preview).toHaveLength(120);
     expect(result.prompts[0]?.preview.endsWith("…")).toBe(true);
   });
+
+  it("excludes keepalive cache warm prompts from the index", () => {
+    const rows: AgentTimelineRow[] = [
+      {
+        seq: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        item: { type: "user_message", text: "Regular human question" },
+      },
+      {
+        seq: 2,
+        timestamp: "2026-01-01T00:00:01.000Z",
+        item: {
+          type: "user_message",
+          text: "AFK for a bit, keeping you alive. Reply with 'ok' only.",
+        },
+      },
+    ];
+
+    const result = buildTimelinePromptIndex("epoch-1", rows);
+    expect(result.prompts).toHaveLength(1);
+    expect(result.prompts[0]?.preview).toBe("Regular human question");
+  });
 });

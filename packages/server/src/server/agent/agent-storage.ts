@@ -51,6 +51,7 @@ const STORED_AGENT_SCHEMA = z.object({
   updatedAt: z.string(),
   lastActivityAt: z.string().optional(),
   lastUserMessageAt: z.string().nullable().optional(),
+  lastResponseAt: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
   labels: z.record(z.string(), z.string()).default({}),
   lastStatus: AgentStatusSchema.default("closed"),
@@ -75,6 +76,7 @@ const STORED_AGENT_SCHEMA = z.object({
   internal: z.boolean().optional(),
   archivedAt: z.string().nullable().optional(),
   owner: AgentOwnerSchema.optional(),
+  consecutiveWarmPings: z.number().optional(),
 });
 
 export type SerializableAgentConfig = Pick<

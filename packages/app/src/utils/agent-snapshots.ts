@@ -69,6 +69,10 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
     createdAt: agent.createdAt.toISOString(),
     updatedAt: agent.updatedAt.toISOString(),
     lastUserMessageAt: agent.lastUserMessageAt?.toISOString() ?? null,
+    ...(agent.lastResponseAt ? { lastResponseAt: agent.lastResponseAt.toISOString() } : {}),
+    ...(agent.consecutiveWarmPings !== undefined
+      ? { consecutiveWarmPings: agent.consecutiveWarmPings }
+      : {}),
     status: agent.status,
     ...projectActiveTurn(agent),
     capabilities: agent.capabilities,
@@ -95,6 +99,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
   const lastUserMessageAt = snapshot.lastUserMessageAt
     ? new Date(snapshot.lastUserMessageAt)
     : null;
+  const lastResponseAt = snapshot.lastResponseAt ? new Date(snapshot.lastResponseAt) : null;
   const attentionTimestamp = snapshot.attentionTimestamp
     ? new Date(snapshot.attentionTimestamp)
     : null;
@@ -115,6 +120,8 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     createdAt,
     updatedAt,
     lastUserMessageAt,
+    lastResponseAt,
+    consecutiveWarmPings: snapshot.consecutiveWarmPings ?? 0,
     lastActivityAt: updatedAt,
     capabilities: snapshot.capabilities,
     currentModeId: snapshot.currentModeId,

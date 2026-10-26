@@ -378,7 +378,7 @@ npm test --workspace=@getpaseo/app -- src/agent-stream/presentation.test.ts --ba
 
 **5m prompt cache TTL for orchestrator-spawned Claude agents**
 
-parented Claude agents created via create_agent default featureValues.prompt_cache_ttl=5m; explicit caller value wins verbatim; non-parented and non-Claude agents untouched; buildOptions maps the value onto the SDK env via CLAUDE_CODE_PROMPT_CACHE_TTL (5m/1h set it, default/missing/invalid unset, user env wins); prompt_cache_ttl select feature visible only when stamped; setFeature validates against default/5m/1h
+parented Claude agents created via create_agent default featureValues.prompt_cache_ttl=5m; explicit caller value wins verbatim; non-parented and non-Claude agents untouched; buildOptions maps the value onto the SDK env via CLAUDE_CODE_PROMPT_CACHE_TTL (5m/1h set it, default/missing/invalid unset, user env wins); prompt_cache_ttl (Cache window) select feature always visible for Claude Code agents (defaulting to 'default' when unstamped); setFeature validates against default/5m/1h
 
 ```bash
 npx vitest run packages/server/src/server/agent/create-agent/create.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/mcp-server.test.ts --bail=1
@@ -833,4 +833,22 @@ Relative duration formatting produces compact, high-precision labels: when 24h o
 
 ```bash
 npx vitest run packages/app/src/usage/format.test.ts --bail=1
+```
+
+## claude-prompt-cache-warming
+
+**automatic prompt cache warming for long-running Claude Code agent sessions**
+
+Allows users to keep their Anthropic prompt cache warm for long-running orchestrating sessions. Users toggle "Cache warm-up" directly from the composer toolbar track pill on specific sessions. When enabled on an idle session, `AgentCacheWarmManager` watches idle duration and sends a natural ping message ("AFK for a bit, keeping you alive. Reply with 'ok' only.") after 58 minutes of inactivity (or 4 minutes for subagents), resetting Claude Code's KV store cache eviction timer before it expires. The prompt is sent cleanly without `<paseo-system>` to prevent automated detection by Anthropic classifiers. `buildTimelinePromptIndex` detects and excludes the ping prompt from chat outline indexing, while the stream view renders a compact `CacheWarmedMarker` ("Cache warmed up") and hides the instant `ok` reply. The watchdog refuses to ping while turns are running or while user permission is pending, and reschedules when new message activity occurs.
+
+```bash
+npx vitest run packages/server/src/server/agent/agent-cache-warm.test.ts --config packages/server/vitest.config.ts --bail=1
+npx vitest run packages/server/src/server/agent/timeline-prompt-index.test.ts --config packages/server/vitest.config.ts --bail=1
+npx vitest run packages/protocol/src/agent-cache-warm.test.ts --bail=1
+npx vitest run packages/server/src/server/agent/providers/claude/agent.test.ts -t "cache_warm feature" --config packages/server/vitest.config.ts --bail=1
+npm --prefix packages/app run test -- src/composer/agent-controls/utils.test.ts
+npm --prefix packages/app run test -- src/prompt-cache/use-prompt-cache.test.ts
+npm --prefix packages/app run test -- src/prompt-cache/prompt-cache-pill.test.tsx
+grep -q "CLAUDE_CACHE_WARM_FEATURE_ID" packages/server/src/server/agent/providers/claude/feature-definitions.ts
+grep -q "CACHE_WARM_FEATURE_ID" packages/app/src/agent-controls/policy.ts
 ```

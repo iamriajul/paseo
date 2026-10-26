@@ -39,9 +39,12 @@ import {
   TodoListCard,
   CompactionMarker,
   ResumeMarker,
+  CacheWarmedMarker,
   MessageOuterSpacingProvider,
   type InlinePathTarget,
 } from "@/components/message";
+import { isCacheWarmPrompt, isCacheWarmReply } from "@getpaseo/protocol/agent-cache-warm";
+import { continuesTurn } from "./turn-membership";
 import { PlanCard } from "@/components/plan-card";
 import { getStreamItemMessageId, type StreamItem } from "@/types/stream";
 import type { PendingPermission } from "@/types/shared";
@@ -1225,10 +1228,22 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         const item = layoutItem.item;
         switch (item.kind) {
           case "user_message":
+            if (isCacheWarmPrompt(item.text)) {
+              return <CacheWarmedMarker />;
+            }
             return renderUserMessageItem(layoutItem, item);
 
-          case "assistant_message":
+          case "assistant_message": {
+            const isWarmPingReply =
+              isCacheWarmReply(item.text) &&
+              layoutItem.aboveItem?.kind === "user_message" &&
+              isCacheWarmPrompt(layoutItem.aboveItem.text) &&
+              continuesTurn(layoutItem.aboveItem, item);
+            if (isWarmPingReply) {
+              return null;
+            }
             return renderAssistantMessageItem(layoutItem, item);
+          }
 
           case "thought":
             return renderToolCallItem(layoutItem, item);

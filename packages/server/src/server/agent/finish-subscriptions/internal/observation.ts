@@ -62,8 +62,23 @@ export function createFinishObservation(input: {
             .catch(onError);
         };
         signal.throwIfAborted();
+        // A cache warm-up ping is a turn the caller never asked for, so it neither finishes
+        // nor disarms the subscription (fork: claude-prompt-cache-warming).
+        let inWarmPingTurn = false;
         const unsubscribe = agentManager.subscribe(
           (event) => {
+            if (event.type === "agent_stream" && event.event.type === "turn_started") {
+              inWarmPingTurn = agentManager.getAgent(agentId)?.activeTurnIsWarmPing === true;
+            }
+            if (inWarmPingTurn) {
+              if (
+                event.type === "agent_stream" &&
+                ["turn_completed", "turn_canceled", "turn_failed"].includes(event.event.type)
+              ) {
+                inWarmPingTurn = false;
+              }
+              return;
+            }
             if (event.type === "agent_state" && event.agent.lifecycle !== "idle")
               publish(toAgentPayload(event.agent, { title: stored?.title }));
             else if (

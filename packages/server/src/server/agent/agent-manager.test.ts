@@ -24,6 +24,7 @@ import { InMemoryAgentTimelineStore } from "./agent-timeline-store.js";
 import { toAgentPayload } from "./agent-projections.js";
 import { projectTimelineRows } from "./timeline-projection.js";
 import { getOpenAgentTabLabel, PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
+import { DEFAULT_CACHE_WARM_PING_PROMPT } from "@getpaseo/protocol/agent-cache-warm";
 import { startAgentRun } from "./agent-prompt.js";
 import { StaleProviderSessionError } from "./stale-provider-session-error.js";
 import { ensureAgentLoaded, ensureUnarchivedAgentLoaded } from "./agent-loading.js";
@@ -5407,6 +5408,47 @@ test("runAgent persists finished attention and idle status without an external s
   expect(persisted?.requiresAttention).toBe(true);
   expect(persisted?.attentionReason).toBe("finished");
   expect(persisted?.attentionTimestamp).toEqual(expect.any(String));
+});
+
+test("cache warm ping turn does not set requiresAttention or touch lastUserMessageAt", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-cache-warm-attention-"));
+  const storagePath = join(workdir, "agents");
+  const storage = new AgentStorage(storagePath, logger);
+  const manager = new AgentManager({
+    clients: {
+      codex: new TestAgentClient(),
+    },
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000999",
+  });
+
+  const snapshot = await manager.createAgent(
+    {
+      provider: "codex",
+      cwd: workdir,
+      title: "Cache warm ping attention test",
+    },
+    undefined,
+    { workspaceId: undefined },
+  );
+
+  const initialUserMessageAt = manager.getAgent(snapshot.id)?.lastUserMessageAt;
+  expect(initialUserMessageAt).toBeNull();
+
+  await manager.runAgent(snapshot.id, DEFAULT_CACHE_WARM_PING_PROMPT, { isWarmPing: true });
+  await manager.flush();
+
+  const live = manager.getAgent(snapshot.id);
+  expect(live?.lifecycle).toBe("idle");
+  expect(live?.attention.requiresAttention).toBe(false);
+  expect(live?.lastUserMessageAt).toBeNull();
+
+  const persisted = await storage.get(snapshot.id);
+  expect(persisted?.lastStatus).toBe("idle");
+  expect(persisted?.requiresAttention).toBe(false);
+  expect(persisted?.attentionReason).toBeNull();
+  expect(persisted?.lastUserMessageAt).toBeNull();
 });
 
 test("archiveSnapshot clears persisted attention and normalizes running status", async () => {

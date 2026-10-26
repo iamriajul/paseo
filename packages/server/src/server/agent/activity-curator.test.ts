@@ -329,6 +329,25 @@ second line'`,
     expect(curateAgentActivity([])).toBe("No activity to display.");
   });
 
+  it("excludes cache warm keepalive pings and their immediate ok replies from activity", () => {
+    const timeline: AgentTimelineItem[] = [
+      { type: "user_message", text: "Please review the pull request." },
+      { type: "assistant_message", text: "I have started reviewing the PR." },
+      { type: "user_message", text: "AFK for a bit, keeping you alive. Reply with 'ok' only." },
+      { type: "assistant_message", text: "ok" },
+      { type: "user_message", text: "Can you confirm tests?" },
+      { type: "assistant_message", text: "ok" },
+    ];
+
+    const result = curateAgentActivity(timeline);
+    expect(result).toContain("Please review the pull request.");
+    expect(result).toContain("I have started reviewing the PR.");
+    expect(result).not.toContain("AFK for a bit");
+    expect(result).toContain("Can you confirm tests?");
+    // Normal conversation "ok" reply is preserved, while keepalive ok is filtered
+    expect(result).toContain("ok");
+  });
+
   it("builds fork context from user messages, assistant messages, and tool summaries", () => {
     const result = buildAgentForkContextAttachment({
       agentTitle: "Source Agent",

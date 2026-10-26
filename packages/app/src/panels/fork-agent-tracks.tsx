@@ -15,6 +15,7 @@ import {
 import { refreshProviderHeartbeats } from "@/heartbeats/provider-store";
 import { useHeartbeatActions } from "@/heartbeats/use-heartbeat-actions";
 import { ProviderHeartbeatDetailSheet } from "@/heartbeats/provider-detail-sheet";
+import { PromptCachePill } from "@/prompt-cache/prompt-cache-pill";
 import { ScheduleFormSheet } from "@/components/schedules/schedule-form-sheet";
 import { useSchedules } from "@/hooks/use-schedules";
 import type { AggregatedSchedule } from "@/schedules/aggregated-schedules";
@@ -54,7 +55,13 @@ export function useForkAgentTrackPresence({
   const supportsBackgroundTasks = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.backgroundTasks === true,
   );
+  const isClaude = useSessionStore((state) => {
+    const session = state.sessions[serverId];
+    const agent = session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId);
+    return agent?.provider === "claude";
+  });
   return (
+    isClaude ||
     paseoHeartbeatRows.length > 0 ||
     providerHeartbeatRows.length > 0 ||
     (supportsBackgroundTasks && backgroundTaskRows.length > 0)
@@ -169,12 +176,19 @@ export const ForkAgentTracks = memo(function ForkAgentTracks({
     void refreshProviderHeartbeats(sessionClient, serverId, agentId).catch(() => undefined);
   }, [agentId, serverId, sessionClient, supportsProviderHeartbeats]);
 
-  if (heartbeatRows.length === 0 && backgroundTaskRows.length === 0) {
+  const isClaude = useSessionStore((state) => {
+    const session = state.sessions[serverId];
+    const agent = session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId);
+    return agent?.provider === "claude";
+  });
+
+  if (!isClaude && heartbeatRows.length === 0 && backgroundTaskRows.length === 0) {
     return null;
   }
 
   return (
     <>
+      {isClaude ? <PromptCachePill serverId={serverId} agentId={agentId} /> : null}
       <HeartbeatsTrack
         rows={heartbeatRows}
         onOpenRow={handleOpenHeartbeat}

@@ -111,6 +111,7 @@ import { observeReplayWorkflows } from "./subagents/workflow-replay-source.js";
 import { limitAgentTimelineItemContent } from "../../agent-timeline-content.js";
 import { readClaudeWorkflowResultFile } from "./subagents/workflow-output.js";
 import {
+  CLAUDE_CACHE_WARM_FEATURE_ID,
   CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
   CLAUDE_PROMPT_CACHE_TTL_VALUES,
   buildClaudeFeatures,
@@ -2076,6 +2077,7 @@ export class ClaudeAgentClient implements AgentClient {
       modelId: claudeConfig.model,
       fastModeEnabled: claudeConfig.featureValues?.fast_mode === true,
       promptCacheTtl: claudeConfig.featureValues?.prompt_cache_ttl,
+      cacheWarmEnabled: claudeConfig.featureValues?.[CLAUDE_CACHE_WARM_FEATURE_ID] === true,
     });
   }
 
@@ -2793,6 +2795,7 @@ class ClaudeAgentSession implements AgentSession {
       modelId: this.config.model,
       fastModeEnabled: this.config.featureValues?.fast_mode === true,
       promptCacheTtl: this.config.featureValues?.prompt_cache_ttl,
+      cacheWarmEnabled: this.config.featureValues?.[CLAUDE_CACHE_WARM_FEATURE_ID] === true,
     });
   }
 
@@ -3228,6 +3231,15 @@ class ClaudeAgentSession implements AgentSession {
       this.config.featureValues = {
         ...this.config.featureValues,
         prompt_cache_ttl: ttl,
+      };
+      this.cachedRuntimeInfo = null;
+      return;
+    }
+
+    if (featureId === CLAUDE_CACHE_WARM_FEATURE_ID) {
+      this.config.featureValues = {
+        ...this.config.featureValues,
+        [CLAUDE_CACHE_WARM_FEATURE_ID]: Boolean(value),
       };
       this.cachedRuntimeInfo = null;
       return;

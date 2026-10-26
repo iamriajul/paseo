@@ -2,6 +2,7 @@ import type { AgentFeature, AgentModelDefinition } from "@getpaseo/protocol/agen
 import { i18n } from "@/i18n/i18next";
 import { formatThinkingOptionLabel } from "@/agent-controls/labels";
 import {
+  CACHE_WARM_FEATURE_ID,
   FAST_MODE_FEATURE_ID,
   PLAN_MODE_FEATURE_ID,
   SPEED_FEATURE_ID,
@@ -49,6 +50,7 @@ export function getFeatureHighlightColor(featureId: string): FeatureHighlightCol
   switch (featureId) {
     case FAST_MODE_FEATURE_ID:
     case SPEED_FEATURE_ID:
+    case CACHE_WARM_FEATURE_ID:
       return "yellow";
     case "auto_accept":
       return "green";

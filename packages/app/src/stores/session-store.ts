@@ -79,6 +79,8 @@ export interface Agent {
   createdAt: Date;
   updatedAt: Date;
   lastUserMessageAt: Date | null;
+  lastResponseAt?: Date | null;
+  consecutiveWarmPings?: number;
   lastActivityAt: Date;
   capabilities: AgentCapabilityFlags;
   currentModeId: string | null;

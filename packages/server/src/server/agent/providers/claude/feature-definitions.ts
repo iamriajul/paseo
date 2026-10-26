@@ -17,12 +17,23 @@ export const CLAUDE_FAST_MODE_FEATURE: Omit<AgentFeatureToggle, "value"> = {
 export const CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID = "prompt_cache_ttl";
 export const CLAUDE_PROMPT_CACHE_TTL_VALUES = ["default", "5m", "1h"] as const;
 
+export const CLAUDE_CACHE_WARM_FEATURE_ID = "cache_warm";
+
+export const CLAUDE_CACHE_WARM_FEATURE: Omit<AgentFeatureToggle, "value"> = {
+  type: "toggle",
+  id: CLAUDE_CACHE_WARM_FEATURE_ID,
+  label: "Cache warm-up",
+  description: "Keep prompt cache warm with idle pings",
+  tooltip: "Automatically warm up the prompt cache for long-running Claude Code sessions",
+  icon: "flame",
+};
+
 export const CLAUDE_PROMPT_CACHE_TTL_FEATURE: Omit<AgentFeatureSelect, "value"> = {
   type: "select",
   id: CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
-  label: "Prompt cache TTL",
+  label: "Cache window",
   description: "Cache write duration for this conversation and its subagents",
-  tooltip: "Shorter TTLs cost less on cache writes; longer TTLs keep the cache warm",
+  tooltip: "Shorter windows cost less on cache writes; longer windows keep the cache warm",
   icon: "clock",
   options: [
     {
@@ -43,6 +54,7 @@ export function buildClaudeFeatures(input: {
   modelId: string | null | undefined;
   fastModeEnabled: boolean;
   promptCacheTtl?: unknown;
+  cacheWarmEnabled?: boolean;
 }): AgentFeature[] {
   const features: AgentFeature[] = [];
 
@@ -53,16 +65,18 @@ export function buildClaudeFeatures(input: {
     });
   }
 
-  // The TTL select only appears once a value is stamped on the config, which
-  // happens for orchestrator-spawned Claude agents. User-opened agents keep
-  // Claude Code's automatic behavior and no visible control.
-  const promptCacheTtl = resolveClaudePromptCacheTtl(input.promptCacheTtl);
-  if (promptCacheTtl !== undefined) {
-    features.push({
-      ...CLAUDE_PROMPT_CACHE_TTL_FEATURE,
-      value: promptCacheTtl,
-    });
-  }
+  // The Cache window (prompt_cache_ttl) select is always visible for Claude Code
+  // agents, defaulting to "default" (Automatic) if unset.
+  const promptCacheTtl = resolveClaudePromptCacheTtl(input.promptCacheTtl) ?? "default";
+  features.push({
+    ...CLAUDE_PROMPT_CACHE_TTL_FEATURE,
+    value: promptCacheTtl,
+  });
+
+  features.push({
+    ...CLAUDE_CACHE_WARM_FEATURE,
+    value: input.cacheWarmEnabled === true,
+  });
 
   return features;
 }

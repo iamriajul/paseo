@@ -237,6 +237,8 @@ const StoredAgentSnapshotSchema = z.strictObject({
   createdAt: IsoDateSchema,
   updatedAt: IsoDateSchema,
   lastUserMessageAt: IsoDateSchema.nullable(),
+  lastResponseAt: IsoDateSchema.nullable().optional(),
+  consecutiveWarmPings: z.number().optional(),
   status: AgentStatusSchema,
   activeTurn: z
     .strictObject({
@@ -632,6 +634,29 @@ function serializeAgentTurn(agent: Agent): NonNullable<StoredAgent["turn"]> {
   };
 }
 
+function serializeCapabilities(capabilities: Agent["capabilities"]) {
+  return {
+    supportsStreaming: capabilities.supportsStreaming,
+    supportsSessionPersistence: capabilities.supportsSessionPersistence,
+    ...(capabilities.supportsSessionListing !== undefined
+      ? { supportsSessionListing: capabilities.supportsSessionListing }
+      : {}),
+    supportsDynamicModes: capabilities.supportsDynamicModes,
+    supportsMcpServers: capabilities.supportsMcpServers,
+    supportsReasoningStream: capabilities.supportsReasoningStream,
+    supportsToolInvocations: capabilities.supportsToolInvocations,
+    ...(capabilities.supportsRewindConversation !== undefined
+      ? { supportsRewindConversation: capabilities.supportsRewindConversation }
+      : {}),
+    ...(capabilities.supportsRewindFiles !== undefined
+      ? { supportsRewindFiles: capabilities.supportsRewindFiles }
+      : {}),
+    ...(capabilities.supportsRewindBoth !== undefined
+      ? { supportsRewindBoth: capabilities.supportsRewindBoth }
+      : {}),
+  };
+}
+
 function serializeAgent(agent: Agent): StoredAgent {
   const snapshot = {
     id: agent.id,
@@ -643,6 +668,10 @@ function serializeAgent(agent: Agent): StoredAgent {
     createdAt: agent.createdAt.toISOString(),
     updatedAt: agent.updatedAt.toISOString(),
     lastUserMessageAt: agent.lastUserMessageAt?.toISOString() ?? null,
+    lastResponseAt: agent.lastResponseAt?.toISOString() ?? null,
+    ...(agent.consecutiveWarmPings !== undefined
+      ? { consecutiveWarmPings: agent.consecutiveWarmPings }
+      : {}),
     status: agent.status,
     ...(agent.turn.phase === "open" && agent.turn.turnId
       ? {
@@ -652,26 +681,7 @@ function serializeAgent(agent: Agent): StoredAgent {
           },
         }
       : {}),
-    capabilities: {
-      supportsStreaming: agent.capabilities.supportsStreaming,
-      supportsSessionPersistence: agent.capabilities.supportsSessionPersistence,
-      ...(agent.capabilities.supportsSessionListing !== undefined
-        ? { supportsSessionListing: agent.capabilities.supportsSessionListing }
-        : {}),
-      supportsDynamicModes: agent.capabilities.supportsDynamicModes,
-      supportsMcpServers: agent.capabilities.supportsMcpServers,
-      supportsReasoningStream: agent.capabilities.supportsReasoningStream,
-      supportsToolInvocations: agent.capabilities.supportsToolInvocations,
-      ...(agent.capabilities.supportsRewindConversation !== undefined
-        ? { supportsRewindConversation: agent.capabilities.supportsRewindConversation }
-        : {}),
-      ...(agent.capabilities.supportsRewindFiles !== undefined
-        ? { supportsRewindFiles: agent.capabilities.supportsRewindFiles }
-        : {}),
-      ...(agent.capabilities.supportsRewindBoth !== undefined
-        ? { supportsRewindBoth: agent.capabilities.supportsRewindBoth }
-        : {}),
-    },
+    capabilities: serializeCapabilities(agent.capabilities),
     currentModeId: agent.currentModeId,
     availableModes: [],
     pendingPermissions: [],

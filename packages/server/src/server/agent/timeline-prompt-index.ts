@@ -1,3 +1,4 @@
+import { isCacheWarmPrompt } from "@getpaseo/protocol/agent-cache-warm";
 import type { AgentTimelineRow } from "./agent-timeline-store-types.js";
 
 const PROMPT_PREVIEW_MAX_LENGTH = 120;
@@ -28,7 +29,7 @@ export function buildTimelinePromptIndex(
   return {
     epoch,
     prompts: rows.flatMap((row) =>
-      row.item.type === "user_message"
+      row.item.type === "user_message" && !isCacheWarmPrompt(row.item.text)
         ? [
             {
               seq: row.seq,

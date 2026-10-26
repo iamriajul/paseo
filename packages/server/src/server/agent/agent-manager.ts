@@ -3,8 +3,11 @@ import type { AgentToolResult } from "@getpaseo/plugin/server";
 import type { RuntimeCleanupCandidate } from "./idle-runtime-cleanup/index.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import type { AgentRateLimitAutoResumeManager } from "./agent-rate-limit-auto-resume.js";
+import type { AgentCacheWarmManager } from "./agent-cache-warm.js";
+import { CLAUDE_CACHE_WARM_FEATURE_ID } from "./providers/claude/feature-definitions.js";
 import type { AgentRateLimitCooldownPayload } from "@getpaseo/protocol/messages";
 import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-labels";
+import { isCacheWarmPrompt } from "@getpaseo/protocol/agent-cache-warm";
 import { projectTimelineRows } from "./timeline-projection.js";
 import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
@@ -257,7 +260,7 @@ export type {
 } from "./agent-timeline-store-types.js";
 
 export type AgentManagerEvent =
-  | { type: "agent_state"; agent: ManagedAgent }
+  | { type: "agent_state"; agent: ManagedAgent; isWarmPing?: boolean }
   | { type: "agent_removed"; agentId: string; workspaceId?: string; internal: boolean }
   | { type: "provider_subagent"; event: ProviderSubagentStoreEvent }
   | { type: "timeline_replacement"; agentId: string; epoch: string }
@@ -384,6 +387,7 @@ export interface AgentManagerOptions {
     expectedTurnId: string;
   }) => Promise<void>;
   rateLimitAutoResumeManager?: AgentRateLimitAutoResumeManager | null;
+  cacheWarmManager?: AgentCacheWarmManager | null;
   logger: Logger;
 }
 
@@ -473,8 +477,11 @@ interface ManagedAgentBase {
   persistence: AgentPersistenceHandle | null;
   historyPrimed: boolean;
   lastUserMessageAt: Date | null;
+  lastResponseAt: Date | null;
   activeTurnId: string | null;
   activeTurnStartedAt: Date | null;
+  activeTurnIsWarmPing?: boolean;
+  consecutiveWarmPings?: number;
   lastUsage?: AgentUsage;
   lastError?: string;
   attention: AttentionState;
@@ -839,6 +846,7 @@ export class AgentManager {
   private onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
   private logger: Logger;
   private rateLimitAutoResumeManager: AgentRateLimitAutoResumeManager | null = null;
+  private cacheWarmManager: AgentCacheWarmManager | null = null;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
@@ -859,6 +867,7 @@ export class AgentManager {
     this.appendSystemPrompt = options.appendSystemPrompt ?? "";
     this.logger = options.logger.child({ module: "agent", component: "agent-manager" });
     this.rateLimitAutoResumeManager = options.rateLimitAutoResumeManager ?? null;
+    this.cacheWarmManager = options.cacheWarmManager ?? null;
     this.rescueTimeouts = resolveRescueTimeouts(options.rescueTimeouts);
     this.beforeSteerUnavailableFallback = options.beforeSteerUnavailableFallback;
     this.agentStreamCoalescer = new AgentStreamCoalescer({
@@ -886,6 +895,14 @@ export class AgentManager {
 
   getRateLimitAutoResumeManager(): AgentRateLimitAutoResumeManager | null {
     return this.rateLimitAutoResumeManager;
+  }
+
+  setCacheWarmManager(manager: AgentCacheWarmManager | null): void {
+    this.cacheWarmManager = manager;
+  }
+
+  getCacheWarmManager(): AgentCacheWarmManager | null {
+    return this.cacheWarmManager;
   }
 
   setRateLimitCooldown(agentId: string, cooldown: AgentRateLimitCooldownPayload | null): void {
@@ -1640,6 +1657,7 @@ export class AgentManager {
       createdAt?: Date;
       updatedAt?: Date;
       lastUserMessageAt?: Date | null;
+      lastResponseAt?: Date | null;
       labels?: Record<string, string>;
       workspaceId?: string;
       owner?: AgentOwner;
@@ -1672,6 +1690,7 @@ export class AgentManager {
       createdAt?: Date;
       updatedAt?: Date;
       lastUserMessageAt?: Date | null;
+      lastResponseAt?: Date | null;
       labels?: Record<string, string>;
       workspaceId?: string;
       owner?: AgentOwner;
@@ -1957,6 +1976,7 @@ export class AgentManager {
         createdAt: existing.createdAt,
         updatedAt: existing.updatedAt,
         lastUserMessageAt: existing.lastUserMessageAt,
+        lastResponseAt: existing.lastResponseAt,
         historyPrimed: rehydrateFromDisk ? false : preservedHistoryPrimed,
         lastUsage: preservedLastUsage,
         lastError: preservedLastError,
@@ -2171,6 +2191,7 @@ export class AgentManager {
     await this.drainSessionEvents(agentId);
     if (canClose && !canClose()) return false;
     this.rateLimitAutoResumeManager?.cancel(agentId);
+    this.cacheWarmManager?.cancel(agentId);
     // Retain ownership until shutdown succeeds. A failed close may still own a
     // native writer, so publishing a resumable closed snapshot would orphan it.
     await agent.session.close();
@@ -2327,6 +2348,7 @@ export class AgentManager {
     archivedAt = new Date().toISOString(),
   ): Promise<ArchivedStoredAgentRecord> {
     this.rateLimitAutoResumeManager?.cancel(record.id);
+    this.cacheWarmManager?.cancel(record.id);
     const archivedRecord = await this.persistArchivedRecord(record, {
       archivedAt,
       updatedAt: archivedAt,
@@ -2404,6 +2426,8 @@ export class AgentManager {
         persistence: record.persistence ?? null,
         historyPrimed: true,
         lastUserMessageAt: record.lastUserMessageAt ? new Date(record.lastUserMessageAt) : null,
+        lastResponseAt: record.lastResponseAt ? new Date(record.lastResponseAt) : null,
+        consecutiveWarmPings: record.consecutiveWarmPings ?? undefined,
         lastUsage: undefined,
         lastError: record.lastError ?? undefined,
         attention,
@@ -2492,6 +2516,9 @@ export class AgentManager {
     await agent.session.setFeature(featureId, value);
     await this.drainSessionEvents(agentId);
     agent.config.featureValues = { ...agent.config.featureValues, [featureId]: value };
+    if (featureId === CLAUDE_CACHE_WARM_FEATURE_ID) {
+      this.cacheWarmManager?.onFeatureToggled(agentId, Boolean(value));
+    }
     this.touchUpdatedAt(agent);
     this.emitState(agent);
   }
@@ -2971,6 +2998,7 @@ export class AgentManager {
     const { agent, agentId, pendingRun, prompt, options } = params;
     this.rateLimitAutoResumeManager?.cancel(agentId);
     this.rateLimitAutoResumeManager?.resetConsecutiveResumes(agentId);
+    this.cacheWarmManager?.cancel(agentId);
     try {
       const result = await agent.session.startTurn(prompt, options);
       if (pendingRun.settled) {
@@ -3086,6 +3114,7 @@ export class AgentManager {
       const turnStartedAt = new Date();
       this.runs.settleForegroundStart(pendingRun, { status: "started", turnId });
       agent.activeForegroundTurnId = turnId;
+      agent.activeTurnIsWarmPing = options?.isWarmPing ?? false;
       this.openActiveTurn(agent, turnId, turnStartedAt);
       agent.lifecycle = "running";
       this.touchUpdatedAt(agent);
@@ -3150,21 +3179,35 @@ export class AgentManager {
           yield event;
         }
       } finally {
-        if (turnStream) {
-          this.runs.deleteWaiter(agent, turnStream.waiter);
-        }
-        this.runs.settleForegroundRun(agentId, pendingRun.token);
-        if (!agent.activeForegroundTurnId) {
-          await this.refreshRuntimeInfo(agent);
-        }
+        await this.settleStreamForwarder(agent, pendingRun, turnStream);
       }
     }.call(this);
 
     return streamForwarder;
   }
 
+  private async settleStreamForwarder(
+    agent: ActiveManagedAgent,
+    pendingRun: PendingForegroundRun,
+    turnStream: ReturnType<AgentRunState["createTurnStream"]> | null,
+  ): Promise<void> {
+    if (turnStream) {
+      this.runs.deleteWaiter(agent, turnStream.waiter);
+    }
+    this.runs.settleForegroundRun(agent.id, pendingRun.token);
+    if (!agent.activeForegroundTurnId) {
+      await this.refreshRuntimeInfo(agent);
+    }
+    const currentAgent = this.getAgent(agent.id);
+    if (currentAgent?.lifecycle === "idle") {
+      this.cacheWarmManager?.schedule(agent.id);
+    }
+  }
+
   private finalizeForegroundTurn(agent: ActiveManagedAgent, turnId?: string): void {
     const mutableAgent = agent;
+    const isWarmPingTurn = Boolean(mutableAgent.activeTurnIsWarmPing);
+    mutableAgent.activeTurnIsWarmPing = false;
     if (turnId) {
       this.runs.rememberFinalizedTurn(mutableAgent, turnId);
     }
@@ -3206,7 +3249,10 @@ export class AgentManager {
     );
     if (!shouldHoldBusyForReplacement) {
       this.touchUpdatedAt(mutableAgent);
-      this.emitState(mutableAgent);
+      this.emitState(mutableAgent, { isWarmPing: isWarmPingTurn });
+      if (nextLifecycle === "idle") {
+        this.cacheWarmManager?.schedule(mutableAgent.id);
+      }
     }
   }
 
@@ -3597,6 +3643,7 @@ export class AgentManager {
 
   private async cancelAgentRunNow(agentId: string): Promise<AgentRunCancellationResult> {
     this.rateLimitAutoResumeManager?.cancel(agentId);
+    this.cacheWarmManager?.cancel(agentId);
     const agent = this.requireSessionAgent(agentId);
     const run =
       this.runs.getRun(agentId) ??
@@ -4131,6 +4178,7 @@ export class AgentManager {
       createdAt?: Date;
       updatedAt?: Date;
       lastUserMessageAt?: Date | null;
+      lastResponseAt?: Date | null;
       labels?: Record<string, string>;
       timeline?: AgentTimelineItem[];
       timelineRows?: AgentTimelineRow[];
@@ -4232,6 +4280,8 @@ export class AgentManager {
       this.subscribeToSession(managed);
       await this.drainSessionEvents(managed.id);
       this.assertAgentRegistrationActive(managed);
+      this.cacheWarmManager?.onAgentRegistered(managed.id, managed.consecutiveWarmPings);
+      this.cacheWarmManager?.schedule(managed.id);
       return { ...managed };
     } catch (error) {
       if (!registered) {
@@ -4335,6 +4385,7 @@ export class AgentManager {
           createdAt?: Date;
           updatedAt?: Date;
           lastUserMessageAt?: Date | null;
+          lastResponseAt?: Date | null;
           labels?: Record<string, string>;
           historyPrimed?: boolean;
           lastUsage?: AgentUsage;
@@ -4352,6 +4403,7 @@ export class AgentManager {
       updatedAt: options?.updatedAt ?? now,
       historyPrimed: options?.historyPrimed ?? durableTimelineHasRows,
       lastUserMessageAt: options?.lastUserMessageAt ?? null,
+      lastResponseAt: options?.lastResponseAt ?? null,
       lastUsage: options?.lastUsage,
       lastError: options?.lastError,
       attention: resolveInitialAttention(options?.attention),
@@ -4370,6 +4422,7 @@ export class AgentManager {
           createdAt?: Date;
           updatedAt?: Date;
           lastUserMessageAt?: Date | null;
+          lastResponseAt?: Date | null;
           labels?: Record<string, string>;
           historyPrimed?: boolean;
           lastUsage?: AgentUsage;
@@ -4439,6 +4492,7 @@ export class AgentManager {
     cancelReason: string,
   ): ManagedAgentClosed {
     this.agentStreamCoalescer.flushAndDiscard(agent.id);
+    this.cacheWarmManager?.cancel(agent.id);
     this.agents.delete(agent.id);
     this.previousStatuses.delete(agent.id);
     if (agent.unsubscribeSession) {
@@ -4470,6 +4524,7 @@ export class AgentManager {
   }
 
   private discardRetainedAgentState(agentId: string): void {
+    this.cacheWarmManager?.deleteAgent(agentId);
     this.timelineStore.delete(agentId);
     this.paseoToolPolicies.delete(agentId);
     this.detachPluginTools(agentId);
@@ -5224,7 +5279,7 @@ export class AgentManager {
       }
 
       this.recordAndDispatchTimelineItem(agent.id, item, event.provider, event.turnId);
-      if (item.type === "user_message") {
+      if (item.type === "user_message" && !isCacheWarmPrompt(item.text)) {
         agent.lastUserMessageAt = new Date();
         this.emitState(agent);
       }
@@ -5275,6 +5330,8 @@ export class AgentManager {
     );
     if (terminalDisposition === "stale") return;
     this.rateLimitAutoResumeManager?.resetConsecutiveResumes(agent.id);
+    agent.lastResponseAt = new Date();
+    this.cacheWarmManager?.onTurnCompleted(agent.id, agent.lastResponseAt);
     if (event.usage) {
       agent.lastUsage = { ...agent.lastUsage, ...event.usage };
     }
@@ -5366,6 +5423,7 @@ export class AgentManager {
     );
     if (terminalDisposition === "stale") return;
     this.rateLimitAutoResumeManager?.cancel(agent.id);
+    this.cacheWarmManager?.cancel(agent.id);
     if (!isForegroundEvent && !agent.activeForegroundTurnId && !agent.pendingReplacement) {
       agent.lifecycle = "idle";
     }
@@ -5394,6 +5452,7 @@ export class AgentManager {
       },
       "agent.manager.turn.started",
     );
+    this.cacheWarmManager?.onTurnStarted(agent.id);
     if (isForegroundEvent) {
       flags.shouldDispatchEvent = false;
       flags.shouldNotifyWaiters = false;
@@ -5528,7 +5587,10 @@ export class AgentManager {
     )
       return;
     this.touchUpdatedAt(agent);
-    if (item.type === "user_message") agent.lastUserMessageAt = new Date();
+    if (item.type === "user_message" && !isCacheWarmPrompt(item.text)) {
+      agent.lastUserMessageAt = new Date();
+    }
+    this.cacheWarmManager?.onMessageActivity(agent.id);
     this.recordAndDispatchTimelineItem(agent.id, item, agent.provider, options?.turnId, options);
   }
 
@@ -5632,14 +5694,25 @@ export class AgentManager {
     return row;
   }
 
-  private emitState(agent: ManagedAgent, options?: { persist?: boolean }): void {
+  private emitState(
+    agent: ManagedAgent,
+    options?: { persist?: boolean; isWarmPing?: boolean },
+  ): void {
     // Keep attention as an edge-triggered unread signal, not a level signal.
-    this.checkAndSetAttention(agent);
+    this.checkAndSetAttention(agent, options?.isWarmPing);
     if (options?.persist !== false) {
       this.enqueueBackgroundPersist(agent);
     }
 
     this.syncFeaturesFromSession(agent);
+
+    if (
+      agent.lifecycle === "idle" &&
+      !this.hasInFlightRun(agent.id) &&
+      (!agent.pendingPermissions || agent.pendingPermissions.size === 0)
+    ) {
+      this.cacheWarmManager?.schedule(agent.id);
+    }
 
     this.logger.trace(
       {
@@ -5658,6 +5731,7 @@ export class AgentManager {
     this.dispatch({
       type: "agent_state",
       agent: { ...agent },
+      isWarmPing: options?.isWarmPing,
     });
   }
 
@@ -5667,15 +5741,15 @@ export class AgentManager {
     }
   }
 
-  private checkAndSetAttention(agent: ManagedAgent): void {
+  private checkAndSetAttention(agent: ManagedAgent, isWarmPing = false): void {
     const previousStatus = this.previousStatuses.get(agent.id);
     const currentStatus = agent.lifecycle;
 
     // Track the new status
     this.previousStatuses.set(agent.id, currentStatus);
 
-    // Skip attention tracking for internal agents
-    if (agent.internal) {
+    // Skip attention tracking for internal agents or daemon-initiated cache warm pings
+    if (agent.internal || isWarmPing) {
       return;
     }
 

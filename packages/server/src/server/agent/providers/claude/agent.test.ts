@@ -4572,6 +4572,18 @@ describe("cache_warm feature", () => {
     ]);
   });
 
+  test("omits cache_warm and prompt_cache_ttl on non-Claude gateway models", async () => {
+    const client = new ClaudeAgentClient({ logger, resolveBinary: async () => "/test/claude/bin" });
+    await expect(
+      client.listFeatures({
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "gemini-3.8-flash-high",
+        featureValues: { cache_warm: true },
+      }),
+    ).resolves.toEqual([]);
+  });
+
   test("setFeature toggles cache_warm", async () => {
     const { queryFactory } = createIsolatedQueryMock();
     const client = new ClaudeAgentClient({

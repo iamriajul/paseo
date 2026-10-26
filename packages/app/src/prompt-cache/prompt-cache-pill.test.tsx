@@ -250,4 +250,69 @@ describe("PromptCachePill", () => {
     expect(getByText("Capped (12/12 pings)")).not.toBeNull();
     expect(getByText("12 pings (11h36m)")).not.toBeNull();
   });
+
+  it("does not render for non-Claude gateway models under claude provider", () => {
+    setupSession({
+      id: "agent-gemini",
+      provider: "claude",
+      model: "gemini-3.8-flash-high",
+      labels: {},
+      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: true }],
+    });
+
+    const { queryByTestId } = render(
+      <PromptCachePill serverId="server-1" agentId="agent-gemini" />,
+    );
+    expect(queryByTestId("prompt-cache-pill")).toBeNull();
+  });
+
+  it("disables turn-on button when cache has expired", () => {
+    const past = Date.now() - 75 * 60 * 1000; // 75m ago
+    setupSession({
+      id: "agent-expired",
+      provider: "claude",
+      labels: {},
+      lastResponseAt: new Date(past),
+      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: false }],
+    });
+
+    const { getByTestId, getByText } = render(
+      <PromptCachePill serverId="server-1" agentId="agent-expired" />,
+    );
+    const button = getByTestId("prompt-cache-toggle-warmup-button");
+    expect(button.getAttribute("disabled")).not.toBeNull();
+    expect(
+      getByText("Cache is expired. Send a prompt to re-warm before turning on auto warm-up."),
+    ).not.toBeNull();
+  });
+
+  it("renders question segment and remaining time when agent is awaiting answer", () => {
+    const now = Date.now();
+    setupSession({
+      id: "agent-question",
+      provider: "claude",
+      labels: {},
+      status: "running",
+      turn: {
+        phase: "open",
+        turnId: "turn-1",
+        startedAt: new Date(now),
+        cancellationRequestId: null,
+      },
+      pendingPermissions: [
+        {
+          id: "perm-1",
+          kind: "question",
+          name: "AskUserQuestion",
+        } as unknown as import("@getpaseo/protocol/agent-types").AgentPermissionRequest,
+      ],
+      lastResponseAt: new Date(now - 15 * 60 * 1000), // asked 15m ago
+      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: true }],
+    });
+
+    const { getByText } = render(<PromptCachePill serverId="server-1" agentId="agent-question" />);
+    expect(getByText("question · in 45m")).not.toBeNull();
+    expect(getByText("Awaiting answer (expires in 45m)")).not.toBeNull();
+    expect(getByText("Paused while awaiting your response")).not.toBeNull();
+  });
 });

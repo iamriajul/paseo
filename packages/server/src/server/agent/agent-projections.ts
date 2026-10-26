@@ -247,7 +247,10 @@ function resolveStoredAgentThinking(
 export function buildStoredAgentPayload(
   record: StoredAgentRecord,
   validProviders: Iterable<AgentProvider>,
-  options?: { rateLimitCooldown?: AgentRateLimitCooldownPayload | null },
+  options?: {
+    rateLimitCooldown?: AgentRateLimitCooldownPayload | null;
+    lastResponseAt?: string | null;
+  },
 ): AgentSnapshotPayload {
   const createdAt = new Date(record.createdAt);
   const updatedAt = new Date(resolveStoredAgentUpdatedAt(record));
@@ -271,7 +274,7 @@ export function buildStoredAgentPayload(
     createdAt: createdAt.toISOString(),
     updatedAt: updatedAt.toISOString(),
     lastUserMessageAt: record.lastUserMessageAt ?? null,
-    lastResponseAt: record.lastResponseAt ?? null,
+    lastResponseAt: options?.lastResponseAt ?? record.lastResponseAt ?? null,
     status: record.lastStatus,
     capabilities: DEFAULT_STORED_AGENT_CAPABILITIES,
     currentModeId: record.lastModeId ?? null,

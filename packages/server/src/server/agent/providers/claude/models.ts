@@ -10,6 +10,7 @@ import {
   normalizeClaudeRuntimeModelId as normalizeClaudeManifestRuntimeModelId,
 } from "./model-manifest.js";
 import { decodeCliproxyClaudeModelId } from "../../gateway/models.js";
+import { CLAUDE_FAMILY_ALIASES } from "@getpaseo/protocol/agent-cache-warm";
 
 const CLAUDE_SETTINGS_MODEL_ENV_KEYS = [
   "ANTHROPIC_MODEL",
@@ -30,8 +31,6 @@ export const CLAUDE_CUSTOM_MODEL_PIN_ENV_KEYS = [
 ] as const;
 
 export type ClaudeCustomModelPinEnvKey = (typeof CLAUDE_CUSTOM_MODEL_PIN_ENV_KEYS)[number];
-
-const CLAUDE_FAMILY_ALIASES = new Set(["opus", "sonnet", "haiku", "fable"]);
 
 export function getClaudeModels(claudeCodeVersion?: string): AgentModelDefinition[] {
   return getClaudeManifestModels(claudeCodeVersion);

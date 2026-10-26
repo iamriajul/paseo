@@ -38,6 +38,8 @@ export function asAgentManager(stub: {
     listProviderSubagentActivity: () => [],
     getRetiredInternalAgent: () => null,
     getRateLimitAutoResumeManager: () => null,
+    resolveStoredAgentLastResponseAt: (record: { lastResponseAt?: string | null }) =>
+      record.lastResponseAt ?? null,
     ...stub,
   });
 }

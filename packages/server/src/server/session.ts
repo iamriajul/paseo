@@ -2553,8 +2553,10 @@ export class Session {
               ?.getConsecutiveResumes?.(record.id) ?? 0,
         }
       : undefined;
+    const lastResponseAt = this.agentManager.resolveStoredAgentLastResponseAt?.(record);
     return buildStoredAgentPayload(record, registeredProviderIds, {
       rateLimitCooldown,
+      lastResponseAt,
     });
   }
 

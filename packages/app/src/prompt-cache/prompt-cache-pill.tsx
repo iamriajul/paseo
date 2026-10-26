@@ -38,6 +38,83 @@ function formatCoveredDuration(warmIntervalMs: number, maxConsecutivePings: numb
   return remainingMinutes === 0 ? `${hours}h` : `${hours}h${remainingMinutes}m`;
 }
 
+function resolvePillSegmentText(cache: ReturnType<typeof usePromptCache>): string {
+  if (cache.isBusy) {
+    return "caching";
+  }
+  if (cache.hasPendingQuestion) {
+    return cache.isWarm ? `question · ${cache.countdownText}` : "question · expired";
+  }
+  if (cache.hasPendingPermission) {
+    return cache.isWarm ? `permission · ${cache.countdownText}` : "permission · expired";
+  }
+  if (cache.isCapped) {
+    return cache.isWarm ? "warm · capped" : "cache · expired";
+  }
+  if (cache.isWarmupEnabled) {
+    return `warm · ${cache.nextPingCountdownText}`;
+  }
+  return `cache · ${cache.countdownText}`;
+}
+
+function resolvePillStatusText(cache: ReturnType<typeof usePromptCache>): string {
+  if (cache.isBusy) {
+    return "Active turn in flight";
+  }
+  if (cache.hasPendingQuestion) {
+    return cache.isWarm
+      ? `Awaiting answer (expires ${cache.countdownText})`
+      : "Awaiting answer (cache expired)";
+  }
+  if (cache.hasPendingPermission) {
+    return cache.isWarm
+      ? `Awaiting permission (expires ${cache.countdownText})`
+      : "Awaiting permission (cache expired)";
+  }
+  if (cache.isWarm) {
+    return `Expires ${cache.countdownText}`;
+  }
+  return "Cache expired";
+}
+
+function resolvePillWarmupText(cache: ReturnType<typeof usePromptCache>): string {
+  if (!cache.isWarmupEnabled) {
+    return "Disabled";
+  }
+  if (cache.isBusy) {
+    return "Active (resets after turn)";
+  }
+  if (cache.hasPendingPermission) {
+    return "Paused while awaiting your response";
+  }
+  if (cache.isCapped) {
+    return `Capped (${cache.consecutivePings}/${cache.maxConsecutivePings} pings)`;
+  }
+  if (!cache.isWarm) {
+    return "Paused (cache expired)";
+  }
+  return `Next warm-up ${cache.nextPingCountdownText}`;
+}
+
+function resolvePillAccessibilityLabel(cache: ReturnType<typeof usePromptCache>): string {
+  if (cache.isBusy) {
+    return "Claude prompt cache: caching";
+  }
+  if (cache.hasPendingQuestion) {
+    return `Claude prompt cache: awaiting answer, expires ${cache.countdownText}`;
+  }
+  if (cache.hasPendingPermission) {
+    return `Claude prompt cache: awaiting permission, expires ${cache.countdownText}`;
+  }
+  if (cache.isCapped) {
+    return `Claude cache warm-up: capped after ${cache.consecutivePings} pings`;
+  }
+  if (cache.isWarmupEnabled) {
+    return `Claude cache warm-up: next tick ${cache.nextPingCountdownText}`;
+  }
+  return `Claude prompt cache: ${cache.countdownText}`;
+}
+
 export const PromptCachePill = memo(function PromptCachePill({
   serverId,
   agentId,
@@ -51,32 +128,10 @@ export const PromptCachePill = memo(function PromptCachePill({
     return null;
   }
 
-  let segmentText = `cache · ${cache.countdownText}`;
-  if (cache.isBusy) {
-    segmentText = "caching";
-  } else if (cache.isCapped) {
-    segmentText = cache.isWarm ? "warm · capped" : "cache · expired";
-  } else if (cache.isWarmupEnabled) {
-    segmentText = `warm · ${cache.nextPingCountdownText}`;
-  }
-
-  let statusText = "Cache expired";
-  if (cache.isBusy) {
-    statusText = "Active turn in flight";
-  } else if (cache.isWarm) {
-    statusText = `Expires ${cache.countdownText}`;
-  }
-
-  let warmupText = "Disabled";
-  if (cache.isWarmupEnabled) {
-    if (cache.isBusy) {
-      warmupText = "Active (resets after turn)";
-    } else if (cache.isCapped) {
-      warmupText = `Capped (${cache.consecutivePings}/${cache.maxConsecutivePings} pings)`;
-    } else {
-      warmupText = `Next warm-up ${cache.nextPingCountdownText}`;
-    }
-  }
+  const segmentText = resolvePillSegmentText(cache);
+  const statusText = resolvePillStatusText(cache);
+  const warmupText = resolvePillWarmupText(cache);
+  const accessibilityLabel = resolvePillAccessibilityLabel(cache);
 
   const segments = [
     {
@@ -84,15 +139,6 @@ export const PromptCachePill = memo(function PromptCachePill({
       text: segmentText,
     },
   ];
-
-  let accessibilityLabel = `Claude prompt cache: ${cache.countdownText}`;
-  if (cache.isBusy) {
-    accessibilityLabel = "Claude prompt cache: caching";
-  } else if (cache.isCapped) {
-    accessibilityLabel = `Claude cache warm-up: capped after ${cache.consecutivePings} pings`;
-  } else if (cache.isWarmupEnabled) {
-    accessibilityLabel = `Claude cache warm-up: next tick ${cache.nextPingCountdownText}`;
-  }
 
   return (
     <ComposerTrackPill
@@ -129,10 +175,16 @@ export const PromptCachePill = memo(function PromptCachePill({
             size="sm"
             variant={cache.isWarmupEnabled ? "outline" : "default"}
             testID="prompt-cache-toggle-warmup-button"
+            disabled={!cache.isWarm && !cache.isWarmupEnabled}
             onPress={cache.toggleWarmup}
           >
             {cache.isWarmupEnabled ? "Turn off auto warm-up" : "Turn on auto warm-up"}
           </Button>
+          {!cache.isWarm && !cache.isWarmupEnabled ? (
+            <Text style={styles.disabledHelpText}>
+              Cache is expired. Send a prompt to re-warm before turning on auto warm-up.
+            </Text>
+          ) : null}
         </View>
       </View>
     </ComposerTrackPill>
@@ -161,7 +213,14 @@ const styles = StyleSheet.create((theme: Theme) => ({
   },
   actions: {
     marginTop: theme.spacing[1],
-    flexDirection: "row",
-    justifyContent: "flex-end",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: theme.spacing[1],
+  },
+  disabledHelpText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    textAlign: "right",
+    marginTop: theme.spacing[1],
   },
 }));

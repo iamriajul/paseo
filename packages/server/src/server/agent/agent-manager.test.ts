@@ -12453,3 +12453,74 @@ test("an out-of-band command racing idle cleanup waits for the resumed runtime",
   expect(h.commands).toEqual(["/maintenance"]);
   expect(h.prompts).toEqual([]);
 });
+
+test("onStreamPermissionRequested updates lastResponseAt and notifies cacheWarmManager", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-perm-response-at-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const onResponseOccurred = vi.fn();
+  const warmManager = {
+    onResponseOccurred,
+    schedule: vi.fn(),
+    onTurnCompleted: vi.fn(),
+    onTurnStarted: vi.fn(),
+    onMessageActivity: vi.fn(),
+    onFeatureToggled: vi.fn(),
+    onAgentRegistered: vi.fn(),
+    cancel: vi.fn(),
+    deleteAgent: vi.fn(),
+  } as unknown as import("./agent-cache-warm.js").AgentCacheWarmManager;
+
+  class PermSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = "turn-perm-1";
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "permission_requested",
+          provider: this.provider,
+          request: {
+            id: "perm-1",
+            provider: this.provider,
+            kind: "question",
+            name: "AskUserQuestion",
+          },
+          turnId,
+        });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class PermClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new PermSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new PermClient() },
+    registry: storage,
+    logger,
+    cacheWarmManager: warmManager,
+  });
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+    expect(manager.getAgent(snapshot.id)?.lastResponseAt).toBeNull();
+
+    const stream = manager.streamAgent(snapshot.id, "run with question");
+    await stream.next(); // turn_started
+    await stream.next(); // permission_requested
+
+    const agent = manager.getAgent(snapshot.id);
+    expect(agent?.lastResponseAt).toBeInstanceOf(Date);
+    expect(onResponseOccurred).toHaveBeenCalledWith(snapshot.id, expect.any(Date));
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});

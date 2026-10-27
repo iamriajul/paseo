@@ -351,72 +351,77 @@ describe("AgentCacheWarmManager with a real AgentManager", () => {
     vi.useRealTimers();
   });
 
-  it("pings 58 minutes after the last request and publishes the warm-up counts", async () => {
+  class TestClaudeSession {
+    readonly provider = "claude" as const;
+    readonly capabilities = {
+      supportsStreaming: false,
+      supportsSessionPersistence: false,
+      supportsSessionListing: true,
+      supportsDynamicModes: false,
+      supportsMcpServers: false,
+      supportsReasoningStream: false,
+      supportsToolInvocations: false,
+    };
+    readonly id = "sess-1";
+    readonly prompts: string[] = [];
+    private subscribers = new Set<(event: AgentStreamEvent) => void>();
+
+    async run() {
+      return { sessionId: this.id, finalText: "ok", timeline: [] };
+    }
+
+    emit(event: AgentStreamEvent) {
+      for (const callback of this.subscribers) callback(event);
+    }
+
+    /** One API request, then the answer streams for `answerMs` before the turn completes. */
+    playTurn(turnId: string, answerMs: number) {
+      setTimeout(() => {
+        this.emit({ type: "turn_started", provider: this.provider, turnId });
+        this.emit({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: { requestCache: { readTokens: 1000, writeTokens: 5, uncachedTokens: 1 } },
+        });
+      }, 0);
+      setTimeout(() => {
+        this.emit({ type: "timeline", item: { type: "assistant_message", text: "done" } });
+        this.emit({ type: "turn_completed", provider: this.provider, turnId });
+      }, answerMs);
+    }
+
+    async startTurn(prompt: string) {
+      this.prompts.push(prompt);
+      const turnId = `turn-${this.prompts.length}`;
+      // The first answer streams for two minutes; a warm-up reply is instant, so its turn can
+      // finish before sendPromptToAgent resolves.
+      this.playTurn(turnId, this.prompts.length === 1 ? 2 * MINUTE : 0);
+      return { turnId };
+    }
+
+    subscribe(callback: (event: AgentStreamEvent) => void) {
+      this.subscribers.add(callback);
+      return () => {
+        this.subscribers.delete(callback);
+      };
+    }
+
+    describePersistence(): AgentPersistenceHandle {
+      return { provider: "claude", sessionId: "sess-1" };
+    }
+  }
+
+  async function createManagerHarness() {
     const logger = pino({ level: "silent" });
     const workdir = mkdtempSync(join(tmpdir(), "agent-warm-integ-"));
     const storage = new AgentStorage(join(workdir, "agents"), logger);
-    const prompts: string[] = [];
-
-    class TestClaudeSession {
-      readonly provider = "claude" as const;
-      readonly capabilities = {
-        supportsStreaming: false,
-        supportsSessionPersistence: false,
-        supportsSessionListing: true,
-        supportsDynamicModes: false,
-        supportsMcpServers: false,
-        supportsReasoningStream: false,
-        supportsToolInvocations: false,
-      };
-      readonly id = "sess-1";
-      private subscribers = new Set<(event: AgentStreamEvent) => void>();
-
-      async run() {
-        return { sessionId: this.id, finalText: "ok", timeline: [] };
-      }
-
-      async startTurn(prompt: string) {
-        prompts.push(prompt);
-        const turnId = `turn-${prompts.length}`;
-        const emit = (event: AgentStreamEvent) => {
-          for (const callback of this.subscribers) callback(event);
-        };
-        setTimeout(() => {
-          emit({ type: "turn_started", provider: this.provider, turnId });
-          emit({
-            type: "usage_updated",
-            provider: this.provider,
-            usage: { requestCache: { readTokens: 1000, writeTokens: 5, uncachedTokens: 1 } },
-          });
-        }, 0);
-        // The first answer streams for two minutes after its request started; a warm-up
-        // reply is instant, so its turn can finish before sendPromptToAgent resolves.
-        const answerMs = prompts.length === 1 ? 2 * MINUTE : 0;
-        setTimeout(() => {
-          emit({ type: "timeline", item: { type: "assistant_message", text: "done" } });
-          emit({ type: "turn_completed", provider: this.provider, turnId });
-        }, answerMs);
-        return { turnId };
-      }
-
-      subscribe(callback: (event: AgentStreamEvent) => void) {
-        this.subscribers.add(callback);
-        return () => {
-          this.subscribers.delete(callback);
-        };
-      }
-
-      describePersistence(): AgentPersistenceHandle {
-        return { provider: "claude", sessionId: "sess-1" };
-      }
-    }
-
+    const session = new TestClaudeSession();
     const agentManager = new AgentManager({
       clients: {
         claude: {
           isAvailable: vi.fn().mockResolvedValue(true),
-          capabilities: new TestClaudeSession().capabilities,
-          createSession: vi.fn(async () => new TestClaudeSession()),
+          capabilities: session.capabilities,
+          createSession: vi.fn(async () => session),
           resumeSession: vi.fn(),
         } as unknown as import("./agent-sdk-types.js").AgentClient,
       },
@@ -426,42 +431,63 @@ describe("AgentCacheWarmManager with a real AgentManager", () => {
     });
     const warmManager = new AgentCacheWarmManager({ agentManager, agentStorage: storage, logger });
     agentManager.setCacheWarmManager(warmManager);
+    const snapshot = await agentManager.createAgent(
+      {
+        provider: "claude",
+        cwd: workdir,
+        featureValues: { prompt_cache_ttl: "1h", cache_warm: true },
+      },
+      undefined,
+      { workspaceId: undefined },
+    );
+    const cleanup = async () => {
+      await agentManager.flush();
+      rmSync(workdir, { recursive: true, force: true });
+    };
+    return { agentManager, warmManager, storage, session, agentId: snapshot.id, cleanup };
+  }
 
+  it("pings 58 minutes after the last request and publishes the warm-up counts", async () => {
+    const { agentManager, warmManager, storage, session, agentId, cleanup } =
+      await createManagerHarness();
     try {
-      const snapshot = await agentManager.createAgent(
-        {
-          provider: "claude",
-          cwd: workdir,
-          featureValues: { prompt_cache_ttl: "1h", cache_warm: true },
-        },
-        undefined,
-        { workspaceId: undefined },
-      );
-
-      const run = agentManager.runAgent(snapshot.id, "do the work");
+      const run = agentManager.runAgent(agentId, "do the work");
       await vi.advanceTimersByTimeAsync(2 * MINUTE + 1);
       await run;
-      expect(agentManager.getAgent(snapshot.id)?.lifecycle).toBe("idle");
-      expect(warmManager.getPending(snapshot.id)?.scheduledFor.getTime()).toBe(START + 58 * MINUTE);
+      expect(agentManager.getAgent(agentId)?.lifecycle).toBe("idle");
+      expect(warmManager.getPending(agentId)?.scheduledFor.getTime()).toBe(START + 58 * MINUTE);
 
       await vi.advanceTimersByTimeAsync(56 * MINUTE - 2);
-      expect(prompts).toEqual(["do the work"]);
+      expect(session.prompts).toEqual(["do the work"]);
       await vi.advanceTimersByTimeAsync(2);
-      expect(prompts).toEqual(["do the work", DEFAULT_CACHE_WARM_PING_PROMPT]);
+      expect(session.prompts).toEqual(["do the work", DEFAULT_CACHE_WARM_PING_PROMPT]);
 
       await vi.advanceTimersByTimeAsync(10);
       await agentManager.flush();
-      expect(agentManager.getAgent(snapshot.id)).toMatchObject({
+      expect(agentManager.getAgent(agentId)).toMatchObject({
         consecutiveWarmPings: 1,
         totalWarmPings: 1,
       });
-      expect(await storage.get(snapshot.id)).toMatchObject({
+      expect(await storage.get(agentId)).toMatchObject({
         consecutiveWarmPings: 1,
         totalWarmPings: 1,
       });
     } finally {
+      await cleanup();
+    }
+  });
+
+  it("re-arms after a turn the agent started on its own, such as a task notification", async () => {
+    const { agentManager, warmManager, session, agentId, cleanup } = await createManagerHarness();
+    try {
+      session.playTurn("autonomous-1", MINUTE);
+      await vi.advanceTimersByTimeAsync(MINUTE + 1);
       await agentManager.flush();
-      rmSync(workdir, { recursive: true, force: true });
+      expect(agentManager.getAgent(agentId)?.lifecycle).toBe("idle");
+      expect(agentManager.hasInFlightRun(agentId)).toBe(false);
+      expect(warmManager.getPending(agentId)?.scheduledFor.getTime()).toBe(START + 58 * MINUTE);
+    } finally {
+      await cleanup();
     }
   });
 });

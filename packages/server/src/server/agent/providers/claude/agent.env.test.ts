@@ -16,6 +16,7 @@ import {
 import { claudeQuery, type ClaudeQueryInput } from "./query.js";
 import {
   CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY,
+  CLAUDE_PROMPT_CACHE_TTL_ENV_KEY,
   CLAUDE_CUSTOM_MODEL_PIN_ENV_KEYS,
   CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY,
   CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY,
@@ -68,6 +69,8 @@ describe("Claude SDK env", () => {
     vi.stubEnv(CLAUDE_MAX_CONTEXT_TOKENS_ENV_KEY, "");
     vi.stubEnv(CLAUDE_MAX_OUTPUT_TOKENS_ENV_KEY, "");
     vi.stubEnv(CLAUDE_AUTO_COMPACT_WINDOW_ENV_KEY, "");
+    // Agents launched by Paseo inherit a Cache window, and an ambient value wins over the feature.
+    vi.stubEnv(CLAUDE_PROMPT_CACHE_TTL_ENV_KEY, undefined);
   });
 
   afterEach(() => {

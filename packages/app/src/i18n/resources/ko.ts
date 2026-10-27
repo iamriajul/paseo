@@ -468,6 +468,9 @@ export const ko: TranslationResources = {
     },
   },
   workspace: {
+    cacheWarm: {
+      accessibilityLabel: "다음 캐시 워밍업까지 {{countdown}}",
+    },
     route: {
       loading: "워크스페이스 불러오는 중",
       connecting: "연결 중",
@@ -3019,6 +3022,12 @@ export const ko: TranslationResources = {
         hint: "API 속도 제한 쿨다운 또는 모델 복구 후 에이전트 세션을 자동으로 재개합니다",
         accessibilityLabel: "속도 제한 시 자동 재개",
         error: "자동 재개 설정을 업데이트할 수 없습니다",
+      },
+      cacheWarmSubagents: {
+        title: "하위 에이전트 캐시 워밍업",
+        hint: "오케스트레이터가 생성한 에이전트는 캐시 워밍업이 켜진 상태로 시작하여 후속 작업이 캐시를 재사용합니다. 각 에이전트의 토글이 우선합니다.",
+        accessibilityLabel: "하위 에이전트 캐시 워밍업",
+        error: "캐시 워밍업 설정을 업데이트할 수 없습니다",
       },
       orchestration: {
         title: "오케스트레이션",

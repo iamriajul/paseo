@@ -472,6 +472,9 @@ export const ja: TranslationResources = {
     },
   },
   workspace: {
+    cacheWarm: {
+      accessibilityLabel: "次のキャッシュウォームアップまで {{countdown}}",
+    },
     route: {
       loading: "ワークスペースを読み込み中",
       connecting: "接続中",
@@ -3032,6 +3035,12 @@ export const ja: TranslationResources = {
         hint: "APIレート制限のクールダウンやモデル復旧後にエージェントセッションを自動再開します",
         accessibilityLabel: "レート制限時の自動再開",
         error: "自動再開設定を更新できませんでした",
+      },
+      cacheWarmSubagents: {
+        title: "子エージェントのキャッシュウォームアップ",
+        hint: "オーケストレーターが起動したエージェントはキャッシュウォームアップを有効にした状態で開始し、後続のタスクでキャッシュを再利用します。各エージェントの切り替えが優先されます。",
+        accessibilityLabel: "子エージェントのキャッシュウォームアップ",
+        error: "キャッシュウォームアップの設定を更新できません",
       },
       orchestration: {
         title: "オーケストレーション",

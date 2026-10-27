@@ -4,6 +4,7 @@ import { Pressable, Text, View, type GestureResponderEvent } from "react-native"
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   CalendarClock,
+  Flame,
   ExternalLink,
   Folder,
   GitBranch,
@@ -48,6 +49,7 @@ const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedListTodo = withUnistyles(ListTodo);
 const ThemedCalendarClock = withUnistyles(CalendarClock);
+const ThemedFlame = withUnistyles(Flame);
 
 /** Stable identity so a row without labels doesn't re-select its items on every render. */
 const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
@@ -82,6 +84,7 @@ export function WorkspaceMetaRow({
   todoSummary = null,
   labels = EMPTY_LABELS,
   heartbeatText = null,
+  cacheWarmText = null,
 }: {
   currentBranch: string | null;
   projectName: string | null;
@@ -93,6 +96,8 @@ export function WorkspaceMetaRow({
   todoSummary?: WorkspaceTodoSummary | null;
   labels?: readonly WorkspaceLabelDefinition[];
   heartbeatText?: string | null;
+  /** Countdown to the active agent's next prompt-cache warm-up, when one is armed. */
+  cacheWarmText?: string | null;
 }) {
   const { rowItems, checksDisplay } = useSidebarMetaPreferences();
   const items = selectMetaRowItems({
@@ -107,6 +112,7 @@ export function WorkspaceMetaRow({
     visible: rowItems,
     checksDisplay,
     heartbeatText,
+    cacheWarmText,
   });
 
   if (items.length === 0) return null;
@@ -153,6 +159,9 @@ function MetaItemNode({
   }
   if (item.kind === "labels") {
     return <LabelsItem labels={item.labels} leading={leading} />;
+  }
+  if (item.kind === "cacheWarm") {
+    return <CacheWarmItem text={item.text} />;
   }
   if (item.kind === "heartbeat") {
     return <HeartbeatItem text={item.text} />;
@@ -334,6 +343,22 @@ const CHECK_STATE_ACCESSIBLE_KEYS = {
   failed: "workspace.git.pr.checksSummary.failedAccessible",
   running: "workspace.git.pr.checksSummary.runningAccessible",
 } as const;
+
+function CacheWarmItem({ text }: { text: string }) {
+  const { t } = useTranslation();
+  return (
+    <View
+      style={styles.item}
+      accessibilityLabel={t("workspace.cacheWarm.accessibilityLabel", { countdown: text })}
+      testID="sidebar-workspace-cache-warm"
+    >
+      <ThemedFlame size={META_ICON_SIZE} uniProps={warningMapping} />
+      <Text style={styles.heartbeatText} numberOfLines={1}>
+        {text}
+      </Text>
+    </View>
+  );
+}
 
 function HeartbeatItem({ text }: { text: string }) {
   return (

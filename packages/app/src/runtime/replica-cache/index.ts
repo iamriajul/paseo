@@ -4,6 +4,7 @@ import {
   AgentStatusSchema,
   AgentTimelineItemPayloadSchema,
   WorkspaceGitHubRuntimePayloadSchema,
+  AgentPromptCacheStateSchema,
 } from "@getpaseo/protocol/messages";
 import { AgentProviderSchema } from "@getpaseo/protocol/provider-manifest";
 import type { PluginTimelineData } from "@getpaseo/plugin";
@@ -239,6 +240,8 @@ const StoredAgentSnapshotSchema = z.strictObject({
   lastUserMessageAt: IsoDateSchema.nullable(),
   lastResponseAt: IsoDateSchema.nullable().optional(),
   consecutiveWarmPings: z.number().optional(),
+  totalWarmPings: z.number().optional(),
+  promptCache: AgentPromptCacheStateSchema.optional(),
   status: AgentStatusSchema,
   activeTurn: z
     .strictObject({
@@ -657,6 +660,18 @@ function serializeCapabilities(capabilities: Agent["capabilities"]) {
   };
 }
 
+function serializeCacheWarmState(
+  agent: Pick<Agent, "consecutiveWarmPings" | "totalWarmPings" | "promptCache">,
+) {
+  return {
+    ...(agent.consecutiveWarmPings !== undefined
+      ? { consecutiveWarmPings: agent.consecutiveWarmPings }
+      : {}),
+    ...(agent.totalWarmPings !== undefined ? { totalWarmPings: agent.totalWarmPings } : {}),
+    ...(agent.promptCache ? { promptCache: agent.promptCache } : {}),
+  };
+}
+
 function serializeAgent(agent: Agent): StoredAgent {
   const snapshot = {
     id: agent.id,
@@ -669,9 +684,7 @@ function serializeAgent(agent: Agent): StoredAgent {
     updatedAt: agent.updatedAt.toISOString(),
     lastUserMessageAt: agent.lastUserMessageAt?.toISOString() ?? null,
     lastResponseAt: agent.lastResponseAt?.toISOString() ?? null,
-    ...(agent.consecutiveWarmPings !== undefined
-      ? { consecutiveWarmPings: agent.consecutiveWarmPings }
-      : {}),
+    ...serializeCacheWarmState(agent),
     status: agent.status,
     ...(agent.turn.phase === "open" && agent.turn.turnId
       ? {

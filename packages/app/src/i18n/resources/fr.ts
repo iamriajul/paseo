@@ -473,6 +473,9 @@ export const fr: TranslationResources = {
     },
   },
   workspace: {
+    cacheWarm: {
+      accessibilityLabel: "Prochain préchauffage du cache dans {{countdown}}",
+    },
     route: {
       loading: "Chargement de l’espace de travail…",
       connecting: "Connexion…",
@@ -3063,6 +3066,12 @@ export const fr: TranslationResources = {
         hint: "Reprendre automatiquement les sessions d'agent après le temps de recharge du quota de l'API ou la récupération du modèle",
         accessibilityLabel: "Reprise automatique lors des limites de débit",
         error: "Impossible de mettre à jour le paramètre de reprise automatique",
+      },
+      cacheWarmSubagents: {
+        title: "Préchauffage du cache pour les agents enfants",
+        hint: "Les agents créés par un orchestrateur démarrent avec le préchauffage du cache activé, afin que les tâches suivantes réutilisent le cache. Le réglage de chaque agent reste prioritaire.",
+        accessibilityLabel: "Préchauffage du cache pour les agents enfants",
+        error: "Impossible de mettre à jour le paramètre de préchauffage du cache",
       },
       orchestration: {
         title: "Orchestration",

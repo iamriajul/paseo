@@ -344,6 +344,7 @@ const disabledCodexEntry: ProviderSnapshotEntry = {
 function makeConfig(providers: MutableDaemonConfig["providers"] = {}): MutableDaemonConfig {
   return {
     autoResumeOnRateLimit: true,
+    cacheWarmSubagents: true,
     relay: { enabled: false },
     mcp: { injectIntoAgents: false },
     browserTools: { enabled: false },

@@ -11,6 +11,7 @@ import type {
 } from "@getpaseo/protocol/agent-types";
 import type { AgentMessage } from "@getpaseo/protocol/agent-message";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
+import type { PromptCacheRequestTokens } from "@getpaseo/protocol/agent-cache-warm";
 import type { PaseoToolCatalog } from "./tools/types.js";
 
 export type {
@@ -214,6 +215,8 @@ export interface AgentUsage {
   totalCostUsd?: number;
   contextWindowMaxTokens?: number;
   contextWindowUsedTokens?: number;
+  /** Cache split of one main-thread request, set only on its `message_start` usage update. */
+  requestCache?: PromptCacheRequestTokens;
 }
 
 export const TOOL_CALL_ICON_NAMES = [
@@ -639,7 +642,6 @@ export interface AgentLaunchContext {
    * AgentSessionConfig; providers may adapt it to their native tool surface.
    */
   paseoTools?: PaseoToolCatalog;
-  isSubagent?: boolean;
 }
 
 export interface AgentCreateSessionOptions {

@@ -109,6 +109,8 @@ export function toStoredAgentRecord(
     internal: options?.internal,
     owner: agent.owner,
     consecutiveWarmPings: agent.consecutiveWarmPings ?? undefined,
+    totalWarmPings: agent.totalWarmPings ?? undefined,
+    promptCache: agent.promptCache,
   } satisfies StoredAgentRecord;
 }
 
@@ -153,9 +155,7 @@ export function toAgentPayload(
     labels: agent.labels,
     archivedAt: options?.archivedAt ?? null,
     ...(agent.internal ? { internal: true } : {}),
-    ...(agent.consecutiveWarmPings !== undefined
-      ? { consecutiveWarmPings: agent.consecutiveWarmPings }
-      : {}),
+    ...projectCacheWarmState(agent),
   };
 
   const usage = sanitizeUsage(agent.lastUsage);
@@ -244,6 +244,21 @@ function resolveStoredAgentThinking(
   };
 }
 
+type CacheWarmState = Pick<
+  AgentSnapshotPayload,
+  "consecutiveWarmPings" | "totalWarmPings" | "promptCache"
+>;
+
+function projectCacheWarmState(source: CacheWarmState): CacheWarmState {
+  return {
+    ...(source.consecutiveWarmPings !== undefined
+      ? { consecutiveWarmPings: source.consecutiveWarmPings }
+      : {}),
+    ...(source.totalWarmPings !== undefined ? { totalWarmPings: source.totalWarmPings } : {}),
+    ...(source.promptCache ? { promptCache: source.promptCache } : {}),
+  };
+}
+
 export function buildStoredAgentPayload(
   record: StoredAgentRecord,
   validProviders: Iterable<AgentProvider>,
@@ -289,9 +304,7 @@ export function buildStoredAgentPayload(
     ...(record.internal ? { internal: true } : {}),
     labels: normalizeLabels(record.labels),
     ...(typeof record.lastError === "string" ? { lastError: record.lastError } : {}),
-    ...(record.consecutiveWarmPings !== undefined
-      ? { consecutiveWarmPings: record.consecutiveWarmPings }
-      : {}),
+    ...projectCacheWarmState(record),
     ...(options?.rateLimitCooldown ? { rateLimitCooldown: options.rateLimitCooldown } : {}),
     ...(providerAvailable ? {} : { providerUnavailable: true }),
   };
@@ -548,7 +561,7 @@ function sanitizeMetadataArray(value: unknown): AgentMetadata[] | undefined {
   return sanitized.length > 0 ? sanitized : undefined;
 }
 
-type UsageNumericField = Exclude<keyof AgentUsage, never>;
+type UsageNumericField = Exclude<keyof AgentUsage, "requestCache">;
 
 function assignFiniteNumber(
   source: { [key: string]: JsonValue },

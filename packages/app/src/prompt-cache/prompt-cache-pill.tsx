@@ -2,10 +2,22 @@ import React, { memo, type ReactElement } from "react";
 import { View, Text } from "react-native";
 import { Database, Flame } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import {
+  promptCacheHitRatio,
+  type PromptCacheRequestSample,
+  type PromptCacheWindows,
+} from "@getpaseo/protocol/agent-cache-warm";
 import { ComposerTrackPill } from "@/composer/tracks";
 import { Button } from "@/components/ui/button";
+import { formatTokenCount } from "@/components/context-window-meter.utils";
+import { formatCountdownClock, formatPreciseDuration } from "@/usage/format";
 import type { Theme } from "@/styles/theme";
-import { usePromptCache } from "./use-prompt-cache";
+import {
+  usePromptCache,
+  type PromptCacheState,
+  type PromptCacheStatus,
+  type PromptCacheWarmup,
+} from "./use-prompt-cache";
 
 const ThemedDatabase = withUnistyles(Database);
 const ThemedFlame = withUnistyles(Flame);
@@ -21,101 +33,108 @@ const WarmPillIcon = memo(function WarmPillIcon(): ReactElement {
   return <ThemedFlame size={14} uniProps={warmIconColorMapping} />;
 });
 
-function formatCacheWindowLabel(cacheWindowMs: number, isSubagent: boolean): string {
-  if (cacheWindowMs <= 5 * 60 * 1000) {
-    return isSubagent ? "5 minutes (subagent)" : "5 minutes";
-  }
-  return isSubagent ? "1 hour" : "1 hour (Claude Code)";
+function formatCacheWindowLabel(windows: PromptCacheWindows | null): string {
+  if (!windows) return "Automatic";
+  return windows.cacheWindowMs <= 5 * 60 * 1000 ? "5 minutes" : "1 hour";
 }
 
-function formatCoveredDuration(warmIntervalMs: number, maxConsecutivePings: number): string {
-  const totalMinutes = Math.round((warmIntervalMs * maxConsecutivePings) / 60_000);
-  if (totalMinutes < 60) {
-    return `${totalMinutes}m`;
-  }
-  const hours = Math.floor(totalMinutes / 60);
-  const remainingMinutes = totalMinutes % 60;
-  return remainingMinutes === 0 ? `${hours}h` : `${hours}h${remainingMinutes}m`;
+function formatCoveredDuration(warmup: PromptCacheWarmup, windows: PromptCacheWindows): string {
+  return formatPreciseDuration(windows.warmIntervalMs * warmup.maxPings);
 }
 
-function resolvePillSegmentText(cache: ReturnType<typeof usePromptCache>): string {
-  if (cache.isBusy) {
-    return "caching";
+function resolveSegmentText(cache: PromptCacheState): string {
+  const { status, warmup } = cache;
+  switch (status.kind) {
+    case "automatic":
+      return "cache · auto";
+    case "busy":
+      return "caching";
+    case "expired":
+      return "cache · expired";
+    case "awaiting-question":
+      return `question · ${formatCountdownClock(status.remainingMs)}`;
+    case "awaiting-permission":
+      return `permission · ${formatCountdownClock(status.remainingMs)}`;
+    case "warm":
+      if (warmup?.plan.kind === "next-ping") {
+        return `warm · ${formatCountdownClock(warmup.plan.remainingMs)}`;
+      }
+      if (warmup?.plan.kind === "capped") {
+        return `capped · ${formatCountdownClock(status.remainingMs)}`;
+      }
+      return `cache · ${formatCountdownClock(status.remainingMs)}`;
   }
-  if (cache.hasPendingQuestion) {
-    return cache.isWarm ? `question · ${cache.countdownText}` : "question · expired";
-  }
-  if (cache.hasPendingPermission) {
-    return cache.isWarm ? `permission · ${cache.countdownText}` : "permission · expired";
-  }
-  if (cache.isCapped) {
-    return cache.isWarm ? "warm · capped" : "cache · expired";
-  }
-  if (cache.isWarmupEnabled) {
-    return `warm · ${cache.nextPingCountdownText}`;
-  }
-  return `cache · ${cache.countdownText}`;
 }
 
-function resolvePillStatusText(cache: ReturnType<typeof usePromptCache>): string {
-  if (cache.isBusy) {
-    return "Active turn in flight";
+function resolveStatusText(status: PromptCacheStatus): string {
+  switch (status.kind) {
+    case "automatic":
+      return "Claude Code picks the window";
+    case "busy":
+      return "Active turn in flight";
+    case "expired":
+      return "Cache expired";
+    case "awaiting-question":
+      return `Awaiting answer · expires in ${formatCountdownClock(status.remainingMs)}`;
+    case "awaiting-permission":
+      return `Awaiting permission · expires in ${formatCountdownClock(status.remainingMs)}`;
+    case "warm":
+      return `Expires in ${formatCountdownClock(status.remainingMs)}`;
   }
-  if (cache.hasPendingQuestion) {
-    return cache.isWarm
-      ? `Awaiting answer (expires ${cache.countdownText})`
-      : "Awaiting answer (cache expired)";
-  }
-  if (cache.hasPendingPermission) {
-    return cache.isWarm
-      ? `Awaiting permission (expires ${cache.countdownText})`
-      : "Awaiting permission (cache expired)";
-  }
-  if (cache.isWarm) {
-    return `Expires ${cache.countdownText}`;
-  }
-  return "Cache expired";
 }
 
-function resolvePillWarmupText(cache: ReturnType<typeof usePromptCache>): string {
-  if (!cache.isWarmupEnabled) {
-    return "Disabled";
+function resolveWarmupText(warmup: PromptCacheWarmup): string {
+  const { plan } = warmup;
+  switch (plan.kind) {
+    case "off":
+      return "Off";
+    case "after-turn":
+      return "Resumes after this turn";
+    case "expired":
+      return "Paused (cache expired)";
+    case "capped":
+      return "Capped for this idle stretch";
+    case "parent-answers":
+      return "Waits for the parent agent";
+    case "waits-for-permission":
+      return "Paused while awaiting permission";
+    case "pauses-question":
+      return `Question auto-pauses in ${formatCountdownClock(plan.remainingMs)}`;
+    case "next-ping":
+      return `Next in ${formatCountdownClock(plan.remainingMs)}`;
   }
-  if (cache.isBusy) {
-    return "Active (resets after turn)";
-  }
-  if (cache.hasPendingQuestion) {
-    return `Auto-pauses for warm-up ${cache.nextPingCountdownText}`;
-  }
-  if (cache.hasPendingPermission) {
-    return "Paused while awaiting your response";
-  }
-  if (cache.isCapped) {
-    return `Capped (${cache.consecutivePings}/${cache.maxConsecutivePings} pings)`;
-  }
-  if (!cache.isWarm) {
-    return "Paused (cache expired)";
-  }
-  return `Next warm-up ${cache.nextPingCountdownText}`;
 }
 
-function resolvePillAccessibilityLabel(cache: ReturnType<typeof usePromptCache>): string {
-  if (cache.isBusy) {
-    return "Claude prompt cache: caching";
+function resolveLastPromptText(sample: PromptCacheRequestSample): string {
+  const ratio = promptCacheHitRatio(sample);
+  if (ratio === null) {
+    return "No input recorded";
   }
-  if (cache.hasPendingQuestion) {
-    return `Claude prompt cache: awaiting answer, expires ${cache.countdownText}`;
+  if (sample.readTokens === 0) {
+    return `Missed · wrote ${formatTokenCount(sample.writeTokens)}`;
   }
-  if (cache.hasPendingPermission) {
-    return `Claude prompt cache: awaiting permission, expires ${cache.countdownText}`;
-  }
-  if (cache.isCapped) {
-    return `Claude cache warm-up: capped after ${cache.consecutivePings} pings`;
-  }
-  if (cache.isWarmupEnabled) {
-    return `Claude cache warm-up: next tick ${cache.nextPingCountdownText}`;
-  }
-  return `Claude prompt cache: ${cache.countdownText}`;
+  const percent = Math.floor(ratio * 100);
+  return `${percent}% cached · ${formatTokenCount(sample.readTokens)} read · ${formatTokenCount(sample.writeTokens)} written`;
+}
+
+function resolveAccessibilityLabel(cache: PromptCacheState): string {
+  return `Claude prompt cache: ${resolveSegmentText(cache)}`;
+}
+
+function CapProgress({ warmup }: { warmup: PromptCacheWarmup }): ReactElement {
+  const fraction = warmup.maxPings > 0 ? warmup.pingsUsed / warmup.maxPings : 0;
+  return (
+    <View
+      style={styles.capTrack}
+      testID="prompt-cache-cap-progress"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={warmup.maxPings}
+      aria-valuenow={warmup.pingsUsed}
+    >
+      <View style={[styles.capFill, { width: `${Math.round(fraction * 100)}%` }]} />
+    </View>
+  );
 }
 
 export const PromptCachePill = memo(function PromptCachePill({
@@ -131,64 +150,86 @@ export const PromptCachePill = memo(function PromptCachePill({
     return null;
   }
 
-  const segmentText = resolvePillSegmentText(cache);
-  const statusText = resolvePillStatusText(cache);
-  const warmupText = resolvePillWarmupText(cache);
-  const accessibilityLabel = resolvePillAccessibilityLabel(cache);
-
+  const { windows, warmup, lastPrompt } = cache;
   const segments = [
     {
-      bucket: cache.isBusy ? ("running" as const) : null,
-      text: segmentText,
+      bucket: cache.status.kind === "busy" ? ("running" as const) : null,
+      text: resolveSegmentText(cache),
     },
   ];
+  const canTurnOn = cache.status.kind !== "expired";
 
   return (
     <ComposerTrackPill
       testID="prompt-cache-pill"
       segments={segments}
-      icon={cache.isWarmupEnabled ? WarmPillIcon : PillIcon}
-      accessibilityLabel={accessibilityLabel}
+      icon={warmup?.enabled ? WarmPillIcon : PillIcon}
+      accessibilityLabel={resolveAccessibilityLabel(cache)}
       panelTitle="Prompt Cache Warm-up"
     >
       <View style={styles.panelContent}>
         <View style={styles.detailRow}>
           <Text style={styles.label}>Cache window</Text>
-          <Text style={styles.value}>
-            {formatCacheWindowLabel(cache.cacheWindowMs, cache.isSubagent)}
-          </Text>
+          <Text style={styles.value}>{formatCacheWindowLabel(windows)}</Text>
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.label}>Cache status</Text>
-          <Text style={styles.value}>{statusText}</Text>
+          <Text style={styles.value}>{resolveStatusText(cache.status)}</Text>
         </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.label}>Auto warm-up</Text>
-          <Text style={styles.value}>{warmupText}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.label}>Idle auto-cap</Text>
-          <Text style={styles.value}>
-            {cache.maxConsecutivePings} pings (
-            {formatCoveredDuration(cache.warmIntervalMs, cache.maxConsecutivePings)})
-          </Text>
-        </View>
-        <View style={styles.actions}>
-          <Button
-            size="sm"
-            variant={cache.isWarmupEnabled ? "outline" : "default"}
-            testID="prompt-cache-toggle-warmup-button"
-            disabled={!cache.isWarm && !cache.isWarmupEnabled}
-            onPress={cache.toggleWarmup}
-          >
-            {cache.isWarmupEnabled ? "Turn off auto warm-up" : "Turn on auto warm-up"}
-          </Button>
-          {!cache.isWarm && !cache.isWarmupEnabled ? (
-            <Text style={styles.disabledHelpText}>
-              Cache is expired. Send a prompt to re-warm before turning on auto warm-up.
+        {lastPrompt ? (
+          <View style={styles.detailRow}>
+            <Text style={styles.label}>
+              {lastPrompt.isWarmPing ? "Last warm-up" : "Last prompt"}
             </Text>
-          ) : null}
-        </View>
+            <Text style={styles.value} testID="prompt-cache-last-prompt">
+              {resolveLastPromptText(lastPrompt)}
+            </Text>
+          </View>
+        ) : null}
+        {warmup && windows ? (
+          <>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Auto warm-up</Text>
+              <Text style={styles.value}>{resolveWarmupText(warmup)}</Text>
+            </View>
+            <View style={styles.capBlock}>
+              <View style={styles.detailRow}>
+                <Text style={styles.label}>Idle auto-cap</Text>
+                <Text style={styles.value} testID="prompt-cache-cap-count">
+                  {warmup.pingsUsed} / {warmup.maxPings} · {formatCoveredDuration(warmup, windows)}
+                </Text>
+              </View>
+              <CapProgress warmup={warmup} />
+              <Text style={styles.helpText}>Cap resets when you send a message</Text>
+              <View style={styles.detailRow}>
+                <Text style={styles.label}>Total warm-ups</Text>
+                <Text style={styles.value} testID="prompt-cache-total-pings">
+                  {warmup.totalPings}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.actions}>
+              <Button
+                size="sm"
+                variant={warmup.enabled ? "outline" : "default"}
+                testID="prompt-cache-toggle-warmup-button"
+                disabled={!warmup.enabled && !canTurnOn}
+                onPress={cache.toggleWarmup}
+              >
+                {warmup.enabled ? "Turn off auto warm-up" : "Turn on auto warm-up"}
+              </Button>
+              {!warmup.enabled && !canTurnOn ? (
+                <Text style={styles.helpText}>
+                  Cache is expired. Send a prompt to re-warm before turning on auto warm-up.
+                </Text>
+              ) : null}
+            </View>
+          </>
+        ) : (
+          <Text style={styles.helpText}>
+            Choose 5 minutes or 1 hour under Cache window to use auto warm-up.
+          </Text>
+        )}
       </View>
     </ComposerTrackPill>
   );
@@ -214,16 +255,29 @@ const styles = StyleSheet.create((theme: Theme) => ({
     color: theme.colors.foreground,
     fontWeight: theme.fontWeight.medium,
   },
+  capBlock: {
+    gap: theme.spacing[1],
+  },
+  capTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.colors.surface3,
+    overflow: "hidden",
+  },
+  capFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.colors.statusWarning,
+  },
   actions: {
     marginTop: theme.spacing[1],
     flexDirection: "column",
     alignItems: "stretch",
     gap: theme.spacing[1],
   },
-  disabledHelpText: {
+  helpText: {
     fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
     textAlign: "right",
-    marginTop: theme.spacing[1],
   },
 }));

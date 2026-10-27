@@ -465,6 +465,9 @@ export const en = {
     },
   },
   workspace: {
+    cacheWarm: {
+      accessibilityLabel: "Next prompt cache warm-up in {{countdown}}",
+    },
     route: {
       loading: "Loading workspace",
       connecting: "Connecting",
@@ -3135,6 +3138,12 @@ export const en = {
         hint: "Automatically resume agent sessions after API rate limit cooldown or model recovery",
         accessibilityLabel: "Auto-resume on rate limits",
         error: "Unable to update auto-resume setting",
+      },
+      cacheWarmSubagents: {
+        title: "Cache warm-up for child agents",
+        hint: "Agents an orchestrator spawns start with cache warm-up on, so follow-up tasks reuse the prompt cache. Each agent's own toggle still wins.",
+        accessibilityLabel: "Cache warm-up for child agents",
+        error: "Unable to update the cache warm-up setting",
       },
       orchestration: {
         title: "Orchestration",

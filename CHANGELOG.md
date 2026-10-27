@@ -371,6 +371,31 @@ Background workspaces, a new Markdown renderer with selection across paragraphs 
 
 - Fixed intermittent text clipping in iOS chats and Markdown previews ([#6445](https://github.com/getpaseo/paseo/pull/6445))
 
+## 0.11.913 - 2026-10-27
+
+### Added
+
+- Added a "Last prompt" row to the prompt cache popover that shows how much of your last prompt was served from cache, for example `98% cached · 37k read · 541 written` or `Missed · wrote 180k`. After a warm-up it shows the warm-up's own hit instead. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Added idle auto-cap progress and a lifetime warm-up total to the prompt cache popover. The cap resets when you send a message; the total never resets. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Added a flame countdown to the sidebar workspace row while the workspace's active agent has a cache warm-up armed, next to the heartbeat. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Added the Host Settings switch "Cache warm-up for child agents", on by default. Turned off, agents an orchestrator spawns start with warm-up off. Each agent's own toggle still wins. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Added question pausing: when your own agent waits on an unanswered question at the warm-up deadline, warm-up pauses the question so the cache stays warm, and Claude asks it again when you return. Child agents' questions are never paused, because their parent answers them. ([#136](https://github.com/iamriajul/paseo/pull/136), [#137](https://github.com/iamriajul/paseo/pull/137))
+
+### Changed
+
+- Changed cache warm-up to require an explicit Cache window. Automatic lets Claude Code choose 5 minutes or 1 hour from your login, gateway routing and overage, which Paseo cannot see, so the warm-up toggle now appears only for 5 minutes or 1 hour. 5-minute windows start with warm-up on; 1-hour windows start with it off. ([#136](https://github.com/iamriajul/paseo/pull/136), [#137](https://github.com/iamriajul/paseo/pull/137))
+- Changed the warm-up countdown to start at the last request Claude sent to Anthropic instead of when the turn finished, because Anthropic restarts the cache timer when it receives a request. 5-minute windows now warm at 4m30s. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Changed prompt cache countdowns to a clock format such as `3:40`. ([#137](https://github.com/iamriajul/paseo/pull/137))
+
+### Fixed
+
+- Fixed caches expiring without a warm-up when a long final answer, an errored turn, or a cancelled turn moved the countdown past the real expiry. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Fixed warm-up never arming for idle agents after a daemon or machine restart until you opened them. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Fixed a failed or skipped warm-up counting as a refresh, which delayed the next warm-up past the expiry and then re-wrote a cold cache. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Fixed changing the Cache window having no effect until something else restarted Claude Code. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Fixed the warm-up count never reaching the app or surviving a restart. ([#137](https://github.com/iamriajul/paseo/pull/137))
+- Fixed a failed warm-up triggering rate-limit auto-resume, which would send a real "continue" to the agent. ([#137](https://github.com/iamriajul/paseo/pull/137))
+
 ## 0.11.908 - 2026-10-19
 
 ### Added

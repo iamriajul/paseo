@@ -10,6 +10,7 @@ import {
 function makeConfig(browserToolsEnabled = false): MutableDaemonConfig {
   return {
     autoResumeOnRateLimit: true,
+    cacheWarmSubagents: true,
     relay: { enabled: false },
     mcp: { injectIntoAgents: false },
     browserTools: { enabled: browserToolsEnabled },

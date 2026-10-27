@@ -2,8 +2,8 @@
 
 import React from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
-import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
+import { render, cleanup, fireEvent, act } from "@testing-library/react";
+import type { AgentPromptCacheState } from "@getpaseo/protocol/agent-cache-warm";
 import { PromptCachePill } from "./prompt-cache-pill";
 import { useSessionStore, type SessionState, type Agent } from "@/stores/session-store";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
@@ -21,6 +21,7 @@ const { theme } = vi.hoisted(() => {
       colors: {
         surface0: "#000",
         surface1: "#111",
+        surface3: "#333",
         foreground: "#fff",
         foregroundMuted: "#aaa",
         border: "#555",
@@ -103,10 +104,46 @@ vi.mock("@/components/ui/button", async () => {
   };
 });
 
+const NOW = new Date("2026-10-27T10:00:00.000Z").getTime();
+const SECOND = 1000;
+const MINUTE = 60 * SECOND;
+
+function promptCacheAt(
+  atMs: number,
+  tokens: { readTokens: number; writeTokens: number; uncachedTokens: number } = {
+    readTokens: 182_000,
+    writeTokens: 1_200,
+    uncachedTokens: 40,
+  },
+  isWarmPing = false,
+): AgentPromptCacheState {
+  const sample = { at: new Date(atMs).toISOString(), turnId: "turn-1", isWarmPing, ...tokens };
+  return { lastRequest: sample, turnFirstRequest: sample };
+}
+
+function claudeAgent(overrides: Partial<Agent> & { ttl?: string; cacheWarm?: boolean }): Agent {
+  const { ttl, cacheWarm, ...rest } = overrides;
+  const features = [
+    ...(ttl ? [{ type: "select", id: "prompt_cache_ttl", value: ttl }] : []),
+    ...(cacheWarm !== undefined ? [{ type: "toggle", id: "cache_warm", value: cacheWarm }] : []),
+  ];
+  return {
+    id: "agent-1",
+    provider: "claude",
+    status: "idle",
+    labels: {},
+    pendingPermissions: [],
+    features,
+    ...rest,
+  } as unknown as Agent;
+}
+
 describe("PromptCachePill", () => {
   const setAgentFeatureMock = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
     vi.clearAllMocks();
     vi.mocked(useHostRuntimeClient).mockReturnValue({
       setAgentFeature: setAgentFeatureMock,
@@ -115,204 +152,138 @@ describe("PromptCachePill", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
-  function setupSession(agent: Partial<Agent> & { id: string }) {
+  function renderPill(agent: Agent) {
     useSessionStore.setState({
       sessions: {
         "server-1": {
-          agents: new Map([[agent.id, agent as Agent]]),
-          agentDetails: new Map([[agent.id, agent as Agent]]),
+          agents: new Map([[agent.id, agent]]),
+          agentDetails: new Map([[agent.id, agent]]),
         } as unknown as SessionState,
       },
     });
+    return render(<PromptCachePill serverId="server-1" agentId="agent-1" />);
   }
 
   it("does not render for non-Claude sessions", () => {
-    setupSession({
-      id: "agent-1",
-      provider: "codex",
-      labels: {},
-      features: [{ type: "toggle", id: "cache_warm", label: "Cache keep-alive", value: true }],
-    });
-
-    const { queryByTestId } = render(<PromptCachePill serverId="server-1" agentId="agent-1" />);
+    const { queryByTestId } = renderPill(claudeAgent({ provider: "codex" }));
     expect(queryByTestId("prompt-cache-pill")).toBeNull();
   });
 
-  it("renders cache expiration when keep-alive is disabled", () => {
-    const now = Date.now();
-    setupSession({
-      id: "agent-1",
-      provider: "claude",
-      labels: {},
-      lastResponseAt: new Date(now),
-      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: false }],
-    });
-
-    const { getByTestId, getByText } = render(
-      <PromptCachePill serverId="server-1" agentId="agent-1" />,
+  it("shows Automatic with no warm-up controls", () => {
+    const { getByText, queryByTestId } = renderPill(
+      claudeAgent({ ttl: "default", promptCache: promptCacheAt(NOW) }),
     );
-    expect(getByTestId("prompt-cache-pill")).not.toBeNull();
-    expect(getByText("cache · in 60m")).not.toBeNull();
-    expect(getByText("Turn on auto warm-up")).not.toBeNull();
+    expect(getByText("cache · auto")).toBeTruthy();
+    expect(getByText("Automatic")).toBeTruthy();
+    expect(
+      getByText("Choose 5 minutes or 1 hour under Cache window to use auto warm-up."),
+    ).toBeTruthy();
+    expect(queryByTestId("prompt-cache-toggle-warmup-button")).toBeNull();
   });
 
-  it("renders next keep-alive tick when keep-alive is enabled and allows toggling", async () => {
-    const now = Date.now();
-    setupSession({
-      id: "agent-1",
-      provider: "claude",
-      labels: {},
-      lastResponseAt: new Date(now),
-      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: true }],
-    });
-
-    const { getByTestId, getByText } = render(
-      <PromptCachePill serverId="server-1" agentId="agent-1" />,
+  it("counts down to the next warm-up in minutes and seconds", () => {
+    const { getByText } = renderPill(
+      claudeAgent({ ttl: "5m", promptCache: promptCacheAt(NOW - 40 * SECOND) }),
     );
-    expect(getByTestId("prompt-cache-pill")).not.toBeNull();
-    expect(getByText("warm · in 58m")).not.toBeNull();
-
-    const button = getByTestId("prompt-cache-toggle-warmup-button");
-    expect(button).not.toBeNull();
-    expect(getByText("Turn off auto warm-up")).not.toBeNull();
-
-    fireEvent.click(button);
-    expect(setAgentFeatureMock).toHaveBeenCalledWith("agent-1", "cache_warm", false);
+    expect(getByText("warm · 3:50")).toBeTruthy();
+    expect(getByText("Expires in 4:20")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(SECOND);
+    });
+    expect(getByText("warm · 3:49")).toBeTruthy();
   });
 
-  it("renders caching when active turn is in flight", () => {
-    const now = Date.now();
-    setupSession({
-      id: "agent-1",
-      provider: "claude",
-      labels: {},
-      lastResponseAt: new Date(now),
-      status: "running",
-      turn: {
-        phase: "open",
-        turnId: "turn-1",
-        startedAt: new Date(now),
-        cancellationRequestId: null,
-      },
-      features: [{ type: "toggle", id: "cache_warm", label: "Cache keep-alive", value: true }],
-    });
-
-    const { getByText } = render(<PromptCachePill serverId="server-1" agentId="agent-1" />);
-    expect(getByText("caching")).not.toBeNull();
+  it("shows how far into the idle cap the warm-ups are", () => {
+    const { getByTestId } = renderPill(
+      claudeAgent({
+        ttl: "1h",
+        cacheWarm: true,
+        consecutiveWarmPings: 3,
+        totalWarmPings: 27,
+        promptCache: promptCacheAt(NOW),
+      }),
+    );
+    expect(getByTestId("prompt-cache-cap-count").textContent).toBe("3 / 12 · 11h36m");
+    expect(getByTestId("prompt-cache-total-pings").textContent).toBe("27");
+    expect(getByTestId("prompt-cache-cap-progress").getAttribute("aria-valuenow")).toBe("3");
   });
 
-  it("derives cache window label from resolved cacheWindowMs", () => {
-    // Main session with 5m TTL override
-    setupSession({
-      id: "agent-main-5m",
-      provider: "claude",
-      labels: {},
-      features: [
-        { type: "select", id: "prompt_cache_ttl", label: "Cache window", value: "5m", options: [] },
-      ],
-    });
-    const { getByText: getMainText } = render(
-      <PromptCachePill serverId="server-1" agentId="agent-main-5m" />,
+  it("reports whether the last prompt hit the cache", () => {
+    const hit = renderPill(claudeAgent({ ttl: "1h", promptCache: promptCacheAt(NOW) }));
+    expect(hit.getByTestId("prompt-cache-last-prompt").textContent).toBe(
+      "99% cached · 182k read · 1k written",
     );
-    expect(getMainText("5 minutes")).not.toBeNull();
     cleanup();
 
-    // Subagent with 1h TTL override
-    setupSession({
-      id: "agent-sub-1h",
-      provider: "claude",
-      labels: { [PARENT_AGENT_ID_LABEL]: "agent-parent" },
-      features: [
-        { type: "select", id: "prompt_cache_ttl", label: "Cache window", value: "1h", options: [] },
-      ],
-    });
-    const { getByText: getSubText } = render(
-      <PromptCachePill serverId="server-1" agentId="agent-sub-1h" />,
+    const miss = renderPill(
+      claudeAgent({
+        ttl: "1h",
+        promptCache: promptCacheAt(NOW, { readTokens: 0, writeTokens: 180_000, uncachedTokens: 3 }),
+      }),
     );
-    expect(getSubText("1 hour")).not.toBeNull();
-  });
+    expect(miss.getByText("Last prompt")).toBeTruthy();
+    expect(miss.getByTestId("prompt-cache-last-prompt").textContent).toBe("Missed · wrote 180k");
+    cleanup();
 
-  it("renders capped segment and details when auto-cap is reached", () => {
-    const now = Date.now();
-    setupSession({
-      id: "agent-capped",
-      provider: "claude",
-      labels: {},
-      lastResponseAt: new Date(now),
-      consecutiveWarmPings: 12,
-      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: true }],
-    });
-
-    const { getByText } = render(<PromptCachePill serverId="server-1" agentId="agent-capped" />);
-    expect(getByText("warm · capped")).not.toBeNull();
-    expect(getByText("Capped (12/12 pings)")).not.toBeNull();
-    expect(getByText("12 pings (11h36m)")).not.toBeNull();
-  });
-
-  it("does not render for non-Claude gateway models under claude provider", () => {
-    setupSession({
-      id: "agent-gemini",
-      provider: "claude",
-      model: "gemini-3.8-flash-high",
-      labels: {},
-      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: true }],
-    });
-
-    const { queryByTestId } = render(
-      <PromptCachePill serverId="server-1" agentId="agent-gemini" />,
+    const ping = renderPill(
+      claudeAgent({
+        ttl: "1h",
+        promptCache: promptCacheAt(NOW, undefined, true),
+      }),
     );
-    expect(queryByTestId("prompt-cache-pill")).toBeNull();
+    expect(ping.getByText("Last warm-up")).toBeTruthy();
   });
 
-  it("disables turn-on button when cache has expired", () => {
-    const past = Date.now() - 75 * 60 * 1000; // 75m ago
-    setupSession({
-      id: "agent-expired",
-      provider: "claude",
-      labels: {},
-      lastResponseAt: new Date(past),
-      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: false }],
-    });
-
-    const { getByTestId, getByText } = render(
-      <PromptCachePill serverId="server-1" agentId="agent-expired" />,
+  it("shows caching while a turn is in flight", () => {
+    const { getByText } = renderPill(
+      claudeAgent({ ttl: "1h", status: "running", promptCache: promptCacheAt(NOW) }),
     );
-    const button = getByTestId("prompt-cache-toggle-warmup-button");
-    expect(button.getAttribute("disabled")).not.toBeNull();
-    expect(
-      getByText("Cache is expired. Send a prompt to re-warm before turning on auto warm-up."),
-    ).not.toBeNull();
+    expect(getByText("caching")).toBeTruthy();
   });
 
-  it("renders question segment and remaining time when agent is awaiting answer", () => {
-    const now = Date.now();
-    setupSession({
-      id: "agent-question",
-      provider: "claude",
-      labels: {},
-      status: "running",
-      turn: {
-        phase: "open",
-        turnId: "turn-1",
-        startedAt: new Date(now),
-        cancellationRequestId: null,
-      },
-      pendingPermissions: [
-        {
-          id: "perm-1",
-          kind: "question",
-          name: "AskUserQuestion",
-        } as unknown as import("@getpaseo/protocol/agent-types").AgentPermissionRequest,
-      ],
-      lastResponseAt: new Date(now - 15 * 60 * 1000), // asked 15m ago
-      features: [{ type: "toggle", id: "cache_warm", label: "Cache warm-up", value: true }],
-    });
+  it("shows a capped segment with the time the cache has left", () => {
+    const { getByText } = renderPill(
+      claudeAgent({
+        ttl: "5m",
+        consecutiveWarmPings: 10,
+        promptCache: promptCacheAt(NOW - MINUTE),
+      }),
+    );
+    expect(getByText("capped · 4:00")).toBeTruthy();
+  });
 
-    const { getByText } = render(<PromptCachePill serverId="server-1" agentId="agent-question" />);
-    expect(getByText("question · in 45m")).not.toBeNull();
-    expect(getByText("Awaiting answer (expires in 45m)")).not.toBeNull();
-    expect(getByText("Auto-pauses for warm-up in 43m")).not.toBeNull();
+  it("toggles warm-up, and disables turning it on once the cache expired", () => {
+    const live = renderPill(
+      claudeAgent({ ttl: "1h", cacheWarm: false, promptCache: promptCacheAt(NOW) }),
+    );
+    fireEvent.click(live.getByTestId("prompt-cache-toggle-warmup-button"));
+    expect(setAgentFeatureMock).toHaveBeenCalledWith("agent-1", "cache_warm", true);
+    cleanup();
+
+    const expired = renderPill(
+      claudeAgent({ ttl: "1h", cacheWarm: false, promptCache: promptCacheAt(NOW - 61 * MINUTE) }),
+    );
+    expect(expired.getByText("cache · expired")).toBeTruthy();
+    expect(expired.getByTestId("prompt-cache-toggle-warmup-button").hasAttribute("disabled")).toBe(
+      true,
+    );
+  });
+
+  it("shows the question countdown and when warm-up pauses it", () => {
+    const { getByText } = renderPill(
+      claudeAgent({
+        ttl: "1h",
+        cacheWarm: true,
+        pendingPermissions: [
+          { id: "q-1", kind: "question", name: "AskUserQuestion" },
+        ] as Agent["pendingPermissions"],
+        promptCache: promptCacheAt(NOW - 10 * MINUTE),
+      }),
+    );
+    expect(getByText("question · 50:00")).toBeTruthy();
+    expect(getByText("Question auto-pauses in 48:00")).toBeTruthy();
   });
 });

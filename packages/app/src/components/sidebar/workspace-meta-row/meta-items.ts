@@ -25,6 +25,7 @@ export type MetaRowItem =
   | { kind: "todos"; summary: WorkspaceTodoSummary }
   | { kind: "services"; summary: WorkspaceServiceSummary }
   | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] }
+  | { kind: "cacheWarm"; text: string }
   | { kind: "heartbeat"; text: string };
 
 /**
@@ -52,6 +53,7 @@ export function selectMetaRowItems(input: {
   visible: SidebarRowItems;
   checksDisplay: SidebarChecksDisplay;
   heartbeatText?: string | null;
+  cacheWarmText?: string | null;
 }): MetaRowItem[] {
   const {
     currentBranch,
@@ -65,6 +67,7 @@ export function selectMetaRowItems(input: {
     visible,
     checksDisplay,
     heartbeatText,
+    cacheWarmText,
   } = input;
   const items: MetaRowItem[] = [];
 
@@ -105,6 +108,13 @@ export function selectMetaRowItems(input: {
 
   if (labels.length > 0 && visible.labels) {
     items.push({ kind: "labels", labels });
+  }
+
+  // Cache warm-up sits beside the heartbeat for the same reason: it is a timer you armed, so it
+  // is ambient state rather than chrome, and rowItems does not hide it.
+  const trimmedCacheWarm = cacheWarmText?.trim() ?? "";
+  if (trimmedCacheWarm.length > 0) {
+    items.push({ kind: "cacheWarm", text: trimmedCacheWarm });
   }
 
   // Heartbeat sits last, after every other peer — including labels — so the

@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Logger } from "pino";
 
 import { writeJsonFileAtomic } from "../atomic-file.js";
-import { AgentFeatureSchema, AgentStatusSchema } from "../messages.js";
+import { AgentFeatureSchema, AgentPromptCacheStateSchema, AgentStatusSchema } from "../messages.js";
 import { toStoredAgentRecord } from "./agent-projections.js";
 import type { ManagedAgent } from "./agent-manager.js";
 import type { AgentSessionConfig } from "./agent-sdk-types.js";
@@ -77,6 +77,8 @@ const STORED_AGENT_SCHEMA = z.object({
   archivedAt: z.string().nullable().optional(),
   owner: AgentOwnerSchema.optional(),
   consecutiveWarmPings: z.number().optional(),
+  totalWarmPings: z.number().optional(),
+  promptCache: AgentPromptCacheStateSchema.optional(),
 });
 
 export type SerializableAgentConfig = Pick<

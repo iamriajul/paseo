@@ -591,6 +591,7 @@ function resolveStaticLoadConfigSettings(
     browserToolsEnabled: resolveBrowserToolsEnabled(persisted),
     autoArchiveAfterMerge: persisted.daemon?.autoArchiveAfterMerge ?? false,
     autoResumeOnRateLimit: persisted.daemon?.autoResumeOnRateLimit ?? true,
+    cacheWarmSubagents: persisted.daemon?.cacheWarmSubagents ?? true,
     appendSystemPrompt: resolveAppendSystemPrompt(persisted),
     ...resolveProfileLists(persisted),
     hostnames: mergeHostnames([
@@ -621,6 +622,7 @@ export type ResolvedDaemonSettings = Pick<
   | "git"
   | "autoArchiveAfterMerge"
   | "autoResumeOnRateLimit"
+  | "cacheWarmSubagents"
   | "agentGateway"
   | "enableTerminalAgentHooks"
   | "appendSystemPrompt"

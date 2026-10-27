@@ -1008,7 +1008,6 @@ describe("ClaudeAgentSession features", () => {
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode", value: false }),
       expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
-      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
 
     await expect(
@@ -1020,7 +1019,6 @@ describe("ClaudeAgentSession features", () => {
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode", value: false }),
       expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
-      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
 
     await expect(
@@ -1032,7 +1030,6 @@ describe("ClaudeAgentSession features", () => {
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode", value: false }),
       expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
-      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
 
     await expect(
@@ -1044,7 +1041,6 @@ describe("ClaudeAgentSession features", () => {
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode", value: false }),
       expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
-      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
 
     await expect(
@@ -1053,10 +1049,7 @@ describe("ClaudeAgentSession features", () => {
         cwd: process.cwd(),
         model: "openrouter/anthropic/claude-opus-4-8",
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
-      expect.objectContaining({ id: "cache_warm", value: false }),
-    ]);
+    ).resolves.toEqual([expect.objectContaining({ id: "prompt_cache_ttl", value: "default" })]);
 
     await expect(
       client.listFeatures({
@@ -1064,10 +1057,7 @@ describe("ClaudeAgentSession features", () => {
         cwd: process.cwd(),
         model: "claude-sonnet-5",
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
-      expect.objectContaining({ id: "cache_warm", value: false }),
-    ]);
+    ).resolves.toEqual([expect.objectContaining({ id: "prompt_cache_ttl", value: "default" })]);
 
     await expect(
       client.listFeatures({
@@ -1075,10 +1065,7 @@ describe("ClaudeAgentSession features", () => {
         cwd: process.cwd(),
         model: "claude-sonnet-4-6",
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
-      expect.objectContaining({ id: "cache_warm", value: false }),
-    ]);
+    ).resolves.toEqual([expect.objectContaining({ id: "prompt_cache_ttl", value: "default" })]);
   });
 
   test("passes initial fast mode through Claude flag settings", async () => {
@@ -3407,6 +3394,40 @@ describe("ClaudeAgentSession context window usage", () => {
     }
   });
 
+  test("relaunches the query with the new TTL after the Cache window changes", async () => {
+    // An ambient value wins over the feature, and agents launched by Paseo carry one.
+    vi.stubEnv("CLAUDE_CODE_PROMPT_CACHE_TTL", undefined);
+    const turn = [createInitMessage(), createSuccessResult()];
+    const turnsFactory = createQueryFactoryForTurns([turn, turn]);
+    const launchedTtls: Array<string | undefined> = [];
+    const queryFactory = vi.fn(
+      (input: { prompt: AsyncIterable<unknown>; options: { env?: Record<string, string> } }) => {
+        launchedTtls.push(input.options.env?.CLAUDE_CODE_PROMPT_CACHE_TTL);
+        return turnsFactory(input);
+      },
+    );
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory: queryFactory as never,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      featureValues: { prompt_cache_ttl: "5m" },
+    });
+
+    try {
+      await collectStreamEvents(session, "first");
+      await session.setFeature?.("prompt_cache_ttl", "1h");
+      await collectStreamEvents(session, "second");
+      expect(launchedTtls).toEqual(["5m", "1h"]);
+    } finally {
+      await session.close();
+      vi.unstubAllEnvs();
+    }
+  });
+
   test("message_start stream events emit usage_updated with per-request usage", async () => {
     const session = await createSessionForTurns([
       [createInitMessage(), createMessageStartEvent(), createSuccessResult()],
@@ -3422,6 +3443,7 @@ describe("ClaudeAgentSession context window usage", () => {
           usage: {
             contextWindowMaxTokens: 200_000,
             contextWindowUsedTokens: 150,
+            requestCache: { readTokens: 30, writeTokens: 20, uncachedTokens: 100 },
           },
         }),
       );
@@ -3446,6 +3468,7 @@ describe("ClaudeAgentSession context window usage", () => {
           usage: {
             contextWindowMaxTokens: 200_000,
             contextWindowUsedTokens: 150,
+            requestCache: { readTokens: 30, writeTokens: 20, uncachedTokens: 100 },
           },
         }),
       );
@@ -3476,6 +3499,7 @@ describe("ClaudeAgentSession context window usage", () => {
           usage: {
             contextWindowMaxTokens: 1_000_000,
             contextWindowUsedTokens: 150,
+            requestCache: { readTokens: 30, writeTokens: 20, uncachedTokens: 100 },
           },
         }),
       );
@@ -3653,6 +3677,7 @@ describe("ClaudeAgentSession context window usage", () => {
           usage: {
             contextWindowMaxTokens: 200_000,
             contextWindowUsedTokens: 55,
+            requestCache: { readTokens: 10, writeTokens: 5, uncachedTokens: 40 },
           },
         }),
       );
@@ -4504,7 +4529,6 @@ describe("prompt_cache_ttl feature", () => {
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode" }),
       expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
-      expect.objectContaining({ id: "cache_warm" }),
     ]);
   });
 
@@ -4557,30 +4581,35 @@ describe("cache_warm feature", () => {
     return { queryFactory, queryMock };
   }
 
-  test("lists cache_warm feature on Claude sessions", async () => {
+  function listFeatures(featureValues: Record<string, unknown>, model = "claude-sonnet-5") {
     const client = new ClaudeAgentClient({ logger, resolveBinary: async () => "/test/claude/bin" });
-    await expect(
-      client.listFeatures({
-        provider: "claude",
-        cwd: process.cwd(),
-        model: "claude-sonnet-5",
-        featureValues: { cache_warm: true },
-      }),
-    ).resolves.toEqual([
+    return client.listFeatures({ provider: "claude", cwd: process.cwd(), model, featureValues });
+  }
+
+  test("hides cache_warm while the Cache window is Automatic", async () => {
+    await expect(listFeatures({ cache_warm: true })).resolves.toEqual([
       expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
+    ]);
+  });
+
+  test("lists cache_warm once a Cache window is chosen: on for 5m, off for 1h", async () => {
+    await expect(listFeatures({ prompt_cache_ttl: "5m" })).resolves.toEqual([
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "5m" }),
       expect.objectContaining({ id: "cache_warm", value: true }),
+    ]);
+    await expect(listFeatures({ prompt_cache_ttl: "1h" })).resolves.toEqual([
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
+    ]);
+    await expect(listFeatures({ prompt_cache_ttl: "5m", cache_warm: false })).resolves.toEqual([
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "5m" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
   });
 
   test("omits cache_warm and prompt_cache_ttl on non-Claude gateway models", async () => {
-    const client = new ClaudeAgentClient({ logger, resolveBinary: async () => "/test/claude/bin" });
     await expect(
-      client.listFeatures({
-        provider: "claude",
-        cwd: process.cwd(),
-        model: "gemini-3.8-flash-high",
-        featureValues: { cache_warm: true },
-      }),
+      listFeatures({ prompt_cache_ttl: "5m", cache_warm: true }, "gemini-3.8-flash-high"),
     ).resolves.toEqual([]);
   });
 
@@ -4595,7 +4624,7 @@ describe("cache_warm feature", () => {
       provider: "claude",
       cwd: process.cwd(),
       model: "claude-sonnet-5",
-      featureValues: { cache_warm: false },
+      featureValues: { prompt_cache_ttl: "1h", cache_warm: false },
     });
 
     try {
@@ -4604,119 +4633,6 @@ describe("cache_warm feature", () => {
       expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(true);
       await session.setFeature?.("cache_warm", false);
       expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(false);
-    } finally {
-      await session.close();
-    }
-  });
-
-  test("defaults cache_warm to true for 5m TTL in listFeatures", async () => {
-    const client = new ClaudeAgentClient({ logger, resolveBinary: async () => "/test/claude/bin" });
-    await expect(
-      client.listFeatures({
-        provider: "claude",
-        cwd: process.cwd(),
-        model: "claude-sonnet-5",
-        featureValues: { prompt_cache_ttl: "5m" },
-      }),
-    ).resolves.toEqual([
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "5m" }),
-      expect.objectContaining({ id: "cache_warm", value: true }),
-    ]);
-  });
-
-  test("defaults cache_warm to true for subagents in createSession", async () => {
-    const { queryFactory } = createIsolatedQueryMock();
-    const client = new ClaudeAgentClient({
-      logger,
-      queryFactory,
-      resolveBinary: async () => "/test/claude/bin",
-    });
-    const session = await client.createSession(
-      {
-        provider: "claude",
-        cwd: process.cwd(),
-        model: "claude-sonnet-5",
-      },
-      { agentId: "subagent-1", isSubagent: true },
-    );
-
-    try {
-      expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(true);
-    } finally {
-      await session.close();
-    }
-  });
-
-  test("defaults cache_warm to true for 5m TTL main sessions in createSession", async () => {
-    const { queryFactory } = createIsolatedQueryMock();
-    const client = new ClaudeAgentClient({
-      logger,
-      queryFactory,
-      resolveBinary: async () => "/test/claude/bin",
-    });
-    const session = await client.createSession(
-      {
-        provider: "claude",
-        cwd: process.cwd(),
-        model: "claude-sonnet-5",
-        featureValues: { prompt_cache_ttl: "5m" },
-      },
-      { agentId: "main-1", isSubagent: false },
-    );
-
-    try {
-      expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(true);
-    } finally {
-      await session.close();
-    }
-  });
-
-  test("respects explicit cache_warm: false even for subagents and 5m sessions", async () => {
-    const { queryFactory } = createIsolatedQueryMock();
-    const client = new ClaudeAgentClient({
-      logger,
-      queryFactory,
-      resolveBinary: async () => "/test/claude/bin",
-    });
-    const session = await client.createSession(
-      {
-        provider: "claude",
-        cwd: process.cwd(),
-        model: "claude-sonnet-5",
-        featureValues: { prompt_cache_ttl: "5m", cache_warm: false },
-      },
-      { agentId: "subagent-1", isSubagent: true },
-    );
-
-    try {
-      expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(false);
-    } finally {
-      await session.close();
-    }
-  });
-
-  test("preserves default cache_warm: true when resuming a subagent", async () => {
-    const { queryFactory } = createIsolatedQueryMock();
-    const client = new ClaudeAgentClient({
-      logger,
-      queryFactory,
-      resolveBinary: async () => "/test/claude/bin",
-    });
-    const session = await client.resumeSession(
-      {
-        provider: "claude",
-        sessionId: "subagent-session-id",
-        metadata: {
-          cwd: process.cwd(),
-          model: "claude-sonnet-5",
-        },
-      },
-      {},
-      { agentId: "subagent-1", isSubagent: true },
-    );
-
-    try {
-      expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(true);
     } finally {
       await session.close();
     }

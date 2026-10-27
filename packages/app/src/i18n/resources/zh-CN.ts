@@ -467,6 +467,9 @@ export const zhCN: TranslationResources = {
     },
   },
   workspace: {
+    cacheWarm: {
+      accessibilityLabel: "下次缓存预热还有 {{countdown}}",
+    },
     route: {
       loading: "正在加载 workspace",
       connecting: "正在连接",
@@ -2977,6 +2980,12 @@ export const zhCN: TranslationResources = {
         hint: "在 API 速率限制冷却或模型恢复后自动恢复代理会话",
         accessibilityLabel: "速率限制自动恢复",
         error: "无法更新自动恢复设置",
+      },
+      cacheWarmSubagents: {
+        title: "子代理缓存预热",
+        hint: "由编排器创建的代理在启动时开启缓存预热，后续任务可复用缓存。每个代理自己的开关仍然优先。",
+        accessibilityLabel: "子代理缓存预热",
+        error: "无法更新缓存预热设置",
       },
       orchestration: {
         title: "编排",

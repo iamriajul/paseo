@@ -12454,16 +12454,14 @@ test("an out-of-band command racing idle cleanup waits for the resumed runtime",
   expect(h.prompts).toEqual([]);
 });
 
-test("onStreamPermissionRequested updates lastResponseAt and notifies cacheWarmManager", async () => {
+test("onStreamPermissionRequested updates lastResponseAt and re-arms cacheWarmManager", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-perm-response-at-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
-  const onResponseOccurred = vi.fn();
+  const schedule = vi.fn();
   const warmManager = {
-    onResponseOccurred,
-    schedule: vi.fn(),
-    onTurnCompleted: vi.fn(),
+    schedule,
     onTurnStarted: vi.fn(),
-    onMessageActivity: vi.fn(),
+    resetConsecutivePings: vi.fn(),
     onFeatureToggled: vi.fn(),
     onAgentRegistered: vi.fn(),
     cancel: vi.fn(),
@@ -12518,7 +12516,7 @@ test("onStreamPermissionRequested updates lastResponseAt and notifies cacheWarmM
 
     const agent = manager.getAgent(snapshot.id);
     expect(agent?.lastResponseAt).toBeInstanceOf(Date);
-    expect(onResponseOccurred).toHaveBeenCalledWith(snapshot.id, expect.any(Date));
+    expect(schedule).toHaveBeenCalledWith(snapshot.id);
   } finally {
     if (snapshotId) await manager.closeAgent(snapshotId);
     rmSync(workdir, { recursive: true, force: true });
@@ -12534,10 +12532,8 @@ test("setAgentFeature notifies cacheWarmManager on prompt_cache_ttl and cache_wa
     onTtlChanged,
     onFeatureToggled,
     schedule: vi.fn(),
-    onTurnCompleted: vi.fn(),
     onTurnStarted: vi.fn(),
-    onMessageActivity: vi.fn(),
-    onResponseOccurred: vi.fn(),
+    resetConsecutivePings: vi.fn(),
     onAgentRegistered: vi.fn(),
     cancel: vi.fn(),
     deleteAgent: vi.fn(),
@@ -12572,6 +12568,79 @@ test("setAgentFeature notifies cacheWarmManager on prompt_cache_ttl and cache_wa
 
     await manager.setAgentFeature(snapshot.id, "cache_warm", true);
     expect(onFeatureToggled).toHaveBeenCalledWith(snapshot.id, true);
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("records each request's cache split and keeps the turn's first request", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-prompt-cache-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+
+  class CacheSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = "turn-cache-1";
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: {
+            contextWindowUsedTokens: 1000,
+            requestCache: { readTokens: 0, writeTokens: 900, uncachedTokens: 100 },
+          },
+        });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: {
+            contextWindowUsedTokens: 1200,
+            requestCache: { readTokens: 1000, writeTokens: 150, uncachedTokens: 50 },
+          },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class CacheClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new CacheSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new CacheClient() },
+    registry: storage,
+    logger,
+  });
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+    await manager.runAgent(snapshot.id, "measure the cache");
+
+    const promptCache = manager.getAgent(snapshot.id)?.promptCache;
+    expect(promptCache?.turnFirstRequest).toMatchObject({
+      turnId: "turn-cache-1",
+      isWarmPing: false,
+      readTokens: 0,
+      writeTokens: 900,
+      uncachedTokens: 100,
+    });
+    expect(promptCache?.lastRequest).toMatchObject({
+      turnId: "turn-cache-1",
+      readTokens: 1000,
+      writeTokens: 150,
+    });
+
+    await manager.flush();
+    expect((await storage.get(snapshot.id))?.promptCache?.lastRequest.readTokens).toBe(1000);
   } finally {
     if (snapshotId) await manager.closeAgent(snapshotId);
     rmSync(workdir, { recursive: true, force: true });

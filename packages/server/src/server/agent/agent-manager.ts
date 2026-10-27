@@ -10,7 +10,11 @@ import {
 } from "./providers/claude/feature-definitions.js";
 import type { AgentRateLimitCooldownPayload } from "@getpaseo/protocol/messages";
 import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-labels";
-import { isCacheWarmPrompt } from "@getpaseo/protocol/agent-cache-warm";
+import {
+  isCacheWarmPrompt,
+  type AgentPromptCacheState,
+  type PromptCacheRequestSample,
+} from "@getpaseo/protocol/agent-cache-warm";
 import { projectTimelineRows } from "./timeline-projection.js";
 import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
@@ -482,6 +486,9 @@ interface ManagedAgentBase {
   activeTurnStartedAt: Date | null;
   activeTurnIsWarmPing?: boolean;
   consecutiveWarmPings?: number;
+  /** Warm-ups that reached Anthropic over the agent's life; never reset. */
+  totalWarmPings?: number;
+  promptCache?: AgentPromptCacheState;
   lastUsage?: AgentUsage;
   lastError?: string;
   attention: AttentionState;
@@ -793,6 +800,18 @@ function resolveRescueTimeouts(
   return {
     reloadSessionCloseMs: timeouts?.reloadSessionCloseMs ?? RELOAD_SESSION_CLOSE_TIMEOUT_MS,
     interruptSessionMs: timeouts?.interruptSessionMs ?? INTERRUPT_SESSION_TIMEOUT_MS,
+  };
+}
+
+function pickCacheWarmRegistration(
+  options:
+    | Pick<ManagedAgent, "promptCache" | "consecutiveWarmPings" | "totalWarmPings">
+    | undefined,
+): Pick<ManagedAgent, "promptCache" | "consecutiveWarmPings" | "totalWarmPings"> {
+  return {
+    promptCache: options?.promptCache,
+    consecutiveWarmPings: options?.consecutiveWarmPings,
+    totalWarmPings: options?.totalWarmPings,
   };
 }
 
@@ -1605,7 +1624,6 @@ export class AgentManager {
       provider: storedConfig.provider,
     });
     this.paseoToolPolicies.set(resolvedAgentId, paseoToolPolicy);
-    const isSubagent = getParentAgentIdFromLabels(options?.labels) !== null;
     const launchContext = await this.buildLaunchContext(
       resolvedAgentId,
       client,
@@ -1618,7 +1636,6 @@ export class AgentManager {
         workspaceId: options.workspaceId ?? null,
         title: options.initialTitle ?? storedConfig.title ?? null,
         labels: options.labels ?? {},
-        isSubagent,
       },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
@@ -1733,7 +1750,6 @@ export class AgentManager {
       );
     }
     this.paseoToolPolicies.set(resolvedAgentId, paseoToolPolicy);
-    const isSubagent = getParentAgentIdFromLabels(options?.labels ?? record?.labels) !== null;
     const launchContext = await this.buildLaunchContext(
       resolvedAgentId,
       client,
@@ -1746,7 +1762,6 @@ export class AgentManager {
         workspaceId: options?.workspaceId ?? null,
         title: record?.title ?? mergedConfig.title ?? null,
         labels: record?.labels ?? options?.labels ?? {},
-        isSubagent,
       },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
@@ -1761,6 +1776,9 @@ export class AgentManager {
       ...options,
       persistence: handle,
       restoring: true,
+      promptCache: record?.promptCache,
+      consecutiveWarmPings: record?.consecutiveWarmPings,
+      totalWarmPings: record?.totalWarmPings,
     });
   }
 
@@ -1798,7 +1816,6 @@ export class AgentManager {
       resolvedAgentId,
     );
     this.paseoToolPolicies.set(resolvedAgentId, paseoToolPolicy);
-    const isSubagent = getParentAgentIdFromLabels(input.labels) !== null;
     const launchContext = await this.buildLaunchContext(
       resolvedAgentId,
       client,
@@ -1810,7 +1827,6 @@ export class AgentManager {
         purpose: "interactive",
         workspaceId: input.workspaceId,
         labels: input.labels ?? {},
-        isSubagent,
       },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
@@ -1909,7 +1925,6 @@ export class AgentManager {
     );
     const hadPreviousPaseoToolPolicy = this.paseoToolPolicies.has(agentId);
     const previousPaseoToolPolicy = this.paseoToolPolicies.get(agentId);
-    const isSubagent = getParentAgentIdFromLabels(existing.labels) !== null;
     const launchContext = await this.buildLaunchContext(
       agentId,
       client,
@@ -1922,7 +1937,6 @@ export class AgentManager {
         workspaceId: existing.workspaceId,
         title: await this.resolveInitialPersistedTitle(agentId, existing.config, null),
         labels: existing.labels,
-        isSubagent,
       },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
@@ -2459,6 +2473,7 @@ export class AgentManager {
         lastUserMessageAt: record.lastUserMessageAt ? new Date(record.lastUserMessageAt) : null,
         lastResponseAt,
         consecutiveWarmPings: record.consecutiveWarmPings ?? undefined,
+        totalWarmPings: record.totalWarmPings ?? undefined,
         lastUsage: undefined,
         lastError: record.lastError ?? undefined,
         attention,
@@ -2664,6 +2679,28 @@ export class AgentManager {
       throw new Error(`Agent not found in storage after detach: ${agentId}`);
     }
     return { record: result.record, live: false, previousParentAgentId };
+  }
+
+  /**
+   * Cache warm-up counters live on the agent so they persist and reach clients. They are set
+   * here because getAgent hands out copies, which a caller cannot write through.
+   */
+  setCacheWarmCounts(
+    agentId: string,
+    counts: { consecutiveWarmPings: number; totalWarmPings?: number },
+    options?: { publish?: boolean },
+  ): void {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      return;
+    }
+    agent.consecutiveWarmPings = counts.consecutiveWarmPings;
+    if (counts.totalWarmPings !== undefined) {
+      agent.totalWarmPings = counts.totalWarmPings;
+    }
+    if (options?.publish) {
+      this.emitState(agent, { isWarmPing: true });
+    }
   }
 
   notifyAgentState(agentId: string): void {
@@ -3229,7 +3266,7 @@ export class AgentManager {
       await this.refreshRuntimeInfo(agent);
     }
     const currentAgent = this.getAgent(agent.id);
-    if (currentAgent?.lifecycle === "idle") {
+    if (currentAgent?.lifecycle === "idle" || currentAgent?.lifecycle === "error") {
       this.cacheWarmManager?.schedule(agent.id);
     }
   }
@@ -3280,7 +3317,7 @@ export class AgentManager {
     if (!shouldHoldBusyForReplacement) {
       this.touchUpdatedAt(mutableAgent);
       this.emitState(mutableAgent, { isWarmPing: isWarmPingTurn });
-      if (nextLifecycle === "idle") {
+      if (nextLifecycle !== "running") {
         this.cacheWarmManager?.schedule(mutableAgent.id);
       }
     }
@@ -4188,6 +4225,9 @@ export class AgentManager {
       lastUsage?: AgentUsage;
       lastError?: string;
       attention?: AttentionState;
+      promptCache?: AgentPromptCacheState;
+      consecutiveWarmPings?: number;
+      totalWarmPings?: number;
       /**
        * Bringing a known agent back, rather than starting a new one. Its timestamps and
        * attention come from what was already recorded, and installing the session is not
@@ -4392,6 +4432,9 @@ export class AgentManager {
           attention?: AttentionState;
           workspaceId?: string;
           owner?: AgentOwner;
+          promptCache?: AgentPromptCacheState;
+          consecutiveWarmPings?: number;
+          totalWarmPings?: number;
         }
       | undefined,
   ) {
@@ -4407,6 +4450,7 @@ export class AgentManager {
       lastError: options?.lastError,
       attention: resolveInitialAttention(options?.attention),
       labels: options?.labels ?? {},
+      ...pickCacheWarmRegistration(options),
     };
   }
 
@@ -4430,6 +4474,9 @@ export class AgentManager {
           persistence?: AgentPersistenceHandle;
           workspaceId?: string;
           owner?: AgentOwner;
+          promptCache?: AgentPromptCacheState;
+          consecutiveWarmPings?: number;
+          totalWarmPings?: number;
         }
       | undefined;
   }): ActiveManagedAgent {
@@ -5157,6 +5204,9 @@ export class AgentManager {
         return undefined;
       case "usage_updated":
         agent.lastUsage = event.usage;
+        if (event.usage.requestCache) {
+          this.recordPromptCacheRequest(agent, event.usage.requestCache);
+        }
         this.emitState(agent);
         return undefined;
       case "mode_changed":
@@ -5309,6 +5359,26 @@ export class AgentManager {
     }
   }
 
+  private recordPromptCacheRequest(
+    agent: ActiveManagedAgent,
+    tokens: NonNullable<AgentUsage["requestCache"]>,
+  ): void {
+    const sample: PromptCacheRequestSample = {
+      ...tokens,
+      at: new Date().toISOString(),
+      turnId: agent.activeTurnId,
+      isWarmPing: Boolean(agent.activeTurnIsWarmPing),
+    };
+    const previous = agent.promptCache;
+    agent.promptCache = {
+      lastRequest: sample,
+      turnFirstRequest:
+        previous && previous.turnFirstRequest.turnId === sample.turnId
+          ? previous.turnFirstRequest
+          : sample,
+    };
+  }
+
   private onStreamTurnCompleted(params: {
     agent: ActiveManagedAgent;
     event: Extract<AgentStreamEvent, { type: "turn_completed" }>;
@@ -5331,7 +5401,7 @@ export class AgentManager {
     if (terminalDisposition === "stale") return;
     this.rateLimitAutoResumeManager?.resetConsecutiveResumes(agent.id);
     agent.lastResponseAt = new Date();
-    this.cacheWarmManager?.onTurnCompleted(agent.id, agent.lastResponseAt);
+    this.cacheWarmManager?.schedule(agent.id);
     if (event.usage) {
       agent.lastUsage = { ...agent.lastUsage, ...event.usage };
     }
@@ -5383,7 +5453,10 @@ export class AgentManager {
     agent.lastError = event.error;
     const failureMessage = this.formatTurnFailedMessage(event);
     await this.appendSystemErrorTimelineMessage(agent, event.provider, failureMessage, options);
-    const failureCandidates = [event.error, event.diagnostic, failureMessage];
+    // A failed warm ping has no work to resume; auto-resume would send a real "continue".
+    const failureCandidates = agent.activeTurnIsWarmPing
+      ? []
+      : [event.error, event.diagnostic, failureMessage];
     for (const text of failureCandidates) {
       if (text && this.rateLimitAutoResumeManager?.scheduleIfNeeded(agent.id, text)) {
         break;
@@ -5423,7 +5496,6 @@ export class AgentManager {
     );
     if (terminalDisposition === "stale") return;
     this.rateLimitAutoResumeManager?.cancel(agent.id);
-    this.cacheWarmManager?.cancel(agent.id);
     if (!isForegroundEvent && !agent.activeForegroundTurnId && !agent.pendingReplacement) {
       agent.lifecycle = "idle";
     }
@@ -5478,7 +5550,7 @@ export class AgentManager {
     const hadPendingPermissions = agent.pendingPermissions.size > 0;
     agent.pendingPermissions.set(event.request.id, event.request);
     agent.lastResponseAt = new Date();
-    this.cacheWarmManager?.onResponseOccurred(agent.id, agent.lastResponseAt);
+    this.cacheWarmManager?.schedule(agent.id);
     this.refreshSessionPersistence(agent);
     if (!hadPendingPermissions && !agent.internal) {
       this.broadcastAgentAttention(agent, "permission");
@@ -5591,8 +5663,8 @@ export class AgentManager {
     this.touchUpdatedAt(agent);
     if (item.type === "user_message" && !isCacheWarmPrompt(item.text)) {
       agent.lastUserMessageAt = new Date();
+      this.cacheWarmManager?.resetConsecutivePings(agent.id);
     }
-    this.cacheWarmManager?.onMessageActivity(agent.id);
     this.recordAndDispatchTimelineItem(agent.id, item, agent.provider, options?.turnId, options);
   }
 
@@ -5709,7 +5781,7 @@ export class AgentManager {
     this.syncFeaturesFromSession(agent);
 
     if (
-      agent.lifecycle === "idle" &&
+      (agent.lifecycle === "idle" || agent.lifecycle === "error") &&
       !this.hasInFlightRun(agent.id) &&
       (!agent.pendingPermissions || agent.pendingPermissions.size === 0)
     ) {
@@ -6108,7 +6180,6 @@ export class AgentManager {
       workspaceId?: string | null;
       title?: string | null;
       labels?: Record<string, string>;
-      isSubagent?: boolean;
     },
   ): Promise<AgentLaunchContext> {
     // A plugin changing during this open must still make the resulting session stale.
@@ -6147,7 +6218,6 @@ export class AgentManager {
         PASEO_AGENT_ID: agentId,
         PASEO_AGENT_CWD: cwd,
       },
-      ...(opening?.isSubagent ? { isSubagent: true } : {}),
     };
     const useNativeTools =
       this.paseoToolsEnabled &&

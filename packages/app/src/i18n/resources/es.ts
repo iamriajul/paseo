@@ -473,6 +473,9 @@ export const es: TranslationResources = {
     },
   },
   workspace: {
+    cacheWarm: {
+      accessibilityLabel: "Próximo precalentamiento de caché en {{countdown}}",
+    },
     route: {
       loading: "Cargando espacio de trabajo",
       connecting: "Conectando",
@@ -3062,6 +3065,12 @@ export const es: TranslationResources = {
         hint: "Reanudar automáticamente las sesiones del agente tras el enfriamiento del límite de velocidad o la recuperación del modelo",
         accessibilityLabel: "Reanudar automáticamente ante límites de velocidad",
         error: "No se pudo actualizar el ajuste de reanudación automática",
+      },
+      cacheWarmSubagents: {
+        title: "Precalentamiento de caché para agentes hijos",
+        hint: "Los agentes que crea un orquestador empiezan con el precalentamiento de caché activado, para que las tareas siguientes reutilicen la caché. El interruptor de cada agente sigue teniendo prioridad.",
+        accessibilityLabel: "Precalentamiento de caché para agentes hijos",
+        error: "No se pudo actualizar el ajuste de precalentamiento de caché",
       },
       orchestration: {
         title: "Orquestación",

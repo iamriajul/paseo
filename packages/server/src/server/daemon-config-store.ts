@@ -28,6 +28,7 @@ interface SupportedMutableConfigPatch {
   metadataGeneration?: MutableDaemonConfigPatch["metadataGeneration"];
   autoArchiveAfterMerge?: boolean;
   autoResumeOnRateLimit?: boolean;
+  cacheWarmSubagents?: boolean;
   enableTerminalAgentHooks?: boolean;
   idleRuntimeCleanup?: boolean;
   appendSystemPrompt?: string;
@@ -195,6 +196,7 @@ const RELOADABLE_PATHS = [
   "daemon.git.maxProcessConcurrency",
   "daemon.autoArchiveAfterMerge",
   "daemon.autoResumeOnRateLimit",
+  "daemon.cacheWarmSubagents",
   "daemon.enableTerminalAgentHooks",
   "daemon.appendSystemPrompt",
   "daemon.terminalProfiles",
@@ -221,6 +223,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.git.maxProcessConcurrency", "git.maxProcessConcurrency"],
   ["daemon.autoArchiveAfterMerge", "autoArchiveAfterMerge"],
   ["daemon.autoResumeOnRateLimit", "autoResumeOnRateLimit"],
+  ["daemon.cacheWarmSubagents", "cacheWarmSubagents"],
   ["daemon.enableTerminalAgentHooks", "enableTerminalAgentHooks"],
   ["daemon.appendSystemPrompt", "appendSystemPrompt"],
   ["daemon.terminalProfiles", "terminalProfiles"],
@@ -357,6 +360,9 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
       : {}),
     ...(patch.autoResumeOnRateLimit !== undefined
       ? { autoResumeOnRateLimit: patch.autoResumeOnRateLimit }
+      : {}),
+    ...(patch.cacheWarmSubagents !== undefined
+      ? { cacheWarmSubagents: patch.cacheWarmSubagents }
       : {}),
     ...(patch.enableTerminalAgentHooks !== undefined
       ? { enableTerminalAgentHooks: patch.enableTerminalAgentHooks }
@@ -862,6 +868,9 @@ function mergeMutableDaemonPatch(
   }
   if (patch.autoResumeOnRateLimit !== undefined) {
     next.autoResumeOnRateLimit = patch.autoResumeOnRateLimit;
+  }
+  if (patch.cacheWarmSubagents !== undefined) {
+    next.cacheWarmSubagents = patch.cacheWarmSubagents;
   }
   if (patch.enableTerminalAgentHooks !== undefined) {
     next.enableTerminalAgentHooks = patch.enableTerminalAgentHooks;

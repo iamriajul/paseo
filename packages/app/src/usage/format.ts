@@ -108,6 +108,40 @@ function formatRelativeDuration(duration: RelativeDuration, t: TFunction): strin
   }
 }
 
+/**
+ * A countdown in the quota-reset style, down to seconds: "1d5h", "5h30m", "3m40s", "40s".
+ * Seconds round up, so a countdown never reads "0s" while time is left.
+ */
+export function formatPreciseDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) {
+    return hours > 0 ? `${days}d${hours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
+  }
+  if (minutes > 0) {
+    return seconds > 0 ? `${minutes}m${seconds}s` : `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
+/**
+ * A live countdown as a clock: "3:40", "0:09", "58:00". Minutes are not wrapped into hours,
+ * so a prompt-cache window (at most 60 minutes) always reads as minutes and seconds.
+ * Seconds round up, so it never reads "0:00" while time is left.
+ */
+export function formatCountdownClock(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 export function formatResetLabel(
   iso: string | null | undefined,
   retained = false,

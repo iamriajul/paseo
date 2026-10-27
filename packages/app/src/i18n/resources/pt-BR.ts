@@ -472,6 +472,9 @@ export const ptBR: TranslationResources = {
     },
   },
   workspace: {
+    cacheWarm: {
+      accessibilityLabel: "Próximo aquecimento de cache em {{countdown}}",
+    },
     route: {
       loading: "Carregando workspace",
       connecting: "Conectando",
@@ -3044,6 +3047,12 @@ export const ptBR: TranslationResources = {
         hint: "Retomar automaticamente sessões do agente após resfriamento do limite de taxa de API ou recuperação do modelo",
         accessibilityLabel: "Retomada automática em limites de taxa",
         error: "Não foi possível atualizar a configuração de retomada automática",
+      },
+      cacheWarmSubagents: {
+        title: "Aquecimento de cache para agentes filhos",
+        hint: "Agentes criados por um orquestrador começam com o aquecimento de cache ativado, para que as tarefas seguintes reutilizem o cache. A opção de cada agente continua tendo prioridade.",
+        accessibilityLabel: "Aquecimento de cache para agentes filhos",
+        error: "Não foi possível atualizar a configuração de aquecimento de cache",
       },
       orchestration: {
         title: "Orquestração",

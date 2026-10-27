@@ -1,53 +1,70 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CACHE_WARM_PING_PROMPT,
-  DEFAULT_CACHE_WARM_MAX_PINGS,
-  SUBAGENT_CACHE_WARM_MAX_PINGS,
   resolvePromptCacheWindows,
-  isFiveMinuteCacheWindow,
-  resolveDefaultCacheWarmEnabled,
+  resolveCacheWarmEnabled,
+  resolvePromptCacheAnchorMs,
+  promptCacheHitRatio,
   isCacheWarmPrompt,
   isCacheWarmReply,
   isClaudeModel,
 } from "./agent-cache-warm.js";
 
 describe("agent-cache-warm protocol utilities", () => {
-  it("resolves default 1h cache windows and 12-ping cap", () => {
-    const resolved = resolvePromptCacheWindows({ isSubagent: false });
-    expect(resolved.cacheWindowMs).toBe(60 * 60 * 1000);
-    expect(resolved.warmIntervalMs).toBe(58 * 60 * 1000);
-    expect(resolved.maxConsecutivePings).toBe(DEFAULT_CACHE_WARM_MAX_PINGS);
-    expect(resolved.maxConsecutivePings).toBe(12);
+  it("resolves the 1h window: warm at 58m, 12-ping cap", () => {
+    expect(resolvePromptCacheWindows("1h")).toEqual({
+      cacheWindowMs: 60 * 60 * 1000,
+      warmIntervalMs: 58 * 60 * 1000,
+      maxConsecutivePings: 12,
+    });
   });
 
-  it("resolves 5m cache windows and 10-ping cap for subagents", () => {
-    const resolved = resolvePromptCacheWindows({ isSubagent: true });
-    expect(resolved.cacheWindowMs).toBe(5 * 60 * 1000);
-    expect(resolved.warmIntervalMs).toBe(4 * 60 * 1000);
-    expect(resolved.maxConsecutivePings).toBe(SUBAGENT_CACHE_WARM_MAX_PINGS);
-    expect(resolved.maxConsecutivePings).toBe(10);
+  it("resolves the 5m window: warm at 4m30s, 10-ping cap", () => {
+    expect(resolvePromptCacheWindows("5m")).toEqual({
+      cacheWindowMs: 5 * 60 * 1000,
+      warmIntervalMs: 270 * 1000,
+      maxConsecutivePings: 10,
+    });
   });
 
-  it("determines 5m cache window and defaults warm-up accordingly", () => {
-    // Subagents default to 5m TTL and auto warm-up enabled
-    expect(isFiveMinuteCacheWindow({ isSubagent: true })).toBe(true);
-    expect(resolveDefaultCacheWarmEnabled({ isSubagent: true })).toBe(true);
+  it("has no window for Automatic, because Claude Code picks the TTL out of sight", () => {
+    expect(resolvePromptCacheWindows("default")).toBeNull();
+    expect(resolvePromptCacheWindows(undefined)).toBeNull();
+    expect(resolvePromptCacheWindows("15m")).toBeNull();
+  });
 
-    // Explicit 5m TTL on main session defaults to auto warm-up enabled
-    expect(isFiveMinuteCacheWindow({ isSubagent: false, promptCacheTtl: "5m" })).toBe(true);
-    expect(resolveDefaultCacheWarmEnabled({ isSubagent: false, promptCacheTtl: "5m" })).toBe(true);
+  it("enables warm-up only for an explicit window; 5m defaults on, 1h defaults off", () => {
+    expect(resolveCacheWarmEnabled({ promptCacheTtl: "5m", explicitValue: undefined })).toBe(true);
+    expect(resolveCacheWarmEnabled({ promptCacheTtl: "1h", explicitValue: undefined })).toBe(false);
+    expect(resolveCacheWarmEnabled({ promptCacheTtl: "1h", explicitValue: true })).toBe(true);
+    expect(resolveCacheWarmEnabled({ promptCacheTtl: "5m", explicitValue: false })).toBe(false);
+    expect(resolveCacheWarmEnabled({ promptCacheTtl: "default", explicitValue: true })).toBe(false);
+    expect(resolveCacheWarmEnabled({ promptCacheTtl: undefined, explicitValue: true })).toBe(false);
+  });
 
-    // Standard main sessions default to 1h TTL and auto warm-up disabled
-    expect(isFiveMinuteCacheWindow({ isSubagent: false })).toBe(false);
-    expect(resolveDefaultCacheWarmEnabled({ isSubagent: false })).toBe(false);
-    expect(isFiveMinuteCacheWindow({ isSubagent: false, promptCacheTtl: "default" })).toBe(false);
-    expect(resolveDefaultCacheWarmEnabled({ isSubagent: false, promptCacheTtl: "default" })).toBe(
-      false,
-    );
+  it("anchors on the latest request start, falling back to turn end", () => {
+    const lastResponseAt = "2026-10-27T10:05:00.000Z";
+    const sample = {
+      at: "2026-10-27T10:02:00.000Z",
+      turnId: "t1",
+      isWarmPing: false,
+      readTokens: 1,
+      writeTokens: 0,
+      uncachedTokens: 0,
+    };
+    expect(
+      resolvePromptCacheAnchorMs({
+        promptCache: { lastRequest: sample, turnFirstRequest: sample },
+        lastResponseAt,
+      }),
+    ).toBe(Date.parse(sample.at));
+    expect(resolvePromptCacheAnchorMs({ lastResponseAt })).toBe(Date.parse(lastResponseAt));
+    expect(resolvePromptCacheAnchorMs({})).toBeNull();
+  });
 
-    // Subagent overridden to 1h TTL has 1h window and defaults to auto warm-up disabled
-    expect(isFiveMinuteCacheWindow({ isSubagent: true, promptCacheTtl: "1h" })).toBe(false);
-    expect(resolveDefaultCacheWarmEnabled({ isSubagent: true, promptCacheTtl: "1h" })).toBe(false);
+  it("computes the share of input served from cache", () => {
+    expect(promptCacheHitRatio({ readTokens: 90, writeTokens: 8, uncachedTokens: 2 })).toBe(0.9);
+    expect(promptCacheHitRatio({ readTokens: 0, writeTokens: 0, uncachedTokens: 0 })).toBeNull();
   });
 
   it("detects cache warm prompt correctly", () => {

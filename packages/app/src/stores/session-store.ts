@@ -24,6 +24,7 @@ import {
 import type { PendingPermission } from "@/types/shared";
 import type { ComposerAttachment } from "@/attachments/types";
 import type { AgentLifecycleStatus } from "@getpaseo/protocol/agent-lifecycle";
+import type { AgentPromptCacheState } from "@getpaseo/protocol/agent-cache-warm";
 import type {
   AgentPermissionRequest,
   AgentFeature,
@@ -81,6 +82,8 @@ export interface Agent {
   lastUserMessageAt: Date | null;
   lastResponseAt?: Date | null;
   consecutiveWarmPings?: number;
+  totalWarmPings?: number;
+  promptCache?: AgentPromptCacheState;
   lastActivityAt: Date;
   capabilities: AgentCapabilityFlags;
   currentModeId: string | null;

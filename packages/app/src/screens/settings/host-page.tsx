@@ -293,6 +293,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
           <InjectPaseoToolsCard serverId={serverId} />
           <BrowserToolsOptInCard serverId={serverId} />
           <RateLimitAutoResumeCard serverId={serverId} />
+          <CacheWarmSubagentsCard serverId={serverId} />
           <AppendSystemPromptCard serverId={serverId} />
           <IdleRuntimeCleanupCard serverId={serverId} />
         </SettingsSection>
@@ -946,6 +947,44 @@ function RateLimitAutoResumeCard({ serverId }: { serverId: string }) {
             "Auto-resume on rate limits",
           )}
           testID="host-page-rate-limit-auto-resume-switch"
+        />
+      </View>
+    </View>
+  );
+}
+
+function CacheWarmSubagentsCard({ serverId }: { serverId: string }) {
+  const { t } = useTranslation();
+  const isConnected = useHostRuntimeIsConnected(serverId);
+  const { config, patchConfig } = useDaemonConfig(serverId);
+
+  const handleValueChange = useCallback(
+    (next: boolean) => {
+      void patchConfig({ cacheWarmSubagents: next }).catch((error) => {
+        console.error("[HostPage] Failed to update cache warm-up for child agents", error);
+        Alert.alert(
+          t("settings.host.cacheWarmSubagents.error"),
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    },
+    [patchConfig, t],
+  );
+
+  if (!isConnected) return null;
+
+  return (
+    <View style={settingsStyles.card} testID="host-page-cache-warm-subagents-card">
+      <View style={settingsStyles.row}>
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle}>{t("settings.host.cacheWarmSubagents.title")}</Text>
+          <Text style={settingsStyles.rowHint}>{t("settings.host.cacheWarmSubagents.hint")}</Text>
+        </View>
+        <Switch
+          value={config?.cacheWarmSubagents !== false}
+          onValueChange={handleValueChange}
+          accessibilityLabel={t("settings.host.cacheWarmSubagents.accessibilityLabel")}
+          testID="host-page-cache-warm-subagents-switch"
         />
       </View>
     </View>

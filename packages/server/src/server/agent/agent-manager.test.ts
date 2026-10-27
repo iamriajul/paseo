@@ -12646,3 +12646,46 @@ test("records each request's cache split and keeps the turn's first request", as
     rmSync(workdir, { recursive: true, force: true });
   }
 });
+
+test("clearing an absent rate-limit cooldown publishes no state", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-cooldown-noop-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+  });
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+    const states: Array<{ cooldown: unknown }> = [];
+    const unsubscribe = manager.subscribe(
+      (event) => {
+        if (event.type === "agent_state") {
+          states.push({ cooldown: event.agent.rateLimitCooldown ?? null });
+        }
+      },
+      { agentId: snapshot.id, replayState: false },
+    );
+
+    manager.setRateLimitCooldown(snapshot.id, null);
+    expect(states).toHaveLength(0);
+
+    const cooldown = {
+      scheduledFor: new Date(Date.now() + 60_000).toISOString(),
+      retryAfter: "60s",
+      consecutiveResumes: 0,
+    };
+    manager.setRateLimitCooldown(snapshot.id, cooldown);
+    manager.setRateLimitCooldown(snapshot.id, null);
+    expect(states).toEqual([{ cooldown }, { cooldown: null }]);
+    unsubscribe();
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});

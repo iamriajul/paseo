@@ -313,6 +313,6 @@ describe("PromptCachePill", () => {
     const { getByText } = render(<PromptCachePill serverId="server-1" agentId="agent-question" />);
     expect(getByText("question · in 45m")).not.toBeNull();
     expect(getByText("Awaiting answer (expires in 45m)")).not.toBeNull();
-    expect(getByText("Paused while awaiting your response")).not.toBeNull();
+    expect(getByText("Auto-pauses for warm-up in 43m")).not.toBeNull();
   });
 });

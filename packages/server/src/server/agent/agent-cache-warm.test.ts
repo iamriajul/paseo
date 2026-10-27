@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AgentCacheWarmManager,
+  CACHE_WARM_QUESTION_PAUSE_MESSAGE,
   DEFAULT_CACHE_WARM_INTERVAL_MS,
   DEFAULT_CACHE_WARM_PING_PROMPT,
 } from "./agent-cache-warm.js";
@@ -25,10 +26,11 @@ describe("AgentCacheWarmManager", () => {
   });
 
   interface HarnessOptions {
-    featureEnabled?: boolean;
+    featureEnabled?: boolean | "default";
     lifecycle?: "idle" | "running" | "closed";
     archived?: boolean;
     pendingPermissions?: number;
+    pendingQuestions?: Array<{ id: string; kind?: string; name?: string }>;
     hasInFlightRun?: boolean;
     lastUserMessageAt?: Date | null;
     lastResponseAt?: Date | null;
@@ -48,6 +50,19 @@ describe("AgentCacheWarmManager", () => {
     for (let i = 0; i < count; i++) {
       pendingPermissions.set(`perm-${i}`, { id: `perm-${i}` });
     }
+    if (options.pendingQuestions) {
+      for (const q of options.pendingQuestions) {
+        pendingPermissions.set(q.id, q);
+      }
+    }
+
+    const featureValues: Record<string, unknown> = {};
+    if (options.promptCacheTtl) {
+      featureValues.prompt_cache_ttl = options.promptCacheTtl;
+    }
+    if (options.featureEnabled !== "default") {
+      featureValues[CLAUDE_CACHE_WARM_FEATURE_ID] = options.featureEnabled ?? true;
+    }
 
     return {
       id: "agent-1",
@@ -56,10 +71,7 @@ describe("AgentCacheWarmManager", () => {
       config: {
         provider: "claude",
         cwd: "/test",
-        featureValues: {
-          [CLAUDE_CACHE_WARM_FEATURE_ID]: options.featureEnabled ?? true,
-          ...(options.promptCacheTtl ? { prompt_cache_ttl: options.promptCacheTtl } : {}),
-        },
+        featureValues,
       },
       lifecycle,
       pendingPermissions: pendingPermissions as unknown as ManagedAgent["pendingPermissions"],
@@ -95,11 +107,13 @@ describe("AgentCacheWarmManager", () => {
     });
     const hasInFlightRun = vi.fn().mockImplementation(() => inFlightRun);
     const sendPrompt = vi.fn().mockResolvedValue({ disposition: "turn_started" });
+    const respondToPermission = vi.fn().mockResolvedValue(undefined);
 
     const manager = new AgentCacheWarmManager({
       agentManager: {
         getAgent,
         hasInFlightRun,
+        respondToPermission,
       } as unknown as import("./agent-manager.js").AgentManager,
       agentStorage: {} as unknown as AgentStorage,
       logger,
@@ -107,7 +121,7 @@ describe("AgentCacheWarmManager", () => {
       intervalMs: options.intervalMs,
     });
 
-    return { manager, mockAgent, getAgent, hasInFlightRun, sendPrompt };
+    return { manager, mockAgent, getAgent, hasInFlightRun, sendPrompt, respondToPermission };
   }
 
   it("does not schedule if cache_warm feature is disabled", () => {
@@ -133,6 +147,28 @@ describe("AgentCacheWarmManager", () => {
 
   it("does not schedule if agent has pending permissions", () => {
     const { manager } = createHarness({ pendingPermissions: 1 });
+    const scheduled = manager.schedule("agent-1");
+    expect(scheduled).toBe(false);
+    expect(manager.hasPending("agent-1")).toBe(false);
+  });
+
+  it("schedules cache warm timer when agent is awaiting answer on a question", () => {
+    const { manager } = createHarness({
+      lifecycle: "running",
+      hasInFlightRun: true,
+      pendingQuestions: [{ id: "q-1", kind: "question", name: "AskUserQuestion" }],
+    });
+    const scheduled = manager.schedule("agent-1");
+    expect(scheduled).toBe(true);
+    expect(manager.hasPending("agent-1")).toBe(true);
+  });
+
+  it("does not schedule if pending permissions include mixed question and non-question permissions", () => {
+    const { manager } = createHarness({
+      lifecycle: "running",
+      pendingPermissions: 1, // regular tool permission (e.g. bash)
+      pendingQuestions: [{ id: "q-1", kind: "question", name: "AskUserQuestion" }],
+    });
     const scheduled = manager.schedule("agent-1");
     expect(scheduled).toBe(false);
     expect(manager.hasPending("agent-1")).toBe(false);
@@ -615,5 +651,322 @@ describe("AgentCacheWarmManager", () => {
     manager.deleteAgent(mockAgent.id);
     expect(manager.hasPending(mockAgent.id)).toBe(false);
     expect(manager.getConsecutivePings(mockAgent.id)).toBe(0);
+  });
+
+  it("interrupts pending question with pause message when watchdog timer fires", async () => {
+    const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+    vi.setSystemTime(startTime);
+
+    const { manager, respondToPermission, sendPrompt } = createHarness({
+      featureEnabled: true,
+      lifecycle: "running",
+      hasInFlightRun: true,
+      lastResponseAt: new Date(startTime),
+      pendingQuestions: [{ id: "q-1", kind: "question", name: "AskUserQuestion" }],
+    });
+
+    expect(manager.schedule("agent-1")).toBe(true);
+    expect(manager.hasPending("agent-1")).toBe(true);
+
+    // Advance 57 minutes: should not interrupt yet
+    await vi.advanceTimersByTimeAsync(57 * 60 * 1000);
+    expect(respondToPermission).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+
+    // Advance 1 more minute (58 minutes total)
+    await vi.advanceTimersByTimeAsync(1 * 60 * 1000);
+    expect(respondToPermission).toHaveBeenCalledTimes(1);
+    expect(respondToPermission).toHaveBeenCalledWith("agent-1", "q-1", {
+      behavior: "deny",
+      message: CACHE_WARM_QUESTION_PAUSE_MESSAGE,
+    });
+    // Claude naturally wraps up turn and refreshes KV cache on tool completion, no sendPrompt needed
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(manager.getConsecutivePings("agent-1")).toBe(1);
+  });
+
+  it("interrupts multiple pending questions when present", async () => {
+    const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+    vi.setSystemTime(startTime);
+
+    const { manager, respondToPermission, sendPrompt } = createHarness({
+      featureEnabled: true,
+      lifecycle: "running",
+      hasInFlightRun: true,
+      lastResponseAt: new Date(startTime),
+      pendingQuestions: [
+        { id: "q-1", kind: "question" },
+        { id: "q-2", name: "AskUserQuestion" },
+      ],
+    });
+
+    expect(manager.schedule("agent-1")).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_CACHE_WARM_INTERVAL_MS);
+    expect(respondToPermission).toHaveBeenCalledTimes(2);
+    expect(respondToPermission).toHaveBeenCalledWith("agent-1", "q-1", {
+      behavior: "deny",
+      message: CACHE_WARM_QUESTION_PAUSE_MESSAGE,
+    });
+    expect(respondToPermission).toHaveBeenCalledWith("agent-1", "q-2", {
+      behavior: "deny",
+      message: CACHE_WARM_QUESTION_PAUSE_MESSAGE,
+    });
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(manager.getConsecutivePings("agent-1")).toBe(1);
+  });
+
+  it("interrupts question for subagent with 5-minute cache window after 4 minutes", async () => {
+    const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+    vi.setSystemTime(startTime);
+
+    const { manager, respondToPermission, sendPrompt } = createHarness({
+      isSubagent: true,
+      featureEnabled: true,
+      lifecycle: "running",
+      hasInFlightRun: true,
+      lastResponseAt: new Date(startTime),
+      pendingQuestions: [{ id: "q-sub", kind: "question" }],
+    });
+
+    expect(manager.schedule("agent-1")).toBe(true);
+
+    // Advance 3 minutes - should not fire yet
+    await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+    expect(respondToPermission).not.toHaveBeenCalled();
+
+    // Advance 1 more minute (4 minutes total for 5m TTL subagents)
+    await vi.advanceTimersByTimeAsync(1 * 60 * 1000);
+    expect(respondToPermission).toHaveBeenCalledTimes(1);
+    expect(respondToPermission).toHaveBeenCalledWith("agent-1", "q-sub", {
+      behavior: "deny",
+      message: CACHE_WARM_QUESTION_PAUSE_MESSAGE,
+    });
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(manager.getConsecutivePings("agent-1")).toBe(1);
+  });
+
+  it("reschedules watchdog if respondToPermission throws an error", async () => {
+    const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+    vi.setSystemTime(startTime);
+
+    const { manager, respondToPermission } = createHarness({
+      featureEnabled: true,
+      lifecycle: "running",
+      hasInFlightRun: true,
+      lastResponseAt: new Date(startTime),
+      pendingQuestions: [{ id: "q-err", kind: "question" }],
+    });
+    respondToPermission.mockRejectedValueOnce(new Error("RPC timeout"));
+
+    expect(manager.schedule("agent-1")).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_CACHE_WARM_INTERVAL_MS);
+    expect(respondToPermission).toHaveBeenCalledTimes(1);
+    expect(manager.hasPending("agent-1")).toBe(true);
+  });
+
+  it("does not interrupt question if non-question permission arrived before timer fires", async () => {
+    const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+    vi.setSystemTime(startTime);
+
+    const { manager, mockAgent, respondToPermission } = createHarness({
+      featureEnabled: true,
+      lifecycle: "running",
+      hasInFlightRun: true,
+      lastResponseAt: new Date(startTime),
+      pendingQuestions: [{ id: "q-1", kind: "question" }],
+    });
+
+    expect(manager.schedule("agent-1")).toBe(true);
+
+    // A non-question permission request arrives while question is pending
+    mockAgent.pendingPermissions.set("perm-bash", {
+      id: "perm-bash",
+    } as unknown as import("./agent-sdk-types.js").AgentPermissionRequest);
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_CACHE_WARM_INTERVAL_MS);
+    expect(respondToPermission).not.toHaveBeenCalled();
+  });
+
+  describe("5m TTL and subagent defaults", () => {
+    it("defaults to enabled for subagent when cache_warm is unset", () => {
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: "default",
+        isSubagent: true,
+      });
+
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(true);
+      expect(manager.schedule(mockAgent.id)).toBe(true);
+      expect(manager.hasPending(mockAgent.id)).toBe(true);
+    });
+
+    it("defaults to enabled for explicit 5m TTL session when cache_warm is unset", () => {
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: "default",
+        isSubagent: false,
+        promptCacheTtl: "5m",
+      });
+
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(true);
+      expect(manager.schedule(mockAgent.id)).toBe(true);
+      expect(manager.hasPending(mockAgent.id)).toBe(true);
+    });
+
+    it("defaults to disabled for root 1h/default TTL session when cache_warm is unset", () => {
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: "default",
+        isSubagent: false,
+        promptCacheTtl: "default",
+      });
+
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(false);
+      expect(manager.schedule(mockAgent.id)).toBe(false);
+      expect(manager.hasPending(mockAgent.id)).toBe(false);
+    });
+
+    it("defaults to disabled for subagent overridden with 1h TTL when cache_warm is unset", () => {
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: "default",
+        isSubagent: true,
+        promptCacheTtl: "1h",
+      });
+
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(false);
+      expect(manager.schedule(mockAgent.id)).toBe(false);
+    });
+
+    it("respects explicit cache_warm: false even for 5m TTL or subagents", () => {
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: false,
+        isSubagent: true,
+        promptCacheTtl: "5m",
+      });
+
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(false);
+      expect(manager.schedule(mockAgent.id)).toBe(false);
+    });
+
+    it("respects explicit cache_warm: true for 1h sessions", () => {
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: true,
+        isSubagent: false,
+        promptCacheTtl: "1h",
+      });
+
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(true);
+      expect(manager.schedule(mockAgent.id)).toBe(true);
+    });
+  });
+
+  describe("onTtlChanged dynamic watchdog updates", () => {
+    it("dynamically schedules 4m watchdog timer when switching from 1h to 5m", () => {
+      const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+      vi.setSystemTime(startTime);
+
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: "default",
+        isSubagent: false,
+        promptCacheTtl: "1h",
+        lastResponseAt: new Date(startTime),
+      });
+
+      // Initially 1h default: disabled
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(false);
+      expect(manager.hasPending(mockAgent.id)).toBe(false);
+
+      // 1 minute elapses
+      vi.setSystemTime(startTime + 60_000);
+
+      // Switch TTL to 5m
+      mockAgent.config.featureValues = { prompt_cache_ttl: "5m" };
+      manager.onTtlChanged(mockAgent.id);
+
+      // Now enabled by default with 4m interval, remaining 3m
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(true);
+      expect(manager.hasPending(mockAgent.id)).toBe(true);
+      const pending = manager.getPending(mockAgent.id);
+      expect(pending?.scheduledFor.getTime()).toBe(startTime + 4 * 60_000);
+    });
+
+    it("dynamically cancels watchdog timer when switching from 5m to 1h without explicit toggle", () => {
+      const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+      vi.setSystemTime(startTime);
+
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: "default",
+        isSubagent: false,
+        promptCacheTtl: "5m",
+        lastResponseAt: new Date(startTime),
+      });
+
+      expect(manager.schedule(mockAgent.id)).toBe(true);
+      expect(manager.hasPending(mockAgent.id)).toBe(true);
+
+      // Switch TTL to 1h
+      mockAgent.config.featureValues = { prompt_cache_ttl: "1h" };
+      manager.onTtlChanged(mockAgent.id);
+
+      expect(manager.isFeatureEnabled(mockAgent.id)).toBe(false);
+      expect(manager.hasPending(mockAgent.id)).toBe(false);
+    });
+
+    it("dynamically updates interval from 4m to 58m when switching 5m to 1h with explicit cache_warm: true", () => {
+      const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+      vi.setSystemTime(startTime);
+
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: true,
+        isSubagent: false,
+        promptCacheTtl: "5m",
+        lastResponseAt: new Date(startTime),
+      });
+
+      expect(manager.schedule(mockAgent.id)).toBe(true);
+      expect(manager.getPending(mockAgent.id)?.scheduledFor.getTime()).toBe(startTime + 4 * 60_000);
+
+      // 2 minutes elapse
+      vi.setSystemTime(startTime + 2 * 60_000);
+
+      // Switch TTL to 1h
+      mockAgent.config.featureValues = {
+        [CLAUDE_CACHE_WARM_FEATURE_ID]: true,
+        prompt_cache_ttl: "1h",
+      };
+      manager.onTtlChanged(mockAgent.id);
+
+      expect(manager.hasPending(mockAgent.id)).toBe(true);
+      expect(manager.getPending(mockAgent.id)?.scheduledFor.getTime()).toBe(
+        startTime + 58 * 60_000,
+      );
+    });
+
+    it("cancels timer and does not reschedule when switching to 5m if cache has already expired", () => {
+      const startTime = new Date("2026-10-25T12:00:00.000Z").getTime();
+      vi.setSystemTime(startTime);
+
+      const { manager, mockAgent } = createHarness({
+        featureEnabled: true,
+        isSubagent: false,
+        promptCacheTtl: "1h",
+        lastResponseAt: new Date(startTime),
+      });
+
+      expect(manager.schedule(mockAgent.id)).toBe(true);
+      expect(manager.hasPending(mockAgent.id)).toBe(true);
+
+      // 10 minutes elapse (> 5m window)
+      vi.setSystemTime(startTime + 10 * 60_000);
+
+      // Switch TTL to 5m
+      mockAgent.config.featureValues = {
+        [CLAUDE_CACHE_WARM_FEATURE_ID]: true,
+        prompt_cache_ttl: "5m",
+      };
+      manager.onTtlChanged(mockAgent.id);
+
+      // 5m cache window has already passed 10m ago -> cancel without rescheduling
+      expect(manager.hasPending(mockAgent.id)).toBe(false);
+    });
   });
 });

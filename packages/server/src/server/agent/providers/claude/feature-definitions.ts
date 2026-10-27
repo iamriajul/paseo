@@ -3,7 +3,7 @@ import type {
   AgentFeatureSelect,
   AgentFeatureToggle,
 } from "../../agent-sdk-types.js";
-import { isClaudeModel } from "@getpaseo/protocol/agent-cache-warm";
+import { isClaudeModel, resolveDefaultCacheWarmEnabled } from "@getpaseo/protocol/agent-cache-warm";
 import { claudeManifestModelSupportsFastMode } from "./model-manifest.js";
 
 export const CLAUDE_FAST_MODE_FEATURE: Omit<AgentFeatureToggle, "value"> = {
@@ -56,6 +56,7 @@ export function buildClaudeFeatures(input: {
   fastModeEnabled: boolean;
   promptCacheTtl?: unknown;
   cacheWarmEnabled?: boolean;
+  isSubagent?: boolean;
 }): AgentFeature[] {
   const features: AgentFeature[] = [];
 
@@ -75,9 +76,14 @@ export function buildClaudeFeatures(input: {
       value: promptCacheTtl,
     });
 
+    const isSubagent = input.isSubagent ?? false;
+    const defaultCacheWarm = resolveDefaultCacheWarmEnabled({ isSubagent, promptCacheTtl });
+    const cacheWarmValue =
+      typeof input.cacheWarmEnabled === "boolean" ? input.cacheWarmEnabled : defaultCacheWarm;
+
     features.push({
       ...CLAUDE_CACHE_WARM_FEATURE,
-      value: input.cacheWarmEnabled === true,
+      value: cacheWarmValue,
     });
   }
 

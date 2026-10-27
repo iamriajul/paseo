@@ -2,16 +2,20 @@ import type { Logger } from "pino";
 import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 import {
   DEFAULT_CACHE_WARM_PING_PROMPT,
+  CACHE_WARM_QUESTION_PAUSE_MESSAGE,
   DEFAULT_CACHE_WARM_INTERVAL_MS,
   SUBAGENT_CACHE_WARM_INTERVAL_MS,
   DEFAULT_CACHE_WARM_MAX_PINGS,
   SUBAGENT_CACHE_WARM_MAX_PINGS,
   resolvePromptCacheWindows,
+  resolveDefaultCacheWarmEnabled,
   isCacheWarmPrompt,
   isCacheWarmReply,
   isClaudeModel,
+  isQuestionPermission,
 } from "@getpaseo/protocol/agent-cache-warm";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
+import type { AgentPermissionRequest } from "./agent-sdk-types.js";
 import type { AgentStorage } from "./agent-storage.js";
 import { sendPromptToAgent } from "./agent-prompt.js";
 import {
@@ -21,13 +25,16 @@ import {
 
 export {
   DEFAULT_CACHE_WARM_PING_PROMPT,
+  CACHE_WARM_QUESTION_PAUSE_MESSAGE,
   DEFAULT_CACHE_WARM_INTERVAL_MS,
   SUBAGENT_CACHE_WARM_INTERVAL_MS,
   DEFAULT_CACHE_WARM_MAX_PINGS,
   SUBAGENT_CACHE_WARM_MAX_PINGS,
   resolvePromptCacheWindows,
+  resolveDefaultCacheWarmEnabled,
   isCacheWarmPrompt,
   isCacheWarmReply,
+  isQuestionPermission,
 };
 
 export function resolveAgentCacheWindowMs(agent: ManagedAgent): number {
@@ -148,7 +155,23 @@ export class AgentCacheWarmManager {
     if (!isClaudeModel(modelId)) {
       return false;
     }
-    return agent.config.featureValues?.[CLAUDE_CACHE_WARM_FEATURE_ID] === true;
+    const isSubagent = getParentAgentIdFromLabels(agent.labels) !== null;
+    const promptCacheTtl = agent.config.featureValues?.[CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID];
+    const defaultEnabled = resolveDefaultCacheWarmEnabled({ isSubagent, promptCacheTtl });
+    const explicitValue = agent.config.featureValues?.[CLAUDE_CACHE_WARM_FEATURE_ID];
+    if (typeof explicitValue === "boolean") {
+      return explicitValue;
+    }
+    return defaultEnabled;
+  }
+
+  onTtlChanged(agentId: string): void {
+    if (!this.isFeatureEnabled(agentId)) {
+      this.cancel(agentId);
+      return;
+    }
+    this.setConsecutivePings(agentId, 0);
+    this.schedule(agentId);
   }
 
   onFeatureToggled(agentId: string, enabled: boolean): void {
@@ -201,6 +224,19 @@ export class AgentCacheWarmManager {
     return this.lastResponseTimestamps.get(agent.id) ?? agent.lastResponseAt?.getTime() ?? null;
   }
 
+  private getPendingQuestions(agent: ManagedAgent): AgentPermissionRequest[] {
+    if (!agent.pendingPermissions || agent.pendingPermissions.size === 0) {
+      return [];
+    }
+    const questions: AgentPermissionRequest[] = [];
+    for (const request of agent.pendingPermissions.values()) {
+      if (isQuestionPermission(request)) {
+        questions.push(request);
+      }
+    }
+    return questions;
+  }
+
   schedule(agentId: string): boolean {
     const agent = this.agentManager.getAgent(agentId);
     if (!agent || agent.lifecycle === "closed") {
@@ -213,12 +249,21 @@ export class AgentCacheWarmManager {
       return false;
     }
 
-    if (agent.lifecycle !== "idle" || this.agentManager.hasInFlightRun?.(agentId)) {
+    this.cancelTimerOnly(agentId);
+
+    const pendingQuestions = this.getPendingQuestions(agent);
+    const hasPendingQuestions = pendingQuestions.length > 0;
+    const hasOtherPendingPermissions =
+      (agent.pendingPermissions?.size ?? 0) > pendingQuestions.length;
+
+    if (hasOtherPendingPermissions) {
       return false;
     }
 
-    if (agent.pendingPermissions && agent.pendingPermissions.size > 0) {
-      return false;
+    if (!hasPendingQuestions) {
+      if (agent.lifecycle !== "idle" || this.agentManager.hasInFlightRun?.(agentId)) {
+        return false;
+      }
     }
 
     const lastTime = this.resolveAgentLastTime(agent);
@@ -250,11 +295,10 @@ export class AgentCacheWarmManager {
     const intervalMs = resolveAgentCacheWarmIntervalMs(agent, this.configuredIntervalMs);
     const remainingMs = Math.max(0, intervalMs - elapsedMs);
 
-    this.cancelTimerOnly(agentId);
     const scheduledEpoch = this.nextEpoch(agentId);
 
     this.logger.debug(
-      { agentId, remainingMs, intervalMs },
+      { agentId, remainingMs, intervalMs, isQuestion: hasPendingQuestions },
       "Scheduling cache warm watchdog timer from last response",
     );
 
@@ -286,14 +330,24 @@ export class AgentCacheWarmManager {
       return false;
     }
 
-    if (agent.lifecycle !== "idle" || this.agentManager.hasInFlightRun?.(agentId)) {
-      this.logger.debug({ agentId }, "Skipping cache warm ping: agent is not idle");
+    const pendingQuestions = this.getPendingQuestions(agent);
+    const hasPendingQuestions = pendingQuestions.length > 0;
+    const hasOtherPendingPermissions =
+      (agent.pendingPermissions?.size ?? 0) > pendingQuestions.length;
+
+    if (hasOtherPendingPermissions) {
+      this.logger.debug(
+        { agentId },
+        "Skipping cache warm ping: agent has non-question pending permissions",
+      );
       return false;
     }
 
-    if (agent.pendingPermissions && agent.pendingPermissions.size > 0) {
-      this.logger.debug({ agentId }, "Skipping cache warm ping: agent has pending permissions");
-      return false;
+    if (!hasPendingQuestions) {
+      if (agent.lifecycle !== "idle" || this.agentManager.hasInFlightRun?.(agentId)) {
+        this.logger.debug({ agentId }, "Skipping cache warm ping: agent is not idle");
+        return false;
+      }
     }
 
     const lastTime = this.resolveAgentLastTime(agent);
@@ -331,6 +385,54 @@ export class AgentCacheWarmManager {
       return false;
     }
 
+    if (hasPendingQuestions) {
+      return this.interruptPendingQuestions(agentId, pendingQuestions, consecutiveCount, maxPings);
+    }
+
+    return this.sendCacheWarmPing(agentId, consecutiveCount, maxPings);
+  }
+
+  private async interruptPendingQuestions(
+    agentId: string,
+    pendingQuestions: AgentPermissionRequest[],
+    consecutiveCount: number,
+    maxPings: number,
+  ): Promise<boolean> {
+    this.logger.info(
+      {
+        agentId,
+        questionCount: pendingQuestions.length,
+        pingNumber: consecutiveCount + 1,
+        maxPings,
+      },
+      "Interrupting pending questions to maintain prompt cache warm state",
+    );
+    this.lastResponseTimestamps.set(agentId, this.now());
+
+    try {
+      for (const question of pendingQuestions) {
+        await this.agentManager.respondToPermission(agentId, question.id, {
+          behavior: "deny",
+          message: CACHE_WARM_QUESTION_PAUSE_MESSAGE,
+        });
+      }
+      this.setConsecutivePings(agentId, consecutiveCount + 1);
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId },
+        "Failed to interrupt pending question for cache warm; rescheduling",
+      );
+      this.schedule(agentId);
+      return false;
+    }
+  }
+
+  private async sendCacheWarmPing(
+    agentId: string,
+    consecutiveCount: number,
+    maxPings: number,
+  ): Promise<boolean> {
     this.logger.info(
       { agentId, pingNumber: consecutiveCount + 1, maxPings },
       "Sending cache warm ping to keep prompt cache warm",

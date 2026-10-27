@@ -4608,4 +4608,117 @@ describe("cache_warm feature", () => {
       await session.close();
     }
   });
+
+  test("defaults cache_warm to true for 5m TTL in listFeatures", async () => {
+    const client = new ClaudeAgentClient({ logger, resolveBinary: async () => "/test/claude/bin" });
+    await expect(
+      client.listFeatures({
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-sonnet-5",
+        featureValues: { prompt_cache_ttl: "5m" },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "5m" }),
+      expect.objectContaining({ id: "cache_warm", value: true }),
+    ]);
+  });
+
+  test("defaults cache_warm to true for subagents in createSession", async () => {
+    const { queryFactory } = createIsolatedQueryMock();
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession(
+      {
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-sonnet-5",
+      },
+      { agentId: "subagent-1", isSubagent: true },
+    );
+
+    try {
+      expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(true);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("defaults cache_warm to true for 5m TTL main sessions in createSession", async () => {
+    const { queryFactory } = createIsolatedQueryMock();
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession(
+      {
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-sonnet-5",
+        featureValues: { prompt_cache_ttl: "5m" },
+      },
+      { agentId: "main-1", isSubagent: false },
+    );
+
+    try {
+      expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(true);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("respects explicit cache_warm: false even for subagents and 5m sessions", async () => {
+    const { queryFactory } = createIsolatedQueryMock();
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession(
+      {
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-sonnet-5",
+        featureValues: { prompt_cache_ttl: "5m", cache_warm: false },
+      },
+      { agentId: "subagent-1", isSubagent: true },
+    );
+
+    try {
+      expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(false);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("preserves default cache_warm: true when resuming a subagent", async () => {
+    const { queryFactory } = createIsolatedQueryMock();
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.resumeSession(
+      {
+        provider: "claude",
+        sessionId: "subagent-session-id",
+        metadata: {
+          cwd: process.cwd(),
+          model: "claude-sonnet-5",
+        },
+      },
+      {},
+      { agentId: "subagent-1", isSubagent: true },
+    );
+
+    try {
+      expect(session.features.find((f) => f.id === "cache_warm")?.value).toBe(true);
+    } finally {
+      await session.close();
+    }
+  });
 });

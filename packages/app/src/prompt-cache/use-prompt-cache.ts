@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
-import { resolvePromptCacheWindows, isClaudeModel } from "@getpaseo/protocol/agent-cache-warm";
+import {
+  resolvePromptCacheWindows,
+  resolveDefaultCacheWarmEnabled,
+  isClaudeModel,
+  isQuestionPermission,
+} from "@getpaseo/protocol/agent-cache-warm";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 
@@ -129,11 +134,15 @@ function resolveAgentCacheFlags(agent: Agent | null | undefined) {
   const modelId = agent.model ?? agent.runtimeInfo?.model;
   const isClaude = agent.provider === "claude" && isClaudeModel(modelId);
   const isSubagent = isDelegatedAgent({ labels: agent.labels });
+  const promptCacheTtl = agent.features?.find((f) => f.id === "prompt_cache_ttl")?.value;
+  const cacheWarmFeature = agent.features?.find((f) => f.id === "cache_warm");
   const isWarmupEnabled =
-    agent.features?.some((f) => f.id === "cache_warm" && f.value === true) ?? false;
+    typeof cacheWarmFeature?.value === "boolean"
+      ? cacheWarmFeature.value
+      : resolveDefaultCacheWarmEnabled({ isSubagent, promptCacheTtl });
   const pending = agent.pendingPermissions ?? [];
   const hasPendingPermissions = pending.length > 0;
-  const hasPendingQuestion = pending.some((p) => p.kind === "question");
+  const hasPendingQuestion = pending.some((p) => isQuestionPermission(p));
   const isBusy =
     (agent.status === "running" || agent.turn?.phase === "open") && !hasPendingPermissions;
 

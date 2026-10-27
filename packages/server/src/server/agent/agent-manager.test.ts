@@ -12524,3 +12524,56 @@ test("onStreamPermissionRequested updates lastResponseAt and notifies cacheWarmM
     rmSync(workdir, { recursive: true, force: true });
   }
 });
+
+test("setAgentFeature notifies cacheWarmManager on prompt_cache_ttl and cache_warm changes", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-set-feature-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const onTtlChanged = vi.fn();
+  const onFeatureToggled = vi.fn();
+  const warmManager = {
+    onTtlChanged,
+    onFeatureToggled,
+    schedule: vi.fn(),
+    onTurnCompleted: vi.fn(),
+    onTurnStarted: vi.fn(),
+    onMessageActivity: vi.fn(),
+    onResponseOccurred: vi.fn(),
+    onAgentRegistered: vi.fn(),
+    cancel: vi.fn(),
+    deleteAgent: vi.fn(),
+  } as unknown as import("./agent-cache-warm.js").AgentCacheWarmManager;
+
+  class FeatureSession extends TestAgentSession {
+    override async setFeature(_featureId: string, _value: unknown): Promise<void> {}
+  }
+
+  class FeatureClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new FeatureSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new FeatureClient() },
+    registry: storage,
+    logger,
+    cacheWarmManager: warmManager,
+  });
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+
+    await manager.setAgentFeature(snapshot.id, "prompt_cache_ttl", "5m");
+    expect(onTtlChanged).toHaveBeenCalledWith(snapshot.id);
+
+    await manager.setAgentFeature(snapshot.id, "cache_warm", true);
+    expect(onFeatureToggled).toHaveBeenCalledWith(snapshot.id, true);
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});

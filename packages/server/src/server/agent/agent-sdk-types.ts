@@ -639,6 +639,7 @@ export interface AgentLaunchContext {
    * AgentSessionConfig; providers may adapt it to their native tool surface.
    */
   paseoTools?: PaseoToolCatalog;
+  isSubagent?: boolean;
 }
 
 export interface AgentCreateSessionOptions {

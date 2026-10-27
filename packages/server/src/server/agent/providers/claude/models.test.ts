@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestLogger } from "../../../../test-utils/test-logger.js";
 import { ClaudeAgentClient } from "./agent.js";
@@ -55,6 +55,11 @@ describe("getClaudeContextWindowMaxTokens", () => {
 });
 
 const createdClaudeConfigDirs: string[] = [];
+
+beforeEach(() => {
+  vi.stubEnv("ANTHROPIC_BASE_URL", "");
+  vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "");
+});
 
 afterEach(async () => {
   vi.unstubAllGlobals();

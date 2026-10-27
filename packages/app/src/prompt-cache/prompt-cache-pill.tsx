@@ -84,6 +84,9 @@ function resolvePillWarmupText(cache: ReturnType<typeof usePromptCache>): string
   if (cache.isBusy) {
     return "Active (resets after turn)";
   }
+  if (cache.hasPendingQuestion) {
+    return `Auto-pauses for warm-up ${cache.nextPingCountdownText}`;
+  }
   if (cache.hasPendingPermission) {
     return "Paused while awaiting your response";
   }

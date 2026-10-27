@@ -4,7 +4,10 @@ import type { RuntimeCleanupCandidate } from "./idle-runtime-cleanup/index.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import type { AgentRateLimitAutoResumeManager } from "./agent-rate-limit-auto-resume.js";
 import type { AgentCacheWarmManager } from "./agent-cache-warm.js";
-import { CLAUDE_CACHE_WARM_FEATURE_ID } from "./providers/claude/feature-definitions.js";
+import {
+  CLAUDE_CACHE_WARM_FEATURE_ID,
+  CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
+} from "./providers/claude/feature-definitions.js";
 import type { AgentRateLimitCooldownPayload } from "@getpaseo/protocol/messages";
 import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-labels";
 import { isCacheWarmPrompt } from "@getpaseo/protocol/agent-cache-warm";
@@ -1605,6 +1608,7 @@ export class AgentManager {
       provider: storedConfig.provider,
     });
     this.paseoToolPolicies.set(resolvedAgentId, paseoToolPolicy);
+    const isSubagent = getParentAgentIdFromLabels(options?.labels) !== null;
     const launchContext = await this.buildLaunchContext(
       resolvedAgentId,
       client,
@@ -1617,6 +1621,7 @@ export class AgentManager {
         workspaceId: options.workspaceId ?? null,
         title: options.initialTitle ?? storedConfig.title ?? null,
         labels: options.labels ?? {},
+        isSubagent,
       },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
@@ -1733,6 +1738,7 @@ export class AgentManager {
       );
     }
     this.paseoToolPolicies.set(resolvedAgentId, paseoToolPolicy);
+    const isSubagent = getParentAgentIdFromLabels(options?.labels ?? record?.labels) !== null;
     const launchContext = await this.buildLaunchContext(
       resolvedAgentId,
       client,
@@ -1745,6 +1751,7 @@ export class AgentManager {
         workspaceId: options?.workspaceId ?? null,
         title: record?.title ?? mergedConfig.title ?? null,
         labels: record?.labels ?? options?.labels ?? {},
+        isSubagent,
       },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
@@ -1797,6 +1804,7 @@ export class AgentManager {
       resolvedAgentId,
     );
     this.paseoToolPolicies.set(resolvedAgentId, paseoToolPolicy);
+    const isSubagent = getParentAgentIdFromLabels(input.labels) !== null;
     const launchContext = await this.buildLaunchContext(
       resolvedAgentId,
       client,
@@ -1808,6 +1816,7 @@ export class AgentManager {
         purpose: "interactive",
         workspaceId: input.workspaceId,
         labels: input.labels ?? {},
+        isSubagent,
       },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
@@ -1907,6 +1916,7 @@ export class AgentManager {
     );
     const hadPreviousPaseoToolPolicy = this.paseoToolPolicies.has(agentId);
     const previousPaseoToolPolicy = this.paseoToolPolicies.get(agentId);
+    const isSubagent = getParentAgentIdFromLabels(existing.labels) !== null;
     const launchContext = await this.buildLaunchContext(
       agentId,
       client,
@@ -1919,6 +1929,7 @@ export class AgentManager {
         workspaceId: existing.workspaceId,
         title: await this.resolveInitialPersistedTitle(agentId, existing.config, null),
         labels: existing.labels,
+        isSubagent,
       },
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
@@ -2546,6 +2557,9 @@ export class AgentManager {
     agent.config.featureValues = { ...agent.config.featureValues, [featureId]: value };
     if (featureId === CLAUDE_CACHE_WARM_FEATURE_ID) {
       this.cacheWarmManager?.onFeatureToggled(agentId, Boolean(value));
+    }
+    if (featureId === CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID) {
+      this.cacheWarmManager?.onTtlChanged(agentId);
     }
     this.touchUpdatedAt(agent);
     this.emitState(agent);
@@ -6140,6 +6154,7 @@ export class AgentManager {
       workspaceId?: string | null;
       title?: string | null;
       labels?: Record<string, string>;
+      isSubagent?: boolean;
     },
   ): Promise<AgentLaunchContext> {
     // A plugin changing during this open must still make the resulting session stale.
@@ -6178,6 +6193,7 @@ export class AgentManager {
         PASEO_AGENT_ID: agentId,
         PASEO_AGENT_CWD: cwd,
       },
+      ...(opening?.isSubagent ? { isSubagent: true } : {}),
     };
     const useNativeTools =
       this.paseoToolsEnabled &&

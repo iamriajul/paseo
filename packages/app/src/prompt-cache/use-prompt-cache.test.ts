@@ -92,6 +92,7 @@ describe("usePromptCache", () => {
     expect(result.current.isWarm).toBe(true);
     expect(result.current.countdownText).toBe("in 5m");
     expect(result.current.nextPingCountdownText).toBe("in 4m");
+    expect(result.current.isWarmupEnabled).toBe(true);
   });
 
   it("respects explicit 5m prompt_cache_ttl on main session", () => {
@@ -115,6 +116,28 @@ describe("usePromptCache", () => {
     const { result } = renderHook(() => usePromptCache("server-1", "agent-1"));
     expect(result.current.cacheWindowMs).toBe(5 * 60 * 1000);
     expect(result.current.warmIntervalMs).toBe(4 * 60 * 1000);
+    expect(result.current.isWarmupEnabled).toBe(true);
+  });
+
+  it("respects explicit cache_warm: false on subagent", () => {
+    const now = Date.now();
+    setupSession({
+      id: "agent-sub-1",
+      provider: "claude",
+      labels: { "paseo.parent-agent-id": "parent-1" },
+      lastResponseAt: new Date(now),
+      features: [
+        {
+          type: "toggle",
+          id: "cache_warm",
+          label: "Cache warm-up",
+          value: false,
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => usePromptCache("server-1", "agent-sub-1"));
+    expect(result.current.isWarmupEnabled).toBe(false);
   });
 
   it("reports expired when cache window elapsed", () => {

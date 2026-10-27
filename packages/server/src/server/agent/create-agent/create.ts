@@ -35,6 +35,8 @@ export interface CreateAgentCommandDependencies {
   createPaseoWorktree?: CreatePaseoWorktreeWorkflowFn;
   // Mints a fresh directory workspace for a cwd and returns its id.
   ensureWorkspaceForCreate?: EnsureWorkspaceForCreate;
+  // Host setting: whether orchestrator-spawned Claude agents start with cache warm-up on.
+  isCacheWarmEnabledForSubagents?: () => boolean;
 }
 
 export type EnsureWorkspaceForCreate = (
@@ -379,6 +381,7 @@ async function resolveMcpProviderCreateConfig(params: {
       parentAgent: params.parentAgent,
       requestedFeatureValues,
       resolvedFeatureValues: resolved.featureValues,
+      cacheWarmByDefault: params.dependencies.isCacheWarmEnabledForSubagents?.() ?? true,
     }),
   };
 }
@@ -386,25 +389,27 @@ async function resolveMcpProviderCreateConfig(params: {
 // Orchestrator-spawned Claude agents run short-lived turns, so the 1-hour prompt
 // cache write premium rarely pays off. Stamp a 5-minute TTL unless the caller
 // chose a value; user-opened agents keep Claude Code's automatic behavior.
+// A 5-minute window turns cache warm-up on by default; the host setting can stamp it off.
 function applyOrchestratorSubagentDefaults(input: {
   provider: string;
   parentAgent: ManagedAgent | null;
   requestedFeatureValues: Record<string, unknown> | undefined;
   resolvedFeatureValues: Record<string, unknown> | undefined;
+  cacheWarmByDefault: boolean;
 }): Record<string, unknown> | undefined {
-  const hasExplicitValue = Object.prototype.hasOwnProperty.call(
-    input.requestedFeatureValues ?? {},
-    "prompt_cache_ttl",
-  );
-  if (hasExplicitValue) {
+  const requested = input.requestedFeatureValues ?? {};
+  const hasExplicitTtl = Object.prototype.hasOwnProperty.call(requested, "prompt_cache_ttl");
+  if (hasExplicitTtl) {
     return input.requestedFeatureValues;
   }
   if (input.provider !== "claude" || input.parentAgent === null) {
     return input.resolvedFeatureValues;
   }
+  const hasExplicitWarm = Object.prototype.hasOwnProperty.call(requested, "cache_warm");
   return {
     ...input.resolvedFeatureValues,
     prompt_cache_ttl: "5m",
+    ...(input.cacheWarmByDefault || hasExplicitWarm ? {} : { cache_warm: false }),
   };
 }
 

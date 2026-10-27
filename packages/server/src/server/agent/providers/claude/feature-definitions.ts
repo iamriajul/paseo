@@ -3,7 +3,11 @@ import type {
   AgentFeatureSelect,
   AgentFeatureToggle,
 } from "../../agent-sdk-types.js";
-import { isClaudeModel, resolveDefaultCacheWarmEnabled } from "@getpaseo/protocol/agent-cache-warm";
+import {
+  isClaudeModel,
+  resolveCacheWarmEnabled,
+  resolvePromptCacheWindows,
+} from "@getpaseo/protocol/agent-cache-warm";
 import { claudeManifestModelSupportsFastMode } from "./model-manifest.js";
 
 export const CLAUDE_FAST_MODE_FEATURE: Omit<AgentFeatureToggle, "value"> = {
@@ -33,7 +37,7 @@ export const CLAUDE_PROMPT_CACHE_TTL_FEATURE: Omit<AgentFeatureSelect, "value"> 
   type: "select",
   id: CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
   label: "Cache window",
-  description: "Cache write duration for this conversation and its subagents",
+  description: "Cache write duration for this conversation",
   tooltip: "Shorter windows cost less on cache writes; longer windows keep the cache warm",
   icon: "clock",
   options: [
@@ -56,7 +60,6 @@ export function buildClaudeFeatures(input: {
   fastModeEnabled: boolean;
   promptCacheTtl?: unknown;
   cacheWarmEnabled?: boolean;
-  isSubagent?: boolean;
 }): AgentFeature[] {
   const features: AgentFeature[] = [];
 
@@ -76,15 +79,13 @@ export function buildClaudeFeatures(input: {
       value: promptCacheTtl,
     });
 
-    const isSubagent = input.isSubagent ?? false;
-    const defaultCacheWarm = resolveDefaultCacheWarmEnabled({ isSubagent, promptCacheTtl });
-    const cacheWarmValue =
-      typeof input.cacheWarmEnabled === "boolean" ? input.cacheWarmEnabled : defaultCacheWarm;
-
-    features.push({
-      ...CLAUDE_CACHE_WARM_FEATURE,
-      value: cacheWarmValue,
-    });
+    // Automatic leaves the TTL to Claude Code, so there is no expiry to warm against.
+    if (resolvePromptCacheWindows(promptCacheTtl) !== null) {
+      features.push({
+        ...CLAUDE_CACHE_WARM_FEATURE,
+        value: resolveCacheWarmEnabled({ promptCacheTtl, explicitValue: input.cacheWarmEnabled }),
+      });
+    }
   }
 
   return features;

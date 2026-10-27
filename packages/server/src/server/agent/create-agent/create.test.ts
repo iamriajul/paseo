@@ -519,6 +519,63 @@ test("mcp create defaults prompt_cache_ttl to 5m for parented claude agents", as
   }
 });
 
+test("mcp create stamps cache_warm off for children when the host setting turns it off", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "create-agent-cache-warm-test-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+  const snapshotStub = createProviderSnapshotManagerStub();
+  snapshotStub.manager.resolveCreateConfig.mockImplementation(async (input) => ({
+    modeId: undefined,
+    featureValues: input.featureValues,
+  }));
+  const dependencies = (cacheWarm: boolean) => ({
+    agentManager,
+    agentStorage: storage,
+    logger,
+    providerSnapshotManager: snapshotStub.manager,
+    isCacheWarmEnabledForSubagents: () => cacheWarm,
+  });
+
+  try {
+    const { snapshot: parent } = await createAgentCommand(dependencies(false), {
+      kind: "session",
+      config: { provider: "claude", cwd: workdir },
+      workspaceId: "ws-warm-parent",
+      labels: {},
+      provisionalTitle: null,
+      firstAgentContext: { attachments: [] },
+      buildSessionConfig: async (config) => ({ sessionConfig: config }),
+    });
+    const spawnChild = (cacheWarm: boolean, features?: Record<string, unknown>) =>
+      createAgentCommand(dependencies(cacheWarm), {
+        kind: "mcp",
+        provider: "claude",
+        title: "subagent",
+        initialPrompt: "do the thing",
+        background: true,
+        notifyOnFinish: false,
+        callerAgentId: parent.id,
+        ...(features ? { features } : {}),
+      });
+
+    const off = await spawnChild(false);
+    expect((await storage.get(off.snapshot.id))?.config.featureValues).toMatchObject({
+      prompt_cache_ttl: "5m",
+      cache_warm: false,
+    });
+
+    const on = await spawnChild(true);
+    const onValues = (await storage.get(on.snapshot.id))?.config.featureValues;
+    expect(onValues?.prompt_cache_ttl).toBe("5m");
+    expect(onValues).not.toHaveProperty("cache_warm");
+
+    const explicit = await spawnChild(false, { cache_warm: true });
+    expect((await storage.get(explicit.snapshot.id))?.config.featureValues?.cache_warm).toBe(true);
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
 test("mcp create leaves prompt_cache_ttl unset for non-parented claude agents", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "create-agent-cache-ttl-test-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

@@ -451,6 +451,7 @@ export interface PaseoDaemonConfig {
   };
   autoArchiveAfterMerge?: boolean;
   autoResumeOnRateLimit?: boolean;
+  cacheWarmSubagents?: boolean;
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
   terminalProfiles?: TerminalProfile[];
@@ -658,6 +659,7 @@ function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): Mutab
     },
     autoArchiveAfterMerge: config.autoArchiveAfterMerge ?? false,
     autoResumeOnRateLimit: config.autoResumeOnRateLimit ?? true,
+    cacheWarmSubagents: config.cacheWarmSubagents ?? true,
     enableTerminalAgentHooks: config.enableTerminalAgentHooks ?? false,
     idleRuntimeCleanup: config.idleRuntimeCleanup !== false,
     resumeOnStartup: config.resumeOnStartup === true,
@@ -1386,6 +1388,7 @@ export async function createPaseoDaemon(
     providerSnapshotManager,
     createPaseoWorktree: createPaseoWorktreeForTools,
     ensureWorkspaceForCreate: ensureWorkspaceForCreateAndBroadcastExternal,
+    isCacheWarmEnabledForSubagents: () => daemonConfigStore.get().cacheWarmSubagents !== false,
   };
   const createAgent = (input: Parameters<typeof createAgentCommand>[1]) =>
     createAgentCommand(createAgentCommandDependencies, input);

@@ -37,6 +37,7 @@ type RouterClient = Parameters<typeof mountServerDataPushRouter>[0]["client"];
 
 const daemonConfig: MutableDaemonConfig = {
   autoResumeOnRateLimit: true,
+  cacheWarmSubagents: true,
   relay: { enabled: false },
   mcp: { injectIntoAgents: true },
   browserTools: { enabled: false },

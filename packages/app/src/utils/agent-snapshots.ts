@@ -73,6 +73,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
     ...(agent.consecutiveWarmPings !== undefined
       ? { consecutiveWarmPings: agent.consecutiveWarmPings }
       : {}),
+    ...(agent.totalWarmPings !== undefined ? { totalWarmPings: agent.totalWarmPings } : {}),
+    ...(agent.promptCache ? { promptCache: agent.promptCache } : {}),
     status: agent.status,
     ...projectActiveTurn(agent),
     capabilities: agent.capabilities,
@@ -122,6 +124,8 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     lastUserMessageAt,
     lastResponseAt,
     consecutiveWarmPings: snapshot.consecutiveWarmPings ?? 0,
+    totalWarmPings: snapshot.totalWarmPings ?? 0,
+    ...(snapshot.promptCache ? { promptCache: snapshot.promptCache } : {}),
     lastActivityAt: updatedAt,
     capabilities: snapshot.capabilities,
     currentModeId: snapshot.currentModeId,

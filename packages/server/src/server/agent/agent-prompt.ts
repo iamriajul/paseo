@@ -306,6 +306,15 @@ async function resolvePromptSource(
   return title ? { ...source, title } : source;
 }
 
+/** An errored agent has no turn to replace, so a no-replace prompt may start one. */
+function canStartWithoutReplacing(agentManager: AgentManager, agentId: string): boolean {
+  const liveAgent = agentManager.getAgent(agentId);
+  if (!liveAgent || (liveAgent.lifecycle !== "idle" && liveAgent.lifecycle !== "error")) {
+    return false;
+  }
+  return !agentManager.hasInFlightRun(agentId) && (liveAgent.pendingPermissions?.size ?? 0) === 0;
+}
+
 /**
  * Full send-prompt orchestration: (optional unarchive) → load → (optional
  * mode change) → start run.
@@ -368,13 +377,7 @@ export async function sendPreparedPromptToAgent(
   }
 
   if (params.replaceRunning === false) {
-    const liveAgent = params.agentManager.getAgent(params.agentId);
-    if (
-      !liveAgent ||
-      liveAgent.lifecycle !== "idle" ||
-      params.agentManager.hasInFlightRun(params.agentId) ||
-      (liveAgent.pendingPermissions && liveAgent.pendingPermissions.size > 0)
-    ) {
+    if (!canStartWithoutReplacing(params.agentManager, params.agentId)) {
       params.logger?.debug(
         { agentId: params.agentId },
         "Skipping prompt dispatch: agent is not idle and replaceRunning is false",

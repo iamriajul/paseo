@@ -165,4 +165,26 @@ describe("selectMetaRowItems", () => {
     const items = select({ prHint: { ...PR_HINT, checksStatus: undefined } });
     expect(kinds(items)).toEqual(["host", "changeRequest", "services", "labels"]);
   });
+
+  it("shows the cache warm-up countdown beside the heartbeat, even with every row item hidden", () => {
+    const hidden = Object.fromEntries(
+      Object.keys(DEFAULT_SIDEBAR_ROW_ITEMS).map((key) => [key, false]),
+    ) as typeof DEFAULT_SIDEBAR_ROW_ITEMS;
+    const items = select({
+      visible: hidden,
+      checksDisplay: "none",
+      hasHostBadge: false,
+      cacheWarmText: "3:40",
+      heartbeatText: "in 12m",
+    });
+    expect(items).toEqual([
+      { kind: "cacheWarm", text: "3:40" },
+      { kind: "heartbeat", text: "in 12m" },
+    ]);
+  });
+
+  it("leaves the cache warm-up out when nothing is counting down", () => {
+    expect(kinds(select({ cacheWarmText: null }))).not.toContain("cacheWarm");
+    expect(kinds(select({ cacheWarmText: "  " }))).not.toContain("cacheWarm");
+  });
 });

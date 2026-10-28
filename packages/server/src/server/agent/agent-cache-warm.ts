@@ -3,13 +3,14 @@ import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 import {
   DEFAULT_CACHE_WARM_PING_PROMPT,
   CACHE_WARM_QUESTION_PAUSE_MESSAGE,
-  resolvePromptCacheWindows,
+  resolveEffectivePromptCacheWindows,
   resolveCacheWarmEnabled,
   resolvePromptCacheAnchorMs,
   isCacheWarmPrompt,
   isCacheWarmReply,
   isClaudeModel,
   isQuestionPermission,
+  type PromptCacheTtl,
   type PromptCacheWindows,
 } from "@getpaseo/protocol/agent-cache-warm";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
@@ -34,6 +35,7 @@ interface CacheWarmView {
   provider: string;
   modelId: string | null | undefined;
   featureValues: Record<string, unknown> | undefined;
+  observedTtl: PromptCacheTtl | undefined;
   isDelegated: boolean;
   activity: "ready" | "busy" | "closed";
   pendingQuestions: AgentPermissionRequest[];
@@ -69,6 +71,7 @@ function viewLiveAgent(
     provider: agent.provider,
     modelId: agent.config?.model ?? agent.runtimeInfo?.model,
     featureValues: agent.config?.featureValues,
+    observedTtl: agent.promptCache?.observedTtl,
     isDelegated: getParentAgentIdFromLabels(agent.labels) !== null,
     activity,
     pendingQuestions,
@@ -85,6 +88,7 @@ function viewDormantRecord(record: StoredAgentRecord, consecutivePings: number):
     provider: record.provider,
     modelId: record.config?.model ?? record.runtimeInfo?.model,
     featureValues: record.config?.featureValues ?? undefined,
+    observedTtl: record.promptCache?.observedTtl,
     isDelegated: getParentAgentIdFromLabels(record.labels) !== null,
     activity: wasRunning ? "busy" : "ready",
     pendingQuestions: [],
@@ -98,6 +102,7 @@ export function resolveCacheWarmWindows(view: {
   provider: string;
   modelId: string | null | undefined;
   featureValues: Record<string, unknown> | undefined;
+  observedTtl: PromptCacheTtl | undefined;
 }): PromptCacheWindows | null {
   if (view.provider !== "claude" || !isClaudeModel(view.modelId)) {
     return null;
@@ -107,7 +112,11 @@ export function resolveCacheWarmWindows(view: {
     promptCacheTtl,
     explicitValue: view.featureValues?.[CLAUDE_CACHE_WARM_FEATURE_ID],
   });
-  return enabled ? resolvePromptCacheWindows(promptCacheTtl) : null;
+  // Timed on the TTL the process really writes: after a Cache window change it keeps the old
+  // one until it relaunches.
+  return enabled
+    ? resolveEffectivePromptCacheWindows({ observedTtl: view.observedTtl, promptCacheTtl })
+    : null;
 }
 
 function decideCacheWarm(input: {

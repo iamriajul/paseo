@@ -5384,6 +5384,7 @@ export class AgentManager {
         previous && previous.turnFirstRequest.turnId === sample.turnId
           ? previous.turnFirstRequest
           : sample,
+      observedTtl: tokens.writeTtl ?? previous?.observedTtl,
     };
   }
 

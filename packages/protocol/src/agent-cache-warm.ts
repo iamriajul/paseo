@@ -15,13 +15,25 @@ export const FIVE_MINUTE_CACHE_WARM_INTERVAL_MS = 4.5 * 60 * 1000;
 export const ONE_HOUR_CACHE_WARM_MAX_PINGS = 12;
 export const FIVE_MINUTE_CACHE_WARM_MAX_PINGS = 10;
 
+export type PromptCacheTtl = "5m" | "1h";
+
+/**
+ * Longest foreground shell call Paseo lets a Claude agent make, per cache TTL. A main-thread
+ * request can only refresh the cache once the call returns, so the 5m cap leaves the time the
+ * request itself takes inside the window. It is a separate number from the 270 s warm interval.
+ */
+export const FOREGROUND_SHELL_CAP_MS: Record<PromptCacheTtl, number> = {
+  "5m": 250_000,
+  "1h": 58 * 60 * 1000,
+};
+
 export interface PromptCacheWindows {
   cacheWindowMs: number;
   warmIntervalMs: number;
   maxConsecutivePings: number;
 }
 
-const PROMPT_CACHE_WINDOWS: Record<"5m" | "1h", PromptCacheWindows> = {
+const PROMPT_CACHE_WINDOWS: Record<PromptCacheTtl, PromptCacheWindows> = {
   "5m": {
     cacheWindowMs: FIVE_MINUTE_CACHE_WINDOW_MS,
     warmIntervalMs: FIVE_MINUTE_CACHE_WARM_INTERVAL_MS,
@@ -36,13 +48,52 @@ const PROMPT_CACHE_WINDOWS: Record<"5m" | "1h", PromptCacheWindows> = {
 
 /**
  * Windows for an explicitly chosen Cache window. "Automatic" (or unset) returns null:
- * Claude Code then picks 1h or 5m from auth, overage and gateway routing, none of which
- * Paseo can observe, so warm-up cannot know when the cache expires.
+ * Claude Code then picks 1h or 5m from auth, overage and gateway routing, which Paseo only
+ * learns from a cache write after the fact, so warm-up needs an explicit choice.
  */
 export function resolvePromptCacheWindows(promptCacheTtl: unknown): PromptCacheWindows | null {
-  return promptCacheTtl === "5m" || promptCacheTtl === "1h"
-    ? PROMPT_CACHE_WINDOWS[promptCacheTtl]
-    : null;
+  return isPromptCacheTtl(promptCacheTtl) ? PROMPT_CACHE_WINDOWS[promptCacheTtl] : null;
+}
+
+function isPromptCacheTtl(value: unknown): value is PromptCacheTtl {
+  return value === "5m" || value === "1h";
+}
+
+export interface EffectivePromptCacheTtl {
+  ttl: PromptCacheTtl;
+  /**
+   * observed: the latest cache write was billed at this TTL, so the running process uses it.
+   * configured: nothing observed yet, the Cache window names it.
+   * assumed: Automatic and nothing observed; 5m is the safe guess, because treating a 5m
+   * cache as 1h lets it expire unseen, while the reverse only costs a stricter cap.
+   */
+  source: "observed" | "configured" | "assumed";
+}
+
+/**
+ * The observed TTL comes first because a Cache window change only reaches Claude Code when its
+ * process relaunches, and "Automatic" is Claude Code's choice, which Paseo only sees in writes.
+ */
+export function resolveEffectivePromptCacheTtl(input: {
+  observedTtl: PromptCacheTtl | null | undefined;
+  promptCacheTtl: unknown;
+}): EffectivePromptCacheTtl {
+  if (input.observedTtl) {
+    return { ttl: input.observedTtl, source: "observed" };
+  }
+  if (isPromptCacheTtl(input.promptCacheTtl)) {
+    return { ttl: input.promptCacheTtl, source: "configured" };
+  }
+  return { ttl: "5m", source: "assumed" };
+}
+
+/** Windows the cache really runs on, or null while Automatic and nothing has been observed. */
+export function resolveEffectivePromptCacheWindows(input: {
+  observedTtl: PromptCacheTtl | null | undefined;
+  promptCacheTtl: unknown;
+}): PromptCacheWindows | null {
+  const effective = resolveEffectivePromptCacheTtl(input);
+  return effective.source === "assumed" ? null : PROMPT_CACHE_WINDOWS[effective.ttl];
 }
 
 export function resolveCacheWarmEnabled(input: {
@@ -62,6 +113,8 @@ export interface PromptCacheRequestTokens {
   readTokens: number;
   writeTokens: number;
   uncachedTokens: number;
+  /** TTL the request's cache write was billed at; absent when it wrote nothing at a known TTL. */
+  writeTtl?: PromptCacheTtl;
 }
 
 /** One main-thread Anthropic request, stamped when its `message_start` arrived. */
@@ -75,6 +128,8 @@ export interface AgentPromptCacheState {
   lastRequest: PromptCacheRequestSample;
   /** First request of the latest turn: the one that answers "did my prompt hit the cache". */
   turnFirstRequest: PromptCacheRequestSample;
+  /** TTL of the latest request that wrote to the cache; it outlives requests that only read. */
+  observedTtl?: PromptCacheTtl;
 }
 
 /**

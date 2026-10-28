@@ -12574,7 +12574,7 @@ test("setAgentFeature notifies cacheWarmManager on prompt_cache_ttl and cache_wa
   }
 });
 
-test("records each request's cache split and keeps the turn's first request", async () => {
+test("records each request's cache split, the turn's first request and the written TTL", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-prompt-cache-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
 
@@ -12588,7 +12588,12 @@ test("records each request's cache split and keeps the turn's first request", as
           provider: this.provider,
           usage: {
             contextWindowUsedTokens: 1000,
-            requestCache: { readTokens: 0, writeTokens: 900, uncachedTokens: 100 },
+            requestCache: {
+              readTokens: 0,
+              writeTokens: 900,
+              uncachedTokens: 100,
+              writeTtl: "5m",
+            },
           },
         });
         this.pushEvent({
@@ -12639,8 +12644,12 @@ test("records each request's cache split and keeps the turn's first request", as
       writeTokens: 150,
     });
 
+    expect(promptCache?.observedTtl).toBe("5m");
+
     await manager.flush();
-    expect((await storage.get(snapshot.id))?.promptCache?.lastRequest.readTokens).toBe(1000);
+    const stored = (await storage.get(snapshot.id))?.promptCache;
+    expect(stored?.lastRequest.readTokens).toBe(1000);
+    expect(stored?.observedTtl).toBe("5m");
   } finally {
     if (snapshotId) await manager.closeAgent(snapshotId);
     rmSync(workdir, { recursive: true, force: true });

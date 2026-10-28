@@ -961,11 +961,13 @@ const PromptCacheRequestSampleSchema = z.object({
   readTokens: z.number(),
   writeTokens: z.number(),
   uncachedTokens: z.number(),
+  writeTtl: z.enum(["5m", "1h"]).optional(),
 });
 
 export const AgentPromptCacheStateSchema = z.object({
   lastRequest: PromptCacheRequestSampleSchema,
   turnFirstRequest: PromptCacheRequestSampleSchema,
+  observedTtl: z.enum(["5m", "1h"]).optional(),
 });
 
 export const AgentRateLimitCooldownPayloadSchema = z.object({

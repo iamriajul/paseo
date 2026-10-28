@@ -1237,7 +1237,7 @@ describe("ClaudeAgentSession features", () => {
     expect(queryFactory.mock.calls[0]?.[0].options.settings).toMatchObject({
       disableAllHooks: true,
     });
-    expect(queryFactory.mock.calls[1]?.[0].options.settings).toBeUndefined();
+    expect(queryFactory.mock.calls[1]?.[0].options.settings).not.toHaveProperty("disableAllHooks");
 
     await internalSession.close();
     await userSession.close();
@@ -3425,6 +3425,251 @@ describe("ClaudeAgentSession context window usage", () => {
     } finally {
       await session.close();
       vi.unstubAllEnvs();
+    }
+  });
+
+  describe("foreground Bash cap", () => {
+    interface CapLaunch {
+      hooks?: Record<
+        string,
+        Array<{ matcher?: string; hooks: Array<(...args: unknown[]) => Promise<unknown>> }>
+      >;
+      settings?: { env?: Record<string, string> };
+    }
+
+    function writeAt(ttl: "5m" | "1h"): Record<string, unknown> {
+      return createMessageStartEvent({
+        input_tokens: 100,
+        cache_creation_input_tokens: 20,
+        cache_read_input_tokens: 30,
+        cache_creation: {
+          ephemeral_5m_input_tokens: ttl === "5m" ? 20 : 0,
+          ephemeral_1h_input_tokens: ttl === "1h" ? 20 : 0,
+        },
+      });
+    }
+
+    /** Each Claude process launch plays its own list of turns. */
+    async function launchSession(
+      featureValues: Record<string, unknown>,
+      turnsByLaunch: Array<Array<Array<Record<string, unknown>>>>,
+    ) {
+      vi.stubEnv("CLAUDE_CODE_PROMPT_CACHE_TTL", undefined);
+      const launches: CapLaunch[] = [];
+      const queryFactory = vi.fn(
+        (input: { prompt: AsyncIterable<unknown>; options: CapLaunch }) => {
+          const turns = turnsByLaunch[launches.length] ?? [];
+          launches.push(input.options);
+          return createQueryFactoryForTurns(turns)(input);
+        },
+      );
+      const client = new ClaudeAgentClient({
+        logger,
+        queryFactory: queryFactory as never,
+        resolveBinary: async () => "/test/claude/bin",
+      });
+      const session = await client.createSession({
+        provider: "claude",
+        cwd: process.cwd(),
+        featureValues,
+      });
+      return { session, launches };
+    }
+
+    /** What the hooks Paseo handed the SDK decide for one Bash call. */
+    async function decideBash(
+      launch: CapLaunch | undefined,
+      toolInput: unknown,
+      toolName = "Bash",
+    ): Promise<{ permissionDecision?: string; permissionDecisionReason?: string } | null> {
+      for (const matcher of launch?.hooks?.PreToolUse ?? []) {
+        // Claude Code matchers are regular expressions such as "Bash|PowerShell".
+        if (
+          matcher.matcher !== undefined &&
+          !new RegExp(`^(?:${matcher.matcher})$`).test(toolName)
+        ) {
+          continue;
+        }
+        for (const hook of matcher.hooks) {
+          const output = (await hook(
+            {
+              hook_event_name: "PreToolUse",
+              session_id: "session-1",
+              tool_name: toolName,
+              tool_input:
+                toolInput && typeof toolInput === "object"
+                  ? { command: "sleep 600", ...toolInput }
+                  : toolInput,
+              tool_use_id: "tool-1",
+            },
+            "tool-1",
+            { signal: new AbortController().signal },
+          )) as { hookSpecificOutput?: { permissionDecision?: string } };
+          if (output.hookSpecificOutput?.permissionDecision) return output.hookSpecificOutput;
+        }
+      }
+      return null;
+    }
+
+    async function expectCap(launch: CapLaunch | undefined, capMs: number) {
+      await expect(decideBash(launch, { timeout: capMs })).resolves.toBeNull();
+      const denied = await decideBash(launch, { timeout: capMs + 1 });
+      expect(denied?.permissionDecision).toBe("deny");
+      expect(denied?.permissionDecisionReason).toContain(`capped at ${capMs} ms`);
+      expect(denied?.permissionDecisionReason).toContain("run_in_background");
+    }
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    test("caps a 5m session at 250 s and leaves background calls alone", async () => {
+      const { session, launches } = await launchSession({ prompt_cache_ttl: "5m" }, [
+        [[createInitMessage(), createSuccessResult()]],
+      ]);
+      try {
+        await collectStreamEvents(session);
+        await expectCap(launches[0], 250_000);
+        await expect(
+          decideBash(launches[0], { timeout: 7_200_000, run_in_background: true }),
+        ).resolves.toBeNull();
+      } finally {
+        await session.close();
+      }
+    });
+
+    test("caps PowerShell like Bash and names the tool in the refusal", async () => {
+      const { session, launches } = await launchSession({ prompt_cache_ttl: "5m" }, [
+        [[createInitMessage(), createSuccessResult()]],
+      ]);
+      try {
+        await collectStreamEvents(session);
+        const denied = await decideBash(launches[0], { timeout: 250_001 }, "PowerShell");
+        expect(denied?.permissionDecision).toBe("deny");
+        expect(denied?.permissionDecisionReason).toContain(
+          "Foreground PowerShell calls are capped at 250000 ms",
+        );
+        await expect(
+          decideBash(launches[0], { timeout: 7_200_000, run_in_background: true }, "PowerShell"),
+        ).resolves.toBeNull();
+        await expect(decideBash(launches[0], { timeout: 7_200_000 }, "Read")).resolves.toBeNull();
+      } finally {
+        await session.close();
+      }
+    });
+
+    test("denies shell input it cannot read, and allows a call with no timeout", async () => {
+      const { session, launches } = await launchSession({ prompt_cache_ttl: "5m" }, [
+        [[createInitMessage(), createSuccessResult()]],
+      ]);
+      try {
+        await collectStreamEvents(session);
+        await expect(decideBash(launches[0], "sleep 600")).resolves.toMatchObject({
+          permissionDecision: "deny",
+        });
+        for (const timeout of ["600000", Number.NaN, Number.POSITIVE_INFINITY, null]) {
+          await expect(decideBash(launches[0], { timeout })).resolves.toMatchObject({
+            permissionDecision: "deny",
+            permissionDecisionReason: expect.stringContaining("must be a number of milliseconds"),
+          });
+        }
+        await expect(decideBash(launches[0], {})).resolves.toBeNull();
+      } finally {
+        await session.close();
+      }
+    });
+
+    test("caps a 1h session at 58 minutes", async () => {
+      const { session, launches } = await launchSession({ prompt_cache_ttl: "1h" }, [
+        [[createInitMessage(), createSuccessResult()]],
+      ]);
+      try {
+        await collectStreamEvents(session);
+        await expectCap(launches[0], 3_480_000);
+      } finally {
+        await session.close();
+      }
+    });
+
+    test("assumes 5m while Automatic has written nothing, and follows a 1h write", async () => {
+      const { session, launches } = await launchSession({}, [
+        [
+          [createInitMessage(), createSuccessResult()],
+          [createInitMessage(), writeAt("1h"), createSuccessResult()],
+        ],
+      ]);
+      try {
+        await collectStreamEvents(session, "first");
+        await expectCap(launches[0], 250_000);
+        await collectStreamEvents(session, "second");
+        await expectCap(launches[0], 3_480_000);
+      } finally {
+        await session.close();
+      }
+    });
+
+    test("keeps the 5m cap after a switch to 1h until the relaunched process writes at 1h", async () => {
+      const { session, launches } = await launchSession({ prompt_cache_ttl: "5m" }, [
+        [[createInitMessage(), writeAt("5m"), createSuccessResult()]],
+        [
+          [createInitMessage(), createSuccessResult()],
+          [createInitMessage(), writeAt("1h"), createSuccessResult()],
+        ],
+      ]);
+      try {
+        await collectStreamEvents(session, "first");
+        await session.setFeature?.("prompt_cache_ttl", "1h");
+        await expectCap(launches[0], 250_000);
+        await collectStreamEvents(session, "second");
+        expect(launches).toHaveLength(2);
+        // The cached entries still carry 5m until the new process writes.
+        await expectCap(launches[1], 250_000);
+        await collectStreamEvents(session, "third");
+        await expectCap(launches[1], 3_480_000);
+      } finally {
+        await session.close();
+      }
+    });
+
+    test("pins the default Bash timeout above user settings", async () => {
+      const { session, launches } = await launchSession({ prompt_cache_ttl: "5m" }, [
+        [[createInitMessage(), createSuccessResult()]],
+      ]);
+      try {
+        await collectStreamEvents(session);
+        expect(launches[0]?.settings?.env).toEqual({ BASH_DEFAULT_TIMEOUT_MS: "120000" });
+      } finally {
+        await session.close();
+      }
+    });
+  });
+
+  test("reads the TTL a cache write was billed at", async () => {
+    const session = await createSessionForTurns([
+      [
+        createInitMessage(),
+        createMessageStartEvent({
+          input_tokens: 100,
+          cache_creation_input_tokens: 20,
+          cache_read_input_tokens: 30,
+          cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 15 },
+        }),
+        createSuccessResult(),
+      ],
+    ]);
+
+    try {
+      const events = await collectStreamEvents(session);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "usage_updated",
+          usage: expect.objectContaining({
+            requestCache: { readTokens: 30, writeTokens: 20, uncachedTokens: 100, writeTtl: "5m" },
+          }),
+        }),
+      );
+    } finally {
+      await session.close();
     }
   });
 

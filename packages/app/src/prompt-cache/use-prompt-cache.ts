@@ -4,6 +4,7 @@ import {
   isClaudeModel,
   isQuestionPermission,
   resolveCacheWarmEnabled,
+  resolveEffectivePromptCacheWindows,
   resolvePromptCacheAnchorMs,
   resolvePromptCacheWindows,
   type PromptCacheRequestSample,
@@ -14,7 +15,9 @@ import { useSessionStore, type Agent } from "@/stores/session-store";
 
 export type PromptCacheStatus =
   | { kind: "automatic" }
-  | { kind: "busy" }
+  /** Counts on through tool calls, which refresh nothing; null before any request. */
+  | { kind: "busy"; remainingMs: number | null }
+  | { kind: "busy-expired" }
   | { kind: "awaiting-question"; remainingMs: number }
   | { kind: "awaiting-permission"; remainingMs: number }
   | { kind: "warm"; remainingMs: number }
@@ -40,7 +43,10 @@ export interface PromptCacheWarmup {
 
 export interface PromptCacheState {
   isClaude: boolean;
-  /** Null while the Cache window is Automatic: the expiry is Claude Code's call. */
+  /**
+   * The windows the running process writes at: the latest cache write's TTL, else the Cache
+   * window. Null while Automatic and no write has been seen.
+   */
   windows: PromptCacheWindows | null;
   status: PromptCacheStatus;
   /** Null while the Cache window is Automatic, where warm-up is unavailable. */
@@ -52,6 +58,8 @@ export interface PromptCacheState {
 
 interface AgentCacheFacts {
   windows: PromptCacheWindows | null;
+  /** Warm-up needs a chosen Cache window; an observed TTL under Automatic does not enable it. */
+  warmupAvailable: boolean;
   isDelegated: boolean;
   isBusy: boolean;
   hasPendingQuestion: boolean;
@@ -71,7 +79,11 @@ function readAgentCacheFacts(agent: Agent): AgentCacheFacts {
   const pending = agent.pendingPermissions ?? [];
   const hasPendingPermission = pending.length > 0;
   return {
-    windows: resolvePromptCacheWindows(promptCacheTtl),
+    windows: resolveEffectivePromptCacheWindows({
+      observedTtl: agent.promptCache?.observedTtl,
+      promptCacheTtl,
+    }),
+    warmupAvailable: resolvePromptCacheWindows(promptCacheTtl) !== null,
     isDelegated: isDelegatedAgent({ labels: agent.labels }),
     isBusy: (agent.status === "running" || agent.turn?.phase === "open") && !hasPendingPermission,
     hasPendingQuestion: pending.some((request) => isQuestionPermission(request)),
@@ -90,11 +102,12 @@ function resolveStatus(facts: AgentCacheFacts, now: number): PromptCacheStatus {
   if (!facts.windows) {
     return { kind: "automatic" };
   }
-  if (facts.isBusy) {
-    return { kind: "busy" };
-  }
   const remainingMs =
     facts.anchorMs === null ? 0 : facts.anchorMs + facts.windows.cacheWindowMs - now;
+  if (facts.isBusy) {
+    if (facts.anchorMs === null) return { kind: "busy", remainingMs: null };
+    return remainingMs > 0 ? { kind: "busy", remainingMs } : { kind: "busy-expired" };
+  }
   if (remainingMs <= 0) {
     return { kind: "expired" };
   }
@@ -115,7 +128,7 @@ function resolveWarmupPlan(input: {
 }): PromptCacheWarmupPlan {
   const { facts, windows, status, now } = input;
   if (!facts.warmupEnabled) return { kind: "off" };
-  if (status.kind === "busy") return { kind: "after-turn" };
+  if (status.kind === "busy" || status.kind === "busy-expired") return { kind: "after-turn" };
   if (status.kind === "expired" || facts.anchorMs === null) return { kind: "expired" };
   if (facts.pingsUsed >= windows.maxConsecutivePings) return { kind: "capped" };
   const remainingMs = Math.max(0, facts.anchorMs + windows.warmIntervalMs - now);
@@ -130,6 +143,7 @@ function resolveWarmupPlan(input: {
 
 function hasLiveCountdown(status: PromptCacheStatus): boolean {
   return (
+    (status.kind === "busy" && status.remainingMs !== null) ||
     status.kind === "warm" ||
     status.kind === "awaiting-question" ||
     status.kind === "awaiting-permission"
@@ -145,15 +159,16 @@ export function resolvePromptCacheView(agent: Agent | undefined, now: number): P
   );
   const facts = agent && isClaude ? readAgentCacheFacts(agent) : null;
   const status: PromptCacheStatus = facts ? resolveStatus(facts, now) : { kind: "automatic" };
-  const warmup: PromptCacheWarmup | null = facts?.windows
-    ? {
-        enabled: facts.warmupEnabled,
-        plan: resolveWarmupPlan({ facts, windows: facts.windows, status, now }),
-        pingsUsed: Math.min(facts.pingsUsed, facts.windows.maxConsecutivePings),
-        maxPings: facts.windows.maxConsecutivePings,
-        totalPings: facts.totalPings,
-      }
-    : null;
+  const warmup: PromptCacheWarmup | null =
+    facts?.windows && facts.warmupAvailable
+      ? {
+          enabled: facts.warmupEnabled,
+          plan: resolveWarmupPlan({ facts, windows: facts.windows, status, now }),
+          pingsUsed: Math.min(facts.pingsUsed, facts.windows.maxConsecutivePings),
+          maxPings: facts.windows.maxConsecutivePings,
+          totalPings: facts.totalPings,
+        }
+      : null;
   return {
     isClaude,
     windows: facts?.windows ?? null,

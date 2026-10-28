@@ -189,7 +189,16 @@ import {
   type ResolveAgentDefaultModeInput,
   type ToolCallDetail,
 } from "../../agent-sdk-types.js";
-import type { PromptCacheRequestTokens } from "@getpaseo/protocol/agent-cache-warm";
+import {
+  resolveEffectivePromptCacheTtl,
+  type PromptCacheRequestTokens,
+  type PromptCacheTtl,
+} from "@getpaseo/protocol/agent-cache-warm";
+import {
+  CAPPED_SHELL_TOOL_MATCHER,
+  CLAUDE_BASH_DEFAULT_TIMEOUT_MS,
+  createForegroundShellCapHook,
+} from "./foreground-shell-cap.js";
 import { importSessionFromPersistence } from "../../provider-session-import.js";
 import { runProviderRefreshActivity } from "../../provider-refresh-deadline.js";
 import {
@@ -2356,11 +2365,19 @@ function readStreamRequestCacheTokens(
   }
   const read = (value: unknown): number =>
     typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
-  return {
+  const tokens: PromptCacheRequestTokens = {
     readTokens: read(usage.cache_read_input_tokens),
     writeTokens: read(usage.cache_creation_input_tokens),
     uncachedTokens: read(usage.input_tokens),
   };
+  const breakdown = toObjectRecord(usage.cache_creation);
+  // A write split across both TTLs expires on the shorter one.
+  if (read(breakdown?.ephemeral_5m_input_tokens) > 0) {
+    tokens.writeTtl = "5m";
+  } else if (read(breakdown?.ephemeral_1h_input_tokens) > 0) {
+    tokens.writeTtl = "1h";
+  }
+  return tokens;
 }
 
 function readStreamRequestOutputTokens(event: Record<string, unknown>): number | undefined {
@@ -2621,6 +2638,12 @@ class ClaudeAgentSession implements AgentSession {
   private query: Query | null = null;
   private readonly runtimeSafety = new ClaudeRuntimeSafety();
   private processingSdkMessages = 0;
+  /**
+   * TTL of the latest cache write. It survives a relaunch on purpose: the cached entries keep
+   * that TTL until the new process writes, and AgentManager's promptCache.observedTtl, which the
+   * pill reads, follows the same rule, so the cap and the pill agree.
+   */
+  private observedPromptCacheTtl: PromptCacheTtl | null = null;
   private readonly harnessEnvironment: Record<string, string>;
   private readonly usageSessionKey = randomUUID();
   private childProcess: ChildProcess | null = null;
@@ -4320,7 +4343,7 @@ class ClaudeAgentSession implements AgentSession {
       // subagents keep running. Without this declaration an interrupt kills every one of them.
       // Claude stops a helper itself with its TaskStop tool.
       perTaskStopAffordance: true,
-      hooks: this.buildSubagentEffortHooks(),
+      hooks: this.buildHooks(),
       ...(this.persistSession === undefined ? {} : { persistSession: this.persistSession }),
       env: envWithCacheTtl,
     };
@@ -4369,16 +4392,14 @@ class ClaudeAgentSession implements AgentSession {
   private buildSettingsOptions(
     providerOptions: ClaudeProviderOptions,
     input: { ultracode: boolean },
-  ): Pick<ClaudeOptions, "settings"> | Record<string, never> {
+  ): Pick<ClaudeOptions, "settings"> {
     const fastMode = this.resolveFastModeSetting();
     // Internal agents do daemon work such as naming a branch, so the user's and
     // project's hooks must not run for them.
     const disableAllHooks = this.config.internal === true;
-    if (fastMode === null && !input.ultracode && !disableAllHooks) {
-      return {};
-    }
     return {
       settings: mergeClaudeSettings(providerOptions.settings, {
+        env: { BASH_DEFAULT_TIMEOUT_MS: String(CLAUDE_BASH_DEFAULT_TIMEOUT_MS) },
         ...(fastMode === null ? {} : { fastMode }),
         ...(input.ultracode ? { ultracode: true } : {}),
         ...(disableAllHooks ? { disableAllHooks: true } : {}),
@@ -5586,6 +5607,11 @@ class ClaudeAgentSession implements AgentSession {
   ): Promise<void> {
     const usageUpdatedEvent = this.contextUsage.buildStreamUsageEvent(message.event);
     if (usageUpdatedEvent) {
+      const writeTtl =
+        usageUpdatedEvent.type === "usage_updated"
+          ? usageUpdatedEvent.usage.requestCache?.writeTtl
+          : undefined;
+      if (writeTtl) this.observedPromptCacheTtl = writeTtl;
       events.push(usageUpdatedEvent);
     }
     const timelineItems = await this.mapPartialEvent(message.event, {
@@ -5945,6 +5971,24 @@ class ClaudeAgentSession implements AgentSession {
    * These are observation-only: they record what they see and always return an empty result, so
    * they can never alter tool execution or turn control.
    */
+  private buildHooks(): NonNullable<ClaudeOptions["hooks"]> {
+    const effortHooks = this.buildSubagentEffortHooks();
+    const capHook = createForegroundShellCapHook(
+      () =>
+        resolveEffectivePromptCacheTtl({
+          observedTtl: this.observedPromptCacheTtl,
+          promptCacheTtl: this.config.featureValues?.prompt_cache_ttl,
+        }).ttl,
+    );
+    return {
+      ...effortHooks,
+      PreToolUse: [
+        ...(effortHooks.PreToolUse ?? []),
+        { matcher: CAPPED_SHELL_TOOL_MATCHER, hooks: [capHook] },
+      ],
+    };
+  }
+
   private buildSubagentEffortHooks(): NonNullable<ClaudeOptions["hooks"]> {
     const observe = async (input: unknown): Promise<Record<string, never>> => {
       try {

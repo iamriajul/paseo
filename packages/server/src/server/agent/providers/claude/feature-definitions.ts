@@ -38,7 +38,7 @@ export const CLAUDE_PROMPT_CACHE_TTL_FEATURE: Omit<AgentFeatureSelect, "value"> 
   id: CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
   label: "Cache window",
   description: "Cache write duration for this conversation",
-  tooltip: "Shorter windows cost less on cache writes; longer windows keep the cache warm",
+  tooltip: "Shorter windows cost less on cache writes; longer windows survive longer gaps",
   icon: "clock",
   options: [
     {
@@ -47,7 +47,7 @@ export const CLAUDE_PROMPT_CACHE_TTL_FEATURE: Omit<AgentFeatureSelect, "value"> 
       description: "Claude Code chooses based on auth and usage limits",
     },
     { id: "5m", label: "5 minutes", description: "Cheapest writes; cache cools in 5 minutes" },
-    { id: "1h", label: "1 hour", description: "Premium writes; cache stays warm longer" },
+    { id: "1h", label: "1 hour", description: "Premium writes; cache lasts an hour per request" },
   ],
 };
 

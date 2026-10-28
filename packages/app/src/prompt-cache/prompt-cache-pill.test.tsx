@@ -237,11 +237,28 @@ describe("PromptCachePill", () => {
     expect(ping.getByText("Last warm-up")).toBeTruthy();
   });
 
-  it("shows caching while a turn is in flight", () => {
-    const { getByText } = renderPill(
-      claudeAgent({ ttl: "1h", status: "running", promptCache: promptCacheAt(NOW) }),
-    );
+  it("shows caching while a turn is in flight before its first request", () => {
+    const { getByText } = renderPill(claudeAgent({ ttl: "1h", status: "running" }));
     expect(getByText("caching")).toBeTruthy();
+  });
+
+  it("counts the cache down during a turn and says when it expired inside it", () => {
+    const { getByText } = renderPill(
+      claudeAgent({ ttl: "5m", status: "running", promptCache: promptCacheAt(NOW - 4 * MINUTE) }),
+    );
+    expect(getByText("cache · 1:00")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(MINUTE);
+    });
+    expect(getByText("cache · expired")).toBeTruthy();
+    expect(getByText("Expired during this turn · the next request writes it again")).toBeTruthy();
+  });
+
+  it("names the window Claude Code picked under Automatic once a write shows it", () => {
+    const { getByText } = renderPill(
+      claudeAgent({ ttl: "default", promptCache: { ...promptCacheAt(NOW), observedTtl: "1h" } }),
+    );
+    expect(getByText("Automatic · 1 hour")).toBeTruthy();
   });
 
   it("shows a capped segment with the time the cache has left", () => {

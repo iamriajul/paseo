@@ -38,6 +38,7 @@ interface HarnessOptions {
   hasInFlightRun?: boolean;
   requestAtMs?: number | null;
   lastResponseAtMs?: number | null;
+  observedTtl?: "5m" | "1h";
 }
 
 function buildAgent(options: HarnessOptions): ManagedAgent {
@@ -55,7 +56,10 @@ function buildAgent(options: HarnessOptions): ManagedAgent {
     lifecycle: options.lifecycle ?? "idle",
     pendingPermissions: new Map((options.pending ?? []).map((request) => [request.id, request])),
     lastResponseAt: lastResponseAtMs === null ? null : new Date(lastResponseAtMs),
-    promptCache: requestAtMs === null ? undefined : promptCacheAt(requestAtMs),
+    promptCache:
+      requestAtMs === null
+        ? undefined
+        : { ...promptCacheAt(requestAtMs), observedTtl: options.observedTtl },
     labels: options.delegated ? { "paseo.parent-agent-id": "parent-1" } : {},
   } as unknown as ManagedAgent;
 }
@@ -251,6 +255,28 @@ describe("AgentCacheWarmManager", () => {
     expect(createHarness({ ttl: "5m", model: "gpt-6-luna" }).manager.schedule("agent-1")).toBe(
       false,
     );
+  });
+
+  it("times warm-up on the TTL the process writes, not a Cache window it has not relaunched with", async () => {
+    const { manager, sendPrompt } = createHarness({
+      ttl: "1h",
+      cacheWarm: true,
+      observedTtl: "5m",
+    });
+    expect(manager.schedule("agent-1")).toBe(true);
+    await vi.advanceTimersByTimeAsync(4.5 * MINUTE);
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends nothing after a turn whose last request is older than the observed window", () => {
+    vi.setSystemTime(START + 6 * MINUTE);
+    const { manager, sendPrompt } = createHarness({
+      ttl: "1h",
+      cacheWarm: true,
+      observedTtl: "5m",
+    });
+    expect(manager.schedule("agent-1")).toBe(false);
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("falls back to the turn end for records written before request samples existed", async () => {

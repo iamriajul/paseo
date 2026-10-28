@@ -90,6 +90,42 @@ describe("usePromptCache", () => {
     expect(result.current.warmup).toBeNull();
   });
 
+  it("keeps counting through a long tool call and reports the expiry inside the turn", () => {
+    setupSession(
+      claudeAgent({ ttl: "5m", status: "running", promptCache: promptCacheAt(NOW - 4 * MINUTE) }),
+    );
+    const { result } = renderHook(() => usePromptCache("server-1", "agent-1"));
+    expect(result.current.status).toEqual({ kind: "busy", remainingMs: MINUTE });
+    expect(result.current.warmup?.plan).toEqual({ kind: "after-turn" });
+    act(() => {
+      vi.advanceTimersByTime(MINUTE);
+    });
+    expect(result.current.status).toEqual({ kind: "busy-expired" });
+  });
+
+  it("times an Automatic window on the TTL Claude Code was seen writing", () => {
+    setupSession(
+      claudeAgent({
+        ttl: "default",
+        promptCache: { ...promptCacheAt(NOW - 10 * MINUTE), observedTtl: "1h" },
+      }),
+    );
+    const { result } = renderHook(() => usePromptCache("server-1", "agent-1"));
+    expect(result.current.status).toEqual({ kind: "warm", remainingMs: 50 * MINUTE });
+    expect(result.current.warmup).toBeNull();
+  });
+
+  it("times a just-changed window on the TTL the running process still writes", () => {
+    setupSession(
+      claudeAgent({
+        ttl: "1h",
+        promptCache: { ...promptCacheAt(NOW - 6 * MINUTE), observedTtl: "5m" },
+      }),
+    );
+    const { result } = renderHook(() => usePromptCache("server-1", "agent-1"));
+    expect(result.current.status).toEqual({ kind: "expired" });
+  });
+
   it("counts a 5m window down from the last request, warming at 4m30s", () => {
     setupSession(claudeAgent({ ttl: "5m", promptCache: promptCacheAt(NOW - 40 * SECOND) }));
     const { result } = renderHook(() => usePromptCache("server-1", "agent-1"));

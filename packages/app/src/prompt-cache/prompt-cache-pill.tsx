@@ -33,9 +33,12 @@ const WarmPillIcon = memo(function WarmPillIcon(): ReactElement {
   return <ThemedFlame size={14} uniProps={warmIconColorMapping} />;
 });
 
-function formatCacheWindowLabel(windows: PromptCacheWindows | null): string {
+function formatCacheWindowLabel(cache: PromptCacheState): string {
+  const { windows, warmup } = cache;
   if (!windows) return "Automatic";
-  return windows.cacheWindowMs <= 5 * 60 * 1000 ? "5 minutes" : "1 hour";
+  const duration = windows.cacheWindowMs <= 5 * 60 * 1000 ? "5 minutes" : "1 hour";
+  // Warm-up exists only for a chosen window, so without it Claude Code picked this one.
+  return warmup ? duration : `Automatic · ${duration}`;
 }
 
 function formatCoveredDuration(warmup: PromptCacheWarmup, windows: PromptCacheWindows): string {
@@ -48,7 +51,10 @@ function resolveSegmentText(cache: PromptCacheState): string {
     case "automatic":
       return "cache · auto";
     case "busy":
-      return "caching";
+      return status.remainingMs === null
+        ? "caching"
+        : `cache · ${formatCountdownClock(status.remainingMs)}`;
+    case "busy-expired":
     case "expired":
       return "cache · expired";
     case "awaiting-question":
@@ -71,7 +77,11 @@ function resolveStatusText(status: PromptCacheStatus): string {
     case "automatic":
       return "Claude Code picks the window";
     case "busy":
-      return "Active turn in flight";
+      return status.remainingMs === null
+        ? "Active turn in flight"
+        : `Turn in flight · expires in ${formatCountdownClock(status.remainingMs)} without a new request`;
+    case "busy-expired":
+      return "Expired during this turn · the next request writes it again";
     case "expired":
       return "Cache expired";
     case "awaiting-question":
@@ -153,7 +163,10 @@ export const PromptCachePill = memo(function PromptCachePill({
   const { windows, warmup, lastPrompt } = cache;
   const segments = [
     {
-      bucket: cache.status.kind === "busy" ? ("running" as const) : null,
+      bucket:
+        cache.status.kind === "busy" || cache.status.kind === "busy-expired"
+          ? ("running" as const)
+          : null,
       text: resolveSegmentText(cache),
     },
   ];
@@ -170,7 +183,7 @@ export const PromptCachePill = memo(function PromptCachePill({
       <View style={styles.panelContent}>
         <View style={styles.detailRow}>
           <Text style={styles.label}>Cache window</Text>
-          <Text style={styles.value}>{formatCacheWindowLabel(windows)}</Text>
+          <Text style={styles.value}>{formatCacheWindowLabel(cache)}</Text>
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.label}>Cache status</Text>

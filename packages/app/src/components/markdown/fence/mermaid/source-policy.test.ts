@@ -174,7 +174,7 @@ describe("neutralizeDisallowedTags composed with containsUnsafeMermaidSource", (
     const gitProxySource =
       "sequenceDiagram\n  A->>D: git clone/push  <canonical URL>\n  Note over A,D: plain text";
     const repoNewSource =
-      "sequenceDiagram\n  A->>CLI: deepcycle repo new <name>\n  API-->>CLI: canonical URL<br/>https://<origin>/<ws>/repositories/<name>.git";
+      "sequenceDiagram\n  A->>CLI: example repo new <name>\n  API-->>CLI: canonical URL<br/>https://<origin>/<ws>/repositories/<name>.git";
 
     expect(containsUnsafeMermaidSource(gitProxySource)).toBe(true);
     expect(containsUnsafeMermaidSource(neutralizeDisallowedTags(gitProxySource))).toBe(false);
@@ -189,7 +189,7 @@ describe("neutralizeDisallowedTags composed with containsUnsafeMermaidSource", (
       "  actor User as 👤 User",
       "  participant UI as 🖥️ Issue UI (New Issue / Detail)",
       "  participant Files as 📁 Workflow Files (/api/workflow-files)",
-      "  participant Go as ⚙️ DeepCycle Go Backend",
+      "  participant Go as ⚙️ Example Go Backend",
       "  participant AP as ⚡ ActivePieces Engine",
       "  participant Ingress as 📥 IngestAPRunEvent",
       "  participant Assignee as 🤖/👤 Assignee (Agent / Human / Squad)",

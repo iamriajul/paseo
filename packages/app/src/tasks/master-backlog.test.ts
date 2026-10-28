@@ -44,19 +44,19 @@ describe("master backlog helpers", () => {
   });
 
   it("uses host-local projectId when viewKey diverges after a remote transfer", () => {
-    const legacyProjectId = "remote:github.com/iamriajul/deepcycle";
-    const transferredViewKey = "remote:github.com/deepcycleai/deepcycle";
+    const legacyProjectId = "remote:github.com/example-owner/example-repo";
+    const transferredViewKey = "remote:github.com/example-org/example-repo";
     const targets = buildMasterBacklogProjectTargets({
       projects: [
         projectSummary({
           viewKey: transferredViewKey,
-          projectName: "DeepCycleAI/deepcycle",
+          projectName: "example-org/example-repo",
           hosts: [
             {
               serverId: "host-a",
               serverName: "Alpha",
               isOnline: true,
-              repoRoot: "/home/coder/deepcycle/deepcycle-v2",
+              repoRoot: "/work/example-repo",
               projectId: legacyProjectId,
             },
           ],
@@ -71,8 +71,8 @@ describe("master backlog helpers", () => {
         serverId: "host-a",
         serverName: "Alpha",
         projectId: legacyProjectId,
-        projectName: "DeepCycleAI/deepcycle",
-        repoRoot: "/home/coder/deepcycle/deepcycle-v2",
+        projectName: "example-org/example-repo",
+        repoRoot: "/work/example-repo",
       },
     ]);
 
@@ -80,13 +80,13 @@ describe("master backlog helpers", () => {
       projects: [
         projectSummary({
           viewKey: transferredViewKey,
-          projectName: "DeepCycleAI/deepcycle",
+          projectName: "example-org/example-repo",
           hosts: [
             {
               serverId: "host-a",
               serverName: "Alpha",
               isOnline: true,
-              repoRoot: "/home/coder/deepcycle/deepcycle-v2",
+              repoRoot: "/work/example-repo",
               projectId: legacyProjectId,
             },
           ],
@@ -105,8 +105,8 @@ describe("master backlog helpers", () => {
       {
         id: "task-1",
         projectId: legacyProjectId,
-        projectName: "DeepCycleAI/deepcycle",
-        projectRootPath: "/home/coder/deepcycle/deepcycle-v2",
+        projectName: "example-org/example-repo",
+        projectRootPath: "/work/example-repo",
       },
     ]);
   });

@@ -215,8 +215,8 @@ describe("Mermaid sandbox runtime", () => {
     const repoNewSource = neutralizeDisallowedTags(
       "sequenceDiagram\n" +
         "    participant A as Agent\n" +
-        "    participant CLI as deepcycle CLI\n" +
-        "    A->>CLI: deepcycle repo new <name>\n" +
+        "    participant CLI as example CLI\n" +
+        "    A->>CLI: example repo new <name>\n" +
         "    CLI-->>A: canonical URL<br/>https://<origin>/<ws>/repositories/<name>.git",
     );
 
@@ -236,7 +236,7 @@ describe("Mermaid sandbox runtime", () => {
         "  actor User as 👤 User",
         "  participant UI as 🖥️ Issue UI (New Issue / Detail)",
         "  participant Files as 📁 Workflow Files (/api/workflow-files)",
-        "  participant Go as ⚙️ DeepCycle Go Backend",
+        "  participant Go as ⚙️ Example Go Backend",
         "  participant AP as ⚡ ActivePieces Engine",
         "  participant Ingress as 📥 IngestAPRunEvent",
         "  participant Assignee as 🤖/👤 Assignee (Agent / Human / Squad)",

@@ -1,10 +1,13 @@
 export const DEFAULT_CACHE_WARM_PING_PROMPT =
   "AFK for a bit, keeping you alive. Reply with 'ok' only.";
 
+/**
+ * Tool result for a question warm-up closed. It reaches the model, the transcript and the UI,
+ * so it names no cache, warm-up or pings. It is written in the user's own voice: they say they
+ * are away and tell the model how to ask again.
+ */
 export const CACHE_WARM_QUESTION_PAUSE_MESSAGE =
-  "The user is temporarily away (AFK). This question was automatically paused to preserve the prompt cache. Stand by and do not perform any other actions. When the user returns and sends a message:\n" +
-  "- If the user provides the answer to the question directly, proceed using their answer.\n" +
-  "- Otherwise (e.g. they say 'I am back', 'continue', 'ready', etc.), immediately call AskUserQuestion again with the exact question and options so they can answer.";
+  "I'm AFK and couldn't answer this question. Stop here. When I'm back and write again, use my answer if it gives one. Otherwise, ask the question again with the same options.";
 
 export const ONE_HOUR_CACHE_WINDOW_MS = 60 * 60 * 1000;
 export const FIVE_MINUTE_CACHE_WINDOW_MS = 5 * 60 * 1000;
@@ -130,6 +133,8 @@ export interface AgentPromptCacheState {
   turnFirstRequest: PromptCacheRequestSample;
   /** TTL of the latest request that wrote to the cache; it outlives requests that only read. */
   observedTtl?: PromptCacheTtl;
+  /** When warm-up closed the user's unanswered question; cleared by the user's next message. */
+  questionClosedAt?: string;
 }
 
 /**

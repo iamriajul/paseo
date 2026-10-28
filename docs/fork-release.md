@@ -40,13 +40,7 @@ Stable-channel example:
 v0.1.900
 ```
 
-Beta-channel example:
-
-```text
-v0.1.105-beta.100
-```
-
-The release metadata parser currently supports stable `vX.Y.Z` and beta `vX.Y.Z-beta.N` tags. If you publish beta builds, set the desktop app's release channel to beta in settings. Stable-channel users only see stable tags.
+This fork ships stable releases only. Tag every release `vX.Y.Z`, with no `-beta.N` suffix. The desktop app stays on the stable channel.
 
 ## Desktop From GitHub UI
 
@@ -82,7 +76,7 @@ Run `.github/workflows/docker.yml` on the branch you want to publish with:
 | ---------------- | -------------------------------------------- |
 | `paseo_version`  | The same version without `v`, e.g. `0.1.900` |
 | `publish`        | `true`                                       |
-| `publish_latest` | `false` for beta, optional for stable        |
+| `publish_latest` | `true`                                       |
 
 The image is published as:
 

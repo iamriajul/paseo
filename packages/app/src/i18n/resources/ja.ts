@@ -325,6 +325,7 @@ export const ja: TranslationResources = {
       archived: "アーカイブ済み",
       pending: "{{count}}件保留中",
       attention: "注意",
+      questionClosed: "不在中に質問が閉じられました",
     },
     archiveSheet: {
       hostOffline: "ホストオフライン",

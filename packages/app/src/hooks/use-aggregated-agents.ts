@@ -91,6 +91,7 @@ export function useAggregatedAgents(options?: {
           workspaceId: agent.workspaceId,
           provider: agent.provider,
           pendingPermissionCount: agent.pendingPermissions.length,
+          questionClosedAt: agent.promptCache?.questionClosedAt ?? null,
           requiresAttention: agent.requiresAttention,
           attentionReason: agent.attentionReason,
           attentionTimestamp: agent.attentionTimestamp,

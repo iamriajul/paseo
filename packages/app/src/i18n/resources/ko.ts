@@ -321,6 +321,7 @@ export const ko: TranslationResources = {
       archived: "보관됨",
       pending: "대기 {{count}}개",
       attention: "주의",
+      questionClosed: "자리를 비운 동안 질문이 닫혔습니다",
     },
     archiveSheet: {
       hostOffline: "호스트 오프라인",

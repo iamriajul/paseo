@@ -80,6 +80,11 @@ function createHarness(options: HarnessOptions = {}) {
       getAgent: (id: string) => (id === agent.id ? agent : null),
       hasInFlightRun: () => options.hasInFlightRun ?? false,
       respondToPermission,
+      markQuestionClosed: () => {
+        if (agent.promptCache) {
+          agent.promptCache = { ...agent.promptCache, questionClosedAt: new Date().toISOString() };
+        }
+      },
       listAgents: () => [agent],
       setCacheWarmCounts: (
         _id: string,
@@ -211,7 +216,7 @@ describe("AgentCacheWarmManager", () => {
   });
 
   it("pauses a main agent's unanswered question at the warm-up deadline", async () => {
-    const { manager, sendPrompt, respondToPermission } = createHarness({
+    const { manager, agent, sendPrompt, respondToPermission } = createHarness({
       ttl: "1h",
       cacheWarm: true,
       lifecycle: "running",
@@ -224,6 +229,14 @@ describe("AgentCacheWarmManager", () => {
       message: CACHE_WARM_QUESTION_PAUSE_MESSAGE,
     });
     expect(sendPrompt).not.toHaveBeenCalled();
+    expect(agent.promptCache?.questionClosedAt).toBe(new Date(START + 58 * MINUTE).toISOString());
+  });
+
+  it("tells the model the user is away and the question can be asked again, with no warm-up wording", () => {
+    expect(CACHE_WARM_QUESTION_PAUSE_MESSAGE).not.toMatch(/cache|warm|ping|keep.{0,12}alive/i);
+    expect(CACHE_WARM_QUESTION_PAUSE_MESSAGE).toContain("AFK");
+    expect(CACHE_WARM_QUESTION_PAUSE_MESSAGE).toContain("couldn't answer this question");
+    expect(CACHE_WARM_QUESTION_PAUSE_MESSAGE).toContain("ask the question again");
   });
 
   it("never dismisses a child agent's question, because its parent answers it", async () => {

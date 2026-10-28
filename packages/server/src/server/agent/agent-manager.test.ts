@@ -12656,6 +12656,66 @@ test("records each request's cache split, the turn's first request and the writt
   }
 });
 
+test("shows a closed question until the user's next message, and saves it", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-question-closed-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+
+  class CacheSession extends TestAgentSession {
+    private turns = 0;
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = `turn-closed-${++this.turns}`;
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: {
+            contextWindowUsedTokens: 1000,
+            requestCache: { readTokens: 900, writeTokens: 50, uncachedTokens: 50 },
+          },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class CacheClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new CacheSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new CacheClient() },
+    registry: storage,
+    logger,
+  });
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+    await manager.runAgent(snapshot.id, "ask me something");
+
+    manager.markQuestionClosed(snapshot.id);
+    const closedAt = manager.getAgent(snapshot.id)?.promptCache?.questionClosedAt;
+    expect(closedAt).toEqual(expect.any(String));
+    await manager.flush();
+    expect((await storage.get(snapshot.id))?.promptCache?.questionClosedAt).toBe(closedAt);
+
+    await manager.runAgent(snapshot.id, "I am back", { clientMessageId: "msg-back" });
+    expect(manager.getAgent(snapshot.id)?.promptCache?.questionClosedAt).toBeUndefined();
+    await manager.flush();
+    expect((await storage.get(snapshot.id))?.promptCache?.questionClosedAt).toBeUndefined();
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("clearing an absent rate-limit cooldown publishes no state", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-cooldown-noop-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

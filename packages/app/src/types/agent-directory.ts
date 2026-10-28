@@ -20,4 +20,6 @@ export type AgentDirectoryEntry = Pick<
   | "projectPlacement"
 > & {
   pendingPermissionCount?: number;
+  /** Set while warm-up has closed a question the user left unanswered, until they write. */
+  questionClosedAt?: string | null;
 };

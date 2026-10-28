@@ -301,6 +301,6 @@ describe("PromptCachePill", () => {
       }),
     );
     expect(getByText("question · 50:00")).toBeTruthy();
-    expect(getByText("Question auto-pauses in 48:00")).toBeTruthy();
+    expect(getByText("Question closes in 48:00")).toBeTruthy();
   });
 });

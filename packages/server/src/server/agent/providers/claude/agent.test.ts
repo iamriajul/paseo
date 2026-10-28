@@ -3515,7 +3515,7 @@ describe("ClaudeAgentSession context window usage", () => {
       await expect(decideBash(launch, { timeout: capMs })).resolves.toBeNull();
       const denied = await decideBash(launch, { timeout: capMs + 1 });
       expect(denied?.permissionDecision).toBe("deny");
-      expect(denied?.permissionDecisionReason).toContain(`capped at ${capMs} ms`);
+      expect(denied?.permissionDecisionReason).toContain(`limited to ${capMs} ms`);
       expect(denied?.permissionDecisionReason).toContain("run_in_background");
     }
 
@@ -3547,7 +3547,7 @@ describe("ClaudeAgentSession context window usage", () => {
         const denied = await decideBash(launches[0], { timeout: 250_001 }, "PowerShell");
         expect(denied?.permissionDecision).toBe("deny");
         expect(denied?.permissionDecisionReason).toContain(
-          "Foreground PowerShell calls are capped at 250000 ms",
+          "Foreground PowerShell calls are limited to 250000 ms",
         );
         await expect(
           decideBash(launches[0], { timeout: 7_200_000, run_in_background: true }, "PowerShell"),

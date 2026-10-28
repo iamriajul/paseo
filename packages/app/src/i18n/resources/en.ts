@@ -317,6 +317,7 @@ export const en = {
       archived: "Archived",
       pending: "{{count}} pending",
       attention: "Attention",
+      questionClosed: "Question closed while you were away",
     },
     archiveSheet: {
       hostOffline: "Host offline",

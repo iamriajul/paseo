@@ -320,6 +320,7 @@ export const zhCN: TranslationResources = {
       archived: "已归档",
       pending: "{{count}} 个待处理",
       attention: "需要注意",
+      questionClosed: "你离开时问题已关闭",
     },
     archiveSheet: {
       hostOffline: "Host 离线",

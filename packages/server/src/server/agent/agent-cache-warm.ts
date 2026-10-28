@@ -329,22 +329,32 @@ export class AgentCacheWarmManager {
         this.schedule(agentId);
         return false;
       case "interrupt-questions":
-        return this.runAttempt(agentId, decision, () =>
-          this.interruptPendingQuestions(agentId, decision.questions),
-        );
+        return this.runAttempt({
+          agentId,
+          counts: decision,
+          logMessage: "Closing an unanswered question",
+          attempt: () => this.interruptPendingQuestions(agentId, decision.questions),
+        });
       case "ping":
-        return this.runAttempt(agentId, decision, () => this.sendCacheWarmPing(agentId));
+        return this.runAttempt({
+          agentId,
+          counts: decision,
+          logMessage: "Warming prompt cache",
+          attempt: () => this.sendCacheWarmPing(agentId),
+        });
     }
   }
 
-  private async runAttempt(
-    agentId: string,
-    counts: { consecutivePings: number; maxPings: number },
-    attempt: () => Promise<boolean>,
-  ): Promise<boolean> {
+  private async runAttempt(input: {
+    agentId: string;
+    counts: { consecutivePings: number; maxPings: number };
+    logMessage: string;
+    attempt: () => Promise<boolean>;
+  }): Promise<boolean> {
+    const { agentId, counts, logMessage, attempt } = input;
     this.logger.info(
       { agentId, pingNumber: counts.consecutivePings + 1, maxPings: counts.maxPings },
-      "Warming prompt cache",
+      logMessage,
     );
     // Recorded as an attempt, not as a refresh: only the request's own message_start moves
     // the anchor, so a warm-up that never reaches Anthropic cannot pass for a warm cache.
@@ -387,6 +397,7 @@ export class AgentCacheWarmManager {
         message: CACHE_WARM_QUESTION_PAUSE_MESSAGE,
       });
     }
+    this.agentManager.markQuestionClosed(agentId);
     return true;
   }
 

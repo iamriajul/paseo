@@ -13,8 +13,6 @@ export const CLAUDE_BASH_DEFAULT_TIMEOUT_MS = 120_000;
 export const CAPPED_SHELL_TOOLS = ["Bash", "PowerShell"] as const;
 export const CAPPED_SHELL_TOOL_MATCHER = CAPPED_SHELL_TOOLS.join("|");
 
-const TTL_LABELS: Record<PromptCacheTtl, string> = { "5m": "5 minutes", "1h": "1 hour" };
-
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
@@ -65,10 +63,9 @@ export function decideForegroundShellCap(input: {
   }
   if (timeout <= capMs) return {};
   return deny(
-    `Foreground ${toolName} calls are capped at ${capMs} ms in this session: its prompt cache ` +
-      `expires ${TTL_LABELS[input.ttl]} after the last request, and nothing refreshes it while a ` +
-      `command blocks. Retry with a timeout of at most ${capMs}, or set run_in_background: ` +
-      `true for longer work and read its output when it finishes.`,
+    `Foreground ${toolName} calls are limited to ${capMs} ms in this session. Retry with a ` +
+      `timeout of at most ${capMs}, or set run_in_background: true for longer work and read its ` +
+      `output when it finishes.`,
   );
 }
 

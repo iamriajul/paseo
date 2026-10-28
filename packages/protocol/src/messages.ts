@@ -968,6 +968,7 @@ export const AgentPromptCacheStateSchema = z.object({
   lastRequest: PromptCacheRequestSampleSchema,
   turnFirstRequest: PromptCacheRequestSampleSchema,
   observedTtl: z.enum(["5m", "1h"]).optional(),
+  questionClosedAt: z.string().optional(),
 });
 
 export const AgentRateLimitCooldownPayloadSchema = z.object({

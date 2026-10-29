@@ -28,6 +28,14 @@ import { buildProviderDefinitions } from "@/utils/provider-definitions";
 import { shortenPath } from "@/utils/shorten-path";
 import { buildTimerCadence, normalizeScheduleFormCadence } from "./schedule-cadence-options";
 import { PROJECT_OPTION_PREFIX, type ScheduleProjectTarget } from "./schedule-project-targets";
+import {
+  applyPromptCacheChoice,
+  readPromptCacheChoice,
+  resolvePromptCacheWarmUp,
+  supportsPromptCacheChoice,
+  type SchedulePromptCacheChoice,
+  type SchedulePromptCacheTtl,
+} from "./schedule-prompt-cache";
 
 export interface ScheduleFormDisplay {
   label: string;
@@ -38,6 +46,8 @@ export interface ScheduleFormHost {
   serverId: string;
   label: string;
   supportsWorkspaceMultiplicity?: boolean;
+  /** The host can change a schedule's feature values on edit; creation always could. */
+  supportsScheduleFeatureValues?: boolean;
 }
 
 export interface ScheduleFormSnapshot {
@@ -70,6 +80,8 @@ export interface ScheduleDisclosureState {
   showModeField: boolean;
   showIsolationField: boolean;
   showArchiveOnFinishField: boolean;
+  showPromptCacheField: boolean;
+  showCacheWarmUpField: boolean;
 }
 
 export interface ScheduleProviderSnapshotRequest {
@@ -118,6 +130,12 @@ export interface ScheduleFormState {
   submitArchiveOnFinish: boolean | undefined;
   submitIsolation: "local" | "worktree" | undefined;
   canUseWorktreeIsolation: boolean;
+  /** Feature values the edited schedule already stores; the cache keys are replaced on submit. */
+  storedFeatureValues: Record<string, unknown> | undefined;
+  promptCache: SchedulePromptCacheChoice;
+  promptCacheWarmUp: boolean;
+  /** Undefined sends nothing: no values to store, or a host that cannot take them on edit. */
+  submitFeatureValues: Record<string, unknown> | undefined;
   providerResolutionByServerId: Record<string, ProviderResolutionStatus>;
   providerSnapshotRequest: ScheduleProviderSnapshotRequest | null;
   disclosure: ScheduleDisclosureState;
@@ -144,6 +162,8 @@ export interface ScheduleFormModel {
   setCadence: (value: ScheduleCadence) => void;
   setIsolation: (value: "local" | "worktree") => void;
   setArchiveOnFinish: (value: boolean) => void;
+  setPromptCacheTtl: (value: SchedulePromptCacheTtl) => void;
+  setPromptCacheWarmUp: (value: boolean) => void;
   setSubmitError: (value: string | null) => void;
 }
 
@@ -528,6 +548,8 @@ function resolveDisclosure(state: ScheduleFormState): ScheduleDisclosureState {
       showModeField: false,
       showIsolationField: false,
       showArchiveOnFinishField: false,
+      showPromptCacheField: false,
+      showCacheWarmUpField: false,
     };
   }
 
@@ -536,6 +558,11 @@ function resolveDisclosure(state: ScheduleFormState): ScheduleDisclosureState {
   const hasSelectedModel = Boolean(state.selectedProvider && state.selectedModel.trim());
   const showProjectField = state.mode === "edit" || Boolean(state.selectedServerId);
   const showModelField = hasProject;
+  const showPromptCacheField =
+    showModelField &&
+    hasSelectedModel &&
+    supportsPromptCacheChoice(state.selectedProvider, state.selectedModel) &&
+    (state.mode === "create" || selectedHostSupportsScheduleFeatureValues(state));
   return {
     showProjectField,
     showModelField,
@@ -549,7 +576,34 @@ function resolveDisclosure(state: ScheduleFormState): ScheduleDisclosureState {
         hosts: state.hosts,
         selectedServerId: state.selectedServerId,
       }),
+    showPromptCacheField,
+    showCacheWarmUpField: showPromptCacheField && state.promptCache.ttl !== "default",
   };
+}
+
+function selectedHostSupportsScheduleFeatureValues(
+  state: Pick<ScheduleFormState, "hosts" | "selectedServerId">,
+): boolean {
+  return (
+    state.hosts.find((entry) => entry.serverId === state.selectedServerId)
+      ?.supportsScheduleFeatureValues === true
+  );
+}
+
+function resolveSubmitFeatureValues(state: ScheduleFormState): Record<string, unknown> | undefined {
+  if (state.targetKind !== "new-agent") {
+    return undefined;
+  }
+  if (state.mode === "edit" && !selectedHostSupportsScheduleFeatureValues(state)) {
+    return undefined;
+  }
+  const values = applyPromptCacheChoice({
+    base: state.storedFeatureValues,
+    choice: state.promptCache,
+    supported: state.disclosure.showPromptCacheField,
+  });
+  // Edit replaces the stored values, so it sends an empty set to clear them; create omits it.
+  return state.mode === "create" && Object.keys(values).length === 0 ? undefined : values;
 }
 
 function resolveCanSubmit(state: ScheduleFormState): boolean {
@@ -636,7 +690,16 @@ function updateDerivedState(input: {
     submitIsolation: canSubmitWorkspaceLifecycleOptions ? effectiveIsolation : undefined,
   };
   const disclosure = resolveDisclosure(nextState);
-  return { ...nextState, disclosure, canSubmit: resolveCanSubmit({ ...nextState, disclosure }) };
+  const withDisclosure = {
+    ...nextState,
+    promptCacheWarmUp: resolvePromptCacheWarmUp(nextState.promptCache),
+    disclosure,
+  };
+  return {
+    ...withDisclosure,
+    submitFeatureValues: resolveSubmitFeatureValues(withDisclosure),
+    canSubmit: resolveCanSubmit(withDisclosure),
+  };
 }
 
 function resolveInitialPrompt(snapshot: ScheduleFormSnapshot): string {
@@ -661,6 +724,13 @@ function resolveInitialCadence(snapshot: ScheduleFormSnapshot, timezone: string)
     return buildTimerCadence(30, timezone);
   }
   return normalizeScheduleFormCadence(DEFAULT_CADENCE, timezone);
+}
+
+/** A new schedule starts from the Cache window last chosen for a new Claude agent. */
+function claudePreferenceFeatureValues(
+  preferences: FormPreferences | null | undefined,
+): Record<string, unknown> | undefined {
+  return preferences?.providerPreferences?.claude?.featureValues;
 }
 
 function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
@@ -719,6 +789,12 @@ function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
     submitArchiveOnFinish: undefined,
     submitIsolation: undefined,
     canUseWorktreeIsolation: false,
+    storedFeatureValues: config?.featureValues,
+    promptCache: readPromptCacheChoice(
+      config ? config.featureValues : claudePreferenceFeatureValues(snapshot.defaults.preferences),
+    ),
+    promptCacheWarmUp: false,
+    submitFeatureValues: undefined,
     providerResolutionByServerId: buildInitialProviderResolution(providerSnapshotRequest),
     providerSnapshotRequest,
     disclosure: {
@@ -728,6 +804,8 @@ function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
       showModeField: false,
       showIsolationField: false,
       showArchiveOnFinishField: false,
+      showPromptCacheField: false,
+      showCacheWarmUpField: false,
     },
     canSubmit: false,
     submitError: null,
@@ -892,7 +970,7 @@ export function openScheduleForm(snapshot: ScheduleFormSnapshot): ScheduleFormMo
     );
   }
   let providerEntries: ProviderSnapshotEntry[] = [];
-  let userModified = { ...INITIAL_USER_MODIFIED, isolation: false };
+  let userModified = { ...INITIAL_USER_MODIFIED, isolation: false, promptCache: false };
   const timezone = snapshot.defaults.timezone ?? DEFAULT_TIMEZONE;
   let state = buildInitialState(snapshot);
 
@@ -956,6 +1034,12 @@ export function openScheduleForm(snapshot: ScheduleFormSnapshot): ScheduleFormMo
       preferences?.isolation !== undefined
     ) {
       resolved = { ...resolved, isolation: preferences.isolation };
+    }
+    if (snapshot.mode === "create" && !userModified.promptCache) {
+      resolved = {
+        ...resolved,
+        promptCache: readPromptCacheChoice(claudePreferenceFeatureValues(preferences)),
+      };
     }
     if (providerEntries.length === 0 || resolved.targetKind !== "new-agent") {
       return resolved;
@@ -1154,6 +1238,15 @@ export function openScheduleForm(snapshot: ScheduleFormSnapshot): ScheduleFormMo
     },
     setArchiveOnFinish(value) {
       publish({ ...state, archiveOnFinish: value });
+    },
+    setPromptCacheTtl(value) {
+      userModified = { ...userModified, promptCache: true };
+      // A new window starts from its own warm-up default rather than the old window's choice.
+      publish({ ...state, promptCache: { ttl: value, warmUp: null } });
+    },
+    setPromptCacheWarmUp(value) {
+      userModified = { ...userModified, promptCache: true };
+      publish({ ...state, promptCache: { ...state.promptCache, warmUp: value } });
     },
     setSubmitError(value) {
       publish({ ...state, submitError: value });

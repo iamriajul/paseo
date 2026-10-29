@@ -48,6 +48,7 @@ describe("schedule RPC schemas", () => {
           thinkingOptionId: "think-hard",
           archiveOnFinish: false,
           isolation: "worktree",
+          featureValues: { prompt_cache_ttl: "5m", cache_warm: true },
         },
       }),
     ).toEqual({
@@ -58,6 +59,7 @@ describe("schedule RPC schemas", () => {
         thinkingOptionId: "think-hard",
         archiveOnFinish: false,
         isolation: "worktree",
+        featureValues: { prompt_cache_ttl: "5m", cache_warm: true },
       },
     });
   });

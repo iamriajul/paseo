@@ -18,6 +18,12 @@ import {
   type PromptCacheStatus,
   type PromptCacheWarmup,
 } from "./use-prompt-cache";
+import type {
+  PromptCacheHistoryBar,
+  PromptCacheHistorySummary,
+  PromptCacheHitCount,
+  PromptCacheLastReturn,
+} from "./prompt-cache-history";
 
 const ThemedDatabase = withUnistyles(Database);
 const ThemedFlame = withUnistyles(Flame);
@@ -127,6 +133,129 @@ function resolveLastPromptText(sample: PromptCacheRequestSample): string {
   return `${percent}% cached · ${formatTokenCount(sample.readTokens)} read · ${formatTokenCount(sample.writeTokens)} written`;
 }
 
+function formatHitCount(count: PromptCacheHitCount): string {
+  return count.total === 0 ? "None yet" : `${count.hit} of ${count.total} hit`;
+}
+
+function formatPercent(fraction: number): string {
+  return `${Math.floor(fraction * 100)}%`;
+}
+
+function resolveMissesText(history: PromptCacheHistorySummary): string {
+  const { missesAfterExpiry, missesWhileWarm } = history;
+  if (missesAfterExpiry === 0 && missesWhileWarm === 0) return "None";
+  return `${missesAfterExpiry} after expiry · ${missesWhileWarm} while warm`;
+}
+
+function resolveLastReturnText(lastReturn: PromptCacheLastReturn): string {
+  const away = `${formatPreciseDuration(lastReturn.awayMs)} away`;
+  const warmUps = lastReturn.warmUps === 1 ? "1 warm-up" : `${lastReturn.warmUps} warm-ups`;
+  const outcome = lastReturn.hit ? `${formatPercent(lastReturn.ratio)} cached` : "missed";
+  return `${away} · ${warmUps} · ${outcome}`;
+}
+
+function resolveHistoryAccessibilityLabel(history: PromptCacheHistorySummary): string {
+  return `Last ${history.bars.length} requests: ${formatHitCount(history.requests)}, ${formatPercent(history.cachedShare)} of input cached.`;
+}
+
+function resolveBarFillStyle(bar: PromptCacheHistoryBar) {
+  return bar.hit ? styles.barFillHit : styles.barFillMiss;
+}
+
+function resolveBarMarkerStyle(bar: PromptCacheHistoryBar) {
+  if (bar.kind === "warm-up") return styles.markerWarmUp;
+  if (bar.kind === "turn") return styles.markerTurn;
+  return null;
+}
+
+function HistoryBar({ bar }: { bar: PromptCacheHistoryBar }): ReactElement {
+  // A miss can read nothing at all; a sliver keeps it visible as a bar.
+  const height = `${Math.round(Math.max(bar.ratio, 0.08) * 100)}%` as const;
+  return (
+    <View style={styles.barColumn}>
+      <View style={styles.barTrack}>
+        <View style={[styles.barFill, resolveBarFillStyle(bar), { height }]} />
+      </View>
+      <View style={[styles.marker, resolveBarMarkerStyle(bar)]} />
+    </View>
+  );
+}
+
+function HistoryRow({
+  label,
+  value,
+  testID,
+}: {
+  label: string;
+  value: string;
+  testID: string;
+}): ReactElement {
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.value} testID={testID}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function RequestHistory({ history }: { history: PromptCacheHistorySummary }): ReactElement {
+  return (
+    <View style={styles.historyBlock} testID="prompt-cache-history">
+      <HistoryRow
+        label="Recent requests"
+        value={`${history.bars.length} · ${formatPercent(history.cachedShare)} of input cached`}
+        testID="prompt-cache-history-share"
+      />
+      <View
+        style={styles.barRow}
+        role="img"
+        aria-label={resolveHistoryAccessibilityLabel(history)}
+        testID="prompt-cache-history-chart"
+      >
+        {history.bars.map((bar) => (
+          <HistoryBar key={bar.at} bar={bar} />
+        ))}
+      </View>
+      <View style={styles.legend}>
+        <View style={[styles.marker, styles.markerTurn]} />
+        <Text style={styles.legendText}>Turn start</Text>
+        <View style={[styles.marker, styles.markerWarmUp]} />
+        <Text style={styles.legendText}>Warm-up</Text>
+        <Text style={styles.legendText}>· height is the cached share</Text>
+      </View>
+      <HistoryRow
+        label="Requests"
+        value={formatHitCount(history.requests)}
+        testID="prompt-cache-history-requests"
+      />
+      <HistoryRow
+        label="After time away"
+        value={formatHitCount(history.returns)}
+        testID="prompt-cache-history-returns"
+      />
+      <HistoryRow
+        label="Warm-ups"
+        value={formatHitCount(history.warmUps)}
+        testID="prompt-cache-history-warm-ups"
+      />
+      <HistoryRow
+        label="Misses"
+        value={resolveMissesText(history)}
+        testID="prompt-cache-history-misses"
+      />
+      {history.lastReturn ? (
+        <HistoryRow
+          label="Last return"
+          value={resolveLastReturnText(history.lastReturn)}
+          testID="prompt-cache-history-last-return"
+        />
+      ) : null}
+    </View>
+  );
+}
+
 function resolveAccessibilityLabel(cache: PromptCacheState): string {
   return `Claude prompt cache: ${resolveSegmentText(cache)}`;
 }
@@ -160,7 +289,7 @@ export const PromptCachePill = memo(function PromptCachePill({
     return null;
   }
 
-  const { windows, warmup, lastPrompt } = cache;
+  const { windows, warmup, lastPrompt, history } = cache;
   const segments = [
     {
       bucket:
@@ -199,6 +328,7 @@ export const PromptCachePill = memo(function PromptCachePill({
             </Text>
           </View>
         ) : null}
+        {history ? <RequestHistory history={history} /> : null}
         {warmup && windows ? (
           <>
             <View style={styles.detailRow}>
@@ -281,6 +411,56 @@ const styles = StyleSheet.create((theme: Theme) => ({
     height: 4,
     borderRadius: 2,
     backgroundColor: theme.colors.statusWarning,
+  },
+  historyBlock: {
+    gap: theme.spacing[2],
+  },
+  barRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  barColumn: {
+    flex: 1,
+    maxWidth: 12,
+    gap: 2,
+  },
+  barTrack: {
+    height: 32,
+    borderRadius: 2,
+    backgroundColor: theme.colors.surface3,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  barFill: {
+    width: "100%",
+  },
+  barFillHit: {
+    backgroundColor: theme.colors.statusSuccess,
+  },
+  barFillMiss: {
+    backgroundColor: theme.colors.statusDanger,
+  },
+  marker: {
+    height: 6,
+    width: 6,
+    borderRadius: 3,
+    alignSelf: "center",
+  },
+  markerTurn: {
+    backgroundColor: theme.colors.foreground,
+  },
+  markerWarmUp: {
+    backgroundColor: theme.colors.statusWarning,
+  },
+  legend: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  legendText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
   },
   actions: {
     marginTop: theme.spacing[1],

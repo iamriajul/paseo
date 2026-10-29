@@ -12,6 +12,7 @@ import type { AgentRateLimitCooldownPayload } from "@getpaseo/protocol/messages"
 import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-labels";
 import {
   isCacheWarmPrompt,
+  recordPromptCacheRequest,
   type AgentPromptCacheState,
   type PromptCacheRequestSample,
 } from "@getpaseo/protocol/agent-cache-warm";
@@ -5395,16 +5396,7 @@ export class AgentManager {
       turnId: agent.activeTurnId,
       isWarmPing: Boolean(agent.activeTurnIsWarmPing),
     };
-    const previous = agent.promptCache;
-    agent.promptCache = {
-      lastRequest: sample,
-      turnFirstRequest:
-        previous && previous.turnFirstRequest.turnId === sample.turnId
-          ? previous.turnFirstRequest
-          : sample,
-      observedTtl: tokens.writeTtl ?? previous?.observedTtl,
-      questionClosedAt: previous?.questionClosedAt,
-    };
+    agent.promptCache = recordPromptCacheRequest(agent.promptCache, sample);
   }
 
   private onStreamTurnCompleted(params: {

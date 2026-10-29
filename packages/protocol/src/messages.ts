@@ -964,11 +964,23 @@ const PromptCacheRequestSampleSchema = z.object({
   writeTtl: z.enum(["5m", "1h"]).optional(),
 });
 
+const PromptCacheHistoryEntrySchema = z.object({
+  at: z.string(),
+  kind: z.enum(["turn", "request", "warm-up"]),
+  readTokens: z.number(),
+  writeTokens: z.number(),
+  uncachedTokens: z.number(),
+  gapMs: z.number().nullable(),
+  awayMs: z.number().optional(),
+});
+
 export const AgentPromptCacheStateSchema = z.object({
   lastRequest: PromptCacheRequestSampleSchema,
   turnFirstRequest: PromptCacheRequestSampleSchema,
   observedTtl: z.enum(["5m", "1h"]).optional(),
   questionClosedAt: z.string().optional(),
+  lastActivityAt: z.string().optional(),
+  history: z.array(PromptCacheHistoryEntrySchema).optional(),
 });
 
 export const AgentRateLimitCooldownPayloadSchema = z.object({
@@ -4056,6 +4068,8 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceSetupRun: z.boolean().optional(),
         // COMPAT(workspaceTerminals): added in v0.8.0, remove gate after 2027-09-05.
         workspaceTerminals: z.boolean().optional(),
+        // COMPAT(scheduleFeatureValues): added in v0.11.916, remove gate after 2027-04-29.
+        scheduleFeatureValues: z.boolean().optional(),
         // COMPAT(checkoutForgeSetAutoMerge): added in v0.2.0-beta.1. Remove the
         // feature gate and checkoutGithubSetAutoMerge fallback after 2027-01-17
         // once the supported daemon floor is >= v0.2.0.

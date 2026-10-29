@@ -303,4 +303,48 @@ describe("PromptCachePill", () => {
     expect(getByText("question · 50:00")).toBeTruthy();
     expect(getByText("Question closes in 48:00")).toBeTruthy();
   });
+
+  it("shows how recent requests met the cache, including returns kept warm by warm-ups", () => {
+    const entry = (
+      minutesAgo: number,
+      kind: "turn" | "request" | "warm-up",
+      readTokens: number,
+      gapMinutes: number | null,
+      awayMinutes?: number,
+    ) => ({
+      at: new Date(NOW - minutesAgo * MINUTE).toISOString(),
+      kind,
+      readTokens,
+      writeTokens: 1_000 - readTokens,
+      uncachedTokens: 0,
+      gapMs: gapMinutes === null ? null : gapMinutes * MINUTE,
+      ...(awayMinutes === undefined ? {} : { awayMs: awayMinutes * MINUTE }),
+    });
+    const { getByTestId } = renderPill(
+      claudeAgent({
+        ttl: "5m",
+        promptCache: {
+          ...promptCacheAt(NOW - MINUTE),
+          history: [
+            entry(20, "turn", 0, null),
+            entry(19, "request", 1_000, 1),
+            entry(14.5, "warm-up", 1_000, 4.5),
+            entry(10, "warm-up", 1_000, 4.5),
+            entry(8, "turn", 990, 2, 11),
+          ],
+        },
+      }),
+    );
+    expect(getByTestId("prompt-cache-history-chart").children).toHaveLength(5);
+    expect(getByTestId("prompt-cache-history-share").textContent).toBe("5 · 79% of input cached");
+    expect(getByTestId("prompt-cache-history-requests").textContent).toBe("4 of 5 hit");
+    expect(getByTestId("prompt-cache-history-returns").textContent).toBe("1 of 1 hit");
+    expect(getByTestId("prompt-cache-history-warm-ups").textContent).toBe("2 of 2 hit");
+    expect(getByTestId("prompt-cache-history-misses").textContent).toBe(
+      "1 after expiry · 0 while warm",
+    );
+    expect(getByTestId("prompt-cache-history-last-return").textContent).toBe(
+      "11m away · 2 warm-ups · 99% cached",
+    );
+  });
 });

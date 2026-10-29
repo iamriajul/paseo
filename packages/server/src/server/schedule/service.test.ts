@@ -2890,6 +2890,45 @@ describe("ScheduleService", () => {
     expect(updated.createdAt).toBe(created.createdAt);
   });
 
+  test("update replaces a new-agent schedule's feature values and leaves them when omitted", async () => {
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+
+    const created = await service.create({
+      prompt: "p",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: {
+          provider: "claude",
+          cwd: tempDir,
+          featureValues: { fast_mode: true, prompt_cache_ttl: "1h" },
+        },
+      },
+    });
+
+    const replaced = await service.update({
+      id: created.id,
+      newAgentConfig: { featureValues: { prompt_cache_ttl: "5m", cache_warm: true } },
+    });
+    expect(replaced.target).toMatchObject({
+      config: { featureValues: { prompt_cache_ttl: "5m", cache_warm: true } },
+    });
+
+    const untouched = await service.update({ id: created.id, newAgentConfig: { modeId: "plan" } });
+    expect(untouched.target.type === "new-agent" && untouched.target.config.featureValues).toEqual({
+      prompt_cache_ttl: "5m",
+      cache_warm: true,
+    });
+  });
+
   test("update switches between every and cron cadences and recomputes nextRunAt", async () => {
     const service = createScheduleService({
       paseoHome: tempDir,

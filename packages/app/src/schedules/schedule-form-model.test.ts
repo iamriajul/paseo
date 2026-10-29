@@ -356,6 +356,8 @@ describe("schedule form model", () => {
       showModeField: false,
       showIsolationField: false,
       showArchiveOnFinishField: false,
+      showPromptCacheField: false,
+      showCacheWarmUpField: false,
     });
 
     form.setProject(buildProjectOptionId("host-a", "project-a"), { label: "Project A" });
@@ -367,6 +369,8 @@ describe("schedule form model", () => {
       showModeField: false,
       showIsolationField: true,
       showArchiveOnFinishField: true,
+      showPromptCacheField: false,
+      showCacheWarmUpField: false,
     });
 
     form.applyProviderSnapshot("host-a", providerSnapshot(HOST_B_MODELS));
@@ -379,6 +383,8 @@ describe("schedule form model", () => {
       showModeField: true,
       showIsolationField: true,
       showArchiveOnFinishField: true,
+      showPromptCacheField: false,
+      showCacheWarmUpField: false,
     });
   });
 
@@ -400,6 +406,8 @@ describe("schedule form model", () => {
     expect(nonGit.getState().disclosure).toMatchObject({
       showIsolationField: false,
       showArchiveOnFinishField: true,
+      showPromptCacheField: false,
+      showCacheWarmUpField: false,
     });
 
     const gitTarget = target({
@@ -420,6 +428,8 @@ describe("schedule form model", () => {
     expect(unsupportedHost.getState().disclosure).toMatchObject({
       showIsolationField: false,
       showArchiveOnFinishField: false,
+      showPromptCacheField: false,
+      showCacheWarmUpField: false,
     });
     expect(
       Object.prototype.hasOwnProperty.call(unsupportedHost.getState(), "submitIsolation"),
@@ -841,6 +851,145 @@ describe("schedule form model", () => {
     expect(state.cadence).toMatchObject({
       type: "cron",
       timezone: "America/New_York",
+    });
+  });
+
+  describe("prompt cache", () => {
+    const CLAUDE_MODEL = "claude-opus-5-5";
+
+    function claudeSnapshot(): { entries: ProviderSnapshotEntry[] } {
+      return {
+        entries: [
+          {
+            provider: "claude",
+            label: "Claude Code",
+            status: "ready",
+            enabled: true,
+            fetchedAt: "2026-07-01T00:00:00.000Z",
+            models: [
+              { provider: "claude", id: CLAUDE_MODEL, label: "Opus 5.5", isDefault: true },
+              { provider: "claude", id: "glm-5.3", label: "GLM 5.3" },
+            ],
+            modes: MOCK_MODES,
+            defaultModeId: "load-test",
+          },
+        ],
+      };
+    }
+
+    function claudeSchedule(featureValues: Record<string, unknown>): TestSchedule {
+      const schedule = scheduleOnHost({
+        serverId: "host-a",
+        serverName: "Host A",
+        cwd: "/repo/a",
+        model: CLAUDE_MODEL,
+      });
+      if (schedule.target.type !== "new-agent") throw new Error("expected a new-agent schedule");
+      return {
+        ...schedule,
+        target: {
+          type: "new-agent",
+          config: { ...schedule.target.config, provider: "claude", featureValues },
+        },
+      };
+    }
+
+    function openEdit(
+      featureValues: Record<string, unknown>,
+      supportsScheduleFeatureValues: boolean,
+    ) {
+      return openWithHosts({
+        mode: "edit",
+        schedule: claudeSchedule(featureValues),
+        hosts: [{ serverId: "host-a", label: "Host A", supportsScheduleFeatureValues }],
+        defaults: { serverId: null, projectTargets: PROJECT_TARGETS, preferences: {} },
+      });
+    }
+
+    it("starts a new Claude schedule from the last chosen Cache window and stores warm-up", () => {
+      const form = open({
+        mode: "create",
+        defaults: {
+          serverId: "host-a",
+          projectTargets: PROJECT_TARGETS,
+          preferences: {
+            providerPreferences: { claude: { featureValues: { prompt_cache_ttl: "5m" } } },
+          },
+        },
+      });
+      form.setProject(buildProjectOptionId("host-a", "project-a"), { label: "Project A" });
+      form.applyProviderSnapshot("host-a", claudeSnapshot());
+      form.setModel("claude", CLAUDE_MODEL);
+
+      expect(form.getState()).toMatchObject({
+        disclosure: { showPromptCacheField: true, showCacheWarmUpField: true },
+        promptCache: { ttl: "5m", warmUp: null },
+        promptCacheWarmUp: true,
+        submitFeatureValues: { prompt_cache_ttl: "5m", cache_warm: true },
+      });
+
+      form.setPromptCacheWarmUp(false);
+      expect(form.getState().submitFeatureValues).toEqual({
+        prompt_cache_ttl: "5m",
+        cache_warm: false,
+      });
+
+      form.setPromptCacheTtl("default");
+      expect(form.getState()).toMatchObject({
+        disclosure: { showPromptCacheField: true, showCacheWarmUpField: false },
+        submitFeatureValues: undefined,
+      });
+    });
+
+    it("hides the cache controls for a model without them and sends no cache values", () => {
+      const form = open({
+        mode: "create",
+        defaults: {
+          serverId: "host-a",
+          projectTargets: PROJECT_TARGETS,
+          preferences: {
+            providerPreferences: { claude: { featureValues: { prompt_cache_ttl: "5m" } } },
+          },
+        },
+      });
+      form.setProject(buildProjectOptionId("host-a", "project-a"), { label: "Project A" });
+      form.applyProviderSnapshot("host-a", claudeSnapshot());
+      form.setModel("claude", "glm-5.3");
+
+      expect(form.getState()).toMatchObject({
+        disclosure: { showPromptCacheField: false, showCacheWarmUpField: false },
+        submitFeatureValues: undefined,
+      });
+    });
+
+    it("edits a schedule's cache values and keeps its other feature values", () => {
+      const form = openEdit({ fast_mode: true, prompt_cache_ttl: "5m", cache_warm: false }, true);
+
+      expect(form.getState()).toMatchObject({
+        disclosure: { showPromptCacheField: true, showCacheWarmUpField: true },
+        promptCacheWarmUp: false,
+        submitFeatureValues: { fast_mode: true, prompt_cache_ttl: "5m", cache_warm: false },
+      });
+
+      form.setPromptCacheTtl("1h");
+      expect(form.getState().submitFeatureValues).toEqual({
+        fast_mode: true,
+        prompt_cache_ttl: "1h",
+        cache_warm: false,
+      });
+
+      form.setPromptCacheWarmUp(true);
+      form.setPromptCacheTtl("default");
+      expect(form.getState().submitFeatureValues).toEqual({ fast_mode: true });
+    });
+
+    it("leaves a schedule's cache values alone on a host that cannot change them", () => {
+      const form = openEdit({ prompt_cache_ttl: "5m" }, false);
+
+      expect(form.getState()).toMatchObject({
+        disclosure: { showPromptCacheField: false, showCacheWarmUpField: false },
+        submitFeatureValues: undefined,
+      });
     });
   });
 });

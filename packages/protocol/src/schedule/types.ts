@@ -97,6 +97,8 @@ export interface UpdateScheduleNewAgentConfig {
   archiveOnFinish?: boolean;
   isolation?: "local" | "worktree";
   cwd?: string;
+  /** Replaces the stored feature values as a whole. */
+  featureValues?: Record<string, unknown>;
 }
 
 export interface UpdateScheduleInput {

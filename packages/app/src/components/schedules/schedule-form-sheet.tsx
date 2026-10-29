@@ -54,6 +54,7 @@ import type {
   ScheduleFormSnapshot,
   ScheduleFormState,
 } from "@/schedules/schedule-form-model";
+import type { SchedulePromptCacheTtl } from "@/schedules/schedule-prompt-cache";
 import { validateCron } from "@/utils/schedule-format";
 import { toErrorMessage } from "@/utils/error-messages";
 import { getDeviceTimeZone } from "@/utils/device-timezone";
@@ -123,6 +124,23 @@ function openKey(props: ScheduleFormSheetProps): string {
   return `create:${props.serverId ?? ""}`;
 }
 
+/** New-agent fields the form sends only when the host and the chosen model support them. */
+function buildOptionalNewAgentFields(state: ScheduleFormState): {
+  archiveOnFinish?: boolean;
+  isolation?: "local" | "worktree";
+  featureValues?: Record<string, unknown>;
+} {
+  return {
+    ...(state.submitArchiveOnFinish !== undefined
+      ? { archiveOnFinish: state.submitArchiveOnFinish }
+      : {}),
+    ...(state.submitIsolation !== undefined ? { isolation: state.submitIsolation } : {}),
+    ...(state.submitFeatureValues !== undefined
+      ? { featureValues: state.submitFeatureValues }
+      : {}),
+  };
+}
+
 function selectScheduleHosts(
   hosts: readonly { serverId: string; label: string }[],
 ): (state: ReturnType<typeof useSessionStore.getState>) => ScheduleFormHost[] {
@@ -132,6 +150,8 @@ function selectScheduleHosts(
       label: host.label,
       supportsWorkspaceMultiplicity:
         state.sessions[host.serverId]?.serverInfo?.features?.workspaceMultiplicity === true,
+      supportsScheduleFeatureValues:
+        state.sessions[host.serverId]?.serverInfo?.features?.scheduleFeatureValues === true,
     }));
 }
 
@@ -415,10 +435,7 @@ function OpenScheduleFormSheet({
           modeId: state.selectedMode || null,
           thinkingOptionId: state.selectedThinkingOptionId || null,
           cwd,
-          ...(state.submitArchiveOnFinish !== undefined
-            ? { archiveOnFinish: state.submitArchiveOnFinish }
-            : {}),
-          ...(state.submitIsolation !== undefined ? { isolation: state.submitIsolation } : {}),
+          ...buildOptionalNewAgentFields(state),
         },
         maxRuns,
       });
@@ -437,10 +454,7 @@ function OpenScheduleFormSheet({
           model: state.selectedModel || undefined,
           modeId: state.selectedMode || undefined,
           thinkingOptionId: state.selectedThinkingOptionId || undefined,
-          ...(state.submitArchiveOnFinish !== undefined
-            ? { archiveOnFinish: state.submitArchiveOnFinish }
-            : {}),
-          ...(state.submitIsolation !== undefined ? { isolation: state.submitIsolation } : {}),
+          ...buildOptionalNewAgentFields(state),
           title: state.name.trim() || undefined,
         },
       },
@@ -925,6 +939,21 @@ function ScheduleTargetFields({
         />
       ) : null}
 
+      {state.disclosure.showPromptCacheField ? (
+        <SchedulePromptCacheField model={model} state={state} size={controlSize} />
+      ) : null}
+
+      {state.disclosure.showCacheWarmUpField ? (
+        <Field label="Cache warm-up">
+          <Switch
+            value={state.promptCacheWarmUp}
+            onValueChange={model.setPromptCacheWarmUp}
+            accessibilityLabel="Cache warm-up"
+            testID="schedule-cache-warm-up-switch"
+          />
+        </Field>
+      ) : null}
+
       {state.disclosure.showIsolationField ? (
         <ScheduleIsolationField model={model} state={state} size={controlSize} />
       ) : null}
@@ -940,6 +969,45 @@ function ScheduleTargetFields({
         </Field>
       ) : null}
     </>
+  );
+}
+
+const PROMPT_CACHE_TTL_OPTIONS: SelectFieldOption<SchedulePromptCacheTtl>[] = [
+  { id: "default", value: "default", label: "Automatic", testID: "schedule-cache-window-default" },
+  { id: "5m", value: "5m", label: "5 minutes", testID: "schedule-cache-window-5m" },
+  { id: "1h", value: "1h", label: "1 hour", testID: "schedule-cache-window-1h" },
+];
+
+function SchedulePromptCacheField({
+  model,
+  state,
+  size,
+}: {
+  model: ScheduleFormModel;
+  state: ScheduleFormState;
+  size: FieldControlSize;
+}): ReactElement {
+  const selected = PROMPT_CACHE_TTL_OPTIONS.find(
+    (option) => option.value === state.promptCache.ttl,
+  );
+  const selectedDisplay = useMemo<SelectFieldDisplay | null>(
+    () => (selected ? { label: selected.label } : null),
+    [selected],
+  );
+  return (
+    <SelectField
+      label="Cache window"
+      value={state.promptCache.ttl}
+      selectedDisplay={selectedDisplay}
+      options={PROMPT_CACHE_TTL_OPTIONS}
+      onChange={model.setPromptCacheTtl}
+      placeholder="Automatic"
+      emptyText="No cache windows"
+      searchable={false}
+      title="Cache window"
+      size={size}
+      triggerTestID="schedule-cache-window-trigger"
+    />
   );
 }
 

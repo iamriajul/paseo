@@ -8,6 +8,10 @@ import {
   isCacheWarmPrompt,
   isCacheWarmReply,
   isClaudeModel,
+  recordPromptCacheRequest,
+  PROMPT_CACHE_HISTORY_LIMIT,
+  type AgentPromptCacheState,
+  type PromptCacheRequestSample,
 } from "./agent-cache-warm.js";
 
 describe("agent-cache-warm protocol utilities", () => {
@@ -113,6 +117,65 @@ describe("agent-cache-warm protocol utilities", () => {
       expect(isClaudeModel("qwen3.8-max")).toBe(false);
       expect(isClaudeModel("glm-5.3")).toBe(false);
       expect(isClaudeModel("claude-fable-5-dd-hsalf-3.5-mlg")).toBe(false);
+    });
+  });
+
+  describe("recordPromptCacheRequest", () => {
+    const minute = 60_000;
+    function request(
+      atMinutes: number,
+      turnId: string,
+      options: { isWarmPing?: boolean; readTokens?: number } = {},
+    ): PromptCacheRequestSample {
+      return {
+        at: new Date(atMinutes * minute).toISOString(),
+        turnId,
+        isWarmPing: options.isWarmPing ?? false,
+        readTokens: options.readTokens ?? 900,
+        writeTokens: 100,
+        uncachedTokens: 0,
+      };
+    }
+    function replay(samples: PromptCacheRequestSample[]): AgentPromptCacheState | undefined {
+      return samples.reduce<AgentPromptCacheState | undefined>(
+        (state, sample) => recordPromptCacheRequest(state, sample),
+        undefined,
+      );
+    }
+
+    function timing(state: AgentPromptCacheState | undefined) {
+      return state?.history?.map(({ kind, gapMs, awayMs }) => ({ kind, gapMs, awayMs }));
+    }
+
+    it("records every request with its gap, and a turn's time away since real activity", () => {
+      const state = replay([
+        request(0, "t1"),
+        request(1, "t1"),
+        request(5.5, "p1", { isWarmPing: true }),
+        request(10, "p2", { isWarmPing: true }),
+        request(12, "t2", { readTokens: 0 }),
+        request(13, "t2"),
+      ]);
+      expect(timing(state)).toEqual([
+        { kind: "turn", gapMs: null, awayMs: undefined },
+        { kind: "request", gapMs: minute, awayMs: undefined },
+        { kind: "warm-up", gapMs: 4.5 * minute, awayMs: undefined },
+        { kind: "warm-up", gapMs: 4.5 * minute, awayMs: undefined },
+        { kind: "turn", gapMs: 2 * minute, awayMs: 11 * minute },
+        { kind: "request", gapMs: minute, awayMs: undefined },
+      ]);
+      expect(state?.history?.[4]?.readTokens).toBe(0);
+      expect(state?.turnFirstRequest.turnId).toBe("t2");
+    });
+
+    it("keeps only the latest prompts", () => {
+      const samples: PromptCacheRequestSample[] = [];
+      for (let index = 0; index < PROMPT_CACHE_HISTORY_LIMIT + 5; index += 1) {
+        samples.push(request(index, `t${index}`));
+      }
+      const history = replay(samples)?.history ?? [];
+      expect(history).toHaveLength(PROMPT_CACHE_HISTORY_LIMIT);
+      expect(history.at(-1)?.at).toBe(samples.at(-1)?.at);
     });
   });
 });

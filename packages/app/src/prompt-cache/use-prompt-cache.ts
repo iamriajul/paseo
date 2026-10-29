@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import {
+  FIVE_MINUTE_CACHE_WINDOW_MS,
   isClaudeModel,
   isQuestionPermission,
   resolveCacheWarmEnabled,
@@ -12,6 +13,10 @@ import {
 } from "@getpaseo/protocol/agent-cache-warm";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { useSessionStore, type Agent } from "@/stores/session-store";
+import {
+  summarizePromptCacheHistory,
+  type PromptCacheHistorySummary,
+} from "./prompt-cache-history";
 
 export type PromptCacheStatus =
   | { kind: "automatic" }
@@ -53,6 +58,8 @@ export interface PromptCacheState {
   warmup: PromptCacheWarmup | null;
   /** First request of the latest turn, so it reports how the last prompt met the cache. */
   lastPrompt: PromptCacheRequestSample | null;
+  /** Recent prompts and how each met the cache; null before the first recorded prompt. */
+  history: PromptCacheHistorySummary | null;
   toggleWarmup: () => Promise<void>;
 }
 
@@ -150,6 +157,15 @@ function hasLiveCountdown(status: PromptCacheStatus): boolean {
   );
 }
 
+function resolveHistory(
+  agent: Agent | undefined,
+  facts: AgentCacheFacts | null,
+): PromptCacheHistorySummary | null {
+  // Automatic with nothing observed: 5m is the stricter window, so a return is never missed.
+  const cacheWindowMs = facts?.windows?.cacheWindowMs ?? FIVE_MINUTE_CACHE_WINDOW_MS;
+  return summarizePromptCacheHistory(agent?.promptCache?.history, cacheWindowMs);
+}
+
 export type PromptCacheView = Omit<PromptCacheState, "toggleWarmup">;
 
 /** Everything the cache surfaces show for one agent at one instant; no React, no clock. */
@@ -175,6 +191,7 @@ export function resolvePromptCacheView(agent: Agent | undefined, now: number): P
     status,
     warmup,
     lastPrompt: agent?.promptCache?.turnFirstRequest ?? null,
+    history: resolveHistory(agent, facts),
   };
 }
 

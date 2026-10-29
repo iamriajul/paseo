@@ -12,7 +12,7 @@ import {
 
 type DraftFeatureConfig = Pick<
   AgentSessionConfig,
-  "provider" | "cwd" | "modeId" | "model" | "thinkingOptionId"
+  "provider" | "cwd" | "modeId" | "model" | "thinkingOptionId" | "featureValues"
 >;
 
 export function useDraftAgentFeatures(input: {
@@ -41,6 +41,14 @@ export function useDraftAgentFeatures(input: {
     [preferences.providerPreferences, provider],
   );
 
+  // The provider decides which features exist from the values chosen so far (Claude lists
+  // cache warm-up only for a 5m or 1h Cache window), so the request carries them. They come
+  // from the user's inputs, not from the listed features, so the query cannot feed itself.
+  const requestedFeatureValues = useMemo(
+    () => ({ ...persistedFeatureValues, ...localFeatureValues }),
+    [localFeatureValues, persistedFeatureValues],
+  );
+
   const draftConfig = useMemo<DraftFeatureConfig | null>(() => {
     if (!normalizedProvider || !normalizedCwd) {
       return null;
@@ -52,21 +60,35 @@ export function useDraftAgentFeatures(input: {
       ...(modeId ? { modeId } : {}),
       ...(modelId ? { model: modelId } : {}),
       ...(thinkingOptionId ? { thinkingOptionId } : {}),
+      ...(Object.keys(requestedFeatureValues).length > 0
+        ? { featureValues: requestedFeatureValues }
+        : {}),
     };
-  }, [modeId, modelId, normalizedCwd, normalizedProvider, thinkingOptionId]);
+  }, [
+    modeId,
+    modelId,
+    normalizedCwd,
+    normalizedProvider,
+    requestedFeatureValues,
+    thinkingOptionId,
+  ]);
 
+  const draftKey = [
+    serverId ?? null,
+    normalizedProvider,
+    normalizedCwd || null,
+    modeId ?? null,
+    modelId ?? null,
+    thinkingOptionId ?? null,
+  ] as const;
   const featuresQuery = useQuery({
-    queryKey: [
-      "providerFeatures",
-      serverId ?? null,
-      normalizedProvider,
-      normalizedCwd || null,
-      modeId ?? null,
-      modelId ?? null,
-      thinkingOptionId ?? null,
-    ],
+    queryKey: ["providerFeatures", ...draftKey, draftConfig?.featureValues ?? null],
     enabled: Boolean(serverId && client && isConnected && draftConfig),
     staleTime: 5 * 60 * 1000,
+    // A changed feature value refetches; keep the same draft's controls on screen meanwhile,
+    // but never another provider's or model's.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery && isSameDraft(previousQuery.queryKey, draftKey) ? previous : undefined,
     queryFn: async () => {
       if (!client || !draftConfig) {
         throw new Error(t("workspace.terminal.hostDisconnected"));
@@ -106,14 +128,21 @@ export function useDraftAgentFeatures(input: {
   }, [normalizedProvider]);
 
   useEffect(() => {
-    if (availableFeaturesRaw === undefined) {
+    // Placeholder data is the previous request's list; pruning against it could drop a value
+    // the pending list adds back.
+    if (availableFeaturesRaw === undefined || featuresQuery.isPlaceholderData) {
       return;
     }
     const next = pruneFeatureValues(localFeatureValues, availableFeatures);
     if (next !== localFeatureValues) {
       setLocalFeatureValues(next);
     }
-  }, [availableFeatures, availableFeaturesRaw, localFeatureValues]);
+  }, [
+    availableFeatures,
+    availableFeaturesRaw,
+    featuresQuery.isPlaceholderData,
+    localFeatureValues,
+  ]);
 
   const effectiveFeatureValues = Object.keys(featureValues).length > 0 ? featureValues : undefined;
   const setFeatureValue = useCallback(
@@ -156,4 +185,8 @@ export function useDraftAgentFeatures(input: {
     setFeatureValue,
     applyProfileFeatureValues,
   };
+}
+
+function isSameDraft(queryKey: readonly unknown[], draftKey: readonly unknown[]): boolean {
+  return draftKey.every((part, index) => Object.is(queryKey[index + 1], part));
 }

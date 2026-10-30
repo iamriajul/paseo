@@ -874,3 +874,19 @@ npx vitest run packages/server/src/server/schedule/service.test.ts -t "feature v
 grep -q "CLAUDE_CACHE_WARM_FEATURE_ID" packages/server/src/server/agent/providers/claude/feature-definitions.ts
 grep -q "CACHE_WARM_FEATURE_ID" packages/app/src/agent-controls/policy.ts
 ```
+
+## short-history-autoload
+
+**load older history when the chat is too short to scroll**
+
+History-start pagination starts dormant and waits for scroll intent, so opening an agent does not walk its history. When the rendered tail fits the viewport there is nothing to scroll, and Android delivers no drag events to an unscrollable list, so the chat stayed stuck on its tail. Ten cache warm-ups in a row do this: each renders one `CacheWarmedMarker` row and hides its reply. `contentFitsViewport` lets a dormant list load without intent; the existing settle loop then keeps loading until the content overflows or history runs out.
+
+Two races stranded the same list after a cold start, reproduced on the Android emulator in 3 of 5 reopens after warm-ups ran with the app closed:
+
+- The cached timeline renders first and is stored without `hasOlder`, so revealing it latched pagination at history start before the daemon's tail arrived. The latch now records its progress key, and an unscrollable list loads again once the key changes.
+- That load is a local reveal from the list's effect, which runs before `useStreamHistoryWindow`'s reconcile effect in the same commit. Reconcile used the boundary index of the window the render saw, judged the revealed boundary missing, and reset it, leaving pagination in `loading` forever. It now looks the boundary up in the window it updates.
+
+```bash
+npm --prefix packages/app run test -- src/agent-stream/history-start-pagination.test.ts -t "too short to scroll|latch was set at an older position"
+npm --prefix packages/app run test -- src/agent-stream/use-stream-history-window.test.tsx -t "same commit"
+```

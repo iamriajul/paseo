@@ -133,6 +133,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
       metrics.contentMeasuredForKey === metrics.containerKey;
     return {
       distanceFromHistoryStart: metrics.contentHeight - metrics.viewportHeight - metrics.offsetY,
+      contentFitsViewport: metrics.contentHeight <= metrics.viewportHeight,
       hasOlderHistory,
       isLoadingOlderHistory,
       isReady: historyStartReadyRef.current && hasMeasuredViewport,

@@ -33,21 +33,24 @@ interface HistoryWindowBoundary {
   initialized: boolean;
 }
 
+// Looks the boundary up in `current`, not in the window this render saw: the stream list
+// reveals history from its own effect, which runs first, so `current` can already be newer.
 function reconcileHistoryWindow(input: {
   current: HistoryWindowBoundary;
   agentId: string;
-  boundaryIndex: number;
+  items: StreamItem[];
   initialBoundaryItemId: string | null;
-  hasItems: boolean;
 }): HistoryWindowBoundary {
-  const { current, agentId, boundaryIndex, initialBoundaryItemId, hasItems } = input;
+  const { current, agentId, items, initialBoundaryItemId } = input;
+  const hasItems = items.length > 0;
   if (current.agentId !== agentId) {
     return { agentId, boundaryItemId: initialBoundaryItemId, initialized: hasItems };
   }
   if (!current.initialized && hasItems) {
     return { ...current, boundaryItemId: initialBoundaryItemId, initialized: true };
   }
-  if (current.boundaryItemId !== null && boundaryIndex < 0) {
+  const boundaryItemId = current.boundaryItemId;
+  if (boundaryItemId !== null && !items.some((item) => item.id === boundaryItemId)) {
     return { ...current, boundaryItemId: initialBoundaryItemId };
   }
   return current;
@@ -85,15 +88,9 @@ export function useStreamHistoryWindow(input: {
 
   useEffect(() => {
     setWindow((current) =>
-      reconcileHistoryWindow({
-        current,
-        agentId,
-        boundaryIndex,
-        initialBoundaryItemId,
-        hasItems: items.length > 0,
-      }),
+      reconcileHistoryWindow({ current, agentId, items, initialBoundaryItemId }),
     );
-  }, [agentId, boundaryIndex, initialBoundaryItemId, items.length]);
+  }, [agentId, initialBoundaryItemId, items]);
 
   const revealLoadedHistory = useCallback(
     (itemId?: string): boolean => {

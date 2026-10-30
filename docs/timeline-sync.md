@@ -58,8 +58,11 @@ Source coverage still includes interleaved tool updates.
 
 Canonical IDs define runs. With missing IDs, human prompts, heartbeats and typed received
 agent messages each start a fallback turn. This deterministic fallback is shared by paging
-and presentation; it cannot recover historical batching or steering. Older history remains
-user-driven by scrolling upward.
+and presentation; it cannot recover historical batching or steering. Older history loads when
+the user scrolls upward, or without a gesture when the rendered tail is too short to scroll. A
+tail of hidden or one-line rows, such as consecutive cache warm-ups, can leave the list
+unscrollable, and Android delivers no drag events to an unscrollable list, so waiting for scroll
+intent strands it.
 
 A failed catch-up or subscription reconcile retries on its own, doubling from 1s to a 30s ceiling.
 A fixed 1s retry turned a persistent daemon-side refusal — a Codex thread that already has an active
@@ -75,7 +78,9 @@ Reaching the history-start threshold loads one older page and preserves the visi
 Cursor progress does not trigger another page. The user must leave and return to the threshold unless
 the anchored page still leaves the viewport at history start, as with short or compacted content; in
 that case pagination continues as one loading operation until the page fills the viewport or history
-is exhausted.
+is exhausted. An attempt that makes no progress latches at its position. While the content is too
+short to scroll, new history lifts the latch: a cold start renders the cached timeline first, which
+records no older history, so the latch it sets must not outlive the fresh tail that follows.
 
 Conversation search is the other intentional older-history consumer. While a non-empty user or
 assistant search is open, the app walks older projected timeline pages sequentially using the same

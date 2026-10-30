@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -55,6 +56,7 @@ import type {
 import type { AgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 import {
   getFeatureHighlightColor,
+  isCacheWindowFeature,
   isFeatureActive,
   getFeatureTooltip,
   getAgentControlHintKey,
@@ -82,6 +84,17 @@ import { ComposerControlLayoutProvider } from "@/composer/agent-controls/layout-
 import { ComposerToolbarGlyph } from "@/composer/agent-controls/glyph";
 import { AgentControlTrigger } from "@/composer/agent-controls/control";
 import { CompactModelSheet } from "@/composer/agent-controls/model-sheet";
+import { CacheWindowConfirmForAgent } from "@/composer/agent-controls/cache-window-confirm";
+import {
+  CacheWindowLiveContext,
+  CacheWindowLiveProvider,
+} from "@/composer/agent-controls/cache-window-live";
+import {
+  pendingChangeForAgent,
+  resolveCacheWindowChange,
+  type PendingCacheWindowChange,
+} from "@/prompt-cache/cache-window-change";
+import { resolvePromptCacheView, usePromptCacheAgent } from "@/prompt-cache/use-prompt-cache";
 import {
   useAgentProfileEditor,
   useAgentProfilePicker,
@@ -1295,6 +1308,7 @@ function DesktopFeatureItem({
   onActionComplete?: () => void;
 }) {
   const { theme } = useUnistyles();
+  const cacheWindowLive = useContext(CacheWindowLiveContext);
   const featureSelector: AgentControlSelector = `feature-${feature.id}`;
   const featureAnchorRef = useRef<View>(null);
 
@@ -1316,9 +1330,10 @@ function DesktopFeatureItem({
 
   const handleSelectOption = useCallback(
     (optionId: string) => {
+      if (isCacheWindowFeature(feature) && optionId === feature.value) return;
       onSetFeature?.(feature.id, optionId);
     },
-    [feature.id, onSetFeature],
+    [feature, onSetFeature],
   );
   const comboboxOptions = useMemo<ComboboxOption[]>(
     () =>
@@ -1370,11 +1385,11 @@ function DesktopFeatureItem({
             <AgentControlTrigger
               ref={featureAnchorRef}
               icon={FeatureIcon}
-              iconColor={getFeatureIconColor(
-                feature,
-                theme.colors.palette,
-                theme.colors.foregroundMuted,
-              )}
+              iconColor={
+                isCacheWindowFeature(feature) && cacheWindowLive
+                  ? theme.colors.palette.yellow[400]
+                  : getFeatureIconColor(feature, theme.colors.palette, theme.colors.foregroundMuted)
+              }
               surface="toolbar"
               label={feature.label}
               value={selectedOption?.label ?? feature.label}
@@ -1432,13 +1447,15 @@ function SheetFeatureItem({
     () => handleFeatureOpenChange(openSelector !== featureSelector),
     [featureSelector, handleFeatureOpenChange, openSelector],
   );
+  const cacheWindowLive = useContext(CacheWindowLiveContext);
   const sheetHeader = useMemo<SheetHeader>(() => ({ title: feature.label }), [feature.label]);
 
   const handleSelectOption = useCallback(
     (optionId: string) => {
+      if (isCacheWindowFeature(feature) && optionId === feature.value) return;
       onSetFeature?.(feature.id, feature.type === "toggle" ? optionId === "true" : optionId);
     },
-    [feature.id, feature.type, onSetFeature],
+    [feature, onSetFeature],
   );
   const comboboxOptions = useMemo<ComboboxOption[]>(() => {
     if (feature.type === "select") {
@@ -1494,11 +1511,11 @@ function SheetFeatureItem({
         <AgentControlTrigger
           ref={featureAnchorRef}
           icon={FeatureIcon}
-          iconColor={getFeatureIconColor(
-            feature,
-            theme.colors.palette,
-            theme.colors.foregroundMuted,
-          )}
+          iconColor={
+            isCacheWindowFeature(feature) && cacheWindowLive
+              ? theme.colors.palette.yellow[400]
+              : getFeatureIconColor(feature, theme.colors.palette, theme.colors.foregroundMuted)
+          }
           surface="sheet"
           label={feature.label}
           value={selectedOption?.label ?? feature.label}
@@ -1703,7 +1720,7 @@ export const AgentControls = memo(function AgentControls({
     [activeModelId, agentId, agentProvider, client, toast, updatePreferences],
   );
 
-  const handleSetFeature = useCallback(
+  const applyFeature = useCallback(
     (featureId: string, value: unknown) => {
       if (!client || !agentProvider) {
         return;
@@ -1728,6 +1745,41 @@ export const AgentControls = memo(function AgentControls({
     },
     [agentId, agentProvider, client, toast, updatePreferences],
   );
+
+  const promptCacheAgent = usePromptCacheAgent(serverId, agentId);
+  const [pendingCacheWindow, setPendingCacheWindow] = useState<PendingCacheWindowChange | null>(
+    null,
+  );
+  const visiblePendingCacheWindow = pendingChangeForAgent(pendingCacheWindow, agentId);
+  if (pendingCacheWindow && visiblePendingCacheWindow === null) {
+    // Switching agents cancels a change nobody confirmed, so it cannot resurface later.
+    setPendingCacheWindow(null);
+  }
+
+  const handleSetFeature = useCallback(
+    (featureId: string, value: unknown) => {
+      if (isCacheWindowFeature({ id: featureId })) {
+        const change = resolveCacheWindowChange({
+          status: resolvePromptCacheView(promptCacheAgent, Date.now()).status,
+        });
+        if (change.kind === "confirm") {
+          setPendingCacheWindow({ agentId, featureId, value });
+          return;
+        }
+      }
+      applyFeature(featureId, value);
+    },
+    [agentId, applyFeature, promptCacheAgent],
+  );
+
+  const confirmCacheWindowChange = useCallback(() => {
+    if (visiblePendingCacheWindow) {
+      applyFeature(visiblePendingCacheWindow.featureId, visiblePendingCacheWindow.value);
+    }
+    setPendingCacheWindow(null);
+  }, [applyFeature, visiblePendingCacheWindow]);
+
+  const cancelCacheWindowChange = useCallback(() => setPendingCacheWindow(null), []);
 
   const commandCenterControls = useMemo<AgentControlCommandCenterSource>(
     () => ({
@@ -1793,9 +1845,17 @@ export const AgentControls = memo(function AgentControls({
   }
 
   return (
-    <>
+    <CacheWindowLiveProvider serverId={serverId} agentId={agentId}>
       {commandCenterRegistration}
       {profileEditor.element}
+      {visiblePendingCacheWindow ? (
+        <CacheWindowConfirmForAgent
+          serverId={serverId}
+          agentId={agentId}
+          onCancel={cancelCacheWindowChange}
+          onConfirm={confirmCacheWindowChange}
+        />
+      ) : null}
       <ControlledAgentControls
         provider={agent.provider}
         modelSelectorProviders={agentModelSelectorProviders}
@@ -1822,7 +1882,7 @@ export const AgentControls = memo(function AgentControls({
         modelSelectorServerId={serverId}
         isCompactLayout={isCompactLayout}
       />
-    </>
+    </CacheWindowLiveProvider>
   );
 });
 

@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import {
   Bot,
   Brain,
+  Database,
   Flame,
   ListTodo,
   Settings2,
@@ -38,6 +39,7 @@ const MODE_ICONS: Record<string, AgentControlIcon> = {
 };
 
 const FEATURE_ICONS: Record<string, AgentControlIcon> = {
+  database: Database,
   flame: Flame,
   "list-todo": ListTodo,
   "shield-check": ShieldCheck,

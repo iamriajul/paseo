@@ -41,10 +41,10 @@ const WarmPillIcon = memo(function WarmPillIcon(): ReactElement {
 
 function formatCacheWindowLabel(cache: PromptCacheState): string {
   const { windows, warmup } = cache;
-  if (!windows) return "Automatic";
-  const duration = windows.cacheWindowMs <= 5 * 60 * 1000 ? "5 minutes" : "1 hour";
+  if (!windows) return "Auto";
+  const duration = windows.cacheWindowMs <= 5 * 60 * 1000 ? "5m" : "1h";
   // Warm-up exists only for a chosen window, so without it Claude Code picked this one.
-  return warmup ? duration : `Automatic · ${duration}`;
+  return warmup ? duration : `Auto · ${duration}`;
 }
 
 function formatCoveredDuration(warmup: PromptCacheWarmup, windows: PromptCacheWindows): string {
@@ -370,7 +370,7 @@ export const PromptCachePill = memo(function PromptCachePill({
           </>
         ) : (
           <Text style={styles.helpText}>
-            Choose 5 minutes or 1 hour under Cache window to use auto warm-up.
+            Choose 5m or 1h under Cache window to use auto warm-up.
           </Text>
         )}
       </View>

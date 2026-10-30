@@ -974,9 +974,9 @@ function ScheduleTargetFields({
 }
 
 const PROMPT_CACHE_TTL_OPTIONS: SelectFieldOption<SchedulePromptCacheTtl>[] = [
-  { id: "default", value: "default", label: "Automatic", testID: "schedule-cache-window-default" },
-  { id: "5m", value: "5m", label: "5 minutes", testID: "schedule-cache-window-5m" },
-  { id: "1h", value: "1h", label: "1 hour", testID: "schedule-cache-window-1h" },
+  { id: "default", value: "default", label: "Auto", testID: "schedule-cache-window-default" },
+  { id: "5m", value: "5m", label: "5m", testID: "schedule-cache-window-5m" },
+  { id: "1h", value: "1h", label: "1h", testID: "schedule-cache-window-1h" },
 ];
 
 function SchedulePromptCacheField({
@@ -1002,7 +1002,7 @@ function SchedulePromptCacheField({
       selectedDisplay={selectedDisplay}
       options={PROMPT_CACHE_TTL_OPTIONS}
       onChange={model.setPromptCacheTtl}
-      placeholder="Automatic"
+      placeholder="Auto"
       emptyText="No cache windows"
       searchable={false}
       title="Cache window"

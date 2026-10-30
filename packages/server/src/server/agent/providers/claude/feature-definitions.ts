@@ -29,7 +29,6 @@ export const CLAUDE_CACHE_WARM_FEATURE: Omit<AgentFeatureToggle, "value"> = {
   id: CLAUDE_CACHE_WARM_FEATURE_ID,
   label: "Cache warm-up",
   description: "Keep prompt cache warm with idle pings",
-  tooltip: "Automatically warm up the prompt cache for long-running Claude Code sessions",
   icon: "flame",
 };
 
@@ -38,16 +37,15 @@ export const CLAUDE_PROMPT_CACHE_TTL_FEATURE: Omit<AgentFeatureSelect, "value"> 
   id: CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
   label: "Cache window",
   description: "Cache write duration for this conversation",
-  tooltip: "Shorter windows cost less on cache writes; longer windows survive longer gaps",
-  icon: "clock",
+  icon: "database",
   options: [
     {
       id: "default",
-      label: "Automatic",
+      label: "Auto",
       description: "Claude Code chooses based on auth and usage limits",
     },
-    { id: "5m", label: "5 minutes", description: "Cheapest writes; cache cools in 5 minutes" },
-    { id: "1h", label: "1 hour", description: "Premium writes; cache lasts an hour per request" },
+    { id: "5m", label: "5m", description: "Cheapest writes; cache cools in 5 minutes" },
+    { id: "1h", label: "1h", description: "Premium writes; cache lasts an hour per request" },
   ],
 };
 

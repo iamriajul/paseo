@@ -32,9 +32,9 @@ function claudeFeatures(config: Pick<AgentSessionConfig, "featureValues">): Agen
       label: "Cache window",
       value: typeof ttl === "string" ? ttl : "default",
       options: [
-        { id: "default", label: "Automatic" },
-        { id: "5m", label: "5 minutes" },
-        { id: "1h", label: "1 hour" },
+        { id: "default", label: "Auto" },
+        { id: "5m", label: "5m" },
+        { id: "1h", label: "1h" },
       ],
     },
   ];

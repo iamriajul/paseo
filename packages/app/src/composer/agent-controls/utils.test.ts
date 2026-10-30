@@ -3,6 +3,7 @@ import {
   getFeatureHighlightColor,
   getFeatureTooltip,
   getAgentControlHintKey,
+  isCacheWindowFeature,
   isFeatureActive,
   normalizeModelId,
   resolveAgentModelSelection,
@@ -40,6 +41,12 @@ describe("feature metadata helpers", () => {
     expect(getFeatureHighlightColor("cache_warm")).toBe("yellow");
     expect(getFeatureHighlightColor("plan_mode")).toBe("blue");
     expect(getFeatureHighlightColor("other")).toBe("default");
+  });
+
+  it("gives the Cache window notice only to the Cache window select", () => {
+    expect(isCacheWindowFeature({ id: "prompt_cache_ttl" })).toBe(true);
+    expect(isCacheWindowFeature({ id: "cache_warm" })).toBe(false);
+    expect(isCacheWindowFeature({ id: "service_tier" })).toBe(false);
   });
 
   it("treats a select feature as active when a non-default option is selected", () => {

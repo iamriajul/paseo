@@ -371,6 +371,21 @@ Background workspaces, a new Markdown renderer with selection across paragraphs 
 
 - Fixed intermittent text clipping in iOS chats and Markdown previews ([#6445](https://github.com/getpaseo/paseo/pull/6445))
 
+## 0.11.918 - 2026-10-30
+
+### Changed
+
+- Changing the Cache window now asks first while a cache is live. The dialog shows how long the cache has left. Cancel keeps the current window. Changing it may drop the cache, so your next request may write it again. With no live cache, the change applies at once. ([#144](https://github.com/iamriajul/paseo/pull/144))
+- The Cache window options are now `Auto`, `5m`, and `1h` in the composer, the prompt cache popover, and the schedule form. ([#144](https://github.com/iamriajul/paseo/pull/144))
+- The Cache window icon now matches the prompt cache icon, and it turns yellow while a cache is live. ([#144](https://github.com/iamriajul/paseo/pull/144))
+- The Cache window and Cache warm-up controls show their names as tooltips, instead of longer descriptions. ([#144](https://github.com/iamriajul/paseo/pull/144))
+
+## 0.11.917 - 2026-10-30
+
+### Fixed
+
+- Fixed older messages not loading in a short chat that cannot scroll, such as one with many cache warm-up rows. ([#143](https://github.com/iamriajul/paseo/pull/143))
+
 ## 0.11.916 - 2026-10-29
 
 ### Added

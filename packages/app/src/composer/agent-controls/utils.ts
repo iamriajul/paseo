@@ -1,4 +1,5 @@
 import type { AgentFeature, AgentModelDefinition } from "@getpaseo/protocol/agent-types";
+import { PROMPT_CACHE_TTL_FEATURE_ID } from "@getpaseo/protocol/agent-cache-warm";
 import { i18n } from "@/i18n/i18next";
 import { formatThinkingOptionLabel } from "@/agent-controls/labels";
 import {
@@ -44,6 +45,10 @@ export function isFeatureActive(feature: AgentFeature): boolean {
   if (feature.type === "toggle") return feature.value;
   const selectedOption = feature.options.find((option) => option.id === feature.value);
   return selectedOption !== undefined && !selectedOption.isDefault;
+}
+
+export function isCacheWindowFeature(feature: Pick<AgentFeature, "id">): boolean {
+  return feature.id === PROMPT_CACHE_TTL_FEATURE_ID;
 }
 
 export function getFeatureHighlightColor(featureId: string): FeatureHighlightColor {

@@ -479,6 +479,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       !followOutputRef.current || isScrollContainerNearBottom(scrollContainer);
     return {
       distanceFromHistoryStart: scrollContainer.scrollTop,
+      contentFitsViewport: scrollContainer.scrollHeight <= scrollContainer.clientHeight,
       hasOlderHistory,
       isLoadingOlderHistory,
       // An explicit jump owns the landing position. Revealing another local

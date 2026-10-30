@@ -1,12 +1,30 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
+import { useEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StreamItem } from "@/types/stream";
 import { useStreamHistoryWindow } from "./use-stream-history-window";
 
 function message(id: string, kind: "user_message" | "assistant_message"): StreamItem {
   return { id, kind, text: id, timestamp: new Date() };
+}
+
+// The stream list reveals history from its own effect, which runs before this hook's effects
+// in the same commit. Declaring the effect first reproduces that order.
+function useHistoryWindowRevealingOn(input: { items: StreamItem[]; revealOn: StreamItem[] }) {
+  const revealRef = useRef<() => boolean>(noReveal);
+  const { items, revealOn } = input;
+  useEffect(() => {
+    if (items === revealOn) revealRef.current();
+  }, [items, revealOn]);
+  const window = useStreamHistoryWindow({ agentId: "agent-1", items, loadRemoteOlder: vi.fn() });
+  revealRef.current = window.revealLoadedHistory;
+  return window;
+}
+
+function noReveal(): boolean {
+  return false;
 }
 
 afterEach(() => {
@@ -133,6 +151,39 @@ describe("useStreamHistoryWindow", () => {
       ],
     });
     expect(result.current.start).toBe(4);
+  });
+
+  it("keeps a reveal made in the same commit that replaced the boundary item", () => {
+    Object.defineProperty(globalThis, "__PASEO_E2E_WEB_MOUNTED_RECENT_STREAM_ITEMS", {
+      value: 2,
+      configurable: true,
+    });
+    const cached = [
+      message("u1", "user_message"),
+      message("a1", "assistant_message"),
+      message("u2", "user_message"),
+      message("a2", "assistant_message"),
+    ];
+    const fresh = [
+      message("new-u1", "user_message"),
+      message("new-a1", "assistant_message"),
+      message("new-u2", "user_message"),
+      message("new-a2", "assistant_message"),
+      message("new-u3", "user_message"),
+      message("new-a3", "assistant_message"),
+    ];
+    const { result, rerender } = renderHook(
+      ({ history }) => useHistoryWindowRevealingOn({ items: history, revealOn: fresh }),
+      { initialProps: { history: cached } },
+    );
+    act(() => {
+      result.current.revealLoadedHistory();
+    });
+    expect(result.current.start).toBe(0);
+
+    rerender({ history: fresh });
+
+    expect(result.current.start).toBe(2);
   });
 
   it("does not claim to reveal a missing or already-visible item", () => {

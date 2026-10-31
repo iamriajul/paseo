@@ -494,7 +494,7 @@ npx vitest run packages/server/src/server/schedule/live-work.test.ts packages/se
 
 **daemon injects a devtools bridge into proxied preview HTML, and the Browser tab is reachable off Electron**
 
-browser-preview rewrites text/html responses to splice a navigation, eruda and element-selector bridge into `<head>`; the web Browser pane drives it over postMessage for history, URL sync, devtools and element attachments. The pane itself lives in fork-owned `web-pane.tsx`, with upstream's `index.web.tsx` reduced to a shim that renders it. Every surface that opens a Browser tab is gated on `useWorkspaceBrowserAvailability`, not `getIsElectron()` — the resolver already answered true for web with a preview template and for Android with a tunnel, while the call sites hard-coded Electron and made the feature unreachable. Nothing is added to `server_info`; the injected script announces itself with a `ready` message, so `packages/protocol` is untouched.
+browser-preview rewrites text/html responses to splice a navigation, eruda and element-selector bridge into `<head>`; the web Browser pane drives it over postMessage for history, URL sync, devtools and element attachments. The pane itself lives in fork-owned `web-pane.tsx`, with upstream's `index.web.tsx` reduced to a shim that renders it. Every surface that opens a Browser tab is gated on `useWorkspaceBrowserAvailability`, not `getIsElectron()` — the resolver already answered true for web with a preview template and for Android with a tunnel, while the call sites hard-coded Electron and made the feature unreachable. Nothing is added to `server_info`; the injected script announces itself with a `ready` message, so `packages/protocol` is untouched. `PASEO_BROWSER_PREVIEW_URL_TEMPLATE` is in official's `DAEMON_SETTING_ENV_KEYS` (`packages/server/src/server/config-environment.ts`): config resolution only sees allowlisted variables, so v0.14.900 silently ignored the env var and only `daemon.browserPreview.urlTemplate` in config.json worked.
 
 ```bash
 npx vitest run packages/server/src/server/browser-preview/html-injection.test.ts packages/server/src/server/browser-preview/inject packages/app/src/desktop/browser/pane/web-bridge.test.ts packages/app/src/desktop/browser/pane/web-navigation.test.ts packages/app/src/desktop/browser/pane/web-submit.test.ts packages/app/src/desktop/browser/pane/web-pane.test.tsx --bail=1
@@ -504,6 +504,7 @@ grep -q "showCreateBrowserTab = useWorkspaceBrowserAvailability" packages/app/sr
 grep -q "hasWorkspaceBrowser = useWorkspaceBrowserAvailability" packages/app/src/command-center/workspace-registration.tsx
 ! grep -q "showCreateBrowserTab = getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
 ! grep -q "persistenceKey || !getIsElectron()" packages/app/src/screens/workspace/workspace-screen.tsx
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/config-browser-preview.test.ts --bail=1
 ```
 
 ## nix-desktop-build-heap

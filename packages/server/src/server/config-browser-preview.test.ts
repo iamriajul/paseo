@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveBrowserPreviewUrlTemplate } from "./config.js";
+import { resolveBrowserPreviewUrlTemplate, resolveConfigFromPersisted } from "./config.js";
 
 describe("resolveBrowserPreviewUrlTemplate", () => {
   it("returns null when neither env nor persisted config sets one", () => {
@@ -49,5 +49,14 @@ describe("resolveBrowserPreviewUrlTemplate", () => {
         { daemon: { browserPreview: { urlTemplate: "https://{port}.preview.example.com" } } },
       ),
     ).toThrow(/template must contain \{port\} exactly once/);
+  });
+
+  it("reaches the daemon config through the environment filter", () => {
+    const config = resolveConfigFromPersisted(
+      "/tmp/paseo-home",
+      { version: 1 },
+      { env: { PASEO_BROWSER_PREVIEW_URL_TEMPLATE: "http://{port}.localhost:6767" } },
+    );
+    expect(config.browserPreviewUrlTemplate).toBe("http://{port}.localhost:6767");
   });
 });

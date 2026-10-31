@@ -44,22 +44,23 @@ npm test --workspace=@getpaseo/app -- src/panels/agent-tracks.test.ts src/heartb
 
 ## pdf-file-preview
 
-**persist PDF bytes and render PdfPreview in the file pane**
+**PDF files open in a built-in PDF panel**
 
-application/pdf files persist as preview media like images and FilePreviewBody mounts PdfPreview instead of binaryPreviewUnavailable
+v0.14.0 replaced the file pane's `FilePreviewBody` with a catalog of file panels (`packages/app/src/file-panels/`), and only plugins could claim binary files. The fork adds `builtin:pdf` to the catalog's rendering panels, so a `.pdf` opens in `PdfPreview` (react-pdf on web, react-native-pdf on phones) through `useFileUrl`, ahead of any plugin panel. Its title and icon live in `file-panels/choice/presentation.ts`.
 
 ```bash
-npx vitest run packages/app/src/file-explorer/pdf.test.ts --bail=1 -t "persists images and PDFs"
+npm test --workspace=@getpaseo/app -- src/file-panels/fork-builtin-panels.test.ts --bail=1
+grep -q '"builtin:pdf": PdfPanel' packages/app/src/file-panels/builtin.tsx
 ```
 
 ## office-file-preview
 
 **render Word, Excel, and PowerPoint in the file pane**
 
-The daemon labels the Open XML extensions with their media types, and the pane renders those files on every platform. Web paints into the page. Phone builds load the same renderers in a WebView, one document per format, the way the terminal hosts its browser library. A daemon that still sends application/octet-stream is recognized by extension. Legacy .doc and .ppt stay unavailable.
+The daemon labels the Open XML extensions with their media types, and the `builtin:office` file panel renders those files on every platform. Web paints into the page. Phone builds load the same renderers in a WebView, one document per format, the way the terminal hosts its browser library. A daemon that still sends application/octet-stream is recognized by extension. Legacy .doc and .ppt stay unavailable. The panel's extension list in `file-panels/catalog.ts` follows `OFFICE_PREVIEW_FORMATS` in `file-explorer/office.ts`.
 
 ```bash
-npx vitest run packages/app/src/file-explorer/office.test.ts packages/app/src/file-explorer/pdf.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/file-explorer/office.test.ts src/file-panels/fork-builtin-panels.test.ts --bail=1
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-explorer/service.test.ts --bail=1 -t "advertises Office document types"
 ```
 
@@ -89,8 +90,11 @@ npx vitest run packages/desktop/src/features/window-focus.test.ts --bail=1
 
 neutralizeDisallowedTags replaces disallowed tag opens with U+2039 before containsUnsafeMermaidSource so prose like <canonical URL> does not discard the whole diagram; real tags still fail closed; url() check requires word boundary and forbids whitespace before the opening parenthesis (CSS url() forbids whitespace; prose like 'URL (' does not); numeric HTML character entities (like &#35;) decode before tag checking so safe symbols are allowed while entity-smuggled tags fail closed; self-closing <i/> tags are not counted as unclosed. Do not rewrite a trailing `<i`/`<br` prefix — v0.7.2 streams those labels and a mid-tag ‹ swap clears the SVG. An unclosed `<i>` is still unsafe (mock streaming splits `Done["<i>Done</i>"]` into 4-char slices).
 
+Fences tagged `mmd`, `mermaid-js` or `mermaidjs` render as diagrams too (`isMermaidFenceLanguage` in `fence/mermaid/segments.ts`, used by the native segment splitter and the web code-block renderer).
+
 ```bash
 npx vitest run packages/app/src/components/markdown/fence/mermaid/source-policy.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/components/markdown/fence/mermaid/segments.test.ts --bail=1
 ```
 
 ## claude-native-fork
@@ -410,7 +414,7 @@ npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail
 
 **the resume prompt is a system injection, not a user turn**
 
-The auto-resume prompt used to dispatch as an ordinary `user_message`, so the app drew it as a bubble that looked like the user had typed it, and the agent treated it as a request. It now goes through `formatSystemNotificationPrompt`, the same `<paseo-system>` envelope chat mentions and finish notifications already use, which `isSystemInjectedEnvelope` suppresses from the live stream, history replay, and timeline persistence. The human-facing record of the restart is the resume marker above, which is what carries `interruptedAt`. `DEFAULT_AUTO_RESUME_PROMPT` stays the public, configurable string, so `daemon.autoResumeRunningAgents.prompt` and `PASEO_AUTO_RESUME_PROMPT` keep working unchanged.
+The auto-resume prompt used to dispatch as an ordinary `user_message`, so the app drew it as a bubble that looked like the user had typed it, and the agent treated it as a request. It now goes through `formatSystemNotificationPrompt`, the same `<paseo-system>` envelope chat mentions and finish notifications already use. Since v0.14.0 the timeline projects every such envelope as a compact system card (`projectAgentMessage` in `agent-messages/envelope.ts`) instead of dropping it, so the prompt shows as that card, never as a user bubble. The human-facing record of the restart is the resume marker above, which is what carries `interruptedAt`. `DEFAULT_AUTO_RESUME_PROMPT` stays the public, configurable string, so `daemon.autoResumeRunningAgents.prompt` and `PASEO_AUTO_RESUME_PROMPT` keep working unchanged.
 
 The marker is appended before the send, not after: `sendPromptToAgent` returns once the provider run is in flight, so emitting afterwards raced the agent's first response and stranded the marker mid-message.
 
@@ -499,18 +503,16 @@ grep -q "contents: write" .github/workflows/nix-update-hash.yml
 
 ## playwright-eight-shards-one-worker
 
-**the browser e2e runs on eight shards with one worker each, instead of four shards with two**
+**the browser e2e runs each of its eight shards with one worker, not two**
 
-Upstream runs `4 shards × 2 workers`. Each worker owns a daemon and a Chromium and shares one Metro, so two workers oversubscribe a standard runner. The symptom was not one bad test: across six consecutive CI runs, five or six _different_ specs failed attempt 1 each time, rotating — `changes-pane`, `composer-autocomplete`, `workspace-navigation-regression`, `sessions-search*`, `new-workspace-launch-memory`. `retries: 1` hid most of them and turned whichever failed twice into a red job.
+v0.14.0 moved to eight shards itself but runs two workers per shard (`E2E_WORKERS: "2"` in the shared Playwright step). Each worker owns a daemon and a Chromium and shares one Metro, so two workers oversubscribe a standard runner. When the fork ran `4 shards × 2 workers`, five or six _different_ specs failed attempt 1 in each of six consecutive runs, rotating — `changes-pane`, `composer-autocomplete`, `workspace-navigation-regression`, `sessions-search*`, `new-workspace-launch-memory`. `retries: 1` hid most of them and turned whichever failed twice into a red job.
 
-The evidence is timing, not logic: `sessions-search-hosts:45` took 7.0m on attempt 1 and 29.1s on its retry, and `new-workspace-launch-memory:51` runs in 16.8s on 16 cores, 38.4s pinned to two, and failed CI at 48.8s — its assertions time out at 30s while the test budget is 90s, so a slow runner fails an inner wait before the test itself expires.
-
-Eight single-worker shards keep total concurrency at eight while halving the load each runner carries, and leave wall clock roughly where it was.
+The evidence is timing, not logic: `sessions-search-hosts:45` took 7.0m on attempt 1 and 29.1s on its retry, and `new-workspace-launch-memory:51` runs in 16.8s on 16 cores, 38.4s pinned to two, and failed CI at 48.8s — its assertions time out at 30s while the test budget is 90s, so a slow runner fails an inner wait before the test itself expires. The fork keeps upstream's shards and shard weights and changes only the worker count.
 
 ```bash
 grep -q 'E2E_WORKERS: "1"' .github/workflows/ci.yml
+! grep -q 'E2E_WORKERS: "2"' .github/workflows/ci.yml
 grep -q 'PLAYWRIGHT_SHARD: "8/8"' .github/workflows/ci.yml
-! grep -q 'PLAYWRIGHT_SHARD: "1/4"' .github/workflows/ci.yml
 ```
 
 ## archive-responds-before-cleanup
@@ -795,7 +797,7 @@ When API quota exhaustion or model cooldown occurs and a recovery timestamp is k
 npx vitest run packages/server/src/server/agent/agent-rate-limit-auto-resume.test.ts --bail=1
 npx vitest run packages/server/src/server/agent/agent-manager.test.ts -t "absent rate-limit cooldown" --config packages/server/vitest.config.ts --bail=1
 npx vitest run packages/server/src/server/schedule/service.test.ts -t "agent-target schedule skips execution when rate limit cooldown is active" --bail=1
-npx vitest run packages/app/src/screens/workspace/use-workspace-agent-settings.test.tsx packages/app/src/components/message-resume-label.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/screens/workspace/use-workspace-agent-settings.test.tsx src/components/message-resume-label.test.ts --bail=1
 grep -q "autoResumeOnRateLimit" packages/protocol/src/messages.ts
 grep -q "rate_limit_retry" packages/protocol/src/agent-types.ts
 grep -q "agent-settings" packages/app/src/screens/workspace/workspace-tab-menu.ts
@@ -817,10 +819,10 @@ grep -q "listAgentsIncludingInternal" packages/server/src/server/bootstrap.ts
 
 **dynamic, precise relative time duration for quota resets and usage windows**
 
-Relative duration formatting produces compact, high-precision labels: when 24h or more in the future, it formats days and hours (e.g. `1d5h`, `7d14h`), or just days on exact boundaries (`1d`, `7d`); when less than 24h, it formats hours and minutes (e.g. `5h30m`, `1h15m`), or just hours on exact boundaries (`5h`); when less than 1h, it formats minutes (`45m`) or `<1m`. This gives precise readability to CLIProxyAPI account quotas and usage reset labels without overflowing compact layout rails.
+Reset and run-out labels keep the next-smaller unit: 24h or more reads days and hours (`1d 5h`), under 24h reads hours and minutes (`5h 30m`), exact boundaries drop the remainder (`1d`, `5h`), under an hour reads minutes (`45m`), and under a minute reads `<1m`. v0.14.0 localized these durations (`providerUsage.duration.*`), so the fork adds a remainder to upstream's `RelativeDuration` and joins the two localized units with a space. `formatPreciseDuration` and `formatCountdownClock` serve the prompt-cache countdowns.
 
 ```bash
-npx vitest run packages/app/src/usage/format.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/usage/format.test.ts --bail=1
 ```
 
 ## claude-prompt-cache-warming

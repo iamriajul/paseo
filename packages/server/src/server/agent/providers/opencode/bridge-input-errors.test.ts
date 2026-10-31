@@ -76,7 +76,7 @@ test("bridge preserves tool failure messages and classifies invalid requests as 
     await bridge.start();
     bridge.setManifestCatalog(catalog);
     bridge.bindSession({ sessionId: "diagnosis", env: {}, tools: catalog });
-    const config = JSON.parse(bridge.decorateServerEnv({}).OPENCODE_CONFIG_CONTENT);
+    const config = JSON.parse((await bridge.decorateServerEnv({})).OPENCODE_CONFIG_CONTENT);
     const { baseUrl, token } = config.plugin[0][1];
     const completed = await scheduleService.create({
       prompt: "Run once",

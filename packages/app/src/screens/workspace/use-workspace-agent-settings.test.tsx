@@ -158,7 +158,7 @@ beforeEach(() => {
   daemonConfigState.config = { autoResumeOnRateLimit: true } as unknown as MutableDaemonConfig;
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (root) {
     act(() => {
       root?.unmount();
@@ -166,6 +166,8 @@ afterEach(() => {
   }
   root = null;
   container = null;
+  // React schedules passive work on setImmediate; let it run while the jsdom window still exists.
+  await new Promise((resolve) => setImmediate(resolve));
   vi.unstubAllGlobals();
 });
 

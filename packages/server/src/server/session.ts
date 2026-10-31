@@ -9917,7 +9917,22 @@ function isValidGitHubRepoSegment(value: string): boolean {
   return /^[A-Za-z0-9._-]+$/u.test(value);
 }
 
+// Fork pushes. Since owned subscriptions, a modern socket drops anything that is neither a reply
+// nor a subscribed event, so these must be categories the app subscribes to.
+const FORK_SESSION_EVENTS = [
+  "ui_state.updated",
+  "workspace.todos.update",
+  "agent.background_tasks.update",
+  "agent.background_tasks.output.update",
+  "agent.provider_heartbeats.update",
+] as const satisfies readonly SessionEventSubscription[];
+
+function isForkSessionEvent(type: string): type is (typeof FORK_SESSION_EVENTS)[number] {
+  return (FORK_SESSION_EVENTS as readonly string[]).includes(type);
+}
+
 function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubscription | null {
+  if (isForkSessionEvent(message.type)) return message.type;
   switch (message.type) {
     case "project.update":
     case "providers_snapshot_update":

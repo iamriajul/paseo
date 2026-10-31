@@ -273,7 +273,9 @@ npx vitest run packages/app/src/components/markdown/fence/mermaid/render-model.t
 
 **composer draft hydrates from host ui_state**
 
-input-draft keeps host ui_state sync so composer text survives switching devices. Every user edit writes the host copy: `editText` and `replaceText` as well as `saveDraft`. Official #4902 moved typing off `saveDraft` onto `editDraftText`, which left the host write on the attachments path only, so v0.14.900 shipped with typed drafts never reaching the host. Remote records land through the store, never through those two callbacks, so a synced edit does not echo back.
+input-draft keeps host ui_state sync so composer text survives switching devices. Every user edit writes the host copy: `editText` and `replaceText` as well as `saveDraft`. Official #4902 moved typing off `saveDraft` onto `editDraftText`, which left the host write on the attachments path only, so v0.14.900 shipped with typed drafts never reaching the host. Remote records land through the store and are published into the input with `publishTextReplacement`, never through those two callbacks, so a synced edit does not echo back.
+
+Live updates need two things official's owned-subscription model does not give a fork push for free. The daemon delivers an unsolicited message to a modern client only as a subscribed session event, so `ui_state.updated`, `workspace.todos.update`, `agent.background_tasks.update`, `agent.background_tasks.output.update` and `agent.provider_heartbeats.update` are session event categories (`sessionEventCategory` in `server/session.ts`), and the app subscribes to them in `runtime/fork-session-events.ts` when `server_info.features.forkSessionEvents` is set: a daemon without the flag would reject the whole subscription over an unknown event name. Without this, every fork push was dropped at the socket since the v0.8 sync. And since official isolated typing, the input owns its text, so the `ui_state.updated` handler in `input-draft.ts` publishes accepted remote text with `publishTextReplacement`; a store write alone never reaches the screen.
 
 Review drafts sync the same way (`ui-state/review-host-sync.ts`). Every path that removes comments locally must also write the host copy: the review surface hydrates from the host when it mounts, so a comment removed only locally comes back. v0.14.0's Send feedback clears sent comments through `clearSentReviewDraftComments`, so `review/feedback/use-feedback.ts` calls `syncReviewDraftToHost` after it; without that, official's `composer-diff-stat` spec sees the review pill return after a layout switch.
 
@@ -281,6 +283,8 @@ Review drafts sync the same way (`ui-state/review-host-sync.ts`). Every path tha
 npx vitest run packages/app/src/composer/draft/input-draft.test.ts packages/app/src/ui-state/composer-host-sync.test.ts packages/protocol/src/ui-state/schemas.test.ts --bail=1
 grep -q 'syncReviewDraftToHost(reviewDraftKey)' packages/app/src/review/feedback/use-feedback.ts
 npm test --workspace=@getpaseo/app -- src/composer/draft/input-draft.live.test.tsx --bail=1 -t "mirrors typed and replaced text to the host"
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/ui-state/fork-session-events.e2e.test.ts --bail=1
+grep -q "publishTextReplacement(\"replace\", after)" packages/app/src/composer/draft/input-draft.ts
 ```
 
 ## mobile-push-diagnostics

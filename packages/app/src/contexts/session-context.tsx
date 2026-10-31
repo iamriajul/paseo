@@ -14,6 +14,7 @@ import {
 import type { StreamItem } from "@/types/stream";
 import { deriveAgentStreamTurnLiveness } from "@/timeline/session-stream-reducers";
 import { ingestAgentStreamEvent } from "@/timeline/ingest-agent-stream-event";
+import { useForkSessionEvents } from "@/runtime/fork-session-events";
 import { planTimelineTailFetch } from "@/timeline/timeline-sync-plan";
 import { requestTimelineReplacement } from "@/timeline/timeline-replacement";
 import { type ViewedTimelineOwner } from "@/timeline/viewed-timeline-sync";
@@ -251,6 +252,8 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   useEffect(() => {
     viewedTimelineSyncRef.current?.setActive(isAppVisible);
   }, [isAppVisible]);
+
+  useForkSessionEvents(client, serverId);
 
   // Client activity tracking (heartbeat, push token registration)
   useClientActivity({

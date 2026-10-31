@@ -2173,6 +2173,8 @@ export class VoiceAssistantWebSocketServer {
         taskBacklogListAll: true,
         // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
         uiState: true,
+        // COMPAT(forkSessionEvents): added in v0.14.901, drop gate after 2027-05-01.
+        forkSessionEvents: true,
         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
         agentNativeFork: true,
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.

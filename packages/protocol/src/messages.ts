@@ -3567,6 +3567,13 @@ export const SessionEventSubscriptionSchema = z.enum([
   "activity_log",
   "hub.execution.agent.update",
   "hub.execution.agent.stream",
+  // Fork pushes. Clients request these only when server_info.features.forkSessionEvents is set:
+  // an older daemon rejects the whole subscription over an event name it does not know.
+  "ui_state.updated",
+  "workspace.todos.update",
+  "agent.background_tasks.update",
+  "agent.background_tasks.output.update",
+  "agent.provider_heartbeats.update",
 ]);
 export type SessionEventSubscription = z.infer<typeof SessionEventSubscriptionSchema>;
 export const SessionEventsSetSubscriptionRequestSchema = z.object({
@@ -4176,6 +4183,8 @@ export const ServerInfoStatusPayloadSchema = z
         taskBacklogListAll: z.boolean().optional(),
         // COMPAT(uiState): added in v0.2.916, drop gate after 2027-02-01.
         uiState: z.boolean().optional(),
+        // COMPAT(forkSessionEvents): added in v0.14.901, drop gate after 2027-05-01.
+        forkSessionEvents: z.boolean().optional(),
         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
         agentNativeFork: z.boolean().optional(),
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.

@@ -1131,20 +1131,20 @@ it("opens a terminal unrouted when resolving gateway routing throws", async () =
 
   const terminalId = createMessage?.options.id;
   expect(terminalId).toBeTruthy();
+  const terminal = {
+    id: terminalId!,
+    name: "Terminal",
+    cwd,
+    workspaceId: "ws-test",
+    activity: { state: "idle" as const, changedAt: 0 },
+  };
+  const state = createTerminalState();
+  worker.emitWorkerMessage({ type: "terminalCreated", terminal, state });
   worker.emitWorkerMessage({
     type: "response",
     requestId: createMessage!.requestId,
     ok: true,
-    result: {
-      terminal: {
-        id: terminalId!,
-        name: "Terminal",
-        cwd,
-        workspaceId: "ws-test",
-        activity: { state: "idle", changedAt: 0 },
-      },
-      state: createTerminalState(),
-    },
+    result: { terminal, state },
   });
 
   const session = await createPromise;

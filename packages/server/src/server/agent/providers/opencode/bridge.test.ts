@@ -103,7 +103,7 @@ describe("OpenCodeBridge", () => {
       );
       const catalog = createPaseoToolCatalog({ ...dependencies, callerAgentId: parent.id });
       bridge.bindSession({ sessionId: "bound", env: {}, tools: catalog });
-      const plugin = readPluginOptions(bridge.decorateServerEnv({}));
+      const plugin = readPluginOptions(await bridge.decorateServerEnv({}));
       const response = await fetch(`${plugin.baseUrl}/_internal/opencode/tools`, {
         headers: { Authorization: `Bearer ${plugin.token}` },
       });
@@ -762,7 +762,7 @@ describe("OpenCodeBridge", () => {
     bridge.bindSession({ sessionId: "ses_expected_error", env: {}, tools: expectedErrorCatalog });
 
     try {
-      const plugin = readPluginOptions(bridge.decorateServerEnv({}));
+      const plugin = readPluginOptions(await bridge.decorateServerEnv({}));
       const headers = {
         Authorization: `Bearer ${plugin.token}`,
         "Content-Type": "application/json",

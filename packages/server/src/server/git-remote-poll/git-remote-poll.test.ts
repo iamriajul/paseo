@@ -305,11 +305,11 @@ describe("remote poll arming", () => {
       expect(harness.getCurrentPullRequestStatus).not.toHaveBeenCalled();
 
       harness.service.applyRemotePoll(new Set([QUIET_CWD]));
-      await vi.advanceTimersByTimeAsync(0);
-      await settled();
-
-      expect(harness.runGitFetch).toHaveBeenCalledTimes(1);
-      expect(harness.getCurrentPullRequestStatus).toHaveBeenCalled();
+      // Observation setup does real async IO, so wait on the effect rather than microtasks.
+      await vi.waitFor(() => {
+        expect(harness.runGitFetch).toHaveBeenCalledTimes(1);
+        expect(harness.getCurrentPullRequestStatus).toHaveBeenCalled();
+      });
     } finally {
       harness.unregisterForge();
       await harness.service.dispose();

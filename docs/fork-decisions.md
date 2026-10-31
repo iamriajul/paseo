@@ -128,16 +128,6 @@ panel-manifest and register-panels keep the codeServer tab so a workspace can op
 npx vitest run packages/app/src/panels/panel-manifest.test.ts packages/app/src/workspace-tabs/launcher/internal/catalog.test.ts --bail=1
 ```
 
-## pdf-daemon-mime
-
-**daemon classifies .pdf as application/pdf with bytes**
-
-file-explorer reads PDF as binary application/pdf so the client persist/mount patch has bytes to preview
-
-```bash
-npx vitest run packages/server/src/server/file-explorer/service.test.ts --bail=1 -t "identifies PDF files"
-```
-
 ## guest-webview-focus
 
 **guest webview and Electron OS focus count as in-app**
@@ -402,21 +392,6 @@ resume agents that were running when daemon shut down unexpectedly (SIGTERM/powe
 
 ```bash
 npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail=1
-```
-
-## agent-notification-restore-after-restart
-
-**a parent hears from its children again after the daemon restarts**
-
-`setupFinishNotification` holds its subscription in daemon memory and nothing persists the child's `notifyOnFinish` choice — the parent link exists only as the child's parent-agent label. Any daemon restart therefore left every parent permanently deaf: children finished, asked for permission, or got closed and no notification arrived, so the parent sat waiting on work that had already landed. `restoreFinishNotifications` walks stored records at boot and re-arms every child whose parent is still unarchived. It runs on every boot, not just after a power cut, and it sits ahead of the auto-resume sweep's early returns so an intentional restart restores too.
-
-The fix is in `setupFinishNotification`, not in the restore. Its closing guard treated a missing child snapshot as "gone" and unsubscribed on the same line it subscribed — but agents restore lazily, so after a restart every stored child has no snapshot yet, and the parent went deaf with no error anywhere. `allowUnloadedChild` splits the two cases the guard was conflating: an absent snapshot means "not loaded yet", while `lifecycle: "closed"` and a deleted agent mean gone and still stop the watch immediately. The restore arms straight from stored records and never loads an agent, so no provider session is resumed just to keep a subscription alive.
-
-```bash
-grep -q 'restoreFinishNotifications' packages/server/src/server/agent/agent-prompt.ts packages/server/src/server/agent/agent-auto-resume.ts
-grep -q 'allowUnloadedChild' packages/server/src/server/agent/agent-prompt.ts
-grep -q 'record.lastStatus === "closed"' packages/server/src/server/agent/agent-prompt.ts
-npx vitest run packages/server/src/server/agent/agent-prompt.test.ts --bail=1
 ```
 
 ## agent-auto-resume-system-envelope

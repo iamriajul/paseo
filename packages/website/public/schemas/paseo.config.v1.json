@@ -98,6 +98,12 @@
         "autoArchiveAfterMerge": {
           "type": "boolean"
         },
+        "autoResumeOnRateLimit": {
+          "type": "boolean"
+        },
+        "cacheWarmSubagents": {
+          "type": "boolean"
+        },
         "enableTerminalAgentHooks": {
           "type": "boolean"
         },
@@ -232,12 +238,34 @@
           },
           "additionalProperties": false
         },
+        "browserPreview": {
+          "type": "object",
+          "properties": {
+            "urlTemplate": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
         "auth": {
           "type": "object",
           "properties": {
             "password": {
               "type": "string",
               "pattern": "^\\$2[aby]\\$\\d{2}\\$[./A-Za-z0-9]{53}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "autoResumeRunningAgents": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "prompt": {
+              "type": "string",
+              "minLength": 1
             }
           },
           "additionalProperties": false
@@ -412,6 +440,50 @@
                     "isDefault": {
                       "type": "boolean"
                     },
+                    "contextWindowMaxTokens": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "maxOutputTokens": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "autoCompactThresholdPercent": {
+                      "type": "integer",
+                      "minimum": 50,
+                      "maximum": 99
+                    },
+                    "modelsDevProviderId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "modelsDevMatchedId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "inputModalities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "outputModalities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "capabilities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
                     "thinkingOptions": {
                       "type": "array",
                       "items": {
@@ -455,6 +527,50 @@
                     },
                     "isDefault": {
                       "type": "boolean"
+                    },
+                    "contextWindowMaxTokens": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "maxOutputTokens": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "autoCompactThresholdPercent": {
+                      "type": "integer",
+                      "minimum": 50,
+                      "maximum": 99
+                    },
+                    "modelsDevProviderId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "modelsDevMatchedId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "inputModalities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "outputModalities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "capabilities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
                     },
                     "thinkingOptions": {
                       "type": "array",
@@ -513,6 +629,21 @@
         "idleRuntimeCleanup": {
           "type": "boolean"
         },
+        "cliproxyapi": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "baseUrl": {
+              "type": "string"
+            },
+            "apiKey": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
         "catalogRefreshTimeoutMs": {
           "type": "integer",
           "exclusiveMinimum": 0,
@@ -542,6 +673,24 @@
                 "required": ["provider"],
                 "additionalProperties": false
               }
+            },
+            "customEndpoint": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "baseUrl": {
+                  "type": "string"
+                },
+                "apiKey": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

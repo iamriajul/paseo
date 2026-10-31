@@ -19,6 +19,7 @@ import { pullRequestPanelRegistration } from "@/panels/pull-request-panel";
 import { pluginPanelRegistration } from "@/plugins/workspace-panels/panel";
 import { newTabPanelRegistration } from "@/panels/new-tab-panel";
 import { todoPanelRegistration } from "@/panels/todo-panel";
+import { portsPanelRegistration } from "@/panels/ports-panel";
 
 let panelsRegistered = false;
 
@@ -39,6 +40,7 @@ export function ensurePanelsRegistered(): void {
   registerPanel(filePanelRegistration);
   registerPanel(filesPanelRegistration);
   registerPanel(todoPanelRegistration);
+  registerPanel(portsPanelRegistration);
   registerPanel(pullRequestPanelRegistration);
   registerPanel(commitDiffPanelRegistration);
   registerPanel(workingDiffPanelRegistration);

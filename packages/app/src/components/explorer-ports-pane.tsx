@@ -89,7 +89,7 @@ export function ExplorerPortsPane({
   if (rows.length === 0) {
     return (
       <View style={styles.empty} testID="explorer-ports-empty">
-        <Text style={styles.emptyText}>{t("workspace.tabs.explorer.portsEmpty")}</Text>
+        <Text style={styles.emptyText}>{t("workspace.tabs.explorerSidebar.portsEmpty")}</Text>
       </View>
     );
   }
@@ -130,7 +130,7 @@ function ExplorerPortRow({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={t("workspace.tabs.explorer.portRowA11y", {
+      accessibilityLabel={t("workspace.tabs.explorerSidebar.portRowA11y", {
         name: row.scriptName,
         protocol: row.protocol,
         port: row.port ?? "—",
@@ -150,7 +150,7 @@ function ExplorerPortRow({
         </Text>
         <Text style={styles.rowMeta} numberOfLines={1}>
           {row.port != null
-            ? t("workspace.tabs.explorer.portMeta", {
+            ? t("workspace.tabs.explorerSidebar.portMeta", {
                 port: row.port,
                 status: row.lifecycle,
               })

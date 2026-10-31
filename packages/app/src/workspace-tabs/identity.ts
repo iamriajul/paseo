@@ -71,6 +71,7 @@ function normalizeSimpleWorkspaceTabTarget(value: WorkspaceTabTarget): Workspace
     }
     case "changes_tree":
     case "todo":
+    case "ports":
     case "files":
     case "pull_request":
       return { kind: value.kind };
@@ -177,6 +178,9 @@ function supportingWorkspaceTabTargetsEqual(
   if (left.kind === "todo" && right.kind === "todo") {
     return true;
   }
+  if (left.kind === "ports" && right.kind === "ports") {
+    return true;
+  }
   if (left.kind === "changes_tree" && right.kind === "changes_tree") {
     return true;
   }
@@ -265,6 +269,7 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   if (
     target.kind === "changes_tree" ||
     target.kind === "todo" ||
+    target.kind === "ports" ||
     target.kind === "files" ||
     target.kind === "pull_request"
   ) {

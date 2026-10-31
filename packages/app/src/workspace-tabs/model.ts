@@ -44,6 +44,7 @@ export type WorkspaceTabTarget =
   | { kind: "codeServer"; codeServerId: string }
   | { kind: "changes_tree" }
   | { kind: "todo" }
+  | { kind: "ports" }
   | { kind: "files" }
   | { kind: "pull_request" }
   | WorkspaceFileTabTarget

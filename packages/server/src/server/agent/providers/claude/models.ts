@@ -316,7 +316,8 @@ interface ClaudeProfileModelLimits {
  * Resolve the preferred context-window max for a selected Claude model.
  * Configured profile/additional model windows win over first-party catalog defaults.
  */
-export function resolveClaudeContextWindowMaxTokens(options: {
+/** The window a profile or additional model configures, never a catalog or suffix guess. */
+export function resolveConfiguredClaudeContextWindow(options: {
   modelId: string | null | undefined;
   profileModels?: ClaudeProfileModelLimits[];
 }): number | undefined {
@@ -327,6 +328,17 @@ export function resolveClaudeContextWindowMaxTokens(options: {
     profileMatch.contextWindowMaxTokens > 0
   ) {
     return Math.trunc(profileMatch.contextWindowMaxTokens);
+  }
+  return undefined;
+}
+
+export function resolveClaudeContextWindowMaxTokens(options: {
+  modelId: string | null | undefined;
+  profileModels?: ClaudeProfileModelLimits[];
+}): number | undefined {
+  const configured = resolveConfiguredClaudeContextWindow(options);
+  if (configured !== undefined) {
+    return configured;
   }
 
   const trimmed = typeof options.modelId === "string" ? options.modelId.trim() : "";

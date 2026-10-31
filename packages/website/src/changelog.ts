@@ -90,7 +90,17 @@ function groupChangelogReleases(releases: ChangelogRelease[]): ChangelogReleaseG
   return groups;
 }
 
-const englishReleases = parseChangelog(englishChangelog, DEFAULT_LOCALE);
+/**
+ * Fork releases (`x.y.9NN`) are notes for the fork's own builds, published on its GitHub
+ * releases. They have no translations, so the site lists official releases only.
+ */
+export function isForkRelease(version: string): boolean {
+  return /^\d+\.\d+\.9\d\d(?:\D|$)/.test(version);
+}
+
+const englishReleases = parseChangelog(englishChangelog, DEFAULT_LOCALE).filter(
+  (release) => !isForkRelease(release.version),
+);
 
 const releaseGroups: Record<Locale, ChangelogReleaseGroup[]> = {
   en: groupChangelogReleases(englishReleases),

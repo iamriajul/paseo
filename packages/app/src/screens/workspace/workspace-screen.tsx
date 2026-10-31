@@ -1534,6 +1534,11 @@ function WorkspaceScreenContent({
     if (!hasHydratedWorkspaceLayoutStore) {
       return;
     }
+    // Fork: a pending open (a deep link or `?open=`) is revealed once the workspace hydrates.
+    // Auto-opening agent tabs first activates whichever comes first, and that tab stays mounted.
+    if (pendingOpenTarget) {
+      return;
+    }
 
     const hasActivePendingDraftCreateInWorkspace = uiTabs.some((tab) => {
       if (tab.target.kind !== "draft") {
@@ -1565,6 +1570,7 @@ function WorkspaceScreenContent({
     normalizedServerId,
     normalizedWorkspaceId,
     pendingByDraftId,
+    pendingOpenTarget,
     persistenceKey,
     reconcileWorkspaceTabs,
     knownTerminalIds,

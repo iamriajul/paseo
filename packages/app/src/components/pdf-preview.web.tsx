@@ -20,9 +20,9 @@ interface PdfLoadState {
   failed: boolean;
 }
 
-function PdfLoadingIndicator() {
-  return <ActivityIndicator size="small" />;
-}
+// react-pdf calls a function `loading` inline during Document's render, so pass an element:
+// a compiled component called that way adds a hook to Document only while it loads.
+const pdfLoadingIndicator = <ActivityIndicator size="small" />;
 
 export function PdfPreview({ uri, label }: PdfPreviewProps) {
   const { t } = useTranslation();
@@ -70,7 +70,7 @@ export function PdfPreview({ uri, label }: PdfPreviewProps) {
       >
         <Document
           file={uri}
-          loading={PdfLoadingIndicator}
+          loading={pdfLoadingIndicator}
           error={null}
           noData={null}
           onLoadSuccess={showDocument}

@@ -46,11 +46,12 @@ npm test --workspace=@getpaseo/app -- src/panels/agent-tracks.test.ts src/heartb
 
 **PDF files open in a built-in PDF panel**
 
-v0.14.0 replaced the file pane's `FilePreviewBody` with a catalog of file panels (`packages/app/src/file-panels/`), and only plugins could claim binary files. The fork adds `builtin:pdf` to the catalog's rendering panels, so a `.pdf` opens in `PdfPreview` (react-pdf on web, react-native-pdf on phones) through `useFileUrl`. It is a `fallback` panel (`file-panels/resolve.ts`): it opens a PDF only when no plugin panel claims it, and Settings > Files never offers it, so upstream's plugin file panel specs hold unchanged. It sat ahead of plugin panels at first; that made every PDF plugin ask on open and replaced Source in Settings. Its title and icon live in `file-panels/choice/presentation.ts`.
+v0.14.0 replaced the file pane's `FilePreviewBody` with a catalog of file panels (`packages/app/src/file-panels/`), and only plugins could claim binary files. The fork adds `builtin:pdf` to the catalog's rendering panels, so a `.pdf` opens in `PdfPreview` (react-pdf on web, react-native-pdf on phones) through `useFileUrl`. It is a `fallback` panel (`file-panels/resolve.ts`): it opens a PDF only when no plugin panel claims it, and Settings > Files never offers it, so upstream's plugin file panel specs hold unchanged. It sat ahead of plugin panels at first; that made every PDF plugin ask on open and replaced Source in Settings. Its title and icon live in `file-panels/choice/presentation.ts`. The loading spinner goes to the PDF libraries as a plain render function (`renderPdfLoadingIndicator`) on phones and as an element on web, never as a component: react-native-pdf calls `renderActivityIndicator` from a class render, and the React Compiler gives every component-named function a memo-cache hook, so v0.14.900 crashed the Android app on every PDF open. Vitest does not run the compiler, so the proof is a grep.
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/file-panels/fork-builtin-panels.test.ts --bail=1
 grep -q '"builtin:pdf": PdfPanel' packages/app/src/file-panels/builtin.tsx
+grep -q 'renderActivityIndicator={renderPdfLoadingIndicator}' packages/app/src/components/pdf-preview.native.tsx
 ```
 
 ## office-file-preview

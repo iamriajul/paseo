@@ -5,7 +5,10 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
 import type { PdfPreviewProps } from "./pdf-preview";
 
-function PdfLoadingIndicator() {
+// react-native-pdf calls this from its class render, so it must stay a plain render function:
+// the React Compiler gives anything named like a component a memo-cache hook, and a hook
+// called from a class render crashes the app ("Invalid hook call").
+function renderPdfLoadingIndicator() {
   return <ActivityIndicator size="small" />;
 }
 
@@ -29,7 +32,7 @@ export function PdfPreview({ uri, label }: PdfPreviewProps) {
         source={source}
         style={styles.pdf}
         trustAllCerts={false}
-        renderActivityIndicator={PdfLoadingIndicator}
+        renderActivityIndicator={renderPdfLoadingIndicator}
         onError={showLoadError}
       />
     </View>

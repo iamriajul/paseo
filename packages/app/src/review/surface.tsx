@@ -29,14 +29,14 @@ import { createReviewEditorScope } from "./editor";
 import { isWeb } from "@/constants/platform";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import type { Theme } from "@/styles/theme";
-import { selectHostFeature, useHostFeature } from "@/runtime/host-features";
+import { useHostFeature } from "@/runtime/host-features";
 import { getHostRuntimeStore, useHostRuntimeConnectionStatus } from "@/runtime/host-runtime";
-import { useSessionStore } from "@/stores/session-store";
 import { clientReviewKeyToWireKey } from "@/ui-state/keys";
 import {
   handleUiStateUpdatedForReview,
   hydrateReviewFromHost,
-  upsertReviewOnHost,
+  readReviewDraftHostServerId,
+  syncReviewDraftToHost,
 } from "@/ui-state/review-host-sync";
 import {
   useReviewDraftComments,
@@ -119,24 +119,6 @@ export function groupInlineReviewCommentsByTarget(
     grouped.set(key, [...(grouped.get(key) ?? []), comment]);
   }
   return grouped;
-}
-
-function readReviewDraftHostServerId(reviewDraftKey: string): string | null {
-  const match = /(?:^|:)server=([^:]+)(?::|$)/.exec(reviewDraftKey);
-  return match?.[1] ?? null;
-}
-
-function syncReviewDraftToHost(reviewDraftKey: string): void {
-  const hostServerId = readReviewDraftHostServerId(reviewDraftKey);
-  if (!hostServerId || !selectHostFeature(useSessionStore.getState(), hostServerId, "uiState")) {
-    return;
-  }
-  const client = getHostRuntimeStore().getClient(hostServerId);
-  if (!client) {
-    return;
-  }
-  const comments = useReviewDraftStore.getState().drafts[reviewDraftKey] ?? [];
-  void upsertReviewOnHost({ client, clientReviewKey: reviewDraftKey, comments });
 }
 
 const reviewEditors = createReviewEditorScope({

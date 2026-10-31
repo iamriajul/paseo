@@ -10,6 +10,7 @@ import { deriveWorkspaceTabModel } from "@/screens/workspace/workspace-tab-model
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useAppSettings } from "@/hooks/use-settings";
 import { dispatchComposerAgentMessage } from "@/composer/actions";
+import { syncReviewDraftToHost } from "@/ui-state/review-host-sync";
 import { createMessageSubmissionWriter } from "@/composer/submission/writer";
 import { useSessionStore, selectAgentTurnPresentation } from "@/stores/session-store";
 import { FLOATING_ACTION_BUTTON_CLEARANCE } from "@/components/ui/floating-action-button";
@@ -99,8 +100,11 @@ export function useReviewFeedback(input: {
             { variant: "success" },
           );
         },
-        clearSent: (sentComments) =>
-          clearSentReviewDraftComments({ key: reviewDraftKey, comments: sentComments }),
+        clearSent: (sentComments) => {
+          clearSentReviewDraftComments({ key: reviewDraftKey, comments: sentComments });
+          // Fork: the host keeps a copy of the draft; without this a remount re-hydrates it.
+          syncReviewDraftToHost(reviewDraftKey);
+        },
         failedMessage: () => i18n.t("review.feedback.failed"),
       }),
     [reviewDraftKey, serverId, workspaceKey, workspaceId],

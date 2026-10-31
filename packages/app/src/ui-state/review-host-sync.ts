@@ -1,5 +1,8 @@
 import type { ReviewDraftComment } from "@/review/store";
 import { useReviewDraftStore } from "@/review/store";
+import { selectHostFeature } from "@/runtime/host-features";
+import { getHostRuntimeStore } from "@/runtime/host-runtime";
+import { useSessionStore } from "@/stores/session-store";
 import { clientReviewKeyToWireKey } from "./keys";
 
 export interface ReviewHostSyncClient {
@@ -105,6 +108,25 @@ export async function clearReviewOnHost(input: {
   } catch (error: unknown) {
     console.warn("[ui-state] review clear failed", error);
   }
+}
+
+export function readReviewDraftHostServerId(reviewDraftKey: string): string | null {
+  const match = /(?:^|:)server=([^:]+)(?::|$)/.exec(reviewDraftKey);
+  return match?.[1] ?? null;
+}
+
+/** Mirrors the local draft to its host, so a later hydrate cannot bring back what was removed. */
+export function syncReviewDraftToHost(reviewDraftKey: string): void {
+  const hostServerId = readReviewDraftHostServerId(reviewDraftKey);
+  if (!hostServerId || !selectHostFeature(useSessionStore.getState(), hostServerId, "uiState")) {
+    return;
+  }
+  const client = getHostRuntimeStore().getClient(hostServerId);
+  if (!client) {
+    return;
+  }
+  const comments = useReviewDraftStore.getState().drafts[reviewDraftKey] ?? [];
+  void upsertReviewOnHost({ client, clientReviewKey: reviewDraftKey, comments });
 }
 
 export function handleUiStateUpdatedForReview(input: {

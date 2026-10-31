@@ -308,14 +308,6 @@ jobs:
 
           npm run build:app-deps
 
-      - name: Build terminal webview
-        timeout-minutes: 5
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          npm run build:terminal-webview --workspace=@getpaseo/app
-
       - name: Prepare fork Android push credentials
         timeout-minutes: 5
         shell: bash

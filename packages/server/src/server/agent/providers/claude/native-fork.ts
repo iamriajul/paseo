@@ -38,8 +38,8 @@ export async function forkClaudeSessionAtMessage(input: {
   sdk: ClaudeRewindSdk;
   sessionId: string;
   upToMessageId: string;
-  /** Project cwd so the SDK can locate the session transcript. */
-  dir?: string;
+  /** The source transcript; the fork is written beside it. */
+  transcriptPath: string;
 }): Promise<{ forkedSessionId: string }> {
   if (!input.sessionId.trim()) {
     throw new Error("Claude session is not ready for native fork");
@@ -49,7 +49,7 @@ export async function forkClaudeSessionAtMessage(input: {
   }
   const fork = await input.sdk.forkSession(input.sessionId, {
     upToMessageId: input.upToMessageId,
-    ...(input.dir?.trim() ? { dir: input.dir.trim() } : {}),
+    transcriptPath: input.transcriptPath,
   });
   const forkedSessionId = fork.sessionId?.trim();
   if (!forkedSessionId) {

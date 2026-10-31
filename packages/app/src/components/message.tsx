@@ -1361,7 +1361,7 @@ export const SpeakMessage = memo(function SpeakMessage({
   const renderDetails = useCallback(
     () => (
       <View style={speakMessageStylesheet.detailContent}>
-        <MarkdownRenderer text={message} enableHtmlish={false} />
+        <MarkdownRenderer text={message} />
       </View>
     ),
     [message],

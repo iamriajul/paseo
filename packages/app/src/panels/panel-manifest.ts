@@ -79,6 +79,7 @@ const manifests = {
     supportedHosts: ["main", "explorer"],
     showCloseButton: true,
     singleton: false,
+    compactSheet: null,
     resourceKey: (target) => `${target.parentAgentId}:${target.taskId}`,
   },
   loop: {
@@ -86,6 +87,7 @@ const manifests = {
     supportedHosts: ["main", "explorer"],
     showCloseButton: true,
     singleton: false,
+    compactSheet: null,
     resourceKey: (target) => target.loopId,
   },
   terminal: {
@@ -109,6 +111,7 @@ const manifests = {
     supportedHosts: ["main"],
     showCloseButton: true,
     singleton: false,
+    compactSheet: null,
     resourceKey: (target) => target.codeServerId,
   },
   changes_tree: {
@@ -126,6 +129,7 @@ const manifests = {
     // Not singleton: the + menu always offers Todo, matching the behavior the
     // explorer rail menu pins.
     singleton: false,
+    compactSheet: null,
     resourceKey: () => "todo",
   },
   files: {

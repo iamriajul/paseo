@@ -2241,6 +2241,8 @@ export const es: TranslationResources = {
           html: "HTML",
           image: "Imagen",
           source: "Código fuente",
+          pdf: "PDF",
+          office: "Documento de Office",
         },
       },
       directoryMissing: "No se encontró el directorio de Workspace.",

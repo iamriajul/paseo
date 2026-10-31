@@ -119,7 +119,8 @@ function getFallbackTabOptionDescription(
   if (tab.target.kind === "plugin") {
     return tab.target.panelId;
   }
-  return tab.target.path;
+  // Fork tab kinds (todo, background task, loop, code server) carry no path.
+  return "path" in tab.target ? tab.target.path : labels.agent;
 }
 
 interface MobileWorkspaceTabSwitcherProps {

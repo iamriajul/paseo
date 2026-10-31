@@ -76,8 +76,8 @@ export function AssistantFileLinkResolverProvider({
     serverId,
     workspaceRoot,
     relativePathBase,
-      onOpenWorkspaceFile,
-      onOpenLocalhostUrl,
+    onOpenWorkspaceFile,
+    onOpenLocalhostUrl,
     toast,
   };
 

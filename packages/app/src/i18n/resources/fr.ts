@@ -2241,6 +2241,8 @@ export const fr: TranslationResources = {
           html: "HTML",
           image: "Image",
           source: "Source",
+          pdf: "PDF",
+          office: "Document Office",
         },
       },
       directoryMissing: "Répertoire de l’espace de travail introuvable.",

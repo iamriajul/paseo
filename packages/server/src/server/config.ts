@@ -697,6 +697,7 @@ export function resolveConfigFromPersisted(
   };
 }
 
+// eslint-disable-next-line complexity -- fork reloadable settings
 export function resolveReloadableConfig(
   persisted: PersistedConfig,
   options?: ResolveConfigFromPersistedOptions,

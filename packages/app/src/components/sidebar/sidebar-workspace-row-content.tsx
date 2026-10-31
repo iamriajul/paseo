@@ -50,10 +50,9 @@ const needsInputColorMapping = (theme: Theme) => ({
   fill: getStatusDotColor({ theme, bucket: "needs_input" }) ?? undefined,
 });
 
+const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+
 const ThemedCircleAlert = withUnistyles(CircleAlert);
-const ThemedMonitor = withUnistyles(Monitor);
-const ThemedFolder = withUnistyles(Folder);
-const ThemedFolderGit2 = withUnistyles(FolderGit2);
 const ThemedTerminal = withUnistyles(Terminal);
 
 export function SidebarWorkspaceRowFrame({

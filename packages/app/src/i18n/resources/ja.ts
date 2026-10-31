@@ -2216,6 +2216,8 @@ export const ja: TranslationResources = {
           html: "HTML",
           image: "画像",
           source: "ソース",
+          pdf: "PDF",
+          office: "Office 文書",
         },
       },
       directoryMissing: "ワークスペースディレクトリが見つかりません。",

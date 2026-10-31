@@ -533,6 +533,7 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
     stopBackgroundTask: inner.stopBackgroundTask?.bind(inner),
     readBackgroundTaskOutput: inner.readBackgroundTaskOutput?.bind(inner),
     resolveNativeForkUpToMessageId: inner.resolveNativeForkUpToMessageId?.bind(inner),
+    resolveNativeForkTranscriptPath: inner.resolveNativeForkTranscriptPath?.bind(inner),
     close: () => inner.close(),
     canStopRuntime: inner.canStopRuntime?.bind(inner),
     listCommands: inner.listCommands?.bind(inner),
@@ -1027,6 +1028,7 @@ function addDerivedProviders(
   }
 }
 
+// eslint-disable-next-line complexity -- fork gateway and catalog enrichment
 export function buildProviderRegistry(
   logger: Logger,
   options?: BuildProviderRegistryOptions,

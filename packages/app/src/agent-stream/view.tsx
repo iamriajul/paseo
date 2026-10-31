@@ -91,7 +91,6 @@ import {
   type InFlightTurnForkHandler,
   type TurnContentStrategy,
 } from "./turn-footer";
-import { AssistantSelectionCopySurface } from "@/assistant-selection-copy/surface";
 import { resolveAssistantForkStrategy } from "./fork-strategy";
 import { resolveBottomOverlayTailInset } from "./bottom-overlay-inset";
 import { layoutStream, type StreamLayoutItem } from "./layout";

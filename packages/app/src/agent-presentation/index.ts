@@ -48,16 +48,20 @@ export function useAgentDescriptor(
         requiresAttention: agent?.requiresAttention ?? false,
         attentionReason: agent?.attentionReason ?? null,
         isTurnActive: selectAgentTurnPresentation(session, target.agentId).isActive,
-        rateLimitCooldown: agent?.rateLimitCooldown ?? null,
       };
     }),
   );
+  const rateLimitCooldown = useSessionStore((state) => {
+    const session = state.sessions[context.serverId];
+    const agent =
+      session?.agents?.get(target.agentId) ?? session?.agentDetails?.get(target.agentId);
+    return agent?.rateLimitCooldown ?? null;
+  });
   const { t } = useTranslation();
   const icon = useProviderIcon(descriptorState.provider, context.serverId);
-  const isCooldown = useIsRateLimitCooldownActive(descriptorState.rateLimitCooldown);
-  const { rateLimitCooldown: _rateLimitCooldown, ...state } = descriptorState;
+  const isCooldown = useIsRateLimitCooldownActive(rateLimitCooldown);
   return buildAgentDescriptor({
-    ...state,
+    ...descriptorState,
     icon,
     cooldownTitle: isCooldown ? t("rateLimitCooldown.title") : null,
   });

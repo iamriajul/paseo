@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { useRouter } from "expo-router";
 import { Eye } from "lucide-react-native";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
@@ -10,7 +9,7 @@ import {
   useAttentionBannerStore,
   type AttentionBannerPayload,
 } from "@/stores/attention-banner-store";
-import { buildNotificationRoute } from "@/utils/notification-routing";
+import { openNotificationTarget } from "@/utils/open-notification-target";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import { getOverlayRoot, OVERLAY_Z } from "@/lib/overlay-root";
@@ -33,7 +32,6 @@ interface PeekedNotification {
 export function AttentionBannerHost() {
   const banner = useAttentionBannerStore((state) => state.banner);
   const dismiss = useAttentionBannerStore((state) => state.dismiss);
-  const router = useRouter();
   const isCompact = useIsCompactFormFactor();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [peeked, setPeeked] = useState<PeekedNotification | null>(null);
@@ -63,11 +61,10 @@ export function AttentionBannerHost() {
 
   const handleOpen = useCallback(
     (payload: AttentionBannerPayload) => {
-      const route = buildNotificationRoute(payload.data);
       dismiss();
-      router.navigate(route);
+      openNotificationTarget(payload.data);
     },
-    [dismiss, router],
+    [dismiss],
   );
 
   const handlePress = useCallback(() => {

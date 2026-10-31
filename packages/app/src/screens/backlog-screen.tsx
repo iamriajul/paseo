@@ -48,7 +48,7 @@ import {
   AdaptiveTextInput,
   type SheetHeader,
 } from "@/components/adaptive-modal-sheet";
-import { SidebarMenuToggle } from "@/components/headers/menu-header";
+import { SidebarMenuToggle } from "@/components/headers/sidebar-menu-toggle";
 import { ScreenHeader } from "@/components/headers/screen-header";
 import { ScreenTitle } from "@/components/headers/screen-title";
 import { Button } from "@/components/ui/button";
@@ -166,6 +166,15 @@ const VIEW_MODE_OPTIONS: SegmentedControlOption<BacklogViewMode>[] = [
     icon: renderListIcon,
   },
 ];
+
+function activeConnectionIdFor(serverId: string): string | null {
+  return getHostRuntimeStore().getSnapshot(serverId)?.activeConnectionId ?? null;
+}
+
+// Task attachments are served only by the HTTP download route; there is no session-socket read.
+function readAttachmentOverSession(): Promise<never> {
+  return Promise.reject(new Error("Host download URL is not available"));
+}
 
 export function BacklogScreen({
   serverId,
@@ -377,13 +386,13 @@ function ProjectBacklogScreen({
 
   const buildAttachmentUri = useCallback(
     (token: string) => {
-      const target = resolveDaemonDownloadTarget(daemonProfile);
-      if (!target.baseUrl) {
+      const target = resolveDaemonDownloadTarget(daemonProfile, activeConnectionIdFor(serverId));
+      if (!target?.baseUrl) {
         throw new Error("Host download URL is not available");
       }
       return buildDownloadUrl(target.baseUrl, token, isWeb ? target.authCredentials : null);
     },
-    [daemonProfile],
+    [daemonProfile, serverId],
   );
 
   const handleAttachmentPress = useCallback(
@@ -412,11 +421,14 @@ function ProjectBacklogScreen({
           fileName: attachment.fileName,
           path: attachment.id,
           daemonProfile,
+          activeConnectionId: activeConnectionIdFor(serverId),
+          readFile: readAttachmentOverSession,
           requestFileDownloadToken: async () =>
             requestAttachmentToken(task.id, attachment).then((token) => ({
               token: token.token,
               fileName: token.fileName,
               mimeType: token.mimeType,
+              size: null,
               error: token.error,
             })),
         });
@@ -866,8 +878,11 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
 
   const buildAttachmentUri = useCallback(
     (serverId: string, token: string) => {
-      const target = resolveDaemonDownloadTarget(hostProfileByServerId.get(serverId));
-      if (!target.baseUrl) {
+      const target = resolveDaemonDownloadTarget(
+        hostProfileByServerId.get(serverId),
+        activeConnectionIdFor(serverId),
+      );
+      if (!target?.baseUrl) {
         throw new Error("Host download URL is not available");
       }
       return buildDownloadUrl(target.baseUrl, token, isWeb ? target.authCredentials : null);
@@ -901,11 +916,14 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
           fileName: attachment.fileName,
           path: attachment.id,
           daemonProfile: hostProfileByServerId.get(task.serverId),
+          activeConnectionId: activeConnectionIdFor(task.serverId),
+          readFile: readAttachmentOverSession,
           requestFileDownloadToken: async () =>
             requestAttachmentToken(task, attachment).then((token) => ({
               token: token.token,
               fileName: token.fileName,
               mimeType: token.mimeType,
+              size: null,
               error: token.error,
             })),
         });

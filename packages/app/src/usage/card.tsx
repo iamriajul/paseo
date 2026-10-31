@@ -17,6 +17,7 @@ import type { TFunction } from "i18next";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { UsageBalanceBar } from "./balance-bar";
 import type { UsageDisplay } from "./display";
+import { usageCopy } from "./copy";
 import { formatAgo, formatProviderUsageLabel } from "./format";
 import { resolveUsageReport, type UsageRefresh } from "./model";
 import { resetProviderUsageQuota, useReportRefresh } from "./queries";

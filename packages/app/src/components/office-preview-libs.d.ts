@@ -35,6 +35,7 @@ declare module "@js-preview/excel" {
 
 declare module "pptx-preview" {
   interface OfficeDomPreviewer {
+    readonly slideCount: number;
     preview(data: ArrayBuffer): Promise<void>;
     destroy(): void;
   }

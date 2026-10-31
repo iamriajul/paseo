@@ -330,12 +330,27 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
       return;
     }
     return client.on("ui_state.updated", (message) => {
+      const before = useDraftStore.getState().getDraftInput(draftKey)?.text ?? "";
       handleUiStateUpdatedForComposer({
         message,
         resolveClientDraftKeys: (key) => (key === wireKey ? [draftKey] : []),
       });
+      // The input owns its text since upstream isolated typing, so a store write alone never
+      // reaches the screen. Publish the accepted remote text the way hydration does.
+      const after = useDraftStore.getState().getDraftInput(draftKey)?.text ?? "";
+      if (after !== before) {
+        textPublication.cancel();
+        publishTextReplacement("replace", after);
+      }
     });
-  }, [draftKey, hostServerId, isHostOnline, supportsUiState]);
+  }, [
+    draftKey,
+    hostServerId,
+    isHostOnline,
+    publishTextReplacement,
+    supportsUiState,
+    textPublication,
+  ]);
 
   const providerSelection = useMemo<ProviderSelectionState>(
     () => ({

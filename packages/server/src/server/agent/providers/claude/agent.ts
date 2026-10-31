@@ -49,6 +49,7 @@ import {
   isClaudeCustomNonFamilyModel,
   resolveClaudeMaxOutputTokens,
   resolveClaudeContextWindowMaxTokens,
+  resolveConfiguredClaudeContextWindow,
   resolveClaudeInputModalities,
   getClaudeModelsWithSettings,
   normalizeClaudeRuntimeModelId,
@@ -2459,6 +2460,9 @@ function readClaudeParentToolUseId(message: SDKMessage): string | null {
 
 class ClaudeContextUsageState {
   private contextWindowMaxTokens: number | undefined;
+  // A profile-configured window outranks a smaller one Claude Code reports; a catalog or [1m]
+  // seed does not, so the reported window replaces it.
+  private configuredContextWindowMaxTokens: number | undefined;
   private streamRequestInputUsage: StreamRequestInputUsage | undefined;
   private streamRequestOutputTokens: number | undefined;
   private compactedContextWindowUsedTokens: number | undefined;
@@ -2478,11 +2482,18 @@ class ClaudeContextUsageState {
     this.contextWindowMaxTokens = contextWindowMaxTokens;
   }
 
+  setConfiguredContextWindowMaxTokens(contextWindowMaxTokens: number | undefined): void {
+    this.configuredContextWindowMaxTokens = contextWindowMaxTokens;
+  }
+
   recordModelUsage(modelUsage: unknown, modelId: string | null | undefined): number | undefined {
-    this.contextWindowMaxTokens = preferConfiguredClaudeContextWindow(
-      this.contextWindowMaxTokens,
+    const window = preferConfiguredClaudeContextWindow(
+      this.configuredContextWindowMaxTokens,
       extractContextWindowSize(modelUsage, modelId),
     );
+    if (window !== undefined) {
+      this.contextWindowMaxTokens = window;
+    }
     return this.contextWindowMaxTokens;
   }
 
@@ -2771,6 +2782,12 @@ class ClaudeAgentSession implements AgentSession {
     this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
     this.contextUsage = new ClaudeContextUsageState(
       resolveClaudeContextWindowMaxTokens({
+        modelId: this.config.model,
+        profileModels: this.profileModels,
+      }),
+    );
+    this.contextUsage.setConfiguredContextWindowMaxTokens(
+      resolveConfiguredClaudeContextWindow({
         modelId: this.config.model,
         profileModels: this.profileModels,
       }),
@@ -3191,6 +3208,12 @@ class ClaudeAgentSession implements AgentSession {
     }
     this.contextUsage.setInitialContextWindowMaxTokens(
       resolveClaudeContextWindowMaxTokens({
+        modelId: this.config.model,
+        profileModels: this.profileModels,
+      }),
+    );
+    this.contextUsage.setConfiguredContextWindowMaxTokens(
+      resolveConfiguredClaudeContextWindow({
         modelId: this.config.model,
         profileModels: this.profileModels,
       }),

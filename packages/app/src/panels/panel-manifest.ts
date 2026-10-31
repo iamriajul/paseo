@@ -134,7 +134,8 @@ const manifests = {
   },
   ports: {
     kind: "ports",
-    supportedHosts: ["explorer", "main"],
+    // Explorer-only like Changes and Files, so the main pane's New-tab launcher matches official.
+    supportedHosts: ["explorer"],
     showCloseButton: true,
     singleton: true,
     compactSheet: null,

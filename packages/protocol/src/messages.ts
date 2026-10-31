@@ -3548,6 +3548,20 @@ export const HubExecutionControlRequestSchema = z.object({
 
 export type HubExecutionControlRequest = z.infer<typeof HubExecutionControlRequestSchema>;
 
+/**
+ * The fork's live pushes. The daemon delivers them to a modern client only as subscribed session
+ * events, and clients request them only when server_info.features.forkSessionEvents is set: an
+ * older daemon rejects the whole subscription over an event name it does not know. Server gate
+ * and app subscription both read this list, so a new push cannot be added to one and missed.
+ */
+export const FORK_SESSION_EVENTS = [
+  "ui_state.updated",
+  "workspace.todos.update",
+  "agent.background_tasks.update",
+  "agent.background_tasks.output.update",
+  "agent.provider_heartbeats.update",
+] as const;
+
 // These connection event streams have no directory bootstrap or timeline membership.
 export const SessionEventSubscriptionSchema = z.enum([
   "project.update",
@@ -3567,13 +3581,7 @@ export const SessionEventSubscriptionSchema = z.enum([
   "activity_log",
   "hub.execution.agent.update",
   "hub.execution.agent.stream",
-  // Fork pushes. Clients request these only when server_info.features.forkSessionEvents is set:
-  // an older daemon rejects the whole subscription over an event name it does not know.
-  "ui_state.updated",
-  "workspace.todos.update",
-  "agent.background_tasks.update",
-  "agent.background_tasks.output.update",
-  "agent.provider_heartbeats.update",
+  ...FORK_SESSION_EVENTS,
 ]);
 export type SessionEventSubscription = z.infer<typeof SessionEventSubscriptionSchema>;
 export const SessionEventsSetSubscriptionRequestSchema = z.object({

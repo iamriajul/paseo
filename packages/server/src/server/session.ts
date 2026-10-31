@@ -43,6 +43,7 @@ import {
   type ProjectPlacementPayload,
   type WorkspaceSetupSnapshot,
   type WorkspaceDescriptorPayload,
+  FORK_SESSION_EVENTS,
 } from "./messages.js";
 import type {
   TerminalManager,
@@ -9919,14 +9920,6 @@ function isValidGitHubRepoSegment(value: string): boolean {
 
 // Fork pushes. Since owned subscriptions, a modern socket drops anything that is neither a reply
 // nor a subscribed event, so these must be categories the app subscribes to.
-const FORK_SESSION_EVENTS = [
-  "ui_state.updated",
-  "workspace.todos.update",
-  "agent.background_tasks.update",
-  "agent.background_tasks.output.update",
-  "agent.provider_heartbeats.update",
-] as const satisfies readonly SessionEventSubscription[];
-
 function isForkSessionEvent(type: string): type is (typeof FORK_SESSION_EVENTS)[number] {
   return (FORK_SESSION_EVENTS as readonly string[]).includes(type);
 }

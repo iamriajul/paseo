@@ -46,7 +46,7 @@ npm test --workspace=@getpaseo/app -- src/panels/agent-tracks.test.ts src/heartb
 
 **PDF files open in a built-in PDF panel**
 
-v0.14.0 replaced the file pane's `FilePreviewBody` with a catalog of file panels (`packages/app/src/file-panels/`), and only plugins could claim binary files. The fork adds `builtin:pdf` to the catalog's rendering panels, so a `.pdf` opens in `PdfPreview` (react-pdf on web, react-native-pdf on phones) through `useFileUrl`, ahead of any plugin panel. Its title and icon live in `file-panels/choice/presentation.ts`.
+v0.14.0 replaced the file pane's `FilePreviewBody` with a catalog of file panels (`packages/app/src/file-panels/`), and only plugins could claim binary files. The fork adds `builtin:pdf` to the catalog's rendering panels, so a `.pdf` opens in `PdfPreview` (react-pdf on web, react-native-pdf on phones) through `useFileUrl`. It is a `fallback` panel (`file-panels/resolve.ts`): it opens a PDF only when no plugin panel claims it, and Settings > Files never offers it, so upstream's plugin file panel specs hold unchanged. It sat ahead of plugin panels at first; that made every PDF plugin ask on open and replaced Source in Settings. Its title and icon live in `file-panels/choice/presentation.ts`.
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/file-panels/fork-builtin-panels.test.ts --bail=1
@@ -57,7 +57,7 @@ grep -q '"builtin:pdf": PdfPanel' packages/app/src/file-panels/builtin.tsx
 
 **render Word, Excel, and PowerPoint in the file pane**
 
-The daemon labels the Open XML extensions with their media types, and the `builtin:office` file panel renders those files on every platform. Web paints into the page. Phone builds load the same renderers in a WebView, one document per format, the way the terminal hosts its browser library. A daemon that still sends application/octet-stream is recognized by extension. Legacy .doc and .ppt stay unavailable. The panel's extension list in `file-panels/catalog.ts` follows `OFFICE_PREVIEW_FORMATS` in `file-explorer/office.ts`.
+The daemon labels the Open XML extensions with their media types, and the `builtin:office` file panel renders those files on every platform, as a fallback a plugin panel overrides (see `pdf-file-preview`). Web paints into the page. Phone builds load the same renderers in a WebView, one document per format, the way the terminal hosts its browser library. A daemon that still sends application/octet-stream is recognized by extension. Legacy .doc and .ppt stay unavailable. The panel's extension list in `file-panels/catalog.ts` follows `OFFICE_PREVIEW_FORMATS` in `file-explorer/office.ts`.
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/file-explorer/office.test.ts src/file-panels/fork-builtin-panels.test.ts --bail=1
@@ -269,8 +269,11 @@ npx vitest run packages/app/src/components/markdown/fence/mermaid/render-model.t
 
 input-draft keeps host ui_state sync so composer text survives switching devices
 
+Review drafts sync the same way (`ui-state/review-host-sync.ts`). Every path that removes comments locally must also write the host copy: the review surface hydrates from the host when it mounts, so a comment removed only locally comes back. v0.14.0's Send feedback clears sent comments through `clearSentReviewDraftComments`, so `review/feedback/use-feedback.ts` calls `syncReviewDraftToHost` after it; without that, official's `composer-diff-stat` spec sees the review pill return after a layout switch.
+
 ```bash
 npx vitest run packages/app/src/composer/draft/input-draft.test.ts packages/app/src/ui-state/composer-host-sync.test.ts packages/protocol/src/ui-state/schemas.test.ts --bail=1
+grep -q 'syncReviewDraftToHost(reviewDraftKey)' packages/app/src/review/feedback/use-feedback.ts
 ```
 
 ## mobile-push-diagnostics
@@ -342,12 +345,22 @@ npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src
 
 **the workspace's script ports open as a Ports tab**
 
-The Ports list (`components/explorer-ports-pane.tsx`) was a fixed tab of the fork's compact Explorer. v0.14.0 deleted that Explorer (`compact-explorer-sidebar.tsx`) and runs every layout on ordinary workspace tabs, which dropped Ports. It is now a `ports` tab kind like Todo: a panel (`panels/ports-panel.tsx`), a launcher entry after Todo, and a singleton the Explorer or a main pane can host. It is not a default Explorer tab, so the Explorer's tab count matches official.
+The Ports list (`components/explorer-ports-pane.tsx`) was a fixed tab of the fork's compact Explorer. v0.14.0 deleted that Explorer (`compact-explorer-sidebar.tsx`) and runs every layout on ordinary workspace tabs, which dropped Ports. It is now a `ports` tab kind like Todo: a panel (`panels/ports-panel.tsx`), a launcher entry after Todo, and a singleton only the Explorer hosts, like Changes and Files. It is not a default Explorer tab, so the Explorer's tab count matches official. It could open in a main pane at first; that added a tile to the main pane's New-tab launcher and broke official's `explorer-pane-placement` spec, which clicks above the centred launcher.
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/workspace-tabs/launcher/internal/catalog.test.ts --bail=1
-grep -q 'kind: "ports"' packages/app/src/panels/panel-manifest.ts
+grep -A2 'kind: "ports"' packages/app/src/panels/panel-manifest.ts | grep -q 'supportedHosts: \["explorer"\]'
 grep -q 'portsPanelRegistration' packages/app/src/panels/register-panels.ts
+```
+
+## replica-repaint-keeps-reply-in-tail
+
+**a second cache prepare leaves the rows it already painted alone**
+
+`prepareCachedTimeline` (`packages/app/src/timeline/viewed-timeline-sync.ts`) runs again whenever a chat is prepared after an earlier preparation settled. When the timeline is still `painted` from that same cached replica, upstream hands the painted rows back in as the live head, and `preserveReplacementHead` keeps the finished last reply there because its text starts with the canonical copy. A head row makes the latest turn read as open, so Collapse turns never folds it after a reload. Official's suite does not reach it: against an official daemon the reloaded app sends no directory cursor and gets a full agent snapshot, while against the fork daemon it resumes with a delta that changes nothing and the chat stays painted (observed in `turn-collapse.spec.ts`, the cause of the cursor difference not traced). The fork returns early when the painted rows are exactly the stored rows and there is no live head.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/timeline/replica.test.ts -t "prepared again" --bail=1
 ```
 
 ## live-user-message-flush
@@ -404,10 +417,11 @@ npx vitest run packages/app/src/components/sidebar/workspace-meta-row/meta-items
 
 **auto-resume running agents after power cut**
 
-resume agents that were running when daemon shut down unexpectedly (SIGTERM/powercut/UPS) by sending 'Resume - there was a power cut' on next boot; intentional daemon stop via client_shutdown_rpc skips; Hub-owned executions (owner kind daemon) never resume at daemon level — the Hub protocol replays or closes them itself, and resuming resurrects agents Hub already closed
+resume agents that were running when daemon shut down unexpectedly (SIGTERM/powercut/UPS) by sending 'Resume - there was a power cut' on next boot; intentional daemon stop via client_shutdown_rpc skips; Hub-owned executions (owner kind daemon) never resume at daemon level — the Hub protocol replays or closes them itself, and resuming resurrects agents Hub already closed. The candidates are the stored records read when the registry loads, because the resume itself waits for the boot catalog warm-up; by then an agent created or prompted since boot also reads as running, and resuming it would interrupt live work. The resume prompt also refuses to replace a run (`replaceRunning: false`).
 
 ```bash
 npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail=1
+grep -q 'bootRecords: autoResumeBootRecords' packages/server/src/server/bootstrap.ts
 ```
 
 ## agent-auto-resume-system-envelope
@@ -513,6 +527,16 @@ The evidence is timing, not logic: `sessions-search-hosts:45` took 7.0m on attem
 grep -q 'E2E_WORKERS: "1"' .github/workflows/ci.yml
 ! grep -q 'E2E_WORKERS: "2"' .github/workflows/ci.yml
 grep -q 'PLAYWRIGHT_SHARD: "8/8"' .github/workflows/ci.yml
+```
+
+## archive-responds-before-cleanup
+
+**workspace archive answers on the record, not on disk cleanup**
+
+archive_workspace_request resolves once archivedAt is durable and runs paseo.json worktree.teardown plus the directory removal in the background, after giving that cleanup a 15s grace (`ARCHIVE_DIRECTORY_CLEANUP_GRACE_MS` in session.ts) so an ordinary archive still answers with its directory gone, which v0.14.0's worktree e2e asserts. A slow teardown no longer pushes the reply past the client's 60s RPC timeout and the client no longer restores a workspace the daemon archived; the archived state is published before the slow phase so other clients converge, the settling emit still runs after it, and teardown commands are bounded by PASEO_WORKTREE_TEARDOWN_TIMEOUT_MS (default 10 minutes) with the timeout named in the failure
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/workspace-archive-service.test.ts packages/server/src/server/session.workspaces.test.ts packages/server/src/utils/worktree.posix.test.ts --bail=1
 ```
 
 ## fork-apk-setup-android-packages
@@ -650,9 +674,9 @@ npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/
 
 ## gateway-latest-request
 
-**CLIProxyAPI last-request stats in the context-meter tooltip, fetched on hover only**
+**CLIProxyAPI last-request stats in the context-meter tooltip, polled while it is open**
 
-The `cliproxyapi.stats.get` RPC (gated on `server_info.features.cliproxyapiStats`) reads `/v1/last-request-stats`, and the meter's tooltip renders a "CLIProxyAPI latest request" table next to quota: first token and generating above a rule, then the derived total, throughput, and age. It fetches on open and refetches on every re-open, with no interval: the value describes the _last_ request, so polling would keep asserting a rate for work that stopped. A missing route, an unrun model, and a bad key all hide the section. CLIProxyAPI renamed the route from `/v1/last-request-tps` to `/v1/last-request-stats` in v8.0.902 with the body unchanged and the old path dropped. Because the feature shipped unreleased, Paseo also renamed its own RPC from `cliproxyapi.tps.get` to `cliproxyapi.stats.get` rather than carry a wire alias forever for a name that was never public.
+The `cliproxyapi.stats.get` RPC (gated on `server_info.features.cliproxyapiStats`) reads `/v1/last-request-stats`, and the meter's tooltip renders a "CLIProxyAPI latest request" table next to quota: first token and generating above a rule, then the derived total, throughput, and age. It polls every 3s while the tooltip is open and stops with it, so someone watching throughput sees it move without a closed tooltip costing anything. A missing route, an unrun model, and a bad key all hide the section. CLIProxyAPI renamed the route from `/v1/last-request-tps` to `/v1/last-request-stats` in v8.0.902 with the body unchanged and the old path dropped. Because the feature shipped unreleased, Paseo also renamed its own RPC from `cliproxyapi.tps.get` to `cliproxyapi.stats.get` rather than carry a wire alias forever for a name that was never public.
 
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/stats.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
@@ -667,6 +691,18 @@ cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 
 ```bash
 npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+```
+
+## cliproxyapi-terminal-tui-routing
+
+**terminal tabs route harnesses through CLIProxyAPI, via generated shims**
+
+A terminal tab launches harnesses as ordinary child processes, so the agent path never injects gateway routing there. Paseo writes `claude`, `codex`, and `opencode` shims into a shim directory under `$PASEO_HOME` (`harness-shims`, or `cmd-shims` on Windows where the wrappers are `.cmd`) and prepends that directory to terminal PATH; OMP reads `LITELLM_*` from env and needs no shim. Env alone would not do: Codex only accepts its `model_providers` map from argv, and injected env would put three gateway credentials in front of every unrelated process in the shell. Shims are rewritten per terminal create, so a gateway edit reaches new terminals without a daemon restart. `PASEO_CLIPROXYAPI_DISABLE_SHIM=1` bypasses one invocation. Terminal-only by construction — the shim directory never reaches provider env, where the agent path already injects the same routing.
+
+What a terminal gets is routing, not the full launch contract. A Claude terminal receives the endpoint and key only: Claude asks `/v1/models` for a model's id and description, so a Gateway model is one it does not recognise and runs at its 200k default no matter what the Gateway advertises. The agent path sets the window because it knows the model before launch; a TUI session picks afterwards. `ANTHROPIC_CUSTOM_MODEL_OPTION_*` and the Fable naming are likewise agent-path only. Do not read the shims as parity with the agent path — Codex and OpenCode terminals do reach their advertised limits, Claude does not.
+
+```bash
+npx vitest run packages/server/src/terminal/harness-shims.test.ts packages/server/src/terminal/harness-shim-writer.test.ts packages/server/src/terminal/harness-routing.test.ts packages/server/src/terminal/worker-terminal-manager.test.ts --bail=1
 ```
 
 ## gateway-codex-catalog-shape
@@ -847,7 +883,7 @@ grep -q "CACHE_WARM_FEATURE_ID" packages/app/src/agent-controls/policy.ts
 
 **load older history when the chat is too short to scroll**
 
-History-start pagination starts dormant and waits for scroll intent, so opening an agent does not walk its history. When the rendered tail fits the viewport there is nothing to scroll, and Android delivers no drag events to an unscrollable list, so the chat stayed stuck on its tail. Ten cache warm-ups in a row do this: each renders one `CacheWarmedMarker` row and hides its reply. `contentFitsViewport` lets a dormant list load without intent; the existing settle loop then keeps loading until the content overflows or history runs out.
+History-start pagination starts dormant and waits for scroll intent, so opening an agent does not walk its history. When the rendered tail fits the viewport there is nothing to scroll, and Android delivers no drag events to an unscrollable list, so the chat stayed stuck on its tail. Ten cache warm-ups in a row do this: each renders one `CacheWarmedMarker` row and hides its reply. `contentFitsViewport` lets a dormant list load without intent on native; the existing settle loop then keeps loading until the content overflows or history runs out. Web passes `false`: its wheel listener rearms pagination on an unscrollable list, and auto-loading there broke official's `turn-collapse` spec, where a collapsed long turn fits the viewport and history must wait for the user's scroll.
 
 Two races stranded the same list after a cold start, reproduced on the Android emulator in 3 of 5 reopens after warm-ups ran with the app closed:
 
@@ -857,4 +893,14 @@ Two races stranded the same list after a cold start, reproduced on the Android e
 ```bash
 npm --prefix packages/app run test -- src/agent-stream/history-start-pagination.test.ts -t "too short to scroll|latch was set at an older position"
 npm --prefix packages/app run test -- src/agent-stream/use-stream-history-window.test.tsx -t "same commit"
+```
+
+## website-changelog-official-only
+
+**the website changelog lists official releases only**
+
+The fork records its own releases (`x.y.9NN`) in `CHANGELOG.md`, and its GitHub release notes come from there. v0.14.0's website renders that file, now with a Chinese translation beside it, and shows an untranslated notice for every release missing from `CHANGELOG.zh-CN.md`. Fork entries have no translation, so `packages/website/src/changelog.ts` drops `x.y.9NN` versions before rendering.
+
+```bash
+npx vitest run packages/website/src/changelog.test.ts --bail=1 -t "fork releases"
 ```

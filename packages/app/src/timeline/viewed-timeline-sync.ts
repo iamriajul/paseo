@@ -26,11 +26,24 @@ import {
   processTimelineResponse,
 } from "./session-stream-reducers";
 import { isTimelineResumeSnapshotAuthoritative } from "./timeline-sync-plan";
-import { replaceWithCanonicalStream } from "@/types/stream";
+import { replaceWithCanonicalStream, type StreamItem } from "@/types/stream";
 
 export interface TimelineReplicaStorage {
   readTimeline(serverId: string, agentId: string): Promise<CachedTimeline | undefined>;
   commitTimeline(serverId: string, agentId: string, timeline: CachedTimeline): void;
+}
+
+function isPaintedFromReplica(
+  timeline: AgentTimelineState,
+  head: StreamItem[] | undefined,
+  stored: StreamItem[],
+): boolean {
+  return (
+    timeline.status === "painted" &&
+    (head?.length ?? 0) === 0 &&
+    timeline.items.length === stored.length &&
+    timeline.items.every((item, index) => item.id === stored[index]?.id)
+  );
 }
 
 async function prepareCachedTimeline(input: {
@@ -59,6 +72,9 @@ async function prepareCachedTimeline(input: {
     }
     if (currentTimeline.status !== "cold") return undefined;
   }
+  // Fork: a second prepare over rows this replica already painted would hand them back in as
+  // the live head, and the canonical last reply would land in the head as an open turn.
+  if (isPaintedFromReplica(currentTimeline, currentHead, stored.items)) return stored;
   const liveItems =
     currentTimeline.status === "painted"
       ? [...currentTimeline.items, ...(currentHead ?? [])]

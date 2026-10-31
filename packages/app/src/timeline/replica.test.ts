@@ -437,6 +437,29 @@ describe("viewed timeline persistence", () => {
     expect(replica.readCursor(AGENT_ID)).toEqual({ epoch: "epoch-1", endSeq: 4 });
   });
 
+  it("keeps a finished reply in the tail when the same replica is prepared again", async () => {
+    useSessionStore.getState().initializeSession(SERVER_ID, null);
+    const reply = item("reply", "Done.", 4);
+    const cached: CachedTimeline = {
+      agentId: AGENT_ID,
+      items: [item("earlier", "Done", 3), reply],
+      range: { epoch: "epoch-1", startSeq: 1, endSeq: 4 },
+      hasOlder: false,
+    };
+    const replica = createTimelineReplica({
+      serverId: SERVER_ID,
+      storage: { readTimeline: async () => cached, commitTimeline: () => undefined },
+      prepareAgent: async () => undefined,
+    });
+
+    await replica.prepare(AGENT_ID);
+    await replica.prepare(AGENT_ID);
+
+    const session = useSessionStore.getState().sessions[SERVER_ID];
+    expect(session?.agentStreamTail.get(AGENT_ID)).toEqual(cached.items);
+    expect(session?.agentStreamHead.get(AGENT_ID) ?? []).toEqual([]);
+  });
+
   it("persists accepted live stream commits through the owner", () => {
     useSessionStore.getState().initializeSession(SERVER_ID, null);
     applySynced(AGENT_ID, 8);

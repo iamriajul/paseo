@@ -172,6 +172,7 @@
     "esbuild": "0.28.1",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~57.0.2",
+    "events": "^3.3.0",
     "expo-gradle-jvmargs": "^1.1.2",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^20.0.3",
@@ -179,6 +180,7 @@
     "playwright": "^1.56.1",
     "serve-sim": "^0.1.40",
     "typescript": "~5.9.2",
+    "util": "^0.12.5",
     "vitest": "^4.1.6",
     "wrangler": "^4.105.0",
     "ws": "^8.20.0"

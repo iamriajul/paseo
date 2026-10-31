@@ -164,6 +164,12 @@ export interface AutoResumeOptions {
   prompt?: string;
   maxConcurrency?: number;
   sendPrompt?: typeof sendPromptToAgent;
+  /**
+   * The stored records as they were when the registry loaded. Auto-resume runs after the boot
+   * catalog warm-up, by which time agents created or started since boot also read as running;
+   * only agents that were running before this boot are resumed.
+   */
+  bootRecords?: Promise<StoredAgentRecord[]>;
 }
 
 export interface AutoResumeResult {
@@ -202,7 +208,7 @@ export async function autoResumeRunningAgents(
   const pendingIds = pendingRecord?.agentIds ?? [];
   let persistedRecords: StoredAgentRecord[] = [];
   try {
-    persistedRecords = await agentStorage.list();
+    persistedRecords = await (options.bootRecords ?? agentStorage.list());
   } catch (error) {
     logger.warn({ err: error }, "Failed to list persisted agents for auto-resume");
   }
@@ -291,6 +297,8 @@ export async function autoResumeRunningAgents(
             prompt: formatSystemNotificationPrompt(prompt),
             logger,
             unarchive: false,
+            // Never interrupt work that started since boot.
+            replaceRunning: false,
           });
           logger.info({ agentId }, "Auto-resume prompt sent");
           return true;

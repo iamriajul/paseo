@@ -1600,6 +1600,10 @@ export async function createPaseoDaemon(
   // Bounded, and off the critical path: a missing or slow provider binary must not
   // hold up the daemon, so a timeout resumes against a partial catalog — degraded,
   // never blocked. Concurrent with listen either way.
+  // What was running when the daemon went down, read before the daemon accepts work: the
+  // resume below runs after the catalog warm-up, when new agents also read as running.
+  const autoResumeBootRecords = agentStorage.list();
+  autoResumeBootRecords.catch(() => {});
   const bootCatalogWarmup = withTimeout(
     providerSnapshotManager.refreshSettingsSnapshot(),
     BOOT_CATALOG_WARMUP_TIMEOUT_MS,
@@ -1620,6 +1624,7 @@ export async function createPaseoDaemon(
         logger,
         enabled: config.autoResumeRunningAgents?.enabled ?? true,
         prompt: config.autoResumeRunningAgents?.prompt ?? "Resume - there was a power cut",
+        bootRecords: autoResumeBootRecords,
       }),
     )
     .then(() => {

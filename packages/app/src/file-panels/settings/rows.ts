@@ -45,9 +45,11 @@ export function buildFilePanelSettingsRows<Candidate extends FilePanelCandidate>
  * file when it opens is ignored there.
  */
 function offeredCandidates<Candidate extends FilePanelCandidate>(
-  candidates: readonly Candidate[],
+  allCandidates: readonly Candidate[],
   selectorKey: string,
 ): Candidate[] {
+  // Fork: a fallback built-in is never a choice; it opens only what no offered panel claims.
+  const candidates = allCandidates.filter((candidate) => !candidate.fallback);
   const claiming = candidates.filter(
     (candidate) =>
       candidate.files !== "all" && claimsFilePanelSelectorKey(candidate.files, selectorKey),

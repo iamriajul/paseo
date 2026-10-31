@@ -22,12 +22,14 @@ const renderingPanels = [
   {
     id: "builtin:pdf",
     builtin: true,
+    fallback: true,
     files: { extensions: ["pdf"] },
     fileKind: "binary",
   },
   {
     id: "builtin:office",
     builtin: true,
+    fallback: true,
     // Kept in step with OFFICE_PREVIEW_FORMATS in packages/app/src/file-explorer/office.ts.
     files: {
       extensions: [

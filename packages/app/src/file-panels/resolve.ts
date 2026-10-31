@@ -21,6 +21,8 @@ export interface FilePanelCandidate {
   files: FilePanelFiles;
   /** The only kind of file a built-in panel reads. Plugin panels are offered for any kind. */
   fileKind?: FilePanelFileKind;
+  /** Fork: a built-in that opens a file only when no other panel claims it, never offered as a choice. */
+  fallback?: boolean;
 }
 
 export interface FilePanelResolution<Candidate> {
@@ -107,6 +109,14 @@ function isBuiltinFloor(candidate: FilePanelCandidate): boolean {
   return candidate.builtin && candidate.files === "all";
 }
 
+/** Fork: fallback built-ins drop out as soon as any other panel claims the file. */
+function withoutFallbacks<Candidate extends FilePanelCandidate>(
+  candidates: readonly Candidate[],
+): readonly Candidate[] {
+  const claimed = candidates.filter((candidate) => !candidate.fallback);
+  return claimed.length > 0 ? claimed : candidates;
+}
+
 /** Paseo asks which panel opens a file only when a plugin panel is one of several candidates. */
 export function asksForFilePanel(candidates: readonly FilePanelCandidate[]): boolean {
   return candidates.length > 1 && candidates.some((candidate) => !candidate.builtin);
@@ -120,10 +130,12 @@ export function resolveFilePanel<Candidate extends FilePanelCandidate>(input: {
   choice?: string | null;
 }): FilePanelResolution<Candidate> {
   const { file, associations } = input;
-  const matching = input.candidates.filter(
-    (candidate) =>
-      (candidate.fileKind === undefined || candidate.fileKind === file.kind) &&
-      matchesFiles(file, candidate.files),
+  const matching = withoutFallbacks(
+    input.candidates.filter(
+      (candidate) =>
+        (candidate.fileKind === undefined || candidate.fileKind === file.kind) &&
+        matchesFiles(file, candidate.files),
+    ),
   );
   const claimedByBuiltin = matching.some(
     (candidate) => candidate.builtin && candidate.files !== "all",

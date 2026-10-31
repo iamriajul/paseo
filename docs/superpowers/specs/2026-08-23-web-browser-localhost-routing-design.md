@@ -160,7 +160,7 @@ This is a fork that merges upstream every release (`git log --grep="official Pas
 | `persisted-config.ts`               | one optional nested key                                                                        |
 | `messages.ts`                       | one optional `server_info` field                                                               |
 | `session-store.ts`                  | propagate and compare `browserPreview`                                                         |
-| `utils/server-info.ts`              | one spread clause in `toDaemonServerInfo`                                                      |
+| `session-store.ts`                  | one spread clause in `toDaemonServerInfo`                                                      |
 | `daemon-session.ts`                 | one optional interface field                                                                   |
 | `pane/index.web.tsx`                | whole-file replacement of a placeholder                                                        |
 | `workspace-browser-availability.ts` | one branch, already fork-modified                                                              |

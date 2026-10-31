@@ -59,10 +59,10 @@ Source coverage still includes interleaved tool updates.
 Canonical IDs define runs. With missing IDs, human prompts, heartbeats and typed received
 agent messages each start a fallback turn. This deterministic fallback is shared by paging
 and presentation; it cannot recover historical batching or steering. Older history loads when
-the user scrolls upward, or without a gesture when the rendered tail is too short to scroll. A
+the user scrolls upward, or, on native, without a gesture when the rendered tail is too short to scroll. A
 tail of hidden or one-line rows, such as consecutive cache warm-ups, can leave the list
 unscrollable, and Android delivers no drag events to an unscrollable list, so waiting for scroll
-intent strands it.
+intent strands it. Web keeps waiting: a wheel over an unscrollable list still counts as intent.
 
 A failed catch-up or subscription reconcile retries on its own, doubling from 1s to a 30s ceiling.
 A fixed 1s retry turned a persistent daemon-side refusal — a Codex thread that already has an active

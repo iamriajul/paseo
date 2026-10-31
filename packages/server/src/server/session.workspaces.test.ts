@@ -6357,6 +6357,8 @@ test("archive_workspace_request answers before the archive's disk cleanup finish
     }),
   });
   session.paseoHome = paseoHome;
+  // The parked cleanup outlasts the grace, so the reply comes from the deadline.
+  session.archiveDirectoryCleanupGraceMs = 20;
   session.emit = (message) => {
     if (isSessionOutboundMessage(message)) emitted.push(message);
   };

@@ -761,7 +761,13 @@ interface ClientActivity {
   appVisibilityChangedAt: Date;
 }
 
+// Archive answers once the record is durable (fork: archive-responds-before-cleanup). It waits
+// this long for the directory removal first: far under the client's 60s RPC timeout.
+const ARCHIVE_DIRECTORY_CLEANUP_GRACE_MS = 15_000;
+
 export class Session {
+  /** Tests shorten this; see ARCHIVE_DIRECTORY_CLEANUP_GRACE_MS. */
+  archiveDirectoryCleanupGraceMs = ARCHIVE_DIRECTORY_CLEANUP_GRACE_MS;
   private readonly connectedHostSession: ConnectedHostSession | null;
   private routed = false;
   isRouted(): boolean {
@@ -8190,7 +8196,7 @@ export class Session {
         throw new Error(`Workspace not found: ${request.workspaceId}`);
       }
 
-      await archiveByScope(
+      const archived = await archiveByScope(
         {
           paseoHome: this.paseoHome,
           paseoWorktreesBaseRoot: this.worktreesRoot,
@@ -8226,6 +8232,15 @@ export class Session {
           deferDirectoryCleanup: true,
         },
       );
+      // An ordinary removal finishes within the grace, so the reply still means "gone from
+      // disk"; only a slow teardown answers before its directory is removed.
+      let graceTimer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        archived.directoryCleanup,
+        new Promise((graceElapsed) => {
+          graceTimer = setTimeout(graceElapsed, this.archiveDirectoryCleanupGraceMs);
+        }),
+      ]).finally(() => clearTimeout(graceTimer));
 
       const archivedWorkspace = await this.workspaceRegistry.get(request.workspaceId);
       const archivedAt = archivedWorkspace?.archivedAt ?? new Date().toISOString();

@@ -267,13 +267,14 @@ npx vitest run packages/app/src/components/markdown/fence/mermaid/render-model.t
 
 **composer draft hydrates from host ui_state**
 
-input-draft keeps host ui_state sync so composer text survives switching devices
+input-draft keeps host ui_state sync so composer text survives switching devices. Every user edit writes the host copy: `editText` and `replaceText` as well as `saveDraft`. Official #4902 moved typing off `saveDraft` onto `editDraftText`, which left the host write on the attachments path only, so v0.14.900 shipped with typed drafts never reaching the host. Remote records land through the store, never through those two callbacks, so a synced edit does not echo back.
 
 Review drafts sync the same way (`ui-state/review-host-sync.ts`). Every path that removes comments locally must also write the host copy: the review surface hydrates from the host when it mounts, so a comment removed only locally comes back. v0.14.0's Send feedback clears sent comments through `clearSentReviewDraftComments`, so `review/feedback/use-feedback.ts` calls `syncReviewDraftToHost` after it; without that, official's `composer-diff-stat` spec sees the review pill return after a layout switch.
 
 ```bash
 npx vitest run packages/app/src/composer/draft/input-draft.test.ts packages/app/src/ui-state/composer-host-sync.test.ts packages/protocol/src/ui-state/schemas.test.ts --bail=1
 grep -q 'syncReviewDraftToHost(reviewDraftKey)' packages/app/src/review/feedback/use-feedback.ts
+npm test --workspace=@getpaseo/app -- src/composer/draft/input-draft.live.test.tsx --bail=1 -t "mirrors typed and replaced text to the host"
 ```
 
 ## mobile-push-diagnostics

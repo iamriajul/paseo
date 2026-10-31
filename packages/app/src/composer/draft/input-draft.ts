@@ -158,6 +158,41 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
     [draftKey],
   );
 
+  // Fork composer-draft-sync: every user edit mirrors to the host, so the draft follows the
+  // user to another device. Typing goes through editText/replaceText, not saveDraft, since
+  // upstream isolated typing updates; remote records land through the store and never call
+  // these, so a synced edit does not echo back.
+  const syncDraftToHost = useCallback(
+    (draft: { text: string; attachments: UserComposerAttachment[] }) => {
+      if (!supportsUiState || !hostServerId) {
+        return;
+      }
+      const client = getHostRuntimeStore().getClient(hostServerId);
+      if (!client) {
+        return;
+      }
+      if (!hasDraftContent(draft)) {
+        void clearComposerOnHost({ client, clientDraftKey: draftKey });
+        return;
+      }
+      scheduleComposerHostUpsert({
+        client,
+        clientDraftKey: draftKey,
+        text: draft.text,
+        attachments: draft.attachments,
+      });
+    },
+    [draftKey, hostServerId, supportsUiState],
+  );
+
+  const syncTextToHost = useCallback(
+    (nextText: string) => {
+      const current = useDraftStore.getState().getDraftInput(draftKey);
+      syncDraftToHost({ text: nextText, attachments: current?.attachments ?? [] });
+    },
+    [draftKey, syncDraftToHost],
+  );
+
   const saveDraft = useCallback(
     (
       update: (draft: { text: string; attachments: UserComposerAttachment[] }) => {
@@ -170,28 +205,12 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
       const next = update(current);
       if (!hasDraftContent(next)) {
         store.clearDraftInput({ draftKey, lifecycle: "abandoned" });
-        if (supportsUiState && hostServerId) {
-          const client = getHostRuntimeStore().getClient(hostServerId);
-          if (client) {
-            void clearComposerOnHost({ client, clientDraftKey: draftKey });
-          }
-        }
-        return;
+      } else {
+        store.saveDraftInput({ draftKey, draft: next });
       }
-      store.saveDraftInput({ draftKey, draft: next });
-      if (supportsUiState && hostServerId) {
-        const client = getHostRuntimeStore().getClient(hostServerId);
-        if (client) {
-          scheduleComposerHostUpsert({
-            client,
-            clientDraftKey: draftKey,
-            text: next.text,
-            attachments: next.attachments,
-          });
-        }
-      }
+      syncDraftToHost(next);
     },
-    [draftKey, hostServerId, supportsUiState],
+    [draftKey, syncDraftToHost],
   );
 
   const textPublication = useMemo(
@@ -209,8 +228,9 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
       } else {
         useDraftStore.getState().editDraftText({ draftKey, text: nextText });
       }
+      syncTextToHost(nextText);
     },
-    [draftKey, textPublication],
+    [draftKey, syncTextToHost, textPublication],
   );
 
   const replaceText = useCallback(
@@ -218,8 +238,9 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
       textPublication.cancel();
       useDraftStore.getState().editDraftText({ draftKey, text: nextText });
       publishTextReplacement("replace", nextText);
+      syncTextToHost(nextText);
     },
-    [draftKey, publishTextReplacement, textPublication],
+    [draftKey, publishTextReplacement, syncTextToHost, textPublication],
   );
 
   const setAttachments = useCallback(

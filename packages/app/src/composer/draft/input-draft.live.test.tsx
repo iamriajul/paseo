@@ -27,6 +27,33 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
   },
 }));
 
+const hostSync = vi.hoisted(() => ({
+  enabled: false,
+  upserts: [] as Array<{ namespace: string; key: string; record: { text?: string } }>,
+}));
+
+vi.mock("@/runtime/host-features", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/runtime/host-features")>()),
+  useHostFeature: () => hostSync.enabled,
+}));
+
+vi.mock("@/runtime/host-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/runtime/host-runtime")>();
+  const client = {
+    getUiState: async () => ({ error: null, record: null }),
+    upsertUiState: async (input: (typeof hostSync.upserts)[number]) => {
+      hostSync.upserts.push(input);
+    },
+    clearUiState: async () => undefined,
+    on: () => () => undefined,
+  };
+  return {
+    ...actual,
+    getHostRuntimeStore: () =>
+      hostSync.enabled ? { getClient: () => client } : actual.getHostRuntimeStore(),
+  };
+});
+
 vi.mock("@/attachments/service", () => ({
   garbageCollectAttachments: async () => undefined,
 }));
@@ -140,6 +167,8 @@ beforeAll(async () => {
 
 describe("useAgentInputDraft live contract", () => {
   beforeEach(() => {
+    hostSync.enabled = false;
+    hostSync.upserts = [];
     asyncStorage.clear();
     document.body.innerHTML = "<div id='root'></div>";
     localStorage.clear();
@@ -488,6 +517,45 @@ describe("useAgentInputDraft live contract", () => {
         createWorkspaceFileAttachment({ path: "src/app.ts" }),
       ],
     });
+  });
+
+  it("mirrors typed and replaced text to the host so another device can pick the draft up", async () => {
+    hostSync.enabled = true;
+    let latest: ReturnType<typeof useAgentInputDraft> | null = null;
+
+    function Probe() {
+      latest = useAgentInputDraft({ draftKey: "agent:host-1:agent-7" });
+      return null;
+    }
+
+    const container = document.getElementById("root");
+    if (!container) {
+      throw new Error("Missing root container");
+    }
+    const root = createTestRoot(container);
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      latest!.editText("typed on the laptop");
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    expect(hostSync.upserts.at(-1)).toMatchObject({
+      namespace: "composer",
+      key: "agent:agent-7",
+      record: { text: "typed on the laptop" },
+    });
+
+    await act(async () => {
+      latest!.replaceText("replaced by dictation");
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    expect(hostSync.upserts.at(-1)?.record.text).toBe("replaced by dictation");
   });
 
   it("clear resets text and attachments", async () => {

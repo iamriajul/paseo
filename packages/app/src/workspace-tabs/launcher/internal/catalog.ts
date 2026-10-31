@@ -8,6 +8,7 @@ export const PRIMARY_LAUNCH_ORDER = [
   "codeServer",
   "pullRequest",
   "todo",
+  "ports",
 ] as const;
 
 export const SUPPORTING_LAUNCH_ORDER = [
@@ -20,6 +21,7 @@ export const SUPPORTING_LAUNCH_ORDER = [
   "codeServer",
   "pullRequest",
   "todo",
+  "ports",
 ] as const;
 
 export type BuiltInLaunchItemId = (typeof PRIMARY_LAUNCH_ORDER)[number];

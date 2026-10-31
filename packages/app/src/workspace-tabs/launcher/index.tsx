@@ -83,6 +83,7 @@ const BUILT_IN_SELECTIONS = {
   terminal: { kind: "terminal" },
   changes: { kind: "target", target: { kind: "changes_tree" } },
   todo: { kind: "target", target: { kind: "todo" } },
+  ports: { kind: "target", target: { kind: "ports" } },
   diff: { kind: "target", target: { kind: "working_diff" } },
   files: { kind: "target", target: { kind: "files" } },
   browser: { kind: "browser" },
@@ -125,6 +126,7 @@ export function useWorkspaceTabLaunchCatalog(input: {
   return useMemo(() => {
     const changesPresentation = getLaunchPresentation("changes_tree");
     const todoPresentation = getLaunchPresentation("todo");
+    const portsPresentation = getLaunchPresentation("ports");
     const diffPresentation = getLaunchPresentation("working_diff");
     const filesPresentation = getLaunchPresentation("files");
     const pullRequestPresentation = getLaunchPresentation("pull_request");
@@ -163,6 +165,14 @@ export function useWorkspaceTabLaunchCatalog(input: {
         disabled: false,
         panelKind: "todo",
         launch: launchSelection(BUILT_IN_SELECTIONS.todo),
+      },
+      ports: {
+        id: "ports",
+        label: portsPresentation.label(t),
+        Icon: portsPresentation.icon,
+        disabled: false,
+        panelKind: "ports",
+        launch: launchSelection(BUILT_IN_SELECTIONS.ports),
       },
       diff: {
         id: "diff",

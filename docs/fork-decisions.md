@@ -334,6 +334,18 @@ v0.7.0 plugin navigation imports expo-router from the registry. Root `npx vitest
 npm test --workspace=@getpaseo/app -- src/todos/workspace-todo-store.test.ts src/todos/workspace-todo-pane.test.tsx src/composer/todo-pill.test.tsx src/panels/agent-tracks.test.ts src/components/sidebar/workspace-meta-row/meta-items.test.ts src/components/sidebar/display-preferences/row-items.test.ts src/workspace-tabs/explorer-sidebar.test.ts src/stores/panel-store/state.test.ts src/stores/workspace-layout-store.test.ts src/i18n/resources.test.ts --bail=1
 ```
 
+## explorer-ports-tab
+
+**the workspace's script ports open as a Ports tab**
+
+The Ports list (`components/explorer-ports-pane.tsx`) was a fixed tab of the fork's compact Explorer. v0.14.0 deleted that Explorer (`compact-explorer-sidebar.tsx`) and runs every layout on ordinary workspace tabs, which dropped Ports. It is now a `ports` tab kind like Todo: a panel (`panels/ports-panel.tsx`), a launcher entry after Todo, and a singleton the Explorer or a main pane can host. It is not a default Explorer tab, so the Explorer's tab count matches official.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/workspace-tabs/launcher/internal/catalog.test.ts --bail=1
+grep -q 'kind: "ports"' packages/app/src/panels/panel-manifest.ts
+grep -q 'portsPanelRegistration' packages/app/src/panels/register-panels.ts
+```
+
 ## live-user-message-flush
 
 **commit provider user_message acks before the stream coalescer frame**

@@ -132,6 +132,14 @@ const manifests = {
     compactSheet: null,
     resourceKey: () => "todo",
   },
+  ports: {
+    kind: "ports",
+    supportedHosts: ["explorer", "main"],
+    showCloseButton: true,
+    singleton: true,
+    compactSheet: null,
+    resourceKey: () => "ports",
+  },
   files: {
     kind: "files",
     supportedHosts: ["explorer"],

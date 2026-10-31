@@ -13,6 +13,7 @@ describe("getBuiltInLaunchOrder", () => {
       "codeServer",
       "pullRequest",
       "todo",
+      "ports",
     ]);
   });
 
@@ -27,6 +28,7 @@ describe("getBuiltInLaunchOrder", () => {
       "codeServer",
       "pullRequest",
       "todo",
+      "ports",
     ]);
   });
 });

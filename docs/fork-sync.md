@@ -13,7 +13,23 @@ git fetch upstream --tags
 git tag --list 'v*' --sort=-creatordate | grep -v -- '-beta' | head -5
 ```
 
-Take the newest tag that is an ancestor of `upstream/main` and newer than your base. Upstream releases are linear — each contains the previous — so a plain `git rebase <tag>` is correct and you never need `--onto`.
+Take the newest stable tag newer than your base. Confirm it with `gh release list --repo getpaseo/paseo`; a tag alone is not a release.
+
+Since v0.13.1 upstream cuts each stable release on a `release/vX.Y.Z` branch: a point on `upstream/main` plus cherry-picked fixes, the changelog and the version bump. Those tags are not ancestors of `upstream/main`, and they are still the target. Check what the branch adds before you rebase:
+
+```bash
+git cherry -v upstream/main vX.Y.Z    # "-" lines are on main already; "+" lines are the release's own
+```
+
+Until v0.13.0 every release was an ancestor of `upstream/main`, so "newest ancestor of `upstream/main`" picked the right tag; v0.7.1 was the one side-branch release and it was skipped. That rule stopped working when every release moved to a branch.
+
+Because the base is a release branch, its own commits sit under the fork queue. Rebase with the old base named, so git replays only the fork's cards:
+
+```bash
+git rebase --onto vNEW vOLD    # vOLD is the tag the queue sits on now
+```
+
+A plain `git rebase vNEW` would replay vOLD's cherry-picks, changelog and version commits as if they were fork cards.
 
 ## Rebase
 
@@ -21,7 +37,7 @@ Take the newest tag that is an ancestor of `upstream/main` and newer than your b
 git status --porcelain                                   # must be empty
 git branch backup/pre-sync-$(git rev-parse --short HEAD)
 git push origin backup/pre-sync-$(git rev-parse --short HEAD)
-git rebase vX.Y.Z
+git rebase --onto vX.Y.Z vOLD
 ```
 
 Push the backup. A branch that exists only on your machine is not a backup.

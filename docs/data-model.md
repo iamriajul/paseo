@@ -334,6 +334,8 @@ session rather than an already-running one.
 
 `agents.metadataGeneration.providers` selects the models for daemon-side metadata tasks: commit messages, PR text, branch names, and generated titles. An empty list is Automatic; a non-empty list is Manual and only those models are tried. See [public-docs/metadata-generation.md](../public-docs/metadata-generation.md#how-a-model-is-chosen).
 
+`agents.metadataGeneration.customEndpoint` is an optional OpenAI-compatible chat endpoint for those same metadata tasks. It is **off by default**. When enabled with a non-empty `baseUrl` and `model`, Paseo tries that endpoint first (`/chat/completions`) and falls back to the agent-provider chain above on failure. Incomplete enabled config is skipped with a warning. Configure it from Host settings → Agents → Metadata generation endpoint (daemon-scoped, not project `paseo.json`). Style instructions still come from project `paseo.json` `metadataGeneration.*.instructions`.
+
 ### Git process limits
 
 Git process limits are global to one daemon. The start-rate limit defaults to `64` processes per
@@ -369,8 +371,6 @@ after changing `config.json`. Environment changes require a daemon restart; the 
 remains authoritative during reload.
 
 ### Speech configuration
-
-`agents.metadataGeneration.customEndpoint` is an optional OpenAI-compatible chat endpoint for those same metadata tasks. It is **off by default**. When enabled with a non-empty `baseUrl` and `model`, Paseo tries that endpoint first (`/chat/completions`) and falls back to the agent-provider chain above on failure. Incomplete enabled config is skipped with a warning. Configure it from Host settings → Agents → Metadata generation endpoint (daemon-scoped, not project `paseo.json`). Style instructions still come from project `paseo.json` `metadataGeneration.*.instructions`.
 
 Each use site owns its provider settings: `features.dictation.stt`,
 `features.voiceMode.stt`, and `features.voiceMode.tts`. `provider` selects a strict

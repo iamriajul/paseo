@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getChangelogReleaseGroups, localizeReleases, parseChangelog } from "~/changelog";
+import {
+  getChangelogReleaseGroups,
+  isForkRelease,
+  localizeReleases,
+  parseChangelog,
+} from "~/changelog";
 
 const ENGLISH = parseChangelog(
   [
@@ -54,5 +59,22 @@ function publishedVersions(locale: "en" | "zh-CN"): string[] {
 describe("the published changelog", () => {
   it("lists the same releases in every language", () => {
     expect(publishedVersions("zh-CN")).toEqual(publishedVersions("en"));
+  });
+});
+
+describe("fork releases", () => {
+  it("recognizes the fork's x.y.9NN versions only", () => {
+    expect(isForkRelease("0.11.918")).toBe(true);
+    expect(isForkRelease("0.14.900")).toBe(true);
+    expect(isForkRelease("0.14.0")).toBe(false);
+    expect(isForkRelease("0.14.0-beta.2")).toBe(false);
+    expect(isForkRelease("0.1.90")).toBe(false);
+  });
+
+  it("keeps fork releases off the site", () => {
+    const versions = getChangelogReleaseGroups("en")
+      .flatMap((group) => group.releases)
+      .map((release) => release.version);
+    expect(versions.some(isForkRelease)).toBe(false);
   });
 });

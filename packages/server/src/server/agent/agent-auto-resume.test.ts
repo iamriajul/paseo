@@ -13,7 +13,10 @@ import {
   readPendingAutoResume,
   writePendingAutoResume,
 } from "./agent-auto-resume.js";
-import { formatSystemNotificationPrompt, isSystemInjectedEnvelope } from "./agent-prompt.js";
+import {
+  formatSystemNotificationPrompt,
+  isSystemInjectedEnvelope,
+} from "./agent-messages/index.js";
 import type { StoredAgentRecord } from "./agent-storage.js";
 import type { AgentManager } from "./agent-manager.js";
 

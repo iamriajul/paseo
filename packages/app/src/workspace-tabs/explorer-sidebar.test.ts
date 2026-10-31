@@ -59,15 +59,13 @@ describe("Explorer sidebar", () => {
   });
 
   it("opens todo view in compact explorer", () => {
-    openExplorerSidebarView({
-      isCompact: true,
-      workspaceKey: WORKSPACE_KEY,
-      checkout: CHECKOUT,
-      view: "todo",
-    });
+    const input = { isCompact: true, workspaceKey: WORKSPACE_KEY };
+    openExplorerSidebarView({ ...input, view: "todo" });
 
-    expect(usePanelStore.getState().mobilePanel.target).toBe("file-explorer");
-    expect(usePanelStore.getState().explorerTab).toBe("todo");
+    expect(isExplorerSidebarOpen(input)).toBe(true);
+    const state = useWorkspaceLayoutStore.getState();
+    const layout = state.layoutByWorkspace[WORKSPACE_KEY];
+    expect(layout && collectAllTabs(layout.root).map((tab) => tab.target.kind)).toContain("todo");
   });
 
   it("creates a dedicated desktop Explorer containing only its requested tree", () => {
@@ -87,9 +85,7 @@ describe("Explorer sidebar", () => {
   it("reveals the todo tab in desktop Explorer", () => {
     openExplorerSidebarView({
       isCompact: false,
-      supportsPaneSplits: true,
       workspaceKey: WORKSPACE_KEY,
-      checkout: CHECKOUT,
       view: "todo",
     });
 
@@ -126,9 +122,7 @@ describe("Explorer sidebar", () => {
   it("lands on Changes the first time desktop Explorer is toggled", () => {
     const input = {
       isCompact: false,
-      supportsPaneSplits: true,
       workspaceKey: WORKSPACE_KEY,
-      checkout: CHECKOUT,
     };
 
     toggleExplorerSidebar(input);

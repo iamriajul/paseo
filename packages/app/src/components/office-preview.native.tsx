@@ -9,7 +9,7 @@ import {
   type OfficePreviewInbound,
 } from "@/components/office-preview-bytes";
 import type { OfficePreviewKind } from "@/file-explorer/office";
-import { htmlPreviewNavigationKind } from "@/file-pane/html-preview-navigation";
+import { htmlPreviewNavigationKind } from "@/file-panels/html-preview-navigation";
 import type { OfficePreviewProps } from "./office-preview";
 
 // Same rule as the HTML preview: this WebView is a viewer. The bundled document

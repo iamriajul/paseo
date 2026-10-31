@@ -200,19 +200,6 @@ export function formatAgo(
   });
 }
 
-export function formatAgo(iso: string | null | undefined, now = Date.now()): string | null {
-  if (!iso) return null;
-  const diffMs = now - new Date(iso).getTime();
-  if (!Number.isFinite(diffMs)) return null;
-  if (diffMs < 60_000) return "just now";
-  const diffMinutes = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMinutes / 60);
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays > 0) return `${diffDays}d ago`;
-  if (diffHours > 0) return `${diffHours}h ago`;
-  return `${diffMinutes}m ago`;
-}
-
 export function formatDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const date = new Date(iso);

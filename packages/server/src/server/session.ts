@@ -2345,6 +2345,7 @@ export class Session {
     }
 
     this.unsubscribeAgentEvents = this.agentManager.subscribe(
+      // eslint-disable-next-line complexity -- fork event fan-out (todos, tasks, background tasks)
       (event) => {
         if (event.type === "timeline_replacement") {
           this.deliverTimelineReplacement(event.agentId, this.rewindInitiators.get(event.agentId));

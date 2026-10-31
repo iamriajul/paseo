@@ -2145,6 +2145,8 @@ export const ko: TranslationResources = {
           html: "HTML",
           image: "이미지",
           source: "소스",
+          pdf: "PDF",
+          office: "Office 문서",
         },
       },
       directoryMissing: "워크스페이스 디렉터리를 찾을 수 없습니다.",

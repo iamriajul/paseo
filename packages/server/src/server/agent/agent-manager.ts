@@ -1705,6 +1705,7 @@ export class AgentManager {
     );
   }
 
+  // eslint-disable-next-line complexity -- fork cache warm-up and rate-limit hooks on resume
   private async resumeAgentFromPersistenceInternal(
     handle: AgentPersistenceHandle,
     overrides?: Partial<AgentSessionConfig>,
@@ -3941,11 +3942,15 @@ export class AgentManager {
       boundaryMessageId,
     });
 
+    const transcriptPath = await source.session.resolveNativeForkTranscriptPath?.(sourceSessionId);
+    if (!transcriptPath) {
+      throw new Error("Source Claude agent has no transcript to fork");
+    }
     const { forkedSessionId } = await forkClaudeSessionAtMessage({
       sdk: realClaudeRewindSdk,
       sessionId: sourceSessionId,
       upToMessageId,
-      dir: source.cwd,
+      transcriptPath,
     });
 
     if (source.persistence?.sessionId === forkedSessionId) {

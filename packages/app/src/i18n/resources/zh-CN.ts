@@ -2113,6 +2113,8 @@ export const zhCN: TranslationResources = {
           html: "HTML",
           image: "图片",
           source: "源代码",
+          pdf: "PDF",
+          office: "Office 文档",
         },
       },
       directoryMissing: "未找到 workspace 目录。",

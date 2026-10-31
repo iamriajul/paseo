@@ -48,12 +48,12 @@ describe("forkClaudeSessionAtMessage", () => {
       sdk,
       sessionId: "source-1",
       upToMessageId: "uuid-9",
-      dir: "/tmp/project",
+      transcriptPath: "/tmp/project/source-1.jsonl",
     });
     expect(result.forkedSessionId).toBe("forked-1");
     expect(sdk.forkSession).toHaveBeenCalledWith("source-1", {
       upToMessageId: "uuid-9",
-      dir: "/tmp/project",
+      transcriptPath: "/tmp/project/source-1.jsonl",
     });
   });
 
@@ -63,6 +63,7 @@ describe("forkClaudeSessionAtMessage", () => {
         sdk: { forkSession: vi.fn() },
         sessionId: "  ",
         upToMessageId: "msg-9",
+        transcriptPath: "/tmp/project/source-1.jsonl",
       }),
     ).rejects.toThrow(/not ready/i);
   });
@@ -73,6 +74,7 @@ describe("forkClaudeSessionAtMessage", () => {
         sdk: { forkSession: vi.fn() },
         sessionId: "source-1",
         upToMessageId: "",
+        transcriptPath: "/tmp/project/source-1.jsonl",
       }),
     ).rejects.toThrow(/boundary message/i);
   });

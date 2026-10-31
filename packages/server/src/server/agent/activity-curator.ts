@@ -148,6 +148,7 @@ function isWarmPingItem(item: AgentTimelineItem, prevItem: AgentTimelineItem | u
   return false;
 }
 
+// eslint-disable-next-line complexity -- fork skips cache warm-up pings
 function curateProjectedActivityEntries(
   items: readonly AgentTimelineItem[],
   options?: ActivityCuratorOptions,

@@ -11,7 +11,6 @@ import { usePaneContext } from "@/panels/pane-context";
 import { useSettings } from "@/hooks/use-settings";
 import { PluginComposerPills } from "@/plugins";
 import { useSessionStore } from "@/stores/session-store";
-import { useWorkspaceDirectory } from "@/stores/session-store-hooks";
 import {
   type ArchiveFinishedStatus,
   useArchiveSubagent,
@@ -67,7 +66,6 @@ export const AgentTracks = memo(function AgentTracks({
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
   const todoSummary = useWorkspaceTodoSummary(serverId, workspaceId);
   const hasWorkspaceTodos = Boolean(todoSummary && todoSummary.total > 0);
-  const workspaceDirectory = useWorkspaceDirectory(serverId, workspaceId);
   const isCompact = useIsCompactFormFactor();
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
   const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
@@ -136,10 +134,9 @@ export const AgentTracks = memo(function AgentTracks({
     openExplorerSidebarView({
       isCompact,
       workspaceKey,
-      checkout: { serverId, cwd: workspaceDirectory ?? "", isGit: true },
       view: "todo",
     });
-  }, [isCompact, serverId, workspaceDirectory, workspaceKey]);
+  }, [isCompact, workspaceKey]);
 
   if (
     !shouldShowAgentTrackBar({

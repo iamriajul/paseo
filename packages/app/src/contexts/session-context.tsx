@@ -37,10 +37,8 @@ import {
   useSessionStore,
   type SessionState,
 } from "@/stores/session-store";
-import { sendOsNotification } from "@/utils/os-notifications";
 import { deliverAttentionInterrupt } from "@/utils/deliver-attention-interrupt";
 import { getIsAppActivelyVisible, getIsAppVisible } from "@/utils/app-visibility";
-import { router } from "expo-router";
 import {
   getInitKey,
   getInitDeferred,
@@ -313,9 +311,6 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         focusedAgentId: attentionFocusedAgentId,
         focusedTerminalId: attentionFocusedTerminalId,
         isActivelyVisible: getIsAppActivelyVisible(appState),
-        navigate: (route) => {
-          router.navigate(route as never);
-        },
       });
     },
     [serverId],
@@ -737,9 +732,6 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         target: { kind: "terminal", id: message.payload.terminalId },
         focusedAgentId: session?.focusedAgentId ?? null,
         focusedTerminalId: session?.focusedTerminalId ?? null,
-        navigate: (route) => {
-          router.navigate(route as never);
-        },
       });
     });
 

@@ -2136,6 +2136,8 @@ export const ar: TranslationResources = {
           html: "HTML",
           image: "صورة",
           source: "المصدر",
+          pdf: "PDF",
+          office: "مستندات Office",
         },
       },
       directoryMissing: "لم يتم العثور على دليل Workspace.",

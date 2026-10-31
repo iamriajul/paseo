@@ -2163,6 +2163,8 @@ export const en = {
           html: "HTML",
           image: "Image",
           source: "Source",
+          pdf: "PDF",
+          office: "Office document",
         },
       },
       directoryMissing: "Workspace directory not found.",

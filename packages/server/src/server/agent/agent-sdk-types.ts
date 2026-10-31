@@ -747,6 +747,8 @@ export interface AgentSession {
    * `forkSession({ upToMessageId })`. Claude-only; optional elsewhere.
    */
   resolveNativeForkUpToMessageId?(boundaryMessageId: string): Promise<string>;
+  /** Where Claude Code wrote the session transcript, which the SDK forks from. */
+  resolveNativeForkTranscriptPath?(sessionId: string): Promise<string | null>;
   /**
    * Out-of-band prompt handler. When non-null, the manager runs the returned
    * handler instead of allocating a turn. The handler emits stream events

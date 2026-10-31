@@ -613,6 +613,64 @@
         "paseo/no-raw-pressable": "off"
       }
     },
+    // Fork-owned migration debt, kept apart from upstream's list so a sync never merges the two.
+    // These fork surfaces predate no-raw-pressable and no-sync-io; migrate them like the entries above.
+    {
+      "files": [
+        "packages/app/src/background-tasks/track.tsx",
+        "packages/app/src/components/attention-banner-host.tsx",
+        "packages/app/src/components/explorer-ports-pane.tsx",
+        "packages/app/src/components/read-aloud-buttons.tsx",
+        "packages/app/src/components/sidebar/sidebar-backlog-row.tsx",
+        "packages/app/src/composer/todo-pill.tsx",
+        "packages/app/src/desktop/browser/pane/index.android.tsx",
+        "packages/app/src/desktop/browser/pane/web-annotation-composer.tsx",
+        "packages/app/src/desktop/browser/pane/web-toolbar.tsx",
+        "packages/app/src/gateway-quota/section.tsx",
+        "packages/app/src/heartbeats/track.tsx",
+        "packages/app/src/interaction-lock/banner.tsx",
+        "packages/app/src/screens/backlog-screen.tsx",
+        "packages/app/src/screens/sessions-screen.tsx",
+        "packages/app/src/screens/settings/metadata-custom-endpoint-card.tsx",
+        "packages/app/src/todos/track.tsx",
+        "packages/app/src/todos/workspace-todo-pane.tsx",
+        "packages/app/src/workspace-pins/pinnable-menu-item.tsx"
+      ],
+      "rules": {
+        "paseo/no-raw-pressable": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/server/src/server/agent/providers/codex-catalog.ts",
+        "packages/server/src/server/code-server-detection.ts",
+        "packages/server/src/server/session/usage/codex-quota-reset.ts",
+        "packages/server/src/terminal/harness-shim-writer.ts"
+      ],
+      "rules": {
+        "paseo/no-sync-io": [
+          "error",
+          {
+            "allow": {
+              // TODO: the Codex Gateway catalog file is written and read synchronously during provider setup.
+              "server/agent/providers/codex-catalog.ts": [
+                "mkdirSync",
+                "readFileSync",
+                "renameSync",
+                "statSync",
+                "writeFileSync"
+              ],
+              // TODO: code-server detection probes the binary synchronously.
+              "server/code-server-detection.ts": ["execFileSync"],
+              // TODO: Codex quota reset checks the auth file synchronously.
+              "server/session/usage/codex-quota-reset.ts": ["existsSync"],
+              // TODO: terminal harness shims are written synchronously at terminal start.
+              "terminal/harness-shim-writer.ts": ["chmodSync", "existsSync"]
+            }
+          }
+        ]
+      }
+    },
     {
       "files": ["**/e2e/**/fixtures.ts"],
       "rules": {

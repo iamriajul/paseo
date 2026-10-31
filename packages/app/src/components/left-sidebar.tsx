@@ -826,11 +826,15 @@ function WorkspacesSectionHeader() {
     },
     [],
   );
+  const groupModeControl = useMemo(
+    () => <SidebarGroupModeControl visible={showGroupMode} />,
+    [showGroupMode],
+  );
   return (
     <SidebarSectionHeader
       title="Workspaces"
       onLayout={handleHeaderLayout}
-      titleAccessory={<SidebarGroupModeControl visible={showGroupMode} />}
+      titleAccessory={groupModeControl}
     >
       <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>

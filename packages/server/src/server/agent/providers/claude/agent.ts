@@ -49,9 +49,9 @@ import {
   isClaudeCustomNonFamilyModel,
   resolveClaudeMaxOutputTokens,
   resolveClaudeContextWindowMaxTokens,
-  getClaudeContextWindowMaxTokens,
   resolveClaudeInputModalities,
   getClaudeModelsWithSettings,
+  normalizeClaudeRuntimeModelId,
   resolveObservedClaudeModelId,
   resolveConfiguredClaudeModel,
   applyClaudeAutoCompactWindowEnv,
@@ -633,9 +633,12 @@ function errorToMessageString(error: unknown): string {
 function isClaudeTurnInit(message: SDKMessage): boolean {
   return message.type === "system" && message.subtype === "init";
 }
-function renderClaudeTextOnlyImageHint(image: { data: string; mimeType: string }): string {
+async function renderClaudeTextOnlyImageHint(image: {
+  data: string;
+  mimeType: string;
+}): Promise<string> {
   try {
-    const materialized = materializeProviderImage({
+    const materialized = await materializeProviderImage({
       data: image.data,
       mimeType: image.mimeType,
     });
@@ -656,12 +659,11 @@ type ClaudeSdkUserContentItem =
       };
     };
 
-function claudeImageChunkContent(
-  chunk: { data: string; mimeType: string },
-  forwardImages: boolean,
-): ClaudeSdkUserContentItem | null {
+function claudeImageChunkContent(chunk: {
+  data: string;
+  mimeType: string;
+}): ClaudeSdkUserContentItem | null {
   if (!isImageMimeType(chunk.mimeType)) return null;
-  if (!forwardImages) return { type: "text", text: renderClaudeTextOnlyImageHint(chunk) };
   return {
     type: "image",
     source: { type: "base64", media_type: chunk.mimeType, data: chunk.data },
@@ -2867,6 +2869,7 @@ class ClaudeAgentSession implements AgentSession {
     options?: AgentRunOptions,
   ): Promise<{ turnId: string }> {
     await this.ensureHistoryReady();
+    const sdkPrompt = await this.prepareClaudePrompt(prompt);
     if (this.closed) {
       throw new Error("Claude session is closed");
     }
@@ -2887,7 +2890,7 @@ class ClaudeAgentSession implements AgentSession {
       this.completeAutonomousTurn();
     }
 
-    const sdkMessage = this.toSdkUserMessage(prompt);
+    const sdkMessage = this.toSdkUserMessage(sdkPrompt);
     const sdkUserMessageId =
       typeof sdkMessage.uuid === "string" && sdkMessage.uuid.length > 0 ? sdkMessage.uuid : null;
     this.rememberRewindUserAnchor(sdkUserMessageId);
@@ -2968,6 +2971,7 @@ class ClaudeAgentSession implements AgentSession {
     if (this.resolveSlashCommandInvocation(prompt)) {
       return { status: "unavailable" };
     }
+    const sdkPrompt = await this.prepareClaudePrompt(prompt);
     const activeTurnId = this.activeForegroundTurnId ?? this.autonomousTurn?.id;
     if (this.compacting || activeTurnId !== options.expectedTurnId) {
       return { status: "unavailable" };
@@ -2980,7 +2984,7 @@ class ClaudeAgentSession implements AgentSession {
     if (!query || !input || this.query !== query || this.input !== input) {
       return { status: "unavailable" };
     }
-    const message = this.toSdkUserMessage(prompt);
+    const message = this.toSdkUserMessage(sdkPrompt);
     message.priority = "next";
     if (
       (this.activeForegroundTurnId ?? this.autonomousTurn?.id) !== options.expectedTurnId ||
@@ -3962,6 +3966,10 @@ class ClaudeAgentSession implements AgentSession {
     }
   }
 
+  async resolveNativeForkTranscriptPath(sessionId: string): Promise<string | null> {
+    return this.resolveHistoryPath(sessionId);
+  }
+
   async resolveNativeForkUpToMessageId(boundaryMessageId: string): Promise<string> {
     const candidate = boundaryMessageId.trim();
     if (!candidate) {
@@ -4424,6 +4432,27 @@ class ClaudeAgentSession implements AgentSession {
     return result;
   }
 
+  /**
+   * Models with known text-only input cannot consume image blocks. Materialize each image to a
+   * local file and send a path hint instead, mirroring the Pi provider. Unknown modalities keep
+   * forwarding images. Materializing is async, so it runs before the turn's synchronous section.
+   */
+  private async prepareClaudePrompt(prompt: AgentPromptInput): Promise<AgentPromptInput> {
+    if (!Array.isArray(prompt) || !prompt.some((chunk) => chunk.type === "image")) return prompt;
+    const inputModalities = resolveClaudeInputModalities({
+      modelId: this.config.model,
+      profileModels: this.profileModels,
+    });
+    if (inputModalities === undefined || inputModalities.includes("image")) return prompt;
+    return Promise.all(
+      prompt.map(async (chunk) =>
+        chunk.type === "image" && isImageMimeType(chunk.mimeType)
+          ? { type: "text" as const, text: await renderClaudeTextOnlyImageHint(chunk) }
+          : chunk,
+      ),
+    );
+  }
+
   private toSdkUserMessage(prompt: AgentPromptInput): SDKUserMessage {
     const content: Array<
       | { type: "text"; text: string }
@@ -4441,14 +4470,6 @@ class ClaudeAgentSession implements AgentSession {
     // so a "/command" sent with a pasted link or a screenshot would otherwise reach the model as
     // literal text instead of the command it names.
     let typedSlashCommandIndex = -1;
-    // Models with known text-only input cannot consume image blocks. Materialize
-    // the attachment to a local file and send a path hint instead, mirroring the
-    // Pi provider. Unknown modalities keep forwarding images.
-    const inputModalities = resolveClaudeInputModalities({
-      modelId: this.config.model,
-      profileModels: this.profileModels,
-    });
-    const forwardImages = inputModalities === undefined || inputModalities.includes("image");
     if (Array.isArray(prompt)) {
       for (const chunk of prompt) {
         if (chunk.type === "text") {
@@ -4459,7 +4480,7 @@ class ClaudeAgentSession implements AgentSession {
           }
           content.push({ type: "text", text: chunk.text });
         } else if (chunk.type === "image") {
-          const imageContent = claudeImageChunkContent(chunk, forwardImages);
+          const imageContent = claudeImageChunkContent(chunk);
           if (imageContent) content.push(imageContent);
         } else {
           content.push({ type: "text", text: renderPromptAttachmentAsText(chunk) });
@@ -6419,6 +6440,7 @@ class ClaudeAgentSession implements AgentSession {
     );
   }
 
+  // eslint-disable-next-line complexity -- fork background-task and heartbeat side effects
   private async handleToolResult(
     block: ClaudeContentChunk,
     items: AgentTimelineItem[],

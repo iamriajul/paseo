@@ -5,7 +5,8 @@ import type { Logger } from "pino";
 import { writeJsonFileAtomic } from "../atomic-file.js";
 import type { AgentManager } from "./agent-manager.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
-import { formatSystemNotificationPrompt, sendPromptToAgent } from "./agent-prompt.js";
+import { formatSystemNotificationPrompt } from "./agent-messages/index.js";
+import { sendPromptToAgent } from "./agent-prompt.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import {
   CLIENT_SHUTDOWN_RPC_REASON,

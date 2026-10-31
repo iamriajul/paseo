@@ -13,7 +13,7 @@ import {
   type AttentionFocusTarget,
 } from "@/utils/attention-interrupt-plan";
 import { playAttentionSound, resolveAttentionSoundPreset } from "@/utils/attention-sound";
-import { buildNotificationRoute } from "@/utils/notification-routing";
+import { openNotificationTarget } from "@/utils/open-notification-target";
 import { sendOsNotification } from "@/utils/os-notifications";
 
 export interface DeliverAttentionInterruptInput {
@@ -24,7 +24,6 @@ export interface DeliverAttentionInterruptInput {
   focusedAgentId: string | null;
   focusedTerminalId: string | null;
   isActivelyVisible?: boolean;
-  navigate?: (route: string) => void;
 }
 
 function readAppSettings(): AppSettings {
@@ -87,19 +86,7 @@ export async function deliverAttentionInterrupt(
 
   if (plan.intrusiveFocusAndNavigate) {
     await focusDesktopWindow();
-    const route = buildNotificationRoute(input.data);
-    if (input.navigate) {
-      input.navigate(route);
-    } else {
-      const location = (
-        globalThis as { location?: { assign?: (url: string) => void; href?: string } }
-      ).location;
-      if (location && typeof location.assign === "function") {
-        location.assign(route);
-      } else if (location && typeof location.href === "string") {
-        location.href = route;
-      }
-    }
+    openNotificationTarget(input.data);
   }
 
   if (plan.showBanner) {

@@ -80,6 +80,7 @@ vi.mock("@/components/ui/text-input", () => ({
       reset: () => {
         setVal("");
       },
+      setSelection: () => {},
       getNativeRef: () => inputRef.current,
     }));
 

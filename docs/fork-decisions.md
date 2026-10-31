@@ -549,6 +549,16 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/ser
 grep -q "packages: platform-tools" .github/workflows/android-apk-release.yml
 ```
 
+## fork-apk-scripts-exist
+
+**every npm script the fork APK job runs still exists**
+
+The fork's `publish-fork-android-apk` job lives in official `android-apk-release.yml` and calls workspace scripts directly. Official v0.13 deleted `build:terminal-webview` with the WebView terminal renderer (#7639 upstream), the sync kept the step, and the `v0.14.900` tag's APK run died on "Missing script". The step is gone; native builds draw the terminal natively, and the Office preview webviews are committed generated files. The proof resolves each `npm run` in the workflow against the root or named workspace `package.json`, so the next script official removes fails here instead of on a release tag.
+
+```bash
+node -e 'const fs=require("fs");const g=require("path");const ws={};for(const r of ["packages","plugins"])for(const d of fs.existsSync(r)?fs.readdirSync(r):[]){const f=g.join(r,d,"package.json");if(fs.existsSync(f)){const j=JSON.parse(fs.readFileSync(f));ws[j.name]=j.scripts||{}}}const root=JSON.parse(fs.readFileSync("package.json")).scripts;const t=fs.readFileSync(".github/workflows/android-apk-release.yml","utf8");let bad=0;for(const [,s,w] of t.matchAll(/npm run ([\w:.-]+)(?:\s+--workspace[= ](@?[\w/.-]+))?/g)){if(!(w?ws[w]:root)?.[s]){console.error("missing script",s,w||"(root)");bad=1}}process.exit(bad)'
+```
+
 ## claude-gateway-model-switch
 
 **switch to and display CLIProxyAPI gateway models**

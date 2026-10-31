@@ -363,6 +363,16 @@ grep -q 'portsPanelRegistration' packages/app/src/panels/register-panels.ts
 npm test --workspace=@getpaseo/app -- src/timeline/replica.test.ts -t "prepared again" --bail=1
 ```
 
+## pending-open-before-agent-tabs
+
+**a deep-linked tab is revealed before the workspace auto-opens its other agent tabs**
+
+`workspace-screen.tsx` reconciles agent tabs as soon as the agents are known, but a pending open (`?open=agent:…`, a notification or a deep link) waits until the workspace list hydrates (`usePendingWorkspaceOpen`). In the gap the first auto-opened agent tab becomes active, and the pane's mounted-tab LRU keeps it mounted after the requested tab takes over, so its hidden composer duplicates every composer test id. Against the fork daemon workspaces hydrate about 1.4s after agents, and official's `composer-diff-stat` "only open tabs in this workspace" spec failed 4 of 5 runs (official daemon: 4 of 4 green). The fork skips tab reconciliation while a pending open target exists.
+
+```bash
+grep -A2 "Fork: a pending open" packages/app/src/screens/workspace/workspace-screen.tsx | grep -q "if (pendingOpenTarget)"
+```
+
 ## live-user-message-flush
 
 **commit provider user_message acks before the stream coalescer frame**

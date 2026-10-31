@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { toDaemonServerInfo } from "./server-info";
+import { toDaemonServerInfo } from "./session-store";
 
 describe("toDaemonServerInfo", () => {
   test("preserves URL openers from the daemon handshake", () => {

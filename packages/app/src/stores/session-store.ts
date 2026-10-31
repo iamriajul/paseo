@@ -298,6 +298,9 @@ export function toDaemonServerInfo(serverInfo: ServerInfoStatusPayload): DaemonS
       : {}),
     ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
     ...(serverInfo.features ? { features: serverInfo.features } : {}),
+    // Fork: Code Server and web Browser tabs read these from the session's server info.
+    ...(serverInfo.urlOpeners ? { urlOpeners: serverInfo.urlOpeners } : {}),
+    ...(serverInfo.browserPreview ? { browserPreview: serverInfo.browserPreview } : {}),
   };
 }
 

@@ -130,8 +130,11 @@ npx vitest run packages/desktop/src/features/browser-loopback-direct.test.ts --b
 
 panel-manifest and register-panels keep the codeServer tab so a workspace can open host-advertised VS Code in-pane
 
+The tab, and the web Browser tab, read `urlOpeners` and `browserPreview` from the session's server info, so `toDaemonServerInfo` in `stores/session-store.ts` must copy both from the handshake. The fork once kept them in a separate `utils/server-info.ts` that no caller imported, so the launcher never offered either tab on web; v0.14.900 release QA found it. That file is gone and its test moved to `stores/server-info.test.ts`.
+
 ```bash
 npx vitest run packages/app/src/panels/panel-manifest.test.ts packages/app/src/workspace-tabs/launcher/internal/catalog.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/stores/server-info.test.ts --bail=1
 ```
 
 ## guest-webview-focus

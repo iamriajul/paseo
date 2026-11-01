@@ -370,7 +370,7 @@ test("stable iOS releases upload once and distribute to external testers before 
   assert.match(review, /bundle exec fastlane ios submit_review/);
 });
 
-test("eight Playwright shards run one worker each", () => {
+test("eight Playwright shards share two-worker coverage", () => {
   const source = readFileSync(ciWorkflowPath, "utf8");
   const jobs = jobBlocks(source);
   // Fork adds fork-decisions.
@@ -385,8 +385,7 @@ test("eight Playwright shards run one worker each", () => {
     );
   }
   const shared = jobs.get("playwright-1").join("\n");
-  // Fork: playwright-eight-shards-one-worker in docs/fork-decisions.md.
-  assert.match(shared, /E2E_WORKERS: "1"/);
+  assert.match(shared, /E2E_WORKERS: "2"/);
   const weights = /PWTEST_SHARD_WEIGHTS: "([\d:]+)"/.exec(shared)[1].split(":").map(Number);
   assert.equal(weights.length, 8);
   assert.ok(weights.every((weight) => weight > 0));

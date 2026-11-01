@@ -537,20 +537,6 @@ grep -q "max-old-space-size=4096" nix/desktop-package.nix
 grep -q "contents: write" .github/workflows/nix-update-hash.yml
 ```
 
-## playwright-eight-shards-one-worker
-
-**the browser e2e runs each of its eight shards with one worker, not two**
-
-v0.14.0 moved to eight shards itself but runs two workers per shard (`E2E_WORKERS: "2"` in the shared Playwright step). Each worker owns a daemon and a Chromium and shares one Metro, so two workers oversubscribe a standard runner. When the fork ran `4 shards × 2 workers`, five or six _different_ specs failed attempt 1 in each of six consecutive runs, rotating — `changes-pane`, `composer-autocomplete`, `workspace-navigation-regression`, `sessions-search*`, `new-workspace-launch-memory`. `retries: 1` hid most of them and turned whichever failed twice into a red job.
-
-The evidence is timing, not logic: `sessions-search-hosts:45` took 7.0m on attempt 1 and 29.1s on its retry, and `new-workspace-launch-memory:51` runs in 16.8s on 16 cores, 38.4s pinned to two, and failed CI at 48.8s — its assertions time out at 30s while the test budget is 90s, so a slow runner fails an inner wait before the test itself expires. The fork keeps upstream's shards and shard weights and changes only the worker count.
-
-```bash
-grep -q 'E2E_WORKERS: "1"' .github/workflows/ci.yml
-! grep -q 'E2E_WORKERS: "2"' .github/workflows/ci.yml
-grep -q 'PLAYWRIGHT_SHARD: "8/8"' .github/workflows/ci.yml
-```
-
 ## archive-responds-before-cleanup
 
 **workspace archive answers on the record, not on disk cleanup**

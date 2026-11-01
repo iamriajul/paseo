@@ -7,6 +7,7 @@ import {
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import { AgentRateLimitAutoResumeManager } from "./agent/agent-rate-limit-auto-resume.js";
 import { AgentCacheWarmManager } from "./agent/agent-cache-warm.js";
+import { PromptCacheJournal } from "./agent/prompt-cache-journal.js";
 import {
   createGitRemotePollGate,
   type GitRemotePollGate,
@@ -452,6 +453,7 @@ export interface PaseoDaemonConfig {
   autoArchiveAfterMerge?: boolean;
   autoResumeOnRateLimit?: boolean;
   cacheWarmSubagents?: boolean;
+  cacheAutoCompact?: boolean;
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
   terminalProfiles?: TerminalProfile[];
@@ -660,6 +662,7 @@ function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): Mutab
     autoArchiveAfterMerge: config.autoArchiveAfterMerge ?? false,
     autoResumeOnRateLimit: config.autoResumeOnRateLimit ?? true,
     cacheWarmSubagents: config.cacheWarmSubagents ?? true,
+    cacheAutoCompact: config.cacheAutoCompact ?? false,
     enableTerminalAgentHooks: config.enableTerminalAgentHooks ?? false,
     idleRuntimeCleanup: config.idleRuntimeCleanup !== false,
     appendSystemPrompt: config.appendSystemPrompt ?? "",
@@ -1127,8 +1130,20 @@ export async function createPaseoDaemon(
     agentManager,
     agentStorage,
     logger,
+    isCacheAutoCompactByDefault: () => daemonConfigStore.get().cacheAutoCompact === true,
   });
   agentManager.setCacheWarmManager(cacheWarmManager);
+  agentManager.setPromptCacheJournal(
+    new PromptCacheJournal({
+      directory: path.join(config.paseoHome, "prompt-cache"),
+      logger,
+    }),
+  );
+  daemonConfigStore.onFieldChange("daemon.cacheAutoCompact", () => {
+    for (const agent of agentManager.listAgents()) {
+      cacheWarmManager.schedule(agent.id);
+    }
+  });
   daemonConfigStore.onFieldChange("daemon.autoResumeOnRateLimit", () => {
     if (daemonConfigStore.get().autoResumeOnRateLimit === false) {
       rateLimitAutoResumeManager.cancelAll();

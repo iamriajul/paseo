@@ -84,6 +84,8 @@ export interface Agent {
   consecutiveWarmPings?: number;
   totalWarmPings?: number;
   promptCache?: AgentPromptCacheState;
+  /** Explicit idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
+  cacheAutoCompact?: boolean;
   lastActivityAt: Date;
   capabilities: AgentCapabilityFlags;
   currentModeId: string | null;

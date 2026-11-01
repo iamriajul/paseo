@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import {
-  FIVE_MINUTE_CACHE_WINDOW_MS,
   isClaudeModel,
+  sumPromptCacheTotals,
+  type PromptCacheTotals,
   isQuestionPermission,
   resolveCacheWarmEnabled,
   resolveEffectivePromptCacheWindows,
@@ -60,6 +61,10 @@ export interface PromptCacheState {
   lastPrompt: PromptCacheRequestSample | null;
   /** Recent prompts and how each met the cache; null before the first recorded prompt. */
   history: PromptCacheHistorySummary | null;
+  /** Avoidable misses over the whole session, the red number beside the countdown. */
+  misses: number;
+  /** Requests over the whole session; it changes whenever a request is recorded. */
+  requests: number;
   toggleWarmup: () => Promise<void>;
 }
 
@@ -157,19 +162,17 @@ function hasLiveCountdown(status: PromptCacheStatus): boolean {
   );
 }
 
-function resolveHistory(
-  agent: Agent | undefined,
-  facts: AgentCacheFacts | null,
-): PromptCacheHistorySummary | null {
-  // Automatic with nothing observed: 5m is the stricter window, so a return is never missed.
-  const cacheWindowMs = facts?.windows?.cacheWindowMs ?? FIVE_MINUTE_CACHE_WINDOW_MS;
-  return summarizePromptCacheHistory(agent?.promptCache?.history, cacheWindowMs);
+/** Records written before totals existed count their snapshot window until the next request. */
+function resolveTotals(agent: Agent | undefined): PromptCacheTotals {
+  const promptCache = agent?.promptCache;
+  return promptCache?.totals ?? sumPromptCacheTotals(promptCache?.history ?? []);
 }
 
 export type PromptCacheView = Omit<PromptCacheState, "toggleWarmup">;
 
 /** Everything the cache surfaces show for one agent at one instant; no React, no clock. */
 export function resolvePromptCacheView(agent: Agent | undefined, now: number): PromptCacheView {
+  const totals = resolveTotals(agent);
   const isClaude = Boolean(
     agent && agent.provider === "claude" && isClaudeModel(agent.model ?? agent.runtimeInfo?.model),
   );
@@ -191,7 +194,9 @@ export function resolvePromptCacheView(agent: Agent | undefined, now: number): P
     status,
     warmup,
     lastPrompt: agent?.promptCache?.turnFirstRequest ?? null,
-    history: resolveHistory(agent, facts),
+    history: summarizePromptCacheHistory(agent?.promptCache?.history),
+    misses: totals.misses,
+    requests: totals.requests,
   };
 }
 

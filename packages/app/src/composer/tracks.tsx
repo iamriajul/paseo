@@ -61,6 +61,11 @@ export interface ComposerTrackPillSegment {
   bucket: SidebarStateBucket | null;
   /** Short enough to stay on one line alongside its siblings: "1 failed", "2/7 tasks", "3". */
   text: string;
+  /**
+   * danger: a count that means something went wrong, drawn red after a muted middle dot. It is a
+   * trailing figure on the segment before it rather than a state of its own, so it takes no mark.
+   */
+  tone?: "danger";
 }
 
 export interface ComposerTrackPillProps {
@@ -179,12 +184,19 @@ function ComposerTrackPillTrigger({
         {Icon ? <Icon /> : null}
         {segments.map((segment, index) => (
           <View
-            key={segment.bucket ?? "plain"}
-            style={styles.segment}
+            key={segment.tone ?? segment.bucket ?? "plain"}
+            style={segment.tone === "danger" ? styles.dangerSegment : styles.segment}
             testID={`${testID}-segment-${index}`}
           >
-            <ComposerTrackMark bucket={segment.bucket} />
-            <Text style={labelStyle} numberOfLines={1}>
+            {segment.tone === "danger" ? (
+              <Text style={labelStyle}>·</Text>
+            ) : (
+              <ComposerTrackMark bucket={segment.bucket} />
+            )}
+            <Text
+              style={segment.tone === "danger" ? styles.dangerLabel : labelStyle}
+              numberOfLines={1}
+            >
               {segment.text}
             </Text>
           </View>
@@ -423,6 +435,19 @@ const styles = StyleSheet.create((theme) => {
       flexShrink: 1,
       minWidth: 0,
       gap: theme.spacing[2],
+    },
+    // Pulled in so " · 3" spaces like the "cache · 4:30" text it trails.
+    dangerSegment: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexShrink: 0,
+      gap: theme.spacing[1],
+      marginLeft: -theme.spacing[1],
+    },
+    dangerLabel: {
+      fontSize: theme.fontSize.sm,
+      color: theme.colors.statusDanger,
+      fontWeight: theme.fontWeight.medium,
     },
     // Trims the ring's halo so the circle you can see is the box, like the dot's box is the dot.
     ringMark: {

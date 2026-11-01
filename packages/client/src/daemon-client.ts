@@ -108,6 +108,7 @@ import type {
   UsageReportEntry,
   ProviderUsageResetQuotaResponseMessage,
   GatewayQuotaGetResponseMessage,
+  AgentPromptCacheHistoryResponseMessage,
   GatewayStatsGetResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
@@ -614,6 +615,7 @@ interface UsageListReportsPayload {
 }
 type ProviderUsageResetQuotaPayload = ProviderUsageResetQuotaResponseMessage["payload"];
 type GatewayQuotaPayload = GatewayQuotaGetResponseMessage["payload"];
+export type AgentPromptCacheHistoryPayload = AgentPromptCacheHistoryResponseMessage["payload"];
 type GatewayStatsPayload = GatewayStatsGetResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
@@ -6565,6 +6567,20 @@ export class DaemonClient {
         providerId: options.providerId,
       },
       timeout: 60_000,
+    });
+  }
+
+  async getPromptCacheHistory(options: {
+    agentId: string;
+    requestId?: string;
+  }): Promise<AgentPromptCacheHistoryPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "agent.prompt_cache.history.request",
+        agentId: options.agentId,
+      },
+      timeout: 30_000,
     });
   }
 

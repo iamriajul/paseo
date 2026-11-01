@@ -58,6 +58,8 @@ $PASEO_HOME/
 ├── agents/
 │   └── {sanitized-cwd}/
 │       └── {agentId}.json               # One file per agent
+├── prompt-cache/
+│   └── {agentId}.jsonl                  # Every Claude request and compaction, append-only (claude-prompt-cache-warming)
 ├── schedules/
 │   └── {scheduleId}.json                # One file per schedule
 ├── tasks/

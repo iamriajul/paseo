@@ -25,7 +25,8 @@ export type MetaRowItem =
   | { kind: "todos"; summary: WorkspaceTodoSummary }
   | { kind: "services"; summary: WorkspaceServiceSummary }
   | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] }
-  | { kind: "cacheWarm"; text: string }
+  /** text: countdown to the next warm-up, null when none is armed; misses: the session's red count. */
+  | { kind: "cacheWarm"; text: string | null; misses: number }
   | { kind: "heartbeat"; text: string };
 
 /**
@@ -54,6 +55,8 @@ export function selectMetaRowItems(input: {
   checksDisplay: SidebarChecksDisplay;
   heartbeatText?: string | null;
   cacheWarmText?: string | null;
+  /** Avoidable prompt-cache misses of the active agent's session. */
+  cacheMisses?: number;
 }): MetaRowItem[] {
   const {
     currentBranch,
@@ -68,6 +71,7 @@ export function selectMetaRowItems(input: {
     checksDisplay,
     heartbeatText,
     cacheWarmText,
+    cacheMisses = 0,
   } = input;
   const items: MetaRowItem[] = [];
 
@@ -111,10 +115,15 @@ export function selectMetaRowItems(input: {
   }
 
   // Cache warm-up sits beside the heartbeat for the same reason: it is a timer you armed, so it
-  // is ambient state rather than chrome, and rowItems does not hide it.
+  // is ambient state rather than chrome, and rowItems does not hide it. Misses ride with it, and
+  // show on their own when no warm-up is armed: a cache that missed is worth seeing either way.
   const trimmedCacheWarm = cacheWarmText?.trim() ?? "";
-  if (trimmedCacheWarm.length > 0) {
-    items.push({ kind: "cacheWarm", text: trimmedCacheWarm });
+  if (trimmedCacheWarm.length > 0 || cacheMisses > 0) {
+    items.push({
+      kind: "cacheWarm",
+      text: trimmedCacheWarm.length > 0 ? trimmedCacheWarm : null,
+      misses: cacheMisses,
+    });
   }
 
   // Heartbeat sits last, after every other peer — including labels — so the

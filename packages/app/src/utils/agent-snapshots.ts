@@ -57,6 +57,12 @@ export function derivePendingPermissionKey(
   return `${agentId}:${fallbackId}`;
 }
 
+function pickCacheAutoCompact(source: { cacheAutoCompact?: boolean }): {
+  cacheAutoCompact?: boolean;
+} {
+  return source.cacheAutoCompact === undefined ? {} : { cacheAutoCompact: source.cacheAutoCompact };
+}
+
 export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
   return {
     id: agent.id,
@@ -75,6 +81,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
       : {}),
     ...(agent.totalWarmPings !== undefined ? { totalWarmPings: agent.totalWarmPings } : {}),
     ...(agent.promptCache ? { promptCache: agent.promptCache } : {}),
+    ...pickCacheAutoCompact(agent),
     status: agent.status,
     ...projectActiveTurn(agent),
     capabilities: agent.capabilities,
@@ -126,6 +133,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     consecutiveWarmPings: snapshot.consecutiveWarmPings ?? 0,
     totalWarmPings: snapshot.totalWarmPings ?? 0,
     ...(snapshot.promptCache ? { promptCache: snapshot.promptCache } : {}),
+    ...pickCacheAutoCompact(snapshot),
     lastActivityAt: updatedAt,
     capabilities: snapshot.capabilities,
     currentModeId: snapshot.currentModeId,

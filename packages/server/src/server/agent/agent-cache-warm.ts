@@ -1,6 +1,11 @@
 import type { Logger } from "pino";
 import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 import {
+  CACHE_AUTO_COMPACT_FEATURE_ID,
+  CACHE_AUTO_COMPACT_MIN_CONTEXT_TOKENS,
+  CACHE_AUTO_COMPACT_PROMPT,
+  promptCacheInputTokens,
+  resolveCacheAutoCompactEnabled,
   DEFAULT_CACHE_WARM_PING_PROMPT,
   CACHE_WARM_QUESTION_PAUSE_MESSAGE,
   resolveEffectivePromptCacheWindows,
@@ -42,12 +47,17 @@ interface CacheWarmView {
   hasOtherPendingPermissions: boolean;
   anchorMs: number | null;
   consecutivePings: number;
+  /** Compact instead of expiring when the idle cap is reached. */
+  autoCompact: boolean;
+  /** Input of the latest request, so the context the cache holds; null before any request. */
+  contextTokens: number | null;
 }
 
 type CacheWarmDecision =
   | { kind: "skip"; reason: string }
   | { kind: "wait"; delayMs: number }
   | { kind: "ping"; consecutivePings: number; maxPings: number }
+  | { kind: "compact"; contextTokens: number }
   | {
       kind: "interrupt-questions";
       questions: AgentPermissionRequest[];
@@ -55,9 +65,18 @@ type CacheWarmDecision =
       maxPings: number;
     };
 
+interface ViewInput {
+  consecutivePings: number;
+  autoCompactByDefault: boolean;
+}
+
+function readContextTokens(promptCache: ManagedAgent["promptCache"]): number | null {
+  return promptCache ? promptCacheInputTokens(promptCache.lastRequest) : null;
+}
+
 function viewLiveAgent(
   agent: ManagedAgent,
-  input: { hasInFlightRun: boolean; consecutivePings: number },
+  input: ViewInput & { hasInFlightRun: boolean },
 ): CacheWarmView {
   const pending = agent.pendingPermissions ? Array.from(agent.pendingPermissions.values()) : [];
   const pendingQuestions = pending.filter((request) => isQuestionPermission(request));
@@ -78,10 +97,15 @@ function viewLiveAgent(
     hasOtherPendingPermissions: pending.length > pendingQuestions.length,
     anchorMs: resolvePromptCacheAnchorMs(agent),
     consecutivePings: input.consecutivePings,
+    autoCompact: resolveCacheAutoCompactEnabled({
+      explicitValue: agent.config?.featureValues?.[CACHE_AUTO_COMPACT_FEATURE_ID],
+      hostDefault: input.autoCompactByDefault,
+    }),
+    contextTokens: readContextTokens(agent.promptCache),
   };
 }
 
-function viewDormantRecord(record: StoredAgentRecord, consecutivePings: number): CacheWarmView {
+function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWarmView {
   // A record left "running" by a crash belongs to boot auto-resume, not to warm-up.
   const wasRunning = record.lastStatus === "running" || record.lastStatus === "initializing";
   return {
@@ -94,8 +118,26 @@ function viewDormantRecord(record: StoredAgentRecord, consecutivePings: number):
     pendingQuestions: [],
     hasOtherPendingPermissions: false,
     anchorMs: resolvePromptCacheAnchorMs(record),
-    consecutivePings,
+    consecutivePings: input.consecutivePings,
+    autoCompact: resolveCacheAutoCompactEnabled({
+      explicitValue: record.config?.featureValues?.[CACHE_AUTO_COMPACT_FEATURE_ID],
+      hostDefault: input.autoCompactByDefault,
+    }),
+    contextTokens: readContextTokens(record.promptCache),
   };
+}
+
+/**
+ * At the idle cap the cache would expire. Compacting while it is still warm reads the context at
+ * the cache price and leaves a small one, so waking the agent later writes little. A small context
+ * gains nothing from that and loses its detail.
+ */
+function compactsAtCap(view: CacheWarmView): boolean {
+  return (
+    view.autoCompact &&
+    view.contextTokens !== null &&
+    view.contextTokens >= CACHE_AUTO_COMPACT_MIN_CONTEXT_TOKENS
+  );
 }
 
 export function resolveCacheWarmWindows(view: {
@@ -149,7 +191,8 @@ function decideCacheWarm(input: {
   if (elapsedMs >= windows.cacheWindowMs) {
     return { kind: "skip", reason: "cache has already expired" };
   }
-  if (view.consecutivePings >= windows.maxConsecutivePings) {
+  const capped = view.consecutivePings >= windows.maxConsecutivePings;
+  if (capped && (!compactsAtCap(view) || hasQuestions)) {
     return { kind: "skip", reason: "auto-cap reached for this idle stretch" };
   }
   if (lastAttemptMs !== null && lastAttemptMs > view.anchorMs) {
@@ -157,6 +200,9 @@ function decideCacheWarm(input: {
   }
   if (elapsedMs < windows.warmIntervalMs) {
     return { kind: "wait", delayMs: windows.warmIntervalMs - elapsedMs };
+  }
+  if (capped) {
+    return { kind: "compact", contextTokens: view.contextTokens ?? 0 };
   }
   const counts = {
     consecutivePings: view.consecutivePings,
@@ -179,6 +225,8 @@ export interface AgentCacheWarmManagerDependencies {
   sendPrompt?: typeof sendPromptToAgent;
   pingPrompt?: string;
   now?: () => number;
+  /** Host setting `cacheAutoCompact`, read on every decision so a change applies at once. */
+  isCacheAutoCompactByDefault?: () => boolean;
 }
 
 export class AgentCacheWarmManager {
@@ -188,6 +236,7 @@ export class AgentCacheWarmManager {
   private readonly send: typeof sendPromptToAgent;
   private readonly pingPrompt: string;
   private readonly now: () => number;
+  private readonly isCacheAutoCompactByDefault: () => boolean;
 
   private readonly activeTimers = new Map<string, ActiveCacheWarmTimerEntry>();
   private readonly agentEpochs = new Map<string, number>();
@@ -204,6 +253,7 @@ export class AgentCacheWarmManager {
     this.send = dependencies.sendPrompt ?? sendPromptToAgent;
     this.pingPrompt = dependencies.pingPrompt ?? DEFAULT_CACHE_WARM_PING_PROMPT;
     this.now = dependencies.now ?? (() => Date.now());
+    this.isCacheAutoCompactByDefault = dependencies.isCacheAutoCompactByDefault ?? (() => false);
   }
 
   private nextEpoch(agentId: string): number {
@@ -267,15 +317,19 @@ export class AgentCacheWarmManager {
   }
 
   private viewAgent(agentId: string): CacheWarmView | null {
+    const input: ViewInput = {
+      consecutivePings: this.getConsecutivePings(agentId),
+      autoCompactByDefault: this.isCacheAutoCompactByDefault(),
+    };
     const agent = this.agentManager.getAgent(agentId);
     if (agent) {
       return viewLiveAgent(agent, {
+        ...input,
         hasInFlightRun: this.agentManager.hasInFlightRun?.(agentId) ?? false,
-        consecutivePings: this.getConsecutivePings(agentId),
       });
     }
     const record = this.dormantRecords.get(agentId);
-    return record ? viewDormantRecord(record, this.getConsecutivePings(agentId)) : null;
+    return record ? viewDormantRecord(record, input) : null;
   }
 
   private decide(agentId: string): CacheWarmDecision {
@@ -342,7 +396,32 @@ export class AgentCacheWarmManager {
           logMessage: "Warming prompt cache",
           attempt: () => this.sendCacheWarmPing(agentId),
         });
+      case "compact":
+        return this.compactAtCap(agentId, decision.contextTokens);
     }
+  }
+
+  /**
+   * Compacts instead of letting the cache expire, then turns warm-up off: the compacted context
+   * is cheap to write again, so keeping it warm would cost more than it saves. It is no warm-up,
+   * so the ping counts stay as they are.
+   */
+  private async compactAtCap(agentId: string, contextTokens: number): Promise<boolean> {
+    this.logger.info({ agentId, contextTokens }, "Compacting at the warm-up idle cap");
+    this.lastAttemptAt.set(agentId, this.now());
+    this.pingsInFlight.add(agentId);
+    let sent = false;
+    try {
+      sent = await this.sendPrompt(agentId, CACHE_AUTO_COMPACT_PROMPT);
+      if (sent) {
+        await this.agentManager.setAgentFeature(agentId, CLAUDE_CACHE_WARM_FEATURE_ID, false);
+      }
+    } catch (error) {
+      this.logger.warn({ err: error, agentId }, "Idle-cap compaction failed");
+    } finally {
+      this.pingsInFlight.delete(agentId);
+    }
+    return sent;
   }
 
   private async runAttempt(input: {
@@ -401,12 +480,17 @@ export class AgentCacheWarmManager {
     return true;
   }
 
-  private async sendCacheWarmPing(agentId: string): Promise<boolean> {
+  private sendCacheWarmPing(agentId: string): Promise<boolean> {
+    return this.sendPrompt(agentId, this.pingPrompt);
+  }
+
+  /** Sent as a warm-up turn so it raises no attention and keeps the idle-stretch counts. */
+  private async sendPrompt(agentId: string, prompt: string): Promise<boolean> {
     const result = await this.send({
       agentManager: this.agentManager,
       agentStorage: this.agentStorage,
       agentId,
-      prompt: this.pingPrompt,
+      prompt,
       replaceRunning: false,
       unarchive: false,
       logger: this.logger,
@@ -459,7 +543,8 @@ export class AgentCacheWarmManager {
       if (record.archivedAt || record.internal || this.agentManager.getAgent(record.id)) {
         continue;
       }
-      if (resolveCacheWarmWindows(viewDormantRecord(record, 0)) === null) {
+      const view = viewDormantRecord(record, { consecutivePings: 0, autoCompactByDefault: false });
+      if (resolveCacheWarmWindows(view) === null) {
         continue;
       }
       this.dormantRecords.set(record.id, record);

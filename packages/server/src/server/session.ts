@@ -3240,6 +3240,8 @@ export class Session {
     switch (msg.type) {
       case "fetch_agent_timeline_request":
         return this.handleFetchAgentTimelineRequest(msg, source);
+      case "agent.prompt_cache.history.request":
+        return this.handlePromptCacheHistoryRequest(msg);
       case "agent.timeline.append.request":
         return this.handleAgentTimelineAppendRequest(msg);
       case "agent.timeline.search.request":
@@ -8590,6 +8592,30 @@ export class Session {
       type: "fetch_agent_response",
       payload: { requestId, agent, project, error: null },
     });
+  }
+
+  private async handlePromptCacheHistoryRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.prompt_cache.history.request" }>,
+  ): Promise<void> {
+    const base = { requestId: msg.requestId, agentId: msg.agentId };
+    try {
+      const history = await this.agentManager.readPromptCacheHistory(msg.agentId);
+      this.emit({
+        type: "agent.prompt_cache.history.response",
+        payload: { ...base, ...history, error: null },
+      });
+    } catch (error) {
+      this.sessionLogger.warn({ err: error, agentId: msg.agentId }, "Prompt cache history failed");
+      this.emit({
+        type: "agent.prompt_cache.history.response",
+        payload: {
+          ...base,
+          requests: [],
+          compactions: [],
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
   }
 
   private async handleFetchAgentTimelineRequest(

@@ -178,13 +178,18 @@ describe("selectMetaRowItems", () => {
       heartbeatText: "in 12m",
     });
     expect(items).toEqual([
-      { kind: "cacheWarm", text: "3:40" },
+      { kind: "cacheWarm", text: "3:40", misses: 0 },
       { kind: "heartbeat", text: "in 12m" },
     ]);
   });
 
-  it("leaves the cache warm-up out when nothing is counting down", () => {
+  it("leaves the cache warm-up out when nothing counts down and nothing missed", () => {
     expect(kinds(select({ cacheWarmText: null }))).not.toContain("cacheWarm");
     expect(kinds(select({ cacheWarmText: "  " }))).not.toContain("cacheWarm");
+    expect(select({ cacheWarmText: null, cacheMisses: 2 })).toContainEqual({
+      kind: "cacheWarm",
+      text: null,
+      misses: 2,
+    });
   });
 });

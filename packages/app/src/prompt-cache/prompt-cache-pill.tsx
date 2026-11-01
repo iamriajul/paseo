@@ -1,13 +1,18 @@
-import React, { memo, type ReactElement } from "react";
+import React, { memo, useCallback, useState, type ReactElement } from "react";
 import { View, Text } from "react-native";
 import { Database, Flame } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
+  FIVE_MINUTE_CACHE_WINDOW_MS,
   promptCacheHitRatio,
   type PromptCacheRequestSample,
   type PromptCacheWindows,
 } from "@getpaseo/protocol/agent-cache-warm";
-import { ComposerTrackPill } from "@/composer/tracks";
+import {
+  ComposerTrackPill,
+  ComposerTrackRow,
+  type ComposerTrackPillSegment,
+} from "@/composer/tracks";
 import { Button } from "@/components/ui/button";
 import { formatTokenCount } from "@/components/context-window-meter.utils";
 import { formatCountdownClock, formatPreciseDuration } from "@/usage/format";
@@ -18,12 +23,12 @@ import {
   type PromptCacheStatus,
   type PromptCacheWarmup,
 } from "./use-prompt-cache";
-import type {
-  PromptCacheHistoryBar,
-  PromptCacheHistorySummary,
-  PromptCacheHitCount,
-  PromptCacheLastReturn,
-} from "./prompt-cache-history";
+import type { PromptCacheHistoryBar, PromptCacheHistorySummary } from "./prompt-cache-history";
+import { PromptCacheInsightsDialog } from "./prompt-cache-insights-dialog";
+import {
+  usePromptCacheAutoCompact,
+  type PromptCacheAutoCompact,
+} from "./use-prompt-cache-auto-compact";
 
 const ThemedDatabase = withUnistyles(Database);
 const ThemedFlame = withUnistyles(Flame);
@@ -133,39 +138,13 @@ function resolveLastPromptText(sample: PromptCacheRequestSample): string {
   return `${percent}% cached · ${formatTokenCount(sample.readTokens)} read · ${formatTokenCount(sample.writeTokens)} written`;
 }
 
-function formatHitCount(count: PromptCacheHitCount): string {
-  return count.total === 0 ? "None yet" : `${count.hit} of ${count.total} hit`;
-}
-
 function formatPercent(fraction: number): string {
   return `${Math.floor(fraction * 100)}%`;
 }
 
-function resolveMissesText(history: PromptCacheHistorySummary): string {
-  const { missesAfterExpiry, missesWhileWarm } = history;
-  if (missesAfterExpiry === 0 && missesWhileWarm === 0) return "None";
-  return `${missesAfterExpiry} after expiry · ${missesWhileWarm} while warm`;
-}
-
-function resolveLastReturnText(lastReturn: PromptCacheLastReturn): string {
-  const away = `${formatPreciseDuration(lastReturn.awayMs)} away`;
-  const warmUps = lastReturn.warmUps === 1 ? "1 warm-up" : `${lastReturn.warmUps} warm-ups`;
-  const outcome = lastReturn.hit ? `${formatPercent(lastReturn.ratio)} cached` : "missed";
-  return `${away} · ${warmUps} · ${outcome}`;
-}
-
-function resolveHistoryAccessibilityLabel(history: PromptCacheHistorySummary): string {
-  return `Last ${history.bars.length} requests: ${formatHitCount(history.requests)}, ${formatPercent(history.cachedShare)} of input cached.`;
-}
-
 function resolveBarFillStyle(bar: PromptCacheHistoryBar) {
-  return bar.hit ? styles.barFillHit : styles.barFillMiss;
-}
-
-function resolveBarMarkerStyle(bar: PromptCacheHistoryBar) {
-  if (bar.kind === "warm-up") return styles.markerWarmUp;
-  if (bar.kind === "turn") return styles.markerTurn;
-  return null;
+  if (bar.avoidableMiss) return styles.barFillMiss;
+  return bar.hit ? styles.barFillHit : styles.barFillCold;
 }
 
 function HistoryBar({ bar }: { bar: PromptCacheHistoryBar }): ReactElement {
@@ -176,84 +155,49 @@ function HistoryBar({ bar }: { bar: PromptCacheHistoryBar }): ReactElement {
       <View style={styles.barTrack}>
         <View style={[styles.barFill, resolveBarFillStyle(bar), { height }]} />
       </View>
-      <View style={[styles.marker, resolveBarMarkerStyle(bar)]} />
     </View>
   );
 }
 
-function HistoryRow({
-  label,
-  value,
-  testID,
+function RequestHistory({
+  history,
+  misses,
 }: {
-  label: string;
-  value: string;
-  testID: string;
+  history: PromptCacheHistorySummary;
+  misses: number;
 }): ReactElement {
   return (
-    <View style={styles.detailRow}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value} testID={testID}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function RequestHistory({ history }: { history: PromptCacheHistorySummary }): ReactElement {
-  return (
     <View style={styles.historyBlock} testID="prompt-cache-history">
-      <HistoryRow
-        label="Recent requests"
-        value={`${history.bars.length} · ${formatPercent(history.cachedShare)} of input cached`}
-        testID="prompt-cache-history-share"
-      />
       <View
         style={styles.barRow}
         role="img"
-        aria-label={resolveHistoryAccessibilityLabel(history)}
+        aria-label={`Last ${history.bars.length} requests, ${formatPercent(history.cachedShare)} of input cached.`}
         testID="prompt-cache-history-chart"
       >
         {history.bars.map((bar) => (
           <HistoryBar key={bar.at} bar={bar} />
         ))}
       </View>
-      <View style={styles.legend}>
-        <View style={[styles.marker, styles.markerTurn]} />
-        <Text style={styles.legendText}>Turn start</Text>
-        <View style={[styles.marker, styles.markerWarmUp]} />
-        <Text style={styles.legendText}>Warm-up</Text>
-        <Text style={styles.legendText}>· height is the cached share</Text>
+      <View style={styles.detailRow}>
+        <Text style={styles.label} testID="prompt-cache-history-share">
+          Last {history.bars.length} · {formatPercent(history.cachedShare)} cached
+        </Text>
+        <Text
+          style={[styles.value, misses > 0 && styles.danger]}
+          testID="prompt-cache-history-misses"
+        >
+          {misses === 1 ? "1 miss" : `${misses} misses`} this session
+        </Text>
       </View>
-      <HistoryRow
-        label="Requests"
-        value={formatHitCount(history.requests)}
-        testID="prompt-cache-history-requests"
-      />
-      <HistoryRow
-        label="After time away"
-        value={formatHitCount(history.returns)}
-        testID="prompt-cache-history-returns"
-      />
-      <HistoryRow
-        label="Warm-ups"
-        value={formatHitCount(history.warmUps)}
-        testID="prompt-cache-history-warm-ups"
-      />
-      <HistoryRow
-        label="Misses"
-        value={resolveMissesText(history)}
-        testID="prompt-cache-history-misses"
-      />
-      {history.lastReturn ? (
-        <HistoryRow
-          label="Last return"
-          value={resolveLastReturnText(history.lastReturn)}
-          testID="prompt-cache-history-last-return"
-        />
-      ) : null}
     </View>
   );
+}
+
+function resolveAutoCompactText(autoCompact: PromptCacheAutoCompact): string {
+  if (!autoCompact.enabled) return "Let it expire";
+  const size =
+    autoCompact.contextTokens === null ? "" : ` · ${formatTokenCount(autoCompact.contextTokens)}`;
+  return autoCompact.largeEnough ? `Compact${size}` : `Compact from 200k${size} now`;
 }
 
 function resolveAccessibilityLabel(cache: PromptCacheState): string {
@@ -284,13 +228,17 @@ export const PromptCachePill = memo(function PromptCachePill({
   agentId: string;
 }): ReactElement | null {
   const cache = usePromptCache(serverId, agentId);
+  const autoCompact = usePromptCacheAutoCompact(serverId, agentId);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  const openInsights = useCallback(() => setInsightsOpen(true), []);
+  const closeInsights = useCallback(() => setInsightsOpen(false), []);
 
   if (!cache.isClaude) {
     return null;
   }
 
-  const { windows, warmup, lastPrompt, history } = cache;
-  const segments = [
+  const { windows, warmup, lastPrompt, history, misses } = cache;
+  const segments: ComposerTrackPillSegment[] = [
     {
       bucket:
         cache.status.kind === "busy" || cache.status.kind === "busy-expired"
@@ -299,82 +247,97 @@ export const PromptCachePill = memo(function PromptCachePill({
       text: resolveSegmentText(cache),
     },
   ];
+  if (misses > 0) {
+    segments.push({ bucket: null, text: String(misses), tone: "danger" });
+  }
   const canTurnOn = cache.status.kind !== "expired";
 
   return (
-    <ComposerTrackPill
-      testID="prompt-cache-pill"
-      segments={segments}
-      icon={warmup?.enabled ? WarmPillIcon : PillIcon}
-      accessibilityLabel={resolveAccessibilityLabel(cache)}
-      panelTitle="Prompt Cache Warm-up"
-    >
-      <View style={styles.panelContent}>
-        <View style={styles.detailRow}>
-          <Text style={styles.label}>Cache window</Text>
-          <Text style={styles.value}>{formatCacheWindowLabel(cache)}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.label}>Cache status</Text>
-          <Text style={styles.value}>{resolveStatusText(cache.status)}</Text>
-        </View>
-        {lastPrompt ? (
+    <>
+      <ComposerTrackPill
+        testID="prompt-cache-pill"
+        segments={segments}
+        icon={warmup?.enabled ? WarmPillIcon : PillIcon}
+        accessibilityLabel={resolveAccessibilityLabel(cache)}
+        panelTitle="Prompt cache"
+      >
+        <View style={styles.panelContent}>
           <View style={styles.detailRow}>
-            <Text style={styles.label}>
-              {lastPrompt.isWarmPing ? "Last warm-up" : "Last prompt"}
-            </Text>
-            <Text style={styles.value} testID="prompt-cache-last-prompt">
-              {resolveLastPromptText(lastPrompt)}
-            </Text>
+            <Text style={styles.label}>Cache · {formatCacheWindowLabel(cache)}</Text>
+            <Text style={styles.value}>{resolveStatusText(cache.status)}</Text>
           </View>
-        ) : null}
-        {history ? <RequestHistory history={history} /> : null}
-        {warmup && windows ? (
-          <>
+          {lastPrompt ? (
             <View style={styles.detailRow}>
-              <Text style={styles.label}>Auto warm-up</Text>
-              <Text style={styles.value}>{resolveWarmupText(warmup)}</Text>
+              <Text style={styles.label}>
+                {lastPrompt.isWarmPing ? "Last warm-up" : "Last prompt"}
+              </Text>
+              <Text style={styles.value} testID="prompt-cache-last-prompt">
+                {resolveLastPromptText(lastPrompt)}
+              </Text>
             </View>
+          ) : null}
+          {history ? <RequestHistory history={history} misses={misses} /> : null}
+          {warmup && windows ? (
             <View style={styles.capBlock}>
               <View style={styles.detailRow}>
-                <Text style={styles.label}>Idle auto-cap</Text>
+                <Text style={styles.label}>Warm-up</Text>
                 <Text style={styles.value} testID="prompt-cache-cap-count">
-                  {warmup.pingsUsed} / {warmup.maxPings} · {formatCoveredDuration(warmup, windows)}
+                  {resolveWarmupText(warmup)} · {warmup.pingsUsed}/{warmup.maxPings} ·{" "}
+                  {formatCoveredDuration(warmup, windows)}
                 </Text>
               </View>
               <CapProgress warmup={warmup} />
-              <Text style={styles.helpText}>Cap resets when you send a message</Text>
               <View style={styles.detailRow}>
-                <Text style={styles.label}>Total warm-ups</Text>
-                <Text style={styles.value} testID="prompt-cache-total-pings">
-                  {warmup.totalPings}
+                <Text style={styles.label}>At the cap</Text>
+                <Text style={styles.value} testID="prompt-cache-auto-compact">
+                  {resolveAutoCompactText(autoCompact)}
                 </Text>
               </View>
+              <View style={styles.actions}>
+                <Button
+                  size="sm"
+                  variant={warmup.enabled ? "outline" : "default"}
+                  testID="prompt-cache-toggle-warmup-button"
+                  disabled={!warmup.enabled && !canTurnOn}
+                  onPress={cache.toggleWarmup}
+                  style={styles.actionButton}
+                >
+                  {warmup.enabled ? "Warm-up off" : "Warm-up on"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  testID="prompt-cache-toggle-auto-compact-button"
+                  onPress={autoCompact.toggle}
+                  style={styles.actionButton}
+                >
+                  {autoCompact.enabled ? "Let it expire" : "Compact at cap"}
+                </Button>
+              </View>
             </View>
-            <View style={styles.actions}>
-              <Button
-                size="sm"
-                variant={warmup.enabled ? "outline" : "default"}
-                testID="prompt-cache-toggle-warmup-button"
-                disabled={!warmup.enabled && !canTurnOn}
-                onPress={cache.toggleWarmup}
-              >
-                {warmup.enabled ? "Turn off auto warm-up" : "Turn on auto warm-up"}
-              </Button>
-              {!warmup.enabled && !canTurnOn ? (
-                <Text style={styles.helpText}>
-                  Cache is expired. Send a prompt to re-warm before turning on auto warm-up.
-                </Text>
-              ) : null}
-            </View>
-          </>
-        ) : (
-          <Text style={styles.helpText}>
-            Choose 5m or 1h under Cache window to use auto warm-up.
-          </Text>
-        )}
-      </View>
-    </ComposerTrackPill>
+          ) : (
+            <Text style={styles.helpText}>Choose 5m or 1h under Cache window to warm it.</Text>
+          )}
+          <ComposerTrackRow
+            onPress={openInsights}
+            testID="prompt-cache-open-insights"
+            accessibilityLabel="Open session cache insights"
+          >
+            <Text style={styles.linkText}>Session insights</Text>
+          </ComposerTrackRow>
+        </View>
+      </ComposerTrackPill>
+      {insightsOpen ? (
+        <PromptCacheInsightsDialog
+          serverId={serverId}
+          agentId={agentId}
+          visible
+          onClose={closeInsights}
+          revision={cache.requests}
+          cacheWindowMs={windows?.cacheWindowMs ?? FIVE_MINUTE_CACHE_WINDOW_MS}
+        />
+      ) : null}
+    </>
   );
 });
 
@@ -441,32 +404,24 @@ const styles = StyleSheet.create((theme: Theme) => ({
   barFillMiss: {
     backgroundColor: theme.colors.statusDanger,
   },
-  marker: {
-    height: 6,
-    width: 6,
-    borderRadius: 3,
-    alignSelf: "center",
+  barFillCold: {
+    backgroundColor: theme.colors.foregroundMuted,
   },
-  markerTurn: {
-    backgroundColor: theme.colors.foreground,
-  },
-  markerWarmUp: {
-    backgroundColor: theme.colors.statusWarning,
-  },
-  legend: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
-  },
-  legendText: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
+  danger: {
+    color: theme.colors.statusDanger,
   },
   actions: {
     marginTop: theme.spacing[1],
-    flexDirection: "column",
-    alignItems: "stretch",
-    gap: theme.spacing[1],
+    flexDirection: "row",
+    gap: theme.spacing[2],
+  },
+  actionButton: {
+    flex: 1,
+  },
+  linkText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foreground,
+    fontWeight: theme.fontWeight.medium,
   },
   helpText: {
     fontSize: theme.fontSize.sm,

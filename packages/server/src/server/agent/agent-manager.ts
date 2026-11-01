@@ -4,6 +4,7 @@ import type { RuntimeCleanupCandidate } from "./idle-runtime-cleanup/index.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import type { AgentRateLimitAutoResumeManager } from "./agent-rate-limit-auto-resume.js";
 import type { AgentCacheWarmManager } from "./agent-cache-warm.js";
+import type { PromptCacheJournal, PromptCacheJournalHistory } from "./prompt-cache-journal.js";
 import {
   CLAUDE_CACHE_WARM_FEATURE_ID,
   CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
@@ -13,6 +14,10 @@ import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-lab
 import {
   isCacheWarmPrompt,
   recordPromptCacheRequest,
+  recordPromptCacheCompaction,
+  latestPromptCacheEntry,
+  CACHE_AUTO_COMPACT_FEATURE_ID,
+  type PromptCacheCompaction,
   type AgentPromptCacheState,
   type PromptCacheRequestSample,
 } from "@getpaseo/protocol/agent-cache-warm";
@@ -867,6 +872,7 @@ export class AgentManager {
   private logger: Logger;
   private rateLimitAutoResumeManager: AgentRateLimitAutoResumeManager | null = null;
   private cacheWarmManager: AgentCacheWarmManager | null = null;
+  private promptCacheJournal: PromptCacheJournal | null = null;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
@@ -919,6 +925,25 @@ export class AgentManager {
 
   setCacheWarmManager(manager: AgentCacheWarmManager | null): void {
     this.cacheWarmManager = manager;
+  }
+
+  setPromptCacheJournal(journal: PromptCacheJournal | null): void {
+    this.promptCacheJournal = journal;
+  }
+
+  /**
+   * The agent's whole cache history for the insights view: the journal, or the snapshot window
+   * for an agent nothing was journaled for yet.
+   */
+  async readPromptCacheHistory(agentId: string): Promise<PromptCacheJournalHistory> {
+    const journaled = await this.promptCacheJournal?.read(agentId);
+    if (journaled) return journaled;
+    const promptCache =
+      this.agents.get(agentId)?.promptCache ?? (await this.registry?.get(agentId))?.promptCache;
+    return {
+      requests: promptCache?.history ?? [],
+      compactions: promptCache?.compactions ?? [],
+    };
   }
 
   getCacheWarmManager(): AgentCacheWarmManager | null {
@@ -2561,6 +2586,18 @@ export class AgentManager {
   async setAgentFeature(agentId: string, featureId: string, value: unknown): Promise<void> {
     const agent = this.requireAgent(agentId);
 
+    if (featureId === CACHE_AUTO_COMPACT_FEATURE_ID) {
+      // Daemon-owned: the warm-up watchdog reads it, the provider never sees it.
+      if (typeof value !== "boolean") {
+        throw new Error("cache_auto_compact expects a boolean");
+      }
+      agent.config.featureValues = { ...agent.config.featureValues, [featureId]: value };
+      this.cacheWarmManager?.schedule(agentId);
+      this.touchUpdatedAt(agent);
+      this.emitState(agent);
+      return;
+    }
+
     if (!agent.session.setFeature) {
       throw new Error("Agent session does not support setting features");
     }
@@ -4001,6 +4038,7 @@ export class AgentManager {
 
   async deleteAgentState(agentId: string): Promise<void> {
     this.discardRetainedAgentState(agentId);
+    await this.promptCacheJournal?.delete(agentId);
     await this.deleteCommittedTimeline(agentId);
   }
 
@@ -5361,6 +5399,9 @@ export class AgentManager {
       }
 
       this.recordAndDispatchTimelineItem(agent.id, item, event.provider, event.turnId);
+      if (item.type === "compaction" && item.status === "completed") {
+        this.recordPromptCacheCompaction(agent, item);
+      }
       if (item.type === "user_message" && !isCacheWarmPrompt(item.text)) {
         this.noteUserMessage(agent);
         this.emitState(agent);
@@ -5401,7 +5442,32 @@ export class AgentManager {
       turnId: agent.activeTurnId,
       isWarmPing: Boolean(agent.activeTurnIsWarmPing),
     };
-    agent.promptCache = recordPromptCacheRequest(agent.promptCache, sample);
+    const before = agent.promptCache;
+    agent.promptCache = recordPromptCacheRequest(before, sample);
+    const entry = latestPromptCacheEntry(agent.promptCache);
+    if (entry) {
+      void this.promptCacheJournal?.appendRequest({ agentId: agent.id, entry, before });
+    }
+  }
+
+  private recordPromptCacheCompaction(
+    agent: ActiveManagedAgent,
+    item: Extract<AgentTimelineItem, { type: "compaction" }>,
+  ): void {
+    const trigger = item.trigger ?? "auto";
+    const compaction: PromptCacheCompaction = {
+      at: new Date().toISOString(),
+      trigger,
+      ...(item.preTokens === undefined ? {} : { preTokens: item.preTokens }),
+      // Only the idle-cap compaction sends /compact inside a warm-up turn.
+      ...(agent.activeTurnIsWarmPing && trigger === "manual" ? { atIdleCap: true } : {}),
+    };
+    const before = agent.promptCache;
+    const next = recordPromptCacheCompaction(before, compaction);
+    if (!next) return;
+    agent.promptCache = next;
+    void this.promptCacheJournal?.appendCompaction({ agentId: agent.id, compaction, before });
+    this.emitState(agent);
   }
 
   private onStreamTurnCompleted(params: {

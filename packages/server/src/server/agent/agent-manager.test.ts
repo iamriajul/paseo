@@ -27,6 +27,7 @@ import { getOpenAgentTabLabel, PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/
 import { DEFAULT_CACHE_WARM_PING_PROMPT } from "@getpaseo/protocol/agent-cache-warm";
 import { startAgentRun } from "./agent-prompt.js";
 import { StaleProviderSessionError } from "./stale-provider-session-error.js";
+import { PromptCacheJournal } from "./prompt-cache-journal.js";
 import { ensureAgentLoaded, ensureUnarchivedAgentLoaded } from "./agent-loading.js";
 import type { StoredAgentRecord } from "./agent-storage.js";
 import type {
@@ -12655,6 +12656,86 @@ test("records each request's cache split, the turn's first request, the written 
     expect(stored?.lastRequest.readTokens).toBe(1000);
     expect(stored?.observedTtl).toBe("5m");
     expect(stored?.history).toHaveLength(2);
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("records a compaction, marks the request after it, and journals the whole history", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-prompt-cache-journal-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const journal = new PromptCacheJournal({
+    directory: join(workdir, "prompt-cache"),
+    logger,
+  });
+  let turns = 0;
+
+  class CompactingSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      turns += 1;
+      const turnId = `turn-compact-${turns}`;
+      const requestCache =
+        turns === 1
+          ? { readTokens: 0, writeTokens: 900, uncachedTokens: 100, writeTtl: "5m" as const }
+          : { readTokens: 1000, writeTokens: 50, uncachedTokens: 50 };
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: { contextWindowUsedTokens: 1000, requestCache },
+        });
+        if (turns === 1) {
+          this.pushEvent({
+            type: "timeline",
+            provider: this.provider,
+            item: { type: "compaction", status: "completed", trigger: "manual", preTokens: 1000 },
+          });
+        }
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class CompactingClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new CompactingSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new CompactingClient() },
+    registry: storage,
+    logger,
+  });
+  manager.setPromptCacheJournal(journal);
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+    await manager.runAgent(snapshot.id, "before the compaction");
+    await manager.runAgent(snapshot.id, "after the compaction");
+
+    const promptCache = manager.getAgent(snapshot.id)?.promptCache;
+    expect(promptCache?.compactions).toEqual([
+      expect.objectContaining({ trigger: "manual", preTokens: 1000 }),
+    ]);
+    expect(promptCache?.history?.at(-1)).toMatchObject({ kind: "turn", afterCompaction: true });
+    expect(promptCache?.totals).toEqual({ requests: 2, hits: 1, misses: 0 });
+
+    await manager.flush();
+    expect(await manager.readPromptCacheHistory(snapshot.id)).toEqual({
+      requests: [
+        expect.objectContaining({ kind: "turn", writeTokens: 900, gapMs: null }),
+        expect.objectContaining({ kind: "turn", readTokens: 1000, afterCompaction: true }),
+      ],
+      compactions: [expect.objectContaining({ trigger: "manual", preTokens: 1000 })],
+    });
   } finally {
     if (snapshotId) await manager.closeAgent(snapshotId);
     rmSync(workdir, { recursive: true, force: true });

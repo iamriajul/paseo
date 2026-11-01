@@ -4,6 +4,7 @@ import { Pressable, Text, View, type GestureResponderEvent } from "react-native"
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   CalendarClock,
+  Database,
   Flame,
   ExternalLink,
   Folder,
@@ -50,6 +51,7 @@ const ThemedGlobe = withUnistyles(Globe);
 const ThemedListTodo = withUnistyles(ListTodo);
 const ThemedCalendarClock = withUnistyles(CalendarClock);
 const ThemedFlame = withUnistyles(Flame);
+const ThemedDatabase = withUnistyles(Database);
 
 /** Stable identity so a row without labels doesn't re-select its items on every render. */
 const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
@@ -85,6 +87,7 @@ export function WorkspaceMetaRow({
   labels = EMPTY_LABELS,
   heartbeatText = null,
   cacheWarmText = null,
+  cacheMisses = 0,
 }: {
   currentBranch: string | null;
   projectName: string | null;
@@ -98,6 +101,8 @@ export function WorkspaceMetaRow({
   heartbeatText?: string | null;
   /** Countdown to the active agent's next prompt-cache warm-up, when one is armed. */
   cacheWarmText?: string | null;
+  /** The active agent's avoidable prompt-cache misses this session, drawn red. */
+  cacheMisses?: number;
 }) {
   const { rowItems, checksDisplay } = useSidebarMetaPreferences();
   const items = selectMetaRowItems({
@@ -113,6 +118,7 @@ export function WorkspaceMetaRow({
     checksDisplay,
     heartbeatText,
     cacheWarmText,
+    cacheMisses,
   });
 
   if (items.length === 0) return null;
@@ -161,7 +167,7 @@ function MetaItemNode({
     return <LabelsItem labels={item.labels} leading={leading} />;
   }
   if (item.kind === "cacheWarm") {
-    return <CacheWarmItem text={item.text} />;
+    return <CacheWarmItem text={item.text} misses={item.misses} />;
   }
   if (item.kind === "heartbeat") {
     return <HeartbeatItem text={item.text} />;
@@ -344,18 +350,34 @@ const CHECK_STATE_ACCESSIBLE_KEYS = {
   running: "workspace.git.pr.checksSummary.runningAccessible",
 } as const;
 
-function CacheWarmItem({ text }: { text: string }) {
+function CacheWarmItem({ text, misses }: { text: string | null; misses: number }) {
   const { t } = useTranslation();
+  const labels = [
+    text ? t("workspace.cacheWarm.accessibilityLabel", { countdown: text }) : null,
+    misses > 0 ? t("workspace.cacheWarm.missesAccessibilityLabel", { count: misses }) : null,
+  ].filter(Boolean);
   return (
     <View
       style={styles.item}
-      accessibilityLabel={t("workspace.cacheWarm.accessibilityLabel", { countdown: text })}
+      accessibilityLabel={labels.join(", ")}
       testID="sidebar-workspace-cache-warm"
     >
-      <ThemedFlame size={META_ICON_SIZE} uniProps={warningMapping} />
-      <Text style={styles.heartbeatText} numberOfLines={1}>
-        {text}
-      </Text>
+      {text ? (
+        <ThemedFlame size={META_ICON_SIZE} uniProps={warningMapping} />
+      ) : (
+        <ThemedDatabase size={META_ICON_SIZE} uniProps={mutedMapping} />
+      )}
+      {text ? (
+        <Text style={styles.heartbeatText} numberOfLines={1}>
+          {text}
+        </Text>
+      ) : null}
+      {text && misses > 0 ? <Text style={styles.heartbeatText}>·</Text> : null}
+      {misses > 0 ? (
+        <Text style={styles.cacheMissText} testID="sidebar-workspace-cache-misses">
+          {misses}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -527,6 +549,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   todosTextOpen: {
     color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  cacheMissText: {
+    color: theme.colors.statusDanger,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,

@@ -43,7 +43,7 @@ import { useWorkspaceTodoSummary } from "@/todos/workspace-todo-store";
 import { useWorkspaceHasRunningBackgroundTasks } from "@/hooks/use-workspace-background-tasks";
 import { useWorkspaceHeartbeatRows } from "@/hooks/use-workspace-heartbeat";
 import { buildHeartbeatPillPresentation } from "@/heartbeats/track-presentation";
-import { useWorkspaceCacheWarmText } from "@/prompt-cache/use-workspace-cache-warm";
+import { useWorkspaceCacheWarm } from "@/prompt-cache/use-workspace-cache-warm";
 
 const needsInputColorMapping = (theme: Theme) => ({
   color: theme.colors.surface0,
@@ -152,7 +152,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
     serverId: workspace.serverId,
     workspaceId: workspace.workspaceId,
   });
-  const cacheWarmText = useWorkspaceCacheWarmText({
+  const cacheWarm = useWorkspaceCacheWarm({
     serverId: workspace.serverId,
     workspaceId: workspace.workspaceId,
   });
@@ -221,7 +221,8 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             todoSummary={todoSummary}
             labels={labels}
             heartbeatText={heartbeatText}
-            cacheWarmText={cacheWarmText}
+            cacheWarmText={cacheWarm.text}
+            cacheMisses={cacheWarm.misses}
           />
         </View>
       </View>

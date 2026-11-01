@@ -178,6 +178,17 @@ sessions-screen keeps a free-text filter so a long-lived host remains scannable
 npx vitest run packages/app/src/utils/session-list-search.test.ts --bail=1
 ```
 
+## history-hosts-reactive
+
+**History notices a host that connects after the screen opened**
+
+`useAgentHistory` reads host connection statuses as values (`useHostRuntimeConnectionStatuses`) instead of upstream's `void runtimeVersion` inside a `useMemo`. The React Compiler drops a read kept only for reactivity, so a host that came online after the first render stayed "unreachable": History showed "Could not load history" for every host, sent no request, and hid the search field until the host list itself changed. `sessions-search-hosts.spec.ts` hung its full 7-minute budget on attempt 1 in each of the fork's last CI runs and hangs every time locally; with this change it passes 6 of 6. Upstream has the same code and passes on timing. `schedules-screen.tsx` and `use-aggregated-agents.ts` still use the pattern.
+
+```bash
+! grep -q "void runtimeVersion" packages/app/src/hooks/use-agent-history.ts
+grep -q "useHostRuntimeConnectionStatuses(requestedServerIds)" packages/app/src/hooks/use-agent-history.ts
+```
+
 ## schedules-search
 
 **Schedules list is searchable**

@@ -304,6 +304,7 @@ export const MutableDaemonConfigSchema = z
     appendSystemPrompt: z.string().default(""),
     autoResumeOnRateLimit: z.boolean().default(true),
     cacheWarmSubagents: z.boolean().default(true),
+    cacheAutoCompact: z.boolean().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
@@ -353,6 +354,7 @@ export const MutableDaemonConfigPatchSchema = z
     appendSystemPrompt: z.string().optional(),
     autoResumeOnRateLimit: z.boolean().optional(),
     cacheWarmSubagents: z.boolean().optional(),
+    cacheAutoCompact: z.boolean().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     pluginsEnabled: z.boolean().optional(),
@@ -982,6 +984,20 @@ const PromptCacheHistoryEntrySchema = z.object({
   uncachedTokens: z.number(),
   gapMs: z.number().nullable(),
   awayMs: z.number().optional(),
+  afterCompaction: z.boolean().optional(),
+});
+
+export const PromptCacheCompactionSchema = z.object({
+  at: z.string(),
+  trigger: z.enum(["manual", "auto"]),
+  preTokens: z.number().optional(),
+  atIdleCap: z.boolean().optional(),
+});
+
+const PromptCacheTotalsSchema = z.object({
+  requests: z.number(),
+  hits: z.number(),
+  misses: z.number(),
 });
 
 export const AgentPromptCacheStateSchema = z.object({
@@ -991,6 +1007,8 @@ export const AgentPromptCacheStateSchema = z.object({
   questionClosedAt: z.string().optional(),
   lastActivityAt: z.string().optional(),
   history: z.array(PromptCacheHistoryEntrySchema).optional(),
+  compactions: z.array(PromptCacheCompactionSchema).optional(),
+  totals: PromptCacheTotalsSchema.optional(),
 });
 
 export const AgentRateLimitCooldownPayloadSchema = z.object({
@@ -1037,6 +1055,8 @@ export const AgentSnapshotPayloadSchema = z.object({
   consecutiveWarmPings: z.number().optional(),
   totalWarmPings: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
+  /** Explicit per-agent idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
+  cacheAutoCompact: z.boolean().optional(),
 });
 
 export type AgentSnapshotPayload = z.infer<typeof AgentSnapshotPayloadSchema>;
@@ -2118,6 +2138,12 @@ export const GatewayQuotaGetRequestMessageSchema = z.object({
   requestId: z.string(),
   provider: z.string().optional(),
   model: z.string().optional(),
+});
+
+export const AgentPromptCacheHistoryRequestMessageSchema = z.object({
+  type: z.literal("agent.prompt_cache.history.request"),
+  requestId: z.string(),
+  agentId: z.string(),
 });
 
 export const GatewayStatsGetRequestMessageSchema = z.object({
@@ -3746,6 +3772,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   UsageListReportsRequestMessageSchema,
   ProviderUsageResetQuotaRequestMessageSchema,
   GatewayQuotaGetRequestMessageSchema,
+  AgentPromptCacheHistoryRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
   GatewayStatsGetRequestMessageSchema,
   ImportAgentRequestMessageSchema,
@@ -4209,6 +4236,8 @@ export const ServerInfoStatusPayloadSchema = z
         providerUsageForceRefresh: z.boolean().optional(),
         // COMPAT(cliproxyapiQuota): added in v0.9.905, drop the gate once daemon floor >= v0.9.905.
         cliproxyapiQuota: z.boolean().optional(),
+        // COMPAT(promptCacheInsights): added in v0.14.902, drop the gate once daemon floor >= v0.14.902.
+        promptCacheInsights: z.boolean().optional(),
         // COMPAT(cliproxyapiStats): added in v0.9.910, drop the gate once daemon floor >= v0.9.910.
         cliproxyapiStats: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
@@ -7295,6 +7324,18 @@ export const GatewayQuotaGetResponseMessageSchema = z.object({
   }),
 });
 
+export const AgentPromptCacheHistoryResponseMessageSchema = z.object({
+  type: z.literal("agent.prompt_cache.history.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+    /** Every main-thread request the daemon journaled for the agent, oldest first. */
+    requests: z.array(PromptCacheHistoryEntrySchema),
+    compactions: z.array(PromptCacheCompactionSchema),
+    error: z.string().nullable(),
+  }),
+});
+
 export const GatewayStatsSampleSchema = z.object({
   model: z.string(),
   alias: z.string().optional(),
@@ -8049,6 +8090,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   UsageListReportsResponseMessageSchema,
   ProviderUsageResetQuotaResponseMessageSchema,
   GatewayQuotaGetResponseMessageSchema,
+  AgentPromptCacheHistoryResponseMessageSchema,
   ListCommandsResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
@@ -8279,6 +8321,9 @@ export type GatewayQuotaAccount = z.infer<typeof GatewayQuotaAccountSchema>;
 export type GatewayStatsSample = z.infer<typeof GatewayStatsSampleSchema>;
 export type GatewayStatsGetResponseMessage = z.infer<typeof GatewayStatsGetResponseMessageSchema>;
 export type GatewayQuotaGetResponseMessage = z.infer<typeof GatewayQuotaGetResponseMessageSchema>;
+export type AgentPromptCacheHistoryResponseMessage = z.infer<
+  typeof AgentPromptCacheHistoryResponseMessageSchema
+>;
 export type ChatCreateResponse = z.infer<typeof ChatCreateResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
 export type ChatInspectResponse = z.infer<typeof ChatInspectResponseSchema>;

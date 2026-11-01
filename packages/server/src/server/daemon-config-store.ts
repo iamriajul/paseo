@@ -30,6 +30,7 @@ interface SupportedMutableConfigPatch {
   autoArchiveAfterMerge?: boolean;
   autoResumeOnRateLimit?: boolean;
   cacheWarmSubagents?: boolean;
+  cacheAutoCompact?: boolean;
   enableTerminalAgentHooks?: boolean;
   idleRuntimeCleanup?: boolean;
   resumeOnStartup?: boolean;
@@ -201,6 +202,7 @@ const RELOADABLE_PATHS = [
   "daemon.autoArchiveAfterMerge",
   "daemon.autoResumeOnRateLimit",
   "daemon.cacheWarmSubagents",
+  "daemon.cacheAutoCompact",
   "daemon.enableTerminalAgentHooks",
   "daemon.appendSystemPrompt",
   "daemon.terminalProfiles",
@@ -231,6 +233,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.autoArchiveAfterMerge", "autoArchiveAfterMerge"],
   ["daemon.autoResumeOnRateLimit", "autoResumeOnRateLimit"],
   ["daemon.cacheWarmSubagents", "cacheWarmSubagents"],
+  ["daemon.cacheAutoCompact", "cacheAutoCompact"],
   ["daemon.enableTerminalAgentHooks", "enableTerminalAgentHooks"],
   ["daemon.appendSystemPrompt", "appendSystemPrompt"],
   ["daemon.terminalProfiles", "terminalProfiles"],
@@ -351,6 +354,17 @@ function persistMetadataGeneration(input: {
   return next;
 }
 
+function pickPromptCachePatch(
+  patch: MutableDaemonConfigPatch,
+): Pick<SupportedMutableConfigPatch, "cacheWarmSubagents" | "cacheAutoCompact"> {
+  return {
+    ...(patch.cacheWarmSubagents !== undefined
+      ? { cacheWarmSubagents: patch.cacheWarmSubagents }
+      : {}),
+    ...(patch.cacheAutoCompact !== undefined ? { cacheAutoCompact: patch.cacheAutoCompact } : {}),
+  };
+}
+
 function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMutableConfigPatch {
   const metadataGeneration = pickMetadataGenerationPatch(patch.metadataGeneration);
   return {
@@ -371,9 +385,7 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
     ...(patch.autoResumeOnRateLimit !== undefined
       ? { autoResumeOnRateLimit: patch.autoResumeOnRateLimit }
       : {}),
-    ...(patch.cacheWarmSubagents !== undefined
-      ? { cacheWarmSubagents: patch.cacheWarmSubagents }
-      : {}),
+    ...pickPromptCachePatch(patch),
     ...(patch.enableTerminalAgentHooks !== undefined
       ? { enableTerminalAgentHooks: patch.enableTerminalAgentHooks }
       : {}),
@@ -886,6 +898,9 @@ function mergeMutableDaemonPatch(
   }
   if (patch.cacheWarmSubagents !== undefined) {
     next.cacheWarmSubagents = patch.cacheWarmSubagents;
+  }
+  if (patch.cacheAutoCompact !== undefined) {
+    next.cacheAutoCompact = patch.cacheAutoCompact;
   }
   if (patch.enableTerminalAgentHooks !== undefined) {
     next.enableTerminalAgentHooks = patch.enableTerminalAgentHooks;

@@ -475,6 +475,7 @@ export const ja: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "次のキャッシュウォームアップまで {{countdown}}",
+      missesAccessibilityLabel: "このセッションのプロンプトキャッシュミス: {{count}}",
     },
     route: {
       loading: "ワークスペースを読み込み中",
@@ -3110,6 +3111,12 @@ export const ja: TranslationResources = {
         hint: "オーケストレーターが起動したエージェントはキャッシュウォームアップを有効にした状態で開始し、後続のタスクでキャッシュを再利用します。各エージェントの切り替えが優先されます。",
         accessibilityLabel: "子エージェントのキャッシュウォームアップ",
         error: "キャッシュウォームアップの設定を更新できません",
+      },
+      cacheAutoCompact: {
+        title: "ウォームアップ上限で圧縮",
+        hint: "ウォームアップがアイドル上限に達し、コンテキストが20万トークンを超えている場合、キャッシュを期限切れにせず圧縮してからウォームアップを止めます。後で再開するときは全体ではなく小さな要約だけを書き込みます。キャッシュピルでのエージェントごとの選択が優先されます。",
+        accessibilityLabel: "ウォームアップ上限で圧縮",
+        error: "圧縮設定を更新できません",
       },
       orchestration: {
         title: "オーケストレーション",

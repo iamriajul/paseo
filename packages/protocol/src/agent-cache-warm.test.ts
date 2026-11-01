@@ -9,6 +9,8 @@ import {
   isCacheWarmReply,
   isClaudeModel,
   recordPromptCacheRequest,
+  recordPromptCacheCompaction,
+  resolveCacheAutoCompactEnabled,
   PROMPT_CACHE_HISTORY_LIMIT,
   type AgentPromptCacheState,
   type PromptCacheRequestSample,
@@ -176,6 +178,60 @@ describe("agent-cache-warm protocol utilities", () => {
       const history = replay(samples)?.history ?? [];
       expect(history).toHaveLength(PROMPT_CACHE_HISTORY_LIMIT);
       expect(history.at(-1)?.at).toBe(samples.at(-1)?.at);
+    });
+
+    it("tallies the whole session after the window rolls off", () => {
+      const samples: PromptCacheRequestSample[] = [request(0, "t0", { readTokens: 0 })];
+      for (let index = 1; index < PROMPT_CACHE_HISTORY_LIMIT + 10; index += 1) {
+        samples.push(request(index, `t${index}`, { readTokens: index % 10 === 0 ? 0 : 900 }));
+      }
+      // The first request has no cache to read, so only the later cold ones count as misses.
+      expect(replay(samples)?.totals).toEqual({
+        requests: PROMPT_CACHE_HISTORY_LIMIT + 10,
+        hits: PROMPT_CACHE_HISTORY_LIMIT + 10 - 4,
+        misses: 3,
+      });
+    });
+
+    it("does not count the write after a compaction as a miss", () => {
+      const beforeCompaction = replay([request(0, "t1"), request(1, "t1")]);
+      const compacted = recordPromptCacheCompaction(beforeCompaction, {
+        at: new Date(2 * minute).toISOString(),
+        trigger: "manual",
+        atIdleCap: true,
+      });
+      const after = recordPromptCacheRequest(compacted, request(3, "t2", { readTokens: 0 }));
+      expect(after.history?.at(-1)?.afterCompaction).toBe(true);
+      expect(after.totals?.misses).toBe(0);
+      expect(after.compactions).toHaveLength(1);
+
+      const next = recordPromptCacheRequest(after, request(4, "t3", { readTokens: 0 }));
+      expect(next.history?.at(-1)?.afterCompaction).toBeUndefined();
+      expect(next.totals?.misses).toBe(1);
+    });
+
+    it("seeds totals from the snapshot window of a record written before totals existed", () => {
+      const legacy = replay([request(0, "t1"), request(10, "t2", { readTokens: 0 })]);
+      const { totals: _dropped, ...withoutTotals } = legacy as AgentPromptCacheState;
+      const next = recordPromptCacheRequest(withoutTotals, request(11, "t2"));
+      expect(next.totals).toEqual({ requests: 3, hits: 2, misses: 1 });
+    });
+  });
+
+  describe("resolveCacheAutoCompactEnabled", () => {
+    it("takes the agent's own choice over the host default, which starts off", () => {
+      expect(
+        resolveCacheAutoCompactEnabled({ explicitValue: undefined, hostDefault: undefined }),
+      ).toBe(false);
+      expect(resolveCacheAutoCompactEnabled({ explicitValue: undefined, hostDefault: true })).toBe(
+        true,
+      );
+      expect(resolveCacheAutoCompactEnabled({ explicitValue: false, hostDefault: true })).toBe(
+        false,
+      );
+      expect(resolveCacheAutoCompactEnabled({ explicitValue: true, hostDefault: false })).toBe(
+        true,
+      );
     });
   });
 });

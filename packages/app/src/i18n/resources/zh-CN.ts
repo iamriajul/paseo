@@ -470,6 +470,7 @@ export const zhCN: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "下次缓存预热还有 {{countdown}}",
+      missesAccessibilityLabel: "本会话的提示缓存未命中：{{count}}",
     },
     route: {
       loading: "正在加载 workspace",
@@ -3051,6 +3052,12 @@ export const zhCN: TranslationResources = {
         hint: "由编排器创建的代理在启动时开启缓存预热，后续任务可复用缓存。每个代理自己的开关仍然优先。",
         accessibilityLabel: "子代理缓存预热",
         error: "无法更新缓存预热设置",
+      },
+      cacheAutoCompact: {
+        title: "在预热上限时压缩",
+        hint: "当代理的预热达到空闲上限且上下文超过 20 万个 token 时，压缩上下文而不是让缓存过期，然后停止预热。之后唤醒时只需写入简短摘要，而不是整个上下文。缓存标签中每个代理自己的选择优先。",
+        accessibilityLabel: "在预热上限时压缩",
+        error: "无法更新压缩设置",
       },
       orchestration: {
         title: "编排",

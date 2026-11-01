@@ -296,6 +296,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
           <BrowserToolsOptInCard serverId={serverId} />
           <RateLimitAutoResumeCard serverId={serverId} />
           <CacheWarmSubagentsCard serverId={serverId} />
+          <CacheAutoCompactCard serverId={serverId} />
           <AppendSystemPromptCard serverId={serverId} />
           <RestartRecoveryCard serverId={serverId} />
           <IdleRuntimeCleanupCard serverId={serverId} />
@@ -985,6 +986,45 @@ function CacheWarmSubagentsCard({ serverId }: { serverId: string }) {
           onValueChange={handleValueChange}
           accessibilityLabel={t("settings.host.cacheWarmSubagents.accessibilityLabel")}
           testID="host-page-cache-warm-subagents-switch"
+        />
+      </View>
+    </View>
+  );
+}
+
+/** Host default for compacting at the warm-up idle cap; the cache pill overrides it per agent. */
+function CacheAutoCompactCard({ serverId }: { serverId: string }) {
+  const { t } = useTranslation();
+  const isConnected = useHostRuntimeIsConnected(serverId);
+  const { config, patchConfig } = useDaemonConfig(serverId);
+
+  const handleValueChange = useCallback(
+    (next: boolean) => {
+      void patchConfig({ cacheAutoCompact: next }).catch((error) => {
+        console.error("[HostPage] Failed to update compaction at the warm-up cap", error);
+        Alert.alert(
+          t("settings.host.cacheAutoCompact.error"),
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    },
+    [patchConfig, t],
+  );
+
+  if (!isConnected) return null;
+
+  return (
+    <View style={settingsStyles.card} testID="host-page-cache-auto-compact-card">
+      <View style={settingsStyles.row}>
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle}>{t("settings.host.cacheAutoCompact.title")}</Text>
+          <Text style={settingsStyles.rowHint}>{t("settings.host.cacheAutoCompact.hint")}</Text>
+        </View>
+        <Switch
+          value={config?.cacheAutoCompact === true}
+          onValueChange={handleValueChange}
+          accessibilityLabel={t("settings.host.cacheAutoCompact.accessibilityLabel")}
+          testID="host-page-cache-auto-compact-switch"
         />
       </View>
     </View>

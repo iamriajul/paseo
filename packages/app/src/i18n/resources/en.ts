@@ -468,6 +468,7 @@ export const en = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "Next prompt cache warm-up in {{countdown}}",
+      missesAccessibilityLabel: "Prompt cache misses this session: {{count}}",
     },
     route: {
       loading: "Loading workspace",
@@ -3211,6 +3212,12 @@ export const en = {
         hint: "Agents an orchestrator spawns start with cache warm-up on, so follow-up tasks reuse the prompt cache. Each agent's own toggle still wins.",
         accessibilityLabel: "Cache warm-up for child agents",
         error: "Unable to update the cache warm-up setting",
+      },
+      cacheAutoCompact: {
+        title: "Compact at the warm-up cap",
+        hint: "When an agent's warm-up reaches its idle cap with over 200k tokens of context, compact it instead of letting the cache expire, then stop warming it. Waking it later writes the small summary instead of the whole context. Each agent's own choice in the cache pill still wins.",
+        accessibilityLabel: "Compact at the warm-up cap",
+        error: "Unable to update the compaction setting",
       },
       orchestration: {
         title: "Orchestration",

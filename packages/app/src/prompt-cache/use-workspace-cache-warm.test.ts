@@ -3,7 +3,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useSessionStore, type SessionState, type Agent } from "@/stores/session-store";
-import { useWorkspaceCacheWarmText } from "./use-workspace-cache-warm";
+import { useWorkspaceCacheWarm } from "./use-workspace-cache-warm";
 
 const NOW = new Date("2026-10-27T10:00:00.000Z").getTime();
 
@@ -38,10 +38,10 @@ function setup(agent: Agent) {
       } as unknown as SessionState,
     },
   });
-  return renderHook(() => useWorkspaceCacheWarmText({ serverId: "server-1", workspaceId: "ws-1" }));
+  return renderHook(() => useWorkspaceCacheWarm({ serverId: "server-1", workspaceId: "ws-1" }));
 }
 
-describe("useWorkspaceCacheWarmText", () => {
+describe("useWorkspaceCacheWarm", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
@@ -53,15 +53,15 @@ describe("useWorkspaceCacheWarmText", () => {
 
   it("counts down to the next warm-up of an idle agent, every second", () => {
     const { result } = setup(agentWith({}));
-    expect(result.current).toBe("3:50");
+    expect(result.current.text).toBe("3:50");
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(result.current).toBe("3:49");
+    expect(result.current.text).toBe("3:49");
   });
 
   it("shows nothing while a turn runs, warm-up is off, or the window is Automatic", () => {
-    expect(setup(agentWith({ status: "running" })).result.current).toBeNull();
+    expect(setup(agentWith({ status: "running" })).result.current.text).toBeNull();
     expect(
       setup(
         agentWith({
@@ -70,7 +70,7 @@ describe("useWorkspaceCacheWarmText", () => {
             { type: "toggle", id: "cache_warm", value: false },
           ] as Agent["features"],
         }),
-      ).result.current,
+      ).result.current.text,
     ).toBeNull();
     expect(
       setup(
@@ -79,7 +79,7 @@ describe("useWorkspaceCacheWarmText", () => {
             { type: "select", id: "prompt_cache_ttl", value: "default" },
           ] as Agent["features"],
         }),
-      ).result.current,
+      ).result.current.text,
     ).toBeNull();
   });
 
@@ -88,7 +88,7 @@ describe("useWorkspaceCacheWarmText", () => {
       features: [{ type: "select", id: "prompt_cache_ttl", value: "default" }] as Agent["features"],
     });
     const { result } = setup(automatic);
-    expect(result.current).toBeNull();
+    expect(result.current.text).toBeNull();
 
     vi.setSystemTime(NOW + 6 * 60_000);
     const session = useSessionStore.getState().sessions["server-1"];
@@ -96,6 +96,15 @@ describe("useWorkspaceCacheWarmText", () => {
       sessions: { "server-1": { ...session, agents: new Map([["agent-1", agentWith({})]]) } },
     };
     act(() => useSessionStore.setState(switchedToFiveMinutes));
-    expect(result.current).toBeNull();
+    expect(result.current.text).toBeNull();
+  });
+
+  it("carries the session's misses even when no warm-up is armed", () => {
+    const missed = agentWith({ status: "running" });
+    missed.promptCache = {
+      ...(missed.promptCache as NonNullable<Agent["promptCache"]>),
+      totals: { requests: 12, hits: 9, misses: 3 },
+    };
+    expect(setup(missed).result.current).toEqual({ text: null, misses: 3 });
   });
 });

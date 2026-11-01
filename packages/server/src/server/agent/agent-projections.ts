@@ -1,4 +1,5 @@
 import { isSameOrDescendantPath } from "../path-utils.js";
+import { CACHE_AUTO_COMPACT_FEATURE_ID } from "@getpaseo/protocol/agent-cache-warm";
 import type {
   AgentListItemPayload,
   AgentSnapshotPayload,
@@ -164,6 +165,8 @@ export function toAgentPayload(
     payload.lastUsage = usage;
   }
 
+  Object.assign(payload, projectCacheAutoCompact(agent.config));
+
   if (agent.lastError !== undefined) {
     payload.lastError = agent.lastError;
   }
@@ -250,6 +253,14 @@ type CacheWarmState = Pick<
   "consecutiveWarmPings" | "totalWarmPings" | "promptCache"
 >;
 
+/** The agent's explicit idle-cap compaction choice; an unset one follows the host default. */
+function projectCacheAutoCompact(
+  config: { featureValues?: Record<string, unknown> | null } | null | undefined,
+): Pick<AgentSnapshotPayload, "cacheAutoCompact"> {
+  const value = config?.featureValues?.[CACHE_AUTO_COMPACT_FEATURE_ID];
+  return typeof value === "boolean" ? { cacheAutoCompact: value } : {};
+}
+
 function projectCacheWarmState(source: CacheWarmState): CacheWarmState {
   return {
     ...(source.consecutiveWarmPings !== undefined
@@ -306,6 +317,7 @@ export function buildStoredAgentPayload(
     labels: normalizeLabels(record.labels),
     ...(typeof record.lastError === "string" ? { lastError: record.lastError } : {}),
     ...projectCacheWarmState(record),
+    ...projectCacheAutoCompact(record.config),
     ...(options?.rateLimitCooldown ? { rateLimitCooldown: options.rateLimitCooldown } : {}),
     ...(providerAvailable ? {} : { providerUnavailable: true }),
   };

@@ -72,8 +72,44 @@ vi.mock("@/composer/tracks", async () => {
         segments.map((s, i) => ReactModule.createElement("span", { key: i }, s.text)),
         children,
       ),
-    ComposerTrackRow: ({ children }: { children?: React.ReactNode }) =>
-      ReactModule.createElement("div", null, children),
+    ComposerTrackRow: ({
+      children,
+      onPress,
+      testID,
+    }: {
+      children?: React.ReactNode;
+      onPress?: () => void;
+      testID?: string;
+    }) =>
+      ReactModule.createElement(
+        "button",
+        { type: "button", "data-testid": testID, onClick: onPress },
+        children,
+      ),
+  };
+});
+
+const { autoCompactState, toggleAutoCompactMock } = vi.hoisted(() => ({
+  autoCompactState: {
+    current: { enabled: false, overridden: false, contextTokens: null, largeEnough: false } as {
+      enabled: boolean;
+      overridden: boolean;
+      contextTokens: number | null;
+      largeEnough: boolean;
+    },
+  },
+  toggleAutoCompactMock: vi.fn(),
+}));
+
+vi.mock("./use-prompt-cache-auto-compact", () => ({
+  usePromptCacheAutoCompact: () => ({ ...autoCompactState.current, toggle: toggleAutoCompactMock }),
+}));
+
+vi.mock("./prompt-cache-insights-dialog", async () => {
+  const ReactModule = await import("react");
+  return {
+    PromptCacheInsightsDialog: ({ revision }: { revision: number }) =>
+      ReactModule.createElement("div", { "data-testid": "insights-dialog" }, String(revision)),
   };
 });
 
@@ -145,6 +181,12 @@ describe("PromptCachePill", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     vi.clearAllMocks();
+    autoCompactState.current = {
+      enabled: false,
+      overridden: false,
+      contextTokens: null,
+      largeEnough: false,
+    };
     vi.mocked(useHostRuntimeClient).mockReturnValue({
       setAgentFeature: setAgentFeatureMock,
     } as unknown as ReturnType<typeof useHostRuntimeClient>);
@@ -177,8 +219,8 @@ describe("PromptCachePill", () => {
       claudeAgent({ ttl: "default", promptCache: promptCacheAt(NOW) }),
     );
     expect(getByText("cache · auto")).toBeTruthy();
-    expect(getByText("Auto")).toBeTruthy();
-    expect(getByText("Choose 5m or 1h under Cache window to use auto warm-up.")).toBeTruthy();
+    expect(getByText("Cache · Auto")).toBeTruthy();
+    expect(getByText("Choose 5m or 1h under Cache window to warm it.")).toBeTruthy();
     expect(queryByTestId("prompt-cache-toggle-warmup-button")).toBeNull();
   });
 
@@ -204,8 +246,7 @@ describe("PromptCachePill", () => {
         promptCache: promptCacheAt(NOW),
       }),
     );
-    expect(getByTestId("prompt-cache-cap-count").textContent).toBe("3 / 12 · 11h36m");
-    expect(getByTestId("prompt-cache-total-pings").textContent).toBe("27");
+    expect(getByTestId("prompt-cache-cap-count").textContent).toBe("Next in 58:00 · 3/12 · 11h36m");
     expect(getByTestId("prompt-cache-cap-progress").getAttribute("aria-valuenow")).toBe("3");
   });
 
@@ -256,7 +297,7 @@ describe("PromptCachePill", () => {
     const { getByText } = renderPill(
       claudeAgent({ ttl: "default", promptCache: { ...promptCacheAt(NOW), observedTtl: "1h" } }),
     );
-    expect(getByText("Auto · 1h")).toBeTruthy();
+    expect(getByText("Cache · Auto · 1h")).toBeTruthy();
   });
 
   it("shows a capped segment with the time the cache has left", () => {
@@ -288,7 +329,7 @@ describe("PromptCachePill", () => {
   });
 
   it("shows the question countdown and when warm-up pauses it", () => {
-    const { getByText } = renderPill(
+    const { getByText, getByTestId } = renderPill(
       claudeAgent({
         ttl: "1h",
         cacheWarm: true,
@@ -299,7 +340,9 @@ describe("PromptCachePill", () => {
       }),
     );
     expect(getByText("question · 50:00")).toBeTruthy();
-    expect(getByText("Question closes in 48:00")).toBeTruthy();
+    expect(getByTestId("prompt-cache-cap-count").textContent).toBe(
+      "Question closes in 48:00 · 0/12 · 11h36m",
+    );
   });
 
   it("shows how recent requests met the cache, including returns kept warm by warm-ups", () => {
@@ -334,15 +377,56 @@ describe("PromptCachePill", () => {
       }),
     );
     expect(getByTestId("prompt-cache-history-chart").children).toHaveLength(5);
-    expect(getByTestId("prompt-cache-history-share").textContent).toBe("5 · 79% of input cached");
-    expect(getByTestId("prompt-cache-history-requests").textContent).toBe("4 of 5 hit");
-    expect(getByTestId("prompt-cache-history-returns").textContent).toBe("1 of 1 hit");
-    expect(getByTestId("prompt-cache-history-warm-ups").textContent).toBe("2 of 2 hit");
-    expect(getByTestId("prompt-cache-history-misses").textContent).toBe(
-      "1 after expiry · 0 while warm",
+    expect(getByTestId("prompt-cache-history-share").textContent).toBe("Last 5 · 79% cached");
+    // The first request had no cache to read, so it is no miss.
+    expect(getByTestId("prompt-cache-history-misses").textContent).toBe("0 misses this session");
+    expect(getByTestId("prompt-cache-pill").querySelectorAll("span")).toHaveLength(1);
+  });
+
+  it("puts the session's misses beside the countdown, counted past the snapshot window", () => {
+    const { getByTestId } = renderPill(
+      claudeAgent({
+        ttl: "5m",
+        promptCache: {
+          ...promptCacheAt(NOW - 40 * SECOND),
+          totals: { requests: 300, hits: 290, misses: 4 },
+        },
+      }),
     );
-    expect(getByTestId("prompt-cache-history-last-return").textContent).toBe(
-      "11m away · 2 warm-ups · 99% cached",
+    const pill = getByTestId("prompt-cache-pill");
+    expect(Array.from(pill.querySelectorAll("span")).map((span) => span.textContent)).toEqual([
+      "warm · 3:50",
+      "4",
+    ]);
+  });
+
+  it("switches the idle cap between expiring and compacting", () => {
+    autoCompactState.current = {
+      enabled: true,
+      overridden: true,
+      contextTokens: 312_000,
+      largeEnough: true,
+    };
+    const { getByTestId } = renderPill(
+      claudeAgent({ ttl: "5m", promptCache: promptCacheAt(NOW - 40 * SECOND) }),
     );
+    expect(getByTestId("prompt-cache-auto-compact").textContent).toBe("Compact · 312k");
+    fireEvent.click(getByTestId("prompt-cache-toggle-auto-compact-button"));
+    expect(toggleAutoCompactMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the session insights from the popover", () => {
+    const { getByTestId, queryByTestId } = renderPill(
+      claudeAgent({
+        ttl: "5m",
+        promptCache: {
+          ...promptCacheAt(NOW - 40 * SECOND),
+          totals: { requests: 300, hits: 290, misses: 4 },
+        },
+      }),
+    );
+    expect(queryByTestId("insights-dialog")).toBeNull();
+    fireEvent.click(getByTestId("prompt-cache-open-insights"));
+    expect(getByTestId("insights-dialog").textContent).toBe("300");
   });
 });

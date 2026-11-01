@@ -475,6 +475,7 @@ export const ptBR: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "Próximo aquecimento de cache em {{countdown}}",
+      missesAccessibilityLabel: "Falhas do cache de prompts nesta sessão: {{count}}",
     },
     route: {
       loading: "Carregando workspace",
@@ -3120,6 +3121,12 @@ export const ptBR: TranslationResources = {
         hint: "Agentes criados por um orquestrador começam com o aquecimento de cache ativado, para que as tarefas seguintes reutilizem o cache. A opção de cada agente continua tendo prioridade.",
         accessibilityLabel: "Aquecimento de cache para agentes filhos",
         error: "Não foi possível atualizar a configuração de aquecimento de cache",
+      },
+      cacheAutoCompact: {
+        title: "Compactar no limite de aquecimento",
+        hint: "Quando o aquecimento de um agente chega ao limite de inatividade com mais de 200 mil tokens de contexto, compacta o contexto em vez de deixar o cache expirar e para de aquecê-lo. Ao retomar, só o resumo curto é gravado, não o contexto inteiro. A escolha de cada agente na pílula de cache tem prioridade.",
+        accessibilityLabel: "Compactar no limite de aquecimento",
+        error: "Não foi possível atualizar a configuração de compactação",
       },
       orchestration: {
         title: "Orquestração",

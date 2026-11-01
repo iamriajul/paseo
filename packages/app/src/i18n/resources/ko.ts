@@ -471,6 +471,7 @@ export const ko: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "다음 캐시 워밍업까지 {{countdown}}",
+      missesAccessibilityLabel: "이 세션의 프롬프트 캐시 미스: {{count}}",
     },
     route: {
       loading: "워크스페이스 불러오는 중",
@@ -3095,6 +3096,12 @@ export const ko: TranslationResources = {
         hint: "오케스트레이터가 생성한 에이전트는 캐시 워밍업이 켜진 상태로 시작하여 후속 작업이 캐시를 재사용합니다. 각 에이전트의 토글이 우선합니다.",
         accessibilityLabel: "하위 에이전트 캐시 워밍업",
         error: "캐시 워밍업 설정을 업데이트할 수 없습니다",
+      },
+      cacheAutoCompact: {
+        title: "워밍업 한도에서 압축",
+        hint: "워밍업이 유휴 한도에 도달하고 컨텍스트가 20만 토큰을 넘으면 캐시를 만료시키지 않고 압축한 뒤 워밍업을 멈춥니다. 나중에 다시 깨울 때 전체 컨텍스트 대신 작은 요약만 기록합니다. 캐시 알약에서 에이전트별로 고른 값이 우선합니다.",
+        accessibilityLabel: "워밍업 한도에서 압축",
+        error: "압축 설정을 업데이트할 수 없습니다",
       },
       orchestration: {
         title: "오케스트레이션",

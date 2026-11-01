@@ -16,12 +16,12 @@ import type { AgentPersistenceHandle, AgentStreamEvent } from "./agent-sdk-types
 const MINUTE = 60 * 1000;
 const START = new Date("2026-10-27T10:00:00.000Z").getTime();
 
-function promptCacheAt(atMs: number): AgentPromptCacheState {
+function promptCacheAt(atMs: number, readTokens = 1000): AgentPromptCacheState {
   const sample = {
     at: new Date(atMs).toISOString(),
     turnId: "turn-1",
     isWarmPing: false,
-    readTokens: 1000,
+    readTokens,
     writeTokens: 10,
     uncachedTokens: 1,
   };
@@ -39,12 +39,19 @@ interface HarnessOptions {
   requestAtMs?: number | null;
   lastResponseAtMs?: number | null;
   observedTtl?: "5m" | "1h";
+  autoCompact?: boolean;
+  autoCompactByDefault?: boolean;
+  /** Cache reads of every request, so roughly the context size. */
+  contextTokens?: number;
 }
 
 function buildAgent(options: HarnessOptions): ManagedAgent {
   const featureValues: Record<string, unknown> = { prompt_cache_ttl: options.ttl ?? "1h" };
   if (options.cacheWarm !== undefined) {
     featureValues.cache_warm = options.cacheWarm;
+  }
+  if (options.autoCompact !== undefined) {
+    featureValues.cache_auto_compact = options.autoCompact;
   }
   const requestAtMs = options.requestAtMs === undefined ? START : options.requestAtMs;
   const lastResponseAtMs = options.lastResponseAtMs ?? requestAtMs;
@@ -59,7 +66,10 @@ function buildAgent(options: HarnessOptions): ManagedAgent {
     promptCache:
       requestAtMs === null
         ? undefined
-        : { ...promptCacheAt(requestAtMs), observedTtl: options.observedTtl },
+        : {
+            ...promptCacheAt(requestAtMs, options.contextTokens),
+            observedTtl: options.observedTtl,
+          },
     labels: options.delegated ? { "paseo.parent-agent-id": "parent-1" } : {},
   } as unknown as ManagedAgent;
 }
@@ -68,8 +78,11 @@ function createHarness(options: HarnessOptions = {}) {
   const agent = buildAgent(options);
   const sendPrompt = vi.fn(async () => {
     // A ping that reaches Anthropic produces a message_start, which moves the anchor.
-    agent.promptCache = promptCacheAt(Date.now());
+    agent.promptCache = promptCacheAt(Date.now(), options.contextTokens);
     return { disposition: "turn_started" as const };
+  });
+  const setAgentFeature = vi.fn(async (_id: string, featureId: string, value: unknown) => {
+    agent.config.featureValues = { ...agent.config.featureValues, [featureId]: value };
   });
   const respondToPermission = vi.fn(async () => {
     agent.pendingPermissions.clear();
@@ -86,6 +99,7 @@ function createHarness(options: HarnessOptions = {}) {
         }
       },
       listAgents: () => [agent],
+      setAgentFeature,
       setCacheWarmCounts: (
         _id: string,
         counts: { consecutiveWarmPings: number; totalWarmPings?: number },
@@ -97,8 +111,14 @@ function createHarness(options: HarnessOptions = {}) {
     agentStorage: { list: async () => [] } as unknown as AgentStorage,
     logger: pino({ level: "silent" }),
     sendPrompt,
+    isCacheAutoCompactByDefault: () => options.autoCompactByDefault ?? false,
   });
-  return { manager, agent, sendPrompt, respondToPermission };
+  return { manager, agent, sendPrompt, respondToPermission, setAgentFeature };
+}
+
+function sentPrompts(sendPrompt: { mock: { calls: unknown[] } }): string[] {
+  const calls = sendPrompt.mock.calls as Array<[{ prompt: string }]>;
+  return calls.map(([input]) => input.prompt);
 }
 
 describe("AgentCacheWarmManager", () => {
@@ -197,6 +217,59 @@ describe("AgentCacheWarmManager", () => {
       five.manager.schedule("agent-1");
     }
     expect(five.sendPrompt).toHaveBeenCalledTimes(10);
+  });
+
+  describe("compacting at the idle cap", () => {
+    function isPingPrompt(prompt: string): boolean {
+      return prompt === DEFAULT_CACHE_WARM_PING_PROMPT;
+    }
+
+    async function runToCap(harness: ReturnType<typeof createHarness>): Promise<void> {
+      harness.manager.schedule("agent-1");
+      for (let ping = 0; ping < 12; ping += 1) {
+        await vi.advanceTimersByTimeAsync(4.5 * MINUTE);
+        harness.manager.schedule("agent-1");
+      }
+    }
+
+    it("compacts a large context while the cache is still warm, then turns warm-up off", async () => {
+      const harness = createHarness({ ttl: "5m", autoCompact: true, contextTokens: 250_000 });
+      await runToCap(harness);
+
+      const prompts = sentPrompts(harness.sendPrompt);
+      expect(prompts.filter(isPingPrompt)).toHaveLength(10);
+      expect(prompts.slice(10)).toEqual(["/compact"]);
+      expect(harness.setAgentFeature).toHaveBeenCalledWith("agent-1", "cache_warm", false);
+      // The compaction is no warm-up: the lifetime total stays at the ten pings.
+      expect(harness.agent.totalWarmPings).toBe(10);
+    });
+
+    it("lets a context under 200k tokens expire, because compacting it saves little", async () => {
+      const harness = createHarness({ ttl: "5m", autoCompact: true, contextTokens: 150_000 });
+      await runToCap(harness);
+      expect(harness.sendPrompt).toHaveBeenCalledTimes(10);
+      expect(harness.setAgentFeature).not.toHaveBeenCalled();
+    });
+
+    it("follows the host default unless the agent says otherwise", async () => {
+      const byDefault = createHarness({
+        ttl: "5m",
+        autoCompactByDefault: true,
+        contextTokens: 250_000,
+      });
+      await runToCap(byDefault);
+      expect(byDefault.sendPrompt).toHaveBeenCalledTimes(11);
+
+      vi.setSystemTime(START);
+      const optedOut = createHarness({
+        ttl: "5m",
+        autoCompact: false,
+        autoCompactByDefault: true,
+        contextTokens: 250_000,
+      });
+      await runToCap(optedOut);
+      expect(optedOut.sendPrompt).toHaveBeenCalledTimes(10);
+    });
   });
 
   it("starts the cap again when the user sends a real prompt, keeping the lifetime total", async () => {

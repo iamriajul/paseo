@@ -23,6 +23,29 @@ export type PromptCacheTtl = "5m" | "1h";
 /** Claude agent feature ids that carry the Cache window and the warm-up toggle. */
 export const PROMPT_CACHE_TTL_FEATURE_ID = "prompt_cache_ttl";
 export const CACHE_WARM_FEATURE_ID = "cache_warm";
+/**
+ * Per-agent override for compacting at the warm-up idle cap. It is stored in featureValues but not
+ * listed as a provider feature: the pill owns the switch, and an unset value follows the host's
+ * `cacheAutoCompact` default, which the provider cannot see.
+ */
+export const CACHE_AUTO_COMPACT_FEATURE_ID = "cache_auto_compact";
+
+/**
+ * Below this the context is too small for a compaction to pay: a fresh Claude Code session already
+ * starts near 60k tokens, so compacting 150k saves little and loses the detail.
+ */
+export const CACHE_AUTO_COMPACT_MIN_CONTEXT_TOKENS = 200_000;
+
+export const CACHE_AUTO_COMPACT_PROMPT = "/compact";
+
+export function resolveCacheAutoCompactEnabled(input: {
+  explicitValue: unknown;
+  hostDefault: boolean | undefined;
+}): boolean {
+  return typeof input.explicitValue === "boolean"
+    ? input.explicitValue
+    : input.hostDefault === true;
+}
 
 /**
  * Longest foreground shell call Paseo lets a Claude agent make, per cache TTL. A main-thread
@@ -149,13 +172,44 @@ export interface PromptCacheHistoryEntry {
   gapMs: number | null;
   /** On a turn: time since the latest request that was not a warm-up, so time away. */
   awayMs?: number;
+  /** First request after a compaction: it has to write the new context, so it is no miss. */
+  afterCompaction?: boolean;
 }
 
 /**
- * Requests kept in the history. It rides on every agent snapshot, so it stays a recent window
- * of a few turns rather than the whole session.
+ * Requests kept in the snapshot history. It rides on every agent snapshot, so it stays the few
+ * bars the pill draws; the whole session lives in the daemon's journal and is fetched on demand
+ * with `agent.prompt_cache.history.request`.
  */
-export const PROMPT_CACHE_HISTORY_LIMIT = 60;
+export const PROMPT_CACHE_HISTORY_LIMIT = 24;
+
+/** Compactions kept on the snapshot, for the same reason as the history limit. */
+export const PROMPT_CACHE_COMPACTION_LIMIT = 10;
+
+/**
+ * A request counts as a hit when most of its input came from the cache. An expired cache can
+ * still read a small shared prefix, so "any read" would call a real miss a hit.
+ */
+export const PROMPT_CACHE_HIT_RATIO = 0.5;
+
+/** One context compaction, whoever asked for it. */
+export interface PromptCacheCompaction {
+  at: string;
+  /** manual: someone sent /compact (Paseo's idle-cap compaction included); auto: Claude Code. */
+  trigger: "manual" | "auto";
+  /** Context size before the compaction, when Claude Code reported it. */
+  preTokens?: number;
+  /** Paseo compacted at the warm-up idle cap instead of letting the cache expire. */
+  atIdleCap?: boolean;
+}
+
+/** Whole-session tallies; the snapshot history is only a window, these never roll off. */
+export interface PromptCacheTotals {
+  requests: number;
+  hits: number;
+  /** Misses a warm cache could have avoided: not the first request, not right after a compaction. */
+  misses: number;
+}
 
 export interface AgentPromptCacheState {
   lastRequest: PromptCacheRequestSample;
@@ -169,6 +223,44 @@ export interface AgentPromptCacheState {
   lastActivityAt?: string;
   /** Oldest first, at most PROMPT_CACHE_HISTORY_LIMIT entries. */
   history?: PromptCacheHistoryEntry[];
+  /** Oldest first, at most PROMPT_CACHE_COMPACTION_LIMIT entries. */
+  compactions?: PromptCacheCompaction[];
+  /** Absent on records written before totals existed until their next request. */
+  totals?: PromptCacheTotals;
+}
+
+export function isPromptCacheHit(tokens: PromptCacheRequestTokens): boolean {
+  return (promptCacheHitRatio(tokens) ?? 0) >= PROMPT_CACHE_HIT_RATIO;
+}
+
+/**
+ * A miss worth a red number: the cache existed and the request did not read it. The agent's
+ * first request and the one after a compaction have nothing to read yet.
+ */
+export function isAvoidablePromptCacheMiss(entry: PromptCacheHistoryEntry): boolean {
+  return entry.gapMs !== null && !entry.afterCompaction && !isPromptCacheHit(entry);
+}
+
+function addToTotals(totals: PromptCacheTotals, entry: PromptCacheHistoryEntry): PromptCacheTotals {
+  return {
+    requests: totals.requests + 1,
+    hits: totals.hits + (isPromptCacheHit(entry) ? 1 : 0),
+    misses: totals.misses + (isAvoidablePromptCacheMiss(entry) ? 1 : 0),
+  };
+}
+
+const EMPTY_TOTALS: PromptCacheTotals = { requests: 0, hits: 0, misses: 0 };
+
+/** Tallies a run of entries; also seeds totals for records written before they existed. */
+export function sumPromptCacheTotals(
+  entries: readonly PromptCacheHistoryEntry[],
+): PromptCacheTotals {
+  return entries.reduce(addToTotals, EMPTY_TOTALS);
+}
+
+/** Input tokens of one request: the context the model read, so the session's size at that point. */
+export function promptCacheInputTokens(tokens: PromptCacheRequestTokens): number {
+  return tokens.readTokens + tokens.writeTokens + tokens.uncachedTokens;
 }
 
 function elapsedSinceMs(fromIso: string | undefined, toIso: string): number | null {
@@ -181,15 +273,21 @@ function resolveRequestKind(sample: PromptCacheRequestSample, startsTurn: boolea
   return startsTurn ? "turn" : "request";
 }
 
-/** Records one main-thread request into the cache state; pure so the daemon and tests share it. */
-export function recordPromptCacheRequest(
+/** A compaction landed since the previous request, so this one writes the compacted context. */
+function followsCompaction(previous: AgentPromptCacheState | undefined): boolean {
+  const lastCompactionAt = previous?.compactions?.at(-1)?.at;
+  return lastCompactionAt !== undefined && lastCompactionAt >= (previous?.lastRequest.at ?? "");
+}
+
+function buildHistoryEntry(
   previous: AgentPromptCacheState | undefined,
   sample: PromptCacheRequestSample,
-): AgentPromptCacheState {
-  const startsTurn = !previous || previous.turnFirstRequest.turnId !== sample.turnId;
+  startsTurn: boolean,
+): PromptCacheHistoryEntry {
   const kind: PromptCacheRequestKind = resolveRequestKind(sample, startsTurn);
   const awayMs = kind === "turn" ? elapsedSinceMs(previous?.lastActivityAt, sample.at) : null;
-  const entry: PromptCacheHistoryEntry = {
+  const afterCompaction = followsCompaction(previous);
+  return {
     at: sample.at,
     kind,
     readTokens: sample.readTokens,
@@ -197,7 +295,18 @@ export function recordPromptCacheRequest(
     uncachedTokens: sample.uncachedTokens,
     gapMs: elapsedSinceMs(previous?.lastRequest.at, sample.at),
     ...(awayMs === null ? {} : { awayMs }),
+    ...(afterCompaction ? { afterCompaction: true } : {}),
   };
+}
+
+/** Records one main-thread request into the cache state; pure so the daemon and tests share it. */
+export function recordPromptCacheRequest(
+  previous: AgentPromptCacheState | undefined,
+  sample: PromptCacheRequestSample,
+): AgentPromptCacheState {
+  const startsTurn = !previous || previous.turnFirstRequest.turnId !== sample.turnId;
+  const entry = buildHistoryEntry(previous, sample, startsTurn);
+  const priorTotals = previous?.totals ?? sumPromptCacheTotals(previous?.history ?? []);
   return {
     lastRequest: sample,
     turnFirstRequest: previous && !startsTurn ? previous.turnFirstRequest : sample,
@@ -205,6 +314,32 @@ export function recordPromptCacheRequest(
     questionClosedAt: previous?.questionClosedAt,
     lastActivityAt: sample.isWarmPing ? previous?.lastActivityAt : sample.at,
     history: [...(previous?.history ?? []), entry].slice(-PROMPT_CACHE_HISTORY_LIMIT),
+    compactions: previous?.compactions,
+    totals: addToTotals(priorTotals, entry),
+  };
+}
+
+/** Last entry recordPromptCacheRequest appended; the daemon journals it. */
+export function latestPromptCacheEntry(
+  state: AgentPromptCacheState,
+): PromptCacheHistoryEntry | undefined {
+  return state.history?.at(-1);
+}
+
+/**
+ * Records a compaction. Without a request on record there is no cache state to attach it to,
+ * and the next request is the agent's first anyway, so nothing is lost.
+ */
+export function recordPromptCacheCompaction(
+  previous: AgentPromptCacheState | undefined,
+  compaction: PromptCacheCompaction,
+): AgentPromptCacheState | undefined {
+  if (!previous) return undefined;
+  return {
+    ...previous,
+    compactions: [...(previous.compactions ?? []), compaction].slice(
+      -PROMPT_CACHE_COMPACTION_LIMIT,
+    ),
   };
 }
 

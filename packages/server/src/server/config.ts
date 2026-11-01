@@ -587,6 +587,7 @@ function resolveMcpConfigSettings(
     autoArchiveAfterMerge: persisted.daemon?.autoArchiveAfterMerge ?? false,
     autoResumeOnRateLimit: persisted.daemon?.autoResumeOnRateLimit ?? true,
     cacheWarmSubagents: persisted.daemon?.cacheWarmSubagents ?? true,
+    cacheAutoCompact: persisted.daemon?.cacheAutoCompact ?? false,
     appendSystemPrompt: resolveAppendSystemPrompt(persisted),
     ...resolveProfileLists(persisted),
     hostnames: mergeHostnames([
@@ -619,6 +620,7 @@ export type ResolvedDaemonSettings = Pick<
   | "autoArchiveAfterMerge"
   | "autoResumeOnRateLimit"
   | "cacheWarmSubagents"
+  | "cacheAutoCompact"
   | "agentGateway"
   | "enableTerminalAgentHooks"
   | "appendSystemPrompt"

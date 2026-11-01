@@ -476,6 +476,7 @@ export const es: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "Próximo precalentamiento de caché en {{countdown}}",
+      missesAccessibilityLabel: "Fallos de la caché de prompts en esta sesión: {{count}}",
     },
     route: {
       loading: "Cargando espacio de trabajo",
@@ -3139,6 +3140,12 @@ export const es: TranslationResources = {
         hint: "Los agentes que crea un orquestador empiezan con el precalentamiento de caché activado, para que las tareas siguientes reutilicen la caché. El interruptor de cada agente sigue teniendo prioridad.",
         accessibilityLabel: "Precalentamiento de caché para agentes hijos",
         error: "No se pudo actualizar el ajuste de precalentamiento de caché",
+      },
+      cacheAutoCompact: {
+        title: "Compactar al llegar al límite de precalentamiento",
+        hint: "Cuando el precalentamiento de un agente llega a su límite de inactividad con más de 200k tokens de contexto, compáctalo en lugar de dejar que la caché caduque y deja de precalentarlo. Al retomarlo se escribe el resumen corto, no todo el contexto. La elección de cada agente en la píldora de caché tiene prioridad.",
+        accessibilityLabel: "Compactar al llegar al límite de precalentamiento",
+        error: "No se pudo actualizar el ajuste de compactación",
       },
       orchestration: {
         title: "Orquestación",

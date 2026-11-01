@@ -476,6 +476,7 @@ export const fr: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "Prochain préchauffage du cache dans {{countdown}}",
+      missesAccessibilityLabel: "Échecs du cache de prompts dans cette session : {{count}}",
     },
     route: {
       loading: "Chargement de l’espace de travail…",
@@ -3141,6 +3142,12 @@ export const fr: TranslationResources = {
         hint: "Les agents créés par un orchestrateur démarrent avec le préchauffage du cache activé, afin que les tâches suivantes réutilisent le cache. Le réglage de chaque agent reste prioritaire.",
         accessibilityLabel: "Préchauffage du cache pour les agents enfants",
         error: "Impossible de mettre à jour le paramètre de préchauffage du cache",
+      },
+      cacheAutoCompact: {
+        title: "Compacter à la limite de préchauffage",
+        hint: "Quand le préchauffage d'un agent atteint sa limite d'inactivité avec plus de 200k jetons de contexte, le compacter au lieu de laisser le cache expirer, puis arrêter le préchauffage. À la reprise, seul le court résumé est réécrit. Le choix propre à chaque agent dans la pastille du cache prime.",
+        accessibilityLabel: "Compacter à la limite de préchauffage",
+        error: "Impossible de mettre à jour le réglage de compactage",
       },
       orchestration: {
         title: "Orchestration",

@@ -4,6 +4,7 @@ import type {
   PromptCacheRequestKind,
 } from "@getpaseo/protocol/agent-cache-warm";
 import { summarizePromptCacheHistory } from "./prompt-cache-history";
+import { buildInsightsColumns, summarizePromptCacheInsights } from "./prompt-cache-insights";
 
 const MINUTE = 60_000;
 const FIVE_MINUTES = 5 * MINUTE;
@@ -14,7 +15,7 @@ function entry(
   kind: PromptCacheRequestKind,
   readTokens: number,
   gapMinutes: number | null,
-  awayMinutes?: number,
+  extra: Partial<PromptCacheHistoryEntry> = {},
 ): PromptCacheHistoryEntry {
   clock += (gapMinutes ?? 0) * MINUTE + 1;
   return {
@@ -24,66 +25,60 @@ function entry(
     writeTokens: 1_000 - readTokens,
     uncachedTokens: 0,
     gapMs: gapMinutes === null ? null : gapMinutes * MINUTE,
-    ...(awayMinutes === undefined ? {} : { awayMs: awayMinutes * MINUTE }),
+    ...extra,
   };
 }
 
 describe("summarizePromptCacheHistory", () => {
   it("returns null before any request is recorded", () => {
-    expect(summarizePromptCacheHistory(undefined, FIVE_MINUTES)).toBeNull();
-    expect(summarizePromptCacheHistory([], FIVE_MINUTES)).toBeNull();
+    expect(summarizePromptCacheHistory(undefined)).toBeNull();
+    expect(summarizePromptCacheHistory([])).toBeNull();
   });
 
-  it("separates returns kept warm by warm-ups from misses after the cache expired", () => {
-    const summary = summarizePromptCacheHistory(
-      [
+  it("marks only misses a warm cache could have avoided", () => {
+    const summary = summarizePromptCacheHistory([
+      entry("turn", 0, null),
+      entry("request", 900, 1),
+      entry("turn", 0, 2, { afterCompaction: true }),
+      entry("turn", 100, 30),
+    ]);
+    expect(summary?.bars.map((bar) => bar.avoidableMiss)).toEqual([false, false, false, true]);
+    expect(summary?.bars[3]).toMatchObject({ hit: false, ratio: 0.1 });
+    expect(summary?.cachedShare).toBeCloseTo(1_000 / 4_000);
+  });
+});
+
+describe("summarizePromptCacheInsights", () => {
+  it("splits misses into expired and dropped while warm, newest first", () => {
+    const insights = summarizePromptCacheInsights({
+      requests: [
         entry("turn", 0, null),
         entry("request", 900, 1),
         entry("warm-up", 1_000, 4.5),
-        entry("warm-up", 1_000, 4.5),
-        entry("turn", 990, 2, 11),
         entry("request", 0, 7),
         entry("request", 0, 1),
-        entry("turn", 0, 40, 40),
+        entry("turn", 0, 40),
       ],
-      FIVE_MINUTES,
-    );
-    expect(summary?.requests).toEqual({ hit: 4, total: 8 });
-    expect(summary?.warmUps).toEqual({ hit: 2, total: 2 });
-    expect(summary?.returns).toEqual({ hit: 1, total: 2 });
-    expect(summary?.missesAfterExpiry).toBe(3);
-    expect(summary?.missesWhileWarm).toBe(1);
-    expect(summary?.cachedShare).toBeCloseTo(3_890 / 8_000);
-    expect(summary?.lastReturn).toEqual({ awayMs: 40 * MINUTE, warmUps: 0, hit: false, ratio: 0 });
-  });
-
-  it("counts the warm-ups that bridged the latest return", () => {
-    const summary = summarizePromptCacheHistory(
-      [
-        entry("turn", 990, 1, 1),
-        entry("warm-up", 1_000, 4.5),
-        entry("warm-up", 1_000, 4.5),
-        entry("warm-up", 1_000, 4.5),
-        entry("turn", 980, 3, 16.5),
-      ],
-      FIVE_MINUTES,
-    );
-    expect(summary?.lastReturn).toEqual({
-      awayMs: 16.5 * MINUTE,
-      warmUps: 3,
-      hit: true,
-      ratio: 0.98,
+      compactions: [],
+      cacheWindowMs: FIVE_MINUTES,
     });
+    expect(insights.requests).toBe(6);
+    expect(insights.hits).toBe(2);
+    expect(insights.warmUps).toBe(1);
+    expect(insights.missesAfterExpiry).toBe(2);
+    expect(insights.missesWhileWarm).toBe(1);
+    expect(insights.misses.map((miss) => miss.gapMs)).toEqual([40 * MINUTE, MINUTE, 7 * MINUTE]);
   });
 
-  it("calls a request that only read a small shared prefix a miss", () => {
-    const summary = summarizePromptCacheHistory([entry("turn", 100, 30, 30)], FIVE_MINUTES);
-    expect(summary?.bars[0]).toMatchObject({ hit: false, ratio: 0.1, afterExpiry: true });
-  });
-
-  it("judges time away against a 1 hour window", () => {
-    const summary = summarizePromptCacheHistory([entry("turn", 990, 20, 20)], 60 * MINUTE);
-    expect(summary?.returns.total).toBe(0);
-    expect(summary?.bars[0]?.afterExpiry).toBe(false);
+  it("fits a long session into the column budget and marks where it compacted", () => {
+    const requests = Array.from({ length: 500 }, (_, index) =>
+      entry("request", index === 250 ? 0 : 900, 1),
+    );
+    const compactionAt = requests[300]?.at ?? "";
+    const columns = buildInsightsColumns(requests, [{ at: compactionAt, trigger: "manual" }], 100);
+    expect(columns).toHaveLength(100);
+    expect(columns.every((column) => column.requests === 5)).toBe(true);
+    expect(columns.filter((column) => column.missed)).toHaveLength(1);
+    expect(columns.findIndex((column) => column.compacted)).toBe(60);
   });
 });

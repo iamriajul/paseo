@@ -97,7 +97,7 @@ Run its native regression tests from `packages/app/android` after prebuild:
   --no-daemon --max-workers=1 -Dorg.gradle.parallel=false
 ```
 
-> **Android Browser native changes:** routine local verification stops at focused Vitest tests, formatting, lint, and TypeScript typecheck. Do not run Expo prebuild, Gradle, an emulator, Maestro, or APK/AAB assembly locally for Browser tunneling work. The path-filtered `android-browser-native` CI job runs the proxy's Kotlin tests and `:app:assembleDebug` with `--no-daemon`, one worker, and Gradle parallelism disabled. APK validation remains in the existing GitHub/cloud release workflows.
+> **Android Browser native changes:** routine local verification stops at focused Vitest tests, formatting, lint, and TypeScript typecheck. Do not run Expo prebuild, Gradle, an emulator, Maestro, or APK/AAB assembly locally for Browser tunneling work. The path-filtered `Android Browser native` workflow (`.github/workflows/android-browser-native.yml`) runs the proxy's Kotlin tests and an arm64-v8a `:app:assembleDebug` on every change to its paths and on every release tag. APK validation remains in the existing GitHub/cloud release workflows.
 
 From repo root:
 

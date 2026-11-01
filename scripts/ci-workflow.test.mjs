@@ -165,12 +165,7 @@ test("ordinary CI keeps app tests without prebuilding Android modules", () => {
   const app = jobBlocks(source).get("app-tests").join("\n");
   assert.match(app, /npm run build:app-deps/);
   assert.match(app, /npm run test --workspace=@getpaseo\/app/);
-  // Fork: android-browser-native builds the Browser proxy module, only when its paths change.
-  const ordinaryJobs = [...jobBlocks(source)]
-    .filter(([name]) => name !== "android-browser-native")
-    .map(([, lines]) => lines.join("\n"))
-    .join("\n");
-  assert.doesNotMatch(ordinaryJobs, /test:android|expo prebuild|gradlew|actions\/setup-java/);
+  assert.doesNotMatch(source, /test:android|expo prebuild|gradlew|actions\/setup-java/);
 });
 
 test("server builds exclude test utilities at every domain depth", () => {
@@ -378,8 +373,8 @@ test("stable iOS releases upload once and distribute to external testers before 
 test("eight Playwright shards run one worker each", () => {
   const source = readFileSync(ciWorkflowPath, "utf8");
   const jobs = jobBlocks(source);
-  // Fork adds android-browser-changes, android-browser-native and fork-decisions.
-  assert.equal(jobs.size, 24);
+  // Fork adds fork-decisions.
+  assert.equal(jobs.size, 22);
   for (let shard = 1; shard <= 8; shard++) {
     const job = jobs.get(`playwright-${shard}`).join("\n");
     assert.match(job, new RegExp(`PLAYWRIGHT_SHARD: "${shard}/8"`));

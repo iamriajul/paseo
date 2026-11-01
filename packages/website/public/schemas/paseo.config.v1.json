@@ -104,6 +104,9 @@
         "cacheWarmSubagents": {
           "type": "boolean"
         },
+        "cacheAutoCompact": {
+          "type": "boolean"
+        },
         "enableTerminalAgentHooks": {
           "type": "boolean"
         },

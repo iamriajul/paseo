@@ -15,6 +15,7 @@ import {
   isCacheWarmPrompt,
   recordPromptCacheRequest,
   recordPromptCacheCompaction,
+  type PromptCacheInheritance,
   latestPromptCacheEntry,
   CACHE_AUTO_COMPACT_FEATURE_ID,
   type PromptCacheCompaction,
@@ -5432,6 +5433,25 @@ export class AgentManager {
     }
   }
 
+  /**
+   * A native fork inherits its parent's context, so its first request reads the parent's cache.
+   * Only the parent's recent history is in memory; a fork whose parent has moved past that window
+   * is counted as a fresh session's first request.
+   */
+  private inheritedPromptCache(agent: ActiveManagedAgent): PromptCacheInheritance | undefined {
+    const parentId = agent.labels.nativeForkOf;
+    if (!parentId) return undefined;
+    const forkedAt = agent.createdAt.getTime();
+    const basis = (this.agents.get(parentId)?.promptCache?.history ?? []).findLast(
+      (entry) => Date.parse(entry.at) <= forkedAt,
+    );
+    if (!basis) return undefined;
+    return {
+      at: basis.at,
+      inputTokens: basis.readTokens + basis.writeTokens + basis.uncachedTokens,
+    };
+  }
+
   private recordPromptCacheRequest(
     agent: ActiveManagedAgent,
     tokens: NonNullable<AgentUsage["requestCache"]>,
@@ -5443,7 +5463,11 @@ export class AgentManager {
       isWarmPing: Boolean(agent.activeTurnIsWarmPing),
     };
     const before = agent.promptCache;
-    agent.promptCache = recordPromptCacheRequest(before, sample);
+    agent.promptCache = recordPromptCacheRequest(
+      before,
+      sample,
+      before ? undefined : this.inheritedPromptCache(agent),
+    );
     const entry = latestPromptCacheEntry(agent.promptCache);
     if (entry) {
       void this.promptCacheJournal?.appendRequest({ agentId: agent.id, entry, before });

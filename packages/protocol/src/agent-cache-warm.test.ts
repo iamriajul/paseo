@@ -261,6 +261,27 @@ describe("agent-cache-warm protocol utilities", () => {
       expect(state.totals).toEqual({ requests: 1, hits: 0, misses: 1 });
     });
 
+    it("measures a native fork's first request against the context it inherited", () => {
+      const inherited = { at: new Date(0).toISOString(), inputTokens: 60_000 };
+      const state = recordPromptCacheRequest(
+        undefined,
+        at(0.1, "t1", tokens(59_900, 137_000, 2)),
+        inherited,
+      );
+      expect(state.history?.[0]).toMatchObject({
+        kind: "turn",
+        gapMs: 6_000,
+        previousInputTokens: 60_000,
+      });
+      expect(state.totals).toEqual({ requests: 1, hits: 1, misses: 0 });
+    });
+
+    it("counts a native fork's first request as a miss when the inherited cache had expired", () => {
+      const inherited = { at: new Date(0).toISOString(), inputTokens: 60_000 };
+      const state = recordPromptCacheRequest(undefined, at(16, "t1", tokens(0, 62_000)), inherited);
+      expect(state.totals).toEqual({ requests: 1, hits: 0, misses: 1 });
+    });
+
     it("does not count the first request after a compaction, even within the same turn", () => {
       const first = recordPromptCacheRequest(undefined, at(0, "t1", tokens(0, 56_000)));
       const compacted = recordPromptCacheCompaction(first, {

@@ -4285,6 +4285,9 @@ export const ServerInfoStatusPayloadSchema = z
         compactThenSend: z.boolean().optional(),
         // COMPAT(cacheExpiryStop): added in v0.14.903, drop gate after 2027-05-01.
         cacheExpiryStop: z.boolean().optional(),
+        // COMPAT(cacheWarmFork): added in v0.14.904, drop gate after 2027-05-01. Warm-ups go through
+        // a throwaway fork, so running and blocked agents are warmed and questions stay open.
+        cacheWarmFork: z.boolean().optional(),
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
         tcpTunnel: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.

@@ -32,6 +32,7 @@ import type {
 } from "../../agent-sdk-types.js";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import { buildAgentPrompt, renderPromptAttachmentAsText } from "../../prompt-attachments.js";
+import type { ClaudeQueryFactory } from "./query.js";
 
 interface TestClaudeSession {
   translateMessageToEvents(message: SDKMessage): Promise<AgentStreamEvent[]>;
@@ -1144,57 +1145,88 @@ describe("ClaudeAgentSession features", () => {
     ]);
   });
 
-  test("runs a warm-up turn at the lowest effort, then restores the configured effort", async () => {
-    const { queryFactory, queryMock } = createQueryMock();
+  test("warms the cache through a throwaway fork that reaches no tools, MCP servers or hooks", async () => {
+    const forkMessages: SDKMessage[] = [
+      {
+        type: "stream_event",
+        parent_tool_use_id: null,
+        event: {
+          type: "message_start",
+          message: {
+            usage: {
+              input_tokens: 2,
+              cache_read_input_tokens: 53_854,
+              cache_creation_input_tokens: 126,
+              cache_creation: { ephemeral_5m_input_tokens: 126, ephemeral_1h_input_tokens: 0 },
+            },
+          },
+        },
+      } as unknown as SDKMessage,
+      { type: "result", subtype: "success" } as unknown as SDKMessage,
+    ];
+    const close = vi.fn();
+    const queryFactory = vi.fn(() => {
+      const iterator = forkMessages[Symbol.iterator]();
+      return {
+        close,
+        [Symbol.asyncIterator]: () => ({ next: async () => iterator.next() }),
+      };
+    });
     const session = await new ClaudeAgentClient({
       logger,
-      queryFactory,
+      queryFactory: queryFactory as unknown as ClaudeQueryFactory,
       resolveBinary: async () => "/test/claude/bin",
     }).createSession({
       provider: "claude",
       cwd: process.cwd(),
-      model: "claude-opus-5",
+      model: "claude-haiku-5-5",
       thinkingOptionId: "high",
+      featureValues: { prompt_cache_ttl: "5m" },
+      mcpServers: { paseo: { type: "http", url: "http://127.0.0.1:1/mcp" } },
     });
+    (session as unknown as { claudeSessionId: string }).claudeSessionId = "session-1";
 
     try {
-      const { turnId } = await session.startTurn("Reply with ok only.", { isWarmPing: true });
-      expect(queryMock.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "low" });
-      // A real message steered in now would run at the warm-up's effort, so it is refused.
-      await expect(
-        session.steerActiveTurn?.("Carry on with the task.", { expectedTurnId: turnId }),
-      ).resolves.toEqual({ status: "unavailable" });
-
-      await session.interrupt();
-      await vi.waitFor(() => {
-        expect(queryMock.applyFlagSettings).toHaveBeenLastCalledWith({ effortLevel: "high" });
+      await expect(session.warmPromptCache?.()).resolves.toEqual({
+        readTokens: 53_854,
+        writeTokens: 126,
+        uncachedTokens: 2,
+        writeTtl: "5m",
       });
-
-      queryMock.applyFlagSettings.mockClear();
-      await session.startTurn("Carry on with the task.");
-      expect(queryMock.applyFlagSettings).not.toHaveBeenCalled();
-      expect(queryMock.setMaxThinkingTokens).not.toHaveBeenCalled();
+      const { prompt, options } = queryFactory.mock.calls[0]![0] as {
+        prompt: unknown;
+        options: Record<string, unknown>;
+      };
+      expect(typeof prompt).toBe("string");
+      expect(options).toMatchObject({
+        resume: "session-1",
+        forkSession: true,
+        persistSession: false,
+        maxTurns: 1,
+        mcpServers: {},
+        strictMcpConfig: true,
+        hooks: {},
+        effort: "low",
+        thinking: { type: "disabled" },
+        model: "claude-haiku-5-5",
+        settings: expect.objectContaining({ disableAllHooks: true }),
+      });
+      expect(close).toHaveBeenCalled();
     } finally {
       await session.close();
     }
   });
 
-  test("restores Claude Code's own effort after a warm-up when none is configured", async () => {
-    const { queryFactory, queryMock } = createQueryMock();
+  test("has nothing to warm before the session has a Claude session id", async () => {
+    const queryFactory = vi.fn();
     const session = await new ClaudeAgentClient({
       logger,
-      queryFactory,
+      queryFactory: queryFactory as unknown as ClaudeQueryFactory,
       resolveBinary: async () => "/test/claude/bin",
-    }).createSession({ provider: "claude", cwd: process.cwd(), model: "claude-opus-5-5" });
-
+    }).createSession({ provider: "claude", cwd: process.cwd(), model: "claude-haiku-5-5" });
     try {
-      await session.startTurn("Reply with ok only.", { isWarmPing: true });
-      expect(queryMock.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "low" });
-
-      await session.interrupt();
-      await vi.waitFor(() => {
-        expect(queryMock.applyFlagSettings).toHaveBeenLastCalledWith({ effortLevel: null });
-      });
+      await expect(session.warmPromptCache?.()).resolves.toBeNull();
+      expect(queryFactory).not.toHaveBeenCalled();
     } finally {
       await session.close();
     }

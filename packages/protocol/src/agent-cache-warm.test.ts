@@ -19,6 +19,10 @@ import {
   type PromptCacheRequestSample,
 } from "./agent-cache-warm.js";
 
+function entryKind(entry: { kind: string }): string {
+  return entry.kind;
+}
+
 describe("agent-cache-warm protocol utilities", () => {
   it("resolves the 1h window: warm at 58m, 12-ping cap", () => {
     expect(resolvePromptCacheWindows("1h")).toEqual({
@@ -171,6 +175,16 @@ describe("agent-cache-warm protocol utilities", () => {
       ]);
       expect(state?.history?.[4]?.readTokens).toBe(0);
       expect(state?.turnFirstRequest.turnId).toBe("t2");
+    });
+
+    it("keeps a warm-up out of the turn it lands in", () => {
+      const state = replay([
+        request(0, "t1"),
+        request(4, "", { isWarmPing: true }),
+        request(6, "t1"),
+      ]);
+      expect(timing(state)?.map(entryKind)).toEqual(["turn", "warm-up", "request"]);
+      expect(state?.turnFirstRequest.at).toBe(new Date(0).toISOString());
     });
 
     it("keeps only the latest prompts", () => {

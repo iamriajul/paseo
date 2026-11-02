@@ -733,6 +733,11 @@ export interface AgentSession {
   canStopRuntime?(): Promise<boolean>;
   /** Whether the provider process is running now; a session starts it lazily. */
   hasLiveRuntime?(): boolean;
+  /**
+   * Refreshes the prompt cache without sending the agent anything, so it works mid-turn. Returns
+   * the refreshing request's cache sample, or null when there is no session to warm yet.
+   */
+  warmPromptCache?(): Promise<PromptCacheRequestTokens | null>;
   /** Stop a provider-owned background shell task (Claude `stopTask`). */
   stopBackgroundTask?(taskId: string): Promise<void>;
   /** Read a capped slice of a background task output file. */

@@ -5514,9 +5514,27 @@ export class AgentManager {
     };
   }
 
+  /**
+   * Warms the agent's prompt cache without a turn and records the warm-up request. False when the
+   * session cannot warm this way or the request carried no cache accounting.
+   */
+  async warmPromptCache(agentId: string): Promise<boolean> {
+    const agent = this.requireSessionAgent(agentId);
+    const tokens = await agent.session.warmPromptCache?.();
+    if (!tokens || promptCacheInputTokens(tokens) === 0) return false;
+    this.recordPromptCacheRequest(agent, tokens, { isWarmPing: true, turnId: null });
+    this.emitState(agent);
+    return true;
+  }
+
+  canWarmPromptCache(agentId: string): boolean {
+    return typeof this.agents.get(agentId)?.session?.warmPromptCache === "function";
+  }
+
   private recordPromptCacheRequest(
     agent: ActiveManagedAgent,
     tokens: NonNullable<AgentUsage["requestCache"]>,
+    warmUp?: { isWarmPing: true; turnId: null },
   ): void {
     // A translating gateway reports no input tokens on message_start, and the cache sample is
     // taken from that event alone. An all-zero sample carries no accounting, so it is not a request.
@@ -5524,8 +5542,8 @@ export class AgentManager {
     const sample: PromptCacheRequestSample = {
       ...tokens,
       at: new Date().toISOString(),
-      turnId: agent.activeTurnId,
-      isWarmPing: Boolean(agent.activeTurnIsWarmPing),
+      turnId: warmUp ? warmUp.turnId : agent.activeTurnId,
+      isWarmPing: warmUp ? true : Boolean(agent.activeTurnIsWarmPing),
     };
     const before = agent.promptCache;
     agent.promptCache = recordPromptCacheRequest(
@@ -5537,6 +5555,8 @@ export class AgentManager {
     if (entry) {
       void this.promptCacheJournal?.appendRequest({ agentId: agent.id, entry, before });
     }
+    // Each request restarts the cache's TTL, so the next warm-up is timed from it, mid-turn too.
+    if (!sample.isWarmPing) this.cacheWarmManager?.onRequestRecorded(agent.id);
   }
 
   private recordPromptCacheCompaction(

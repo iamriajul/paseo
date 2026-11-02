@@ -22,6 +22,7 @@ import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import type { AgentPermissionRequest } from "./agent-sdk-types.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
 import { sendPromptToAgent } from "./agent-prompt.js";
+import { ensureAgentLoaded } from "./agent-loading.js";
 import {
   CLAUDE_CACHE_WARM_FEATURE_ID,
   CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
@@ -51,12 +52,15 @@ interface CacheWarmView {
   autoCompact: boolean;
   /** Input of the latest request, so the context the cache holds; null before any request. */
   contextTokens: number | null;
+  /** The session warms through a throwaway fork, so it needs no idle agent and sends it nothing. */
+  forkWarm: boolean;
 }
 
 type CacheWarmDecision =
   | { kind: "skip"; reason: string }
   | { kind: "wait"; delayMs: number }
   | { kind: "ping"; consecutivePings: number; maxPings: number }
+  | { kind: "fork-warm"; consecutivePings: number; maxPings: number }
   | { kind: "compact"; contextTokens: number }
   | {
       kind: "interrupt-questions";
@@ -68,6 +72,7 @@ type CacheWarmDecision =
 interface ViewInput {
   consecutivePings: number;
   autoCompactByDefault: boolean;
+  forkWarm: boolean;
 }
 
 function readContextTokens(promptCache: ManagedAgent["promptCache"]): number | null {
@@ -102,6 +107,7 @@ function viewLiveAgent(
       hostDefault: input.autoCompactByDefault,
     }),
     contextTokens: readContextTokens(agent.promptCache),
+    forkWarm: input.forkWarm,
   };
 }
 
@@ -124,6 +130,8 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
       hostDefault: input.autoCompactByDefault,
     }),
     contextTokens: readContextTokens(record.promptCache),
+    // Loading the record gives it a session that can fork; a crashed run is auto-resume's.
+    forkWarm: input.forkWarm && !wasRunning,
   };
 }
 
@@ -174,6 +182,9 @@ function decideCacheWarm(input: {
   if (!windows) {
     return { kind: "skip", reason: "warm-up is off or the cache window is Automatic" };
   }
+  if (view.forkWarm) {
+    return decideForkWarm({ view, windows, nowMs, lastAttemptMs });
+  }
   if (view.hasOtherPendingPermissions) {
     return { kind: "skip", reason: "agent is waiting on a tool permission" };
   }
@@ -213,6 +224,50 @@ function decideCacheWarm(input: {
     : { kind: "ping", ...counts };
 }
 
+/**
+ * A fork reaches the cache without the agent, so a running turn, a pending permission or an open
+ * question is warmed like an idle agent. Only the idle-cap compaction is a turn, so it still needs
+ * an idle agent with nothing pending; otherwise the cap lets the cache expire.
+ */
+function decideForkWarm(input: {
+  view: CacheWarmView;
+  windows: PromptCacheWindows;
+  nowMs: number;
+  lastAttemptMs: number | null;
+}): CacheWarmDecision {
+  const { view, windows, nowMs, lastAttemptMs } = input;
+  if (view.anchorMs === null) {
+    return { kind: "skip", reason: "no request recorded yet" };
+  }
+  const elapsedMs = nowMs - view.anchorMs;
+  if (elapsedMs >= windows.cacheWindowMs) {
+    return { kind: "skip", reason: "cache has already expired" };
+  }
+  const capped = view.consecutivePings >= windows.maxConsecutivePings;
+  const canCompact =
+    compactsAtCap(view) &&
+    view.activity === "ready" &&
+    view.pendingQuestions.length === 0 &&
+    !view.hasOtherPendingPermissions;
+  if (capped && !canCompact) {
+    return { kind: "skip", reason: "auto-cap reached for this idle stretch" };
+  }
+  if (lastAttemptMs !== null && lastAttemptMs > view.anchorMs) {
+    return { kind: "skip", reason: "the last warm-up did not reach Anthropic" };
+  }
+  if (elapsedMs < windows.warmIntervalMs) {
+    return { kind: "wait", delayMs: windows.warmIntervalMs - elapsedMs };
+  }
+  if (capped) {
+    return { kind: "compact", contextTokens: view.contextTokens ?? 0 };
+  }
+  return {
+    kind: "fork-warm",
+    consecutivePings: view.consecutivePings,
+    maxPings: windows.maxConsecutivePings,
+  };
+}
+
 interface ActiveCacheWarmTimerEntry {
   timeout: NodeJS.Timeout;
   scheduledFor: Date;
@@ -229,6 +284,8 @@ export interface AgentCacheWarmManagerDependencies {
   isCacheAutoCompactByDefault?: () => boolean;
   /** Runs before an idle-cap compaction is sent; if it throws, the compaction is not sent. */
   onIdleCapCompaction?: (agentId: string) => Promise<void>;
+  /** Loads an agent known only from storage, so its session can warm through a fork. */
+  loadAgent?: (agentId: string) => Promise<unknown>;
 }
 
 export class AgentCacheWarmManager {
@@ -236,6 +293,7 @@ export class AgentCacheWarmManager {
   private readonly agentStorage: AgentStorage;
   private readonly logger: Logger;
   private readonly send: typeof sendPromptToAgent;
+  private readonly loadAgent: (agentId: string) => Promise<unknown>;
   private readonly pingPrompt: string;
   private readonly now: () => number;
   private readonly isCacheAutoCompactByDefault: () => boolean;
@@ -254,6 +312,14 @@ export class AgentCacheWarmManager {
     this.agentStorage = dependencies.agentStorage;
     this.logger = dependencies.logger;
     this.send = dependencies.sendPrompt ?? sendPromptToAgent;
+    this.loadAgent =
+      dependencies.loadAgent ??
+      ((agentId) =>
+        ensureAgentLoaded(agentId, {
+          agentManager: this.agentManager,
+          agentStorage: this.agentStorage,
+          logger: this.logger,
+        }));
     this.pingPrompt = dependencies.pingPrompt ?? DEFAULT_CACHE_WARM_PING_PROMPT;
     this.now = dependencies.now ?? (() => Date.now());
     this.isCacheAutoCompactByDefault = dependencies.isCacheAutoCompactByDefault ?? (() => false);
@@ -321,11 +387,14 @@ export class AgentCacheWarmManager {
   }
 
   private viewAgent(agentId: string): CacheWarmView | null {
+    const agent = this.agentManager.getAgent(agentId);
     const input: ViewInput = {
       consecutivePings: this.getConsecutivePings(agentId),
       autoCompactByDefault: this.isCacheAutoCompactByDefault(),
+      forkWarm: agent
+        ? this.agentManager.canWarmPromptCache(agentId)
+        : this.dormantRecords.get(agentId)?.provider === "claude",
     };
-    const agent = this.agentManager.getAgent(agentId);
     if (agent) {
       return viewLiveAgent(agent, {
         ...input,
@@ -400,6 +469,17 @@ export class AgentCacheWarmManager {
           logMessage: "Warming prompt cache",
           attempt: () => this.sendCacheWarmPing(agentId),
         });
+      case "fork-warm": {
+        const warmed = await this.runAttempt({
+          agentId,
+          counts: decision,
+          logMessage: "Warming prompt cache through a fork",
+          attempt: () => this.warmThroughFork(agentId),
+        });
+        // No turn follows a fork, so nothing else times the next warm-up.
+        if (warmed) this.schedule(agentId);
+        return warmed;
+      }
       case "compact":
         return this.compactAtCap(agentId, decision.contextTokens);
     }
@@ -491,6 +571,18 @@ export class AgentCacheWarmManager {
     return true;
   }
 
+  private async warmThroughFork(agentId: string): Promise<boolean> {
+    if (!this.agentManager.getAgent(agentId)) await this.loadAgent(agentId);
+    return this.agentManager.warmPromptCache(agentId);
+  }
+
+  /** A request of the agent's own restarts the TTL and ends the idle stretch's warm-up count. */
+  onRequestRecorded(agentId: string): void {
+    if (this.getConsecutivePings(agentId) > 0) this.resetConsecutivePings(agentId);
+    else this.lastAttemptAt.delete(agentId);
+    this.schedule(agentId);
+  }
+
   private sendCacheWarmPing(agentId: string): Promise<boolean> {
     return this.sendPrompt(agentId, this.pingPrompt);
   }
@@ -554,7 +646,11 @@ export class AgentCacheWarmManager {
       if (record.archivedAt || record.internal || this.agentManager.getAgent(record.id)) {
         continue;
       }
-      const view = viewDormantRecord(record, { consecutivePings: 0, autoCompactByDefault: false });
+      const view = viewDormantRecord(record, {
+        consecutivePings: 0,
+        autoCompactByDefault: false,
+        forkWarm: false,
+      });
       if (resolveCacheWarmWindows(view) === null) {
         continue;
       }

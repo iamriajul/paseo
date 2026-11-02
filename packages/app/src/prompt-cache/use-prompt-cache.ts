@@ -13,6 +13,7 @@ import {
   type PromptCacheWindows,
 } from "@getpaseo/protocol/agent-cache-warm";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
+import { useHostFeature } from "@/runtime/host-features";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 import {
   summarizePromptCacheHistory,
@@ -137,9 +138,12 @@ function resolveWarmupPlan(input: {
   windows: PromptCacheWindows;
   status: PromptCacheStatus;
   now: number;
+  /** The host warms through a fork, which needs no idle agent. */
+  forkWarm: boolean;
 }): PromptCacheWarmupPlan {
   const { facts, windows, status, now } = input;
   if (!facts.warmupEnabled) return { kind: "off" };
+  if (input.forkWarm) return resolveForkWarmPlan({ facts, windows, status, now });
   if (status.kind === "busy" || status.kind === "busy-expired") return { kind: "after-turn" };
   if (status.kind === "expired" || facts.anchorMs === null) return { kind: "expired" };
   if (facts.pingsUsed >= windows.maxConsecutivePings) return { kind: "capped" };
@@ -151,6 +155,27 @@ function resolveWarmupPlan(input: {
   }
   if (status.kind === "awaiting-permission") return { kind: "waits-for-permission" };
   return { kind: "next-ping", remainingMs };
+}
+
+/**
+ * A host that warms through a fork reaches the cache without the agent, so a running turn, a
+ * pending permission and an open question all count down to the next warm-up like an idle agent.
+ */
+function resolveForkWarmPlan(input: {
+  facts: AgentCacheFacts;
+  windows: PromptCacheWindows;
+  status: PromptCacheStatus;
+  now: number;
+}): PromptCacheWarmupPlan {
+  const { facts, windows, status, now } = input;
+  if (status.kind === "expired" || status.kind === "busy-expired" || facts.anchorMs === null) {
+    return { kind: "expired" };
+  }
+  if (facts.pingsUsed >= windows.maxConsecutivePings) return { kind: "capped" };
+  return {
+    kind: "next-ping",
+    remainingMs: Math.max(0, facts.anchorMs + windows.warmIntervalMs - now),
+  };
 }
 
 function hasLiveCountdown(status: PromptCacheStatus): boolean {
@@ -171,7 +196,11 @@ function resolveTotals(agent: Agent | undefined): PromptCacheTotals {
 export type PromptCacheView = Omit<PromptCacheState, "toggleWarmup">;
 
 /** Everything the cache surfaces show for one agent at one instant; no React, no clock. */
-export function resolvePromptCacheView(agent: Agent | undefined, now: number): PromptCacheView {
+export function resolvePromptCacheView(
+  agent: Agent | undefined,
+  now: number,
+  options?: { forkWarm?: boolean },
+): PromptCacheView {
   const totals = resolveTotals(agent);
   const isClaude = Boolean(
     agent && agent.provider === "claude" && isClaudeModel(agent.model ?? agent.runtimeInfo?.model),
@@ -182,7 +211,13 @@ export function resolvePromptCacheView(agent: Agent | undefined, now: number): P
     facts?.windows && facts.warmupAvailable
       ? {
           enabled: facts.warmupEnabled,
-          plan: resolveWarmupPlan({ facts, windows: facts.windows, status, now }),
+          plan: resolveWarmupPlan({
+            facts,
+            windows: facts.windows,
+            status,
+            now,
+            forkWarm: options?.forkWarm === true,
+          }),
           pingsUsed: Math.min(facts.pingsUsed, facts.windows.maxConsecutivePings),
           maxPings: facts.windows.maxConsecutivePings,
           totalPings: facts.totalPings,
@@ -228,9 +263,10 @@ export function usePromptCache(serverId: string, agentId: string): PromptCacheSt
   "use no memo";
   const client = useHostRuntimeClient(serverId);
   const agent = usePromptCacheAgent(serverId, agentId);
+  const forkWarm = useHostFeature(serverId, "cacheWarmFork");
   const ticking = hasLiveCountdown(resolvePromptCacheView(agent, Date.now()).status);
   const now = useSecondClock(ticking);
-  const view = resolvePromptCacheView(agent, now);
+  const view = resolvePromptCacheView(agent, now, { forkWarm });
   const { status, warmup } = view;
 
   const warmupEnabled = warmup?.enabled ?? false;

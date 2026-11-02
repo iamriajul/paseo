@@ -372,7 +372,10 @@ export function recordPromptCacheRequest(
   sample: PromptCacheRequestSample,
   inherited?: PromptCacheInheritance,
 ): AgentPromptCacheState {
-  const startsTurn = !previous || previous.turnFirstRequest.turnId !== sample.turnId;
+  // A warm-up belongs to no turn: it can land in the middle of one, and the agent's next request
+  // there still continues that turn.
+  const startsTurn =
+    !previous || (!sample.isWarmPing && previous.turnFirstRequest.turnId !== sample.turnId);
   const entry = buildHistoryEntry(previous, sample, startsTurn, inherited);
   const priorTotals = previous?.totals ?? sumPromptCacheTotals(previous?.history ?? []);
   return {

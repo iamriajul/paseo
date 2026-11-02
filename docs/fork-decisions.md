@@ -958,3 +958,14 @@ A measurement that comes back empty, because the portal host is not registered y
 ```bash
 npm test --workspace=@getpaseo/app -- src/components/ui/autocomplete-popover.test.tsx --bail=1
 ```
+
+## git-fallback-test-waits-for-refresh
+
+**the structural-fallback git test waits for the first refreshes to finish**
+
+`workspace-git-service.test.ts` "$name takes the repository-wide structural fallback" released the fetch once both first refreshes had started. On a slow Windows runner one was still running; the fallback refresh joined that refresh's loop, which ran it only after a timer the test advances once, so it saw 3 snapshots instead of 4. The test now waits until no refresh is in flight before releasing the fetch, and its first snapshot takes 50 ms of real time, so the race happens on every run and without the wait all three cases fail with the CI error. The product is right: in real time that timer fires.
+
+```bash
+npx vitest run packages/server/src/server/workspace-git-service.test.ts -t "structural fallback" --config packages/server/vitest.config.ts --bail=1
+grep -q "realSetTimeout(resolve, 50)" packages/server/src/server/workspace-git-service.test.ts
+```

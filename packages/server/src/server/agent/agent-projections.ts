@@ -157,6 +157,7 @@ export function toAgentPayload(
     archivedAt: options?.archivedAt ?? null,
     ...(agent.internal ? { internal: true } : {}),
     ...projectCacheWarmState(agent),
+    ...projectRuntimeActive(agent),
   };
 
   const usage = sanitizeUsage(agent.lastUsage);
@@ -185,6 +186,14 @@ export function toAgentPayload(
   }
 
   return payload;
+}
+
+/** Reported for Claude, whose process the daemon stops once the prompt cache expires. */
+function projectRuntimeActive(agent: ManagedAgent): Pick<AgentSnapshotPayload, "runtimeActive"> {
+  if (agent.provider !== "claude") return {};
+  if (agent.lifecycle === "closed") return { runtimeActive: false };
+  const active = agent.session?.hasLiveRuntime?.();
+  return active === undefined ? {} : { runtimeActive: active };
 }
 
 function buildStoredRuntimeInfo(record: StoredAgentRecord): AgentRuntimeInfo | undefined {
@@ -270,6 +279,13 @@ function projectCacheWarmState(source: CacheWarmState): CacheWarmState {
   };
 }
 
+/** An agent known only from storage is not loaded, so it has no process. */
+function projectStoredRuntimeActive(
+  record: StoredAgentRecord,
+): Pick<AgentSnapshotPayload, "runtimeActive"> {
+  return record.provider === "claude" ? { runtimeActive: false } : {};
+}
+
 export function buildStoredAgentPayload(
   record: StoredAgentRecord,
   validProviders: Iterable<AgentProvider>,
@@ -317,6 +333,7 @@ export function buildStoredAgentPayload(
     ...(typeof record.lastError === "string" ? { lastError: record.lastError } : {}),
     ...projectCacheWarmState(record),
     ...projectCacheAutoCompact(record.config),
+    ...projectStoredRuntimeActive(record),
     ...(options?.rateLimitCooldown ? { rateLimitCooldown: options.rateLimitCooldown } : {}),
     ...(providerAvailable ? {} : { providerUnavailable: true }),
   };

@@ -64,6 +64,7 @@ import {
   toAgentPersistenceHandle,
 } from "./persistence-hooks.js";
 import { ensureAgentLoaded, ensureUnarchivedAgentLoaded } from "./agent/agent-loading.js";
+import { compactWithModel } from "./agent/compact-with-model.js";
 import {
   sendPromptToAgent,
   waitForAgentRunStartWithTimeout,
@@ -9358,6 +9359,7 @@ export class Session {
         boundaryMessageId: msg.boundaryMessageId,
         boundaryCursor: msg.boundaryCursor,
         target: msg.target,
+        model: msg.model,
       });
       this.emit({
         type: "agent.native_fork.response",
@@ -9424,6 +9426,19 @@ export class Session {
       });
       let deliveryStatus: "queued" | undefined;
       const send = async () => {
+        if (msg.compactFirst) {
+          // The compaction can take minutes: the message is admitted now and sent after it.
+          deliveryStatus = "queued";
+          queued();
+          await compactWithModel({
+            agentManager: this.agentManager,
+            agentStorage: this.agentStorage,
+            logger: this.sessionLogger,
+            agentId,
+            model: msg.compactFirst.model,
+            thinkingOptionId: msg.compactFirst.thinkingOptionId ?? null,
+          });
+        }
         if (msg.sourceAgentId) {
           const receipt = this.agentMessages.enqueue({
             recipientId: agentId,
@@ -9459,7 +9474,7 @@ export class Session {
           clearPendingPermissions: true,
           logger: this.sessionLogger,
         });
-        if (result.disposition === "turn_started") {
+        if (result.disposition === "turn_started" && !msg.compactFirst) {
           await waitForAgentRunStartWithTimeout(
             this.agentManager,
             agentId,

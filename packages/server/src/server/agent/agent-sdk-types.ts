@@ -723,6 +723,8 @@ export interface AgentSession {
    * An optional additional veto: missing methods use daemon baseline eligibility;
    * implemented checks that reject or return false keep the runtime resident. */
   canStopRuntime?(): Promise<boolean>;
+  /** Whether the provider process is running now; a session starts it lazily. */
+  hasLiveRuntime?(): boolean;
   /** Stop a provider-owned background shell task (Claude `stopTask`). */
   stopBackgroundTask?(taskId: string): Promise<void>;
   /** Read a capped slice of a background task output file. */

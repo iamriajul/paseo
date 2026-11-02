@@ -8,6 +8,8 @@ import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
 import { formatSystemNotificationPrompt } from "./agent-messages/index.js";
 import { sendPromptToAgent } from "./agent-prompt.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
+import { shouldSkipWakeForExpiredCache } from "./prompt-cache-expiry.js";
+import type { CacheExpiryStopPolicy } from "@getpaseo/protocol/agent-cache-warm";
 import {
   CLIENT_SHUTDOWN_RPC_REASON,
   DEFAULT_CLIENT_RESTART_RPC_REASON,
@@ -175,6 +177,8 @@ export interface AutoResumeOptions {
    * only agents that were running before this boot are resumed.
    */
   bootRecords?: Promise<StoredAgentRecord[]>;
+  /** Host setting `cacheExpiryStop`; an agent whose cache has expired is not resumed. */
+  cacheExpiryStop?: () => CacheExpiryStopPolicy;
 }
 
 export interface AutoResumeResult {
@@ -251,6 +255,17 @@ export async function autoResumeRunningAgents(
     }
     if (rec.owner?.kind === "daemon") {
       skipped++;
+      continue;
+    }
+    if (
+      shouldSkipWakeForExpiredCache({
+        agent: rec,
+        policy: options.cacheExpiryStop?.() ?? "off",
+        nowMs: Date.now(),
+      })
+    ) {
+      skipped++;
+      logger.info({ agentId: id }, "Skipping auto-resume: the agent's prompt cache has expired");
       continue;
     }
     // For pending ids, allow even if lastStatus is now closed (graceful shutdown case).

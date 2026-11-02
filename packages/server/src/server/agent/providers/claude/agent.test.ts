@@ -819,6 +819,7 @@ describe("ClaudeAgentSession features", () => {
       close: vi.fn(),
       return: queryReturn,
       applyFlagSettings: vi.fn(async () => undefined),
+      setMaxThinkingTokens: vi.fn(async () => undefined),
       setModel: vi.fn(async () => undefined),
       getContextUsage: vi.fn(async () => undefined),
       [Symbol.asyncIterator](): AsyncIterator<SDKMessage, void> {
@@ -1007,7 +1008,8 @@ describe("ClaudeAgentSession features", () => {
       }),
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode", value: false }),
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
 
     await expect(
@@ -1018,7 +1020,8 @@ describe("ClaudeAgentSession features", () => {
       }),
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode", value: false }),
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
 
     await expect(
@@ -1029,7 +1032,8 @@ describe("ClaudeAgentSession features", () => {
       }),
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode", value: false }),
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
 
     await expect(
@@ -1040,7 +1044,8 @@ describe("ClaudeAgentSession features", () => {
       }),
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode", value: false }),
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
 
     await expect(
@@ -1049,7 +1054,10 @@ describe("ClaudeAgentSession features", () => {
         cwd: process.cwd(),
         model: "openrouter/anthropic/claude-opus-4-8",
       }),
-    ).resolves.toEqual([expect.objectContaining({ id: "prompt_cache_ttl", value: "default" })]);
+    ).resolves.toEqual([
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
+    ]);
 
     await expect(
       client.listFeatures({
@@ -1057,7 +1065,10 @@ describe("ClaudeAgentSession features", () => {
         cwd: process.cwd(),
         model: "claude-sonnet-5",
       }),
-    ).resolves.toEqual([expect.objectContaining({ id: "prompt_cache_ttl", value: "default" })]);
+    ).resolves.toEqual([
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
+    ]);
 
     await expect(
       client.listFeatures({
@@ -1065,7 +1076,62 @@ describe("ClaudeAgentSession features", () => {
         cwd: process.cwd(),
         model: "claude-sonnet-4-6",
       }),
-    ).resolves.toEqual([expect.objectContaining({ id: "prompt_cache_ttl", value: "default" })]);
+    ).resolves.toEqual([
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
+    ]);
+  });
+
+  test("runs a warm-up turn at the lowest effort, then restores the configured effort", async () => {
+    const { queryFactory, queryMock } = createQueryMock();
+    const session = await new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    }).createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "claude-opus-5",
+      thinkingOptionId: "high",
+    });
+
+    try {
+      await session.startTurn("Reply with ok only.", { isWarmPing: true });
+      expect(queryMock.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "low" });
+
+      await session.interrupt();
+      await vi.waitFor(() => {
+        expect(queryMock.applyFlagSettings).toHaveBeenLastCalledWith({ effortLevel: "high" });
+      });
+
+      queryMock.applyFlagSettings.mockClear();
+      await session.startTurn("Carry on with the task.");
+      expect(queryMock.applyFlagSettings).not.toHaveBeenCalled();
+      expect(queryMock.setMaxThinkingTokens).not.toHaveBeenCalled();
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("restores Claude Code's own effort after a warm-up when none is configured", async () => {
+    const { queryFactory, queryMock } = createQueryMock();
+    const session = await new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    }).createSession({ provider: "claude", cwd: process.cwd(), model: "claude-opus-5-5" });
+
+    try {
+      await session.startTurn("Reply with ok only.", { isWarmPing: true });
+      expect(queryMock.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "low" });
+
+      await session.interrupt();
+      await vi.waitFor(() => {
+        expect(queryMock.applyFlagSettings).toHaveBeenLastCalledWith({ effortLevel: null });
+      });
+    } finally {
+      await session.close();
+    }
   });
 
   test("passes initial fast mode through Claude flag settings", async () => {
@@ -4773,7 +4839,8 @@ describe("prompt_cache_ttl feature", () => {
       }),
     ).resolves.toEqual([
       expect.objectContaining({ id: "fast_mode" }),
-      expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
+      expect.objectContaining({ id: "prompt_cache_ttl", value: "1h" }),
+      expect.objectContaining({ id: "cache_warm", value: false }),
     ]);
   });
 
@@ -4832,7 +4899,7 @@ describe("cache_warm feature", () => {
   }
 
   test("hides cache_warm while the Cache window is Automatic", async () => {
-    await expect(listFeatures({ cache_warm: true })).resolves.toEqual([
+    await expect(listFeatures({ prompt_cache_ttl: "default", cache_warm: true })).resolves.toEqual([
       expect.objectContaining({ id: "prompt_cache_ttl", value: "default" }),
     ]);
   });

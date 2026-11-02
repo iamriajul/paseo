@@ -85,6 +85,16 @@ import { ComposerToolbarGlyph } from "@/composer/agent-controls/glyph";
 import { AgentControlTrigger } from "@/composer/agent-controls/control";
 import { CompactModelSheet } from "@/composer/agent-controls/model-sheet";
 import { CacheWindowConfirmForAgent } from "@/composer/agent-controls/cache-window-confirm";
+import { ModelSwitchConfirm } from "@/composer/agent-controls/model-switch-confirm";
+import {
+  RuntimeStatusDot,
+  resolveAgentRuntimeStatus,
+  type AgentRuntimeStatus,
+} from "@/composer/agent-controls/runtime-status-dot";
+import { resolveModelSwitchGuard } from "@/prompt-cache/cache-guards";
+import { promptCacheInputTokens } from "@getpaseo/protocol/agent-cache-warm";
+import { useHostFeature } from "@/runtime/host-features";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
 import {
   CacheWindowLiveContext,
   CacheWindowLiveProvider,
@@ -117,6 +127,9 @@ const EMPTY_AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [];
 
 interface ControlledAgentControlsProps {
   provider: string;
+  /** Set for an existing agent: whether its provider process is running. */
+  runtimeStatus?: AgentRuntimeStatus;
+  runtimeProviderLabel?: string;
   providerOptions?: AgentControlOption[];
   selectedProviderId?: string;
   onSelectProvider?: (providerId: string) => void;
@@ -489,6 +502,8 @@ function buildOpenChangeHandler(
 
 function ControlledAgentControls({
   provider,
+  runtimeStatus,
+  runtimeProviderLabel,
   providerOptions,
   selectedProviderId,
   onSelectProvider,
@@ -751,6 +766,8 @@ function ControlledAgentControls({
         {!isCompact ? (
           <DesktopAgentControlsContent
             provider={provider}
+            runtimeStatus={runtimeStatus}
+            runtimeProviderLabel={runtimeProviderLabel}
             providerOptions={providerOptions}
             selectedProviderId={selectedProviderId}
             modelOptions={modelOptions}
@@ -804,6 +821,8 @@ function ControlledAgentControls({
         ) : (
           <SheetAgentControlsContent
             provider={provider}
+            runtimeStatus={runtimeStatus}
+            runtimeProviderLabel={runtimeProviderLabel}
             selectedModelId={selectedModelId}
             selectedThinkingOptionId={selectedThinkingOptionId}
             features={features}
@@ -846,6 +865,8 @@ function ControlledAgentControls({
 
 interface DesktopAgentControlsContentProps {
   provider: string;
+  runtimeStatus?: AgentRuntimeStatus;
+  runtimeProviderLabel?: string;
   providerOptions?: AgentControlOption[];
   selectedProviderId?: string;
   modelOptions?: AgentControlOption[];
@@ -909,6 +930,8 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
   const { t } = useTranslation();
   const {
     provider,
+    runtimeStatus,
+    runtimeProviderLabel,
     providerOptions,
     selectedProviderId,
     selectedModelId,
@@ -996,6 +1019,9 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
         </>
       ) : null}
 
+      {canSelectModel && runtimeStatus ? (
+        <RuntimeStatusDot status={runtimeStatus} providerLabel={runtimeProviderLabel ?? provider} />
+      ) : null}
       {canSelectModel ? (
         <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
           <TooltipTrigger asChild triggerRefProp="ref">
@@ -1122,6 +1148,8 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
 
 interface SheetAgentControlsContentProps {
   provider: string;
+  runtimeStatus?: AgentRuntimeStatus;
+  runtimeProviderLabel?: string;
   selectedModelId?: string;
   selectedThinkingOptionId?: string;
   features?: AgentFeature[];
@@ -1166,6 +1194,8 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
   const { t } = useTranslation();
   const {
     provider,
+    runtimeStatus,
+    runtimeProviderLabel,
     selectedModelId,
     selectedThinkingOptionId,
     features,
@@ -1266,29 +1296,34 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
   );
 
   return canSelectModel ? (
-    <CompactModelSheet
-      providers={modelSelectorProviders}
-      selectedProvider={provider}
-      selectedModel={selectedModelId ?? ""}
-      thinkingLabel={hasThinking ? displayThinking : null}
-      onSelect={handleSheetModelSelect}
-      profiles={agentProfiles}
-      onApplyProfile={onApplyAgentProfile}
-      onEditProfiles={onEditAgentProfiles}
-      onCreateProfile={onCreateAgentProfile}
-      onEditProfile={onEditAgentProfile}
-      isLoading={isModelLoading}
-      disabled={modelDisabled}
-      onOpen={onModelSelectorOpen}
-      onClose={onDropdownClose}
-      onRetryProvider={onRetryModelProvider}
-      isRetryingProvider={isRetryingModelProvider}
-      serverId={modelSelectorServerId}
-      glyphSize={glyphSize}
-      canSwitchProvider={canSwitchProvider}
-    >
-      {sheetControls}
-    </CompactModelSheet>
+    <>
+      {runtimeStatus ? (
+        <RuntimeStatusDot status={runtimeStatus} providerLabel={runtimeProviderLabel ?? provider} />
+      ) : null}
+      <CompactModelSheet
+        providers={modelSelectorProviders}
+        selectedProvider={provider}
+        selectedModel={selectedModelId ?? ""}
+        thinkingLabel={hasThinking ? displayThinking : null}
+        onSelect={handleSheetModelSelect}
+        profiles={agentProfiles}
+        onApplyProfile={onApplyAgentProfile}
+        onEditProfiles={onEditAgentProfiles}
+        onCreateProfile={onCreateAgentProfile}
+        onEditProfile={onEditAgentProfile}
+        isLoading={isModelLoading}
+        disabled={modelDisabled}
+        onOpen={onModelSelectorOpen}
+        onClose={onDropdownClose}
+        onRetryProvider={onRetryModelProvider}
+        isRetryingProvider={isRetryingModelProvider}
+        serverId={modelSelectorServerId}
+        glyphSize={glyphSize}
+        canSwitchProvider={canSwitchProvider}
+      >
+        {sheetControls}
+      </CompactModelSheet>
+    </>
   ) : null;
 }
 
@@ -1642,7 +1677,7 @@ export const AgentControls = memo(function AgentControls({
   const agentProvider = agent?.provider;
   const activeModelId = modelSelection.activeModelId;
 
-  const handleSelectModel = useCallback(
+  const applyModel = useCallback(
     async (modelId: string) => {
       if (!client || !agentProvider) {
         return;
@@ -1662,10 +1697,6 @@ export const AgentControls = memo(function AgentControls({
       }
     },
     [agentId, agentProvider, client, toast, updatePreferences],
-  );
-  const handleSelectCommandCenterModel = useCallback(
-    (_provider: AgentProvider, modelId: string) => handleSelectModel(modelId),
-    [handleSelectModel],
   );
 
   // A running agent is one provider's process, so only that provider's profiles
@@ -1755,6 +1786,61 @@ export const AgentControls = memo(function AgentControls({
     // Switching agents cancels a change nobody confirmed, so it cannot resurface later.
     setPendingCacheWindow(null);
   }
+
+  const [pendingModelSwitch, setPendingModelSwitch] = useState<{
+    agentId: string;
+    modelId: string;
+  } | null>(null);
+  const visiblePendingModelSwitch =
+    pendingModelSwitch?.agentId === agentId ? pendingModelSwitch : null;
+  if (pendingModelSwitch && visiblePendingModelSwitch === null) {
+    setPendingModelSwitch(null);
+  }
+  const nativeForkModelFeature = useHostFeature(serverId, "nativeForkModel");
+  const canForkOntoModel =
+    nativeForkModelFeature && promptCacheAgent?.capabilities?.supportsNativeFork === true;
+
+  const handleSelectModel = useCallback(
+    async (modelId: string) => {
+      const guard = resolveModelSwitchGuard({
+        agent: { provider: agentProvider ?? "", modelId: activeModelId },
+        nextModelId: modelId,
+        view: resolvePromptCacheView(promptCacheAgent, Date.now()),
+      });
+      if (guard !== null) {
+        setPendingModelSwitch({ agentId, modelId });
+        return;
+      }
+      await applyModel(modelId);
+    },
+    [activeModelId, agentId, agentProvider, applyModel, promptCacheAgent],
+  );
+  const handleSelectCommandCenterModel = useCallback(
+    (_provider: AgentProvider, modelId: string) => handleSelectModel(modelId),
+    [handleSelectModel],
+  );
+  const confirmModelSwitch = useCallback(() => {
+    if (visiblePendingModelSwitch) void applyModel(visiblePendingModelSwitch.modelId);
+    setPendingModelSwitch(null);
+  }, [applyModel, visiblePendingModelSwitch]);
+  const cancelModelSwitch = useCallback(() => setPendingModelSwitch(null), []);
+  const forkOntoPendingModel = useCallback(() => {
+    const pending = visiblePendingModelSwitch;
+    setPendingModelSwitch(null);
+    if (!pending || !client) return;
+    void client
+      .nativeForkAgent(pending.agentId, { target: "tab", model: pending.modelId })
+      .then((payload) => {
+        if (!payload.accepted || payload.error || !payload.agentId) {
+          throw new Error(payload.error ?? "The fork could not be created");
+        }
+        navigateToAgent({ serverId, agentId: payload.agentId });
+        return undefined;
+      })
+      .catch((error: unknown) => {
+        toast.error(toErrorMessage(error));
+      });
+  }, [client, serverId, toast, visiblePendingModelSwitch]);
 
   const handleSetFeature = useCallback(
     (featureId: string, value: unknown) => {
@@ -1848,6 +1934,24 @@ export const AgentControls = memo(function AgentControls({
     <CacheWindowLiveProvider serverId={serverId} agentId={agentId}>
       {commandCenterRegistration}
       {profileEditor.element}
+      {visiblePendingModelSwitch ? (
+        <ModelSwitchConfirm
+          serverId={serverId}
+          agentId={agentId}
+          nextModelLabel={
+            models?.find((model) => model.id === visiblePendingModelSwitch.modelId)?.label ??
+            visiblePendingModelSwitch.modelId
+          }
+          contextTokens={
+            promptCacheAgent?.promptCache
+              ? promptCacheInputTokens(promptCacheAgent.promptCache.lastRequest)
+              : null
+          }
+          onFork={canForkOntoModel ? forkOntoPendingModel : null}
+          onCancel={cancelModelSwitch}
+          onConfirm={confirmModelSwitch}
+        />
+      ) : null}
       {visiblePendingCacheWindow ? (
         <CacheWindowConfirmForAgent
           serverId={serverId}
@@ -1858,6 +1962,10 @@ export const AgentControls = memo(function AgentControls({
       ) : null}
       <ControlledAgentControls
         provider={agent.provider}
+        runtimeStatus={resolveAgentRuntimeStatus(promptCacheAgent?.runtimeActive)}
+        runtimeProviderLabel={
+          agentProviderDefinitions.find((definition) => definition.id === agent.provider)?.label
+        }
         modelSelectorProviders={agentModelSelectorProviders}
         modelOptions={modelOptions}
         selectedModelId={modelSelection.activeModelId ?? undefined}

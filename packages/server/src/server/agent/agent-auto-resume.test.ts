@@ -319,6 +319,48 @@ describe("autoResumeRunningAgents", () => {
     }
   });
 
+  test("does not resume an agent whose prompt cache has expired", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "paseo-auto-resume-"));
+    const logger = createLogger();
+    try {
+      const expiredId = "55555555-5555-4555-8555-555555555555";
+      const warmId = "66666666-6666-4666-8666-666666666666";
+      const config = { featureValues: { prompt_cache_ttl: "1h" } };
+      const records: StoredAgentRecord[] = [
+        makeRecord({
+          id: expiredId,
+          config,
+          lastResponseAt: new Date(Date.now() - 61 * 60_000).toISOString(),
+        } as Partial<StoredAgentRecord> & { id: string }),
+        makeRecord({
+          id: warmId,
+          config,
+          lastResponseAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+        } as Partial<StoredAgentRecord> & { id: string }),
+      ];
+      const storage = {
+        list: async () => records,
+        get: async (id: string) => records.find((r) => r.id === id) ?? null,
+      } as unknown as import("./agent-storage.js").AgentStorage;
+      const sendMock = vi.fn(async () => ({ disposition: "turn_started" }));
+
+      const result = await autoResumeRunningAgents({
+        paseoHome: dir,
+        agentManager: makeManager().manager,
+        agentStorage: storage,
+        logger,
+        prompt: "resume",
+        sendPrompt: sendMock as unknown as typeof import("./agent-prompt.js").sendPromptToAgent,
+        cacheExpiryStop: () => "when-idle",
+      });
+
+      expect(sendMock.mock.calls.map((c) => c[0].agentId)).toEqual([warmId]);
+      expect(result.skipped).toBe(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("does nothing when no resumable agents", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "paseo-auto-resume-"));
     const logger = createLogger();

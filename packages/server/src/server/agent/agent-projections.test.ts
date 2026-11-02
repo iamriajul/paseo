@@ -226,6 +226,25 @@ describe("toStoredAgentRecord", () => {
 });
 
 describe("toAgentPayload", () => {
+  it("reports whether a Claude agent's process is running", () => {
+    const withProcess = (alive: boolean) =>
+      ({ hasLiveRuntime: () => alive }) as unknown as AgentSession;
+    expect(toAgentPayload(createManagedAgent({ session: withProcess(true) })).runtimeActive).toBe(
+      true,
+    );
+    // Loaded but not started: Claude starts its process on the first turn.
+    expect(toAgentPayload(createManagedAgent({ session: withProcess(false) })).runtimeActive).toBe(
+      false,
+    );
+    expect(toAgentPayload(createManagedAgent({ lifecycle: "closed" })).runtimeActive).toBe(false);
+    expect(
+      buildStoredAgentPayload(toStoredAgentRecord(createManagedAgent()), ["claude"]).runtimeActive,
+    ).toBe(false);
+    expect(
+      toAgentPayload(createManagedAgent({ provider: "codex", session: withProcess(true) })),
+    ).not.toHaveProperty("runtimeActive");
+  });
+
   it("serializes dates, clones arrays, and hides session", () => {
     const permissionA = createPermission({ id: "perm-a" });
     const permissionB = createPermission({

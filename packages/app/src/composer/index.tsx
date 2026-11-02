@@ -90,7 +90,9 @@ import {
   type AttachmentPersister,
   type QueueWriter,
   type QueuedComposerMessage,
+  type ComposerCompactFirst,
 } from "@/composer/actions";
+import { useColdSendGuard } from "@/prompt-cache/use-cold-send-guard";
 import { useVoiceOptional } from "@/contexts/voice-context";
 import { useToast } from "@/contexts/toast-context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -1486,6 +1488,7 @@ function ComposerContentImpl({
         text: string,
         attachments: ComposerAttachment[],
         activeTurnBehavior: "interrupt" | "steer",
+        compactFirst?: ComposerCompactFirst,
       ) => Promise<void>)
     | null
   >(null);
@@ -1539,7 +1542,11 @@ function ComposerContentImpl({
   }, [focusInput, onFocusInput]);
 
   const submitMessage = useCallback(
-    async (text: string, submitAttachments: ComposerAttachment[]) => {
+    async (
+      text: string,
+      submitAttachments: ComposerAttachment[],
+      compactFirst?: ComposerCompactFirst,
+    ) => {
       onMessageSent?.();
       if (onSubmitMessageRef.current) {
         await onSubmitMessageRef.current({ text, attachments: submitAttachments, cwd });
@@ -1553,6 +1560,7 @@ function ComposerContentImpl({
         text,
         submitAttachments,
         appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
+        compactFirst,
       );
     },
     [appSettings.sendBehavior, cwd, onMessageSent, t],
@@ -1568,6 +1576,7 @@ function ComposerContentImpl({
       text: string,
       sendAttachments: ComposerAttachment[],
       activeTurnBehavior: "interrupt" | "steer",
+      compactFirst?: ComposerCompactFirst,
     ) => {
       if (!client) {
         throw new Error(t("workspace.terminal.hostDisconnected"));
@@ -1583,6 +1592,7 @@ function ComposerContentImpl({
         encodeImages,
         submission: createMessageSubmissionWriter(serverId),
         activeTurnBehavior,
+        compactFirst,
         activeTurnId:
           activeTurnBehavior === "steer"
             ? (selectAgentTurnPresentation(
@@ -1660,6 +1670,7 @@ function ComposerContentImpl({
       outgoingMessage: string,
       outgoingAttachments: ComposerAttachment[],
       forceSend?: boolean,
+      compactFirst?: ComposerCompactFirst,
     ) => {
       const result = await submitAgentInput({
         message: outgoingMessage,
@@ -1679,7 +1690,7 @@ function ComposerContentImpl({
           if (submitBehavior !== "preserve-and-lock") {
             beginSubmit(submitAttachments);
           }
-          await submitMessage(submitText, submitAttachments);
+          await submitMessage(submitText, submitAttachments, compactFirst);
         },
         clearDraft,
         setUserInput: replaceUserInput,
@@ -1714,6 +1725,20 @@ function ComposerContentImpl({
     ],
   );
 
+  const { intercept: interceptColdSend, element: coldSendDialog } = useColdSendGuard({
+    serverId,
+    agentId,
+    enabled: !onSubmitMessage,
+    send: (message, compactFirst) => {
+      void sendMessageWithContent(
+        message.text,
+        message.attachments,
+        message.forceSend,
+        compactFirst,
+      );
+    },
+  });
+
   const handleSubmit = useCallback(
     (payload: MessagePayload) => {
       const outgoingAttachments = buildOutgoingAttachments(attachments);
@@ -1731,6 +1756,16 @@ function ComposerContentImpl({
       });
       if (pluginSlashCommand && runPluginClientSlashCommand(pluginSlashCommand)) return;
 
+      if (
+        interceptColdSend({
+          text: payload.text,
+          attachments: outgoingAttachments,
+          forceSend: payload.forceSend,
+        })
+      ) {
+        return;
+      }
+
       if (blurOnSubmit) {
         messageInputRef.current?.blur();
       }
@@ -1740,6 +1775,7 @@ function ComposerContentImpl({
       attachments,
       blurOnSubmit,
       buildOutgoingAttachments,
+      interceptColdSend,
       runClientSlashCommand,
       pluginClientSlashCommands,
       runPluginClientSlashCommand,
@@ -2469,6 +2505,7 @@ function ComposerContentImpl({
         }
       >
         <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
+        {coldSendDialog}
         {hasAgent && (
           <ScheduleFormSheet
             serverId={serverId}

@@ -22,6 +22,13 @@ export const CLAUDE_FAST_MODE_FEATURE: Omit<AgentFeatureToggle, "value"> = {
 export const CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID = "prompt_cache_ttl";
 export const CLAUDE_PROMPT_CACHE_TTL_VALUES = ["default", "5m", "1h"] as const;
 
+/**
+ * A new agent on a first-party model starts with this Cache window. An explicit window has a
+ * known expiry, which the cache countdown, warm-up and the expiry guards need; Automatic has none.
+ * Agents created before this default keep the window they had.
+ */
+export const CLAUDE_NEW_AGENT_PROMPT_CACHE_TTL = "1h";
+
 export const CLAUDE_CACHE_WARM_FEATURE_ID = "cache_warm";
 
 export const CLAUDE_CACHE_WARM_FEATURE: Omit<AgentFeatureToggle, "value"> = {
@@ -48,6 +55,21 @@ export const CLAUDE_PROMPT_CACHE_TTL_FEATURE: Omit<AgentFeatureSelect, "value"> 
     { id: "1h", label: "1h", description: "Premium writes; cache lasts an hour per request" },
   ],
 };
+
+/** The feature values a new agent starts with: the Cache window defaults to 1h when not chosen. */
+export function withNewAgentPromptCacheTtl(input: {
+  modelId: string | null | undefined;
+  featureValues: Record<string, unknown> | undefined;
+}): Record<string, unknown> | undefined {
+  if (!isClaudeModel(input.modelId)) return input.featureValues;
+  if (resolveClaudePromptCacheTtl(input.featureValues?.[CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID])) {
+    return input.featureValues;
+  }
+  return {
+    ...input.featureValues,
+    [CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID]: CLAUDE_NEW_AGENT_PROMPT_CACHE_TTL,
+  };
+}
 
 export function claudeModelSupportsFastMode(modelId: string | null | undefined): boolean {
   return claudeManifestModelSupportsFastMode(modelId);

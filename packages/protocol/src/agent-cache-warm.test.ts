@@ -218,6 +218,69 @@ describe("agent-cache-warm protocol utilities", () => {
     });
   });
 
+  describe("what counts as a miss", () => {
+    const minute = 60_000;
+    function tokens(readTokens: number, writeTokens: number, uncachedTokens = 0) {
+      return { readTokens, writeTokens, uncachedTokens };
+    }
+    function at(
+      minutes: number,
+      turnId: string,
+      input: ReturnType<typeof tokens>,
+    ): PromptCacheRequestSample {
+      return { at: new Date(minutes * minute).toISOString(), turnId, isWarmPing: false, ...input };
+    }
+
+    it("does not count the agent's first request, even when it writes the whole context", () => {
+      const state = recordPromptCacheRequest(undefined, at(0, "t1", tokens(0, 53_000, 2)));
+      expect(state.history?.[0]).toMatchObject({ gapMs: null });
+      expect(state.history?.[0]?.previousInputTokens).toBeUndefined();
+      expect(state.totals).toEqual({ requests: 1, hits: 0, misses: 0 });
+    });
+
+    it("counts appended tool output as written, so reading the whole previous context is a hit", () => {
+      const first = recordPromptCacheRequest(undefined, at(0, "t1", tokens(0, 60_000)));
+      const state = recordPromptCacheRequest(first, at(0.1, "t1", tokens(59_900, 137_000, 2)));
+      expect(state.history?.[1]).toMatchObject({ previousInputTokens: 60_000 });
+      expect(state.totals).toEqual({ requests: 2, hits: 1, misses: 0 });
+    });
+
+    it("counts a return after expiry as a miss, even when it reads only the shared system prefix", () => {
+      const first = recordPromptCacheRequest(undefined, at(0, "t1", tokens(0, 56_000)));
+      const state = recordPromptCacheRequest(first, at(16, "t2", tokens(38_000, 18_000)));
+      expect(state.history?.[1]).toMatchObject({
+        kind: "turn",
+        gapMs: 16 * minute,
+        previousInputTokens: 56_000,
+      });
+      expect(state.totals).toEqual({ requests: 2, hits: 0, misses: 1 });
+    });
+
+    it("does not count the first request after a compaction, even within the same turn", () => {
+      const first = recordPromptCacheRequest(undefined, at(0, "t1", tokens(0, 56_000)));
+      const compacted = recordPromptCacheCompaction(first, {
+        at: new Date(0.5 * minute).toISOString(),
+        trigger: "auto",
+      });
+      const state = recordPromptCacheRequest(compacted, at(0.6, "t1", tokens(0, 50_000)));
+      expect(state.history?.[1]).toMatchObject({ kind: "request", afterCompaction: true });
+      expect(state.totals?.misses).toBe(0);
+    });
+
+    it("counts a later user prompt after a compaction as usual", () => {
+      const first = recordPromptCacheRequest(undefined, at(0, "t1", tokens(0, 56_000)));
+      const compacted = recordPromptCacheCompaction(first, {
+        at: new Date(0.5 * minute).toISOString(),
+        trigger: "auto",
+      });
+      const continued = recordPromptCacheRequest(compacted, at(0.6, "t1", tokens(0, 50_000)));
+      const later = recordPromptCacheRequest(continued, at(16, "t2", tokens(0, 50_000)));
+      expect(later.history?.[2]).toMatchObject({ kind: "turn", previousInputTokens: 50_000 });
+      expect(later.history?.[2]?.afterCompaction).toBeUndefined();
+      expect(later.totals?.misses).toBe(1);
+    });
+  });
+
   describe("resolveCacheAutoCompactEnabled", () => {
     it("takes the agent's own choice over the host default, which starts off", () => {
       expect(

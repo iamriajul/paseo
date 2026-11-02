@@ -985,6 +985,7 @@ const PromptCacheHistoryEntrySchema = z.object({
   gapMs: z.number().nullable(),
   awayMs: z.number().optional(),
   afterCompaction: z.boolean().optional(),
+  previousInputTokens: z.number().optional(),
 });
 
 export const PromptCacheCompactionSchema = z.object({

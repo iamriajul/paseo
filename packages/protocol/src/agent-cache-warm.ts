@@ -174,6 +174,11 @@ export interface PromptCacheHistoryEntry {
   awayMs?: number;
   /** First request after a compaction: it has to write the new context, so it is no miss. */
   afterCompaction?: boolean;
+  /**
+   * Input of the request before this one: the context the cache held for this request. Absent on
+   * the agent's first request.
+   */
+  previousInputTokens?: number;
 }
 
 /**
@@ -187,10 +192,20 @@ export const PROMPT_CACHE_HISTORY_LIMIT = 24;
 export const PROMPT_CACHE_COMPACTION_LIMIT = 10;
 
 /**
- * A request counts as a hit when most of its input came from the cache. An expired cache can
- * still read a small shared prefix, so "any read" would call a real miss a hit.
+ * Share of its own input a request must read to count as a hit when no request came before it.
+ * Only the agent's first request has nothing before it, and it can still read a shared system
+ * prefix, so "any read" would call a fresh session's prefix a hit.
  */
 export const PROMPT_CACHE_HIT_RATIO = 0.5;
+
+/**
+ * Share of the previous request's input that a later request must read to count as a hit. The
+ * cache holds what the previous request sent, so a request that reads all of it is a hit even
+ * when it appends a large tool result, which is written and not read. It is 90%, not 50%,
+ * because a request after an expiry can still read the shared system prefix, which is most of a
+ * small context.
+ */
+export const PROMPT_CACHE_PREVIOUS_READ_RATIO = 0.9;
 
 /** One context compaction, whoever asked for it. */
 export interface PromptCacheCompaction {
@@ -229,13 +244,19 @@ export interface AgentPromptCacheState {
   totals?: PromptCacheTotals;
 }
 
-export function isPromptCacheHit(tokens: PromptCacheRequestTokens): boolean {
-  return (promptCacheHitRatio(tokens) ?? 0) >= PROMPT_CACHE_HIT_RATIO;
+export function isPromptCacheHit(
+  entry: PromptCacheRequestTokens & Pick<PromptCacheHistoryEntry, "previousInputTokens">,
+): boolean {
+  if (entry.previousInputTokens !== undefined) {
+    return entry.readTokens >= PROMPT_CACHE_PREVIOUS_READ_RATIO * entry.previousInputTokens;
+  }
+  return (promptCacheHitRatio(entry) ?? 0) >= PROMPT_CACHE_HIT_RATIO;
 }
 
 /**
- * A miss worth a red number: the cache existed and the request did not read it. The agent's
- * first request and the one after a compaction have nothing to read yet.
+ * A miss worth a red number: the request came after cached context and did not read it. The
+ * agent's first request has no context before it, and the first request after a compaction
+ * writes context that was never cached, so neither is a miss.
  */
 export function isAvoidablePromptCacheMiss(entry: PromptCacheHistoryEntry): boolean {
   return entry.gapMs !== null && !entry.afterCompaction && !isPromptCacheHit(entry);
@@ -287,6 +308,7 @@ function buildHistoryEntry(
   const kind: PromptCacheRequestKind = resolveRequestKind(sample, startsTurn);
   const awayMs = kind === "turn" ? elapsedSinceMs(previous?.lastActivityAt, sample.at) : null;
   const afterCompaction = followsCompaction(previous);
+  const previousInputTokens = previous ? promptCacheInputTokens(previous.lastRequest) : 0;
   return {
     at: sample.at,
     kind,
@@ -296,6 +318,7 @@ function buildHistoryEntry(
     gapMs: elapsedSinceMs(previous?.lastRequest.at, sample.at),
     ...(awayMs === null ? {} : { awayMs }),
     ...(afterCompaction ? { afterCompaction: true } : {}),
+    ...(previousInputTokens > 0 ? { previousInputTokens } : {}),
   };
 }
 

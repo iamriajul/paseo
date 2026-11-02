@@ -21,6 +21,8 @@ export interface InsightsColumn {
   ratio: number;
   /** At least one avoidable miss: the bar is drawn red even when the rest read the cache. */
   missed: boolean;
+  /** Every request in the column was a hit, so the cache held the context it had before. */
+  hit: boolean;
   /**
    * A compaction landed after the previous column's last request and by this column's last, so
    * the mark sits under the write that followed it. One that no request has followed yet marks
@@ -79,6 +81,7 @@ function toColumn(
     requests: entries.length,
     ratio: total > 0 ? read / total : 0,
     missed: entries.some(isAvoidablePromptCacheMiss),
+    hit: entries.every(isPromptCacheHit),
     compacted: compactions.some(
       (compaction) =>
         (bounds.previousAt === null || compaction.at > bounds.previousAt) &&

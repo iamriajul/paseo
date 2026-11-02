@@ -400,6 +400,22 @@ describe("PromptCachePill", () => {
     ]);
   });
 
+  it("shows the miss count in red only once it is above zero", () => {
+    const { getByTestId } = renderPill(
+      claudeAgent({
+        ttl: "5m",
+        promptCache: {
+          ...promptCacheAt(NOW - 40 * SECOND),
+          totals: { requests: 300, hits: 300, misses: 0 },
+        },
+      }),
+    );
+    const pill = getByTestId("prompt-cache-pill");
+    expect(Array.from(pill.querySelectorAll("span")).map((span) => span.textContent)).toEqual([
+      "warm · 3:50",
+    ]);
+  });
+
   it("switches the idle cap between expiring and compacting", () => {
     autoCompactState.current = {
       enabled: true,

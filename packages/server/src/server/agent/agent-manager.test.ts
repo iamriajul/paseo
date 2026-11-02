@@ -12993,6 +12993,132 @@ test("records each request's cache split, the turn's first request, the written 
   }
 });
 
+test("measures a native fork's first request against its parent's last request", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-native-fork-cache-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  // The parent's two turns, then the fork's first turn, in the order they run.
+  const requestCaches = [
+    { readTokens: 0, writeTokens: 900, uncachedTokens: 100, writeTtl: "5m" as const },
+    { readTokens: 1000, writeTokens: 150, uncachedTokens: 50 },
+    { readTokens: 1100, writeTokens: 50, uncachedTokens: 50 },
+  ];
+  let turns = 0;
+
+  class ForkCacheSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      turns += 1;
+      const turnId = `turn-fork-${turns}`;
+      const requestCache = requestCaches.shift();
+      if (!requestCache) throw new Error(`no scripted cache usage for turn ${turns}`);
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: { contextWindowUsedTokens: 1200, requestCache },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class ForkCacheClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new ForkCacheSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new ForkCacheClient() },
+    registry: storage,
+    logger,
+  });
+
+  let parentId: string | undefined;
+  let forkId: string | undefined;
+  try {
+    const parent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    parentId = parent.id;
+    await manager.runAgent(parent.id, "parent turn");
+    await manager.runAgent(parent.id, "parent follow-up");
+
+    const fork = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+      labels: { nativeForkOf: parent.id },
+    });
+    forkId = fork.id;
+    await manager.runAgent(fork.id, "fork turn");
+
+    const forkCache = manager.getAgent(fork.id)?.promptCache;
+    expect(forkCache?.history).toEqual([
+      expect.objectContaining({
+        kind: "turn",
+        readTokens: 1100,
+        previousInputTokens: 1200,
+        gapMs: expect.any(Number),
+      }),
+    ]);
+    expect(forkCache?.totals).toEqual({ requests: 1, hits: 1, misses: 0 });
+  } finally {
+    if (forkId) await manager.closeAgent(forkId);
+    if (parentId) await manager.closeAgent(parentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("does not record a request whose usage carries no token accounting", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-unaccounted-cache-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+
+  class UnaccountedSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = "turn-unaccounted-1";
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: {
+            contextWindowUsedTokens: 0,
+            requestCache: { readTokens: 0, writeTokens: 0, uncachedTokens: 0 },
+          },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class UnaccountedClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new UnaccountedSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new UnaccountedClient() },
+    registry: storage,
+    logger,
+  });
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+    await manager.runAgent(snapshot.id, "no accounting");
+
+    expect(manager.getAgent(snapshot.id)?.promptCache).toBeUndefined();
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("records a compaction, marks the request after it, and journals the whole history", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-prompt-cache-journal-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

@@ -634,7 +634,7 @@ export class AgentCacheWarmManager {
 
   /**
    * Arms every warmable agent after boot: loaded ones, and idle ones that exist only on
-   * disk. A warm-up for a dormant agent loads it through sendPromptToAgent.
+   * disk. A warm-up for a dormant agent loads it (`loadAgent`) and then warms it through a fork.
    */
   async bootstrap(): Promise<void> {
     for (const agent of this.agentManager.listAgents()) {

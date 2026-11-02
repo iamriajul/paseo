@@ -44,6 +44,8 @@ interface HarnessOptions {
   autoCompactByDefault?: boolean;
   /** Cache reads of every request, so roughly the context size. */
   contextTokens?: number;
+  /** The session warms through a throwaway fork instead of a ping turn. */
+  forkWarm?: boolean;
 }
 
 function buildAgent(options: HarnessOptions): ManagedAgent {
@@ -85,6 +87,11 @@ function createHarness(options: HarnessOptions = {}) {
   const setAgentFeature = vi.fn(async (_id: string, featureId: string, value: unknown) => {
     agent.config.featureValues = { ...agent.config.featureValues, [featureId]: value };
   });
+  const warmPromptCache = vi.fn(async () => {
+    // The fork's request reads the cache, which moves the anchor like any request.
+    agent.promptCache = promptCacheAt(Date.now(), options.contextTokens);
+    return true;
+  });
   const respondToPermission = vi.fn(async () => {
     agent.pendingPermissions.clear();
     agent.promptCache = promptCacheAt(Date.now());
@@ -93,6 +100,8 @@ function createHarness(options: HarnessOptions = {}) {
     agentManager: {
       getAgent: (id: string) => (id === agent.id ? agent : null),
       hasInFlightRun: () => options.hasInFlightRun ?? false,
+      canWarmPromptCache: () => options.forkWarm ?? false,
+      warmPromptCache,
       respondToPermission,
       markQuestionClosed: () => {
         if (agent.promptCache) {
@@ -115,7 +124,7 @@ function createHarness(options: HarnessOptions = {}) {
     isCacheAutoCompactByDefault: () => options.autoCompactByDefault ?? false,
     onIdleCapCompaction: options.onIdleCapCompaction,
   });
-  return { manager, agent, sendPrompt, respondToPermission, setAgentFeature };
+  return { manager, agent, sendPrompt, respondToPermission, setAgentFeature, warmPromptCache };
 }
 
 function sentPrompts(sendPrompt: { mock: { calls: unknown[] } }): string[] {
@@ -131,6 +140,52 @@ describe("AgentCacheWarmManager", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("warms a running turn through a fork, sending the agent nothing", async () => {
+    const { manager, sendPrompt, warmPromptCache } = createHarness({
+      ttl: "5m",
+      forkWarm: true,
+      lifecycle: "running",
+      hasInFlightRun: true,
+    });
+    expect(manager.schedule("agent-1")).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(4 * MINUTE);
+    expect(warmPromptCache).toHaveBeenCalledTimes(1);
+    expect(sendPrompt).not.toHaveBeenCalled();
+
+    // No turn follows a fork, so the warm-up arms the next one itself.
+    await vi.advanceTimersByTimeAsync(4 * MINUTE);
+    expect(warmPromptCache).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an open question open and its cache warm through a fork", async () => {
+    const { manager, respondToPermission, warmPromptCache } = createHarness({
+      ttl: "5m",
+      forkWarm: true,
+      pending: [{ id: "question-1", name: "AskUserQuestion", kind: "question" }],
+    });
+    manager.schedule("agent-1");
+
+    await vi.advanceTimersByTimeAsync(4 * MINUTE);
+    expect(warmPromptCache).toHaveBeenCalledTimes(1);
+    expect(respondToPermission).not.toHaveBeenCalled();
+  });
+
+  it("does not compact at the cap while a question waits, so the cache expires instead", async () => {
+    const { manager, agent, sendPrompt, warmPromptCache } = createHarness({
+      ttl: "5m",
+      forkWarm: true,
+      autoCompact: true,
+      contextTokens: 300_000,
+      pending: [{ id: "question-1", name: "AskUserQuestion", kind: "question" }],
+    });
+    agent.consecutiveWarmPings = 10;
+    expect(manager.schedule("agent-1")).toBe(false);
+    await vi.advanceTimersByTimeAsync(5 * MINUTE);
+    expect(warmPromptCache).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("never warms an Automatic cache window, even when warm-up was switched on", () => {
@@ -452,27 +507,33 @@ describe("AgentCacheWarmManager after a daemon restart", () => {
 
   async function bootstrapWith(records: StoredAgentRecord[]) {
     const sendPrompt = vi.fn(async () => ({ disposition: "turn_started" as const }));
+    const loadAgent = vi.fn(async () => undefined);
+    const warmPromptCache = vi.fn(async () => true);
     const manager = new AgentCacheWarmManager({
       agentManager: {
         getAgent: () => null,
         listAgents: () => [],
         hasInFlightRun: () => false,
         setCacheWarmCounts: () => undefined,
+        warmPromptCache,
       } as unknown as AgentManager,
       agentStorage: { list: async () => records } as unknown as AgentStorage,
       logger: pino({ level: "silent" }),
       sendPrompt,
+      loadAgent,
     });
     await manager.bootstrap();
-    return { manager, sendPrompt };
+    return { manager, sendPrompt, loadAgent, warmPromptCache };
   }
 
-  it("warms an idle agent that exists only on disk, which loads it", async () => {
-    const { sendPrompt } = await bootstrapWith([storedRecord({})]);
+  it("warms an idle agent that exists only on disk through a fork, after loading it", async () => {
+    const { sendPrompt, loadAgent, warmPromptCache } = await bootstrapWith([storedRecord({})]);
     await vi.advanceTimersByTimeAsync(48 * MINUTE - 1000);
-    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(warmPromptCache).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1000);
-    expect(sendPrompt).toHaveBeenCalledWith(expect.objectContaining({ agentId: "dormant-1" }));
+    expect(loadAgent).toHaveBeenCalledWith("dormant-1");
+    expect(warmPromptCache).toHaveBeenCalledWith("dormant-1");
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("leaves archived, crashed-while-running and Automatic records alone", async () => {

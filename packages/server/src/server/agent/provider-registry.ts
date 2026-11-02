@@ -537,6 +537,7 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
     close: () => inner.close(),
     canStopRuntime: inner.canStopRuntime?.bind(inner),
     hasLiveRuntime: inner.hasLiveRuntime?.bind(inner),
+    warmPromptCache: inner.warmPromptCache?.bind(inner),
     listCommands: inner.listCommands?.bind(inner),
     setModel: inner.setModel?.bind(inner),
     setThinkingOption: inner.setThinkingOption?.bind(inner),

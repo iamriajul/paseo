@@ -12982,6 +12982,63 @@ test("restores thinking after compacting even when the original model is rejecte
   }
 });
 
+test("records a fork warm-up as a warm-up request without starting a turn", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-fork-warm-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+
+  class ForkWarmSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = "turn-fork-warm-1";
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: {
+            contextWindowUsedTokens: 1000,
+            requestCache: { readTokens: 0, writeTokens: 900, uncachedTokens: 100 },
+          },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+    async warmPromptCache() {
+      return { readTokens: 1000, writeTokens: 5, uncachedTokens: 2 };
+    }
+  }
+  class ForkWarmClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new ForkWarmSession(config);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new ForkWarmClient() },
+    registry: storage,
+    logger,
+  });
+
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    await manager.runAgent(agent.id, "first turn");
+
+    expect(manager.canWarmPromptCache(agent.id)).toBe(true);
+    await expect(manager.warmPromptCache(agent.id)).resolves.toBe(true);
+
+    const promptCache = manager.getAgent(agent.id)?.promptCache;
+    expect(promptCache?.history?.map((entry) => entry.kind)).toEqual(["turn", "warm-up"]);
+    expect(promptCache?.turnFirstRequest.turnId).toBe("turn-fork-warm-1");
+    expect(promptCache?.lastRequest.isWarmPing).toBe(true);
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("does not record a request whose usage carries no token accounting", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-unaccounted-cache-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

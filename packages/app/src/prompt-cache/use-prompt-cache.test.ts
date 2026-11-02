@@ -4,7 +4,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import type { AgentPromptCacheState } from "@getpaseo/protocol/agent-cache-warm";
-import { usePromptCache } from "./use-prompt-cache";
+import { resolvePromptCacheView, usePromptCache } from "./use-prompt-cache";
 import { useSessionStore, type SessionState, type Agent } from "@/stores/session-store";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 
@@ -209,5 +209,29 @@ describe("usePromptCache", () => {
     expect(expired.result.current.status).toEqual({ kind: "expired" });
     await act(() => expired.result.current.toggleWarmup());
     expect(setAgentFeatureMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolvePromptCacheView on a host that warms through a fork", () => {
+  it("counts down to the next warm-up while a turn runs or a question waits", () => {
+    const running = claudeAgent({
+      ttl: "5m",
+      status: "running",
+      promptCache: promptCacheAt(NOW - 40 * SECOND),
+    });
+    expect(resolvePromptCacheView(running, NOW, { forkWarm: true }).warmup?.plan).toEqual({
+      kind: "next-ping",
+      remainingMs: 3 * MINUTE + 20 * SECOND,
+    });
+    expect(resolvePromptCacheView(running, NOW).warmup?.plan).toEqual({ kind: "after-turn" });
+
+    const asking = claudeAgent({
+      ttl: "5m",
+      promptCache: promptCacheAt(NOW - 40 * SECOND),
+      pendingPermissions: [{ id: "q-1", name: "AskUserQuestion", kind: "question" }],
+    } as unknown as Partial<Agent>);
+    expect(resolvePromptCacheView(asking, NOW, { forkWarm: true }).warmup?.plan.kind).toBe(
+      "next-ping",
+    );
   });
 });

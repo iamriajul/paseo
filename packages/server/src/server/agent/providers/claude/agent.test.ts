@@ -1158,8 +1158,12 @@ describe("ClaudeAgentSession features", () => {
     });
 
     try {
-      await session.startTurn("Reply with ok only.", { isWarmPing: true });
+      const { turnId } = await session.startTurn("Reply with ok only.", { isWarmPing: true });
       expect(queryMock.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "low" });
+      // A real message steered in now would run at the warm-up's effort, so it is refused.
+      await expect(
+        session.steerActiveTurn?.("Carry on with the task.", { expectedTurnId: turnId }),
+      ).resolves.toEqual({ status: "unavailable" });
 
       await session.interrupt();
       await vi.waitFor(() => {

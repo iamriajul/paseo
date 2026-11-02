@@ -13153,8 +13153,29 @@ test("compacts on another model, then restores the agent's own model and thinkin
       calls.push(`thinking:${thinkingOptionId}`);
     }
     override async startTurn(prompt?: AgentPromptInput): Promise<{ turnId: string }> {
-      calls.push(`turn:${typeof prompt === "string" ? prompt : "blocks"}`);
-      return super.startTurn();
+      const text = typeof prompt === "string" ? prompt : "blocks";
+      calls.push(`turn:${text}`);
+      const turnId = `turn-compact-${calls.length}`;
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: {
+            contextWindowUsedTokens: 1000,
+            requestCache: { readTokens: 900, writeTokens: 100, uncachedTokens: 0 },
+          },
+        });
+        if (text === "/compact") {
+          this.pushEvent({
+            type: "timeline",
+            provider: this.provider,
+            item: { type: "compaction", status: "completed", trigger: "manual", preTokens: 1000 },
+          });
+        }
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
     }
   }
   class CompactClient extends TestAgentClient {
@@ -13176,6 +13197,8 @@ test("compacts on another model, then restores the agent's own model and thinkin
       { workspaceId: undefined },
     );
     agentId = agent.id;
+    await manager.runAgent(agent.id, "first turn");
+    calls.length = 0;
 
     await compactWithModel({
       agentManager: manager,
@@ -13197,6 +13220,42 @@ test("compacts on another model, then restores the agent's own model and thinkin
       model: "model-a",
       thinkingOptionId: "high",
     });
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("does not report a compaction that never ran as done", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-compact-unfinished-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  // The default test session ends every turn without compacting, like a cancelled /compact.
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+  });
+
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent(
+      { provider: "codex", cwd: workdir, model: "model-a" },
+      undefined,
+      { workspaceId: undefined },
+    );
+    agentId = agent.id;
+
+    await expect(
+      compactWithModel({
+        agentManager: manager,
+        agentStorage: storage,
+        logger,
+        agentId: agent.id,
+        model: "claude-haiku-5-5",
+        thinkingOptionId: "max",
+      }),
+    ).rejects.toThrow("The compaction did not finish, so the message was not sent");
+    expect(manager.getAgent(agent.id)?.config.model).toBe("model-a");
   } finally {
     if (agentId) await manager.closeAgent(agentId);
     rmSync(workdir, { recursive: true, force: true });

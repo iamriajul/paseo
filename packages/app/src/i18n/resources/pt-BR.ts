@@ -3064,6 +3064,22 @@ export const ptBR: TranslationResources = {
         accessibilityLabel: "Compactar no limite de aquecimento",
         error: "Não foi possível atualizar a configuração de compactação",
       },
+      cacheExpiryStop: {
+        title: "Quando um cache expira",
+        options: {
+          "when-idle": "Manter tarefas",
+          always: "Parar tudo",
+          off: "Desligado",
+        },
+        hints: {
+          "when-idle":
+            "Para o processo do Claude quando o cache de 5 min ou 1 h de um agente expira, para que seus próprios temporizadores e avisos de tarefas não o acordem e reescrevam todo o contexto. Um agente com uma tarefa em segundo plano ainda em execução continua.",
+          always:
+            "Para o processo do Claude quando o cache de 5 min ou 1 h de um agente expira, incluindo as tarefas em segundo plano. Nada o acorda até você enviar uma mensagem.",
+          off: "Mantém o processo do Claude rodando depois que o cache expira. Seus temporizadores, /loop e avisos de tarefas podem acordá-lo e reescrever todo o contexto.",
+        },
+        error: "Não foi possível atualizar a configuração de expiração do cache",
+      },
       orchestration: {
         title: "Orquestração",
         unavailable: "Conecte-se a este host para gerenciar a orquestração",

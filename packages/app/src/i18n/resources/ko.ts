@@ -3039,6 +3039,22 @@ export const ko: TranslationResources = {
         accessibilityLabel: "워밍업 한도에서 압축",
         error: "압축 설정을 업데이트할 수 없습니다",
       },
+      cacheExpiryStop: {
+        title: "캐시가 만료되면",
+        options: {
+          "when-idle": "작업 유지",
+          always: "모두 중지",
+          off: "끄기",
+        },
+        hints: {
+          "when-idle":
+            "에이전트의 5분 또는 1시간 캐시가 만료되면 Claude 프로세스를 중지해, 자체 타이머와 작업 알림이 에이전트를 깨워 전체 컨텍스트를 다시 쓰지 않게 합니다. 백그라운드 작업이 아직 실행 중인 에이전트는 계속 실행됩니다.",
+          always:
+            "에이전트의 5분 또는 1시간 캐시가 만료되면 백그라운드 작업까지 포함해 Claude 프로세스를 중지합니다. 메시지를 보낼 때까지 아무것도 깨우지 않습니다.",
+          off: "캐시가 만료된 뒤에도 Claude 프로세스를 계속 실행합니다. 자체 타이머, /loop, 작업 알림이 에이전트를 깨워 전체 컨텍스트를 다시 쓸 수 있습니다.",
+        },
+        error: "캐시 만료 설정을 업데이트할 수 없습니다",
+      },
       orchestration: {
         title: "오케스트레이션",
         unavailable: "오케스트레이션을 관리하려면 이 호스트에 연결하세요",

@@ -865,6 +865,49 @@ describe("ScheduleService", () => {
     expect(inspected.runs[0].output).toBe("Skipped: rate limit cooldown active");
   });
 
+  test("agent-target heartbeat leaves an agent asleep once its prompt cache has expired", async () => {
+    const steerOrReplace = vi.fn(async () => ({ status: "steered" as const }));
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    manager.steerOrReplaceActiveTurn = steerOrReplace as typeof manager.steerOrReplaceActiveTurn;
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    await manager.closeAgent(agent.id);
+    const record = await agentStorage.get(agent.id);
+    if (!record) throw new Error("Expected a stored record");
+    // New Claude agents get a 1h Cache window; the last response was 61 minutes ago.
+    expect(record.config?.featureValues?.prompt_cache_ttl).toBe("1h");
+    await agentStorage.upsert({
+      ...record,
+      lastResponseAt: new Date(now.getTime() - 61 * 60_000).toISOString(),
+    });
+
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      cacheExpiryStop: () => "when-idle",
+    });
+    const schedule = await service.create({
+      prompt: "Heartbeat check",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id },
+    });
+
+    await service.runOnce(schedule.id);
+
+    expect(steerOrReplace).not.toHaveBeenCalled();
+    const inspected = await service.inspect(schedule.id);
+    expect(inspected.runs[0].output).toBe("Skipped: the agent's prompt cache has expired");
+  });
+
   test("titles scheduled new agents from the schedule prompt", async () => {
     const manager = new AgentManager({
       logger: createTestLogger(),

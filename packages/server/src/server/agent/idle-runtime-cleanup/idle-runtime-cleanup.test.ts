@@ -1,5 +1,6 @@
 import { expect, onTestFinished, test } from "vitest";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
+import type { CacheExpiryStopPolicy } from "@getpaseo/protocol/agent-cache-warm";
 import { createIdleRuntimeCleanup, type RuntimeCleanupCandidate } from "./index.js";
 
 function deferred<T>() {
@@ -15,6 +16,7 @@ class Runtime {
   closed = false;
   resumable = true;
   activity = 0;
+  cacheExpiresAt: number | null = null;
   parentAgentId: string | undefined;
   probe: (() => Promise<boolean>) | undefined;
   admitClose: (() => Promise<void>) | undefined;
@@ -29,6 +31,7 @@ class Runtime {
       provider: "test",
       sessionId: this.resumable ? this.id : null,
       lastActivityAt: activity,
+      cacheExpiresAt: this.cacheExpiresAt,
       isEligible: () => !this.closed && !this.busy && this.activity === activity,
       canStopRuntime: this.probe,
       closeIfEligible: async (eligible) => {
@@ -41,7 +44,7 @@ class Runtime {
     };
   }
 }
-function scenario(enabled = true) {
+function scenario(enabled = true, cacheExpiryStop: CacheExpiryStopPolicy = "off") {
   const runtime = new Runtime();
   const runtimes = [runtime];
   let time = 0;
@@ -53,6 +56,7 @@ function scenario(enabled = true) {
     now: () => time,
     runtimes: () => runtimes.filter((item) => !item.closed).map((item) => item.capture()),
     isProtected: () => protectedCaller,
+    cacheExpiryStop: () => cacheExpiryStop,
     schedule: (callback, interval) => {
       expect(interval).toBe(60_000);
       tick = callback;
@@ -291,4 +295,38 @@ test("disabling lets a started close finish but prevents the next closure in tha
   expect((await s.sweep(62)).collected).toEqual([
     { agentId: "sibling", provider: "test", sessionId: "sibling" },
   ]);
+});
+
+test("a runtime whose cache has expired stops at once, before the idle hour", async () => {
+  const s = scenario(true, "when-idle");
+  s.runtime.cacheExpiresAt = 5 * 60_000;
+  expect((await s.sweep(4)).collected).toEqual([]);
+  expect((await s.sweep(5)).collected).toEqual([
+    { agentId: "agent", provider: "test", sessionId: "agent" },
+  ]);
+});
+
+test("an expired cache stops the runtime even when idle cleanup is off", async () => {
+  const s = scenario(false, "when-idle");
+  s.runtime.cacheExpiresAt = 5 * 60_000;
+  expect((await s.sweep(5)).collected).toHaveLength(1);
+});
+
+test("a background task keeps an expired runtime unless the policy stops it anyway", async () => {
+  const kept = scenario(true, "when-idle");
+  kept.runtime.cacheExpiresAt = 5 * 60_000;
+  kept.runtime.probe = async () => false;
+  expect((await kept.sweep(5)).collected).toEqual([]);
+
+  const stopped = scenario(true, "always");
+  stopped.runtime.cacheExpiresAt = 5 * 60_000;
+  stopped.runtime.probe = async () => false;
+  expect((await stopped.sweep(5)).collected).toHaveLength(1);
+});
+
+test("an expired cache leaves the runtime alone when the policy is off", async () => {
+  const s = scenario(true, "off");
+  s.runtime.cacheExpiresAt = 5 * 60_000;
+  expect((await s.sweep(5)).collected).toEqual([]);
+  expect((await s.sweep(60)).collected).toHaveLength(1);
 });

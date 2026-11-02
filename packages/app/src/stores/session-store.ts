@@ -86,6 +86,8 @@ export interface Agent {
   promptCache?: AgentPromptCacheState;
   /** Explicit idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact?: boolean;
+  /** Whether the provider process runs; absent when the daemon or provider does not report it. */
+  runtimeActive?: boolean;
   lastActivityAt: Date;
   capabilities: AgentCapabilityFlags;
   currentModeId: string | null;

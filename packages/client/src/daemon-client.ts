@@ -461,6 +461,8 @@ export interface SendMessageOptions {
   activeTurnBehavior?: ActiveTurnBehavior;
   images?: Array<{ data: string; mimeType: string }>;
   attachments?: SendAgentMessageRequest["attachments"];
+  /** Compact the agent on this model first; the daemon restores the agent's own model after. */
+  compactFirst?: SendAgentMessageRequest["compactFirst"];
 }
 
 export interface AgentAttentionRequiredNotification {
@@ -4204,6 +4206,8 @@ export class DaemonClient {
       boundaryCursor?: { epoch: string; seq: number };
       boundaryMessageId?: string;
       target?: "tab" | "workspace";
+      /** The fork starts on this model; the source keeps its own. */
+      model?: string;
       requestId?: string;
     } = {},
   ): Promise<{
@@ -4214,6 +4218,9 @@ export class DaemonClient {
     agentId?: string;
     workspaceId?: string;
   }> {
+    if (options.model && this.lastServerInfoMessage?.features?.nativeForkModel !== true) {
+      throw new Error("Update the Paseo host to fork onto another model.");
+    }
     return this.sendNamespacedCorrelatedSessionRequest({
       requestId: options.requestId,
       message: {
@@ -4222,6 +4229,7 @@ export class DaemonClient {
         ...(options.boundaryCursor ? { boundaryCursor: options.boundaryCursor } : {}),
         ...(options.boundaryMessageId ? { boundaryMessageId: options.boundaryMessageId } : {}),
         ...(options.target ? { target: options.target } : {}),
+        ...(options.model ? { model: options.model } : {}),
       },
     });
   }
@@ -4282,6 +4290,9 @@ export class DaemonClient {
     ) {
       throw new Error("Update the Paseo host to send messages with a qualified agent address.");
     }
+    if (options.compactFirst && this.lastServerInfoMessage?.features?.compactThenSend !== true) {
+      throw new Error("Update the Paseo host to compact on another model before sending.");
+    }
     const requestId = this.createRequestId();
     const messageId = options.messageId ?? crypto.randomUUID();
     const message = SessionInboundMessageSchema.parse({
@@ -4296,6 +4307,7 @@ export class DaemonClient {
       activeTurnBehavior: options.activeTurnBehavior,
       images: options.images,
       attachments: options.attachments,
+      ...(options.compactFirst ? { compactFirst: options.compactFirst } : {}),
     });
     const payload = await this.sendRequest({
       requestId,

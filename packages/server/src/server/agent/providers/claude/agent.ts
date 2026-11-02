@@ -2996,7 +2996,9 @@ class ClaudeAgentSession implements AgentSession {
     prompt: AgentPromptInput,
     options: SteerActiveTurnOptions,
   ): Promise<SteerResult> {
-    if (this.resolveSlashCommandInvocation(prompt)) {
+    // A message steered into a warm-up turn would run at the warm-up's lowered effort; refusing
+    // makes the caller replace the warm-up turn, which puts the configured effort back first.
+    if (this.resolveSlashCommandInvocation(prompt) || this.warmPingEffortApplied) {
       return { status: "unavailable" };
     }
     const sdkPrompt = await this.prepareClaudePrompt(prompt);
@@ -4216,12 +4218,13 @@ class ClaudeAgentSession implements AgentSession {
         if (lowest === null || lowest === configuredEffort) {
           return;
         }
-        this.warmPingEffortApplied = true;
         await query.applyFlagSettings({ effortLevel: lowest });
+        this.warmPingEffortApplied = true;
         return;
       }
-      this.warmPingEffortApplied = false;
+      // Cleared only once the restore landed, so a failed one is retried at the next turn.
       await query.applyFlagSettings({ effortLevel: configuredEffort ?? null });
+      this.warmPingEffortApplied = false;
     } catch (error) {
       this.logger.warn({ err: error, lowered }, "Failed to change the warm-up effort");
     }

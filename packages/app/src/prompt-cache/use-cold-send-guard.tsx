@@ -62,8 +62,18 @@ export function useColdSendGuard(input: {
   }, [send, visible]);
   const compactFirst = useCallback(() => {
     setHeld(null);
-    if (visible) send(visible, COMPACT_FIRST);
-  }, [send, visible]);
+    if (!visible) return;
+    // Decided again on press: a warm-up or a turn may have made the cache live while the
+    // dialog was open, and compacting a live cache would throw away detail for nothing.
+    const stillCold =
+      agent !== undefined &&
+      resolveColdSendGuard({
+        agent: { provider: agent.provider, modelId },
+        text: visible.text,
+        view: resolvePromptCacheView(agent, Date.now()),
+      });
+    send(visible, stillCold ? COMPACT_FIRST : undefined);
+  }, [agent, modelId, send, visible]);
 
   const element = visible ? (
     <ColdSendConfirm

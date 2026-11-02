@@ -175,8 +175,8 @@ export interface PromptCacheHistoryEntry {
   /** First request after a compaction: it has to write the new context, so it is no miss. */
   afterCompaction?: boolean;
   /**
-   * Input of the request before this one: the context the cache held for this request. Absent on
-   * the agent's first request.
+   * Input of the request this one is measured against: the previous request, or for a native
+   * fork's first request, the context it inherited. Absent on a fresh session's first request.
    */
   previousInputTokens?: number;
 }
@@ -245,8 +245,9 @@ export interface AgentPromptCacheState {
 }
 
 /**
- * A hit reads the context the previous request left in the cache. The agent's first request has
- * no cache of its own to read, so it never hits, even when the API reports a shared-prefix read.
+ * A hit reads the context the previous request left in the cache. A fresh session's first request
+ * has no earlier request to read, so it never hits, even when the API reports a shared-prefix
+ * read. A native fork's first request is measured against the context it inherited.
  */
 export function isPromptCacheHit(
   entry: PromptCacheRequestTokens & Pick<PromptCacheHistoryEntry, "gapMs" | "previousInputTokens">,
@@ -269,8 +270,8 @@ export function isUncountedPromptCacheRequest(
 }
 
 /**
- * A miss worth a red number: the request came after cached context and did not read it. The
- * agent's first request has no context before it, and the first request after a compaction
+ * A miss worth a red number: the request came after cached context and did not read it. A fresh
+ * session's first request has no context before it, and the first request after a compaction
  * writes context that was never cached, so neither is a miss.
  */
 export function isAvoidablePromptCacheMiss(entry: PromptCacheHistoryEntry): boolean {
@@ -317,22 +318,37 @@ function followsCompaction(previous: AgentPromptCacheState | undefined): boolean
   return lastCompactionAt !== undefined && lastCompactionAt >= (previous?.lastRequest.at ?? "");
 }
 
+/**
+ * The context a native fork inherits from its parent: the parent's last request before the fork.
+ * The fork reads that context from the cache, so its first request is measured against it.
+ */
+export interface PromptCacheInheritance {
+  at: string;
+  inputTokens: number;
+}
+
 function buildHistoryEntry(
   previous: AgentPromptCacheState | undefined,
   sample: PromptCacheRequestSample,
   startsTurn: boolean,
+  inherited: PromptCacheInheritance | undefined,
 ): PromptCacheHistoryEntry {
   const kind: PromptCacheRequestKind = resolveRequestKind(sample, startsTurn);
-  const awayMs = kind === "turn" ? elapsedSinceMs(previous?.lastActivityAt, sample.at) : null;
+  // The request this one is measured against: the previous request, else what a fork inherited.
+  const basisAt = previous?.lastRequest.at ?? inherited?.at;
+  const basisActivityAt = previous?.lastActivityAt ?? inherited?.at;
+  const previousInputTokens = previous
+    ? promptCacheInputTokens(previous.lastRequest)
+    : (inherited?.inputTokens ?? 0);
+  const awayMs = kind === "turn" ? elapsedSinceMs(basisActivityAt, sample.at) : null;
   const afterCompaction = followsCompaction(previous);
-  const previousInputTokens = previous ? promptCacheInputTokens(previous.lastRequest) : 0;
   return {
     at: sample.at,
     kind,
     readTokens: sample.readTokens,
     writeTokens: sample.writeTokens,
     uncachedTokens: sample.uncachedTokens,
-    gapMs: elapsedSinceMs(previous?.lastRequest.at, sample.at),
+    gapMs: elapsedSinceMs(basisAt, sample.at),
     ...(awayMs === null ? {} : { awayMs }),
     ...(afterCompaction ? { afterCompaction: true } : {}),
     ...(previousInputTokens > 0 ? { previousInputTokens } : {}),
@@ -343,9 +359,10 @@ function buildHistoryEntry(
 export function recordPromptCacheRequest(
   previous: AgentPromptCacheState | undefined,
   sample: PromptCacheRequestSample,
+  inherited?: PromptCacheInheritance,
 ): AgentPromptCacheState {
   const startsTurn = !previous || previous.turnFirstRequest.turnId !== sample.turnId;
-  const entry = buildHistoryEntry(previous, sample, startsTurn);
+  const entry = buildHistoryEntry(previous, sample, startsTurn, inherited);
   const priorTotals = previous?.totals ?? sumPromptCacheTotals(previous?.history ?? []);
   return {
     lastRequest: sample,

@@ -405,16 +405,16 @@ export class AgentCacheWarmManager {
     }
   }
 
-  /**
-   * Compacts instead of letting the cache expire, then turns warm-up off: the compacted context
-   * is cheap to write again, so keeping it warm would cost more than it saves. It is no warm-up,
-   * so the ping counts stay as they are.
-   */
   /** Set once the schedule service exists, which bootstrap builds after this manager. */
   setIdleCapCompactionHandler(handler: (agentId: string) => Promise<void>): void {
     this.idleCapCompactionHandler = handler;
   }
 
+  /**
+   * Compacts instead of letting the cache expire, then turns warm-up off: the compacted context
+   * is cheap to write again, so keeping it warm would cost more than it saves. It is no warm-up,
+   * so the ping counts stay as they are.
+   */
   private async compactAtCap(agentId: string, contextTokens: number): Promise<boolean> {
     this.logger.info({ agentId, contextTokens }, "Compacting at the warm-up idle cap");
     this.lastAttemptAt.set(agentId, this.now());

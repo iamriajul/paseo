@@ -215,9 +215,10 @@ function InsightsContent({ insights }: { insights: PromptCacheInsights }): React
         {formatTokenCount(insights.readTokens)} · peak context{" "}
         {formatTokenCount(insights.peakContextTokens)}. A miss is a request that did not read at
         least 90% of the context the previous request left in the cache. Text it appended is
-        written, not read, so it is not a miss. The first request of a session cannot hit, so it is
-        neither a hit nor a miss. The first request after a compaction is left out of every count
-        and chart; the compaction marks the chart instead. Bar height is the share of input read.
+        written, not read, so it is not a miss. The first request of a fresh session cannot hit, so
+        it is neither a hit nor a miss; the first request of a native fork is measured against the
+        context it inherited. The first request after a compaction is left out of every count and
+        chart; the compaction marks the chart instead. Bar height is the share of input read.
       </Text>
     </View>
   );

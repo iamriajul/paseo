@@ -125,7 +125,7 @@ function InsightsBody({ load }: { load: InsightsLoad }): ReactElement {
     case "error":
       return <Text style={styles.note}>{load.message}</Text>;
     case "ready":
-      return load.insights.requests === 0 ? (
+      return load.insights.columns.length === 0 ? (
         <Text style={styles.note}>No requests recorded yet.</Text>
       ) : (
         <InsightsContent insights={load.insights} />
@@ -180,7 +180,7 @@ function InsightsContent({ insights }: { insights: PromptCacheInsights }): React
         <Tile label="Requests" value={String(insights.requests)} />
         <Tile
           label="Hit rate"
-          value={formatPercent(insights.hits / insights.requests)}
+          value={insights.requests > 0 ? formatPercent(insights.hits / insights.requests) : "—"}
           testID="prompt-cache-insights-hit-rate"
         />
         <Tile label="Input from cache" value={formatPercent(insights.cachedShare)} />
@@ -213,10 +213,11 @@ function InsightsContent({ insights }: { insights: PromptCacheInsights }): React
       <Text style={styles.note}>
         Written {formatTokenCount(insights.writeTokens)} · read{" "}
         {formatTokenCount(insights.readTokens)} · peak context{" "}
-        {formatTokenCount(insights.peakContextTokens)}. A miss is a request that did not read most
-        of the context the previous request left in the cache. Text it appended is written, not
-        read, so it is not a miss. The first request of a session and the first after a compaction
-        have no cache to miss. Bar height is the share of input read from the cache.
+        {formatTokenCount(insights.peakContextTokens)}. A miss is a request that did not read at
+        least 90% of the context the previous request left in the cache. Text it appended is
+        written, not read, so it is not a miss. The first request of a session cannot hit, so it is
+        neither a hit nor a miss. The first request after a compaction is left out of every count
+        and chart; the compaction marks the chart instead. Bar height is the share of input read.
       </Text>
     </View>
   );

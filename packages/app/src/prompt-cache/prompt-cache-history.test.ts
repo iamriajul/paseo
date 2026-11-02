@@ -42,9 +42,10 @@ describe("summarizePromptCacheHistory", () => {
       entry("turn", 0, 2, { afterCompaction: true }),
       entry("turn", 100, 30),
     ]);
-    expect(summary?.bars.map((bar) => bar.avoidableMiss)).toEqual([false, false, false, true]);
-    expect(summary?.bars[3]).toMatchObject({ hit: false, ratio: 0.1 });
-    expect(summary?.cachedShare).toBeCloseTo(1_000 / 4_000);
+    // The first request after a compaction is left out of the bars entirely.
+    expect(summary?.bars.map((bar) => bar.avoidableMiss)).toEqual([false, false, true]);
+    expect(summary?.bars[2]).toMatchObject({ hit: false, ratio: 0.1 });
+    expect(summary?.cachedShare).toBeCloseTo(1_000 / 3_000);
   });
 });
 
@@ -62,7 +63,8 @@ describe("summarizePromptCacheInsights", () => {
       compactions: [],
       cacheWindowMs: FIVE_MINUTES,
     });
-    expect(insights.requests).toBe(6);
+    // The agent's first request is shown but has no cache to hit, so it is not a request.
+    expect(insights.requests).toBe(5);
     expect(insights.hits).toBe(2);
     expect(insights.warmUps).toBe(1);
     expect(insights.missesAfterExpiry).toBe(2);

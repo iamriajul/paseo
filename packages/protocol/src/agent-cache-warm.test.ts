@@ -10,9 +10,12 @@ import {
   isClaudeModel,
   recordPromptCacheRequest,
   recordPromptCacheCompaction,
+  isPromptCacheHit,
+  isUncountedPromptCacheRequest,
   resolveCacheAutoCompactEnabled,
   PROMPT_CACHE_HISTORY_LIMIT,
   type AgentPromptCacheState,
+  type PromptCacheHistoryEntry,
   type PromptCacheRequestSample,
 } from "./agent-cache-warm.js";
 
@@ -187,7 +190,8 @@ describe("agent-cache-warm protocol utilities", () => {
       }
       // The first request has no cache to read, so only the later cold ones count as misses.
       expect(replay(samples)?.totals).toEqual({
-        requests: PROMPT_CACHE_HISTORY_LIMIT + 10,
+        // Every request but the first, which has nothing to hit.
+        requests: PROMPT_CACHE_HISTORY_LIMIT + 9,
         hits: PROMPT_CACHE_HISTORY_LIMIT + 10 - 4,
         misses: 3,
       });
@@ -214,7 +218,7 @@ describe("agent-cache-warm protocol utilities", () => {
       const legacy = replay([request(0, "t1"), request(10, "t2", { readTokens: 0 })]);
       const { totals: _dropped, ...withoutTotals } = legacy as AgentPromptCacheState;
       const next = recordPromptCacheRequest(withoutTotals, request(11, "t2"));
-      expect(next.totals).toEqual({ requests: 3, hits: 2, misses: 1 });
+      expect(next.totals).toEqual({ requests: 2, hits: 1, misses: 1 });
     });
   });
 
@@ -235,14 +239,15 @@ describe("agent-cache-warm protocol utilities", () => {
       const state = recordPromptCacheRequest(undefined, at(0, "t1", tokens(0, 53_000, 2)));
       expect(state.history?.[0]).toMatchObject({ gapMs: null });
       expect(state.history?.[0]?.previousInputTokens).toBeUndefined();
-      expect(state.totals).toEqual({ requests: 1, hits: 0, misses: 0 });
+      expect(isPromptCacheHit(state.history?.[0] as PromptCacheHistoryEntry)).toBe(false);
+      expect(state.totals).toEqual({ requests: 0, hits: 0, misses: 0 });
     });
 
     it("counts appended tool output as written, so reading the whole previous context is a hit", () => {
       const first = recordPromptCacheRequest(undefined, at(0, "t1", tokens(0, 60_000)));
       const state = recordPromptCacheRequest(first, at(0.1, "t1", tokens(59_900, 137_000, 2)));
       expect(state.history?.[1]).toMatchObject({ previousInputTokens: 60_000 });
-      expect(state.totals).toEqual({ requests: 2, hits: 1, misses: 0 });
+      expect(state.totals).toEqual({ requests: 1, hits: 1, misses: 0 });
     });
 
     it("counts a return after expiry as a miss, even when it reads only the shared system prefix", () => {
@@ -253,7 +258,7 @@ describe("agent-cache-warm protocol utilities", () => {
         gapMs: 16 * minute,
         previousInputTokens: 56_000,
       });
-      expect(state.totals).toEqual({ requests: 2, hits: 0, misses: 1 });
+      expect(state.totals).toEqual({ requests: 1, hits: 0, misses: 1 });
     });
 
     it("does not count the first request after a compaction, even within the same turn", () => {
@@ -264,7 +269,10 @@ describe("agent-cache-warm protocol utilities", () => {
       });
       const state = recordPromptCacheRequest(compacted, at(0.6, "t1", tokens(0, 50_000)));
       expect(state.history?.[1]).toMatchObject({ kind: "request", afterCompaction: true });
-      expect(state.totals?.misses).toBe(0);
+      expect(isUncountedPromptCacheRequest(state.history?.[1] as PromptCacheHistoryEntry)).toBe(
+        true,
+      );
+      expect(state.totals).toEqual({ requests: 0, hits: 0, misses: 0 });
     });
 
     it("counts a later user prompt after a compaction as usual", () => {
@@ -277,7 +285,7 @@ describe("agent-cache-warm protocol utilities", () => {
       const later = recordPromptCacheRequest(continued, at(16, "t2", tokens(0, 50_000)));
       expect(later.history?.[2]).toMatchObject({ kind: "turn", previousInputTokens: 50_000 });
       expect(later.history?.[2]?.afterCompaction).toBeUndefined();
-      expect(later.totals?.misses).toBe(1);
+      expect(later.totals).toEqual({ requests: 1, hits: 0, misses: 1 });
     });
   });
 

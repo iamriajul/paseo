@@ -1580,6 +1580,13 @@ export async function createPaseoDaemon(
         activity: terminal.getActivity(),
       })),
   });
+  cacheWarmManager.setIdleCapCompactionHandler(async (agentId) => {
+    for (const schedule of await scheduleService.list()) {
+      if (schedule.target.type !== "agent" || schedule.target.agentId !== agentId) continue;
+      if (schedule.status !== "active") continue;
+      await scheduleService.pause(schedule.id);
+    }
+  });
   await scheduleService.start();
 
   agentManager.setAgentArchivedCallback(async (agentId) => {

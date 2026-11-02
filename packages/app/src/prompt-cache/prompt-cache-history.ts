@@ -1,6 +1,7 @@
 import {
   isAvoidablePromptCacheMiss,
   isPromptCacheHit,
+  isUncountedPromptCacheRequest,
   promptCacheHitRatio,
   type PromptCacheHistoryEntry,
   type PromptCacheRequestKind,
@@ -46,8 +47,10 @@ function sumCachedShare(history: PromptCacheHistoryEntry[]): number {
 export function summarizePromptCacheHistory(
   history: PromptCacheHistoryEntry[] | undefined,
 ): PromptCacheHistorySummary | null {
-  if (!history || history.length === 0) {
+  // The first request after a compaction is left out of the bars too.
+  const shown = (history ?? []).filter((entry) => !isUncountedPromptCacheRequest(entry));
+  if (shown.length === 0) {
     return null;
   }
-  return { bars: history.map(toBar), cachedShare: sumCachedShare(history) };
+  return { bars: shown.map(toBar), cachedShare: sumCachedShare(shown) };
 }

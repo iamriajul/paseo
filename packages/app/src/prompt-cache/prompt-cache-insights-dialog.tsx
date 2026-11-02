@@ -1,4 +1,4 @@
-import React, { useMemo, type ReactElement } from "react";
+import React, { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -64,7 +64,12 @@ function useInsightsLoad(input: {
     // reopen within the same minute.
     staleTimeMs: 60_000,
   });
-  const { data } = query;
+  // A new request changes the key, so keep the last session on screen until its data arrives.
+  const [shown, setShown] = useState<InsightsData | null>(null);
+  useEffect(() => {
+    if (query.data) setShown(query.data);
+  }, [query.data]);
+  const data = query.data ?? shown;
   const insights = useMemo(
     () =>
       data
@@ -208,9 +213,10 @@ function InsightsContent({ insights }: { insights: PromptCacheInsights }): React
       <Text style={styles.note}>
         Written {formatTokenCount(insights.writeTokens)} · read{" "}
         {formatTokenCount(insights.readTokens)} · peak context{" "}
-        {formatTokenCount(insights.peakContextTokens)}. A miss is a request that read less than half
-        its input from a cache that existed; the first request and the one after a compaction have
-        nothing to read.
+        {formatTokenCount(insights.peakContextTokens)}. A miss is a request that did not read most
+        of the context the previous request left in the cache. Text it appended is written, not
+        read, so it is not a miss. The first request of a session and the first after a compaction
+        have no cache to miss. Bar height is the share of input read from the cache.
       </Text>
     </View>
   );
@@ -239,7 +245,7 @@ function Tile({
 
 function resolveColumnFill(column: InsightsColumn) {
   if (column.missed) return styles.fillMiss;
-  return column.ratio >= 0.5 ? styles.fillHit : styles.fillCold;
+  return column.hit ? styles.fillHit : styles.fillCold;
 }
 
 function ChartColumn({ column }: { column: InsightsColumn }): ReactElement {

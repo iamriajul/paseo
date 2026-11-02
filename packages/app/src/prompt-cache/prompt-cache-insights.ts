@@ -1,6 +1,7 @@
 import {
   isAvoidablePromptCacheMiss,
   isPromptCacheHit,
+  isUncountedPromptCacheRequest,
   promptCacheInputTokens,
   type PromptCacheCompaction,
   type PromptCacheHistoryEntry,
@@ -115,7 +116,11 @@ export function summarizePromptCacheInsights(input: {
   compactions: readonly PromptCacheCompaction[];
   cacheWindowMs: number;
 }): PromptCacheInsights {
-  const { requests, compactions, cacheWindowMs } = input;
+  const { compactions, cacheWindowMs } = input;
+  // The first request after a compaction is left out of every count and chart.
+  const shown = input.requests.filter((entry) => !isUncountedPromptCacheRequest(entry));
+  // The agent's first request is shown, as a neutral first write, but it had no cache to hit.
+  const counted = shown.filter((entry) => entry.gapMs !== null);
   let readTokens = 0;
   let writeTokens = 0;
   let inputTokens = 0;
@@ -123,13 +128,15 @@ export function summarizePromptCacheInsights(input: {
   let warmUps = 0;
   let peakContextTokens = 0;
   const misses: InsightsMiss[] = [];
-  for (const entry of requests) {
+  for (const entry of shown) {
     readTokens += entry.readTokens;
     writeTokens += entry.writeTokens;
     inputTokens += promptCacheInputTokens(entry);
     peakContextTokens = Math.max(peakContextTokens, promptCacheInputTokens(entry));
-    if (isPromptCacheHit(entry)) hits += 1;
     if (entry.kind === "warm-up") warmUps += 1;
+  }
+  for (const entry of counted) {
+    if (isPromptCacheHit(entry)) hits += 1;
     if (isAvoidablePromptCacheMiss(entry)) {
       misses.push({
         at: entry.at,
@@ -142,7 +149,7 @@ export function summarizePromptCacheInsights(input: {
   }
   const missesAfterExpiry = misses.filter((miss) => miss.afterExpiry).length;
   return {
-    requests: requests.length,
+    requests: counted.length,
     hits,
     cachedShare: inputTokens > 0 ? readTokens / inputTokens : 0,
     readTokens,
@@ -152,9 +159,9 @@ export function summarizePromptCacheInsights(input: {
     missesWhileWarm: misses.length - missesAfterExpiry,
     misses: misses.toReversed(),
     compactions: compactions.toReversed(),
-    columns: buildInsightsColumns(requests, compactions),
+    columns: buildInsightsColumns(shown, compactions),
     peakContextTokens,
-    firstAt: requests[0]?.at ?? null,
-    lastAt: requests.at(-1)?.at ?? null,
+    firstAt: shown[0]?.at ?? null,
+    lastAt: shown.at(-1)?.at ?? null,
   };
 }

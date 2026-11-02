@@ -145,6 +145,8 @@ export async function captureRunningAgentsForShutdown(
       RESUMABLE_PERSISTED_STATUSES.has(agent.lifecycle as StoredAgentRecord["lastStatus"]),
     )
     .filter((agent) => !agent.internal)
+    // A warm-up or idle-cap compaction turn is not user work; a resume would wake the session.
+    .filter((agent) => !agent.activeTurnIsWarmPing)
     // Hub-owned agents stay under Hub authority across restarts: the Hub
     // protocol replays or closes their executions itself, and a daemon-level
     // resume resurrects agents Hub already closed (duplicate creates then see

@@ -169,6 +169,29 @@ describe("captureRunningAgentsForShutdown", () => {
     }
   });
 
+  test("does not capture a running warm-up or idle-cap compaction turn", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "paseo-auto-resume-"));
+    const logger = createLogger();
+    try {
+      const manager = {
+        listAgents: () => [
+          { id: "user-turn", lifecycle: "running", internal: false },
+          {
+            id: "warm-turn",
+            lifecycle: "running",
+            internal: false,
+            activeTurnIsWarmPing: true,
+          },
+        ],
+      } as unknown as import("./agent-manager.js").AgentManager;
+      await captureRunningAgentsForShutdown(dir, manager, logger);
+      const ids = await readPendingAutoResume(dir, logger);
+      expect(ids).toEqual(["user-turn"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("clears file when no running agents", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "paseo-auto-resume-"));
     const logger = createLogger();

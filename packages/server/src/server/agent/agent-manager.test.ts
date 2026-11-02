@@ -12726,7 +12726,8 @@ test("records a compaction, marks the request after it, and journals the whole h
       expect.objectContaining({ trigger: "manual", preTokens: 1000 }),
     ]);
     expect(promptCache?.history?.at(-1)).toMatchObject({ kind: "turn", afterCompaction: true });
-    expect(promptCache?.totals).toEqual({ requests: 2, hits: 1, misses: 0 });
+    // Neither the first request nor the one right after the compaction is counted.
+    expect(promptCache?.totals).toEqual({ requests: 0, hits: 0, misses: 0 });
 
     await manager.flush();
     expect(await manager.readPromptCacheHistory(snapshot.id)).toEqual({

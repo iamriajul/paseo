@@ -192,9 +192,8 @@ export const PROMPT_CACHE_HISTORY_LIMIT = 24;
 export const PROMPT_CACHE_COMPACTION_LIMIT = 10;
 
 /**
- * Share of its own input a request must read to count as a hit when no request came before it.
- * Only the agent's first request has nothing before it, and it can still read a shared system
- * prefix, so "any read" would call a fresh session's prefix a hit.
+ * Share of its own input a request must read to count as a hit. Only records written before
+ * previousInputTokens existed use it; the protocol does not judge new requests by their own input.
  */
 export const PROMPT_CACHE_HIT_RATIO = 0.5;
 
@@ -220,6 +219,7 @@ export interface PromptCacheCompaction {
 
 /** Whole-session tallies; the snapshot history is only a window, these never roll off. */
 export interface PromptCacheTotals {
+  /** Requests that had a cache to hit: not the agent's first request, not one after a compaction. */
   requests: number;
   hits: number;
   /** Misses a warm cache could have avoided: not the first request, not right after a compaction. */
@@ -244,13 +244,28 @@ export interface AgentPromptCacheState {
   totals?: PromptCacheTotals;
 }
 
+/**
+ * A hit reads the context the previous request left in the cache. The agent's first request has
+ * no cache of its own to read, so it never hits, even when the API reports a shared-prefix read.
+ */
 export function isPromptCacheHit(
-  entry: PromptCacheRequestTokens & Pick<PromptCacheHistoryEntry, "previousInputTokens">,
+  entry: PromptCacheRequestTokens & Pick<PromptCacheHistoryEntry, "gapMs" | "previousInputTokens">,
 ): boolean {
+  if (entry.gapMs === null) return false;
   if (entry.previousInputTokens !== undefined) {
     return entry.readTokens >= PROMPT_CACHE_PREVIOUS_READ_RATIO * entry.previousInputTokens;
   }
   return (promptCacheHitRatio(entry) ?? 0) >= PROMPT_CACHE_HIT_RATIO;
+}
+
+/**
+ * The first request after a compaction. The compacted context was never cached, so it cannot hit
+ * and it is not a miss. The counts and charts leave it out entirely; the compaction itself shows.
+ */
+export function isUncountedPromptCacheRequest(
+  entry: Pick<PromptCacheHistoryEntry, "afterCompaction">,
+): boolean {
+  return entry.afterCompaction === true;
 }
 
 /**
@@ -263,6 +278,8 @@ export function isAvoidablePromptCacheMiss(entry: PromptCacheHistoryEntry): bool
 }
 
 function addToTotals(totals: PromptCacheTotals, entry: PromptCacheHistoryEntry): PromptCacheTotals {
+  // Neither the agent's first request nor the first after a compaction had a cache to hit.
+  if (isUncountedPromptCacheRequest(entry) || entry.gapMs === null) return totals;
   return {
     requests: totals.requests + 1,
     hits: totals.hits + (isPromptCacheHit(entry) ? 1 : 0),

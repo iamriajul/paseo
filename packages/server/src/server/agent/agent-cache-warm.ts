@@ -227,6 +227,8 @@ export interface AgentCacheWarmManagerDependencies {
   now?: () => number;
   /** Host setting `cacheAutoCompact`, read on every decision so a change applies at once. */
   isCacheAutoCompactByDefault?: () => boolean;
+  /** Runs before an idle-cap compaction is sent; if it throws, the compaction is not sent. */
+  onIdleCapCompaction?: (agentId: string) => Promise<void>;
 }
 
 export class AgentCacheWarmManager {
@@ -237,6 +239,7 @@ export class AgentCacheWarmManager {
   private readonly pingPrompt: string;
   private readonly now: () => number;
   private readonly isCacheAutoCompactByDefault: () => boolean;
+  private idleCapCompactionHandler: ((agentId: string) => Promise<void>) | null;
 
   private readonly activeTimers = new Map<string, ActiveCacheWarmTimerEntry>();
   private readonly agentEpochs = new Map<string, number>();
@@ -254,6 +257,7 @@ export class AgentCacheWarmManager {
     this.pingPrompt = dependencies.pingPrompt ?? DEFAULT_CACHE_WARM_PING_PROMPT;
     this.now = dependencies.now ?? (() => Date.now());
     this.isCacheAutoCompactByDefault = dependencies.isCacheAutoCompactByDefault ?? (() => false);
+    this.idleCapCompactionHandler = dependencies.onIdleCapCompaction ?? null;
   }
 
   private nextEpoch(agentId: string): number {
@@ -406,12 +410,19 @@ export class AgentCacheWarmManager {
    * is cheap to write again, so keeping it warm would cost more than it saves. It is no warm-up,
    * so the ping counts stay as they are.
    */
+  /** Set once the schedule service exists, which bootstrap builds after this manager. */
+  setIdleCapCompactionHandler(handler: (agentId: string) => Promise<void>): void {
+    this.idleCapCompactionHandler = handler;
+  }
+
   private async compactAtCap(agentId: string, contextTokens: number): Promise<boolean> {
     this.logger.info({ agentId, contextTokens }, "Compacting at the warm-up idle cap");
     this.lastAttemptAt.set(agentId, this.now());
     this.pingsInFlight.add(agentId);
     let sent = false;
     try {
+      // Before the compaction turn, so no heartbeat or schedule can wake the session after it.
+      await this.idleCapCompactionHandler?.(agentId);
       sent = await this.sendPrompt(agentId, CACHE_AUTO_COMPACT_PROMPT);
       if (sent) {
         await this.agentManager.setAgentFeature(agentId, CLAUDE_CACHE_WARM_FEATURE_ID, false);

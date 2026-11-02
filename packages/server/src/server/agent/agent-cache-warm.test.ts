@@ -29,6 +29,7 @@ function promptCacheAt(atMs: number, readTokens = 1000): AgentPromptCacheState {
 }
 
 interface HarnessOptions {
+  onIdleCapCompaction?: (agentId: string) => Promise<void>;
   ttl?: "5m" | "1h" | "default";
   cacheWarm?: boolean;
   lifecycle?: ManagedAgent["lifecycle"];
@@ -112,6 +113,7 @@ function createHarness(options: HarnessOptions = {}) {
     logger: pino({ level: "silent" }),
     sendPrompt,
     isCacheAutoCompactByDefault: () => options.autoCompactByDefault ?? false,
+    onIdleCapCompaction: options.onIdleCapCompaction,
   });
   return { manager, agent, sendPrompt, respondToPermission, setAgentFeature };
 }
@@ -248,6 +250,38 @@ describe("AgentCacheWarmManager", () => {
       const harness = createHarness({ ttl: "5m", autoCompact: true, contextTokens: 150_000 });
       await runToCap(harness);
       expect(harness.sendPrompt).toHaveBeenCalledTimes(10);
+      expect(harness.setAgentFeature).not.toHaveBeenCalled();
+    });
+
+    it("pauses the agent's schedules before the compaction is sent", async () => {
+      const pause = vi.fn<(agentId: string) => Promise<void>>();
+      const harness = createHarness({
+        ttl: "5m",
+        autoCompact: true,
+        contextTokens: 250_000,
+        onIdleCapCompaction: pause,
+      });
+      await runToCap(harness);
+
+      const compactIndex = sentPrompts(harness.sendPrompt).indexOf("/compact");
+      expect(compactIndex).toBeGreaterThan(-1);
+      expect(pause).toHaveBeenCalledWith("agent-1");
+      const compactCalledAt = harness.sendPrompt.mock.invocationCallOrder[compactIndex] ?? Infinity;
+      expect(pause.mock.invocationCallOrder[0]).toBeLessThan(compactCalledAt);
+    });
+
+    it("does not compact when the schedules cannot be paused", async () => {
+      const harness = createHarness({
+        ttl: "5m",
+        autoCompact: true,
+        contextTokens: 250_000,
+        onIdleCapCompaction: async () => {
+          throw new Error("schedule store offline");
+        },
+      });
+      await runToCap(harness);
+
+      expect(sentPrompts(harness.sendPrompt)).not.toContain("/compact");
       expect(harness.setAgentFeature).not.toHaveBeenCalled();
     });
 

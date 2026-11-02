@@ -5,6 +5,9 @@ import type { AgentStorage } from "./agent-storage.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import { sendPromptToAgent } from "./agent-prompt.js";
 
+/** A compaction of a 1M context takes minutes; past this the message is not sent. */
+const COMPACTION_TIMEOUT_MS = 10 * 60_000;
+
 export interface CompactWithModelInput {
   agentManager: AgentManager;
   agentStorage: AgentStorage;
@@ -37,6 +40,7 @@ export async function compactWithModel(input: CompactWithModelInput): Promise<vo
     { agentId, model: input.model, thinkingOptionId: input.thinkingOptionId },
     "Compacting on another model before the next prompt",
   );
+  const startedAt = new Date().toISOString();
   try {
     await agentManager.setAgentModel(agentId, input.model);
     await agentManager.setAgentThinkingOption(agentId, input.thinkingOptionId);
@@ -52,9 +56,20 @@ export async function compactWithModel(input: CompactWithModelInput): Promise<vo
     if (disposition === "skipped") {
       throw new Error("The agent is busy, so it was not compacted");
     }
-    const result = await agentManager.waitForAgentEvent(agentId, { waitForActive: true });
-    if (result.status === "error") {
-      throw new Error("The compaction failed, so the message was not sent");
+    const result = await agentManager.waitForAgentEvent(agentId, {
+      waitForActive: true,
+      signal: AbortSignal.timeout(COMPACTION_TIMEOUT_MS),
+    });
+    // The wait also returns on a permission request or a cancelled turn, neither of which
+    // compacted; sending then would pay the full write the user chose to avoid.
+    if (result.permission) {
+      throw new Error(
+        "The compaction stopped on a permission request, so the message was not sent",
+      );
+    }
+    const lastCompactionAt = agentManager.getAgent(agentId)?.promptCache?.compactions?.at(-1)?.at;
+    if (result.status === "error" || !lastCompactionAt || lastCompactionAt < startedAt) {
+      throw new Error("The compaction did not finish, so the message was not sent");
     }
   } finally {
     await restoreOriginal(input, original);

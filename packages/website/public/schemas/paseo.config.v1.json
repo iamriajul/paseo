@@ -107,6 +107,9 @@
         "cacheAutoCompact": {
           "type": "boolean"
         },
+        "cacheExpiryStop": {
+          "type": "string"
+        },
         "enableTerminalAgentHooks": {
           "type": "boolean"
         },

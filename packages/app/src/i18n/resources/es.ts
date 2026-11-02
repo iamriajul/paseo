@@ -3147,6 +3147,22 @@ export const es: TranslationResources = {
         accessibilityLabel: "Compactar al llegar al límite de precalentamiento",
         error: "No se pudo actualizar el ajuste de compactación",
       },
+      cacheExpiryStop: {
+        title: "Cuando caduca una caché",
+        options: {
+          "when-idle": "Mantener tareas",
+          always: "Detener todo",
+          off: "Desactivado",
+        },
+        hints: {
+          "when-idle":
+            "Detiene el proceso de Claude cuando caduca la caché de 5 min o 1 h de un agente, para que sus propios temporizadores y avisos de tareas no lo despierten y vuelvan a escribir todo el contexto. Un agente con una tarea en segundo plano en curso sigue funcionando.",
+          always:
+            "Detiene el proceso de Claude cuando caduca la caché de 5 min o 1 h de un agente, incluidas las tareas en segundo plano. Nada lo despierta hasta que envíes un mensaje.",
+          off: "Deja el proceso de Claude en marcha cuando caduca su caché. Sus temporizadores, /loop y avisos de tareas pueden despertarlo y volver a escribir todo el contexto.",
+        },
+        error: "No se pudo actualizar el ajuste de caducidad de la caché",
+      },
       orchestration: {
         title: "Orquestación",
         unavailable: "Conéctese a este host para administrar la orquestación",

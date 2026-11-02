@@ -460,6 +460,22 @@ export function resolveClaudeDisabledThinkingForModel(
   };
 }
 
+/**
+ * The effort a warm-up turn runs at: the model's lowest, or null when it has no effort levels.
+ * A warm-up only has to reply "ok", and higher effort spends output tokens before the reply.
+ * Measured against the API: changing effort between turns reads the whole cached prefix.
+ */
+export function resolveClaudeWarmPingEffort(
+  modelId: string | null | undefined,
+): ClaudeEffortLevel | null {
+  const normalizedModelId = normalizeClaudeManifestModelId(modelId);
+  const model = normalizedModelId
+    ? CLAUDE_MODEL_MANIFEST.find((candidate) => candidate.id === normalizedModelId)
+    : undefined;
+  const effortLevels = model && "effortLevels" in model ? model.effortLevels : undefined;
+  return effortLevels?.[0] ?? null;
+}
+
 export function isClaudeManifestModelId(modelId: string): boolean {
   return CLAUDE_MODEL_MANIFEST.some((model) => model.id === modelId);
 }

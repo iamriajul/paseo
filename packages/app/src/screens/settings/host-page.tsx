@@ -18,6 +18,13 @@ import { Alert, Pressable, Text, View } from "react-native";
 import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
 import {
+  CACHE_EXPIRY_STOP_POLICIES,
+  resolveCacheExpiryStopPolicy,
+  type CacheExpiryStopPolicy,
+} from "@getpaseo/protocol/agent-cache-warm";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { useHostFeature } from "@/runtime/host-features";
+import {
   getTerminalProfileIcon,
   DEFAULT_TERMINAL_PROFILES,
 } from "@getpaseo/protocol/terminal-profiles";
@@ -297,6 +304,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
           <RateLimitAutoResumeCard serverId={serverId} />
           <CacheWarmSubagentsCard serverId={serverId} />
           <CacheAutoCompactCard serverId={serverId} />
+          <CacheExpiryStopCard serverId={serverId} />
           <AppendSystemPromptCard serverId={serverId} />
           <RestartRecoveryCard serverId={serverId} />
           <IdleRuntimeCleanupCard serverId={serverId} />
@@ -1025,6 +1033,59 @@ function CacheAutoCompactCard({ serverId }: { serverId: string }) {
           onValueChange={handleValueChange}
           accessibilityLabel={t("settings.host.cacheAutoCompact.accessibilityLabel")}
           testID="host-page-cache-auto-compact-switch"
+        />
+      </View>
+    </View>
+  );
+}
+
+/** What the daemon does with a Claude process once the agent's cache expires. */
+function CacheExpiryStopCard({ serverId }: { serverId: string }) {
+  const { t } = useTranslation();
+  const isConnected = useHostRuntimeIsConnected(serverId);
+  const supported = useHostFeature(serverId, "cacheExpiryStop");
+  const { config, patchConfig } = useDaemonConfig(serverId);
+  const value = resolveCacheExpiryStopPolicy(config?.cacheExpiryStop);
+  const options = useMemo(
+    () =>
+      CACHE_EXPIRY_STOP_POLICIES.map((policy) => ({
+        value: policy,
+        label: t(`settings.host.cacheExpiryStop.options.${policy}`),
+        testID: `host-page-cache-expiry-stop-${policy}`,
+      })),
+    [t],
+  );
+
+  const handleValueChange = useCallback(
+    (next: CacheExpiryStopPolicy) => {
+      void patchConfig({ cacheExpiryStop: next }).catch((error) => {
+        console.error("[HostPage] Failed to update the cache expiry setting", error);
+        Alert.alert(
+          t("settings.host.cacheExpiryStop.error"),
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    },
+    [patchConfig, t],
+  );
+
+  if (!isConnected || !supported) return null;
+
+  return (
+    <View style={settingsStyles.card} testID="host-page-cache-expiry-stop-card">
+      <View style={settingsStyles.row}>
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle}>{t("settings.host.cacheExpiryStop.title")}</Text>
+          <Text style={settingsStyles.rowHint}>
+            {t(`settings.host.cacheExpiryStop.hints.${value}`)}
+          </Text>
+        </View>
+        <SegmentedControl
+          options={options}
+          value={value}
+          onValueChange={handleValueChange}
+          size="sm"
+          testID="host-page-cache-expiry-stop"
         />
       </View>
     </View>

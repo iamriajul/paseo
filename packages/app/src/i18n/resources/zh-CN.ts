@@ -3059,6 +3059,22 @@ export const zhCN: TranslationResources = {
         accessibilityLabel: "在预热上限时压缩",
         error: "无法更新压缩设置",
       },
+      cacheExpiryStop: {
+        title: "缓存过期时",
+        options: {
+          "when-idle": "保留任务",
+          always: "全部停止",
+          off: "关闭",
+        },
+        hints: {
+          "when-idle":
+            "智能体的 5 分钟或 1 小时缓存过期后停止 Claude 进程，避免它自己的定时器和任务通知把它唤醒并重新写入整个上下文。仍有后台任务在运行的智能体会继续运行。",
+          always:
+            "智能体的 5 分钟或 1 小时缓存过期后停止 Claude 进程，包括后台任务。在你发送消息之前，什么都不会唤醒它。",
+          off: "缓存过期后让 Claude 进程继续运行。它自己的定时器、/loop 和任务通知可能唤醒它，并重新写入整个上下文。",
+        },
+        error: "无法更新缓存过期设置",
+      },
       orchestration: {
         title: "编排",
         unavailable: "连接到这个 Host 以管理编排",

@@ -3149,6 +3149,22 @@ export const fr: TranslationResources = {
         accessibilityLabel: "Compacter à la limite de préchauffage",
         error: "Impossible de mettre à jour le réglage de compactage",
       },
+      cacheExpiryStop: {
+        title: "Quand un cache expire",
+        options: {
+          "when-idle": "Garder les tâches",
+          always: "Tout arrêter",
+          off: "Désactivé",
+        },
+        hints: {
+          "when-idle":
+            "Arrête le processus Claude dès que le cache de 5 min ou 1 h d'un agent expire, pour que ses propres minuteurs et notifications de tâches ne le réveillent pas en réécrivant tout le contexte. Un agent dont une tâche d'arrière-plan tourne encore continue.",
+          always:
+            "Arrête le processus Claude dès que le cache de 5 min ou 1 h d'un agent expire, tâches d'arrière-plan comprises. Rien ne le réveille avant votre prochain message.",
+          off: "Laisse le processus Claude tourner après l'expiration de son cache. Ses minuteurs, /loop et notifications de tâches peuvent le réveiller et réécrire tout le contexte.",
+        },
+        error: "Impossible de mettre à jour le réglage d'expiration du cache",
+      },
       orchestration: {
         title: "Orchestration",
         unavailable: "Connectez-vous à cet hôte pour gérer l’orchestration",

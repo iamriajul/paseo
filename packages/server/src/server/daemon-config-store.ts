@@ -31,6 +31,7 @@ interface SupportedMutableConfigPatch {
   autoResumeOnRateLimit?: boolean;
   cacheWarmSubagents?: boolean;
   cacheAutoCompact?: boolean;
+  cacheExpiryStop?: string;
   enableTerminalAgentHooks?: boolean;
   idleRuntimeCleanup?: boolean;
   resumeOnStartup?: boolean;
@@ -203,6 +204,7 @@ const RELOADABLE_PATHS = [
   "daemon.autoResumeOnRateLimit",
   "daemon.cacheWarmSubagents",
   "daemon.cacheAutoCompact",
+  "daemon.cacheExpiryStop",
   "daemon.enableTerminalAgentHooks",
   "daemon.appendSystemPrompt",
   "daemon.terminalProfiles",
@@ -234,6 +236,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.autoResumeOnRateLimit", "autoResumeOnRateLimit"],
   ["daemon.cacheWarmSubagents", "cacheWarmSubagents"],
   ["daemon.cacheAutoCompact", "cacheAutoCompact"],
+  ["daemon.cacheExpiryStop", "cacheExpiryStop"],
   ["daemon.enableTerminalAgentHooks", "enableTerminalAgentHooks"],
   ["daemon.appendSystemPrompt", "appendSystemPrompt"],
   ["daemon.terminalProfiles", "terminalProfiles"],
@@ -356,12 +359,16 @@ function persistMetadataGeneration(input: {
 
 function pickPromptCachePatch(
   patch: MutableDaemonConfigPatch,
-): Pick<SupportedMutableConfigPatch, "cacheWarmSubagents" | "cacheAutoCompact"> {
+): Pick<
+  SupportedMutableConfigPatch,
+  "cacheWarmSubagents" | "cacheAutoCompact" | "cacheExpiryStop"
+> {
   return {
     ...(patch.cacheWarmSubagents !== undefined
       ? { cacheWarmSubagents: patch.cacheWarmSubagents }
       : {}),
     ...(patch.cacheAutoCompact !== undefined ? { cacheAutoCompact: patch.cacheAutoCompact } : {}),
+    ...(patch.cacheExpiryStop !== undefined ? { cacheExpiryStop: patch.cacheExpiryStop } : {}),
   };
 }
 
@@ -901,6 +908,9 @@ function mergeMutableDaemonPatch(
   }
   if (patch.cacheAutoCompact !== undefined) {
     next.cacheAutoCompact = patch.cacheAutoCompact;
+  }
+  if (patch.cacheExpiryStop !== undefined) {
+    next.cacheExpiryStop = patch.cacheExpiryStop;
   }
   if (patch.enableTerminalAgentHooks !== undefined) {
     next.enableTerminalAgentHooks = patch.enableTerminalAgentHooks;

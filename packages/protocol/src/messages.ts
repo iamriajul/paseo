@@ -305,6 +305,8 @@ export const MutableDaemonConfigSchema = z
     autoResumeOnRateLimit: z.boolean().default(true),
     cacheWarmSubagents: z.boolean().default(true),
     cacheAutoCompact: z.boolean().optional(),
+    // A string so a policy added later still parses; resolveCacheExpiryStopPolicy reads it.
+    cacheExpiryStop: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
@@ -355,6 +357,8 @@ export const MutableDaemonConfigPatchSchema = z
     autoResumeOnRateLimit: z.boolean().optional(),
     cacheWarmSubagents: z.boolean().optional(),
     cacheAutoCompact: z.boolean().optional(),
+    // A string so a policy added later still parses; resolveCacheExpiryStopPolicy reads it.
+    cacheExpiryStop: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     pluginsEnabled: z.boolean().optional(),
@@ -1058,6 +1062,11 @@ export const AgentSnapshotPayloadSchema = z.object({
   promptCache: AgentPromptCacheStateSchema.optional(),
   /** Explicit per-agent idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact: z.boolean().optional(),
+  /**
+   * Whether the agent's provider process is running. A loaded agent can have none: Claude starts
+   * its process on the first turn. Absent from daemons and providers that do not report it.
+   */
+  runtimeActive: z.boolean().optional(),
 });
 
 export type AgentSnapshotPayload = z.infer<typeof AgentSnapshotPayloadSchema>;
@@ -1658,6 +1667,10 @@ export const SendAgentMessageRequestSchema = z.object({
   // When true, the agent must already be running; when false/omitted, existing replaceRunning
   // send semantics are unchanged.
   steer: z.boolean().optional().default(false),
+  // COMPAT(compactThenSend): added in v0.14.903. The daemon compacts the agent on this model,
+  // restores the agent's own model and thinking, then sends the message. Clients send it only
+  // when server_info.features.compactThenSend is set; an older daemon would send without compacting.
+  compactFirst: z.object({ model: z.string(), thinkingOptionId: z.string().optional() }).optional(),
 });
 
 export const WaitForFinishRequestSchema = z.object({
@@ -2328,6 +2341,9 @@ export const AgentNativeForkRequestMessageSchema = z.object({
   boundaryCursor: AgentTimelineCursorSchema.optional(),
   boundaryMessageId: z.string().optional(),
   target: z.enum(["tab", "workspace"]).default("tab"),
+  // COMPAT(nativeForkModel): added in v0.14.903. The fork starts on this model instead of the
+  // source's; clients send it only when server_info.features.nativeForkModel is set.
+  model: z.string().optional(),
 });
 
 export const SetAgentModeRequestMessageSchema = z.object({
@@ -4263,6 +4279,12 @@ export const ServerInfoStatusPayloadSchema = z
         forkSessionEvents: z.boolean().optional(),
         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
         agentNativeFork: z.boolean().optional(),
+        // COMPAT(nativeForkModel): added in v0.14.903, drop gate after 2027-05-01.
+        nativeForkModel: z.boolean().optional(),
+        // COMPAT(compactThenSend): added in v0.14.903, drop gate after 2027-05-01.
+        compactThenSend: z.boolean().optional(),
+        // COMPAT(cacheExpiryStop): added in v0.14.903, drop gate after 2027-05-01.
+        cacheExpiryStop: z.boolean().optional(),
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
         tcpTunnel: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.

@@ -8,6 +8,7 @@ import type { PromptCacheJournal, PromptCacheJournalHistory } from "./prompt-cac
 import {
   CLAUDE_CACHE_WARM_FEATURE_ID,
   CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
+  withNewAgentPromptCacheTtl,
 } from "./providers/claude/feature-definitions.js";
 import type { AgentRateLimitCooldownPayload } from "@getpaseo/protocol/messages";
 import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-labels";
@@ -23,6 +24,7 @@ import {
   type AgentPromptCacheState,
   type PromptCacheRequestSample,
 } from "@getpaseo/protocol/agent-cache-warm";
+import { resolveAgentPromptCacheExpiresAtMs } from "./prompt-cache-expiry.js";
 import { projectTimelineRows } from "./timeline-projection.js";
 import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
@@ -1648,6 +1650,15 @@ export class AgentManager {
       config = { ...request.config, internal: config.internal };
       options = { ...options, env: request.env };
     }
+    if (config.provider === "claude" && !config.internal) {
+      config = {
+        ...config,
+        featureValues: withNewAgentPromptCacheTtl({
+          modelId: config.model,
+          featureValues: config.featureValues,
+        }),
+      };
+    }
     await this.deleteAgentState(resolvedAgentId);
     const { storedConfig, launchConfig, paseoToolPolicy } = await this.prepareSessionConfig(
       config,
@@ -2176,6 +2187,7 @@ export class AgentManager {
         provider: agent.provider,
         sessionId: agent.persistence?.sessionId ?? null,
         lastActivityAt: updatedAt.getTime(),
+        cacheExpiresAt: resolveAgentPromptCacheExpiresAtMs(agent),
         isEligible,
         canStopRuntime: agent.session.canStopRuntime?.bind(agent.session),
         closeIfEligible: async (revalidate) => {
@@ -3980,6 +3992,8 @@ export class AgentManager {
     boundaryMessageId?: string;
     boundaryCursor?: { epoch: string; seq: number };
     target?: "tab" | "workspace";
+    /** The fork starts on this model; the source keeps its own and its cache. */
+    model?: string;
   }): Promise<{ agentId: string; workspaceId: string }> {
     const source = this.requireSessionAgent(input.sourceAgentId);
     if (source.provider !== "claude") {
@@ -4034,21 +4048,19 @@ export class AgentManager {
       throw new Error("Source agent has no workspace; cannot native-fork into a tab");
     }
 
+    const forkConfig = {
+      ...source.config,
+      provider: "claude",
+      cwd: source.cwd,
+      ...(input.model ? { model: input.model } : {}),
+    };
     const forked = await this.resumeAgentFromPersistence(
       {
         provider: "claude",
         sessionId: forkedSessionId,
-        metadata: {
-          ...source.config,
-          provider: "claude",
-          cwd: source.cwd,
-        },
+        metadata: forkConfig,
       },
-      {
-        ...source.config,
-        provider: "claude",
-        cwd: source.cwd,
-      },
+      forkConfig,
       undefined,
       {
         workspaceId,
@@ -5487,8 +5499,12 @@ export class AgentManager {
   private inheritedPromptCache(agent: ActiveManagedAgent): PromptCacheInheritance | undefined {
     const parentId = agent.labels.nativeForkOf;
     if (!parentId) return undefined;
+    const parent = this.agents.get(parentId);
+    // The cache belongs to one model: a fork started on another model has nothing to inherit,
+    // so its first request is a fresh session's.
+    if (!parent || (parent.config.model ?? null) !== (agent.config.model ?? null)) return undefined;
     const forkedAt = agent.createdAt.getTime();
-    const basis = (this.agents.get(parentId)?.promptCache?.history ?? []).findLast(
+    const basis = (parent.promptCache?.history ?? []).findLast(
       (entry) => Date.parse(entry.at) <= forkedAt,
     );
     if (!basis) return undefined;
@@ -6573,7 +6589,14 @@ function resolveNativeForkBoundaryMessageId(input: {
   }
   const cursor = input.boundaryCursor;
   if (!cursor) {
-    throw new Error("Native fork requires a boundary message id or timeline cursor");
+    // No boundary forks the whole conversation, from its latest reply.
+    const latest = input.rows.findLast(
+      (entry) => entry.item.type === "assistant_message" && entry.item.messageId?.trim(),
+    );
+    if (latest?.item.type === "assistant_message" && latest.item.messageId) {
+      return latest.item.messageId.trim();
+    }
+    throw new Error("Native fork needs a reply to fork from");
   }
   if (cursor.epoch !== input.timelineEpoch) {
     throw new Error("Selected timeline position is no longer available.");

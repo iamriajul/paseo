@@ -9,6 +9,11 @@ import {
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import { AgentRateLimitAutoResumeManager } from "./agent/agent-rate-limit-auto-resume.js";
 import { AgentCacheWarmManager } from "./agent/agent-cache-warm.js";
+import {
+  DEFAULT_CACHE_EXPIRY_STOP_POLICY,
+  resolveCacheExpiryStopPolicy,
+  type CacheExpiryStopPolicy,
+} from "@getpaseo/protocol/agent-cache-warm";
 import { PromptCacheJournal } from "./agent/prompt-cache-journal.js";
 import {
   createGitRemotePollGate,
@@ -454,6 +459,7 @@ export interface PaseoDaemonConfig {
   autoResumeOnRateLimit?: boolean;
   cacheWarmSubagents?: boolean;
   cacheAutoCompact?: boolean;
+  cacheExpiryStop?: CacheExpiryStopPolicy;
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
   terminalProfiles?: TerminalProfile[];
@@ -634,6 +640,16 @@ function resolveInitialProfileConfig(
   return profiles;
 }
 
+function resolveInitialPromptCacheConfig(
+  config: ResolvedDaemonSettings,
+): Pick<MutableDaemonConfig, "cacheWarmSubagents" | "cacheAutoCompact" | "cacheExpiryStop"> {
+  return {
+    cacheWarmSubagents: config.cacheWarmSubagents ?? true,
+    cacheAutoCompact: config.cacheAutoCompact ?? false,
+    cacheExpiryStop: config.cacheExpiryStop ?? DEFAULT_CACHE_EXPIRY_STOP_POLICY,
+  };
+}
+
 function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): MutableDaemonConfig {
   const providers = config.providerOverrides ?? {};
 
@@ -661,8 +677,7 @@ function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): Mutab
     },
     autoArchiveAfterMerge: config.autoArchiveAfterMerge ?? false,
     autoResumeOnRateLimit: config.autoResumeOnRateLimit ?? true,
-    cacheWarmSubagents: config.cacheWarmSubagents ?? true,
-    cacheAutoCompact: config.cacheAutoCompact ?? false,
+    ...resolveInitialPromptCacheConfig(config),
     enableTerminalAgentHooks: config.enableTerminalAgentHooks ?? false,
     idleRuntimeCleanup: config.idleRuntimeCleanup !== false,
     resumeOnStartup: config.resumeOnStartup === true,
@@ -1579,6 +1594,7 @@ export async function createPaseoDaemon(
         exited: terminal.getExitInfo() !== null,
         activity: terminal.getActivity(),
       })),
+    cacheExpiryStop: () => resolveCacheExpiryStopPolicy(daemonConfigStore.get().cacheExpiryStop),
   });
   cacheWarmManager.setIdleCapCompactionHandler(async (agentId) => {
     for (const schedule of await scheduleService.list()) {
@@ -1662,6 +1678,7 @@ export async function createPaseoDaemon(
     isProtected: (agentId) =>
       finishSubscriptions.hasPendingForCaller(agentId) ||
       (wsServer?.agentMessages.hasPending(agentId) ?? false),
+    cacheExpiryStop: () => resolveCacheExpiryStopPolicy(daemonConfigStore.get().cacheExpiryStop),
     logger,
   });
 

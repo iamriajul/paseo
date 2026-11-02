@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import type { CacheExpiryStopPolicy } from "@getpaseo/protocol/agent-cache-warm";
 import { withTimeout } from "../../../utils/promise-timeout.js";
 
 /** A captured runtime capability. Its lifecycle owner revalidates before releasing it. */
@@ -9,6 +10,8 @@ export interface RuntimeCleanupCandidate {
   readonly provider: string;
   readonly sessionId: string | null;
   readonly lastActivityAt: number;
+  /** When the runtime's prompt cache expires, or null when that is not known. */
+  readonly cacheExpiresAt: number | null;
   isEligible(): boolean;
   canStopRuntime?(): Promise<boolean>;
   closeIfEligible(revalidate: () => boolean): Promise<boolean>;
@@ -17,6 +20,8 @@ interface Options {
   enabled: boolean;
   runtimes(): readonly RuntimeCleanupCandidate[];
   isProtected?(agentId: string): boolean;
+  /** Host setting `cacheExpiryStop`, read on every sweep so a change applies at once. */
+  cacheExpiryStop?: () => CacheExpiryStopPolicy;
   logger: Pick<Logger, "debug" | "info" | "warn">;
   now?: () => number;
   schedule?: (tick: () => void, intervalMs: number) => () => void;
@@ -70,19 +75,61 @@ export function createIdleRuntimeCleanup(options: Options) {
     }
     return true;
   }
+  /**
+   * Why a sweep may stop this runtime. An expired cache stops it at once: Claude's own timers and
+   * task notifications would otherwise wake it and write the whole context again.
+   */
+  function stopRule(
+    runtime: RuntimeCleanupCandidate,
+    pass: { timestamp: number; idleEnabled: boolean; expiryStop: CacheExpiryStopPolicy },
+  ): "cache-expired" | "idle" | null {
+    if (
+      pass.expiryStop !== "off" &&
+      runtime.cacheExpiresAt !== null &&
+      pass.timestamp >= runtime.cacheExpiresAt
+    ) {
+      return "cache-expired";
+    }
+    return pass.idleEnabled ? "idle" : null;
+  }
+  /** The `always` policy stops an expired runtime even while a provider would veto it. */
+  async function stopAllowed(
+    family: readonly RuntimeCleanupCandidate[],
+    skipsVeto: boolean,
+    isCurrent: () => boolean,
+  ) {
+    return baselineAllows(family) && (skipsVeto || (await providersAllow(family, isCurrent)));
+  }
+  /** Records the veto's end, then reports whether the runtime has been idle the whole period. */
+  function idleLongEnough(runtime: RuntimeCleanupCandidate, timestamp: number): boolean {
+    if (protectedAt.get(runtime.identity)?.protected) {
+      protectedAt.set(runtime.identity, { at: timestamp, protected: false });
+    }
+    const idleSince = Math.max(runtime.lastActivityAt, protectedAt.get(runtime.identity)?.at ?? 0);
+    return timestamp - idleSince >= IDLE_PERIOD_MS;
+  }
   async function collect(): Promise<CollectionResult> {
     const result: CollectionResult = { collected: [], failures: [] };
     const sweepGeneration = generation;
-    const isCurrent = () => enabled && !stopped && generation === sweepGeneration;
-    if (!isCurrent()) return result;
+    const idleEnabled = enabled;
+    const expiryStop = options.cacheExpiryStop?.() ?? "off";
+    const isCurrent = () => !stopped && generation === sweepGeneration;
+    if (!isCurrent() || (!idleEnabled && expiryStop === "off")) return result;
     const timestamp = now();
     const runtimes = options.runtimes();
     for (const runtime of runtimes) {
       if (!isCurrent()) break;
       if (!runtime.sessionId) continue;
+      const rule = stopRule(runtime, { timestamp, idleEnabled, expiryStop });
+      if (!rule) continue;
+      const cacheExpired = rule === "cache-expired";
       const family = familyOf(runtime, runtimes);
       try {
-        const allowed = baselineAllows(family) && (await providersAllow(family, isCurrent));
+        const allowed = await stopAllowed(
+          family,
+          cacheExpired && expiryStop === "always",
+          isCurrent,
+        );
         if (!isCurrent()) break;
         if (!allowed) {
           protectedAt.set(runtime.identity, { at: timestamp, protected: true });
@@ -92,14 +139,7 @@ export function createIdleRuntimeCleanup(options: Options) {
           );
           continue;
         }
-        const previous = protectedAt.get(runtime.identity);
-        if (previous?.protected)
-          protectedAt.set(runtime.identity, { at: timestamp, protected: false });
-        const idleSince = Math.max(
-          runtime.lastActivityAt,
-          protectedAt.get(runtime.identity)?.at ?? 0,
-        );
-        if (timestamp - idleSince < IDLE_PERIOD_MS) continue;
+        if (!idleLongEnough(runtime, timestamp) && !cacheExpired) continue;
         const revalidate = () => {
           const currentFamily = familyOf(runtime, options.runtimes());
           return (
@@ -118,7 +158,7 @@ export function createIdleRuntimeCleanup(options: Options) {
             sessionId: runtime.sessionId,
           };
           result.collected.push(entry);
-          options.logger.info(entry, "Collected idle agent runtime");
+          options.logger.info({ ...entry, rule }, "Collected idle agent runtime");
         } else if (isCurrent()) {
           protectedAt.set(runtime.identity, { at: timestamp, protected: true });
         }

@@ -27,6 +27,7 @@ import { projectTimelineRows } from "./timeline-projection.js";
 import { getOpenAgentTabLabel, PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { DEFAULT_CACHE_WARM_PING_PROMPT } from "@getpaseo/protocol/agent-cache-warm";
 import { startAgentRun } from "./agent-prompt.js";
+import { compactWithModel } from "./compact-with-model.js";
 import { StaleProviderSessionError } from "./stale-provider-session-error.js";
 import { PromptCacheJournal } from "./prompt-cache-journal.js";
 import { ensureAgentLoaded, ensureUnarchivedAgentLoaded } from "./agent-loading.js";
@@ -13065,6 +13066,190 @@ test("measures a native fork's first request against its parent's last request",
   } finally {
     if (forkId) await manager.closeAgent(forkId);
     if (parentId) await manager.closeAgent(parentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("measures a native fork on another model as a fresh session", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-native-fork-model-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const requestCaches = [
+    { readTokens: 0, writeTokens: 900, uncachedTokens: 100, writeTtl: "5m" as const },
+    { readTokens: 0, writeTokens: 1100, uncachedTokens: 100, writeTtl: "5m" as const },
+  ];
+  let turns = 0;
+
+  class ForkModelSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      turns += 1;
+      const turnId = `turn-fork-model-${turns}`;
+      const requestCache = requestCaches.shift();
+      if (!requestCache) throw new Error(`no scripted cache usage for turn ${turns}`);
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: { contextWindowUsedTokens: 1200, requestCache },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class ForkModelClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new ForkModelSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new ForkModelClient() },
+    registry: storage,
+    logger,
+  });
+
+  let parentId: string | undefined;
+  let forkId: string | undefined;
+  try {
+    const parent = await manager.createAgent(
+      { provider: "codex", cwd: workdir, model: "model-a" },
+      undefined,
+      { workspaceId: undefined },
+    );
+    parentId = parent.id;
+    await manager.runAgent(parent.id, "parent turn");
+
+    const fork = await manager.createAgent(
+      { provider: "codex", cwd: workdir, model: "model-b" },
+      undefined,
+      { workspaceId: undefined, labels: { nativeForkOf: parent.id } },
+    );
+    forkId = fork.id;
+    await manager.runAgent(fork.id, "fork turn");
+
+    const forkCache = manager.getAgent(fork.id)?.promptCache;
+    expect(forkCache?.history).toHaveLength(1);
+    expect(forkCache?.history[0]).not.toHaveProperty("previousInputTokens");
+    expect(forkCache?.totals).toEqual({ requests: 0, hits: 0, misses: 0 });
+  } finally {
+    if (forkId) await manager.closeAgent(forkId);
+    if (parentId) await manager.closeAgent(parentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("compacts on another model, then restores the agent's own model and thinking", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-compact-with-model-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const calls: string[] = [];
+
+  class CompactSession extends TestAgentSession {
+    async setModel(modelId: string | null): Promise<void> {
+      calls.push(`model:${modelId}`);
+    }
+    async setThinkingOption(thinkingOptionId: string | null): Promise<void> {
+      calls.push(`thinking:${thinkingOptionId}`);
+    }
+    override async startTurn(prompt?: AgentPromptInput): Promise<{ turnId: string }> {
+      calls.push(`turn:${typeof prompt === "string" ? prompt : "blocks"}`);
+      return super.startTurn();
+    }
+  }
+  class CompactClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new CompactSession(config);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new CompactClient() },
+    registry: storage,
+    logger,
+  });
+
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent(
+      { provider: "codex", cwd: workdir, model: "model-a", thinkingOptionId: "high" },
+      undefined,
+      { workspaceId: undefined },
+    );
+    agentId = agent.id;
+
+    await compactWithModel({
+      agentManager: manager,
+      agentStorage: storage,
+      logger,
+      agentId: agent.id,
+      model: "claude-haiku-5-5",
+      thinkingOptionId: "max",
+    });
+
+    expect(calls).toEqual([
+      "model:claude-haiku-5-5",
+      "thinking:max",
+      "turn:/compact",
+      "model:model-a",
+      "thinking:high",
+    ]);
+    expect(manager.getAgent(agent.id)?.config).toMatchObject({
+      model: "model-a",
+      thinkingOptionId: "high",
+    });
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("restores thinking after compacting even when the original model is rejected", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-compact-restore-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const calls: string[] = [];
+
+  class RejectingSession extends TestAgentSession {
+    async setModel(modelId: string | null): Promise<void> {
+      calls.push(`model:${modelId}`);
+      if (modelId === "model-a") throw new Error("model-a is not available");
+    }
+    async setThinkingOption(thinkingOptionId: string | null): Promise<void> {
+      calls.push(`thinking:${thinkingOptionId}`);
+    }
+  }
+  class RejectingClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new RejectingSession(config);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new RejectingClient() },
+    registry: storage,
+    logger,
+  });
+
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent(
+      { provider: "codex", cwd: workdir, model: "model-a", thinkingOptionId: "high" },
+      undefined,
+      { workspaceId: undefined },
+    );
+    agentId = agent.id;
+
+    await expect(
+      compactWithModel({
+        agentManager: manager,
+        agentStorage: storage,
+        logger,
+        agentId: agent.id,
+        model: "claude-haiku-5-5",
+        thinkingOptionId: "max",
+      }),
+    ).rejects.toThrow("model-a is not available");
+    expect(calls.slice(-2)).toEqual(["model:model-a", "thinking:high"]);
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
     rmSync(workdir, { recursive: true, force: true });
   }
 });

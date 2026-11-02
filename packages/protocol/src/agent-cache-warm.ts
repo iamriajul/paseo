@@ -462,3 +462,43 @@ export function isQuestionPermission(permission: {
 }): boolean {
   return permission.kind === "question" || permission.name === "AskUserQuestion";
 }
+
+/**
+ * Host setting `cacheExpiryStop`: what the daemon does once a Claude agent's cache expires.
+ * Claude's own cron and wake-up timers and its task notifications run inside the Claude process,
+ * so stopping the process is the only way to keep them from waking the agent cold.
+ * when-idle: stop the process unless a background task is still running.
+ * always: stop it, background tasks included.
+ * off: leave it running.
+ */
+export const CACHE_EXPIRY_STOP_POLICIES = ["when-idle", "always", "off"] as const;
+export type CacheExpiryStopPolicy = (typeof CACHE_EXPIRY_STOP_POLICIES)[number];
+export const DEFAULT_CACHE_EXPIRY_STOP_POLICY: CacheExpiryStopPolicy = "when-idle";
+
+export function resolveCacheExpiryStopPolicy(value: unknown): CacheExpiryStopPolicy {
+  return (CACHE_EXPIRY_STOP_POLICIES as readonly unknown[]).includes(value)
+    ? (value as CacheExpiryStopPolicy)
+    : DEFAULT_CACHE_EXPIRY_STOP_POLICY;
+}
+
+/**
+ * When a Claude agent's cache expires, or null when that is not known: another provider or model,
+ * the Automatic Cache window (Claude Code picks the TTL), or no request yet.
+ */
+export function resolvePromptCacheExpiresAtMs(input: {
+  provider: string;
+  modelId: string | null | undefined;
+  promptCacheTtl: unknown;
+  observedTtl: PromptCacheTtl | null | undefined;
+  anchorMs: number | null;
+}): number | null {
+  if (input.provider !== "claude" || !isClaudeModel(input.modelId)) return null;
+  if (input.anchorMs === null || resolvePromptCacheWindows(input.promptCacheTtl) === null) {
+    return null;
+  }
+  const windows = resolveEffectivePromptCacheWindows({
+    observedTtl: input.observedTtl,
+    promptCacheTtl: input.promptCacheTtl,
+  });
+  return windows ? input.anchorMs + windows.cacheWindowMs : null;
+}

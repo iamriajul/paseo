@@ -45,6 +45,12 @@ export interface AttachmentPersister {
   deleteAttachments: (metadata: AttachmentMetadata[]) => Promise<void> | void;
 }
 
+/** Compact the agent on this model before the message is sent. */
+export interface ComposerCompactFirst {
+  model: string;
+  thinkingOptionId?: string;
+}
+
 export interface ComposerSendClient {
   sendAgentMessage: (
     agentId: string,
@@ -54,6 +60,7 @@ export interface ComposerSendClient {
       activeTurnBehavior?: ActiveTurnBehavior;
       images: Array<{ data: string; mimeType: string }>;
       attachments: ReturnType<typeof splitComposerAttachmentsForSubmit>["attachments"];
+      compactFirst?: ComposerCompactFirst;
     },
   ) => Promise<unknown>;
   uploadFile: (input: { fileName: string; mimeType: string; bytes: Uint8Array }) => Promise<{
@@ -197,6 +204,7 @@ export interface DispatchComposerAgentMessageInput {
   submission: MessageSubmissionWriter;
   activeTurnBehavior?: ActiveTurnBehavior;
   activeTurnId?: string;
+  compactFirst?: ComposerCompactFirst;
 }
 
 export async function dispatchComposerAgentMessage(
@@ -224,6 +232,7 @@ export async function dispatchComposerAgentMessage(
       ...(input.activeTurnBehavior ? { activeTurnBehavior: input.activeTurnBehavior } : {}),
       images: imagesData ?? [],
       attachments: wirePayload.attachments,
+      ...(input.compactFirst ? { compactFirst: input.compactFirst } : {}),
     });
     input.submission.accept(input.agentId, clientMessageId);
   } catch (error) {

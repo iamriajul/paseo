@@ -67,6 +67,7 @@ import {
   getClaudeCustomModelThinkingOptions,
   parseClaudeCodeVersion,
   resolveClaudeDisabledThinkingForModel,
+  resolveClaudeWarmPingEffort,
 } from "./model-manifest.js";
 import { expandTilde } from "../../../../utils/path.js";
 import {
@@ -118,6 +119,7 @@ import {
   buildClaudeFeatures,
   claudeModelSupportsFastMode,
   resolveClaudePromptCacheTtl,
+  withNewAgentPromptCacheTtl,
 } from "./feature-definitions.js";
 import {
   buildBinaryDiagnosticRows,
@@ -2084,12 +2086,17 @@ export class ClaudeAgentClient implements AgentClient {
     });
   }
 
+  /** Features of an agent not created yet, so the Cache window shows the new-agent default. */
   async listFeatures(config: AgentSessionConfig): Promise<AgentFeature[]> {
     const claudeConfig = this.assertConfig(config);
+    const featureValues = withNewAgentPromptCacheTtl({
+      modelId: claudeConfig.model,
+      featureValues: claudeConfig.featureValues,
+    });
     return buildClaudeFeatures({
       modelId: claudeConfig.model,
       fastModeEnabled: claudeConfig.featureValues?.fast_mode === true,
-      promptCacheTtl: claudeConfig.featureValues?.prompt_cache_ttl,
+      promptCacheTtl: featureValues?.prompt_cache_ttl,
       cacheWarmEnabled:
         typeof claudeConfig.featureValues?.[CLAUDE_CACHE_WARM_FEATURE_ID] === "boolean"
           ? claudeConfig.featureValues[CLAUDE_CACHE_WARM_FEATURE_ID]
@@ -2776,6 +2783,9 @@ class ClaudeAgentSession implements AgentSession {
   private compactionMarkerOpen = false;
   private queryPumpPromise: Promise<void> | null = null;
   private queryRestartNeeded = false;
+  /** Whether the running Claude process is at the warm-up effort instead of the configured one. */
+  private warmPingEffortApplied = false;
+  private warmPingEffortSync: Promise<void> = Promise.resolve();
   private pendingInterruptAbort = false;
   /**
    * Whether Claude's main session is inside one of its own turns: set by system/init and by a
@@ -2992,6 +3002,7 @@ class ClaudeAgentSession implements AgentSession {
       if (!this.input) {
         throw new Error("Claude session input stream not initialized");
       }
+      await this.syncWarmPingEffort(options?.isWarmPing === true);
       this.activeForegroundQuery = this.query;
       this.activeForegroundInput = this.input;
       this.startQueryPump();
@@ -3507,6 +3518,10 @@ class ClaudeAgentSession implements AgentSession {
       metadata: { ...persistedConfig },
     };
     return this.persistence;
+  }
+
+  hasLiveRuntime(): boolean {
+    return this.childProcess !== null;
   }
 
   async canStopRuntime(): Promise<boolean> {
@@ -4146,8 +4161,9 @@ class ClaudeAgentSession implements AgentSession {
     this.logger.debug({ options: summarizeClaudeOptionsForLog(options) }, "claude query");
     this.input = input;
     this.runtimeSafety.reset();
-    // A fresh Claude process has no turn of its own in flight.
+    // A fresh Claude process has no turn of its own in flight, and starts at the configured effort.
     this.mainTurnInFlight = false;
+    this.warmPingEffortApplied = false;
     this.query = claudeQuery(
       { prompt: input.iterable, options },
       {
@@ -4214,6 +4230,46 @@ class ClaudeAgentSession implements AgentSession {
       );
     } catch (error) {
       this.logger.warn({ err: error, label }, "Claude query operation did not settle cleanly");
+    }
+  }
+
+  /**
+   * Restores the configured effort as soon as a warm-up turn ends, so a turn Claude starts on its
+   * own (a task notification, a wake-up) does not run at the lowered one.
+   */
+  private restoreAfterWarmPing(): void {
+    if (this.warmPingEffortApplied) {
+      this.warmPingEffortSync = this.syncWarmPingEffort(false);
+    }
+  }
+
+  /**
+   * Lowers the running process to the warm-up effort, or puts the configured one back. Thinking
+   * stays as configured: on Claude Code 2.1.314 neither `setMaxThinkingTokens(0)` nor the
+   * `alwaysThinkingEnabled` flag turns adaptive thinking off mid-session, and the former changes
+   * the thinking display instead.
+   */
+  private async syncWarmPingEffort(lowered: boolean): Promise<void> {
+    await this.warmPingEffortSync;
+    const query = this.query;
+    if (!query || this.warmPingEffortApplied === lowered) {
+      return;
+    }
+    const configuredEffort = this.resolveThinkingConfig().effort;
+    try {
+      if (lowered) {
+        const lowest = resolveClaudeWarmPingEffort(this.config.model);
+        if (lowest === null || lowest === configuredEffort) {
+          return;
+        }
+        this.warmPingEffortApplied = true;
+        await query.applyFlagSettings({ effortLevel: lowest });
+        return;
+      }
+      this.warmPingEffortApplied = false;
+      await query.applyFlagSettings({ effortLevel: configuredEffort ?? null });
+    } catch (error) {
+      this.logger.warn({ err: error, lowered }, "Failed to change the warm-up effort");
     }
   }
 
@@ -4745,6 +4801,7 @@ class ClaudeAgentSession implements AgentSession {
     this.activeTurnHasAssistantText = false;
     this.compactionMarkerOpen = false;
     this.syncTurnState("foreground turn terminal");
+    this.restoreAfterWarmPing();
   }
 
   private dispatchEvents(events: AgentStreamEvent[]): void {
@@ -4763,6 +4820,7 @@ class ClaudeAgentSession implements AgentSession {
         this.cancelCurrentTurn = null;
         this.activeTurnHasAssistantText = false;
         this.syncTurnState("foreground turn terminal");
+        this.restoreAfterWarmPing();
       } else if (this.autonomousTurn) {
         this.autonomousTurn = null;
         this.activeForegroundQuery = null;

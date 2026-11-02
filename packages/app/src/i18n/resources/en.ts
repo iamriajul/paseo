@@ -3219,6 +3219,22 @@ export const en = {
         accessibilityLabel: "Compact at the warm-up cap",
         error: "Unable to update the compaction setting",
       },
+      cacheExpiryStop: {
+        title: "When a cache expires",
+        options: {
+          "when-idle": "Keep tasks",
+          always: "Stop all",
+          off: "Off",
+        },
+        hints: {
+          "when-idle":
+            "Stop the Claude process once an agent's 5m or 1h cache expires, so its own timers and task notifications cannot wake it and write the whole context again. An agent with a background task still running keeps going.",
+          always:
+            "Stop the Claude process once an agent's 5m or 1h cache expires, background tasks included. Nothing wakes it until you send a message.",
+          off: "Leave the Claude process running after its cache expires. Its own timers, /loop and task notifications can wake it and write the whole context again.",
+        },
+        error: "Unable to update the cache expiry setting",
+      },
       orchestration: {
         title: "Orchestration",
         unavailable: "Connect to this host to manage orchestration",

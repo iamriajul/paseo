@@ -576,7 +576,7 @@ test("mcp create stamps cache_warm off for children when the host setting turns 
   }
 });
 
-test("mcp create leaves prompt_cache_ttl unset for non-parented claude agents", async () => {
+test("mcp create starts non-parented claude agents on a 1h Cache window", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "create-agent-cache-ttl-test-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
   const agentManager = createRealAgentManager(storage);
@@ -601,7 +601,7 @@ test("mcp create leaves prompt_cache_ttl unset for non-parented claude agents", 
     );
 
     const stored = await storage.get(snapshot.id);
-    expect(stored?.config.featureValues?.prompt_cache_ttl).toBeUndefined();
+    expect(stored?.config.featureValues?.prompt_cache_ttl).toBe("1h");
   } finally {
     await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
   }

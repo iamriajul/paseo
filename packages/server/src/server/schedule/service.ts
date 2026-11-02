@@ -32,6 +32,8 @@ import type {
   UpdateScheduleNewAgentConfig,
 } from "@getpaseo/protocol/schedule/types";
 import type { FirstAgentContext } from "@getpaseo/protocol/messages";
+import type { CacheExpiryStopPolicy } from "@getpaseo/protocol/agent-cache-warm";
+import { shouldSkipWakeForExpiredCache } from "../agent/prompt-cache-expiry.js";
 
 const SCHEDULE_TICK_INTERVAL_MS = 1000;
 // Re-checking a deferred archive costs a schedule-store read and a terminal
@@ -304,6 +306,8 @@ export interface ScheduleServiceOptions {
     workspaceId: string;
   }) => Promise<ScheduleRunTerminalSnapshot[]>;
   now?: () => Date;
+  /** Host setting `cacheExpiryStop`; a heartbeat leaves an agent with an expired cache asleep. */
+  cacheExpiryStop?: () => CacheExpiryStopPolicy;
   runner?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
 }
 
@@ -325,6 +329,7 @@ export class ScheduleService {
     workspaceId: string;
   }) => Promise<ScheduleRunTerminalSnapshot[]>;
   private readonly now: () => Date;
+  private readonly cacheExpiryStop: () => CacheExpiryStopPolicy;
   private readonly runner: (
     schedule: StoredSchedule,
     runId: string,
@@ -347,6 +352,7 @@ export class ScheduleService {
     this.archiveWorkspace = options.archiveWorkspace;
     this.listWorkspaceTerminals = options.listWorkspaceTerminals ?? (async () => []);
     this.now = options.now ?? (() => new Date());
+    this.cacheExpiryStop = options.cacheExpiryStop ?? (() => "off");
     this.runner = options.runner ?? ((schedule, runId) => this.executeSchedule(schedule, runId));
   }
 
@@ -1101,6 +1107,29 @@ export class ScheduleService {
           output: null,
           timelineText: "",
           finalText: "Skipped: rate limit cooldown active",
+        }),
+      };
+    }
+
+    const liveTarget = this.agentManager.getAgent(schedule.target.agentId);
+    if (
+      !this.agentManager.hasInFlightRun(schedule.target.agentId) &&
+      shouldSkipWakeForExpiredCache({
+        agent: liveTarget ?? record,
+        policy: this.cacheExpiryStop(),
+        nowMs: this.now().getTime(),
+      })
+    ) {
+      this.logger.info(
+        { agentId: schedule.target.agentId, scheduleId: schedule.id },
+        "Skipping heartbeat: the agent's prompt cache has expired",
+      );
+      return {
+        agentId: schedule.target.agentId,
+        output: buildRunOutput({
+          output: null,
+          timelineText: "",
+          finalText: "Skipped: the agent's prompt cache has expired",
         }),
       };
     }

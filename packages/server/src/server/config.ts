@@ -1,3 +1,4 @@
+import { resolveCacheExpiryStopPolicy } from "@getpaseo/protocol/agent-cache-warm";
 import { configurationEnvironment } from "./config-environment.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -588,6 +589,7 @@ function resolveMcpConfigSettings(
     autoResumeOnRateLimit: persisted.daemon?.autoResumeOnRateLimit ?? true,
     cacheWarmSubagents: persisted.daemon?.cacheWarmSubagents ?? true,
     cacheAutoCompact: persisted.daemon?.cacheAutoCompact ?? false,
+    cacheExpiryStop: resolveCacheExpiryStopPolicy(persisted.daemon?.cacheExpiryStop),
     appendSystemPrompt: resolveAppendSystemPrompt(persisted),
     ...resolveProfileLists(persisted),
     hostnames: mergeHostnames([
@@ -621,6 +623,7 @@ export type ResolvedDaemonSettings = Pick<
   | "autoResumeOnRateLimit"
   | "cacheWarmSubagents"
   | "cacheAutoCompact"
+  | "cacheExpiryStop"
   | "agentGateway"
   | "enableTerminalAgentHooks"
   | "appendSystemPrompt"

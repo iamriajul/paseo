@@ -49,7 +49,10 @@ replacement. Once closure succeeds, a failed resume leaves the durable agent clo
 Idle resumable runtimes are collected after one hour without activity, checked once a minute.
 Collection releases the process and preserves the agent record, conversation, relationships, and
 provider session. The next prompt resumes that session. Set `agents.idleRuntimeCleanup: false` in
-host config to disable automatic collection. The host setting applies immediately; config-file edits
+host config to disable the one-hour collection. A Claude agent with a 5m or 1h Cache window is
+also collected as soon as its prompt cache expires, under the separate `daemon.cacheExpiryStop`
+setting, because its own timers would otherwise wake it and write the whole context again (see
+`claude-prompt-cache-warming` in [fork-decisions.md](fork-decisions.md)). The host setting applies immediately; config-file edits
 apply on reload. Disabling invalidates pending safety checks and close admission. A close already
 started finishes. Re-enabling keeps the existing idle timestamps.
 

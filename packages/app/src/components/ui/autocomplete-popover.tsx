@@ -77,7 +77,15 @@ export function AutocompletePopover({
       measureAtRest(anchorElement),
       measureFloatingPanelPortalHost(portalHostName),
     ]).then(([anchorRect, hostRect]) => {
-      if (generation !== measurementGeneration.current || !anchorRect || !hostRect) {
+      if (generation !== measurementGeneration.current) {
+        return undefined;
+      }
+      if (!anchorRect || !hostRect) {
+        // The anchor or the portal host is not laid out yet, and nothing else re-measures until
+        // the anchor resizes, so try again on the next frame instead of leaving the popover unmounted.
+        requestAnimationFrame(() => {
+          if (generation === measurementGeneration.current) remeasure();
+        });
         return undefined;
       }
       setRelativeAnchorRect({

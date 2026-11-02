@@ -13,7 +13,12 @@ export const ONE_HOUR_CACHE_WINDOW_MS = 60 * 60 * 1000;
 export const FIVE_MINUTE_CACHE_WINDOW_MS = 5 * 60 * 1000;
 
 export const ONE_HOUR_CACHE_WARM_INTERVAL_MS = 58 * 60 * 1000;
-export const FIVE_MINUTE_CACHE_WARM_INTERVAL_MS = 4.5 * 60 * 1000;
+/**
+ * 4 minutes leaves a minute for the ping to reach Anthropic: it goes through Claude Code, its
+ * prompt hooks and the request's start on a large context. Measured: pings fired at 270 s began
+ * 289-290 s after the last request on a 500k context, and some only at 314-322 s.
+ */
+export const FIVE_MINUTE_CACHE_WARM_INTERVAL_MS = 4 * 60 * 1000;
 
 export const ONE_HOUR_CACHE_WARM_MAX_PINGS = 12;
 export const FIVE_MINUTE_CACHE_WARM_MAX_PINGS = 10;
@@ -50,7 +55,7 @@ export function resolveCacheAutoCompactEnabled(input: {
 /**
  * Longest foreground shell call Paseo lets a Claude agent make, per cache TTL. A main-thread
  * request can only refresh the cache once the call returns, so the 5m cap leaves the time the
- * request itself takes inside the window. It is a separate number from the 270 s warm interval.
+ * request itself takes inside the window. It is a separate number from the 240 s warm interval.
  */
 export const FOREGROUND_SHELL_CAP_MS: Record<PromptCacheTtl, number> = {
   "5m": 250_000,

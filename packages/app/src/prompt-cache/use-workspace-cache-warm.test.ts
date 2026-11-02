@@ -53,11 +53,11 @@ describe("useWorkspaceCacheWarm", () => {
 
   it("counts down to the next warm-up of an idle agent, every second", () => {
     const { result } = setup(agentWith({}));
-    expect(result.current.text).toBe("3:50");
+    expect(result.current.text).toBe("3:20");
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(result.current.text).toBe("3:49");
+    expect(result.current.text).toBe("3:19");
   });
 
   it("shows nothing while a turn runs, warm-up is off, or the window is Automatic", () => {

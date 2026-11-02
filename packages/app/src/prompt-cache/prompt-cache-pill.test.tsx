@@ -228,12 +228,12 @@ describe("PromptCachePill", () => {
     const { getByText } = renderPill(
       claudeAgent({ ttl: "5m", promptCache: promptCacheAt(NOW - 40 * SECOND) }),
     );
-    expect(getByText("warm · 3:50")).toBeTruthy();
+    expect(getByText("warm · 3:20")).toBeTruthy();
     expect(getByText("Expires in 4:20")).toBeTruthy();
     act(() => {
       vi.advanceTimersByTime(SECOND);
     });
-    expect(getByText("warm · 3:49")).toBeTruthy();
+    expect(getByText("warm · 3:19")).toBeTruthy();
   });
 
   it("shows how far into the idle cap the warm-ups are", () => {
@@ -395,7 +395,7 @@ describe("PromptCachePill", () => {
     );
     const pill = getByTestId("prompt-cache-pill");
     expect(Array.from(pill.querySelectorAll("span")).map((span) => span.textContent)).toEqual([
-      "warm · 3:50",
+      "warm · 3:20",
       "4",
     ]);
   });
@@ -412,7 +412,7 @@ describe("PromptCachePill", () => {
     );
     const pill = getByTestId("prompt-cache-pill");
     expect(Array.from(pill.querySelectorAll("span")).map((span) => span.textContent)).toEqual([
-      "warm · 3:50",
+      "warm · 3:20",
     ]);
   });
 

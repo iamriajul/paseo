@@ -126,13 +126,13 @@ describe("usePromptCache", () => {
     expect(result.current.status).toEqual({ kind: "expired" });
   });
 
-  it("counts a 5m window down from the last request, warming at 4m30s", () => {
+  it("counts a 5m window down from the last request, warming at 4m", () => {
     setupSession(claudeAgent({ ttl: "5m", promptCache: promptCacheAt(NOW - 40 * SECOND) }));
     const { result } = renderHook(() => usePromptCache("server-1", "agent-1"));
     expect(result.current.status).toEqual({ kind: "warm", remainingMs: 4 * MINUTE + 20 * SECOND });
     expect(result.current.warmup).toMatchObject({
       enabled: true,
-      plan: { kind: "next-ping", remainingMs: 3 * MINUTE + 50 * SECOND },
+      plan: { kind: "next-ping", remainingMs: 3 * MINUTE + 20 * SECOND },
       pingsUsed: 0,
       maxPings: 10,
     });

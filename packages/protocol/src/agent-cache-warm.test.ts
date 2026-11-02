@@ -28,10 +28,10 @@ describe("agent-cache-warm protocol utilities", () => {
     });
   });
 
-  it("resolves the 5m window: warm at 4m30s, 10-ping cap", () => {
+  it("resolves the 5m window: warm at 4m, 10-ping cap", () => {
     expect(resolvePromptCacheWindows("5m")).toEqual({
       cacheWindowMs: 5 * 60 * 1000,
-      warmIntervalMs: 270 * 1000,
+      warmIntervalMs: 240 * 1000,
       maxConsecutivePings: 10,
     });
   });

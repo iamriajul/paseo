@@ -138,11 +138,11 @@ describe("AgentCacheWarmManager", () => {
     expect(manager.schedule("agent-1")).toBe(false);
   });
 
-  it("warms a 5m window by default, 4m30s after the last request", async () => {
+  it("warms a 5m window by default, 4m after the last request", async () => {
     const { manager, sendPrompt } = createHarness({ ttl: "5m" });
     expect(manager.schedule("agent-1")).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(4.5 * MINUTE - 1000);
+    await vi.advanceTimersByTimeAsync(4 * MINUTE - 1000);
     expect(sendPrompt).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1000);
     expect(sendPrompt).toHaveBeenCalledWith(

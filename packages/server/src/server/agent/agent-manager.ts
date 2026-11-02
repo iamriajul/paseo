@@ -17,6 +17,7 @@ import {
   recordPromptCacheCompaction,
   type PromptCacheInheritance,
   latestPromptCacheEntry,
+  promptCacheInputTokens,
   CACHE_AUTO_COMPACT_FEATURE_ID,
   type PromptCacheCompaction,
   type AgentPromptCacheState,
@@ -5456,6 +5457,9 @@ export class AgentManager {
     agent: ActiveManagedAgent,
     tokens: NonNullable<AgentUsage["requestCache"]>,
   ): void {
+    // A translating gateway reports no input tokens on message_start, and the cache sample is
+    // taken from that event alone. An all-zero sample carries no accounting, so it is not a request.
+    if (promptCacheInputTokens(tokens) === 0) return;
     const sample: PromptCacheRequestSample = {
       ...tokens,
       at: new Date().toISOString(),

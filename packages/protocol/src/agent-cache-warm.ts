@@ -219,10 +219,16 @@ export interface PromptCacheCompaction {
 
 /** Whole-session tallies; the snapshot history is only a window, these never roll off. */
 export interface PromptCacheTotals {
-  /** Requests that had a cache to hit: not the agent's first request, not one after a compaction. */
+  /**
+   * Requests that had a cache to hit: not a fresh session's first request, not one after a
+   * compaction.
+   */
   requests: number;
   hits: number;
-  /** Misses a warm cache could have avoided: not the first request, not right after a compaction. */
+  /**
+   * Misses a warm cache could have avoided: not a fresh session's first request, not right after
+   * a compaction.
+   */
   misses: number;
 }
 

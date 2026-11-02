@@ -329,7 +329,13 @@ both:
 
 - **Do not mount the floating content until `anchorRect` is set.** Return
   `null` until then. This prevents the bad-width onLayout from happening at
-  all.
+  all. A measurement that resolves `null` means not ready yet (the portal host
+  is not registered, or the anchor is not laid out), so measure again on the
+  next frame. Nothing else re-measures until the anchor resizes, so a chain
+  that gives up after one `null` leaves the popover unmounted. End the chain
+  when the measurement is superseded (a dependency change or unmount) or on the
+  first success. `packages/app/src/components/ui/autocomplete-popover.tsx` is
+  the reference.
 - **Once `anchorRect` is set but `contentSize` isn't, render the wrapper with
   the final width but `opacity: 0`.** The first visible paint is at the
   correct position. This is the combobox pattern —

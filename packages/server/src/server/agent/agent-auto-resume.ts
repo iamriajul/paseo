@@ -117,9 +117,9 @@ function isResumablePersistedRecord(record: StoredAgentRecord): boolean {
   // A record with no provider session has nothing to resume into. Prompting it does not
   // continue anything -- it starts a fresh turn on a dead agent, which throws inside
   // AgentManager.startTurn, emits turn_failed, and leaves the agent (and its workspace)
-  // reporting "failed". A stale lastStatus of "running" is common: nothing reconciles
-  // persisted statuses at shutdown, so a hard crash leaves that value behind forever.
-  // Only records that actually carry a session are resumable.
+  // reporting "failed". A hard crash can leave lastStatus "running" behind; the boot repair in
+  // closeStaleAgentRecords (bootstrap.ts) closes those records before autoResumeBootRecords reads
+  // them. Only records that actually carry a session are resumable.
   if (!record.persistence?.sessionId) return false;
   return true;
 }
@@ -146,6 +146,9 @@ export async function captureRunningAgentsForShutdown(
     )
     .filter((agent) => !agent.internal)
     // A warm-up or idle-cap compaction turn is not user work; a resume would wake the session.
+    // This filter sees the graceful path only. After a hard crash the flag is gone, so the boot
+    // repair in closeStaleAgentRecords (bootstrap.ts) must close the crashed record before
+    // autoResumeBootRecords reads it. Keep that order.
     .filter((agent) => !agent.activeTurnIsWarmPing)
     // Hub-owned agents stay under Hub authority across restarts: the Hub
     // protocol replays or closes their executions itself, and a daemon-level

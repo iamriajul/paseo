@@ -936,3 +936,13 @@ The fork records its own releases (`x.y.9NN`) in `CHANGELOG.md`, and its GitHub 
 ```bash
 npx vitest run packages/website/src/changelog.test.ts --bail=1 -t "fork releases"
 ```
+
+## autocomplete-popover-remeasure
+
+**autocomplete popover measures again until its anchor is laid out**
+
+A measurement that comes back empty, because the portal host is not registered yet or the anchor is not laid out, is taken again on the next frame. Upstream drops it, and nothing measures again until the anchor resizes, so a popover opened during a slow load stayed unmounted. The proof renders the popover with its first two measurements empty and expects it to mount without a resize.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/components/ui/autocomplete-popover.test.tsx --bail=1
+```

@@ -1,4 +1,5 @@
 import { type WorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
+import { resolveCacheWarmMode, type CacheWarmMode } from "@getpaseo/protocol/agent-cache-warm";
 import {
   createAgentMessageDelivery,
   type AgentMessageDelivery,
@@ -613,6 +614,8 @@ export class VoiceAssistantWebSocketServer {
   private readonly credentialSource: DaemonAuthConfig | undefined;
   private readonly worktreesRoot: string | undefined;
   private readonly daemonConfigStore: DaemonConfigStore;
+  /** The warm-up mode the latest server_info carried, so a change re-sends it. */
+  private advertisedCacheWarmMode: CacheWarmMode | null = null;
   private readonly pushNotifications: PushNotifications;
   private readonly pushNotificationSender: PushNotificationSender;
   private readonly mcpBaseUrl: string | null;
@@ -855,6 +858,11 @@ export class VoiceAssistantWebSocketServer {
     });
     const unsubscribeChange = this.daemonConfigStore.onChange((config) => {
       this.broadcastDaemonConfigChanged(config);
+      // `cacheWarmFork` in server_info follows the warm-up mode, so clients learn of a change live.
+      const advertised = this.advertisedCacheWarmMode;
+      if (advertised && resolveCacheWarmMode(config.cacheWarmMode) !== advertised) {
+        this.broadcastCapabilitiesUpdate();
+      }
     });
     return () => {
       unsubscribeProviderConfig();
@@ -2185,8 +2193,11 @@ export class VoiceAssistantWebSocketServer {
         cacheExpiryStop: true,
         // COMPAT(childReportExpiredCache): added in v0.14.907, drop gate after 2027-05-01.
         childReportExpiredCache: true,
-        // COMPAT(cacheWarmFork): added in v0.14.904, drop gate after 2027-05-01.
-        cacheWarmFork: true,
+        // COMPAT(cacheWarmFork): added in v0.14.904, drop gate after 2027-05-01. True only while the
+        // host warms through forks (cacheWarmMode v2); v1 sends a ping turn, as before forks.
+        cacheWarmFork: this.advertiseCacheWarmMode() === "fork",
+        // COMPAT(cacheWarmMode): added in v0.14.907, drop gate after 2027-05-01.
+        cacheWarmMode: true,
         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
         agentNativeFork: true,
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
@@ -2289,6 +2300,11 @@ export class VoiceAssistantWebSocketServer {
         config,
       },
     });
+  }
+
+  private advertiseCacheWarmMode(): CacheWarmMode {
+    this.advertisedCacheWarmMode = resolveCacheWarmMode(this.daemonConfigStore.get().cacheWarmMode);
+    return this.advertisedCacheWarmMode;
   }
 
   private broadcastCapabilitiesUpdate(): void {

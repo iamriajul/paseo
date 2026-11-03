@@ -3059,6 +3059,18 @@ export const ko: TranslationResources = {
       claudeCache: {
         info: "이 설정은 Claude Code 에이전트에만 적용됩니다. 다른 에이전트는 Anthropic의 프롬프트 캐시를 쓰지 않으므로 이 설정을 무시합니다.",
       },
+      cacheWarmMode: {
+        title: "워밍 방식",
+        options: {
+          ping: "v1 · Ping",
+          fork: "v2 · Fork",
+        },
+        hints: {
+          ping: "캐시가 만료되기 직전에 에이전트에 짧은 ping 턴을 보냅니다. 유휴 에이전트가 필요하므로 실행 중이거나 막힌 에이전트는 워밍되지 않으며, 각 ping과 응답이 채팅에 남습니다.",
+          fork: "실험적. 세션의 일회용 포크로 캐시를 워밍하므로 실행 중이거나 막힌 에이전트도 워밍되고 채팅에는 아무것도 남지 않습니다. 세션을 여러 계정에 나누는 게이트웨이를 거치면 포크가 다른 계정에 도착해 전체 컨텍스트를 그곳에 쓸 수 있습니다.",
+        },
+        error: "워밍 방식을 업데이트할 수 없습니다",
+      },
       childReportExpiredCache: {
         title: "만료된 오케스트레이터에 하위 에이전트가 보고할 때",
         options: {

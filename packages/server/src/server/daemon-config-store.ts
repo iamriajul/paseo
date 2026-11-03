@@ -32,6 +32,7 @@ interface SupportedMutableConfigPatch {
   cacheAutoCompact?: boolean;
   cacheExpiryStop?: string;
   childReportExpiredCache?: string;
+  cacheWarmMode?: string;
   enableTerminalAgentHooks?: boolean;
   idleRuntimeCleanup?: boolean;
   appendSystemPrompt?: string;
@@ -203,6 +204,7 @@ const RELOADABLE_PATHS = [
   "daemon.cacheAutoCompact",
   "daemon.cacheExpiryStop",
   "daemon.childReportExpiredCache",
+  "daemon.cacheWarmMode",
   "daemon.enableTerminalAgentHooks",
   "daemon.appendSystemPrompt",
   "daemon.terminalProfiles",
@@ -233,6 +235,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.cacheAutoCompact", "cacheAutoCompact"],
   ["daemon.cacheExpiryStop", "cacheExpiryStop"],
   ["daemon.childReportExpiredCache", "childReportExpiredCache"],
+  ["daemon.cacheWarmMode", "cacheWarmMode"],
   ["daemon.enableTerminalAgentHooks", "enableTerminalAgentHooks"],
   ["daemon.appendSystemPrompt", "appendSystemPrompt"],
   ["daemon.terminalProfiles", "terminalProfiles"],
@@ -355,7 +358,11 @@ function pickPromptCachePatch(
   patch: MutableDaemonConfigPatch,
 ): Pick<
   SupportedMutableConfigPatch,
-  "cacheWarmSubagents" | "cacheAutoCompact" | "cacheExpiryStop" | "childReportExpiredCache"
+  | "cacheWarmSubagents"
+  | "cacheAutoCompact"
+  | "cacheExpiryStop"
+  | "childReportExpiredCache"
+  | "cacheWarmMode"
 > {
   return {
     ...(patch.cacheWarmSubagents !== undefined
@@ -366,6 +373,7 @@ function pickPromptCachePatch(
     ...(patch.childReportExpiredCache !== undefined
       ? { childReportExpiredCache: patch.childReportExpiredCache }
       : {}),
+    ...(patch.cacheWarmMode !== undefined ? { cacheWarmMode: patch.cacheWarmMode } : {}),
   };
 }
 

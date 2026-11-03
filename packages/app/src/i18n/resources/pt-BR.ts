@@ -3084,6 +3084,18 @@ export const ptBR: TranslationResources = {
       claudeCache: {
         info: "Estas configurações valem apenas para agentes do Claude Code. Os outros agentes não usam o cache de prompts da Anthropic e as ignoram.",
       },
+      cacheWarmMode: {
+        title: "Método de aquecimento",
+        options: {
+          ping: "v1 · Ping",
+          fork: "v2 · Fork",
+        },
+        hints: {
+          ping: "Envia ao agente um turno curto de ping pouco antes de o cache expirar. Precisa de um agente ocioso, então um agente em execução ou bloqueado não é aquecido, e cada ping e sua resposta ficam no chat.",
+          fork: "Experimental. Aquece o cache por um fork descartável da sessão, então agentes em execução ou bloqueados também são aquecidos e nada chega ao chat. Por um gateway que distribui sessões entre contas, um fork pode cair em outra conta e escrever lá todo o contexto.",
+        },
+        error: "Não foi possível atualizar o método de aquecimento",
+      },
       childReportExpiredCache: {
         title: "Quando um agente filho reporta a um orquestrador expirado",
         options: {

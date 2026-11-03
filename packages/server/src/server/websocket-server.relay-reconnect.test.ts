@@ -261,6 +261,7 @@ function createServer(options?: {
   const daemonConfigStore = {
     onApply: vi.fn(() => () => {}),
     onChange: vi.fn(() => () => {}),
+    get: vi.fn(() => ({})),
   };
   const logger = options?.logger ?? createLogger();
   return new VoiceAssistantWebSocketServer(

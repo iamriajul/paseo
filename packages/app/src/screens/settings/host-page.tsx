@@ -22,6 +22,9 @@ import {
   CACHE_EXPIRY_STOP_POLICIES,
   resolveCacheExpiryStopPolicy,
   type CacheExpiryStopPolicy,
+  CACHE_WARM_MODES,
+  resolveCacheWarmMode,
+  type CacheWarmMode,
   CHILD_REPORT_EXPIRED_CACHE_POLICIES,
   resolveChildReportExpiredCachePolicy,
   type ChildReportExpiredCachePolicy,
@@ -313,6 +316,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
             info={t("settings.host.claudeCache.info")}
             testID="host-page-claude-cache-section"
           >
+            <CacheWarmModeCard serverId={serverId} />
             <CacheWarmSubagentsCard serverId={serverId} />
             <CacheAutoCompactCard serverId={serverId} />
             <CacheExpiryStopCard serverId={serverId} />
@@ -1116,6 +1120,56 @@ function CacheExpiryStopCard({ serverId }: { serverId: string }) {
           onValueChange={handleValueChange}
           size="sm"
           testID="host-page-cache-expiry-stop"
+        />
+      </PolicyRow>
+    </View>
+  );
+}
+
+/** How warm-up reaches the cache: v1 pings the agent, v2 (experimental) forks the session. */
+function CacheWarmModeCard({ serverId }: { serverId: string }) {
+  const { t } = useTranslation();
+  const isConnected = useHostRuntimeIsConnected(serverId);
+  const supported = useHostFeature(serverId, "cacheWarmMode");
+  const { config, patchConfig } = useDaemonConfig(serverId);
+  const value = resolveCacheWarmMode(config?.cacheWarmMode);
+  const options = useMemo(
+    () =>
+      CACHE_WARM_MODES.map((mode) => ({
+        value: mode,
+        label: t(`settings.host.cacheWarmMode.options.${mode}`),
+        testID: `host-page-cache-warm-mode-${mode}`,
+      })),
+    [t],
+  );
+
+  const handleValueChange = useCallback(
+    (next: CacheWarmMode) => {
+      void patchConfig({ cacheWarmMode: next }).catch((error) => {
+        console.error("[HostPage] Failed to update the warm-up method", error);
+        Alert.alert(
+          t("settings.host.cacheWarmMode.error"),
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    },
+    [patchConfig, t],
+  );
+
+  if (!isConnected || !supported) return null;
+
+  return (
+    <View style={settingsStyles.card} testID="host-page-cache-warm-mode-card">
+      <PolicyRow
+        title={t("settings.host.cacheWarmMode.title")}
+        hint={t(`settings.host.cacheWarmMode.hints.${value}`)}
+      >
+        <SegmentedControl
+          options={options}
+          value={value}
+          onValueChange={handleValueChange}
+          size="sm"
+          testID="host-page-cache-warm-mode"
         />
       </PolicyRow>
     </View>

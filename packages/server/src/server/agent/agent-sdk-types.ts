@@ -696,6 +696,11 @@ export interface AgentUsageSession {
   sessionKey: string;
 }
 
+/** A warm-up's cache sample, and what the warm-up cost on its own when the model is priced. */
+export interface CacheWarmResult extends PromptCacheRequestTokens {
+  costUsd?: number;
+}
+
 export interface AgentSession {
   usageSession?(): AgentUsageSession | null;
   readonly provider: AgentProvider;
@@ -737,7 +742,7 @@ export interface AgentSession {
    * Refreshes the prompt cache without sending the agent anything, so it works mid-turn. Returns
    * the refreshing request's cache sample, or null when there is no session to warm yet.
    */
-  warmPromptCache?(): Promise<PromptCacheRequestTokens | null>;
+  warmPromptCache?(): Promise<CacheWarmResult | null>;
   /** Stop a provider-owned background shell task (Claude `stopTask`). */
   stopBackgroundTask?(taskId: string): Promise<void>;
   /** Read a capped slice of a background task output file. */

@@ -241,6 +241,7 @@ const StoredAgentSnapshotSchema = z.strictObject({
   lastResponseAt: IsoDateSchema.nullable().optional(),
   consecutiveWarmPings: z.number().optional(),
   totalWarmPings: z.number().optional(),
+  warmUpCostUsd: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
   cacheAutoCompact: z.boolean().optional(),
   status: AgentStatusSchema,
@@ -664,7 +665,7 @@ function serializeCapabilities(capabilities: Agent["capabilities"]) {
 function serializeCacheWarmState(
   agent: Pick<
     Agent,
-    "consecutiveWarmPings" | "totalWarmPings" | "promptCache" | "cacheAutoCompact"
+    "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd" | "promptCache" | "cacheAutoCompact"
   >,
 ) {
   return {
@@ -672,6 +673,7 @@ function serializeCacheWarmState(
       ? { consecutiveWarmPings: agent.consecutiveWarmPings }
       : {}),
     ...(agent.totalWarmPings !== undefined ? { totalWarmPings: agent.totalWarmPings } : {}),
+    ...(agent.warmUpCostUsd !== undefined ? { warmUpCostUsd: agent.warmUpCostUsd } : {}),
     ...(agent.promptCache ? { promptCache: agent.promptCache } : {}),
     ...(agent.cacheAutoCompact !== undefined ? { cacheAutoCompact: agent.cacheAutoCompact } : {}),
   };

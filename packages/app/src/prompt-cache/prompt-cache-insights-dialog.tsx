@@ -22,7 +22,9 @@ import {
   describeRequest,
   matchesRequestFilter,
   sliceInsightsRange,
+  describeReportedCost,
   type InsightsRange,
+  type ReportedCost,
   type RequestFilter,
   type RequestRow,
 } from "./prompt-cache-explorer";
@@ -125,6 +127,12 @@ export function PromptCacheInsightsDialog({
   const load = useInsightsLoad({ serverId, agentId, visible, revision });
   const agent = usePromptCacheAgent(serverId, agentId);
   const model = agent?.model ?? agent?.runtimeInfo?.model ?? null;
+  const claudeCodeUsd = agent?.lastUsage?.totalCostUsd ?? null;
+  const warmUpUsd = agent?.warmUpCostUsd ?? null;
+  const reported: ReportedCost = useMemo(
+    () => ({ claudeCodeUsd, warmUpUsd }),
+    [claudeCodeUsd, warmUpUsd],
+  );
   const price = useMemo(
     () =>
       createRequestPricer({
@@ -141,7 +149,7 @@ export function PromptCacheInsightsDialog({
       desktopMaxWidth={760}
       testID="prompt-cache-insights"
     >
-      <InsightsBody load={load} price={price} cacheWindowMs={cacheWindowMs} />
+      <InsightsBody load={load} price={price} cacheWindowMs={cacheWindowMs} reported={reported} />
     </AdaptiveModalSheet>
   );
 }
@@ -150,10 +158,12 @@ function InsightsBody({
   load,
   price,
   cacheWindowMs,
+  reported,
 }: {
   load: InsightsLoad;
   price: RequestPricer;
   cacheWindowMs: number;
+  reported: ReportedCost;
 }): ReactElement {
   switch (load.kind) {
     case "loading":
@@ -166,7 +176,12 @@ function InsightsBody({
       return selectShownRequests(load.data.requests).length === 0 ? (
         <Text style={styles.note}>No requests recorded yet.</Text>
       ) : (
-        <InsightsExplorer data={load.data} price={price} cacheWindowMs={cacheWindowMs} />
+        <InsightsExplorer
+          data={load.data}
+          price={price}
+          cacheWindowMs={cacheWindowMs}
+          reported={reported}
+        />
       );
   }
 }
@@ -211,10 +226,12 @@ function InsightsExplorer({
   data,
   price,
   cacheWindowMs,
+  reported,
 }: {
   data: InsightsData;
   price: RequestPricer;
   cacheWindowMs: number;
+  reported: ReportedCost;
 }): ReactElement {
   const shown = useMemo(() => selectShownRequests(data.requests), [data.requests]);
   const [zoomStack, setZoomStack] = useState<InsightsRange[]>([]);
@@ -319,7 +336,7 @@ function InsightsExplorer({
         <Tile label="Warm-ups" value={String(insights.warmUps)} />
         <Tile label="Compactions" value={String(insights.compactions.length)} />
       </View>
-      <CostSplit cost={sessionCost} />
+      <CostSplit cost={sessionCost} reported={zoomStack.length === 0 ? reported : null} />
       <View style={styles.chartHeader}>
         <Text style={styles.sectionTitle}>
           {metric === "cache" ? "How each request met the cache" : "Estimated input cost"}
@@ -449,7 +466,13 @@ function RangeBar({
   );
 }
 
-function CostSplit({ cost }: { cost: InsightsCost }): ReactElement | null {
+function CostSplit({
+  cost,
+  reported,
+}: {
+  cost: InsightsCost;
+  reported: ReportedCost | null;
+}): ReactElement | null {
   const total = cost.warmUpUsd + cost.workUsd;
   if (total <= 0) return null;
   const warmShare = cost.warmUpUsd / total;
@@ -457,7 +480,7 @@ function CostSplit({ cost }: { cost: InsightsCost }): ReactElement | null {
   const stretches = payback.kept + payback.lapsed;
   return (
     <View style={styles.section} testID="prompt-cache-insights-cost">
-      <Text style={styles.sectionTitle}>Where the input cost went</Text>
+      <Text style={styles.sectionTitle}>Where the input cost went (estimate)</Text>
       <View style={styles.splitTrack}>
         <View style={[styles.splitWork, { flex: Math.max(1 - warmShare, 0.0001) }]} />
         {warmShare > 0 ? <View style={[styles.splitWarm, { flex: warmShare }]} /> : null}
@@ -475,6 +498,11 @@ function CostSplit({ cost }: { cost: InsightsCost }): ReactElement | null {
       {stretches > 0 || payback.ongoing ? (
         <Text style={styles.listText} testID="prompt-cache-insights-payback">
           {describePayback(cost)}
+        </Text>
+      ) : null}
+      {reported && describeReportedCost(reported) ? (
+        <Text style={styles.note} testID="prompt-cache-insights-reported-cost">
+          {describeReportedCost(reported)}
         </Text>
       ) : null}
       {cost.unpriced > 0 ? (

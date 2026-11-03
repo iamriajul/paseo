@@ -13370,6 +13370,76 @@ test("records a fork warm-up as a warm-up request without starting a turn", asyn
   }
 });
 
+test("adds each fork warm-up's own cost and keeps the session cost through a turn's usage updates", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-warm-cost-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  let turns = 0;
+
+  class CostSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      turns += 1;
+      const turnId = `turn-cost-${turns}`;
+      const first = turns === 1;
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: {
+            contextWindowUsedTokens: 1000 * turns,
+            requestCache: { readTokens: 900, writeTokens: 100, uncachedTokens: 0 },
+          },
+        });
+        this.pushEvent({
+          type: "turn_completed",
+          provider: this.provider,
+          turnId,
+          ...(first ? { usage: { totalCostUsd: 3.5 } } : {}),
+        });
+      }, 0);
+      return { turnId };
+    }
+    async warmPromptCache() {
+      return { readTokens: 1000, writeTokens: 5, uncachedTokens: 2, costUsd: 0.25 };
+    }
+  }
+  class CostClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new CostSession(config);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new CostClient() },
+    registry: storage,
+    logger,
+  });
+
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    await manager.runAgent(agent.id, "first turn");
+    await manager.warmPromptCache(agent.id);
+    await manager.warmPromptCache(agent.id);
+
+    expect(manager.getAgent(agent.id)?.warmUpCostUsd).toBeCloseTo(0.5, 9);
+    // The cost stays off the cache sample and the journal entry.
+    expect(manager.getAgent(agent.id)?.promptCache?.lastRequest).not.toHaveProperty("costUsd");
+
+    // A turn whose updates carry only the context size keeps the last reported cost.
+    await manager.runAgent(agent.id, "second turn");
+    expect(manager.getAgent(agent.id)?.lastUsage).toMatchObject({
+      totalCostUsd: 3.5,
+      contextWindowUsedTokens: 2000,
+    });
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("does not record a request whose usage carries no token accounting", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-unaccounted-cache-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

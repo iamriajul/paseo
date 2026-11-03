@@ -501,6 +501,8 @@ interface ManagedAgentBase {
   consecutiveWarmPings?: number;
   /** Warm-ups that reached Anthropic over the agent's life; never reset. */
   totalWarmPings?: number;
+  /** Cost of this agent's cache warm-ups at API list prices, over its whole life. */
+  warmUpCostUsd?: number;
   promptCache?: AgentPromptCacheState;
   lastUsage?: AgentUsage;
   lastError?: string;
@@ -827,13 +829,17 @@ function resolveRequestModel(agent: {
 
 function pickCacheWarmRegistration(
   options:
-    | Pick<ManagedAgent, "promptCache" | "consecutiveWarmPings" | "totalWarmPings">
+    | Pick<
+        ManagedAgent,
+        "promptCache" | "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd"
+      >
     | undefined,
-): Pick<ManagedAgent, "promptCache" | "consecutiveWarmPings" | "totalWarmPings"> {
+): Pick<ManagedAgent, "promptCache" | "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd"> {
   return {
     promptCache: options?.promptCache,
     consecutiveWarmPings: options?.consecutiveWarmPings,
     totalWarmPings: options?.totalWarmPings,
+    warmUpCostUsd: options?.warmUpCostUsd,
   };
 }
 
@@ -1838,6 +1844,7 @@ export class AgentManager {
       promptCache: record?.promptCache,
       consecutiveWarmPings: record?.consecutiveWarmPings,
       totalWarmPings: record?.totalWarmPings,
+      warmUpCostUsd: record?.warmUpCostUsd,
       lastUsage: record?.lastUsage,
     });
   }
@@ -2537,6 +2544,7 @@ export class AgentManager {
         lastResponseAt,
         consecutiveWarmPings: record.consecutiveWarmPings ?? undefined,
         totalWarmPings: record.totalWarmPings ?? undefined,
+        warmUpCostUsd: record.warmUpCostUsd ?? undefined,
         lastUsage: record.lastUsage,
         lastError: record.lastError ?? undefined,
         attention,
@@ -4360,6 +4368,7 @@ export class AgentManager {
       promptCache?: AgentPromptCacheState;
       consecutiveWarmPings?: number;
       totalWarmPings?: number;
+      warmUpCostUsd?: number;
       /**
        * Bringing a known agent back, rather than starting a new one. Its timestamps and
        * attention come from what was already recorded, and installing the session is not
@@ -4568,6 +4577,7 @@ export class AgentManager {
           promptCache?: AgentPromptCacheState;
           consecutiveWarmPings?: number;
           totalWarmPings?: number;
+          warmUpCostUsd?: number;
         }
       | undefined,
   ) {
@@ -4611,6 +4621,7 @@ export class AgentManager {
           promptCache?: AgentPromptCacheState;
           consecutiveWarmPings?: number;
           totalWarmPings?: number;
+          warmUpCostUsd?: number;
         }
       | undefined;
   }): ActiveManagedAgent {
@@ -5341,13 +5352,17 @@ export class AgentManager {
       case "thread_started":
         this.onStreamThreadStarted(agent);
         return undefined;
-      case "usage_updated":
-        agent.lastUsage = event.usage;
+      case "usage_updated": {
+        // Merge, so the session cost from the last completed turn stays shown mid-turn; a
+        // per-request update carries the context size, not the cost.
+        const { requestCache: _requestCache, ...usage } = event.usage;
+        agent.lastUsage = { ...agent.lastUsage, ...usage };
         if (event.usage.requestCache) {
           this.recordPromptCacheRequest(agent, event.usage.requestCache);
         }
         this.emitState(agent);
         return undefined;
+      }
       case "mode_changed":
         this.applyObservedMode(agent, event.currentModeId);
         agent.availableModes = event.availableModes;
@@ -5530,8 +5545,10 @@ export class AgentManager {
    */
   async warmPromptCache(agentId: string): Promise<boolean> {
     const agent = this.requireSessionAgent(agentId);
-    const tokens = await agent.session.warmPromptCache?.();
-    if (!tokens || promptCacheInputTokens(tokens) === 0) return false;
+    const result = await agent.session.warmPromptCache?.();
+    if (!result || promptCacheInputTokens(result) === 0) return false;
+    const { costUsd, ...tokens } = result;
+    if (costUsd !== undefined) agent.warmUpCostUsd = (agent.warmUpCostUsd ?? 0) + costUsd;
     this.recordPromptCacheRequest(agent, tokens, { isWarmPing: true, turnId: null });
     this.emitState(agent);
     return true;

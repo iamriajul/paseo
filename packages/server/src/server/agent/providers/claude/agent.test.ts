@@ -1162,7 +1162,20 @@ describe("ClaudeAgentSession features", () => {
           },
         },
       } as unknown as SDKMessage,
-      { type: "result", subtype: "success" } as unknown as SDKMessage,
+      {
+        type: "result",
+        subtype: "success",
+        // A fork restores the session's running total, so total_cost_usd is not the fork's cost.
+        total_cost_usd: 12.5,
+        usage: {
+          input_tokens: 2,
+          cache_read_input_tokens: 53_854,
+          cache_creation_input_tokens: 126,
+          cache_creation: { ephemeral_5m_input_tokens: 126, ephemeral_1h_input_tokens: 0 },
+          output_tokens: 4,
+        },
+        modelUsage: { "claude-haiku-5-5": {} },
+      } as unknown as SDKMessage,
     ];
     const close = vi.fn();
     const queryFactory = vi.fn(() => {
@@ -1192,6 +1205,8 @@ describe("ClaudeAgentSession features", () => {
         writeTokens: 126,
         uncachedTokens: 2,
         writeTtl: "5m",
+        // Haiku 5.5 under 100k: 2 + 53,854 × 0.1 + 126 × 1.25 input units at $0.10/M, 4 output at $0.50/M.
+        costUsd: expect.closeTo(0.00055649, 9),
       });
       const { prompt, options } = queryFactory.mock.calls[0]![0] as {
         prompt: unknown;

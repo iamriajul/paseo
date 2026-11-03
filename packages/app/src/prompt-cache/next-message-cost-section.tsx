@@ -30,6 +30,23 @@ export function describeNextMessage(cost: NextMessageCost): { headline: string; 
   }
 }
 
+/** Says how much of the session cost was cache warm-ups, which Claude Code does not count. */
+export function WarmUpCostNote({
+  serverId,
+  agentId,
+}: {
+  serverId: string;
+  agentId: string;
+}): ReactElement | null {
+  const warmUpCostUsd = usePromptCacheAgent(serverId, agentId)?.warmUpCostUsd;
+  if (!warmUpCostUsd || warmUpCostUsd <= 0) return null;
+  return (
+    <Text style={styles.detail} testID="session-cost-warm-ups">
+      Includes ≈ {formatUsdEstimate(warmUpCostUsd)} of cache warm-ups
+    </Text>
+  );
+}
+
 /**
  * The price of the next message to a Claude agent, read off its last request. It answers "is it
  * worth resuming this": a live cache reads the context cheaply, an expired one writes it again.

@@ -102,4 +102,13 @@ describe("describeReportedCost", () => {
     );
     expect(describeReportedCost({ claudeCodeUsd: null, warmUpUsd: null })).toBeNull();
   });
+
+  it("says Claude Code leaves out fork warm-ups only when there are some", () => {
+    expect(describeReportedCost({ claudeCodeUsd: 43.77, warmUpUsd: 1.3 })).toContain(
+      "but not fork warm-ups",
+    );
+    expect(describeReportedCost({ claudeCodeUsd: 43.77, warmUpUsd: null })).not.toContain(
+      "warm-ups",
+    );
+  });
 });

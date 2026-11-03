@@ -133,5 +133,10 @@ export function describeReportedCost(reported: ReportedCost): string | null {
   if (warmUpUsd !== null) parts.push(`warm-ups ≈ ${formatUsdEstimate(warmUpUsd)}`);
   const total = (claudeCodeUsd ?? 0) + (warmUpUsd ?? 0);
   const sum = parts.length > 1 ? ` · ${formatUsdEstimate(total)} in all` : "";
-  return `Session cost: ${parts.join(" + ")}${sum}. Claude Code's figure counts output and subagents and leaves warm-ups out; the split above is an input estimate from the request journal.`;
+  // Only a fork warm-up (v2) has a priced cost of its own; a ping warm-up is a turn Claude Code counts.
+  const counts =
+    warmUpUsd === null
+      ? "counts output and subagents"
+      : "counts output and subagents but not fork warm-ups";
+  return `Session cost: ${parts.join(" + ")}${sum}. Claude Code's figure ${counts}; the split above is an input estimate from the request journal.`;
 }

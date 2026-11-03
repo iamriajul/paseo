@@ -58,6 +58,12 @@ type InsightsLoad =
 
 type ChartMetric = "cache" | "cost";
 
+/** Which bar is selected: its first request and how many requests it stands for. */
+interface ColumnKey {
+  at: string;
+  requests: number;
+}
+
 const METRIC_OPTIONS: Array<{ value: ChartMetric; label: string; testID: string }> = [
   { value: "cache", label: "Cache", testID: "prompt-cache-insights-metric-cache" },
   { value: "cost", label: "Cost", testID: "prompt-cache-insights-metric-cost" },
@@ -235,7 +241,9 @@ function InsightsExplorer({
 }): ReactElement {
   const shown = useMemo(() => selectShownRequests(data.requests), [data.requests]);
   const [zoomStack, setZoomStack] = useState<InsightsRange[]>([]);
-  const [selected, setSelected] = useState<number | null>(null);
+  // A bar is held by its first request and size, not its index: a live session regroups the
+  // columns as requests arrive, and an index would then point at other requests.
+  const [selection, setSelection] = useState<ColumnKey | null>(null);
   const [metric, setMetric] = useState<ChartMetric>("cache");
   const [filter, setFilter] = useState<RequestFilter>("all");
   const [limit, setLimit] = useState(LIST_PAGE);
@@ -274,6 +282,12 @@ function InsightsExplorer({
     [zoomStack.length, data, cacheWindowMs, price, insights.cost],
   );
 
+  const selectedIndex = selection
+    ? insights.columns.findIndex(
+        (column) => column.at === selection.at && column.requests === selection.requests,
+      )
+    : -1;
+  const selected = selectedIndex === -1 ? null : selectedIndex;
   const selectedColumn = selected === null ? null : (insights.columns[selected] ?? null);
   const listRequests = selectedColumn
     ? slice.requests.slice(selectedColumn.startIndex, selectedColumn.endIndex)
@@ -281,13 +295,23 @@ function InsightsExplorer({
   const filtered = listRequests.filter((entry) => matchesRequestFilter(entry, filter)).toReversed();
 
   const resetSelection = useCallback(() => {
-    setSelected(null);
+    setSelection(null);
     setLimit(LIST_PAGE);
   }, []);
-  const selectColumn = useCallback((index: number) => {
-    setSelected((current) => (current === index ? null : index));
-    setLimit(LIST_PAGE);
-  }, []);
+  const columns = insights.columns;
+  const selectColumn = useCallback(
+    (index: number) => {
+      const column = columns[index];
+      if (!column) return;
+      setSelection((current) =>
+        current?.at === column.at && current.requests === column.requests
+          ? null
+          : { at: column.at, requests: column.requests },
+      );
+      setLimit(LIST_PAGE);
+    },
+    [columns],
+  );
   const zoomIn = useCallback(() => {
     if (!selectedColumn) return;
     const start = range.start + selectedColumn.startIndex;
@@ -307,7 +331,7 @@ function InsightsExplorer({
     setLimit(LIST_PAGE);
   }, []);
   const showMore = useCallback(() => setLimit((current) => current + LIST_PAGE), []);
-  const clearSelection = useCallback(() => setSelected(null), []);
+  const clearSelection = useCallback(() => setSelection(null), []);
 
   const misses = insights.missesAfterExpiry + insights.missesWhileWarm;
   return (

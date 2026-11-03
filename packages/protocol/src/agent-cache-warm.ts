@@ -490,6 +490,24 @@ export function resolveCacheExpiryStopPolicy(value: unknown): CacheExpiryStopPol
 }
 
 /**
+ * Host setting `cacheWarmMode`: how warm-up reaches the cache.
+ * ping (v1, default): a short turn sent to the agent, so it needs an idle agent and leaves the ping
+ * and its reply in the transcript.
+ * fork (v2, experimental): a throwaway fork of the session sends one request, so running and
+ * blocked agents warm too and nothing reaches the transcript. A fork is a new session, so a gateway
+ * that routes sessions across accounts can send it to an account that holds no cache for it.
+ */
+export const CACHE_WARM_MODES = ["ping", "fork"] as const;
+export type CacheWarmMode = (typeof CACHE_WARM_MODES)[number];
+export const DEFAULT_CACHE_WARM_MODE: CacheWarmMode = "ping";
+
+export function resolveCacheWarmMode(value: unknown): CacheWarmMode {
+  return (CACHE_WARM_MODES as readonly unknown[]).includes(value)
+    ? (value as CacheWarmMode)
+    : DEFAULT_CACHE_WARM_MODE;
+}
+
+/**
  * Host setting `childReportExpiredCache`: what a child agent's report does to an orchestrator whose
  * cache has expired. A report is a prompt, so delivering it to a cold orchestrator writes its whole
  * context again at full price.

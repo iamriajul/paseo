@@ -113,6 +113,9 @@
         "childReportExpiredCache": {
           "type": "string"
         },
+        "cacheWarmMode": {
+          "type": "string"
+        },
         "enableTerminalAgentHooks": {
           "type": "boolean"
         },

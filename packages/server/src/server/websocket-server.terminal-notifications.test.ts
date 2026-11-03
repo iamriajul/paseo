@@ -135,6 +135,7 @@ function createServer(terminalManager: TerminalManager, workspaceRegistry?: Work
   const daemonConfigStore = {
     onApply: vi.fn(() => () => {}),
     onChange: vi.fn(() => () => {}),
+    get: vi.fn(() => ({})),
   };
 
   const server = new VoiceAssistantWebSocketServer(

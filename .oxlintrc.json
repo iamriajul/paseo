@@ -505,7 +505,8 @@
     {
       "files": ["packages/app/src/**/*.{ts,tsx}"],
       "rules": {
-        "paseo/no-raw-pressable": "error"
+        "paseo/no-raw-pressable": "error",
+        "paseo/no-to-sorted": "error"
       }
     },
     // Press feedback is owned by the primitives in components/ui. Raw pressable burn-down:

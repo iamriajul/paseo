@@ -494,8 +494,9 @@ export function resolveCacheExpiryStopPolicy(value: unknown): CacheExpiryStopPol
  * ping (v1, default): a short turn sent to the agent, so it needs an idle agent and leaves the ping
  * and its reply in the transcript.
  * fork (v2, experimental): a throwaway fork of the session sends one request, so running and
- * blocked agents warm too and nothing reaches the transcript. A fork is a new session, so a gateway
- * that routes sessions across accounts can send it to an account that holds no cache for it.
+ * blocked agents warm too and nothing reaches the transcript. The fork sends the session's own ID
+ * in X-Claude-Code-Session-Id, so a gateway that keeps sessions sticky to accounts routes it to
+ * the account that holds the session's cache.
  */
 export const CACHE_WARM_MODES = ["ping", "fork"] as const;
 export type CacheWarmMode = (typeof CACHE_WARM_MODES)[number];

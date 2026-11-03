@@ -1149,6 +1149,10 @@ describe("ClaudeAgentSession features", () => {
         model: "claude-haiku-5-5",
         settings: expect.objectContaining({ disableAllHooks: true }),
       });
+      // A gateway routes the fork by this header, so it must name the session it forks.
+      expect(
+        (options.settings as { env?: Record<string, string> }).env?.ANTHROPIC_CUSTOM_HEADERS,
+      ).toBe("X-Claude-Code-Session-Id: session-1");
       expect(close).toHaveBeenCalled();
     } finally {
       await session.close();
@@ -1222,6 +1226,56 @@ describe("ClaudeAgentSession features", () => {
       });
     } finally {
       await session.close();
+    }
+  });
+
+  test("routes the warm-up fork as its session and keeps other custom headers", async () => {
+    const previous = process.env.ANTHROPIC_CUSTOM_HEADERS;
+    // A gateway header the user set, plus a stale session id line in another casing.
+    process.env.ANTHROPIC_CUSTOM_HEADERS = "X-Other: y\nx-claude-code-session-id: stale-id";
+    const queryFactory = vi.fn(() => {
+      const iterator = [
+        {
+          type: "stream_event",
+          parent_tool_use_id: null,
+          event: {
+            type: "message_start",
+            message: { usage: { input_tokens: 2, cache_read_input_tokens: 10 } },
+          },
+        },
+        { type: "result", subtype: "success" },
+      ][Symbol.iterator]();
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => ({ next: async () => iterator.next() }),
+      };
+    });
+    try {
+      const session = await new ClaudeAgentClient({
+        logger,
+        queryFactory: queryFactory as unknown as ClaudeQueryFactory,
+        resolveBinary: async () => "/test/claude/bin",
+      }).createSession({
+        provider: "claude",
+        cwd: process.cwd(),
+        model: "claude-haiku-5-5",
+        featureValues: { prompt_cache_ttl: "5m" },
+      });
+      (session as unknown as { claudeSessionId: string }).claudeSessionId = "session-1";
+      try {
+        await session.warmPromptCache?.();
+        const { options } = queryFactory.mock.calls[0]![0] as {
+          options: { settings: { env?: Record<string, string> } };
+        };
+        expect(options.settings.env?.ANTHROPIC_CUSTOM_HEADERS).toBe(
+          "X-Other: y\nX-Claude-Code-Session-Id: session-1",
+        );
+      } finally {
+        await session.close();
+      }
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_CUSTOM_HEADERS;
+      else process.env.ANTHROPIC_CUSTOM_HEADERS = previous;
     }
   });
 

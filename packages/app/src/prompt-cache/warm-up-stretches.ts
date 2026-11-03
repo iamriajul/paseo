@@ -43,7 +43,8 @@ export function foldWarmUpStretches(input: {
   hasNewerRows: boolean;
 }): WarmUpStretches {
   const { warmUpTimes, hasNewerRows } = input;
-  const rows = input.rows.toSorted((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  // Hermes has no Array.prototype.toSorted: calling it crashed the agent view on Android.
+  const rows = [...input.rows].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   const anchors: { id: string; at: number }[] = [];
   const buckets = new Map<string, Bucket>();
   const bucketFor = (id: string): Bucket => {

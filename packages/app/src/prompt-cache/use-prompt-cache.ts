@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { Alert } from "react-native";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import {
   isClaudeModel,
   sumPromptCacheTotals,
+  visiblePromptCacheMisses,
   type PromptCacheTotals,
   isQuestionPermission,
   resolveCacheWarmEnabled,
@@ -62,11 +64,17 @@ export interface PromptCacheState {
   lastPrompt: PromptCacheRequestSample | null;
   /** Recent prompts and how each met the cache; null before the first recorded prompt. */
   history: PromptCacheHistorySummary | null;
-  /** Avoidable misses over the whole session, the red number beside the countdown. */
+  /** Avoidable misses since the user last cleared the count: the red number beside the countdown. */
   misses: number;
+  /** Avoidable misses over the whole session, cleared or not; insights show these. */
+  sessionMisses: number;
+  /** When the user last cleared the red count, or null when never. */
+  missesClearedAt: string | null;
   /** Requests over the whole session; it changes whenever a request is recorded. */
   requests: number;
   toggleWarmup: () => Promise<void>;
+  /** Clears the red count; null when the host cannot. */
+  clearMisses: (() => Promise<void>) | null;
 }
 
 interface AgentCacheFacts {
@@ -193,7 +201,19 @@ function resolveTotals(agent: Agent | undefined): PromptCacheTotals {
   return promptCache?.totals ?? sumPromptCacheTotals(promptCache?.history ?? []);
 }
 
-export type PromptCacheView = Omit<PromptCacheState, "toggleWarmup">;
+export type PromptCacheView = Omit<PromptCacheState, "toggleWarmup" | "clearMisses">;
+
+function resolveMissCounts(
+  totals: PromptCacheTotals,
+  agent: Agent | undefined,
+): Pick<PromptCacheView, "misses" | "sessionMisses" | "missesClearedAt"> {
+  const cleared = agent?.promptCache?.missesCleared;
+  return {
+    misses: visiblePromptCacheMisses(totals, cleared),
+    sessionMisses: totals.misses,
+    missesClearedAt: cleared?.at ?? null,
+  };
+}
 
 /** Everything the cache surfaces show for one agent at one instant; no React, no clock. */
 export function resolvePromptCacheView(
@@ -230,7 +250,7 @@ export function resolvePromptCacheView(
     warmup,
     lastPrompt: agent?.promptCache?.turnFirstRequest ?? null,
     history: summarizePromptCacheHistory(agent?.promptCache?.history),
-    misses: totals.misses,
+    ...resolveMissCounts(totals, agent),
     requests: totals.requests,
   };
 }
@@ -259,6 +279,16 @@ export function usePromptCacheAgent(serverId: string, agentId: string): Agent | 
   });
 }
 
+/** Claude agents on a host whose red miss count is above zero; the host settings clear them all. */
+export function agentIdsWithVisibleMisses(agents: Iterable<Agent>): string[] {
+  const ids: string[] = [];
+  for (const agent of agents) {
+    const view = resolvePromptCacheView(agent, 0);
+    if (view.isClaude && view.misses > 0) ids.push(agent.id);
+  }
+  return ids;
+}
+
 export function usePromptCache(serverId: string, agentId: string): PromptCacheState {
   "use no memo";
   const client = useHostRuntimeClient(serverId);
@@ -276,6 +306,19 @@ export function usePromptCache(serverId: string, agentId: string): PromptCacheSt
     if (!warmupEnabled && !canTurnOn) return;
     await client.setAgentFeature(agentId, "cache_warm", !warmupEnabled);
   }, [client, agentId, warmupEnabled, canTurnOn]);
+  const canClearMisses = useHostFeature(serverId, "promptCacheClearMisses");
+  const clearMisses = useCallback(async () => {
+    if (!client) return;
+    try {
+      const payload = await client.clearPromptCacheMisses({ agentIds: [agentId] });
+      if (payload.error) throw new Error(payload.error);
+    } catch (error) {
+      Alert.alert(
+        "Unable to clear the miss count",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }, [client, agentId]);
 
-  return { ...view, toggleWarmup };
+  return { ...view, toggleWarmup, clearMisses: canClearMisses && client ? clearMisses : null };
 }

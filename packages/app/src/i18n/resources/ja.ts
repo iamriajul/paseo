@@ -3084,6 +3084,15 @@ export const ja: TranslationResources = {
         },
         error: "ウォームアップ方式を更新できません",
       },
+      clearCacheMisses: {
+        title: "ミス数をクリア",
+        hint_one:
+          "このホストのすべての Claude エージェントの赤いミス数を 0 に戻し、新しいミスだけを数えます。セッションの分析には全履歴が残ります。現在 {{count}} 個のエージェントにミスがあります。",
+        hint_other:
+          "このホストのすべての Claude エージェントの赤いミス数を 0 に戻し、新しいミスだけを数えます。セッションの分析には全履歴が残ります。現在 {{count}} 個のエージェントにミスがあります。",
+        action: "すべてクリア",
+        error: "ミス数をクリアできません",
+      },
       childReportExpiredCache: {
         title: "期限切れのオーケストレーターに子エージェントが報告したとき",
         options: {

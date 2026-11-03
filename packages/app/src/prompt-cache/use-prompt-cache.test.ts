@@ -4,12 +4,22 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import type { AgentPromptCacheState } from "@getpaseo/protocol/agent-cache-warm";
-import { resolvePromptCacheView, usePromptCache } from "./use-prompt-cache";
+import {
+  agentIdsWithVisibleMisses,
+  resolvePromptCacheView,
+  usePromptCache,
+} from "./use-prompt-cache";
 import { useSessionStore, type SessionState, type Agent } from "@/stores/session-store";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
+import { Alert } from "react-native";
 
 vi.mock("@/runtime/host-runtime", () => ({
   useHostRuntimeClient: vi.fn(),
+}));
+
+// Only the clear capability is on, so warm-up stays on its ping path as in the other tests.
+vi.mock("@/runtime/host-features", () => ({
+  useHostFeature: (_serverId: string, feature: string) => feature === "promptCacheClearMisses",
 }));
 
 const NOW = new Date("2026-10-27T10:00:00.000Z").getTime();
@@ -233,5 +243,63 @@ describe("resolvePromptCacheView on a host that warms through a fork", () => {
     expect(resolvePromptCacheView(asking, NOW, { forkWarm: true }).warmup?.plan.kind).toBe(
       "next-ping",
     );
+  });
+});
+
+describe("clearing the red miss count", () => {
+  function withMisses(id: string, misses: number, clearedAt?: number) {
+    const promptCache: AgentPromptCacheState = {
+      ...promptCacheAt(NOW - MINUTE),
+      totals: { requests: 10, hits: 10 - misses, misses },
+      ...(clearedAt === undefined
+        ? {}
+        : { missesCleared: { at: new Date(NOW).toISOString(), misses: clearedAt } }),
+    };
+    return claudeAgent({ id, ttl: "5m", promptCache });
+  }
+
+  it("shows the misses since the clear and keeps the session total", () => {
+    const view = resolvePromptCacheView(withMisses("agent-1", 7, 5), NOW);
+    expect(view.misses).toBe(2);
+    expect(view.sessionMisses).toBe(7);
+    expect(view.missesClearedAt).toBe(new Date(NOW).toISOString());
+  });
+
+  it("lists only the Claude agents whose red count is above zero", () => {
+    const agents = [withMisses("missing", 3), withMisses("cleared", 4, 4), withMisses("clean", 0)];
+    expect(agentIdsWithVisibleMisses(agents)).toEqual(["missing"]);
+  });
+});
+
+describe("clearing a miss count from the pill", () => {
+  it("tells the user when the host could not clear it", async () => {
+    const alert = vi.spyOn(Alert, "alert").mockImplementation(() => {});
+    const clearPromptCacheMisses = vi.fn(async () => ({
+      requestId: "r-1",
+      cleared: [],
+      error: "Agent not found: agent-1",
+    }));
+    vi.mocked(useHostRuntimeClient).mockReturnValue({
+      clearPromptCacheMisses,
+    } as unknown as ReturnType<typeof useHostRuntimeClient>);
+    useSessionStore.setState({
+      sessions: {
+        "server-1": {
+          agents: new Map([["agent-1", claudeAgent({ ttl: "5m" })]]),
+          agentDetails: new Map(),
+        } as unknown as SessionState,
+      },
+    });
+    try {
+      const { result } = renderHook(() => usePromptCache("server-1", "agent-1"));
+      await act(() => result.current.clearMisses!());
+      expect(clearPromptCacheMisses).toHaveBeenCalledWith({ agentIds: ["agent-1"] });
+      expect(alert).toHaveBeenCalledWith(
+        "Unable to clear the miss count",
+        "Agent not found: agent-1",
+      );
+    } finally {
+      alert.mockRestore();
+    }
   });
 });

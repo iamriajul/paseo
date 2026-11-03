@@ -3096,6 +3096,15 @@ export const ptBR: TranslationResources = {
         },
         error: "Não foi possível atualizar o método de aquecimento",
       },
+      clearCacheMisses: {
+        title: "Limpar contagens de falhas",
+        hint_one:
+          "Zera o número vermelho de falhas de cada agente Claude deste host, para contar só as novas. Os insights da sessão mantêm todo o histórico. {{count}} agente tem falhas agora.",
+        hint_other:
+          "Zera o número vermelho de falhas de cada agente Claude deste host, para contar só as novas. Os insights da sessão mantêm todo o histórico. {{count}} agentes têm falhas agora.",
+        action: "Limpar tudo",
+        error: "Não foi possível limpar as contagens de falhas",
+      },
       childReportExpiredCache: {
         title: "Quando um agente filho reporta a um orquestrador expirado",
         options: {

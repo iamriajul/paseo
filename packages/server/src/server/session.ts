@@ -3243,6 +3243,8 @@ export class Session {
         return this.handleFetchAgentTimelineRequest(msg, source);
       case "agent.prompt_cache.history.request":
         return this.handlePromptCacheHistoryRequest(msg);
+      case "agent.prompt_cache.clear_misses.request":
+        return this.handlePromptCacheClearMissesRequest(msg);
       case "agent.timeline.append.request":
         return this.handleAgentTimelineAppendRequest(msg);
       case "agent.timeline.search.request":
@@ -8592,6 +8594,31 @@ export class Session {
     this.emit({
       type: "fetch_agent_response",
       payload: { requestId, agent, project, error: null },
+    });
+  }
+
+  private async handlePromptCacheClearMissesRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.prompt_cache.clear_misses.request" }>,
+  ): Promise<void> {
+    const cleared: string[] = [];
+    let error: string | null = null;
+    for (const agentId of msg.agentIds) {
+      try {
+        // A stored agent loads without starting its process, so its count clears and persists.
+        await ensureAgentLoaded(agentId, {
+          agentManager: this.agentManager,
+          agentStorage: this.agentStorage,
+          logger: this.sessionLogger,
+        });
+        if (this.agentManager.clearPromptCacheMisses(agentId)) cleared.push(agentId);
+      } catch (err) {
+        this.sessionLogger.warn({ err, agentId }, "Clearing prompt cache misses failed");
+        error = err instanceof Error ? err.message : String(err);
+      }
+    }
+    this.emit({
+      type: "agent.prompt_cache.clear_misses.response",
+      payload: { requestId: msg.requestId, cleared, error },
     });
   }
 

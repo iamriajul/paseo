@@ -41,6 +41,7 @@ describe("resolvePromptCacheAutoCompact", () => {
     expect(resolvePromptCacheAutoCompact({ agent: undefined, hostDefault: undefined })).toEqual({
       enabled: false,
       overridden: false,
+      hostDefault: false,
       contextTokens: null,
       largeEnough: false,
     });

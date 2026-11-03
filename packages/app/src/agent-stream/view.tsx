@@ -897,14 +897,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       useMemo(
         () =>
           foldWarmUpStretches({
-            rows: [
-              ...streamLayout.history.map((row) => row.item),
-              ...streamLayout.liveHead.map((row) => row.item),
-            ],
+            rows: [...presentation.tail.slice(historyWindowStart), ...presentation.head],
             warmUpTimes,
             hasNewerRows: isTimelineDetached,
           }),
-        [streamLayout.history, streamLayout.liveHead, warmUpTimes, isTimelineDetached],
+        [presentation.tail, presentation.head, historyWindowStart, warmUpTimes, isTimelineDetached],
       ),
     );
     // The latest finished turn's footer sits outside the rows, so its warm-ups go below it there.

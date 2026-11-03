@@ -89,21 +89,58 @@ vi.mock("@/composer/tracks", async () => {
   };
 });
 
-const { autoCompactState, toggleAutoCompactMock } = vi.hoisted(() => ({
+const { autoCompactState, toggleAutoCompactMock, makeDefaultMock } = vi.hoisted(() => ({
   autoCompactState: {
-    current: { enabled: false, overridden: false, contextTokens: null, largeEnough: false } as {
+    current: {
+      enabled: false,
+      overridden: false,
+      hostDefault: false,
+      contextTokens: null,
+      largeEnough: false,
+    } as {
       enabled: boolean;
       overridden: boolean;
+      hostDefault: boolean;
       contextTokens: number | null;
       largeEnough: boolean;
     },
   },
   toggleAutoCompactMock: vi.fn(),
+  makeDefaultMock: vi.fn(),
 }));
 
 vi.mock("./use-prompt-cache-auto-compact", () => ({
-  usePromptCacheAutoCompact: () => ({ ...autoCompactState.current, toggle: toggleAutoCompactMock }),
+  usePromptCacheAutoCompact: () => ({
+    ...autoCompactState.current,
+    toggle: toggleAutoCompactMock,
+    makeDefault: makeDefaultMock,
+  }),
 }));
+
+vi.mock("@/components/ui/switch", async () => {
+  const ReactModule = await import("react");
+  return {
+    Switch: ({
+      value,
+      onValueChange,
+      disabled,
+      testID,
+    }: {
+      value: boolean;
+      onValueChange?: (value: boolean) => void;
+      disabled?: boolean;
+      testID?: string;
+    }) =>
+      ReactModule.createElement("button", {
+        type: "button",
+        role: "switch",
+        "aria-checked": value,
+        "data-testid": testID,
+        disabled: disabled || undefined,
+        onClick: () => !disabled && onValueChange?.(!value),
+      }),
+  };
+});
 
 vi.mock("./prompt-cache-insights-dialog", async () => {
   const ReactModule = await import("react");
@@ -184,6 +221,7 @@ describe("PromptCachePill", () => {
     autoCompactState.current = {
       enabled: false,
       overridden: false,
+      hostDefault: false,
       contextTokens: null,
       largeEnough: false,
     };
@@ -246,7 +284,9 @@ describe("PromptCachePill", () => {
         promptCache: promptCacheAt(NOW),
       }),
     );
-    expect(getByTestId("prompt-cache-cap-count").textContent).toBe("Next in 58:00 · 3/12 · 11h36m");
+    expect(getByTestId("prompt-cache-cap-count").textContent).toBe(
+      "Next in 58:00 · 3/12 · covers 11h36m",
+    );
     expect(getByTestId("prompt-cache-cap-progress").getAttribute("aria-valuenow")).toBe("3");
   });
 
@@ -315,7 +355,9 @@ describe("PromptCachePill", () => {
     const live = renderPill(
       claudeAgent({ ttl: "1h", cacheWarm: false, promptCache: promptCacheAt(NOW) }),
     );
-    fireEvent.click(live.getByTestId("prompt-cache-toggle-warmup-button"));
+    const toggle = live.getByTestId("prompt-cache-toggle-warmup-switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
     expect(setAgentFeatureMock).toHaveBeenCalledWith("agent-1", "cache_warm", true);
     cleanup();
 
@@ -323,7 +365,7 @@ describe("PromptCachePill", () => {
       claudeAgent({ ttl: "1h", cacheWarm: false, promptCache: promptCacheAt(NOW - 61 * MINUTE) }),
     );
     expect(expired.getByText("cache · expired")).toBeTruthy();
-    expect(expired.getByTestId("prompt-cache-toggle-warmup-button").hasAttribute("disabled")).toBe(
+    expect(expired.getByTestId("prompt-cache-toggle-warmup-switch").hasAttribute("disabled")).toBe(
       true,
     );
   });
@@ -341,7 +383,7 @@ describe("PromptCachePill", () => {
     );
     expect(getByText("question · 50:00")).toBeTruthy();
     expect(getByTestId("prompt-cache-cap-count").textContent).toBe(
-      "Question closes in 48:00 · 0/12 · 11h36m",
+      "Question closes in 48:00 · 0/12 · covers 11h36m",
     );
   });
 
@@ -420,15 +462,40 @@ describe("PromptCachePill", () => {
     autoCompactState.current = {
       enabled: true,
       overridden: true,
+      hostDefault: true,
+      contextTokens: 312_000,
+      largeEnough: true,
+    };
+    const { getByTestId, queryByTestId } = renderPill(
+      claudeAgent({ ttl: "5m", promptCache: promptCacheAt(NOW - 40 * SECOND) }),
+    );
+    expect(getByTestId("prompt-cache-auto-compact").textContent).toBe(
+      "On · compacts instead of expiring · 312k now",
+    );
+    const toggle = getByTestId("prompt-cache-toggle-auto-compact-switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggleAutoCompactMock).toHaveBeenCalledTimes(1);
+    // The agent's choice matches the host default, so there is nothing to promote.
+    expect(queryByTestId("prompt-cache-auto-compact-make-default")).toBeNull();
+  });
+
+  it("offers to make an agent's own idle-cap choice the host default", () => {
+    autoCompactState.current = {
+      enabled: true,
+      overridden: true,
+      hostDefault: false,
       contextTokens: 312_000,
       largeEnough: true,
     };
     const { getByTestId } = renderPill(
       claudeAgent({ ttl: "5m", promptCache: promptCacheAt(NOW - 40 * SECOND) }),
     );
-    expect(getByTestId("prompt-cache-auto-compact").textContent).toBe("Compact · 312k");
-    fireEvent.click(getByTestId("prompt-cache-toggle-auto-compact-button"));
-    expect(toggleAutoCompactMock).toHaveBeenCalledTimes(1);
+    expect(getByTestId("prompt-cache-auto-compact-default").textContent).toContain(
+      "This agent only · host default: let it expire",
+    );
+    fireEvent.click(getByTestId("prompt-cache-auto-compact-make-default"));
+    expect(makeDefaultMock).toHaveBeenCalledTimes(1);
   });
 
   it("opens the session insights from the popover", () => {

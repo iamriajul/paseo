@@ -29,7 +29,8 @@ interface Bucket {
 }
 
 /**
- * Folds warm-ups into the visible row each one followed. A fork warm-up leaves no row of its
+ * Folds warm-ups into the visible row each one followed. Rows may come in any order (a native
+ * list renders newest first); they are read by time. A fork warm-up leaves no row of its
  * own, so its time places it; a warm-up sent as a turn is also its own pair of rows, so both
  * sources are kept and the larger count wins rather than adding the same warm-up twice.
  * Warm-ups before the first loaded row, or after the last when newer rows are not loaded,
@@ -41,7 +42,8 @@ export function foldWarmUpStretches(input: {
   warmUpTimes: readonly number[];
   hasNewerRows: boolean;
 }): WarmUpStretches {
-  const { rows, warmUpTimes, hasNewerRows } = input;
+  const { warmUpTimes, hasNewerRows } = input;
+  const rows = input.rows.toSorted((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   const anchors: { id: string; at: number }[] = [];
   const buckets = new Map<string, Bucket>();
   const bucketFor = (id: string): Bucket => {

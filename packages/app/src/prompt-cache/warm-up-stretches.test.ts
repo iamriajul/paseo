@@ -27,6 +27,19 @@ describe("foldWarmUpStretches", () => {
     });
   });
 
+  it("reads rows by time, so a newest-first native list folds the same", () => {
+    const rows = [user("u1", 0), assistant("a1", 1), user("u2", 30), assistant("a2", 31)];
+    const input = { warmUpTimes: [5 * MINUTE, 9 * MINUTE, 40 * MINUTE], hasNewerRows: false };
+
+    const newestFirst = foldWarmUpStretches({ ...input, rows: rows.toReversed() });
+
+    expect(Object.fromEntries(newestFirst)).toEqual(
+      Object.fromEntries(foldWarmUpStretches({ ...input, rows })),
+    );
+    expect(newestFirst.get("a1")?.count).toBe(2);
+    expect(newestFirst.get("a2")?.count).toBe(1);
+  });
+
   it("counts warm-ups sent as turns once, whether or not the journal also recorded them", () => {
     const rows = [
       user("u1", 0),

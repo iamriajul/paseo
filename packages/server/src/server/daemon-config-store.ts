@@ -31,6 +31,7 @@ interface SupportedMutableConfigPatch {
   cacheWarmSubagents?: boolean;
   cacheAutoCompact?: boolean;
   cacheExpiryStop?: string;
+  childReportExpiredCache?: string;
   enableTerminalAgentHooks?: boolean;
   idleRuntimeCleanup?: boolean;
   appendSystemPrompt?: string;
@@ -201,6 +202,7 @@ const RELOADABLE_PATHS = [
   "daemon.cacheWarmSubagents",
   "daemon.cacheAutoCompact",
   "daemon.cacheExpiryStop",
+  "daemon.childReportExpiredCache",
   "daemon.enableTerminalAgentHooks",
   "daemon.appendSystemPrompt",
   "daemon.terminalProfiles",
@@ -230,6 +232,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.cacheWarmSubagents", "cacheWarmSubagents"],
   ["daemon.cacheAutoCompact", "cacheAutoCompact"],
   ["daemon.cacheExpiryStop", "cacheExpiryStop"],
+  ["daemon.childReportExpiredCache", "childReportExpiredCache"],
   ["daemon.enableTerminalAgentHooks", "enableTerminalAgentHooks"],
   ["daemon.appendSystemPrompt", "appendSystemPrompt"],
   ["daemon.terminalProfiles", "terminalProfiles"],
@@ -352,7 +355,7 @@ function pickPromptCachePatch(
   patch: MutableDaemonConfigPatch,
 ): Pick<
   SupportedMutableConfigPatch,
-  "cacheWarmSubagents" | "cacheAutoCompact" | "cacheExpiryStop"
+  "cacheWarmSubagents" | "cacheAutoCompact" | "cacheExpiryStop" | "childReportExpiredCache"
 > {
   return {
     ...(patch.cacheWarmSubagents !== undefined
@@ -360,6 +363,9 @@ function pickPromptCachePatch(
       : {}),
     ...(patch.cacheAutoCompact !== undefined ? { cacheAutoCompact: patch.cacheAutoCompact } : {}),
     ...(patch.cacheExpiryStop !== undefined ? { cacheExpiryStop: patch.cacheExpiryStop } : {}),
+    ...(patch.childReportExpiredCache !== undefined
+      ? { childReportExpiredCache: patch.childReportExpiredCache }
+      : {}),
   };
 }
 
@@ -888,15 +894,7 @@ function mergeMutableDaemonPatch(
   if (patch.autoResumeOnRateLimit !== undefined) {
     next.autoResumeOnRateLimit = patch.autoResumeOnRateLimit;
   }
-  if (patch.cacheWarmSubagents !== undefined) {
-    next.cacheWarmSubagents = patch.cacheWarmSubagents;
-  }
-  if (patch.cacheAutoCompact !== undefined) {
-    next.cacheAutoCompact = patch.cacheAutoCompact;
-  }
-  if (patch.cacheExpiryStop !== undefined) {
-    next.cacheExpiryStop = patch.cacheExpiryStop;
-  }
+  Object.assign(next, pickPromptCachePatch(patch));
   if (patch.enableTerminalAgentHooks !== undefined) {
     next.enableTerminalAgentHooks = patch.enableTerminalAgentHooks;
   }

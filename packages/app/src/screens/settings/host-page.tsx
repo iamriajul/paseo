@@ -12,7 +12,8 @@ import {
   Trash2,
 } from "lucide-react-native";
 import type { TFunction } from "i18next";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
@@ -21,6 +22,9 @@ import {
   CACHE_EXPIRY_STOP_POLICIES,
   resolveCacheExpiryStopPolicy,
   type CacheExpiryStopPolicy,
+  CHILD_REPORT_EXPIRED_CACHE_POLICIES,
+  resolveChildReportExpiredCachePolicy,
+  type ChildReportExpiredCachePolicy,
 } from "@getpaseo/protocol/agent-cache-warm";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useHostFeature } from "@/runtime/host-features";
@@ -296,16 +300,25 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
   return (
     <View>
       {isConnected ? (
-        <SettingsSection title={t("settings.hostSections.agents")}>
-          <InjectPaseoToolsCard serverId={serverId} />
-          <BrowserToolsOptInCard serverId={serverId} />
-          <RateLimitAutoResumeCard serverId={serverId} />
-          <CacheWarmSubagentsCard serverId={serverId} />
-          <CacheAutoCompactCard serverId={serverId} />
-          <CacheExpiryStopCard serverId={serverId} />
-          <AppendSystemPromptCard serverId={serverId} />
-          <IdleRuntimeCleanupCard serverId={serverId} />
-        </SettingsSection>
+        <>
+          <SettingsSection title={t("settings.hostSections.agents")}>
+            <InjectPaseoToolsCard serverId={serverId} />
+            <BrowserToolsOptInCard serverId={serverId} />
+            <RateLimitAutoResumeCard serverId={serverId} />
+            <AppendSystemPromptCard serverId={serverId} />
+            <IdleRuntimeCleanupCard serverId={serverId} />
+          </SettingsSection>
+          <SettingsSection
+            title={t("settings.hostSections.claudeCache")}
+            info={t("settings.host.claudeCache.info")}
+            testID="host-page-claude-cache-section"
+          >
+            <CacheWarmSubagentsCard serverId={serverId} />
+            <CacheAutoCompactCard serverId={serverId} />
+            <CacheExpiryStopCard serverId={serverId} />
+            <ChildReportExpiredCacheCard serverId={serverId} />
+          </SettingsSection>
+        </>
       ) : (
         <View style={[settingsStyles.card, styles.emptyCard]}>
           <Text style={styles.emptyText}>{t("settings.host.agents.unavailable")}</Text>
@@ -941,12 +954,7 @@ function RateLimitAutoResumeCard({ serverId }: { serverId: string }) {
           <Text style={settingsStyles.rowTitle}>
             {t("settings.host.rateLimitAutoResume.title", "Auto-resume on rate limits")}
           </Text>
-          <Text style={settingsStyles.rowHint}>
-            {t(
-              "settings.host.rateLimitAutoResume.hint",
-              "Automatically resume agent sessions after API rate limit cooldown or model recovery",
-            )}
-          </Text>
+          <Text style={settingsStyles.rowHint}>{t("settings.host.rateLimitAutoResume.hint")}</Text>
         </View>
         <Switch
           value={config?.autoResumeOnRateLimit !== false}
@@ -1039,6 +1047,31 @@ function CacheAutoCompactCard({ serverId }: { serverId: string }) {
   );
 }
 
+/**
+ * A setting row whose control is a segmented choice. On a phone the choice sits under the text:
+ * beside it, three options leave the hint a column a few words wide.
+ */
+function PolicyRow({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint: string;
+  children: ReactNode;
+}) {
+  const isCompact = useIsCompactFormFactor();
+  return (
+    <View style={isCompact ? styles.policyRowStacked : settingsStyles.row}>
+      <View style={isCompact ? null : settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>{title}</Text>
+        <Text style={settingsStyles.rowHint}>{hint}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
 /** What the daemon does with a Claude process once the agent's cache expires. */
 function CacheExpiryStopCard({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
@@ -1073,13 +1106,10 @@ function CacheExpiryStopCard({ serverId }: { serverId: string }) {
 
   return (
     <View style={settingsStyles.card} testID="host-page-cache-expiry-stop-card">
-      <View style={settingsStyles.row}>
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>{t("settings.host.cacheExpiryStop.title")}</Text>
-          <Text style={settingsStyles.rowHint}>
-            {t(`settings.host.cacheExpiryStop.hints.${value}`)}
-          </Text>
-        </View>
+      <PolicyRow
+        title={t("settings.host.cacheExpiryStop.title")}
+        hint={t(`settings.host.cacheExpiryStop.hints.${value}`)}
+      >
         <SegmentedControl
           options={options}
           value={value}
@@ -1087,7 +1117,57 @@ function CacheExpiryStopCard({ serverId }: { serverId: string }) {
           size="sm"
           testID="host-page-cache-expiry-stop"
         />
-      </View>
+      </PolicyRow>
+    </View>
+  );
+}
+
+/** What a child agent's report does to an orchestrator whose cache has expired. */
+function ChildReportExpiredCacheCard({ serverId }: { serverId: string }) {
+  const { t } = useTranslation();
+  const isConnected = useHostRuntimeIsConnected(serverId);
+  const supported = useHostFeature(serverId, "childReportExpiredCache");
+  const { config, patchConfig } = useDaemonConfig(serverId);
+  const value = resolveChildReportExpiredCachePolicy(config?.childReportExpiredCache);
+  const options = useMemo(
+    () =>
+      CHILD_REPORT_EXPIRED_CACHE_POLICIES.map((policy) => ({
+        value: policy,
+        label: t(`settings.host.childReportExpiredCache.options.${policy}`),
+        testID: `host-page-child-report-expired-cache-${policy}`,
+      })),
+    [t],
+  );
+
+  const handleValueChange = useCallback(
+    (next: ChildReportExpiredCachePolicy) => {
+      void patchConfig({ childReportExpiredCache: next }).catch((error) => {
+        console.error("[HostPage] Failed to update the child report setting", error);
+        Alert.alert(
+          t("settings.host.childReportExpiredCache.error"),
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    },
+    [patchConfig, t],
+  );
+
+  if (!isConnected || !supported) return null;
+
+  return (
+    <View style={settingsStyles.card} testID="host-page-child-report-expired-cache-card">
+      <PolicyRow
+        title={t("settings.host.childReportExpiredCache.title")}
+        hint={t(`settings.host.childReportExpiredCache.hints.${value}`)}
+      >
+        <SegmentedControl
+          options={options}
+          value={value}
+          onValueChange={handleValueChange}
+          size="sm"
+          testID="host-page-child-report-expired-cache"
+        />
+      </PolicyRow>
     </View>
   );
 }
@@ -1893,6 +1973,12 @@ const terminalProfileStyles = StyleSheet.create((theme) => ({
 }));
 
 const styles = StyleSheet.create((theme) => ({
+  policyRowStacked: {
+    alignItems: "flex-start",
+    gap: theme.spacing[3],
+    paddingVertical: theme.spacing[4],
+    paddingHorizontal: theme.spacing[4],
+  },
   updateFailure: {
     marginHorizontal: theme.spacing[4],
     marginBottom: theme.spacing[4],

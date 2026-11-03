@@ -68,7 +68,12 @@ afterEach(async () => {
   for (const service of services.splice(0)) await service.close();
   await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
 });
-async function scenario(directory?: string, removalFailures = 0, retryDelayMs = 1) {
+async function scenario(
+  directory?: string,
+  removalFailures = 0,
+  retryDelayMs = 1,
+  untilDeliverable?: (callerAgentId: string, signal: AbortSignal) => Promise<boolean>,
+) {
   const home = directory ?? (await mkdtemp(join(tmpdir(), "finish-recovery-")));
   if (!directory) homes.push(home);
   const durableStore = createJsonFinishSubscriptionStore(home);
@@ -90,6 +95,7 @@ async function scenario(directory?: string, removalFailures = 0, retryDelayMs = 
     messages: () => delivery,
     open: observation.open.bind(observation),
     callerIsActive: async () => active,
+    untilDeliverable,
     serverId: "origin",
     logger: createTestLogger(),
     retryDelayMs,
@@ -146,6 +152,49 @@ test("retains intent until parent dispatch acknowledgment, then restart sends no
   await first.service.close();
   const restarted = await scenario(first.home);
   expect(restarted.observation.waits).toHaveLength(0);
+});
+
+test("holds a finished child's report until the caller can take it, then checks the caller again", async () => {
+  const release = deferred<void>();
+  const holds: string[] = [];
+  let held = false;
+  const state = await scenario(undefined, 0, 1, async (callerAgentId) => {
+    holds.push(callerAgentId);
+    if (held) return false;
+    held = true;
+    await release.promise;
+    return true;
+  });
+  await state.service.register(intent);
+  await until(() => state.observation.waits.length === 1);
+  state.observation.waits[0]!.result.resolve(outcome());
+  await until(() => holds.length === 1);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(state.delivery.prompts).toHaveLength(0);
+
+  release.resolve();
+  await until(() => state.delivery.prompts.length === 1);
+  expect(holds).toEqual(["parent", "parent"]);
+  expect(state.delivery.prompts[0]).toContain("Partial work saved");
+});
+
+test("drops a held report when the caller is archived while it waits", async () => {
+  const release = deferred<void>();
+  let held = false;
+  const state = await scenario(undefined, 0, 1, async () => {
+    if (held) return false;
+    held = true;
+    await release.promise;
+    return true;
+  });
+  await state.service.register(intent);
+  await until(() => state.observation.waits.length === 1);
+  state.observation.waits[0]!.result.resolve(outcome());
+  await until(() => held);
+  state.archive();
+  release.resolve();
+  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  expect(state.delivery.prompts).toHaveLength(0);
 });
 
 test("restart coalesces predecessor and queued candidate into one settled notification", async () => {

@@ -7,10 +7,14 @@ import {
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import { AgentRateLimitAutoResumeManager } from "./agent/agent-rate-limit-auto-resume.js";
 import { AgentCacheWarmManager } from "./agent/agent-cache-warm.js";
+import { createChildReportHold, pendingReportsKeepRuntime } from "./agent/child-report-hold.js";
 import {
   DEFAULT_CACHE_EXPIRY_STOP_POLICY,
+  DEFAULT_CHILD_REPORT_EXPIRED_CACHE_POLICY,
   resolveCacheExpiryStopPolicy,
+  resolveChildReportExpiredCachePolicy,
   type CacheExpiryStopPolicy,
+  type ChildReportExpiredCachePolicy,
 } from "@getpaseo/protocol/agent-cache-warm";
 import { PromptCacheJournal } from "./agent/prompt-cache-journal.js";
 import {
@@ -460,6 +464,7 @@ export interface PaseoDaemonConfig {
   cacheWarmSubagents?: boolean;
   cacheAutoCompact?: boolean;
   cacheExpiryStop?: CacheExpiryStopPolicy;
+  childReportExpiredCache?: ChildReportExpiredCachePolicy;
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
   terminalProfiles?: TerminalProfile[];
@@ -643,11 +648,16 @@ function resolveInitialProfileConfig(
 
 function resolveInitialPromptCacheConfig(
   config: ResolvedDaemonSettings,
-): Pick<MutableDaemonConfig, "cacheWarmSubagents" | "cacheAutoCompact" | "cacheExpiryStop"> {
+): Pick<
+  MutableDaemonConfig,
+  "cacheWarmSubagents" | "cacheAutoCompact" | "cacheExpiryStop" | "childReportExpiredCache"
+> {
   return {
     cacheWarmSubagents: config.cacheWarmSubagents ?? true,
     cacheAutoCompact: config.cacheAutoCompact ?? false,
     cacheExpiryStop: config.cacheExpiryStop ?? DEFAULT_CACHE_EXPIRY_STOP_POLICY,
+    childReportExpiredCache:
+      config.childReportExpiredCache ?? DEFAULT_CHILD_REPORT_EXPIRED_CACHE_POLICY,
   };
 }
 
@@ -1141,11 +1151,18 @@ export async function createPaseoDaemon(
   });
   agentManager.setRateLimitAutoResumeManager(rateLimitAutoResumeManager);
   await rateLimitAutoResumeManager.restorePendingTimers();
+  const childReportPolicy = () =>
+    resolveChildReportExpiredCachePolicy(daemonConfigStore.get().childReportExpiredCache);
+  // Finish subscriptions are built later; the warm-up manager reads them through this reference.
+  let finishSubscriptionsRef: { hasPendingForCaller(agentId: string): boolean } | null = null;
   const cacheWarmManager = new AgentCacheWarmManager({
     agentManager,
     agentStorage,
     logger,
     isCacheAutoCompactByDefault: () => daemonConfigStore.get().cacheAutoCompact === true,
+    warmsPastCap: (agentId) =>
+      childReportPolicy() === "keep-warm" &&
+      (finishSubscriptionsRef?.hasPendingForCaller(agentId) ?? false),
   });
   agentManager.setCacheWarmManager(cacheWarmManager);
   agentManager.setPromptCacheJournal(
@@ -1154,6 +1171,11 @@ export async function createPaseoDaemon(
       logger,
     }),
   );
+  daemonConfigStore.onFieldChange("daemon.childReportExpiredCache", () => {
+    for (const agent of agentManager.listAgents()) {
+      cacheWarmManager.schedule(agent.id);
+    }
+  });
   daemonConfigStore.onFieldChange("daemon.cacheAutoCompact", () => {
     for (const agent of agentManager.listAgents()) {
       cacheWarmManager.schedule(agent.id);
@@ -1695,6 +1717,11 @@ export async function createPaseoDaemon(
       const record = await agentStorage.get(agentId);
       return record ? !record.archivedAt : Boolean(agentManager.getAgent(agentId));
     },
+    untilDeliverable: createChildReportHold({
+      policy: childReportPolicy,
+      agentManager,
+      agentStorage,
+    }).untilDeliverable,
     ...createFinishObservation({
       agentManager,
       agentStorage,
@@ -1711,11 +1738,14 @@ export async function createPaseoDaemon(
     }),
   });
 
+  finishSubscriptionsRef = finishSubscriptions;
+
   const idleRuntimeCleanup = createIdleRuntimeCleanup({
     enabled: daemonConfigStore.get().idleRuntimeCleanup !== false,
     runtimes: () => agentManager.getRuntimeCleanupCandidates(),
-    isProtected: (agentId) =>
-      finishSubscriptions.hasPendingForCaller(agentId) ||
+    isProtected: (agentId, rule) =>
+      (finishSubscriptions.hasPendingForCaller(agentId) &&
+        pendingReportsKeepRuntime(rule, childReportPolicy())) ||
       (wsServer?.agentMessages.hasPending(agentId) ?? false),
     cacheExpiryStop: () => resolveCacheExpiryStopPolicy(daemonConfigStore.get().cacheExpiryStop),
     logger,

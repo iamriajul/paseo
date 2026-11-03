@@ -2426,6 +2426,7 @@ export const ko: TranslationResources = {
       sendFailedTitle: "테스트 알림을 보낼 수 없음",
     },
     hostSections: {
+      claudeCache: "Claude Code 프롬프트 캐시",
       projects: "프로젝트",
       connections: "연결",
       agents: "에이전트",
@@ -3023,7 +3024,7 @@ export const ko: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "속도 제한 시 자동 재개",
-        hint: "API 속도 제한 쿨다운 또는 모델 복구 후 에이전트 세션을 자동으로 재개합니다",
+        hint: "속도 제한 쿨다운이 끝나면 에이전트를 재개합니다. 요청이 iamriajul/CLIProxyAPI를 거칠 때만 동작합니다. 이 포크는 쿨다운 종료 시각(RETRY_AFTER)을 오류에 기록합니다. Anthropic, OpenAI, 원본 CLIProxyAPI의 오류에는 이 정보가 없어서 이 포크 없이는 재개되지 않습니다.",
         accessibilityLabel: "속도 제한 시 자동 재개",
         error: "자동 재개 설정을 업데이트할 수 없습니다",
       },
@@ -3054,6 +3055,24 @@ export const ko: TranslationResources = {
           off: "캐시가 만료된 뒤에도 Claude 프로세스를 계속 실행합니다. 자체 타이머, /loop, 작업 알림이 에이전트를 깨워 전체 컨텍스트를 다시 쓸 수 있습니다.",
         },
         error: "캐시 만료 설정을 업데이트할 수 없습니다",
+      },
+      claudeCache: {
+        info: "이 설정은 Claude Code 에이전트에만 적용됩니다. 다른 에이전트는 Anthropic의 프롬프트 캐시를 쓰지 않으므로 이 설정을 무시합니다.",
+      },
+      childReportExpiredCache: {
+        title: "만료된 오케스트레이터에 하위 에이전트가 보고할 때",
+        options: {
+          wake: "깨우기",
+          hold: "보고 보류",
+          "keep-warm": "웜 유지",
+        },
+        hints: {
+          wake: "오케스트레이터의 캐시가 만료된 뒤에도 하위 에이전트의 보고가 오케스트레이터를 깨웁니다. 깨우면 전체 컨텍스트를 정가로 다시 씁니다.",
+          hold: "오케스트레이터의 캐시가 만료된 동안 보고를 보관하고, 프로세스는 멈추게 둡니다. 보고는 오케스트레이터의 다음 턴(보통 사용자의 다음 메시지)과 함께 전달되며, 보고만으로 깨우지는 않습니다.",
+          "keep-warm":
+            "기다리는 하위 에이전트가 아직 보고할 수 있는 동안 유휴 상한을 넘어서도 오케스트레이터를 계속 워밍해, 보고가 웜 캐시에 도착하게 합니다. 비용이 큽니다: 밤새 실행되는 하위 에이전트가 있으면 큰 컨텍스트를 밤새 웜 상태로 유지합니다(5m 창에서는 4분마다 워밍).",
+        },
+        error: "하위 에이전트 보고 설정을 업데이트할 수 없습니다",
       },
       orchestration: {
         title: "오케스트레이션",

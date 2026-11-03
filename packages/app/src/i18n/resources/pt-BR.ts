@@ -2447,6 +2447,7 @@ export const ptBR: TranslationResources = {
       sendFailedTitle: "Não foi possível enviar a notificação de teste",
     },
     hostSections: {
+      claudeCache: "Cache de prompts do Claude Code",
       projects: "Projetos",
       connections: "Conexões",
       agents: "Agentes",
@@ -3048,7 +3049,7 @@ export const ptBR: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "Retomada automática em limites de taxa",
-        hint: "Retomar automaticamente sessões do agente após resfriamento do limite de taxa de API ou recuperação do modelo",
+        hint: "Retoma um agente quando termina o resfriamento por limite de uso. Só funciona se as requisições passarem pelo iamriajul/CLIProxyAPI, o fork que escreve no erro o horário de fim do resfriamento (RETRY_AFTER). Os erros da Anthropic, da OpenAI e do CLIProxyAPI original não trazem esse horário, então sem esse fork nada é retomado.",
         accessibilityLabel: "Retomada automática em limites de taxa",
         error: "Não foi possível atualizar a configuração de retomada automática",
       },
@@ -3079,6 +3080,24 @@ export const ptBR: TranslationResources = {
           off: "Mantém o processo do Claude rodando depois que o cache expira. Seus temporizadores, /loop e avisos de tarefas podem acordá-lo e reescrever todo o contexto.",
         },
         error: "Não foi possível atualizar a configuração de expiração do cache",
+      },
+      claudeCache: {
+        info: "Estas configurações valem apenas para agentes do Claude Code. Os outros agentes não usam o cache de prompts da Anthropic e as ignoram.",
+      },
+      childReportExpiredCache: {
+        title: "Quando um agente filho reporta a um orquestrador expirado",
+        options: {
+          wake: "Acordar",
+          hold: "Reter relatório",
+          "keep-warm": "Manter aquecido",
+        },
+        hints: {
+          wake: "O relatório de um agente filho acorda o orquestrador mesmo depois que o cache dele expirou. Acordar reescreve todo o contexto pelo preço cheio.",
+          hold: "Guarda o relatório enquanto o cache do orquestrador está expirado e deixa o processo dele parar. O relatório chega com o próximo turno do orquestrador, normalmente a sua próxima mensagem, e nunca o acorda sozinho.",
+          "keep-warm":
+            "Continua aquecendo o orquestrador além do limite de ociosidade enquanto um filho que ele aguarda ainda puder reportar, para o relatório chegar a um cache aquecido. Caro: um filho que roda a noite toda mantém um contexto grande aquecido a noite toda, com um aquecimento a cada 4 minutos numa janela de 5m.",
+        },
+        error: "Não foi possível atualizar a configuração de relatórios de agentes filhos",
       },
       orchestration: {
         title: "Orquestração",

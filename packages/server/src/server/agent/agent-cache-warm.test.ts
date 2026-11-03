@@ -46,6 +46,8 @@ interface HarnessOptions {
   contextTokens?: number;
   /** The session warms through a throwaway fork instead of a ping turn. */
   forkWarm?: boolean;
+  /** The host lifts the idle cap while a child of this agent can still report. */
+  warmsPastCap?: () => boolean;
 }
 
 function buildAgent(options: HarnessOptions): ManagedAgent {
@@ -123,6 +125,7 @@ function createHarness(options: HarnessOptions = {}) {
     sendPrompt,
     isCacheAutoCompactByDefault: () => options.autoCompactByDefault ?? false,
     onIdleCapCompaction: options.onIdleCapCompaction,
+    warmsPastCap: options.warmsPastCap,
   });
   return { manager, agent, sendPrompt, respondToPermission, setAgentFeature, warmPromptCache };
 }
@@ -274,6 +277,23 @@ describe("AgentCacheWarmManager", () => {
       five.manager.schedule("agent-1");
     }
     expect(five.sendPrompt).toHaveBeenCalledTimes(10);
+  });
+
+  it("keeps warming past the cap while a child can still report, then stops at the cap", async () => {
+    let childCanReport = true;
+    const harness = createHarness({
+      ttl: "5m",
+      forkWarm: true,
+      warmsPastCap: () => childCanReport,
+    });
+    harness.manager.schedule("agent-1");
+    await vi.advanceTimersByTimeAsync(15 * 4 * MINUTE);
+    expect(harness.warmPromptCache).toHaveBeenCalledTimes(15);
+
+    // The child reported, so the stretch is past its cap and the cache is left to expire.
+    childCanReport = false;
+    await vi.advanceTimersByTimeAsync(3 * 4 * MINUTE);
+    expect(harness.warmPromptCache).toHaveBeenCalledTimes(15);
   });
 
   describe("compacting at the idle cap", () => {

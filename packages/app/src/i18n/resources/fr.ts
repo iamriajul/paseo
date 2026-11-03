@@ -2463,6 +2463,7 @@ export const fr: TranslationResources = {
       sendFailedTitle: "Impossible d’envoyer la notification de test",
     },
     hostSections: {
+      claudeCache: "Cache de prompts de Claude Code",
       projects: "Projets",
       connections: "Connexions",
       agents: "Agents",
@@ -3067,7 +3068,7 @@ export const fr: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "Reprise automatique lors des limites de débit",
-        hint: "Reprendre automatiquement les sessions d'agent après le temps de recharge du quota de l'API ou la récupération du modèle",
+        hint: "Reprend un agent à la fin de sa période de refroidissement après une limite de débit. Fonctionne uniquement si ses requêtes passent par iamriajul/CLIProxyAPI, le fork qui écrit l'heure de fin du refroidissement (RETRY_AFTER) dans l'erreur. Les erreurs d'Anthropic, d'OpenAI et du CLIProxyAPI d'origine ne la contiennent pas : sans ce fork, rien ne reprend.",
         accessibilityLabel: "Reprise automatique lors des limites de débit",
         error: "Impossible de mettre à jour le paramètre de reprise automatique",
       },
@@ -3098,6 +3099,24 @@ export const fr: TranslationResources = {
           off: "Laisse le processus Claude tourner après l'expiration de son cache. Ses minuteurs, /loop et notifications de tâches peuvent le réveiller et réécrire tout le contexte.",
         },
         error: "Impossible de mettre à jour le réglage d'expiration du cache",
+      },
+      claudeCache: {
+        info: "Ces réglages s'appliquent uniquement aux agents Claude Code. Les autres agents n'utilisent pas le cache de prompts d'Anthropic et les ignorent.",
+      },
+      childReportExpiredCache: {
+        title: "Quand un agent enfant répond à un orchestrateur expiré",
+        options: {
+          wake: "Le réveiller",
+          hold: "Garder le rapport",
+          "keep-warm": "Garder au chaud",
+        },
+        hints: {
+          wake: "Le rapport d'un agent enfant réveille son orchestrateur même après l'expiration de son cache. Le réveil réécrit tout son contexte au prix fort.",
+          hold: "Garde le rapport tant que le cache de l'orchestrateur est expiré et laisse son processus s'arrêter. Le rapport arrive avec le prochain tour de l'orchestrateur, en général votre prochain message, et ne le réveille jamais de lui-même.",
+          "keep-warm":
+            "Continue de réchauffer l'orchestrateur au-delà du plafond d'inactivité tant qu'un enfant qu'il attend peut encore répondre, pour que le rapport arrive dans un cache chaud. Coûteux : un enfant qui tourne toute la nuit garde un grand contexte au chaud toute la nuit, avec un réchauffement toutes les 4 minutes sur une fenêtre de 5m.",
+        },
+        error: "Impossible de mettre à jour le réglage des rapports d'agents enfants",
       },
       orchestration: {
         title: "Orchestration",

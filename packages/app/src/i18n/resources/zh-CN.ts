@@ -2394,6 +2394,7 @@ export const zhCN: TranslationResources = {
       sendFailedTitle: "无法发送测试通知",
     },
     hostSections: {
+      claudeCache: "Claude Code 提示缓存",
       projects: "项目",
       connections: "连接",
       agents: "Agents",
@@ -2981,7 +2982,7 @@ export const zhCN: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "速率限制自动恢复",
-        hint: "在 API 速率限制冷却或模型恢复后自动恢复代理会话",
+        hint: "速率限制冷却结束后恢复代理。仅当请求经过 iamriajul/CLIProxyAPI 时有效：这个分支会把冷却结束时间（RETRY_AFTER）写进错误信息。Anthropic、OpenAI 和原版 CLIProxyAPI 的错误不包含它，没有这个分支就不会恢复。",
         accessibilityLabel: "速率限制自动恢复",
         error: "无法更新自动恢复设置",
       },
@@ -3012,6 +3013,24 @@ export const zhCN: TranslationResources = {
           off: "缓存过期后让 Claude 进程继续运行。它自己的定时器、/loop 和任务通知可能唤醒它，并重新写入整个上下文。",
         },
         error: "无法更新缓存过期设置",
+      },
+      claudeCache: {
+        info: "这些设置仅适用于 Claude Code 代理。其他代理不使用 Anthropic 的提示缓存，会忽略这些设置。",
+      },
+      childReportExpiredCache: {
+        title: "子代理向缓存已过期的编排代理汇报时",
+        options: {
+          wake: "唤醒",
+          hold: "暂存汇报",
+          "keep-warm": "保持预热",
+        },
+        hints: {
+          wake: "即使编排代理的缓存已过期，子代理的汇报也会唤醒它。唤醒会按全价重新写入整个上下文。",
+          hold: "编排代理的缓存过期期间暂存汇报，并让它的进程停止。汇报会随编排代理的下一轮（通常是你的下一条消息）一起送达，汇报本身永远不会唤醒它。",
+          "keep-warm":
+            "只要它等待的子代理还可能汇报，就在空闲上限之后继续预热编排代理，让汇报落在热缓存中。代价高：整夜运行的子代理会让大上下文整夜保持预热，5m 窗口下每 4 分钟预热一次。",
+        },
+        error: "无法更新子代理汇报设置",
       },
       orchestration: {
         title: "编排",

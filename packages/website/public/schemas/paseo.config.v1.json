@@ -110,6 +110,9 @@
         "cacheExpiryStop": {
           "type": "string"
         },
+        "childReportExpiredCache": {
+          "type": "string"
+        },
         "enableTerminalAgentHooks": {
           "type": "boolean"
         },

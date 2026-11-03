@@ -79,6 +79,20 @@ const STORED_AGENT_SCHEMA = z.object({
   consecutiveWarmPings: z.number().optional(),
   totalWarmPings: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
+  /**
+   * Last usage the provider reported, so a stopped agent still shows its context size and the
+   * price of waking it. Only the numeric fields; the per-request cache sample lives in promptCache.
+   */
+  lastUsage: z
+    .object({
+      inputTokens: z.number().optional(),
+      cachedInputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalCostUsd: z.number().optional(),
+      contextWindowMaxTokens: z.number().optional(),
+      contextWindowUsedTokens: z.number().optional(),
+    })
+    .optional(),
 });
 
 export type SerializableAgentConfig = Pick<

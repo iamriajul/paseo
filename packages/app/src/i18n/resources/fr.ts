@@ -3177,7 +3177,7 @@ export const fr: TranslationResources = {
         },
         hints: {
           ping: "Envoie à l'agent un court tour de ping juste avant l'expiration de son cache. Il faut un agent inactif : un agent en cours ou bloqué n'est pas réchauffé, et chaque ping et sa réponse restent dans le chat.",
-          fork: "Expérimental. Réchauffe le cache via un fork jetable de la session : les agents en cours ou bloqués sont aussi réchauffés et rien n'arrive dans le chat. Derrière une passerelle qui répartit les sessions entre comptes, un fork peut arriver sur un autre compte et y écrire tout le contexte.",
+          fork: "Expérimental. Réchauffe le cache via un fork jetable de la session : les agents en cours ou bloqués sont aussi réchauffés et rien n'arrive dans le chat.",
         },
         error: "Impossible de mettre à jour la méthode de réchauffement",
       },

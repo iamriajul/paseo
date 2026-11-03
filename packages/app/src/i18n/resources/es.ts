@@ -3175,7 +3175,7 @@ export const es: TranslationResources = {
         },
         hints: {
           ping: "Envía al agente un turno breve de ping justo antes de que caduque su caché. Necesita un agente inactivo, así que un agente en ejecución o bloqueado no se calienta, y cada ping y su respuesta quedan en el chat.",
-          fork: "Experimental. Calienta la caché con un fork desechable de la sesión, así que también se calientan los agentes en ejecución o bloqueados y nada llega al chat. A través de una pasarela que reparte sesiones entre cuentas, un fork puede caer en otra cuenta y escribir allí todo el contexto.",
+          fork: "Experimental. Calienta la caché con un fork desechable de la sesión, así que también se calientan los agentes en ejecución o bloqueados y nada llega al chat.",
         },
         error: "No se pudo actualizar el método de calentamiento",
       },

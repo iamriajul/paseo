@@ -850,6 +850,28 @@ async function readClaudeCliSettings(value: string, cwd: string): Promise<Claude
 }
 const CACHE_WARM_FORK_TIMEOUT_MS = 120_000;
 
+const SESSION_ID_HEADER = "X-Claude-Code-Session-Id";
+
+/**
+ * Flag-settings env for a warm-up fork, with `X-Claude-Code-Session-Id` set to the session it
+ * forks. A fork is a new session, so Claude Code sends the fork's own ID, and a gateway that keeps
+ * sessions sticky to accounts (CLIProxyAPI session-affinity) binds it to a fresh account with none
+ * of the session's cache. A custom header replaces Claude Code's own (checked against Claude Code
+ * 2.1.316). It sits in the flag settings layer, which outranks every settings file.
+ */
+function routeForkAsSession(options: ClaudeOptions, sessionId: string): Record<string, string> {
+  const flagEnv =
+    options.settings && typeof options.settings !== "string" ? options.settings.env : undefined;
+  const existing = flagEnv?.ANTHROPIC_CUSTOM_HEADERS ?? options.env?.ANTHROPIC_CUSTOM_HEADERS ?? "";
+  const headers = existing
+    .split("\n")
+    .filter(
+      (line) => line.trim() && !line.toLowerCase().startsWith(SESSION_ID_HEADER.toLowerCase()),
+    );
+  headers.push(`${SESSION_ID_HEADER}: ${sessionId}`);
+  return { ...flagEnv, ANTHROPIC_CUSTOM_HEADERS: headers.join("\n") };
+}
+
 function mergeClaudeSettings(
   settings: ClaudeOptions["settings"],
   updates: NonNullable<Exclude<ClaudeOptions["settings"], string>>,
@@ -3544,7 +3566,10 @@ class ClaudeAgentSession implements AgentSession {
       mcpServers: {},
       strictMcpConfig: true,
       hooks: {},
-      settings: mergeClaudeSettings(options.settings, { disableAllHooks: true }),
+      settings: mergeClaudeSettings(options.settings, {
+        disableAllHooks: true,
+        env: routeForkAsSession(options, sessionId),
+      }),
       canUseTool: async () => ({ behavior: "deny", message: "A cache warm-up runs no tools." }),
       stderr: (data: string) =>
         this.logger.debug({ stderr: data.trim() }, "Cache warm-up fork stderr"),

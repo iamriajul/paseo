@@ -3156,7 +3156,7 @@ export const ptBR: TranslationResources = {
         },
         hints: {
           ping: "Envia ao agente um turno curto de ping pouco antes de o cache expirar. Precisa de um agente ocioso, então um agente em execução ou bloqueado não é aquecido, e cada ping e sua resposta ficam no chat.",
-          fork: "Experimental. Aquece o cache por um fork descartável da sessão, então agentes em execução ou bloqueados também são aquecidos e nada chega ao chat. Por um gateway que distribui sessões entre contas, um fork pode cair em outra conta e escrever lá todo o contexto.",
+          fork: "Experimental. Aquece o cache por um fork descartável da sessão, então agentes em execução ou bloqueados também são aquecidos e nada chega ao chat.",
         },
         error: "Não foi possível atualizar o método de aquecimento",
       },

@@ -300,6 +300,8 @@ export interface AgentCacheWarmManagerDependencies {
    * it waits on can still report. Read on every decision so a setting change applies at once.
    */
   warmsPastCap?: (agentId: string) => boolean;
+  /** Host setting `cacheWarmMode` is fork (v2); read on every decision so a change applies at once. */
+  warmsThroughFork?: () => boolean;
 }
 
 export class AgentCacheWarmManager {
@@ -312,6 +314,7 @@ export class AgentCacheWarmManager {
   private readonly now: () => number;
   private readonly isCacheAutoCompactByDefault: () => boolean;
   private readonly warmsPastCap: (agentId: string) => boolean;
+  private readonly warmsThroughFork: () => boolean;
   private idleCapCompactionHandler: ((agentId: string) => Promise<void>) | null;
 
   private readonly activeTimers = new Map<string, ActiveCacheWarmTimerEntry>();
@@ -339,6 +342,7 @@ export class AgentCacheWarmManager {
     this.now = dependencies.now ?? (() => Date.now());
     this.isCacheAutoCompactByDefault = dependencies.isCacheAutoCompactByDefault ?? (() => false);
     this.warmsPastCap = dependencies.warmsPastCap ?? (() => false);
+    this.warmsThroughFork = dependencies.warmsThroughFork ?? (() => true);
     this.idleCapCompactionHandler = dependencies.onIdleCapCompaction ?? null;
   }
 
@@ -408,9 +412,11 @@ export class AgentCacheWarmManager {
       consecutivePings: this.getConsecutivePings(agentId),
       autoCompactByDefault: this.isCacheAutoCompactByDefault(),
       warmPastCap: this.warmsPastCap(agentId),
-      forkWarm: agent
-        ? this.agentManager.canWarmPromptCache(agentId)
-        : this.dormantRecords.get(agentId)?.provider === "claude",
+      forkWarm:
+        this.warmsThroughFork() &&
+        (agent
+          ? this.agentManager.canWarmPromptCache(agentId)
+          : this.dormantRecords.get(agentId)?.provider === "claude"),
     };
     if (agent) {
       return viewLiveAgent(agent, {

@@ -3169,6 +3169,18 @@ export const fr: TranslationResources = {
       claudeCache: {
         info: "Ces réglages s'appliquent uniquement aux agents Claude Code. Les autres agents n'utilisent pas le cache de prompts d'Anthropic et les ignorent.",
       },
+      cacheWarmMode: {
+        title: "Méthode de réchauffement",
+        options: {
+          ping: "v1 · Ping",
+          fork: "v2 · Fork",
+        },
+        hints: {
+          ping: "Envoie à l'agent un court tour de ping juste avant l'expiration de son cache. Il faut un agent inactif : un agent en cours ou bloqué n'est pas réchauffé, et chaque ping et sa réponse restent dans le chat.",
+          fork: "Expérimental. Réchauffe le cache via un fork jetable de la session : les agents en cours ou bloqués sont aussi réchauffés et rien n'arrive dans le chat. Derrière une passerelle qui répartit les sessions entre comptes, un fork peut arriver sur un autre compte et y écrire tout le contexte.",
+        },
+        error: "Impossible de mettre à jour la méthode de réchauffement",
+      },
       childReportExpiredCache: {
         title: "Quand un agent enfant répond à un orchestrateur expiré",
         options: {

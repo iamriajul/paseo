@@ -3079,6 +3079,18 @@ export const zhCN: TranslationResources = {
       claudeCache: {
         info: "这些设置仅适用于 Claude Code 代理。其他代理不使用 Anthropic 的提示缓存，会忽略这些设置。",
       },
+      cacheWarmMode: {
+        title: "预热方式",
+        options: {
+          ping: "v1 · Ping",
+          fork: "v2 · Fork",
+        },
+        hints: {
+          ping: "在缓存过期前给代理发送一个简短的 ping 回合。需要代理处于空闲状态，因此运行中或被阻塞的代理不会预热，每次 ping 及其回复都会留在聊天中。",
+          fork: "实验性。通过会话的一次性分支预热缓存，运行中和被阻塞的代理也会预热，聊天中不会留下任何内容。经过在多个账号间分配会话的网关时，分支可能落到另一个账号，并在那里写入整个上下文。",
+        },
+        error: "无法更新预热方式",
+      },
       childReportExpiredCache: {
         title: "子代理向缓存已过期的编排代理汇报时",
         options: {

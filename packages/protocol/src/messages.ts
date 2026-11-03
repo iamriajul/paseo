@@ -309,6 +309,8 @@ export const MutableDaemonConfigSchema = z
     cacheExpiryStop: z.string().optional(),
     // A string so a policy added later still parses; resolveChildReportExpiredCachePolicy reads it.
     childReportExpiredCache: z.string().optional(),
+    // A string so a mode added later still parses; resolveCacheWarmMode reads it.
+    cacheWarmMode: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
@@ -363,6 +365,8 @@ export const MutableDaemonConfigPatchSchema = z
     cacheExpiryStop: z.string().optional(),
     // A string so a policy added later still parses; resolveChildReportExpiredCachePolicy reads it.
     childReportExpiredCache: z.string().optional(),
+    // A string so a mode added later still parses; resolveCacheWarmMode reads it.
+    cacheWarmMode: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     pluginsEnabled: z.boolean().optional(),
@@ -4291,8 +4295,11 @@ export const ServerInfoStatusPayloadSchema = z
         cacheExpiryStop: z.boolean().optional(),
         // COMPAT(childReportExpiredCache): added in v0.14.907, drop gate after 2027-05-01.
         childReportExpiredCache: z.boolean().optional(),
-        // COMPAT(cacheWarmFork): added in v0.14.904, drop gate after 2027-05-01. Warm-ups go through
-        // a throwaway fork, so running and blocked agents are warmed and questions stay open.
+        // COMPAT(cacheWarmMode): added in v0.14.907, drop gate after 2027-05-01.
+        cacheWarmMode: z.boolean().optional(),
+        // COMPAT(cacheWarmFork): added in v0.14.904, drop gate after 2027-05-01. True while warm-ups
+        // go through a throwaway fork (cacheWarmMode v2), so running and blocked agents are warmed
+        // and questions stay open; false under v1, which pings the agent.
         cacheWarmFork: z.boolean().optional(),
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
         tcpTunnel: z.boolean().optional(),

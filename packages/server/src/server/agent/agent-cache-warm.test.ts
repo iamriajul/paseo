@@ -48,6 +48,8 @@ interface HarnessOptions {
   forkWarm?: boolean;
   /** The host lifts the idle cap while a child of this agent can still report. */
   warmsPastCap?: () => boolean;
+  /** Host warm-up mode: true for v2 (fork), false for v1 (ping). */
+  warmsThroughFork?: () => boolean;
 }
 
 function buildAgent(options: HarnessOptions): ManagedAgent {
@@ -126,6 +128,7 @@ function createHarness(options: HarnessOptions = {}) {
     isCacheAutoCompactByDefault: () => options.autoCompactByDefault ?? false,
     onIdleCapCompaction: options.onIdleCapCompaction,
     warmsPastCap: options.warmsPastCap,
+    warmsThroughFork: options.warmsThroughFork,
   });
   return { manager, agent, sendPrompt, respondToPermission, setAgentFeature, warmPromptCache };
 }
@@ -277,6 +280,21 @@ describe("AgentCacheWarmManager", () => {
       five.manager.schedule("agent-1");
     }
     expect(five.sendPrompt).toHaveBeenCalledTimes(10);
+  });
+
+  it("sends a ping turn under v1 even when the session can fork, and forks under v2", async () => {
+    let fork = false;
+    const harness = createHarness({ ttl: "5m", forkWarm: true, warmsThroughFork: () => fork });
+    harness.manager.schedule("agent-1");
+    await vi.advanceTimersByTimeAsync(4 * MINUTE);
+    expect(sentPrompts(harness.sendPrompt)).toEqual([DEFAULT_CACHE_WARM_PING_PROMPT]);
+    expect(harness.warmPromptCache).not.toHaveBeenCalled();
+
+    fork = true;
+    harness.manager.schedule("agent-1");
+    await vi.advanceTimersByTimeAsync(4 * MINUTE);
+    expect(harness.warmPromptCache).toHaveBeenCalledTimes(1);
+    expect(harness.sendPrompt).toHaveBeenCalledTimes(1);
   });
 
   it("keeps warming past the cap while a child can still report, then stops at the cap", async () => {

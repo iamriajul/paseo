@@ -3167,6 +3167,18 @@ export const es: TranslationResources = {
       claudeCache: {
         info: "Estos ajustes solo se aplican a los agentes de Claude Code. Los demás agentes no usan la caché de prompts de Anthropic, así que los ignoran.",
       },
+      cacheWarmMode: {
+        title: "Método de calentamiento",
+        options: {
+          ping: "v1 · Ping",
+          fork: "v2 · Fork",
+        },
+        hints: {
+          ping: "Envía al agente un turno breve de ping justo antes de que caduque su caché. Necesita un agente inactivo, así que un agente en ejecución o bloqueado no se calienta, y cada ping y su respuesta quedan en el chat.",
+          fork: "Experimental. Calienta la caché con un fork desechable de la sesión, así que también se calientan los agentes en ejecución o bloqueados y nada llega al chat. A través de una pasarela que reparte sesiones entre cuentas, un fork puede caer en otra cuenta y escribir allí todo el contexto.",
+        },
+        error: "No se pudo actualizar el método de calentamiento",
+      },
       childReportExpiredCache: {
         title: "Cuando un agente hijo informa a un orquestador caducado",
         options: {

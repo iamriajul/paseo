@@ -3239,6 +3239,18 @@ export const en = {
       claudeCache: {
         info: "These settings apply only to Claude Code agents. Other agents don't use Anthropic's prompt cache, so they ignore them.",
       },
+      cacheWarmMode: {
+        title: "Warm-up method",
+        options: {
+          ping: "v1 · Ping",
+          fork: "v2 · Fork",
+        },
+        hints: {
+          ping: "Sends the agent a short ping turn just before its cache expires. Needs an idle agent, so a running or blocked agent is not warmed, and each ping and its reply stay in the chat.",
+          fork: "Experimental. Warms the cache through a throwaway fork of the session, so running and blocked agents are warmed too and nothing reaches the chat. Through a gateway that spreads sessions across accounts, a fork can land on another account and write the whole context there.",
+        },
+        error: "Unable to update the warm-up method",
+      },
       childReportExpiredCache: {
         title: "When a child reports to an expired orchestrator",
         options: {

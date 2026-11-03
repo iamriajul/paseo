@@ -13,6 +13,9 @@ import { createChildReportHold, pendingReportsKeepRuntime } from "./agent/child-
 import {
   DEFAULT_CACHE_EXPIRY_STOP_POLICY,
   DEFAULT_CHILD_REPORT_EXPIRED_CACHE_POLICY,
+  DEFAULT_CACHE_WARM_MODE,
+  resolveCacheWarmMode,
+  type CacheWarmMode,
   resolveCacheExpiryStopPolicy,
   resolveChildReportExpiredCachePolicy,
   type CacheExpiryStopPolicy,
@@ -465,6 +468,7 @@ export interface PaseoDaemonConfig {
   cacheAutoCompact?: boolean;
   cacheExpiryStop?: CacheExpiryStopPolicy;
   childReportExpiredCache?: ChildReportExpiredCachePolicy;
+  cacheWarmMode?: CacheWarmMode;
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
   terminalProfiles?: TerminalProfile[];
@@ -649,7 +653,11 @@ function resolveInitialPromptCacheConfig(
   config: ResolvedDaemonSettings,
 ): Pick<
   MutableDaemonConfig,
-  "cacheWarmSubagents" | "cacheAutoCompact" | "cacheExpiryStop" | "childReportExpiredCache"
+  | "cacheWarmSubagents"
+  | "cacheAutoCompact"
+  | "cacheExpiryStop"
+  | "childReportExpiredCache"
+  | "cacheWarmMode"
 > {
   return {
     cacheWarmSubagents: config.cacheWarmSubagents ?? true,
@@ -657,6 +665,7 @@ function resolveInitialPromptCacheConfig(
     cacheExpiryStop: config.cacheExpiryStop ?? DEFAULT_CACHE_EXPIRY_STOP_POLICY,
     childReportExpiredCache:
       config.childReportExpiredCache ?? DEFAULT_CHILD_REPORT_EXPIRED_CACHE_POLICY,
+    cacheWarmMode: config.cacheWarmMode ?? DEFAULT_CACHE_WARM_MODE,
   };
 }
 
@@ -1155,6 +1164,7 @@ export async function createPaseoDaemon(
     agentStorage,
     logger,
     isCacheAutoCompactByDefault: () => daemonConfigStore.get().cacheAutoCompact === true,
+    warmsThroughFork: () => resolveCacheWarmMode(daemonConfigStore.get().cacheWarmMode) === "fork",
     warmsPastCap: (agentId) =>
       childReportPolicy() === "keep-warm" &&
       (finishSubscriptionsRef?.hasPendingForCaller(agentId) ?? false),
@@ -1166,6 +1176,11 @@ export async function createPaseoDaemon(
       logger,
     }),
   );
+  daemonConfigStore.onFieldChange("daemon.cacheWarmMode", () => {
+    for (const agent of agentManager.listAgents()) {
+      cacheWarmManager.schedule(agent.id);
+    }
+  });
   daemonConfigStore.onFieldChange("daemon.childReportExpiredCache", () => {
     for (const agent of agentManager.listAgents()) {
       cacheWarmManager.schedule(agent.id);

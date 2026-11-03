@@ -14,6 +14,7 @@ import {
   type ComposerTrackPillSegment,
 } from "@/composer/tracks";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { formatTokenCount } from "@/components/context-window-meter.utils";
 import { formatCountdownClock, formatPreciseDuration } from "@/usage/format";
 import type { Theme } from "@/styles/theme";
@@ -194,10 +195,87 @@ function RequestHistory({
 }
 
 function resolveAutoCompactText(autoCompact: PromptCacheAutoCompact): string {
-  if (!autoCompact.enabled) return "Let it expire";
+  if (!autoCompact.enabled) return "Off · the cache expires at the cap";
   const size =
-    autoCompact.contextTokens === null ? "" : ` · ${formatTokenCount(autoCompact.contextTokens)}`;
-  return autoCompact.largeEnough ? `Compact${size}` : `Compact from 200k${size} now`;
+    autoCompact.contextTokens === null
+      ? ""
+      : ` · ${formatTokenCount(autoCompact.contextTokens)} now`;
+  return autoCompact.largeEnough
+    ? `On · compacts instead of expiring${size}`
+    : `On · from 200k context${size}`;
+}
+
+function describeHostDefault(enabled: boolean): string {
+  return enabled ? "compact" : "let it expire";
+}
+
+/**
+ * One labelled switch: the label says what it controls, the line under it what it does now. A
+ * switch reads as a setting with a state, where a button labelled with the opposite state did not.
+ */
+function SwitchRow({
+  label,
+  status,
+  value,
+  onValueChange,
+  disabled = false,
+  testID,
+  statusTestID,
+}: {
+  label: string;
+  status: string;
+  value: boolean;
+  onValueChange: () => void;
+  disabled?: boolean;
+  testID: string;
+  statusTestID: string;
+}): ReactElement {
+  return (
+    <View style={styles.switchRow}>
+      <View style={styles.switchText}>
+        <Text style={styles.switchLabel}>{label}</Text>
+        <Text style={styles.label} testID={statusTestID}>
+          {status}
+        </Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+        accessibilityLabel={label}
+        testID={testID}
+      />
+    </View>
+  );
+}
+
+function AutoCompactDefault({
+  autoCompact,
+  onMakeDefault,
+}: {
+  autoCompact: PromptCacheAutoCompact;
+  onMakeDefault: () => void;
+}): ReactElement {
+  const differs = autoCompact.overridden && autoCompact.enabled !== autoCompact.hostDefault;
+  return (
+    <View style={styles.defaultRow} testID="prompt-cache-auto-compact-default">
+      <Text style={styles.helpTextLeft}>
+        {differs
+          ? `This agent only · host default: ${describeHostDefault(autoCompact.hostDefault)}`
+          : `Host default: ${describeHostDefault(autoCompact.hostDefault)}${autoCompact.overridden ? "" : " · followed"}`}
+      </Text>
+      {differs ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          testID="prompt-cache-auto-compact-make-default"
+          onPress={onMakeDefault}
+        >
+          Make default
+        </Button>
+      ) : null}
+    </View>
+  );
 }
 
 function resolveAccessibilityLabel(cache: PromptCacheState): string {
@@ -279,41 +357,29 @@ export const PromptCachePill = memo(function PromptCachePill({
           {history ? <RequestHistory history={history} misses={misses} /> : null}
           {warmup && windows ? (
             <View style={styles.capBlock}>
-              <View style={styles.detailRow}>
-                <Text style={styles.label}>Warm-up</Text>
-                <Text style={styles.value} testID="prompt-cache-cap-count">
-                  {resolveWarmupText(warmup)} · {warmup.pingsUsed}/{warmup.maxPings} ·{" "}
-                  {formatCoveredDuration(warmup, windows)}
-                </Text>
-              </View>
+              <SwitchRow
+                label="Warm-up"
+                status={`${resolveWarmupText(warmup)} · ${warmup.pingsUsed}/${warmup.maxPings} · covers ${formatCoveredDuration(warmup, windows)}`}
+                value={warmup.enabled}
+                onValueChange={cache.toggleWarmup}
+                disabled={!warmup.enabled && !canTurnOn}
+                testID="prompt-cache-toggle-warmup-switch"
+                statusTestID="prompt-cache-cap-count"
+              />
               <CapProgress warmup={warmup} />
-              <View style={styles.detailRow}>
-                <Text style={styles.label}>At the cap</Text>
-                <Text style={styles.value} testID="prompt-cache-auto-compact">
-                  {resolveAutoCompactText(autoCompact)}
-                </Text>
-              </View>
-              <View style={styles.actions}>
-                <Button
-                  size="sm"
-                  variant={warmup.enabled ? "outline" : "default"}
-                  testID="prompt-cache-toggle-warmup-button"
-                  disabled={!warmup.enabled && !canTurnOn}
-                  onPress={cache.toggleWarmup}
-                  style={styles.actionButton}
-                >
-                  {warmup.enabled ? "Warm-up off" : "Warm-up on"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  testID="prompt-cache-toggle-auto-compact-button"
-                  onPress={autoCompact.toggle}
-                  style={styles.actionButton}
-                >
-                  {autoCompact.enabled ? "Let it expire" : "Compact at cap"}
-                </Button>
-              </View>
+              <View style={styles.switchGroupGap} />
+              <SwitchRow
+                label="Compact at cap"
+                status={resolveAutoCompactText(autoCompact)}
+                value={autoCompact.enabled}
+                onValueChange={autoCompact.toggle}
+                testID="prompt-cache-toggle-auto-compact-switch"
+                statusTestID="prompt-cache-auto-compact"
+              />
+              <AutoCompactDefault
+                autoCompact={autoCompact}
+                onMakeDefault={autoCompact.makeDefault}
+              />
             </View>
           ) : (
             <Text style={styles.helpText}>Choose 5m or 1h under Cache window to warm it.</Text>
@@ -410,13 +476,35 @@ const styles = StyleSheet.create((theme: Theme) => ({
   danger: {
     color: theme.colors.statusDanger,
   },
-  actions: {
-    marginTop: theme.spacing[1],
+  switchRow: {
     flexDirection: "row",
-    gap: theme.spacing[2],
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
   },
-  actionButton: {
+  switchText: {
     flex: 1,
+    gap: 2,
+  },
+  switchLabel: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foreground,
+    fontWeight: theme.fontWeight.medium,
+  },
+  switchGroupGap: {
+    height: theme.spacing[2],
+  },
+  defaultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    minHeight: 28,
+  },
+  helpTextLeft: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
   },
   linkText: {
     fontSize: theme.fontSize.sm,

@@ -2506,6 +2506,7 @@ export const ja: TranslationResources = {
       sendFailedTitle: "テスト通知を送信できません",
     },
     hostSections: {
+      claudeCache: "Claude Code のプロンプトキャッシュ",
       projects: "プロジェクト",
       connections: "接続",
       agents: "エージェント",
@@ -3102,7 +3103,7 @@ export const ja: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "レート制限時の自動再開",
-        hint: "APIレート制限のクールダウンやモデル復旧後にエージェントセッションを自動再開します",
+        hint: "レート制限のクールダウンが終わったらエージェントを再開します。リクエストが iamriajul/CLIProxyAPI を経由する場合にのみ動作します。このフォークはクールダウンの終了時刻 (RETRY_AFTER) をエラーに書き込みます。Anthropic、OpenAI、オリジナルの CLIProxyAPI のエラーには含まれないため、このフォークがないと再開されません。",
         accessibilityLabel: "レート制限時の自動再開",
         error: "自動再開設定を更新できませんでした",
       },
@@ -3133,6 +3134,24 @@ export const ja: TranslationResources = {
           off: "キャッシュの期限切れ後も Claude プロセスを動かしたままにします。独自のタイマー、/loop、タスク通知で起こされ、コンテキスト全体を書き直すことがあります。",
         },
         error: "キャッシュの期限切れ設定を更新できません",
+      },
+      claudeCache: {
+        info: "これらの設定は Claude Code エージェントにのみ適用されます。ほかのエージェントは Anthropic のプロンプトキャッシュを使わないため、無視されます。",
+      },
+      childReportExpiredCache: {
+        title: "期限切れのオーケストレーターに子エージェントが報告したとき",
+        options: {
+          wake: "起こす",
+          hold: "報告を保留",
+          "keep-warm": "ウォームを維持",
+        },
+        hints: {
+          wake: "オーケストレーターのキャッシュが期限切れでも、子エージェントの報告で起こします。起こすとコンテキスト全体を正規料金で書き直します。",
+          hold: "オーケストレーターのキャッシュが期限切れの間は報告を保留し、そのプロセスは停止させます。報告はオーケストレーターの次のターン (通常はあなたの次のメッセージ) と一緒に届き、報告だけで起こすことはありません。",
+          "keep-warm":
+            "待っている子エージェントがまだ報告できる間は、アイドル上限を超えてオーケストレーターのウォームアップを続け、報告をウォームなキャッシュに届けます。高コスト: 一晩中動く子エージェントがいると、大きなコンテキストを一晩中ウォームに保ちます (5m ウィンドウでは 4 分ごとにウォームアップ)。",
+        },
+        error: "子エージェントの報告設定を更新できません",
       },
       orchestration: {
         title: "オーケストレーション",

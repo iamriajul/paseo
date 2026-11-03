@@ -684,7 +684,7 @@ export const en = {
       title: "Agent settings",
       rateLimitAutoResume: "Auto-resume on rate limits",
       rateLimitAutoResumeHint:
-        "Automatically resume this agent after API rate limit cooldown or model recovery",
+        "Resume this agent once its rate-limit cooldown ends. Needs iamriajul/CLIProxyAPI, which reports when the cooldown ends.",
       disabledGloballyHint: "Disabled globally in Host Settings",
     },
     tabs: {
@@ -2549,6 +2549,7 @@ export const en = {
       sendFailedTitle: "Unable to send test notification",
     },
     hostSections: {
+      claudeCache: "Claude Code prompt cache",
       projects: "Projects",
       connections: "Connections",
       agents: "Agents",
@@ -3203,7 +3204,7 @@ export const en = {
       },
       rateLimitAutoResume: {
         title: "Auto-resume on rate limits",
-        hint: "Automatically resume agent sessions after API rate limit cooldown or model recovery",
+        hint: "Resume an agent once its rate-limit cooldown ends. Works only when its requests go through iamriajul/CLIProxyAPI, the fork that writes the cooldown's end time (RETRY_AFTER) into the error. Anthropic, OpenAI and upstream CLIProxyAPI errors don't include it, so without that fork nothing resumes.",
         accessibilityLabel: "Auto-resume on rate limits",
         error: "Unable to update auto-resume setting",
       },
@@ -3234,6 +3235,24 @@ export const en = {
           off: "Leave the Claude process running after its cache expires. Its own timers, /loop and task notifications can wake it and write the whole context again.",
         },
         error: "Unable to update the cache expiry setting",
+      },
+      claudeCache: {
+        info: "These settings apply only to Claude Code agents. Other agents don't use Anthropic's prompt cache, so they ignore them.",
+      },
+      childReportExpiredCache: {
+        title: "When a child reports to an expired orchestrator",
+        options: {
+          wake: "Wake",
+          hold: "Hold",
+          "keep-warm": "Keep warm",
+        },
+        hints: {
+          wake: "A child agent's report wakes its orchestrator even after the orchestrator's cache expired. Waking writes its whole context again at full price.",
+          hold: "Keep the report while the orchestrator's cache is expired, and let its process stop. The report arrives with the orchestrator's next turn, usually your next message, and never wakes it on its own.",
+          "keep-warm":
+            "Keep warming the orchestrator past the idle cap for as long as a child it waits on can still report, so the report lands in a warm cache. Costly: a child that runs all night keeps a large context warm all night, with a warm-up every 4 minutes on a 5m window.",
+        },
+        error: "Unable to update the child report setting",
       },
       orchestration: {
         title: "Orchestration",

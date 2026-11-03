@@ -1,7 +1,11 @@
 import { expect, onTestFinished, test } from "vitest";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import type { CacheExpiryStopPolicy } from "@getpaseo/protocol/agent-cache-warm";
-import { createIdleRuntimeCleanup, type RuntimeCleanupCandidate } from "./index.js";
+import {
+  createIdleRuntimeCleanup,
+  type RuntimeCleanupCandidate,
+  type RuntimeStopRule,
+} from "./index.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -48,14 +52,14 @@ function scenario(enabled = true, cacheExpiryStop: CacheExpiryStopPolicy = "off"
   const runtime = new Runtime();
   const runtimes = [runtime];
   let time = 0;
-  let protectedCaller = false;
+  let protectedFrom: readonly RuntimeStopRule[] = [];
   let tick!: () => void;
   const cleanup = createIdleRuntimeCleanup({
     enabled,
     logger: createTestLogger(),
     now: () => time,
     runtimes: () => runtimes.filter((item) => !item.closed).map((item) => item.capture()),
-    isProtected: () => protectedCaller,
+    isProtected: (_agentId, rule) => protectedFrom.includes(rule),
     cacheExpiryStop: () => cacheExpiryStop,
     schedule: (callback, interval) => {
       expect(interval).toBe(60_000);
@@ -69,8 +73,8 @@ function scenario(enabled = true, cacheExpiryStop: CacheExpiryStopPolicy = "off"
     runtimes,
     cleanup,
     tick: () => tick(),
-    protect: (value: boolean) => {
-      protectedCaller = value;
+    protect: (value: boolean, rules: readonly RuntimeStopRule[] = ["cache-expired", "idle"]) => {
+      protectedFrom = value ? rules : [];
     },
     sweep: (minutes: number) => {
       time = minutes * 60_000;
@@ -322,6 +326,15 @@ test("a background task keeps an expired runtime unless the policy stops it anyw
   stopped.runtime.cacheExpiresAt = 5 * 60_000;
   stopped.runtime.probe = async () => false;
   expect((await stopped.sweep(5)).collected).toHaveLength(1);
+});
+
+test("work that protects only from the idle stop still lets an expired cache stop the runtime", async () => {
+  const s = scenario(true, "when-idle");
+  s.protect(true, ["idle"]);
+  expect((await s.sweep(61)).collected).toEqual([]);
+
+  s.runtime.cacheExpiresAt = 62 * 60_000;
+  expect((await s.sweep(62)).collected).toHaveLength(1);
 });
 
 test("an expired cache leaves the runtime alone when the policy is off", async () => {

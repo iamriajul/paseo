@@ -307,6 +307,8 @@ export const MutableDaemonConfigSchema = z
     cacheAutoCompact: z.boolean().optional(),
     // A string so a policy added later still parses; resolveCacheExpiryStopPolicy reads it.
     cacheExpiryStop: z.string().optional(),
+    // A string so a policy added later still parses; resolveChildReportExpiredCachePolicy reads it.
+    childReportExpiredCache: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
@@ -359,6 +361,8 @@ export const MutableDaemonConfigPatchSchema = z
     cacheAutoCompact: z.boolean().optional(),
     // A string so a policy added later still parses; resolveCacheExpiryStopPolicy reads it.
     cacheExpiryStop: z.string().optional(),
+    // A string so a policy added later still parses; resolveChildReportExpiredCachePolicy reads it.
+    childReportExpiredCache: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     pluginsEnabled: z.boolean().optional(),
@@ -4285,6 +4289,8 @@ export const ServerInfoStatusPayloadSchema = z
         compactThenSend: z.boolean().optional(),
         // COMPAT(cacheExpiryStop): added in v0.14.903, drop gate after 2027-05-01.
         cacheExpiryStop: z.boolean().optional(),
+        // COMPAT(childReportExpiredCache): added in v0.14.907, drop gate after 2027-05-01.
+        childReportExpiredCache: z.boolean().optional(),
         // COMPAT(cacheWarmFork): added in v0.14.904, drop gate after 2027-05-01. Warm-ups go through
         // a throwaway fork, so running and blocked agents are warmed and questions stay open.
         cacheWarmFork: z.boolean().optional(),

@@ -59,6 +59,9 @@ started finishes. Re-enabling keeps the existing idle timestamps.
 Foreground runs, permissions and responses, queued deliveries, lifecycle operations, and working
 managed or native descendants prevent collection. Outstanding local or remote finish subscriptions
 also protect their caller, including registration, recovery and notification dispatch acknowledgment.
+The exception is the cache-expired stop under `daemon.childReportExpiredCache: hold`: a held report
+waits durably for the caller's next turn, so it lets the cold process stop (see
+`claude-prompt-cache-warming` in [fork-decisions.md](fork-decisions.md)).
 An idle managed child can still own background work.
 
 The daemon baseline always applies. An optional provider `canStopRuntime()` adds a veto: false,

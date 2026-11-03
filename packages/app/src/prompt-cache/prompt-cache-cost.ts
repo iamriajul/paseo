@@ -6,8 +6,9 @@ export function formatUsdEstimate(value: number): string {
 }
 
 /**
- * Claude Code's own session cost, plus what Paseo's cache warm-ups cost. A warm-up runs in a
- * throwaway fork whose cost Claude Code never adds to the session's total.
+ * Claude Code's own session cost, plus what Paseo's fork warm-ups cost. A fork warm-up runs
+ * in a throwaway fork whose cost Claude Code never adds to the session's total; a ping warm-up is a
+ * turn of the session, so Claude Code already counts it.
  */
 export function resolveSessionCostUsd(
   agent: { lastUsage?: { totalCostUsd?: number }; warmUpCostUsd?: number } | null | undefined,

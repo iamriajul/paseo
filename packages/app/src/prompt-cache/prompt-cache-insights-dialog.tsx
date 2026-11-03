@@ -209,9 +209,13 @@ function formatDayClock(iso: string): string {
   });
 }
 
-function formatSpan(fromIso: string, toIso: string): string {
+export function formatSpan(fromIso: string, toIso: string): string {
+  const from = formatDayClock(fromIso);
   const sameDay = new Date(fromIso).toDateString() === new Date(toIso).toDateString();
-  return `${formatDayClock(fromIso)} – ${sameDay ? formatClock(toIso) : formatDayClock(toIso)}`;
+  if (!sameDay) return `${from} – ${formatDayClock(toIso)}`;
+  const to = formatClock(toIso);
+  // Requests within one minute read as one time, not "1:15 AM – 1:15 AM".
+  return to === formatClock(fromIso) ? from : `${from} – ${to}`;
 }
 
 export function describeCompaction(compaction: PromptCacheCompaction): string {
@@ -696,14 +700,15 @@ function SessionChart({
           {insights.firstAt ? formatDayClock(insights.firstAt) : ""}
         </Text>
         <Text style={styles.axisText}>
-          {perColumn > 1
-            ? `each bar is ${perColumn} requests · tap one to inspect it`
-            : "each bar is a request · tap one to inspect it"}
-        </Text>
-        <Text style={styles.axisText}>
           {insights.lastAt ? formatDayClock(insights.lastAt) : ""}
         </Text>
       </View>
+      {/* Its own line: beside the two dates it overflowed a phone's width. */}
+      <Text style={styles.axisText}>
+        {perColumn > 1
+          ? `Each bar is ${perColumn} requests. Tap one to inspect it.`
+          : "Each bar is a request. Tap one to inspect it."}
+      </Text>
       <View style={styles.legend}>
         {metric === "cache" ? (
           <>
@@ -737,8 +742,7 @@ function ColumnDetail({
 }): ReactElement {
   const warmUps = requests.filter((entry) => entry.kind === "warm-up").length;
   const missCount = requests.filter((entry) => matchesRequestFilter(entry, "misses")).length;
-  const span =
-    column.at === column.endAt ? formatDayClock(column.at) : formatSpan(column.at, column.endAt);
+  const span = formatSpan(column.at, column.endAt);
   const facts = [
     `${column.requests} ${column.requests === 1 ? "request" : "requests"}`,
     `${formatPercent(column.ratio)} read from cache`,

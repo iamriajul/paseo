@@ -16,10 +16,13 @@ export interface RuntimeCleanupCandidate {
   canStopRuntime?(): Promise<boolean>;
   closeIfEligible(revalidate: () => boolean): Promise<boolean>;
 }
+export type RuntimeStopRule = "cache-expired" | "idle";
+
 interface Options {
   enabled: boolean;
   runtimes(): readonly RuntimeCleanupCandidate[];
-  isProtected?(agentId: string): boolean;
+  /** Work that keeps a runtime resident; told which rule would stop it. */
+  isProtected?(agentId: string, rule: RuntimeStopRule): boolean;
   /** Host setting `cacheExpiryStop`, read on every sweep so a change applies at once. */
   cacheExpiryStop?: () => CacheExpiryStopPolicy;
   logger: Pick<Logger, "debug" | "info" | "warn">;
@@ -56,8 +59,8 @@ export function createIdleRuntimeCleanup(options: Options) {
     }
     return [...family.values()];
   }
-  function baselineAllows(family: readonly RuntimeCleanupCandidate[]) {
-    return family.every((runtime) => runtime.isEligible() && !isProtected(runtime.agentId));
+  function baselineAllows(family: readonly RuntimeCleanupCandidate[], rule: RuntimeStopRule) {
+    return family.every((runtime) => runtime.isEligible() && !isProtected(runtime.agentId, rule));
   }
   async function providersAllow(
     family: readonly RuntimeCleanupCandidate[],
@@ -82,7 +85,7 @@ export function createIdleRuntimeCleanup(options: Options) {
   function stopRule(
     runtime: RuntimeCleanupCandidate,
     pass: { timestamp: number; idleEnabled: boolean; expiryStop: CacheExpiryStopPolicy },
-  ): "cache-expired" | "idle" | null {
+  ): RuntimeStopRule | null {
     if (
       pass.expiryStop !== "off" &&
       runtime.cacheExpiresAt !== null &&
@@ -95,10 +98,11 @@ export function createIdleRuntimeCleanup(options: Options) {
   /** The `always` policy stops an expired runtime even while a provider would veto it. */
   async function stopAllowed(
     family: readonly RuntimeCleanupCandidate[],
+    rule: RuntimeStopRule,
     skipsVeto: boolean,
     isCurrent: () => boolean,
   ) {
-    return baselineAllows(family) && (skipsVeto || (await providersAllow(family, isCurrent)));
+    return baselineAllows(family, rule) && (skipsVeto || (await providersAllow(family, isCurrent)));
   }
   /** Records the veto's end, then reports whether the runtime has been idle the whole period. */
   function idleLongEnough(runtime: RuntimeCleanupCandidate, timestamp: number): boolean {
@@ -127,6 +131,7 @@ export function createIdleRuntimeCleanup(options: Options) {
       try {
         const allowed = await stopAllowed(
           family,
+          rule,
           cacheExpired && expiryStop === "always",
           isCurrent,
         );
@@ -148,7 +153,7 @@ export function createIdleRuntimeCleanup(options: Options) {
             currentFamily.every((current) =>
               family.some((captured) => captured.identity === current.identity),
             ) &&
-            baselineAllows(family)
+            baselineAllows(family, rule)
           );
         };
         if (await runtime.closeIfEligible(revalidate)) {

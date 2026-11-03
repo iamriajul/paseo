@@ -54,6 +54,8 @@ interface CacheWarmView {
   contextTokens: number | null;
   /** The session warms through a throwaway fork, so it needs no idle agent and sends it nothing. */
   forkWarm: boolean;
+  /** Host setting `childReportExpiredCache` is keep-warm and a child can still report to it. */
+  warmPastCap: boolean;
 }
 
 type CacheWarmDecision =
@@ -73,6 +75,7 @@ interface ViewInput {
   consecutivePings: number;
   autoCompactByDefault: boolean;
   forkWarm: boolean;
+  warmPastCap: boolean;
 }
 
 function readContextTokens(promptCache: ManagedAgent["promptCache"]): number | null {
@@ -108,6 +111,7 @@ function viewLiveAgent(
     }),
     contextTokens: readContextTokens(agent.promptCache),
     forkWarm: input.forkWarm,
+    warmPastCap: input.warmPastCap,
   };
 }
 
@@ -132,6 +136,7 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
     contextTokens: readContextTokens(record.promptCache),
     // Loading the record gives it a session that can fork; a crashed run is auto-resume's.
     forkWarm: input.forkWarm && !wasRunning,
+    warmPastCap: input.warmPastCap,
   };
 }
 
@@ -140,6 +145,10 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
  * the cache price and leaves a small one, so waking the agent later writes little. A small context
  * gains nothing from that and loses its detail.
  */
+function reachedCap(view: CacheWarmView, windows: PromptCacheWindows): boolean {
+  return !view.warmPastCap && view.consecutivePings >= windows.maxConsecutivePings;
+}
+
 function compactsAtCap(view: CacheWarmView): boolean {
   return (
     view.autoCompact &&
@@ -202,7 +211,7 @@ function decideCacheWarm(input: {
   if (elapsedMs >= windows.cacheWindowMs) {
     return { kind: "skip", reason: "cache has already expired" };
   }
-  const capped = view.consecutivePings >= windows.maxConsecutivePings;
+  const capped = reachedCap(view, windows);
   if (capped && (!compactsAtCap(view) || hasQuestions)) {
     return { kind: "skip", reason: "auto-cap reached for this idle stretch" };
   }
@@ -243,7 +252,7 @@ function decideForkWarm(input: {
   if (elapsedMs >= windows.cacheWindowMs) {
     return { kind: "skip", reason: "cache has already expired" };
   }
-  const capped = view.consecutivePings >= windows.maxConsecutivePings;
+  const capped = reachedCap(view, windows);
   const canCompact =
     compactsAtCap(view) &&
     view.activity === "ready" &&
@@ -286,6 +295,11 @@ export interface AgentCacheWarmManagerDependencies {
   onIdleCapCompaction?: (agentId: string) => Promise<void>;
   /** Loads an agent known only from storage, so its session can warm through a fork. */
   loadAgent?: (agentId: string) => Promise<unknown>;
+  /**
+   * Whether the idle cap is lifted for this agent: the host keeps an orchestrator warm while a child
+   * it waits on can still report. Read on every decision so a setting change applies at once.
+   */
+  warmsPastCap?: (agentId: string) => boolean;
 }
 
 export class AgentCacheWarmManager {
@@ -297,6 +311,7 @@ export class AgentCacheWarmManager {
   private readonly pingPrompt: string;
   private readonly now: () => number;
   private readonly isCacheAutoCompactByDefault: () => boolean;
+  private readonly warmsPastCap: (agentId: string) => boolean;
   private idleCapCompactionHandler: ((agentId: string) => Promise<void>) | null;
 
   private readonly activeTimers = new Map<string, ActiveCacheWarmTimerEntry>();
@@ -323,6 +338,7 @@ export class AgentCacheWarmManager {
     this.pingPrompt = dependencies.pingPrompt ?? DEFAULT_CACHE_WARM_PING_PROMPT;
     this.now = dependencies.now ?? (() => Date.now());
     this.isCacheAutoCompactByDefault = dependencies.isCacheAutoCompactByDefault ?? (() => false);
+    this.warmsPastCap = dependencies.warmsPastCap ?? (() => false);
     this.idleCapCompactionHandler = dependencies.onIdleCapCompaction ?? null;
   }
 
@@ -391,6 +407,7 @@ export class AgentCacheWarmManager {
     const input: ViewInput = {
       consecutivePings: this.getConsecutivePings(agentId),
       autoCompactByDefault: this.isCacheAutoCompactByDefault(),
+      warmPastCap: this.warmsPastCap(agentId),
       forkWarm: agent
         ? this.agentManager.canWarmPromptCache(agentId)
         : this.dormantRecords.get(agentId)?.provider === "claude",
@@ -650,6 +667,7 @@ export class AgentCacheWarmManager {
         consecutivePings: 0,
         autoCompactByDefault: false,
         forkWarm: false,
+        warmPastCap: false,
       });
       if (resolveCacheWarmWindows(view) === null) {
         continue;

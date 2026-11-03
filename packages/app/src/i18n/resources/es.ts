@@ -2462,6 +2462,7 @@ export const es: TranslationResources = {
       sendFailedTitle: "No se pudo enviar la notificación de prueba",
     },
     hostSections: {
+      claudeCache: "Caché de prompts de Claude Code",
       projects: "Proyectos",
       connections: "Conexiones",
       agents: "Agents",
@@ -3066,7 +3067,7 @@ export const es: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "Reanudar automáticamente ante límites de velocidad",
-        hint: "Reanudar automáticamente las sesiones del agente tras el enfriamiento del límite de velocidad o la recuperación del modelo",
+        hint: "Reanuda un agente cuando termina el enfriamiento por límite de uso. Solo funciona si sus solicitudes pasan por iamriajul/CLIProxyAPI, el fork que escribe en el error la hora de fin del enfriamiento (RETRY_AFTER). Los errores de Anthropic, OpenAI y del CLIProxyAPI original no la incluyen, así que sin ese fork no se reanuda nada.",
         accessibilityLabel: "Reanudar automáticamente ante límites de velocidad",
         error: "No se pudo actualizar el ajuste de reanudación automática",
       },
@@ -3097,6 +3098,24 @@ export const es: TranslationResources = {
           off: "Deja el proceso de Claude en marcha cuando caduca su caché. Sus temporizadores, /loop y avisos de tareas pueden despertarlo y volver a escribir todo el contexto.",
         },
         error: "No se pudo actualizar el ajuste de caducidad de la caché",
+      },
+      claudeCache: {
+        info: "Estos ajustes solo se aplican a los agentes de Claude Code. Los demás agentes no usan la caché de prompts de Anthropic, así que los ignoran.",
+      },
+      childReportExpiredCache: {
+        title: "Cuando un agente hijo informa a un orquestador caducado",
+        options: {
+          wake: "Despertarlo",
+          hold: "Retener informe",
+          "keep-warm": "Mantener caliente",
+        },
+        hints: {
+          wake: "El informe de un agente hijo despierta a su orquestador aunque su caché haya caducado. Al despertar, vuelve a escribir todo su contexto a precio completo.",
+          hold: "Guarda el informe mientras la caché del orquestador está caducada y deja que su proceso se detenga. El informe llega con el siguiente turno del orquestador, normalmente tu próximo mensaje, y nunca lo despierta por sí solo.",
+          "keep-warm":
+            "Sigue calentando al orquestador más allá del límite de inactividad mientras un hijo que espera todavía pueda informar, para que el informe llegue a una caché caliente. Costoso: un hijo que trabaja toda la noche mantiene caliente un contexto grande toda la noche, con un calentamiento cada 4 minutos en una ventana de 5m.",
+        },
+        error: "No se pudo actualizar el ajuste de informes de agentes hijos",
       },
       orchestration: {
         title: "Orquestación",

@@ -37,6 +37,11 @@ interface Dependencies extends FinishObservation {
   store: FinishSubscriptionStore;
   messages(): AgentMessageDelivery;
   callerIsActive(agentId: string): Promise<boolean>;
+  /**
+   * Resolves once a report may reach the caller; the host can hold it while the caller's cache is
+   * cold. True when it held the report, so the caller's state is checked again before delivery.
+   */
+  untilDeliverable?(callerAgentId: string, signal: AbortSignal): Promise<boolean>;
   serverId: string;
   logger: Logger;
   retryDelayMs?: number;
@@ -274,6 +279,10 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
             stop(watch, group);
             return;
           }
+          // A held report rechecks the caller and supersession before it is delivered.
+          if (!acknowledged && (await deps.untilDeliverable?.(record.callerAgentId, signal)))
+            continue;
+          if (signal.aborted) return;
           if (!acknowledged) acknowledged = await deliver(record, pending, permissions, signal);
           if (acknowledged) {
             // A removal failure retries only the commit, never the already accepted callback.

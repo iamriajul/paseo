@@ -490,6 +490,27 @@ export function resolveCacheExpiryStopPolicy(value: unknown): CacheExpiryStopPol
 }
 
 /**
+ * Host setting `childReportExpiredCache`: what a child agent's report does to an orchestrator whose
+ * cache has expired. A report is a prompt, so delivering it to a cold orchestrator writes its whole
+ * context again at full price.
+ * wake: deliver it now; the orchestrator wakes and writes its context again.
+ * hold: keep it and deliver it into the orchestrator's next turn; the report itself never wakes it.
+ * keep-warm: keep warming the orchestrator past the idle cap while a child it waits on can still
+ * report, so the report lands in a warm cache. One long child keeps a large context warm all night.
+ */
+export const CHILD_REPORT_EXPIRED_CACHE_POLICIES = ["wake", "hold", "keep-warm"] as const;
+export type ChildReportExpiredCachePolicy = (typeof CHILD_REPORT_EXPIRED_CACHE_POLICIES)[number];
+export const DEFAULT_CHILD_REPORT_EXPIRED_CACHE_POLICY: ChildReportExpiredCachePolicy = "wake";
+
+export function resolveChildReportExpiredCachePolicy(
+  value: unknown,
+): ChildReportExpiredCachePolicy {
+  return (CHILD_REPORT_EXPIRED_CACHE_POLICIES as readonly unknown[]).includes(value)
+    ? (value as ChildReportExpiredCachePolicy)
+    : DEFAULT_CHILD_REPORT_EXPIRED_CACHE_POLICY;
+}
+
+/**
  * When a Claude agent's cache expires, or null when that is not known: another provider or model,
  * the Automatic Cache window (Claude Code picks the TTL), or no request yet.
  */

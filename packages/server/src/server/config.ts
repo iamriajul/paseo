@@ -1,4 +1,7 @@
-import { resolveCacheExpiryStopPolicy } from "@getpaseo/protocol/agent-cache-warm";
+import {
+  resolveCacheExpiryStopPolicy,
+  resolveChildReportExpiredCachePolicy,
+} from "@getpaseo/protocol/agent-cache-warm";
 import { configurationEnvironment } from "./config-environment.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -595,6 +598,9 @@ function resolveStaticLoadConfigSettings(
     cacheWarmSubagents: persisted.daemon?.cacheWarmSubagents ?? true,
     cacheAutoCompact: persisted.daemon?.cacheAutoCompact ?? false,
     cacheExpiryStop: resolveCacheExpiryStopPolicy(persisted.daemon?.cacheExpiryStop),
+    childReportExpiredCache: resolveChildReportExpiredCachePolicy(
+      persisted.daemon?.childReportExpiredCache,
+    ),
     appendSystemPrompt: resolveAppendSystemPrompt(persisted),
     ...resolveProfileLists(persisted),
     hostnames: mergeHostnames([
@@ -628,6 +634,7 @@ export type ResolvedDaemonSettings = Pick<
   | "cacheWarmSubagents"
   | "cacheAutoCompact"
   | "cacheExpiryStop"
+  | "childReportExpiredCache"
   | "agentGateway"
   | "enableTerminalAgentHooks"
   | "appendSystemPrompt"

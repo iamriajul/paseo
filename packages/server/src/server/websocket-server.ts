@@ -2183,6 +2183,8 @@ export class VoiceAssistantWebSocketServer {
         compactThenSend: true,
         // COMPAT(cacheExpiryStop): added in v0.14.903, drop gate after 2027-05-01.
         cacheExpiryStop: true,
+        // COMPAT(childReportExpiredCache): added in v0.14.907, drop gate after 2027-05-01.
+        childReportExpiredCache: true,
         // COMPAT(cacheWarmFork): added in v0.14.904, drop gate after 2027-05-01.
         cacheWarmFork: true,
         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.

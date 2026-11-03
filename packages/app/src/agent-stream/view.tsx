@@ -39,12 +39,17 @@ import {
   TodoListCard,
   CompactionMarker,
   ResumeMarker,
-  CacheWarmedMarker,
+  CacheWarmStretchMarker,
   MessageOuterSpacingProvider,
   type InlinePathTarget,
 } from "@/components/message";
-import { isCacheWarmPrompt, isCacheWarmReply } from "@getpaseo/protocol/agent-cache-warm";
-import { continuesTurn } from "./turn-membership";
+import {
+  foldWarmUpStretches,
+  isWarmPingRow,
+  sameWarmUpStretches,
+  type WarmUpStretches,
+} from "@/prompt-cache/warm-up-stretches";
+import { useWarmUpTimes } from "@/prompt-cache/use-warm-up-times";
 import { PlanCard } from "@/components/plan-card";
 import { getStreamItemMessageId, type StreamItem } from "@/types/stream";
 import type { PendingPermission } from "@/types/shared";
@@ -210,6 +215,8 @@ function renderStreamItemWithTurnFooter(input: {
   serverId?: string;
   client?: DaemonClient | null;
   onForkAssistantTurn?: AssistantTurnForkHandler;
+  /** Below the row and its turn footer: the warm-ups that followed it. */
+  after?: ReactNode;
 }): ReactNode {
   if (!input.content) {
     return null;
@@ -238,6 +245,7 @@ function renderStreamItemWithTurnFooter(input: {
   if (input.layoutItem.frameOrder === "footer-then-content") {
     return (
       <>
+        {input.after}
         {footer}
         {content}
       </>
@@ -248,6 +256,7 @@ function renderStreamItemWithTurnFooter(input: {
     <>
       {content}
       {footer}
+      {input.after}
     </>
   );
 }
@@ -544,6 +553,13 @@ function resolveSupportsNativeFork(input: {
   return (
     !input.readOnly && input.agentNativeForkFeature && input.supportsNativeForkCapability === true
   );
+}
+
+/** Keeps the previous fold while it is unchanged, so rows revise only when a count moves. */
+function useStableWarmUpStretches(next: WarmUpStretches): WarmUpStretches {
+  const previous = useRef(next);
+  if (!sameWarmUpStretches(previous.current, next)) previous.current = next;
+  return previous.current;
 }
 
 const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamViewProps>(
@@ -876,6 +892,27 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         isTurnActive,
         streamRenderStrategy,
       ],
+    );
+    const warmUpTimes = useWarmUpTimes(resolvedServerId, agentId);
+    const warmUpStretches = useStableWarmUpStretches(
+      useMemo(
+        () =>
+          foldWarmUpStretches({
+            rows: [
+              ...streamLayout.history.map((row) => row.item),
+              ...streamLayout.liveHead.map((row) => row.item),
+            ],
+            warmUpTimes,
+            hasNewerRows: isTimelineDetached,
+          }),
+        [streamLayout.history, streamLayout.liveHead, warmUpTimes, isTimelineDetached],
+      ),
+    );
+    // The latest finished turn's footer sits outside the rows, so its warm-ups go below it there.
+    const footerWarmUpHostId = isTurnActive ? undefined : streamLayout.auxiliaryTurnFooter?.itemId;
+    const footerWarmUps = footerWarmUpHostId ? warmUpStretches.get(footerWarmUpHostId) : undefined;
+    const getWarmUpStretch = useStableEvent((itemId: string) =>
+      itemId === footerWarmUpHostId ? undefined : warmUpStretches.get(itemId),
     );
     const handleTimelineHistoryLoadError = useCallback(() => {
       toast?.error(t("agentStream.historyLoadFailed"));
@@ -1228,22 +1265,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         const item = layoutItem.item;
         switch (item.kind) {
           case "user_message":
-            if (isCacheWarmPrompt(item.text)) {
-              return <CacheWarmedMarker />;
-            }
+            if (isWarmPingRow(item, layoutItem.aboveItem)) return null;
             return renderUserMessageItem(layoutItem, item);
 
-          case "assistant_message": {
-            const isWarmPingReply =
-              isCacheWarmReply(item.text) &&
-              layoutItem.aboveItem?.kind === "user_message" &&
-              isCacheWarmPrompt(layoutItem.aboveItem.text) &&
-              continuesTurn(layoutItem.aboveItem, item);
-            if (isWarmPingReply) {
-              return null;
-            }
+          case "assistant_message":
+            if (isWarmPingRow(item, layoutItem.aboveItem)) return null;
             return renderAssistantMessageItem(layoutItem, item);
-          }
 
           case "thought":
             return renderToolCallItem(layoutItem, item);
@@ -1304,7 +1331,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const renderStreamItem = useCallback(
       (layoutItem: StreamLayoutItem) => {
         const content = renderStreamItemContent(layoutItem);
+        const warmUps = getWarmUpStretch(layoutItem.item.id);
         return renderStreamItemWithTurnFooter({
+          after: warmUps ? (
+            <CacheWarmStretchMarker
+              count={warmUps.count}
+              firstAt={warmUps.firstAt}
+              lastAt={warmUps.lastAt}
+            />
+          ) : null,
           content,
           layoutItem,
           turnIndent: getTurnIndent(layoutItem),
@@ -1318,6 +1353,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       },
       [
         getTurnIndent,
+        getWarmUpStretch,
         client,
         handleForkAssistantTurn,
         readOnly,
@@ -1346,21 +1382,33 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const turnFooterNode = useMemo(
       () =>
         isTurnActive || bottomTurnFooterHost ? (
-          <TurnFooter
-            isRunning={isTurnActive}
-            inFlightTurnStartedAt={baseRenderModel.turnTiming.runningStartedAt}
-            host={bottomTurnFooterHost}
-            strategy={streamRenderStrategy}
-            supportsTimelineCursor={supportsAgentForkContextCursor}
-            supportsNativeFork={supportsNativeFork}
-            serverId={resolvedServerId}
-            client={client}
-            onForkAssistantTurn={readOnly ? undefined : handleForkAssistantTurn}
-            onForkInFlightTurn={readOnly ? undefined : handleForkInFlightTurn}
-          />
+          <>
+            <TurnFooter
+              isRunning={isTurnActive}
+              inFlightTurnStartedAt={baseRenderModel.turnTiming.runningStartedAt}
+              host={bottomTurnFooterHost}
+              strategy={streamRenderStrategy}
+              supportsTimelineCursor={supportsAgentForkContextCursor}
+              supportsNativeFork={supportsNativeFork}
+              serverId={resolvedServerId}
+              client={client}
+              onForkAssistantTurn={readOnly ? undefined : handleForkAssistantTurn}
+              onForkInFlightTurn={readOnly ? undefined : handleForkInFlightTurn}
+            />
+            {footerWarmUps ? (
+              <View style={stylesheet.contentWrapper}>
+                <CacheWarmStretchMarker
+                  count={footerWarmUps.count}
+                  firstAt={footerWarmUps.firstAt}
+                  lastAt={footerWarmUps.lastAt}
+                />
+              </View>
+            ) : null}
+          </>
         ) : null,
       [
         client,
+        footerWarmUps,
         handleForkAssistantTurn,
         handleForkInFlightTurn,
         readOnly,
@@ -1519,7 +1567,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           has: (id: string) =>
             (expandedToolCallGroups.has(id) && getToolCallGroup(id) !== undefined) ||
             expandedTurnHostIds.has(id) ||
-            nestedItemIds.has(id),
+            nestedItemIds.has(id) ||
+            (warmUpStretches.has(id) && id !== footerWarmUpHostId),
         },
         globalDisplayState: isMobile,
       }),
@@ -1530,7 +1579,13 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         isMobile,
         nestedItemIds,
         presentation.historyGroupUpdatesByHostId,
+        warmUpStretches,
+        footerWarmUpHostId,
       ],
+    );
+    const liveHeadRowRevision = useMemo(
+      () => ({ expandedToolCallGroups, warmUpStretches, footerWarmUpHostId }),
+      [expandedToolCallGroups, warmUpStretches, footerWarmUpHostId],
     );
 
     const findItems = useMemo(
@@ -1556,7 +1611,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                   agentId,
                   segments: renderModel.segments,
                   historyRowRevision,
-                  liveHeadRowRevision: expandedToolCallGroups,
+                  liveHeadRowRevision,
                   boundary,
                   renderers,
                   listEmptyComponent,

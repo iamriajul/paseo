@@ -935,7 +935,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
     gap: 2,
   },
   listTime: {
-    width: 56,
+    width: 72,
     fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
     fontVariant: ["tabular-nums"],

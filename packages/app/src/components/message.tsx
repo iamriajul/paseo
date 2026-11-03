@@ -1633,13 +1633,41 @@ const cacheWarmedStylesheet = StyleSheet.create((theme) => ({
   },
 }));
 
-export const CacheWarmedMarker = memo(function CacheWarmedMarker() {
+function formatClockTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export function getCacheWarmStretchLabel(input: {
+  count: number;
+  firstAt: number;
+  lastAt: number;
+}): string {
+  const first = formatClockTime(input.firstAt);
+  if (input.count === 1) return `Cache warmed up · ${first}`;
+  const last = formatClockTime(input.lastAt);
+  const span = first === last ? first : `${first}–${last}`;
+  return `Cache warmed ×${input.count} · ${span}`;
+}
+
+interface CacheWarmStretchMarkerProps {
+  count: number;
+  firstAt: number;
+  lastAt: number;
+}
+
+export const CacheWarmStretchMarker = memo(function CacheWarmStretchMarker({
+  count,
+  firstAt,
+  lastAt,
+}: CacheWarmStretchMarkerProps) {
   return (
     <View style={cacheWarmedStylesheet.container} testID="cache-warmed-marker">
       <View style={cacheWarmedStylesheet.line} />
       <View style={cacheWarmedStylesheet.label}>
         <ThemedFlame size={12} uniProps={statusWarningColorMapping} />
-        <Text style={cacheWarmedStylesheet.text}>Cache warmed up</Text>
+        <Text style={cacheWarmedStylesheet.text}>
+          {getCacheWarmStretchLabel({ count, firstAt, lastAt })}
+        </Text>
       </View>
       <View style={cacheWarmedStylesheet.line} />
     </View>

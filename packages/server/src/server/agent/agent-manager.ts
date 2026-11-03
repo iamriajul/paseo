@@ -813,6 +813,15 @@ function resolveRescueTimeouts(
   };
 }
 
+/** The model a request ran on, so the journal can price it; a compaction may run on another. */
+function resolveRequestModel(agent: {
+  runtimeInfo?: { model?: string | null };
+  config: { model?: string | null };
+}): { model?: string } {
+  const model = agent.runtimeInfo?.model ?? agent.config.model;
+  return model ? { model } : {};
+}
+
 function pickCacheWarmRegistration(
   options:
     | Pick<ManagedAgent, "promptCache" | "consecutiveWarmPings" | "totalWarmPings">
@@ -5500,6 +5509,7 @@ export class AgentManager {
       at: new Date().toISOString(),
       turnId: warmUp ? warmUp.turnId : agent.activeTurnId,
       isWarmPing: warmUp ? true : Boolean(agent.activeTurnIsWarmPing),
+      ...resolveRequestModel(agent),
     };
     const before = agent.promptCache;
     agent.promptCache = recordPromptCacheRequest(

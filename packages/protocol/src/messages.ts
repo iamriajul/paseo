@@ -976,6 +976,7 @@ const PromptCacheRequestSampleSchema = z.object({
   writeTokens: z.number(),
   uncachedTokens: z.number(),
   writeTtl: z.enum(["5m", "1h"]).optional(),
+  model: z.string().optional(),
 });
 
 const PromptCacheHistoryEntrySchema = z.object({
@@ -985,6 +986,8 @@ const PromptCacheHistoryEntrySchema = z.object({
   writeTokens: z.number(),
   uncachedTokens: z.number(),
   gapMs: z.number().nullable(),
+  writeTtl: z.enum(["5m", "1h"]).optional(),
+  model: z.string().optional(),
   awayMs: z.number().optional(),
   afterCompaction: z.boolean().optional(),
   previousInputTokens: z.number().optional(),

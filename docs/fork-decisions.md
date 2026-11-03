@@ -973,12 +973,12 @@ grep -q "realSetTimeout(resolve, 50)" packages/server/src/server/workspace-git-s
 
 ## no-to-sorted-in-app
 
-**app code may not call `Array.prototype.toSorted`**
+**app and protocol code may not call `Array.prototype.toSorted`**
 
-Hermes, the engine the iOS and Android app runs on, has no `toSorted`, so the call throws `undefined is not a function`. `foldWarmUpStretches` called it in every agent view, which crashed opening any agent on Android in v0.14.905; web and desktop were unaffected, because browsers have it. Reproduced on the Android emulator on a clean Metro bundle: the `toSorted` line crashed, a sorted copy rendered. The fix sorts a copy (`[...rows].sort(...)`), and `paseo/no-to-sorted` in `scripts/oxlint/paseo-plugin.mjs`, on for `packages/app/src`, rejects the call with that fix in its message. The rule covers only `toSorted`, the one method seen missing; `toReversed` runs in the native chat path, so Hermes has that one.
+Hermes, the engine the iOS and Android app runs on, has no `toSorted` in the build this repo ships (React Native 0.86.3, Hermes `250829098.0.17`), so the call throws `undefined is not a function`. When an engine upgrade ships `toSorted`, the rule can go. `foldWarmUpStretches` called it in every agent view, which crashed opening any agent on Android in v0.14.905; web and desktop were unaffected, because browsers have it. Reproduced on the Android emulator on a clean Metro bundle: the `toSorted` line crashed, a sorted copy rendered. The fix sorts a copy (`[...rows].sort(...)`), and `paseo/no-to-sorted` in `scripts/oxlint/paseo-plugin.mjs`, on for `packages/app/src` and `packages/protocol/src` (Metro bundles protocol modules into the app), rejects the call with that fix in its message. The rule covers only `toSorted`, the one method seen missing; `toReversed` runs in the native chat path, so Hermes has that one.
 
 ```bash
 node --test scripts/oxlint/paseo-plugin.test.mjs
 grep -q '"paseo/no-to-sorted": "error"' .oxlintrc.json
-! grep -rn "\.toSorted(" packages/app/src --include=*.ts --include=*.tsx
+! grep -rn "\.toSorted(" packages/app/src packages/protocol/src --include=*.ts --include=*.tsx
 ```

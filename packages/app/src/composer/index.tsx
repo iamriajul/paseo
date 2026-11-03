@@ -54,6 +54,7 @@ import {
   type DraftAgentControlsProps,
 } from "@/composer/agent-controls";
 import { ContextWindowMeter } from "@/components/context-window-meter";
+import { resolveSessionCostUsd } from "@/prompt-cache/prompt-cache-cost";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
 import {
   selectAgentSentMessages,
@@ -286,7 +287,7 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
       status: agent?.status ?? null,
       contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
       contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
-      totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
+      totalCostUsd: resolveSessionCostUsd(agent),
       provider: agent?.provider ?? null,
       model: agent?.model ?? null,
     };

@@ -4,7 +4,10 @@ import {
   type PromptCacheTtl,
 } from "@getpaseo/protocol/agent-cache-warm";
 import type { Agent } from "@/stores/session-store";
-import { estimateNextRequestCost, resolveClaudeTokenPrices } from "./prompt-cache-cost";
+import {
+  estimateNextRequestCost,
+  resolveClaudeTokenPrices,
+} from "@getpaseo/protocol/claude-pricing";
 import type { PromptCacheView } from "./use-prompt-cache";
 
 /** Whether the next message finds the context in the cache. */

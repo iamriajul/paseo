@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { PromptCacheHistoryEntry } from "@getpaseo/protocol/agent-cache-warm";
-import { describeRequest, matchesRequestFilter, sliceInsightsRange } from "./prompt-cache-explorer";
+import {
+  describeReportedCost,
+  describeRequest,
+  matchesRequestFilter,
+  sliceInsightsRange,
+} from "./prompt-cache-explorer";
 import { createRequestPricer } from "./prompt-cache-insights";
 
 const MINUTE = 60_000;
@@ -87,5 +92,14 @@ describe("describeRequest", () => {
     const row = describeRequest({ entry: request(5), price, cacheWindowMs: FIVE_MINUTES });
     expect(row).toMatchObject({ kind: "Tool step", outcome: "hit", tone: "hit" });
     expect(row.detail).toContain("≈ $0.10");
+  });
+});
+
+describe("describeReportedCost", () => {
+  it("puts Claude Code's figure and the warm-ups side by side", () => {
+    expect(describeReportedCost({ claudeCodeUsd: 43.77, warmUpUsd: 1.3 })).toMatch(
+      /^Session cost: Claude Code reported \$43\.77 \+ warm-ups ≈ \$1\.30 · \$45\.07 in all\./,
+    );
+    expect(describeReportedCost({ claudeCodeUsd: null, warmUpUsd: null })).toBeNull();
   });
 });

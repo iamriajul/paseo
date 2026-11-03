@@ -63,6 +63,10 @@ function pickCacheAutoCompact(source: { cacheAutoCompact?: boolean }): {
   return source.cacheAutoCompact === undefined ? {} : { cacheAutoCompact: source.cacheAutoCompact };
 }
 
+function pickWarmUpCost(source: { warmUpCostUsd?: number }): { warmUpCostUsd?: number } {
+  return source.warmUpCostUsd === undefined ? {} : { warmUpCostUsd: source.warmUpCostUsd };
+}
+
 /** Live only: never restored from the replica cache, where it would be stale. */
 function pickRuntimeActive(source: { runtimeActive?: boolean }): { runtimeActive?: boolean } {
   return source.runtimeActive === undefined ? {} : { runtimeActive: source.runtimeActive };
@@ -85,6 +89,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
       ? { consecutiveWarmPings: agent.consecutiveWarmPings }
       : {}),
     ...(agent.totalWarmPings !== undefined ? { totalWarmPings: agent.totalWarmPings } : {}),
+    ...pickWarmUpCost(agent),
     ...(agent.promptCache ? { promptCache: agent.promptCache } : {}),
     ...pickCacheAutoCompact(agent),
     ...pickRuntimeActive(agent),
@@ -138,6 +143,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     lastResponseAt,
     consecutiveWarmPings: snapshot.consecutiveWarmPings ?? 0,
     totalWarmPings: snapshot.totalWarmPings ?? 0,
+    ...pickWarmUpCost(snapshot),
     ...(snapshot.promptCache ? { promptCache: snapshot.promptCache } : {}),
     ...pickCacheAutoCompact(snapshot),
     ...pickRuntimeActive(snapshot),

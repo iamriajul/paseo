@@ -83,6 +83,8 @@ export interface Agent {
   lastResponseAt?: Date | null;
   consecutiveWarmPings?: number;
   totalWarmPings?: number;
+  /** What the agent's cache warm-ups cost, at API list prices. */
+  warmUpCostUsd?: number;
   promptCache?: AgentPromptCacheState;
   /** Explicit idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact?: boolean;

@@ -7,7 +7,10 @@ import {
   type PromptCacheHistoryEntry,
   type PromptCacheTtl,
 } from "@getpaseo/protocol/agent-cache-warm";
-import { estimateRequestInputCostUsd, resolveClaudeTokenPrices } from "./prompt-cache-cost";
+import {
+  estimateRequestInputCostUsd,
+  resolveClaudeTokenPrices,
+} from "@getpaseo/protocol/claude-pricing";
 
 /**
  * Columns the session chart draws at most. A long session has thousands of requests; past this

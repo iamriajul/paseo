@@ -1823,6 +1823,7 @@ export class AgentManager {
       promptCache: record?.promptCache,
       consecutiveWarmPings: record?.consecutiveWarmPings,
       totalWarmPings: record?.totalWarmPings,
+      lastUsage: record?.lastUsage,
     });
   }
 
@@ -2519,7 +2520,7 @@ export class AgentManager {
         lastResponseAt,
         consecutiveWarmPings: record.consecutiveWarmPings ?? undefined,
         totalWarmPings: record.totalWarmPings ?? undefined,
-        lastUsage: undefined,
+        lastUsage: record.lastUsage,
         lastError: record.lastError ?? undefined,
         attention,
         internal: record.internal,

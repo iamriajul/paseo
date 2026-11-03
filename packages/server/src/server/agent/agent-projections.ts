@@ -112,6 +112,7 @@ export function toStoredAgentRecord(
     consecutiveWarmPings: agent.consecutiveWarmPings ?? undefined,
     totalWarmPings: agent.totalWarmPings ?? undefined,
     promptCache: agent.promptCache,
+    lastUsage: sanitizeUsage(agent.lastUsage),
   } satisfies StoredAgentRecord;
 }
 
@@ -279,6 +280,12 @@ function projectCacheWarmState(source: CacheWarmState): CacheWarmState {
   };
 }
 
+/** A stopped agent keeps showing the context it would wake with. */
+function projectStoredUsage(record: StoredAgentRecord): Pick<AgentSnapshotPayload, "lastUsage"> {
+  const usage = sanitizeUsage(record.lastUsage);
+  return usage ? { lastUsage: usage } : {};
+}
+
 /** An agent known only from storage is not loaded, so it has no process. */
 function projectStoredRuntimeActive(
   record: StoredAgentRecord,
@@ -331,6 +338,7 @@ export function buildStoredAgentPayload(
     ...(record.internal ? { internal: true } : {}),
     labels: normalizeLabels(record.labels),
     ...(typeof record.lastError === "string" ? { lastError: record.lastError } : {}),
+    ...projectStoredUsage(record),
     ...projectCacheWarmState(record),
     ...projectCacheAutoCompact(record.config),
     ...projectStoredRuntimeActive(record),

@@ -9,6 +9,7 @@ import {
   type ManagedAgent,
 } from "./agent-projections.js";
 import type { AgentSession } from "./agent-sdk-types.js";
+import { parseStoredAgentRecord } from "./agent-storage.js";
 import type {
   AgentFeature,
   ImportableProviderSession,
@@ -435,6 +436,24 @@ describe("toAgentPayload", () => {
     expect(buildStoredAgentPayload({ ...record, lastError: null }, ["codex"])).not.toHaveProperty(
       "lastError",
     );
+  });
+
+  it("keeps the context usage of an agent whose process stopped", () => {
+    const record = toStoredAgentRecord(
+      createManagedAgent({
+        lastUsage: {
+          contextWindowUsedTokens: 450_000,
+          contextWindowMaxTokens: 1_000_000,
+          totalCostUsd: 3.5,
+        },
+      }),
+    );
+
+    expect(buildStoredAgentPayload(parseStoredAgentRecord(record), ["claude"]).lastUsage).toEqual({
+      contextWindowUsedTokens: 450_000,
+      contextWindowMaxTokens: 1_000_000,
+      totalCostUsd: 3.5,
+    });
   });
 
   it("omits lastUsage when not available", () => {

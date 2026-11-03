@@ -117,3 +117,21 @@ export function describeRequest(input: {
   if (entry.model) parts.push(entry.model.replace(/^claude-/, ""));
   return { at: entry.at, kind: KIND_LABELS[entry.kind], outcome, tone, detail: parts.join(" · ") };
 }
+
+/** The session cost the agent reports: Claude Code's own figure, and the priced warm-ups. */
+export interface ReportedCost {
+  claudeCodeUsd: number | null;
+  warmUpUsd: number | null;
+}
+
+export function describeReportedCost(reported: ReportedCost): string | null {
+  const { claudeCodeUsd, warmUpUsd } = reported;
+  if (claudeCodeUsd === null && warmUpUsd === null) return null;
+  const parts: string[] = [];
+  if (claudeCodeUsd !== null)
+    parts.push(`Claude Code reported ${formatUsdEstimate(claudeCodeUsd)}`);
+  if (warmUpUsd !== null) parts.push(`warm-ups ≈ ${formatUsdEstimate(warmUpUsd)}`);
+  const total = (claudeCodeUsd ?? 0) + (warmUpUsd ?? 0);
+  const sum = parts.length > 1 ? ` · ${formatUsdEstimate(total)} in all` : "";
+  return `Session cost: ${parts.join(" + ")}${sum}. Claude Code's figure counts output and subagents and leaves warm-ups out; the split above is an input estimate from the request journal.`;
+}

@@ -1060,6 +1060,8 @@ export const AgentSnapshotPayloadSchema = z.object({
   rateLimitCooldown: AgentRateLimitCooldownPayloadSchema.nullable().optional(),
   consecutiveWarmPings: z.number().optional(),
   totalWarmPings: z.number().optional(),
+  /** What this agent's cache warm-ups cost, at API list prices; absent before any was priced. */
+  warmUpCostUsd: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
   /** Explicit per-agent idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact: z.boolean().optional(),

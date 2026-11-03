@@ -175,6 +175,7 @@ import {
   type AgentSession,
   type AgentSessionConfig,
   type AgentSlashCommand,
+  type CacheWarmResult,
   type SteerActiveTurnOptions,
   type SteerResult,
   type AgentStreamEvent,
@@ -198,6 +199,10 @@ import {
   type PromptCacheRequestTokens,
   type PromptCacheTtl,
 } from "@getpaseo/protocol/agent-cache-warm";
+import {
+  estimateClaudeUsageCostUsd,
+  resolveClaudeTokenPrices,
+} from "@getpaseo/protocol/claude-pricing";
 import {
   CAPPED_SHELL_TOOL_MATCHER,
   CLAUDE_BASH_DEFAULT_TIMEOUT_MS,
@@ -2391,6 +2396,36 @@ function mergeStreamDeltaInputUsage(
   };
 }
 
+/**
+ * The fork's own cost, priced from its result's `usage`, which counts only this process. Its
+ * `total_cost_usd` is no use here: a forked or resumed Claude Code process restores the session's
+ * running total and adds to it (measured on Claude Code 2.1.316 with Haiku 5.5).
+ */
+function estimateWarmForkCostUsd(
+  message: SDKMessage,
+  modelId: string | null | undefined,
+): number | undefined {
+  if (message.type !== "result") return undefined;
+  const usage = toObjectRecord(message.usage);
+  const modelUsageIds = Object.keys(toObjectRecord(message.modelUsage) ?? {});
+  const prices = resolveClaudeTokenPrices(modelUsageIds[0] ?? modelId);
+  if (!usage || !prices) return undefined;
+  const count = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+  const breakdown = toObjectRecord(usage.cache_creation);
+  const write1h = count(breakdown?.ephemeral_1h_input_tokens);
+  return estimateClaudeUsageCostUsd(
+    {
+      inputTokens: count(usage.input_tokens),
+      cacheReadTokens: count(usage.cache_read_input_tokens),
+      cacheWrite1hTokens: write1h,
+      cacheWrite5mTokens: Math.max(0, count(usage.cache_creation_input_tokens) - write1h),
+      outputTokens: count(usage.output_tokens),
+    },
+    prices,
+  );
+}
+
 function readStreamRequestCacheTokens(
   event: Record<string, unknown>,
 ): PromptCacheRequestTokens | undefined {
@@ -3517,7 +3552,7 @@ class ClaudeAgentSession implements AgentSession {
    * Measured with Haiku 5.5 on Claude Code 2.1.314: the fork read the whole prefix, also mid-turn,
    * and the session's own request 8 minutes after its last, 4 after the fork, still read it all.
    */
-  async warmPromptCache(): Promise<PromptCacheRequestTokens | null> {
+  async warmPromptCache(): Promise<CacheWarmResult | null> {
     const sessionId = this.claudeSessionId;
     if (this.closed || !sessionId || this.pendingFreshSessionId) return null;
     const options = await this.buildOptions(this.currentMode);
@@ -3555,6 +3590,7 @@ class ClaudeAgentSession implements AgentSession {
       },
     );
     let tokens: PromptCacheRequestTokens | null = null;
+    let costUsd: number | undefined;
     // A fork that hangs would hold the warm-up in flight forever; the next one comes anyway.
     const timeout = setTimeout(() => query.close?.(), CACHE_WARM_FORK_TIMEOUT_MS);
     try {
@@ -3569,13 +3605,17 @@ class ClaudeAgentSession implements AgentSession {
         // report with a result of its own, before the prompt's request starts. Only a result after
         // the request's message_start ends the warm-up; a fork that never sends it ends on its own
         // or at the timeout.
-        if (message.type === "result" && tokens) break;
+        if (message.type === "result" && tokens) {
+          costUsd = estimateWarmForkCostUsd(message, this.config.model);
+          break;
+        }
       }
     } finally {
       clearTimeout(timeout);
       query.close?.();
     }
-    return tokens;
+    if (!tokens) return null;
+    return costUsd === undefined ? tokens : { ...tokens, costUsd };
   }
 
   hasLiveRuntime(): boolean {

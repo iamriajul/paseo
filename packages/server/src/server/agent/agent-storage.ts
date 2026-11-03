@@ -78,6 +78,7 @@ const STORED_AGENT_SCHEMA = z.object({
   owner: AgentOwnerSchema.optional(),
   consecutiveWarmPings: z.number().optional(),
   totalWarmPings: z.number().optional(),
+  warmUpCostUsd: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
   /**
    * Last usage the provider reported, so a stopped agent still shows its context size and the

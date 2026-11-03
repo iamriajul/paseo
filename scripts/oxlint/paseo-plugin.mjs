@@ -34,6 +34,26 @@ const noRawPressable = {
   },
 };
 
+export const NO_TO_SORTED_MESSAGE =
+  "Hermes has no Array.prototype.toSorted, so the call throws `undefined is not a function` on " +
+  "iOS and Android. Sort a copy instead: `[...items].sort(compare)`.";
+
+const noToSorted = {
+  create(context) {
+    return {
+      MemberExpression(node) {
+        if (
+          !node.computed &&
+          node.property.type === "Identifier" &&
+          node.property.name === "toSorted"
+        ) {
+          context.report({ node: node.property, message: NO_TO_SORTED_MESSAGE });
+        }
+      },
+    };
+  },
+};
+
 const SYNC_IO_MODULES = new Set(["fs", "node:fs", "child_process", "node:child_process"]);
 
 function propertyName(node) {
@@ -159,5 +179,6 @@ export default {
   rules: {
     "no-raw-pressable": noRawPressable,
     "no-sync-io": noSyncIo,
+    "no-to-sorted": noToSorted,
   },
 };

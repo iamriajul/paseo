@@ -533,6 +533,13 @@
         "paseo/no-raw-pressable": "error"
       }
     },
+    {
+      // Hermes runs the app and the protocol modules Metro bundles into it.
+      "files": ["packages/app/src/**/*.{ts,tsx}", "packages/protocol/src/**/*.ts"],
+      "rules": {
+        "paseo/no-to-sorted": "error"
+      }
+    },
     // Press feedback is owned by the primitives in components/ui. Raw pressable burn-down:
     // 94 files. They may only leave this list.
     {

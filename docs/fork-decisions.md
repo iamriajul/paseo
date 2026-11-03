@@ -976,3 +976,26 @@ npm test --workspace=@getpaseo/app -- src/components/ui/autocomplete-popover.tes
 npx vitest run packages/server/src/server/workspace-git-service.test.ts -t "structural fallback" --config packages/server/vitest.config.ts --bail=1
 grep -q "realSetTimeout(resolve, 50)" packages/server/src/server/workspace-git-service.test.ts
 ```
+
+## no-to-sorted-in-app
+
+**app and protocol code may not call `Array.prototype.toSorted`**
+
+Hermes, the engine the iOS and Android app runs on, has no `toSorted` in the build this repo ships (React Native 0.86.3, Hermes `250829098.0.17`), so the call throws `undefined is not a function`. When an engine upgrade ships `toSorted`, the rule can go. `foldWarmUpStretches` called it in every agent view, which crashed opening any agent on Android in v0.14.905; web and desktop were unaffected, because browsers have it. Reproduced on the Android emulator on a clean Metro bundle: the `toSorted` line crashed, a sorted copy rendered. The fix sorts a copy (`[...rows].sort(...)`), and `paseo/no-to-sorted` in `scripts/oxlint/paseo-plugin.mjs`, on for `packages/app/src` and `packages/protocol/src` (Metro bundles protocol modules into the app), rejects the call with that fix in its message. The rule covers only `toSorted`, the one method seen missing; `toReversed` runs in the native chat path, so Hermes has that one.
+
+```bash
+node --test scripts/oxlint/paseo-plugin.test.mjs
+grep -q '"paseo/no-to-sorted": "error"' .oxlintrc.json
+! grep -rn "\.toSorted(" packages/app/src packages/protocol/src --include=*.ts --include=*.tsx
+```
+
+## relay-e2e-local-upstream
+
+**the relay e2e test serves through the local Durable Object, not the production upstream**
+
+`packages/relay/wrangler.toml` sets `PASEO_RELAY_UPSTREAM` so the production worker forwards every request to the relay on Fly (official's cutover in `5ae53c7e5`). `src/e2e.test.ts` starts that worker with `wrangler dev`, so since the cutover the test exercised the remote relay, not the code in this repo. `paseo-relay-next.fly.dev` no longer resolves, so the worker answered nothing and the `quality` job failed on every run of `main` from 2026-11-02. The test now passes `--var PASEO_RELAY_UPSTREAM:` to clear the upstream, so the worker serves through `RelayDurableObject` as the test intends. Production config is unchanged.
+
+```bash
+grep -q '"PASEO_RELAY_UPSTREAM:"' packages/relay/src/e2e.test.ts
+FORCE_RELAY_E2E=1 npx vitest run packages/relay/src/e2e.test.ts --root packages/relay --bail=1
+```

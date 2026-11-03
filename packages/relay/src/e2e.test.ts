@@ -65,6 +65,10 @@ function spawnRelayDevServer(port: number): ChildProcess {
       String(port),
       "--live-reload=false",
       "--show-interactive-dev-session=false",
+      // wrangler.toml forwards production traffic to an upstream relay. This test is about the
+      // relay in this repo, so clear the upstream and serve through the local Durable Object.
+      "--var",
+      "PASEO_RELAY_UPSTREAM:",
     ],
     {
       cwd: relayPackageRoot,

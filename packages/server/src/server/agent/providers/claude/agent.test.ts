@@ -1217,6 +1217,76 @@ describe("ClaudeAgentSession features", () => {
     }
   });
 
+  test("reads the warm-up request past the result a resumed session emits for orphaned background tasks", async () => {
+    // Order captured from Claude Code 2.1.316 resuming a session whose Monitors were still running:
+    // it reports them, ends that report with an empty result, and only then sends the prompt.
+    const forkMessages: SDKMessage[] = [
+      {
+        type: "system",
+        subtype: "task_notification",
+        task_id: "b4591i6oc",
+        status: "stopped",
+        summary:
+          "Orphaned by a previous Claude Code process exit and reported in an aggregate summary.",
+      } as unknown as SDKMessage,
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        num_turns: 0,
+        duration_api_ms: 0,
+        usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        origin: { kind: "task-notification" },
+      } as unknown as SDKMessage,
+      { type: "system", subtype: "init", session_id: "fork-1" } as unknown as SDKMessage,
+      {
+        type: "stream_event",
+        parent_tool_use_id: null,
+        event: {
+          type: "message_start",
+          message: {
+            usage: {
+              input_tokens: 2,
+              cache_read_input_tokens: 692_535,
+              cache_creation_input_tokens: 341,
+              cache_creation: { ephemeral_5m_input_tokens: 341, ephemeral_1h_input_tokens: 0 },
+            },
+          },
+        },
+      } as unknown as SDKMessage,
+      { type: "result", subtype: "success", num_turns: 1 } as unknown as SDKMessage,
+    ];
+    const queryFactory = vi.fn(() => {
+      const iterator = forkMessages[Symbol.iterator]();
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => ({ next: async () => iterator.next() }),
+      };
+    });
+    const session = await new ClaudeAgentClient({
+      logger,
+      queryFactory: queryFactory as unknown as ClaudeQueryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    }).createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "claude-haiku-5-5",
+      featureValues: { prompt_cache_ttl: "5m" },
+    });
+    (session as unknown as { claudeSessionId: string }).claudeSessionId = "session-1";
+
+    try {
+      await expect(session.warmPromptCache?.()).resolves.toEqual({
+        readTokens: 692_535,
+        writeTokens: 341,
+        uncachedTokens: 2,
+        writeTtl: "5m",
+      });
+    } finally {
+      await session.close();
+    }
+  });
+
   test("has nothing to warm before the session has a Claude session id", async () => {
     const queryFactory = vi.fn();
     const session = await new ClaudeAgentClient({

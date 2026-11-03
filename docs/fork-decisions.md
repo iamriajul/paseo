@@ -982,3 +982,14 @@ node --test scripts/oxlint/paseo-plugin.test.mjs
 grep -q '"paseo/no-to-sorted": "error"' .oxlintrc.json
 ! grep -rn "\.toSorted(" packages/app/src packages/protocol/src --include=*.ts --include=*.tsx
 ```
+
+## relay-e2e-local-upstream
+
+**the relay e2e test serves through the local Durable Object, not the production upstream**
+
+`packages/relay/wrangler.toml` sets `PASEO_RELAY_UPSTREAM` so the production worker forwards every request to the relay on Fly (official's cutover in `5ae53c7e5`). `src/e2e.test.ts` starts that worker with `wrangler dev`, so since the cutover the test exercised the remote relay, not the code in this repo. `paseo-relay-next.fly.dev` no longer resolves, so the worker answered nothing and the `quality` job failed on every run of `main` from 2026-11-02. The test now passes `--var PASEO_RELAY_UPSTREAM:` to clear the upstream, so the worker serves through `RelayDurableObject` as the test intends. Production config is unchanged.
+
+```bash
+grep -q '"PASEO_RELAY_UPSTREAM:"' packages/relay/src/e2e.test.ts
+FORCE_RELAY_E2E=1 npx vitest run packages/relay/src/e2e.test.ts --root packages/relay --bail=1
+```

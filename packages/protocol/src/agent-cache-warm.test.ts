@@ -156,6 +156,16 @@ describe("agent-cache-warm protocol utilities", () => {
       return state?.history?.map(({ kind, gapMs, awayMs }) => ({ kind, gapMs, awayMs }));
     }
 
+    it("keeps each request's model and write TTL so it can be priced on its own", () => {
+      const state = replay([
+        { ...request(0, "t1"), model: "claude-opus-5-5", writeTtl: "1h" },
+        { ...request(1, "t1"), model: "claude-haiku-5-5" },
+      ]);
+      expect(state?.history?.[0]).toMatchObject({ model: "claude-opus-5-5", writeTtl: "1h" });
+      expect(state?.history?.[1]?.model).toBe("claude-haiku-5-5");
+      expect(state?.history?.[1]).not.toHaveProperty("writeTtl");
+    });
+
     it("records every request with its gap, and a turn's time away since real activity", () => {
       const state = replay([
         request(0, "t1"),

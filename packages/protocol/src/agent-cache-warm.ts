@@ -157,6 +157,8 @@ export interface PromptCacheRequestSample extends PromptCacheRequestTokens {
   at: string;
   turnId: string | null;
   isWarmPing: boolean;
+  /** Model the agent ran on when the request went out; absent on samples written before it. */
+  model?: string;
 }
 
 /**
@@ -175,6 +177,13 @@ export interface PromptCacheHistoryEntry {
   uncachedTokens: number;
   /** Time since the previous main-thread request; null for the agent's first request. */
   gapMs: number | null;
+  /**
+   * TTL the request's cache write was billed at, and the model it ran on, so each request can be
+   * priced on its own: a session switches models (a Haiku compaction) and windows. Absent on
+   * entries written before they were recorded.
+   */
+  writeTtl?: PromptCacheTtl;
+  model?: string;
   /** On a turn: time since the latest request that was not a warm-up, so time away. */
   awayMs?: number;
   /** First request after a compaction: it has to write the new context, so it is no miss. */
@@ -360,6 +369,8 @@ function buildHistoryEntry(
     writeTokens: sample.writeTokens,
     uncachedTokens: sample.uncachedTokens,
     gapMs: elapsedSinceMs(basisAt, sample.at),
+    ...(sample.writeTtl ? { writeTtl: sample.writeTtl } : {}),
+    ...(sample.model ? { model: sample.model } : {}),
     ...(awayMs === null ? {} : { awayMs }),
     ...(afterCompaction ? { afterCompaction: true } : {}),
     ...(previousInputTokens > 0 ? { previousInputTokens } : {}),

@@ -3540,7 +3540,11 @@ class ClaudeAgentSession implements AgentSession {
             tokens = readStreamRequestCacheTokens(event) ?? tokens;
           }
         }
-        if (message.type === "result") break;
+        // A resumed session with background tasks still running reports them first and ends that
+        // report with a result of its own, before the prompt's request starts. Only a result after
+        // the request's message_start ends the warm-up; a fork that never sends it ends on its own
+        // or at the timeout.
+        if (message.type === "result" && tokens) break;
       }
     } finally {
       clearTimeout(timeout);

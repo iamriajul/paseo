@@ -23,6 +23,7 @@ import {
   type PromptCacheCompaction,
   type AgentPromptCacheState,
   type PromptCacheRequestSample,
+  sumPromptCacheTotals,
 } from "@getpaseo/protocol/agent-cache-warm";
 import { resolveAgentPromptCacheExpiresAtMs } from "./prompt-cache-expiry.js";
 import { projectTimelineRows } from "./timeline-projection.js";
@@ -2784,6 +2785,23 @@ export class AgentManager {
     if (options?.publish) {
       this.emitState(agent, { isWarmPing: true });
     }
+  }
+
+  /**
+   * Clears the red miss count: it counts from the session's current miss total. Insights keep the
+   * full totals and journal. False when the agent has no prompt cache record to clear.
+   */
+  clearPromptCacheMisses(agentId: string): boolean {
+    const agent = this.agents.get(agentId);
+    if (!agent?.promptCache) return false;
+    const totals =
+      agent.promptCache.totals ?? sumPromptCacheTotals(agent.promptCache.history ?? []);
+    agent.promptCache = {
+      ...agent.promptCache,
+      missesCleared: { at: new Date().toISOString(), misses: totals.misses },
+    };
+    this.emitState(agent);
+    return true;
   }
 
   /** Warm-up closed the user's unanswered question; the agent shows it until the user writes. */

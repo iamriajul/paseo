@@ -1027,6 +1027,7 @@ export const AgentPromptCacheStateSchema = z.object({
   history: z.array(PromptCacheHistoryEntrySchema).optional(),
   compactions: z.array(PromptCacheCompactionSchema).optional(),
   totals: PromptCacheTotalsSchema.optional(),
+  missesCleared: z.object({ at: z.string(), misses: z.number() }).optional(),
 });
 
 export const AgentRateLimitCooldownPayloadSchema = z.object({
@@ -2167,6 +2168,12 @@ export const GatewayQuotaGetRequestMessageSchema = z.object({
   requestId: z.string(),
   provider: z.string().optional(),
   model: z.string().optional(),
+});
+
+export const AgentPromptCacheClearMissesRequestMessageSchema = z.object({
+  type: z.literal("agent.prompt_cache.clear_misses.request"),
+  requestId: z.string(),
+  agentIds: z.array(z.string()),
 });
 
 export const AgentPromptCacheHistoryRequestMessageSchema = z.object({
@@ -3808,6 +3815,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProviderUsageResetQuotaRequestMessageSchema,
   GatewayQuotaGetRequestMessageSchema,
   AgentPromptCacheHistoryRequestMessageSchema,
+  AgentPromptCacheClearMissesRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
   GatewayStatsGetRequestMessageSchema,
   ImportAgentRequestMessageSchema,
@@ -4273,6 +4281,8 @@ export const ServerInfoStatusPayloadSchema = z
         cliproxyapiQuota: z.boolean().optional(),
         // COMPAT(promptCacheInsights): added in v0.14.902, drop the gate once daemon floor >= v0.14.902.
         promptCacheInsights: z.boolean().optional(),
+        // COMPAT(promptCacheClearMisses): added in v0.14.908, drop gate after 2027-05-01.
+        promptCacheClearMisses: z.boolean().optional(),
         // COMPAT(cliproxyapiStats): added in v0.9.910, drop the gate once daemon floor >= v0.9.910.
         cliproxyapiStats: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
@@ -7373,6 +7383,16 @@ export const GatewayQuotaGetResponseMessageSchema = z.object({
   }),
 });
 
+export const AgentPromptCacheClearMissesResponseMessageSchema = z.object({
+  type: z.literal("agent.prompt_cache.clear_misses.response"),
+  payload: z.object({
+    requestId: z.string(),
+    /** Agents whose count was cleared; an unknown agent, or one with no request yet, is left out. */
+    cleared: z.array(z.string()),
+    error: z.string().nullable(),
+  }),
+});
+
 export const AgentPromptCacheHistoryResponseMessageSchema = z.object({
   type: z.literal("agent.prompt_cache.history.response"),
   payload: z.object({
@@ -8140,6 +8160,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProviderUsageResetQuotaResponseMessageSchema,
   GatewayQuotaGetResponseMessageSchema,
   AgentPromptCacheHistoryResponseMessageSchema,
+  AgentPromptCacheClearMissesResponseMessageSchema,
   ListCommandsResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
@@ -8372,6 +8393,9 @@ export type GatewayStatsGetResponseMessage = z.infer<typeof GatewayStatsGetRespo
 export type GatewayQuotaGetResponseMessage = z.infer<typeof GatewayQuotaGetResponseMessageSchema>;
 export type AgentPromptCacheHistoryResponseMessage = z.infer<
   typeof AgentPromptCacheHistoryResponseMessageSchema
+>;
+export type AgentPromptCacheClearMissesResponseMessage = z.infer<
+  typeof AgentPromptCacheClearMissesResponseMessageSchema
 >;
 export type ChatCreateResponse = z.infer<typeof ChatCreateResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;

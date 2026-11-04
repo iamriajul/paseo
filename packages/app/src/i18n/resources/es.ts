@@ -3178,6 +3178,15 @@ export const es: TranslationResources = {
         },
         error: "No se pudo actualizar el método de calentamiento",
       },
+      clearCacheMisses: {
+        title: "Borrar recuentos de fallos",
+        hint_one:
+          "Pone a cero el número rojo de fallos de cada agente de Claude de este host, para que solo cuente los nuevos. Las estadísticas de la sesión conservan todo el historial. {{count}} agente tiene fallos ahora.",
+        hint_other:
+          "Pone a cero el número rojo de fallos de cada agente de Claude de este host, para que solo cuente los nuevos. Las estadísticas de la sesión conservan todo el historial. {{count}} agentes tienen fallos ahora.",
+        action: "Borrar todo",
+        error: "No se pudieron borrar los recuentos de fallos",
+      },
       childReportExpiredCache: {
         title: "Cuando un agente hijo informa a un orquestador caducado",
         options: {

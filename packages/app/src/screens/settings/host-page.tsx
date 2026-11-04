@@ -31,6 +31,7 @@ import {
 } from "@getpaseo/protocol/agent-cache-warm";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useHostFeature } from "@/runtime/host-features";
+import { agentIdsWithVisibleMisses } from "@/prompt-cache/use-prompt-cache";
 import {
   getTerminalProfileIcon,
   DEFAULT_TERMINAL_PROFILES,
@@ -324,6 +325,7 @@ export function HostAgentsPage({ serverId }: { serverId: string }) {
             <CacheAutoCompactCard serverId={serverId} />
             <CacheExpiryStopCard serverId={serverId} />
             <ChildReportExpiredCacheCard serverId={serverId} />
+            <ClearCacheMissesCard serverId={serverId} />
           </SettingsSection>
         </>
       ) : (
@@ -1172,6 +1174,65 @@ function CacheWarmModeCard({ serverId }: { serverId: string }) {
           testID="host-page-cache-warm-mode"
         />
       </PolicyRow>
+    </View>
+  );
+}
+
+/** Clears the red miss count on every agent of the host; session insights keep the totals. */
+function ClearCacheMissesCard({ serverId }: { serverId: string }) {
+  const { t } = useTranslation();
+  const isConnected = useHostRuntimeIsConnected(serverId);
+  const supported = useHostFeature(serverId, "promptCacheClearMisses");
+  const client = useHostRuntimeClient(serverId);
+  // A joined string keeps the selector's result stable between renders.
+  const agentIdsText = useSessionStore((state) => {
+    const agents = state.sessions[serverId]?.agents;
+    return agents ? agentIdsWithVisibleMisses(agents.values()).join(",") : "";
+  });
+  const agentIds = useMemo(() => (agentIdsText ? agentIdsText.split(",") : []), [agentIdsText]);
+  const [clearing, setClearing] = useState(false);
+
+  const handleClear = useCallback(() => {
+    if (!client || agentIds.length === 0) return;
+    setClearing(true);
+    void client
+      .clearPromptCacheMisses({ agentIds })
+      .then((payload) => {
+        // Agents that cleared stop counting; the error names the ones that did not.
+        if (payload.error) throw new Error(payload.error);
+        return undefined;
+      })
+      .catch((error) => {
+        console.error("[HostPage] Failed to clear miss counts", error);
+        Alert.alert(
+          t("settings.host.clearCacheMisses.error"),
+          error instanceof Error ? error.message : String(error),
+        );
+      })
+      .finally(() => setClearing(false));
+  }, [agentIds, client, t]);
+
+  if (!isConnected || !supported) return null;
+
+  return (
+    <View style={settingsStyles.card} testID="host-page-clear-cache-misses-card">
+      <View style={settingsStyles.row}>
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle}>{t("settings.host.clearCacheMisses.title")}</Text>
+          <Text style={settingsStyles.rowHint}>
+            {t("settings.host.clearCacheMisses.hint", { count: agentIds.length })}
+          </Text>
+        </View>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={clearing || agentIds.length === 0}
+          onPress={handleClear}
+          testID="host-page-clear-cache-misses-button"
+        >
+          {t("settings.host.clearCacheMisses.action")}
+        </Button>
+      </View>
     </View>
   );
 }

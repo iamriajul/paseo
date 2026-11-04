@@ -3134,6 +3134,15 @@ export const ko: TranslationResources = {
         },
         error: "워밍 방식을 업데이트할 수 없습니다",
       },
+      clearCacheMisses: {
+        title: "미스 횟수 지우기",
+        hint_one:
+          "이 호스트의 모든 Claude 에이전트의 빨간 미스 숫자를 0으로 되돌려 새 미스만 셉니다. 세션 인사이트에는 전체 기록이 남습니다. 지금 {{count}}개 에이전트에 미스가 있습니다.",
+        hint_other:
+          "이 호스트의 모든 Claude 에이전트의 빨간 미스 숫자를 0으로 되돌려 새 미스만 셉니다. 세션 인사이트에는 전체 기록이 남습니다. 지금 {{count}}개 에이전트에 미스가 있습니다.",
+        action: "모두 지우기",
+        error: "미스 횟수를 지울 수 없습니다",
+      },
       childReportExpiredCache: {
         title: "만료된 오케스트레이터에 하위 에이전트가 보고할 때",
         options: {

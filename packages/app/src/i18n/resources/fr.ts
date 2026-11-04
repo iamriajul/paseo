@@ -3180,6 +3180,15 @@ export const fr: TranslationResources = {
         },
         error: "Impossible de mettre à jour la méthode de réchauffement",
       },
+      clearCacheMisses: {
+        title: "Effacer les compteurs d'échecs",
+        hint_one:
+          "Remet à zéro le nombre rouge d'échecs de chaque agent Claude de cet hôte, pour ne compter que les nouveaux. Les statistiques de session gardent tout l'historique. {{count}} agent a des échecs maintenant.",
+        hint_other:
+          "Remet à zéro le nombre rouge d'échecs de chaque agent Claude de cet hôte, pour ne compter que les nouveaux. Les statistiques de session gardent tout l'historique. {{count}} agents ont des échecs maintenant.",
+        action: "Tout effacer",
+        error: "Impossible d'effacer les compteurs d'échecs",
+      },
       childReportExpiredCache: {
         title: "Quand un agent enfant répond à un orchestrateur expiré",
         options: {

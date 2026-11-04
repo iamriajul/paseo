@@ -3090,6 +3090,15 @@ export const zhCN: TranslationResources = {
         },
         error: "无法更新预热方式",
       },
+      clearCacheMisses: {
+        title: "清除未命中计数",
+        hint_one:
+          "将此主机上每个 Claude 代理的红色未命中数清零，只统计新的未命中。会话洞察保留完整历史。当前有 {{count}} 个代理存在未命中。",
+        hint_other:
+          "将此主机上每个 Claude 代理的红色未命中数清零，只统计新的未命中。会话洞察保留完整历史。当前有 {{count}} 个代理存在未命中。",
+        action: "全部清除",
+        error: "无法清除未命中计数",
+      },
       childReportExpiredCache: {
         title: "子代理向缓存已过期的编排代理汇报时",
         options: {

@@ -113,6 +113,7 @@ import type {
   ProviderUsageResetQuotaResponseMessage,
   GatewayQuotaGetResponseMessage,
   AgentPromptCacheHistoryResponseMessage,
+  AgentPromptCacheClearMissesResponseMessage,
   GatewayStatsGetResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
@@ -635,6 +636,8 @@ interface UsageListReportsPayload {
 type ProviderUsageResetQuotaPayload = ProviderUsageResetQuotaResponseMessage["payload"];
 type GatewayQuotaPayload = GatewayQuotaGetResponseMessage["payload"];
 export type AgentPromptCacheHistoryPayload = AgentPromptCacheHistoryResponseMessage["payload"];
+export type AgentPromptCacheClearMissesPayload =
+  AgentPromptCacheClearMissesResponseMessage["payload"];
 type GatewayStatsPayload = GatewayStatsGetResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
@@ -6726,6 +6729,21 @@ export class DaemonClient {
         agentId: options.agentId,
       },
       timeout: 30_000,
+    });
+  }
+
+  /** Clears the red miss count of each agent; insights keep the full totals. */
+  async clearPromptCacheMisses(options: {
+    agentIds: string[];
+    requestId?: string;
+  }): Promise<AgentPromptCacheClearMissesPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "agent.prompt_cache.clear_misses.request",
+        agentIds: options.agentIds,
+      },
+      timeout: 60_000,
     });
   }
 

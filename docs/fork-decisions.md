@@ -445,58 +445,45 @@ Show running indicator for background tasks/shells with bash icon and heartbeat 
 npx vitest run packages/app/src/components/sidebar/workspace-meta-row/meta-items.test.ts packages/app/src/heartbeats/track-presentation.test.ts packages/app/src/background-tasks/track-presentation.test.ts --bail=1
 ```
 
-## agent-auto-resume
+## restart-recovery-policy
 
-**auto-resume running agents after power cut**
+**restart recovery resumes what the daemon stopped unexpectedly, not what a person stopped**
 
-resume agents that were running when daemon shut down unexpectedly (SIGTERM/powercut/UPS) by sending 'Resume - there was a power cut' on next boot; intentional daemon stop via client_shutdown_rpc skips; Hub-owned executions (owner kind daemon) never resume at daemon level — the Hub protocol replays or closes them itself, and resuming resurrects agents Hub already closed. The candidates are the stored records read when the registry loads, because the resume itself waits for the boot catalog warm-up; by then an agent created or prompted since boot also reads as running, and resuming it would interrupt live work. The resume prompt also refuses to replace a run (`replaceRunning: false`).
+Restart recovery is upstream's (`agents.resumeOnStartup`, off by default). This fork decides which agents it resumes. A stop a client asks for (the shutdown or restart RPC, or Ctrl-C) marks each agent that was live at the stop `stoppedByUser`, so neither restart recovery nor boot warm-up starts it, and cancels the rate-limit retries still pending. A SIGTERM from the OS or a UPS, and a crash, resume the agents that were running. A crash captures nothing, so a ping turn in flight at the crash resumes like any running agent. An agent resumes only with a provider session, outside a cache warm-up ping, in an unarchived workspace, and with an unexpired prompt cache; those rules hold whatever the cache-warming settings say. `PASEO_RESUME_ON_STARTUP` and `PASEO_RESUME_PROMPT` override the host config.
 
 ```bash
-npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail=1
-grep -q 'bootRecords: autoResumeBootRecords' packages/server/src/server/bootstrap.ts
+npx vitest run packages/server/src/server/agent/restart-recovery/eligibility.test.ts --config packages/server/vitest.config.ts --bail=1
+grep -q 'isRestartResumeEligible({' packages/server/src/server/bootstrap.ts
+grep -q 'await markStoppedByUser(agentStorage, liveAgentIds)' packages/server/src/server/bootstrap.ts
+grep -q 'pendingIntentionalStop = !isAutomaticDaemonStopReason(intent.reason)' packages/server/src/server/daemon-worker.ts
+grep -q 'PASEO_RESUME_ON_STARTUP' packages/server/src/server/config.ts
+grep -q 'await rateLimitAutoResumeManager.cancelAll()' packages/server/src/server/bootstrap.ts
+npx vitest run packages/server/src/server/agent/agent-cache-warm.test.ts -t "manual stop" --config packages/server/vitest.config.ts --bail=1
 ```
 
-## agent-auto-resume-system-envelope
+## restart-recovery-marker
 
-**the resume prompt is a system injection, not a user turn**
+**a prompt that resumes an agent is a user message with a `resume` marker, and the app shows the marker**
 
-The auto-resume prompt used to dispatch as an ordinary `user_message`, so the app drew it as a bubble that looked like the user had typed it, and the agent treated it as a request. It now goes through `formatSystemNotificationPrompt`, the same `<paseo-system>` envelope chat mentions and finish notifications already use. Since v0.14.0 the timeline projects every such envelope as a compact system card (`projectAgentMessage` in `agent-messages/envelope.ts`) instead of dropping it, so the prompt shows as that card, never as a user bubble. The human-facing record of the restart is the resume marker above, which is what carries `interruptedAt`. `DEFAULT_AUTO_RESUME_PROMPT` stays the public, configurable string, so `daemon.autoResumeRunningAgents.prompt` and `PASEO_AUTO_RESUME_PROMPT` keep working unchanged.
-
-The marker is appended before the send, not after: `sendPromptToAgent` returns once the provider run is in flight, so emitting afterwards raced the agent's first response and stranded the marker mid-message.
+Restart recovery and the rate-limit cooldown both send their prompt as an ordinary user message that carries a `resume` field with its reason. The app renders that message as `---- Agent recovery: {prompt} ----`, or the rate-limit label, in place of the bubble. A host from before this change still sends the old `resume` timeline item: the wire schema keeps parsing it, and the app drops it.
 
 ```bash
-npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts --bail=1
-grep -q 'formatSystemNotificationPrompt(prompt)' packages/server/src/server/agent/agent-auto-resume.ts
-! grep -q 'prompt,$' packages/server/src/server/agent/agent-auto-resume.ts
+npm test --workspace=@getpaseo/app -- src/components/message-resume-label.test.ts src/types/stream.test.ts src/runtime/replica-cache/index.test.ts --bail=1
+npx vitest run packages/protocol/src/messages.wire-compat.test.ts --bail=1
+grep -q 'resume: z.object({ reason: z.string() }).optional()' packages/protocol/src/messages.ts
+grep -q 'runOptions: { resume: { reason: "restart" } }' packages/server/src/server/bootstrap.ts
 ```
 
-## agent-auto-resume-timeline-marker
+## desktop-stop-reasons
 
-**the daemon marks a resumed agent in the timeline, and only capable clients receive the marker**
+**an app update or version mismatch resumes the agents it stops; a stop the user asks for does not**
 
-The auto-resume sweep already replays a prompt; this adds a visible record of it. Before dispatching, the sweep appends a `{type:"resume", reason:"power_cut", interruptedAt}` timeline item, rendered app-side as a bordered marker beside the existing compaction one. `interruptedAt` carries the pending file's `capturedAt`; a `reason` of `manual` carries no `interruptedAt`. The item goes through `appendTimelineItem`, which needs a live snapshot — hence the `ensureAgentLoaded` that precedes it, and the load doubles as the resume path the sweep was already about to take.
-
-`ResumeTimelineItem` joins `AgentTimelineItem` in both the protocol and the server's own copy of that union, and the `resume` branch joins the pure `AgentTimelineItemPayloadSchema` union — optional fields only, so a six-month-old app still parses the message and an old daemon never sends one. Delivery is gated once on `CLIENT_CAPS.resumeTimelineItems` in `supportsTimelineItem`, the same one-place detection the notification and plugin item gates use; no fallback path renders a degraded variant.
+Every desktop stop goes over the lifecycle RPC, so the daemon can tell it from a signal. An app update or a version mismatch names its reason in `PASEO_DAEMON_STOP_REASON`, which the CLI sends with the shutdown request, and the daemon resumes those agents on the next start. Other stops name no reason. `paseo daemon stop` on the local home also tries the RPC before SIGTERM. If the RPC fails, the stop falls back to SIGTERM and its agents resume.
 
 ```bash
-npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts packages/protocol/src/messages.wire-compat.test.ts --bail=1
-grep -q 'z.literal("resume")' packages/protocol/src/messages.ts
-grep -q 'CLIENT_CAPS.resumeTimelineItems' packages/server/src/server/session.ts packages/client/src/connection/index.ts
-grep -q 'resumeTimelineItems: "resume_timeline_items"' packages/protocol/src/client-capabilities.ts
-```
-
-## agent-auto-resume-app-marker
-
-**the app renders the resume timeline item as a marker beside the compaction one**
-
-`ResumeItem` joins `StreamItem`, so the reducer appends one marker per resume event — same `createUniqueTimelineId` + `finalizeActiveThoughts` shape as the compaction case — and the replica cache stores it under a `z.strictObject` union member so a cached timeline round-trips instead of being dropped. `ResumeMarker` reuses the compaction marker's visual language verbatim (two `flex: 1` 1px rules in `theme.colors.border` around a centred muted label), differing only in the `Power` glyph; the label comes from `message.resume.*` via a sibling `message-resume-label.ts` helper, matching the compaction helper, so no English literal reaches the component. Both plugin projection and web height estimation treat `resume` like `compaction` so a marker is neither invisible to a plugin transform nor mis-measured by the virtualizer.
-
-```bash
-npm test --workspace=@getpaseo/app -- src/components/message-resume-label.test.ts src/types/stream.test.ts src/i18n/resources.test.ts --bail=1
-grep -q 'kind: z.literal("resume")' packages/app/src/runtime/replica-cache/index.ts
-grep -q 'case "resume":' packages/app/src/agent-stream/view.tsx packages/app/src/plugins/timeline/projection.ts packages/app/src/agent-stream/web-virtualization.ts
-grep -q 'i18n.t("message.resume' packages/app/src/components/message-resume-label.ts
-! grep -q 'Resumed after an unexpected shutdown' packages/app/src/components/message.tsx
+(cd packages/desktop && npx vitest run src/daemon/daemon-manager.test.ts --bail=1)
+grep -q 'PASEO_DAEMON_STOP_REASON' packages/desktop/src/daemon/daemon-manager.ts
+grep -q 'preferLifecycleRpc: true' packages/cli/src/commands/daemon/stop.ts
 ```
 
 ## schedule-run-live-work
@@ -748,10 +735,12 @@ npx vitest run packages/server/src/server/agent/providers/codex-catalog.test.ts 
 
 **the daemon resolves provider catalogs before resuming, and keeps a raw-response gateway cache**
 
-Discovery was lazy, so `autoResumeRunningAgents` ran at boot with an empty catalog: gateway models launched with no `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, Claude Code assumed 200K, and the resumed transcript was compacted against that wrong ceiling. Boot now awaits `refreshSettingsSnapshot` before auto-resume, concurrent with `listen` so the daemon still starts promptly. Catalog responses are cached one file per request URL under `$PASEO_HOME/cache/cliproxyapi/`; a live catalog always wins, the cache stands in only when the gateway returned no models, and having neither logs the 200K assumption instead of failing silently. `PASEO_DISABLE_GATEWAY_CACHE=1` skips the cache and is set by both vitest configs, so no suite writes a gateway cache into a real `$PASEO_HOME`.
+Discovery was lazy, so a gateway model resumed at boot launched with no `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, Claude Code assumed 200K, and the resumed transcript was compacted against that wrong ceiling. When a gateway is configured, boot waits up to two seconds for `refreshSettingsSnapshot` before restart recovery resumes agents, concurrent with `listen` so the daemon still starts promptly; without a gateway nothing waits. Catalog responses are cached one file per request URL under `$PASEO_HOME/cache/cliproxyapi/`; a live catalog always wins, the cache stands in only when the gateway returned no models, and having neither logs the 200K assumption instead of failing silently. `PASEO_DISABLE_GATEWAY_CACHE=1` skips the cache and is set by both vitest configs, so no suite writes a gateway cache into a real `$PASEO_HOME`.
 
 ```bash
 npx vitest run packages/server/src/server/agent/gateway/http-response-cache.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
+grep -q 'void bootCatalogWarmup$' packages/server/src/server/bootstrap.ts
+grep -q 'then(() => restartRecovery.resumePending())' packages/server/src/server/bootstrap.ts
 ```
 
 ## voice-read-aloud-push-to-talk
@@ -834,7 +823,7 @@ grep -q "composer-schedule-button" packages/app/src/composer/input/input.tsx
 
 **automatically resume agent sessions after API rate limit and model cooldown recovery**
 
-When API quota exhaustion or model cooldown occurs and a recovery timestamp is known (`RETRY_AFTER:<UTC_DATETIME>`), the daemon schedules a timer to automatically resume the session with `<paseo-system>Resume - rate limit cooldown has ended</paseo-system>` and a `rate_limit_retry` timeline marker. The UI surfaces an active cooldown banner and composer track pill with live countdowns and "Resume now" / "Cancel auto-resume" controls. Only the fork [iamriajul/CLIProxyAPI](https://github.com/iamriajul/CLIProxyAPI) writes that marker into the error; Anthropic, OpenAI and upstream CLIProxyAPI errors carry no recovery time, so without that gateway nothing resumes, and the host and agent setting hints say so. The feature is enabled by default with a host-level setting (`autoResumeOnRateLimit`) and per-agent tab settings ("Agent settings..." modal, stored in agent labels as `rate_limit_auto_resume`). While a rate limit cooldown timer is active, scheduled agent heartbeats are skipped to avoid redundant provider requests and timeline noise. Pending retries survive daemon restarts via `pending-rate-limit-auto-resumes.json` and are restored before schedules run. `AgentManager.setRateLimitCooldown` publishes only a real change: every turn start cancels auto-resume, and publishing that no-op clear sent an idle snapshot that reached the app after `turn_started`, flickering the running indicator and jumping the timeline 69px.
+When API quota exhaustion or model cooldown occurs and a recovery timestamp is known (`RETRY_AFTER:<UTC_DATETIME>`), the daemon schedules a timer to automatically resume the session by sending `Resume - rate limit cooldown has ended` as a user message whose `resume` marker has reason `rate_limit_retry`; the app shows that message as the rate-limit marker. The UI surfaces an active cooldown banner and composer track pill with live countdowns and "Resume now" / "Cancel auto-resume" controls. Only the fork [iamriajul/CLIProxyAPI](https://github.com/iamriajul/CLIProxyAPI) writes that marker into the error; Anthropic, OpenAI and upstream CLIProxyAPI errors carry no recovery time, so without that gateway nothing resumes, and the host and agent setting hints say so. The feature is enabled by default with a host-level setting (`autoResumeOnRateLimit`) and per-agent tab settings ("Agent settings..." modal, stored in agent labels as `rate_limit_auto_resume`). While a rate limit cooldown timer is active, scheduled agent heartbeats are skipped to avoid redundant provider requests and timeline noise. Pending retries survive daemon restarts via `pending-rate-limit-auto-resumes.json` and are restored before schedules run. `AgentManager.setRateLimitCooldown` publishes only a real change: every turn start cancels auto-resume, and publishing that no-op clear sent an idle snapshot that reached the app after `turn_started`, flickering the running indicator and jumping the timeline 69px.
 
 ```bash
 npx vitest run packages/server/src/server/agent/agent-rate-limit-auto-resume.test.ts --bail=1
@@ -842,7 +831,7 @@ npx vitest run packages/server/src/server/agent/agent-manager.test.ts -t "absent
 npx vitest run packages/server/src/server/schedule/service.test.ts -t "agent-target schedule skips execution when rate limit cooldown is active" --bail=1
 npm test --workspace=@getpaseo/app -- src/screens/workspace/use-workspace-agent-settings.test.tsx src/components/message-resume-label.test.ts --bail=1
 grep -q "autoResumeOnRateLimit" packages/protocol/src/messages.ts
-grep -q "rate_limit_retry" packages/protocol/src/agent-types.ts
+grep -q "resume?: { reason: string }" packages/protocol/src/agent-types.ts
 grep -q "agent-settings" packages/app/src/screens/workspace/workspace-tab-menu.ts
 grep -q "RateLimitCooldownBanner" packages/app/src/rate-limit-cooldown/rate-limit-cooldown-banner.tsx
 ```
@@ -882,7 +871,7 @@ Cache warm-up keeps a Claude Code session's Anthropic prompt cache alive just be
 - **Running turns are warmed.** Every request the agent makes restarts the countdown (`AgentCacheWarmManager.onRequestRecorded` re-times the warm-up and ends the idle stretch's count), and a turn that waits on a tool, a subagent, an MCP call or a Monitor is warmed through the fork like an idle agent. A fork's request is a warm-up that belongs to no turn, so the agent's next request still continues its turn (`recordPromptCacheRequest`). The pill and the sidebar count down to the next warm-up during a turn on a host with `server_info.features.cacheWarmFork`; before forks a ping would have queued behind the turn, so the pill showed `cache · expired` when the window passed inside it, and still does on an older host.
 - **Foreground shell cap.** A PreToolUse hook (`providers/claude/foreground-shell-cap.ts`, matcher `Bash|PowerShell`) denies a foreground Bash or PowerShell call whose `timeout` exceeds `FOREGROUND_SHELL_CAP_MS` for the effective TTL: 250 s on 5m, 58 minutes on 1h. The reason names the tool, the cap and `run_in_background`; background calls are exempt. Input it cannot read, or a `timeout` that is not a finite number, is denied as well. It denies instead of clamping because Claude Code shortens a requested timeout silently, and a call that reaches its timeout is moved to the background (or stopped where auto-backgrounding is off), so the model never sees a refusal naming the cap. SDK callback hooks still run under `disableAllHooks`, so internal agents are capped too. It is a hook, not a `BASH_MAX_TIMEOUT_MS` env overlay, because Claude Code applies user, project and local settings `env` over the spawn env, and a launch-time value cannot follow the observed TTL. A call with no `timeout` gets Claude Code's default, which the hook cannot see and which PowerShell reads from the same variable, so Paseo pins `BASH_DEFAULT_TIMEOUT_MS=120000` in the flag settings layer, which outranks every settings file except managed policy. Background calls keep Claude Code's 2-hour cap: in Claude Code 2.1.312 the only thing that lowers it to the foreground max is an internal tool-context field (`shellWallCapMs` in the bundle), which no SDK option exposes and Paseo cannot set.
 - **Self-started turns.** A turn Claude Code starts by itself (a task notification) ends on the autonomous path, whose run settles after the idle state is published. `AgentManager` re-arms the watchdog once that run settles; before, the watchdog saw the still-tracked run as busy and the cache expired.
-- **Restarts.** `AgentCacheWarmManager.bootstrap` arms loaded agents and idle stored agents that are not loaded yet; the warm-up loads them (`ensureAgentLoaded`) and then forks. It runs after boot auto-resume even when auto-resume fails.
+- **Restarts.** `AgentCacheWarmManager.bootstrap` arms loaded agents and idle stored agents that are not loaded yet, except a record that a manual stop marked `stoppedByUser`: it stays dormant until someone uses the agent again (`restart-recovery-policy`). The warm-up loads the rest (`ensureAgentLoaded`) and then forks. It runs after boot restart recovery and the rate-limit bootstrap, even when either fails.
 - **Request history.** `recordPromptCacheRequest` (protocol) records every main-thread request: its kind (turn start, a later request in the turn, or a warm-up), its read/write/uncached split, the gap since the previous request and, on a turn start, the time since the latest request that was not a warm-up. One entry per request, not per prompt, because each request reads or writes the cache on its own, and a miss in the middle of a turn (a tool call longer than the window) costs as much as a miss on return. A usage report whose read, write and uncached counts are all zero carries no accounting, so it is not an entry. A request is a hit when it read at least 90% of the previous request's input (`PROMPT_CACHE_PREVIOUS_READ_RATIO`, stored as `previousInputTokens`). The cache holds what the previous request sent, so a request that appends a large tool result is still a hit when it reads all of that. The 90% is because an expired cache can still read the shared system prefix, which is most of a small context. Records written before `previousInputTokens` existed fall back to reading at least half of their own input (`PROMPT_CACHE_HIT_RATIO`). A fresh session's first request is never a hit: it has no earlier request to read, even when the API reports a read of the shared system and tool prefix (two fresh QA sessions each read 38,478 tokens on their first request, which is that prefix). A native fork's first request is measured against the last request its parent made before the fork (`PromptCacheInheritance`), because the fork inherits that context and reads it from the cache. A fork started on another model inherits nothing, because a cache belongs to one model, so its first request is a fresh session's. The parent's entry stays warm, and the fork's writes do not evict it. A miss (`isAvoidablePromptCacheMiss`) is a request that came after cached context and was not a hit. A fresh session's first request is neither a hit nor a miss, and the snapshot and chart show it as a neutral first write. The first request after a compaction (`afterCompaction`), at any time, is left out of every count and chart, because the compacted context was never cached; the compaction marks the chart instead. A later user prompt is a miss like any other when the cache had expired. The snapshot carries three things: the latest `PROMPT_CACHE_HISTORY_LIMIT` (24) requests for the pill's bars, the latest compactions, and `promptCache.totals` (requests that had a cache to hit, hits and misses over the whole session, seeded from the window on records written before totals existed). Before the journal it held 60 requests, which was also the only record of the session; that many bars made the popover too large to read, and 60 was still a window, not the session. The whole session now lives in an append-only JSONL journal per agent under `$PASEO_HOME/prompt-cache/` (`agent/prompt-cache-journal.ts`), seeded from the snapshot window the first time an existing agent writes. The insights dialog fetches it with `agent.prompt_cache.history.request`, gated on `server_info.features.promptCacheInsights`, and lets you explore it (`prompt-cache/prompt-cache-explorer.ts`): every tile and the cost split describe the range on screen, a tapped bar shows its requests, Zoom in redraws the chart over that bar's requests down to one bar per request, the chart switches between cache hits and estimated cost, and the request list filters to misses, warm-ups or turns. It first drew 120 grouped columns and listed the latest 30 misses, so a long session's detail was out of reach. Each entry records the `model` the request ran on and its `writeTtl` (optional, absent on older entries), so a Haiku compaction or a window change is priced as what it was. Deleting an agent deletes its journal; archiving keeps it.
 - **What it costs.** `@getpaseo/protocol/claude-pricing` prices requests at Anthropic API list prices, for the app and the daemon alike: reads at the model's cache-read share (0.05× on Opus 5.5, 0.025× on Fable 5.1, 0.1× elsewhere), writes at 1.25× (5m) or 2× (1h), and Haiku 5.5's higher tier past 100k. Only input is priced, because the journal records no output, and only the main thread, so every figure is labelled an API-price estimate; a subscription or gateway bills differently. The insights dialog splits that cost between warm-ups and work and tallies what warm-up bought: an idle stretch (a run of warm-ups) is kept when the request after it read the cache, credited with the write it avoided less its read, and lapsed when the request after it missed or none came within the window. A warm-up reads the context at 0.05× on Opus 5.5 against a 1.25× rewrite, so one avoided 5m miss pays for 25 warm-ups. The context window popover prices the next message from the last request (`prompt-cache/next-message-cost.ts`): a read while the cache is warm, a full write once it expired, and says when the Claude process has stopped. The stored agent record keeps `lastUsage`, so an agent that is not loaded (process stopped, daemon restarted) still reports its context; it was dropped on unload, and the popover read "No context data" exactly when deciding whether to resume. The context window tooltip's Session cost is Claude Code's `total_cost_usd` plus `warmUpCostUsd`, and says how much of it was warm-ups; the insights dialog shows both figures beside its input estimate. Claude Code never counts a fork warm-up (v2): each runs in a throwaway fork whose result Paseo read only for its cache sample. A ping warm-up (v1, the default) is a turn of the session, so Claude Code already counts it and `warmUpCostUsd` stays unset. The fork's own cost is priced from its result's `usage`, which counts only that process, because its `total_cost_usd` restores the session's running total and adds to it; measured on Claude Code 2.1.316 with Haiku 5.5, a resumed process and a `--fork-session` process both continued the parent's total, so the tooltip figure also survives relaunches and needs no running total of its own. `warmUpCostUsd` persists on the agent record and starts at zero for agents warmed before it existed. A per-request `usage_updated` merges into `lastUsage` instead of replacing it; replacing dropped the cost, so the tooltip lost Session cost for the whole of every running turn.
 - **Misses beside the countdown.** The session's miss count shows in red after a middle dot, in the composer pill (a `tone: "danger"` segment) and on the sidebar workspace row. The count is shown only above zero, so a session with no misses has no red number. The row shows it even with no warm-up armed, because a miss is worth seeing whether or not warm-up is on. The pill, popover and insights work with warm-up off, since requests are recorded either way.
@@ -900,7 +889,7 @@ Cache warm-up keeps a Claude Code session's Anthropic prompt cache alive just be
 npx vitest run packages/server/src/server/agent/agent-cache-warm.test.ts --config packages/server/vitest.config.ts --bail=1
 npx vitest run packages/server/src/server/agent/timeline-prompt-index.test.ts --config packages/server/vitest.config.ts --bail=1
 npx vitest run packages/protocol/src/agent-cache-warm.test.ts --bail=1
-npx vitest run packages/app/src/prompt-cache/warm-up-stretches.test.ts --config packages/app/vitest.config.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/prompt-cache/warm-up-stretches.test.ts --bail=1
 npx vitest run packages/server/src/server/agent/providers/claude/agent.test.ts -t "cache_warm feature|relaunches the query|per-request|foreground Bash cap|TTL a cache write|throwaway fork|keeps other custom headers" --config packages/server/vitest.config.ts --bail=1
 npx vitest run packages/server/src/server/agent/agent-manager.test.ts -t "cache|closed question" --config packages/server/vitest.config.ts --bail=1
 npx vitest run packages/server/src/server/agent/create-agent/create.test.ts -t "cache_warm" --config packages/server/vitest.config.ts --bail=1
@@ -923,7 +912,8 @@ npx vitest run packages/server/src/server/agent/finish-subscriptions/finish-subs
 grep -q "host-page-claude-cache-section" packages/app/src/screens/settings/host-page.tsx
 npx vitest run packages/server/src/server/agent/idle-runtime-cleanup/idle-runtime-cleanup.test.ts --config packages/server/vitest.config.ts --bail=1
 npx vitest run packages/server/src/server/schedule/service.test.ts -t "prompt cache has expired" --config packages/server/vitest.config.ts --bail=1
-npx vitest run packages/server/src/server/agent/agent-auto-resume.test.ts -t "prompt cache has expired" --config packages/server/vitest.config.ts --bail=1
+npx vitest run packages/server/src/server/agent/restart-recovery/eligibility.test.ts -t "five-minute prompt cache has expired" --config packages/server/vitest.config.ts --bail=1
+grep -q 'then(() => cacheWarmManager.bootstrap())' packages/server/src/server/bootstrap.ts
 npx vitest run packages/server/src/server/agent/agent-manager.test.ts -t "another model as a fresh session|compacts on another model|original model is rejected|compaction that never ran|fork warm-up" --config packages/server/vitest.config.ts --bail=1
 npm --prefix packages/app run test -- src/prompt-cache/cache-guards.test.ts
 grep -q "withNewAgentPromptCacheTtl" packages/server/src/server/agent/agent-manager.ts

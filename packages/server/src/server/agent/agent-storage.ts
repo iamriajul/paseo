@@ -56,6 +56,9 @@ const STORED_AGENT_SCHEMA = z.object({
   labels: z.record(z.string(), z.string()).default({}),
   lastStatus: AgentStatusSchema.default("closed"),
   resumeOnStartup: z.boolean().optional(),
+  // Set by a manual stop on every agent it closed. Boot warm-up leaves such an agent dormant. A
+  // live snapshot rebuilds the record without it, so the next use clears it.
+  stoppedByUser: z.boolean().optional(),
   lastModeId: z.string().nullable().optional(),
   config: SERIALIZABLE_CONFIG_SCHEMA,
   launchEnv: z.record(z.string(), z.string()).optional(),

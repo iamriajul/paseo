@@ -2496,8 +2496,8 @@ it("retains agent-message provenance through live delivery and repeated history"
   expect(replay[0]).toMatchObject({ payload: { data: { agentMessage } } });
 });
 
-describe("resume timeline items", () => {
-  it("appends one marker per resume event, preserving the reason and interruption time", () => {
+describe("resume markers on user messages", () => {
+  it("keeps the marker's reason on the resumed prompt only", () => {
     const timestamp = new Date("2026-08-01T02:15:00.000Z");
     const state = hydrateStreamState(
       [
@@ -2506,9 +2506,9 @@ describe("resume timeline items", () => {
             type: "timeline",
             provider: "pi",
             item: {
-              type: "resume",
-              reason: "power_cut",
-              interruptedAt: "2026-08-01T02:14:00.000Z",
+              type: "user_message",
+              text: "Resume working.",
+              resume: { reason: "restart" },
             },
           },
           timestamp,
@@ -2517,7 +2517,7 @@ describe("resume timeline items", () => {
           event: {
             type: "timeline",
             provider: "pi",
-            item: { type: "resume", reason: "manual" },
+            item: { type: "user_message", text: "hello" },
           },
           timestamp,
         },
@@ -2527,21 +2527,17 @@ describe("resume timeline items", () => {
 
     expect(
       state.map((item) =>
-        item.kind === "resume"
-          ? { kind: item.kind, reason: item.reason, interruptedAt: item.interruptedAt }
+        item.kind === "user_message"
+          ? { text: item.text, resume: item.resume }
           : { kind: item.kind },
       ),
     ).toEqual([
-      {
-        kind: "resume",
-        reason: "power_cut",
-        interruptedAt: "2026-08-01T02:14:00.000Z",
-      },
-      { kind: "resume", reason: "manual", interruptedAt: undefined },
+      { text: "Resume working.", resume: { reason: "restart" } },
+      { text: "hello", resume: undefined },
     ]);
   });
 
-  it("keeps repeated resume markers in the same millisecond distinct", () => {
+  it("keeps two resumed prompts that share a millisecond distinct", () => {
     const timestamp = new Date("2026-08-01T02:15:00.000Z");
     const state = hydrateStreamState(
       [
@@ -2549,7 +2545,7 @@ describe("resume timeline items", () => {
           event: {
             type: "timeline",
             provider: "pi",
-            item: { type: "resume", reason: "manual" },
+            item: { type: "user_message", text: "first", resume: { reason: "restart" } },
           },
           timestamp,
         },
@@ -2557,7 +2553,7 @@ describe("resume timeline items", () => {
           event: {
             type: "timeline",
             provider: "pi",
-            item: { type: "resume", reason: "manual" },
+            item: { type: "user_message", text: "second", resume: { reason: "restart" } },
           },
           timestamp,
         },
@@ -2565,7 +2561,7 @@ describe("resume timeline items", () => {
       { source: "canonical" },
     );
 
-    expect(state.filter((item) => item.kind === "resume")).toHaveLength(2);
+    expect(state.filter((item) => item.kind === "user_message")).toHaveLength(2);
     expect(new Set(state.map((item) => item.id)).size).toBe(state.length);
   });
 });

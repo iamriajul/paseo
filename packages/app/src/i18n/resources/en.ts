@@ -412,9 +412,8 @@ export const en = {
       completed: "Context compacted",
     },
     resume: {
-      poweredOff: "Resumed after an unexpected shutdown",
       rateLimitCooldown: "Resumed after rate limit cooldown",
-      manual: "Resumed",
+      recovery: "---- Agent recovery: {{prompt}} ----",
     },
   },
   rateLimitCooldown: {

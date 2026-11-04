@@ -6,6 +6,7 @@ import { loadConfig } from "./config.js";
 import { resolvePaseoHome } from "./paseo-home.js";
 import { createRootLogger } from "./logger.js";
 import type { DaemonLifecycleIntent } from "./bootstrap.js";
+import { isAutomaticDaemonStopReason } from "./lifecycle-reasons.js";
 import { getProcessDiagnostics } from "./process-diagnostics.js";
 
 process.title = "Paseo Daemon";
@@ -141,6 +142,8 @@ async function main() {
   let daemon: Awaited<ReturnType<typeof createPaseoDaemon>> | null = null;
   let shutdownPromise: Promise<number> | null = null;
   let exitHookInstalled = false;
+  // Set by a client stop or restart request: the stop that follows is one a person asked for.
+  let pendingIntentionalStop = false;
 
   applyCliFlagOverrides(config);
 
@@ -160,11 +163,19 @@ async function main() {
       reason?: string;
       successExitCode?: number;
       keepTerminals?: boolean;
+      intentional?: boolean;
     },
   ) => {
     const reason = options?.reason ?? `worker_received_${signal}`;
     // Signals mean "stop and close terminals"; only an explicit keep request keeps them.
     const keepTerminals = options?.keepTerminals === true;
+    // A stop a person asked for: a client stop or restart, or Ctrl-C. Other stops (SIGTERM from
+    // the OS or a UPS, a supervisor stop) leave their running agents to resume on the next start.
+    const intentional =
+      options?.intentional ??
+      (pendingIntentionalStop ||
+        signal === "SIGINT" ||
+        options?.reason === "supervisor_received_SIGINT");
     if (!shutdownPromise) {
       logger.info(
         { signal, reason, keepTerminals, ...getProcessDiagnostics() },
@@ -186,7 +197,7 @@ async function main() {
             clearTimeout(forceExit);
             return 1;
           }
-          await daemon.stop({ keepTerminals });
+          await daemon.stop({ keepTerminals, intentional });
           clearTimeout(forceExit);
           logger.info("Server closed");
           return options?.successExitCode ?? 0;
@@ -220,6 +231,7 @@ async function main() {
   };
 
   const handleLifecycleIntent = (intent: DaemonLifecycleIntent) => {
+    pendingIntentionalStop = !isAutomaticDaemonStopReason(intent.reason);
     const fields = {
       clientId: intent.clientId,
       requestId: intent.requestId,

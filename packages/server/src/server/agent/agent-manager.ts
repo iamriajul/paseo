@@ -3092,7 +3092,9 @@ export class AgentManager {
     }
     this.touchUpdatedAt(agent);
     if (options?.clientMessageId) {
-      this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "accepted");
+      this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "accepted", {
+        resume: options.resume,
+      });
       this.emitState(agent);
     }
     const dispatch = (event: AgentStreamEvent): void => {
@@ -3195,6 +3197,7 @@ export class AgentManager {
         // A terminal rejection belongs after the submitted prompt even though no provider turn exists.
         if (options?.clientMessageId) {
           this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "rejected", {
+            resume: options.resume,
             messageId: options.clientMessageId,
           });
         }
@@ -3308,6 +3311,7 @@ export class AgentManager {
         : undefined;
       if (options?.clientMessageId) {
         this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, "accepted", {
+          resume: options.resume,
           messageId: options.clientMessageId,
           turnId,
           providerMessageId:
@@ -5862,7 +5866,12 @@ export class AgentManager {
     prompt: AgentPromptInput,
     clientMessageId: string,
     outcome: "accepted" | "rejected",
-    options?: { messageId?: string; providerMessageId?: string; turnId?: string },
+    options?: {
+      messageId?: string;
+      providerMessageId?: string;
+      turnId?: string;
+      resume?: { reason: string };
+    },
   ): void {
     const items = projectAgentMessages({
       type: "user_message",
@@ -5873,7 +5882,11 @@ export class AgentManager {
     for (const item of items) {
       // Human attempts stay in history on rejection; delivery notifications require acceptance.
       if (outcome === "rejected" && item.type !== "user_message") continue;
-      this.recordSubmittedPromptItem(agent, item, options);
+      const marked =
+        item.type === "user_message" && options?.resume
+          ? { ...item, resume: options.resume }
+          : item;
+      this.recordSubmittedPromptItem(agent, marked, options);
     }
   }
 

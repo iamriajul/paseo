@@ -416,8 +416,7 @@ export const ar: TranslationResources = {
     },
     resume: {
       rateLimitCooldown: en.message.resume.rateLimitCooldown,
-      poweredOff: "تمت الاستئناف بعد إيقاف غير متوقع",
-      manual: "تمت الاستئناف",
+      recovery: "---- استعادة الوكيل: {{prompt}} ----",
     },
   },
   rateLimitCooldown: {

@@ -94,6 +94,7 @@ import type { ProjectUpdate } from "./workspace-reconciliation-service.js";
 import {
   CLIENT_SHUTDOWN_RPC_REASON,
   normalizeClientRestartRpcReason,
+  isAutomaticDaemonStopReason,
 } from "./lifecycle-reasons.js";
 import { DirectorySyncService } from "./directory-sync/index.js";
 import {
@@ -1485,22 +1486,21 @@ export class Session {
     let capability: ClientCapability;
     if (item.type === "notification") capability = CLIENT_CAPS.timelineNotifications;
     else if (item.type === "plugin") capability = CLIENT_CAPS.pluginTimelineItems;
-    else if (item.type === "resume") capability = CLIENT_CAPS.resumeTimelineItems;
     else return true;
     return source ? this.supportsForSource(capability, source) : this.supports(capability);
   }
 
   // COMPAT(rateLimitResumeReason): added in v0.11.2, remove after 2027-04-13 once client floor >= v0.11.2.
   private normalizeTimelineItemForClient<T extends { type: string }>(item: T, source?: object): T {
-    if (
-      item.type === "resume" &&
-      (item as unknown as { reason?: string }).reason === "rate_limit_retry"
-    ) {
+    const resume = (item as unknown as { resume?: { reason?: string } }).resume;
+    if (item.type === "user_message" && resume?.reason === "rate_limit_retry") {
       const supportsRateLimitResume = source
         ? this.supportsForSource(CLIENT_CAPS.rateLimitResumeReason, source)
         : this.supports(CLIENT_CAPS.rateLimitResumeReason);
+      // A client that predates the marker shows the prompt as an ordinary message.
       if (!supportsRateLimitResume) {
-        return { ...item, reason: "manual" };
+        const { resume: _resume, ...plain } = item as unknown as Record<string, unknown>;
+        return plain as unknown as T;
       }
     }
     return item;
@@ -3193,6 +3193,7 @@ export class Session {
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId, {
           keepTerminals: msg.keepTerminals === true,
+          reason: msg.reason,
         });
       case "client_heartbeat":
         this.handleClientHeartbeat(msg);
@@ -3874,9 +3875,11 @@ export class Session {
 
   private async handleShutdownServerRequest(
     requestId: string,
-    options: { keepTerminals: boolean },
+    options: { keepTerminals: boolean; reason?: string },
   ): Promise<void> {
-    const reason = CLIENT_SHUTDOWN_RPC_REASON;
+    const reason = isAutomaticDaemonStopReason(options.reason)
+      ? options.reason!
+      : CLIENT_SHUTDOWN_RPC_REASON;
     this.sessionLogger.warn(
       { reason, keepTerminals: options.keepTerminals },
       "Shutdown requested via websocket",

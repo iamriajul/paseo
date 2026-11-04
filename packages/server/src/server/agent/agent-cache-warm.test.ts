@@ -584,6 +584,17 @@ describe("AgentCacheWarmManager after a daemon restart", () => {
     expect(manager.getPending("running")).toBeNull();
     expect(manager.getPending("automatic")).toBeNull();
   });
+
+  it("leaves an agent a manual stop marked as stopped alone", async () => {
+    const { loadAgent, warmPromptCache } = await bootstrapWith([
+      storedRecord({ id: "stopped", stoppedByUser: true }),
+      storedRecord({ id: "plain" }),
+    ]);
+    await vi.advanceTimersByTimeAsync(60 * MINUTE);
+    expect(warmPromptCache).toHaveBeenCalledWith("plain");
+    expect(loadAgent).not.toHaveBeenCalledWith("stopped");
+    expect(warmPromptCache).not.toHaveBeenCalledWith("stopped");
+  });
 });
 
 describe("AgentCacheWarmManager with a real AgentManager", () => {

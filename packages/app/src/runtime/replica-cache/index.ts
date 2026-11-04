@@ -117,6 +117,7 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...TimelineItemBaseShape,
     kind: z.literal("user_message"),
+    resume: z.strictObject({ reason: z.string() }).optional(),
     clientMessageId: z.string().optional(),
     messageId: z.string().optional(),
     text: z.string(),
@@ -154,12 +155,6 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
     status: z.enum(["loading", "completed"]),
     trigger: z.enum(["auto", "manual"]).optional(),
     preTokens: z.number().nonnegative().optional(),
-  }),
-  z.strictObject({
-    ...TimelineItemBaseShape,
-    kind: z.literal("resume"),
-    reason: z.enum(["power_cut", "manual", "rate_limit_retry"]),
-    interruptedAt: z.string().optional(),
   }),
   z.strictObject({
     ...TimelineItemBaseShape,
@@ -461,6 +456,7 @@ function serializeTimelineItem(item: StreamItem): StoredTimelineItem | null {
         kind: item.kind,
         ...(item.clientMessageId ? { clientMessageId: item.clientMessageId } : {}),
         ...(item.messageId ? { messageId: item.messageId } : {}),
+        ...(item.resume ? { resume: item.resume } : {}),
         text: item.text,
       };
     case "assistant_message":
@@ -495,13 +491,6 @@ function serializeTimelineItem(item: StreamItem): StoredTimelineItem | null {
         status: item.status,
         ...(item.trigger ? { trigger: item.trigger } : {}),
         ...(item.preTokens !== undefined ? { preTokens: item.preTokens } : {}),
-      };
-    case "resume":
-      return {
-        ...base,
-        kind: item.kind,
-        reason: item.reason,
-        ...(item.interruptedAt ? { interruptedAt: item.interruptedAt } : {}),
       };
     case "tool_call":
       if (item.payload.source !== "agent") return null;
@@ -558,6 +547,7 @@ function deserializeBuiltinTimelineItem(
         kind: item.kind,
         ...(item.clientMessageId ? { clientMessageId: item.clientMessageId } : {}),
         ...(item.messageId ? { messageId: item.messageId } : {}),
+        ...(item.resume ? { resume: item.resume } : {}),
         text: item.text,
       };
     case "assistant_message":
@@ -592,13 +582,6 @@ function deserializeBuiltinTimelineItem(
         status: item.status,
         ...(item.trigger ? { trigger: item.trigger } : {}),
         ...(item.preTokens !== undefined ? { preTokens: item.preTokens } : {}),
-      };
-    case "resume":
-      return {
-        ...base,
-        kind: item.kind,
-        reason: item.reason,
-        ...(item.interruptedAt ? { interruptedAt: item.interruptedAt } : {}),
       };
     case "tool_call": {
       const tool = item.item;

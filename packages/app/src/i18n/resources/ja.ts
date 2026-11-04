@@ -421,8 +421,7 @@ export const ja: TranslationResources = {
     },
     resume: {
       rateLimitCooldown: en.message.resume.rateLimitCooldown,
-      poweredOff: "予期しないシャットダウン後に再開しました",
-      manual: "再開しました",
+      recovery: "---- エージェントの復旧: {{prompt}} ----",
     },
   },
   rateLimitCooldown: {

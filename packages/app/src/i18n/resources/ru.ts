@@ -420,8 +420,7 @@ export const ru: TranslationResources = {
     },
     resume: {
       rateLimitCooldown: en.message.resume.rateLimitCooldown,
-      poweredOff: "Возобновлено после неожиданного отключения",
-      manual: "Возобновлено",
+      recovery: "---- Восстановление агента: {{prompt}} ----",
     },
   },
   rateLimitCooldown: {

@@ -86,7 +86,6 @@ export type StreamItem =
   | TodoListItem
   | NotificationItem
   | CompactionItem
-  | ResumeItem
   | PluginTimelineStreamItem;
 
 export type UserMessageImageAttachment = AttachmentMetadata;
@@ -101,12 +100,15 @@ export interface UserMessageItem {
   turnId?: string;
   timelineCursor?: TimelinePosition;
   text: string;
+  /** Set on the daemon-sent prompt that resumed the agent; rendered as a marker in place of the bubble. */
+  resume?: { reason: string };
   timestamp: Date;
   images?: UserMessageImageAttachment[];
   attachments?: AgentAttachment[];
 }
 
 export interface UserMessageInput {
+  resume?: { reason: string };
   id?: string;
   clientMessageId?: string;
   messageId?: string;
@@ -130,6 +132,7 @@ export function createUserMessage(input: UserMessageInput): UserMessageItem {
     ...(input.messageId ? { messageId: input.messageId } : {}),
     ...(input.turnId ? { turnId: input.turnId } : {}),
     ...(input.timelineCursor ? { timelineCursor: input.timelineCursor } : {}),
+    ...(input.resume ? { resume: input.resume } : {}),
     text: input.text,
     timestamp: input.timestamp,
     ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
@@ -808,16 +811,6 @@ export interface CompactionItem {
   preTokens?: number;
 }
 
-export interface ResumeItem {
-  kind: "resume";
-  id: string;
-  timelineCursor?: TimelinePosition;
-  turnId?: string;
-  timestamp: Date;
-  reason: "power_cut" | "manual" | "rate_limit_retry";
-  interruptedAt?: string;
-}
-
 export interface PluginTimelineStreamItem {
   kind: "plugin";
   id: string;
@@ -911,6 +904,7 @@ function appendUserMessage(
   clientMessageId?: string,
   timelineCursor?: TimelinePosition,
   turnId?: string,
+  resume?: { reason: string },
 ): StreamItem[] {
   const { chunk, hasContent } = normalizeChunk(text);
   if (!hasContent) {
@@ -924,6 +918,7 @@ function appendUserMessage(
     messageId,
     timelineCursor,
     turnId,
+    resume,
     text: chunk,
     timestamp,
   });
@@ -1563,6 +1558,7 @@ function reduceTimelineEvent(
         item.clientMessageId,
         timelineCursor,
         event.turnId,
+        item.resume,
       );
     case "assistant_message":
       return appendAssistantMessage(
@@ -1614,17 +1610,6 @@ function reduceTimelineEvent(
     }
     case "compaction":
       return reduceTimelineCompaction(state, item, timestamp, timelineCursor);
-    case "resume": {
-      const resume: ResumeItem = {
-        kind: "resume",
-        id: createUniqueTimelineId(state, "resume", item.reason, timestamp),
-        ...(timelineCursor ? { timelineCursor } : {}),
-        timestamp,
-        reason: item.reason,
-        interruptedAt: item.interruptedAt,
-      };
-      return [...state, resume];
-    }
     case "plugin":
       return appendPluginTimelineItem(state, item, timestamp, timelineCursor);
     default:

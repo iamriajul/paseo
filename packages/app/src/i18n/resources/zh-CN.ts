@@ -415,9 +415,8 @@ export const zhCN: TranslationResources = {
       completed: "上下文已压缩",
     },
     resume: {
-      poweredOff: "意外关闭后已恢复",
       rateLimitCooldown: "速率限制冷却后已恢复",
-      manual: "已恢复",
+      recovery: "---- 智能体恢复：{{prompt}} ----",
     },
   },
   rateLimitCooldown: {

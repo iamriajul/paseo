@@ -417,8 +417,7 @@ export const ko: TranslationResources = {
     },
     resume: {
       rateLimitCooldown: en.message.resume.rateLimitCooldown,
-      poweredOff: "예기치 않은 종료 후 재개됨",
-      manual: "재개됨",
+      recovery: "---- 에이전트 복구: {{prompt}} ----",
     },
   },
   rateLimitCooldown: {

@@ -1565,7 +1565,8 @@ export const CompactionMarker = memo(function CompactionMarker({
 });
 
 interface ResumeMarkerProps {
-  reason: "power_cut" | "manual" | "rate_limit_retry";
+  reason: string;
+  prompt: string;
 }
 
 const resumeStylesheet = StyleSheet.create((theme) => ({
@@ -1593,8 +1594,8 @@ const resumeStylesheet = StyleSheet.create((theme) => ({
   },
 }));
 
-export const ResumeMarker = memo(function ResumeMarker({ reason }: ResumeMarkerProps) {
-  const label = getResumeMarkerLabel({ reason });
+export const ResumeMarker = memo(function ResumeMarker({ reason, prompt }: ResumeMarkerProps) {
+  const label = getResumeMarkerLabel({ reason, prompt });
   const Icon = reason === "rate_limit_retry" ? Clock : Power;
 
   return (

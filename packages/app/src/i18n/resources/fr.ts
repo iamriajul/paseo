@@ -421,8 +421,7 @@ export const fr: TranslationResources = {
     },
     resume: {
       rateLimitCooldown: en.message.resume.rateLimitCooldown,
-      poweredOff: "Reprise après un arrêt inattendu",
-      manual: "Reprise",
+      recovery: "---- Reprise de l'agent : {{prompt}} ----",
     },
   },
   rateLimitCooldown: {

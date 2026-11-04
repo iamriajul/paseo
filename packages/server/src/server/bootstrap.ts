@@ -163,6 +163,7 @@ import { createSpeechService } from "./speech/speech-runtime.js";
 import { createSpeechSettingsOwner } from "./speech/speech-settings.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
+import { isRestartResumeEligible } from "./agent/restart-recovery/eligibility.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import { TaskStore } from "./tasks/task-store.js";
@@ -281,15 +282,6 @@ import { ManagedPluginSources } from "./plugins/managed-source.js";
 const MCP_DEBUG_BATCH_LIMIT = 10;
 const MCP_DEBUG_SECRET = "[redacted]";
 
-/**
- * How long boot waits for provider catalogs before resuming agents anyway.
- *
- * A missing provider binary is the common slow case, and the catalog only has to be
- * warm before auto-resume fires. Two seconds covers a same-network gateway on a cold
- * start; anything slower resumes against a partial catalog, which is degraded but
- * never blocked.
- */
-const BOOT_CATALOG_WARMUP_TIMEOUT_MS = 2_000;
 const DOWNLOAD_OPEN_FLAGS =
   process.platform === "win32" ? constants.O_RDONLY : constants.O_RDONLY | constants.O_NOFOLLOW;
 
@@ -550,8 +542,12 @@ export interface PaseoDaemon {
   scriptRuntimeStore: WorkspaceScriptRuntimeStore;
   browserToolsBroker: BrowserToolsBroker;
   start(): Promise<void>;
-  /** Stops the daemon. Terminals keep running for the next daemon only with keepTerminals. */
-  stop(options?: { keepTerminals?: boolean }): Promise<void>;
+  /**
+   * Stops the daemon. Terminals keep running for the next daemon only with keepTerminals. An
+   * intentional stop leaves nothing to resume on the next start; any other stop records the
+   * running agents for restart recovery.
+   */
+  stop(options?: { keepTerminals?: boolean; intentional?: boolean }): Promise<void>;
   getListenTarget(): ListenTarget | null;
   getServerId(): string;
 }
@@ -1221,9 +1217,24 @@ export async function createPaseoDaemon(
       prompt: daemonConfigStore.get().resumePrompt ?? "Resume working.",
     }),
     eligible: async (record) =>
-      !record.workspaceId || !(await workspaceRegistry?.get(record.workspaceId))?.archivedAt,
+      isRestartResumeEligible({
+        record,
+        liveWarmPing: Boolean(agentManager.getAgent(record.id)?.activeTurnIsWarmPing),
+        workspaceArchived: Boolean(
+          record.workspaceId && (await workspaceRegistry?.get(record.workspaceId))?.archivedAt,
+        ),
+        nowMs: Date.now(),
+      }),
     dispatch: (agentId, prompt) =>
-      sendPromptToAgent({ agentId, prompt, agentManager, agentStorage, logger, unarchive: false }),
+      sendPromptToAgent({
+        agentId,
+        prompt,
+        agentManager,
+        agentStorage,
+        logger,
+        unarchive: false,
+        runOptions: { resume: { reason: "restart" } },
+      }),
     report: (agentId, err) => logger.error({ agentId, err }, "Agent restart recovery failed"),
   });
   await restartRecovery.prepareStartup();
@@ -1680,6 +1691,21 @@ export async function createPaseoDaemon(
   );
   logger.info({ elapsed: elapsed() }, "Preparing voice and MCP runtime");
 
+  // Only a gateway-routed model reads its context window from the provider catalog, so only a
+  // configured gateway waits for the catalog before a resumed session starts. Without one, resumes
+  // do not wait. The wait is bounded: a timeout resumes against a partial catalog. Concurrent with
+  // listen either way.
+  const bootCatalogWarmup: Promise<void> =
+    resolveGatewayConfig(config.agentGateway) === null
+      ? Promise.resolve()
+      : withTimeout({
+          promise: providerSnapshotManager.refreshSettingsSnapshot(),
+          timeoutMs: BOOT_CATALOG_WARMUP_TIMEOUT_MS,
+          label: "Boot provider catalog warm-up",
+        }).catch((error: unknown) => {
+          logger.warn({ err: error }, "Boot provider catalog warm-up did not complete");
+        });
+
   const finishSubscriptions = createFinishSubscriptions({
     store: createJsonFinishSubscriptionStore(config.paseoHome),
     serverId,
@@ -2111,7 +2137,16 @@ export async function createPaseoDaemon(
             pluginRuntime.bindPaseoSessionHost(wsServer);
             await pluginRuntime.start();
             providerSnapshotManager.settlePluginProviders();
-            restartRecovery.resumePending();
+            void bootCatalogWarmup
+              .then(() => restartRecovery.resumePending())
+              .then(() => rateLimitAutoResumeManager.bootstrap())
+              .catch((error: unknown) => {
+                logger.warn({ err: error }, "Restart resume or rate-limit bootstrap failed");
+              })
+              .then(() => cacheWarmManager.bootstrap())
+              .catch((error: unknown) => {
+                logger.warn({ err: error }, "Cache warm bootstrap failed");
+              });
             await finishSubscriptions.start();
             wsServer.beginAcceptingConnections();
             const relaySecurityLogger = logger.child({ module: "relay-security" });
@@ -2185,7 +2220,7 @@ export async function createPaseoDaemon(
     }
   };
 
-  const stop = async (options?: { keepTerminals?: boolean }) => {
+  const stop = async (options?: { keepTerminals?: boolean; intentional?: boolean }) => {
     gitRemotePollGate?.stop();
     const keepTerminals = options?.keepTerminals === true;
     let terminalShutdownError: unknown = null;
@@ -2207,7 +2242,12 @@ export async function createPaseoDaemon(
     await finishSubscriptions.close();
     await wsServer?.agentMessages.close();
     agentManager.prepareForShutdown();
-    await restartRecovery.captureRunningAgents();
+    const liveAgentIds = new Set(
+      agentManager.listAgents({ includeInternal: true }).map((agent) => agent.id),
+    );
+    // A manual stop does not resume: a rate-limit retry still pending would fire after restart.
+    if (options?.intentional) await rateLimitAutoResumeManager.cancelAll();
+    if (!options?.intentional) await restartRecovery.captureRunningAgents();
     await closeAllAgents(logger, agentManager);
     await withTimeout({
       promise: pluginRuntime.drainEvents(),
@@ -2216,6 +2256,7 @@ export async function createPaseoDaemon(
     }).catch((error) => logger.warn({ err: error }, "Plugin lifecycle events did not finish"));
     await agentManager.flushForShutdown().catch(() => undefined);
     detachAgentStoragePersistence();
+    if (options?.intentional) await markStoppedByUser(agentStorage, liveAgentIds);
     await agentStorage.flush().catch(() => undefined);
     await agentProviderRuntime.shutdown();
     await pluginRuntime.stopAllPlugins();
@@ -2281,6 +2322,37 @@ export async function createPaseoDaemon(
  * shutdown runs next and rejects the request that was still pending.
  */
 const AGENT_CLOSE_TIMEOUT_MS = 5_000;
+
+/**
+ * How long a configured gateway's resume waits for provider catalogs before it starts anyway.
+ *
+ * A same-network gateway answers within two seconds on a cold start; anything slower resumes against
+ * a partial catalog, which is degraded but never blocked.
+ */
+const BOOT_CATALOG_WARMUP_TIMEOUT_MS = 2_000;
+
+/**
+ * A stop a person asked for: nothing the daemon was running comes back on the next start, and boot
+ * warm-up leaves every agent that was live at the stop dormant (`stoppedByUser`). A close that
+ * never answered (abandoned after AGENT_CLOSE_TIMEOUT_MS) leaves its record running, so the running
+ * records are closed here. Runs after the persistence hook is detached, so no late snapshot writes
+ * a running status back over it.
+ */
+async function markStoppedByUser(
+  agentStorage: AgentStorage,
+  liveAgentIds: ReadonlySet<string>,
+): Promise<void> {
+  for (const record of await agentStorage.list()) {
+    const running = record.lastStatus === "running" || record.lastStatus === "initializing";
+    if (!running && !record.resumeOnStartup && !liveAgentIds.has(record.id)) continue;
+    await agentStorage.upsert({
+      ...record,
+      lastStatus: running ? "closed" : record.lastStatus,
+      resumeOnStartup: false,
+      stoppedByUser: true,
+    });
+  }
+}
 
 async function closeAllAgents(logger: Logger, agentManager: AgentManager): Promise<void> {
   const agents = agentManager.listAgents({ includeInternal: true });

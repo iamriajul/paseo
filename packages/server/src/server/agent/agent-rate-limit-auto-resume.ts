@@ -5,7 +5,6 @@ import type { Logger } from "pino";
 import { writeJsonFileAtomic } from "../atomic-file.js";
 import type { AgentManager } from "./agent-manager.js";
 import type { AgentStorage } from "./agent-storage.js";
-import { formatSystemNotificationPrompt } from "./agent-messages/index.js";
 import { sendPromptToAgent } from "./agent-prompt.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import type { DaemonConfigStore } from "../daemon-config-store.js";
@@ -246,7 +245,8 @@ export class AgentRateLimitAutoResumeManager {
     this.logger.debug({ agentId }, "Canceled pending rate limit auto-resume");
   }
 
-  cancelAll(): void {
+  /** Resolves once the emptied timer list is on disk, so a stop cannot outrun the write. */
+  cancelAll(): Promise<void> {
     for (const [agentId, entry] of this.activeTimers.entries()) {
       clearTimeout(entry.timeout);
       this.agentManager.setRateLimitCooldown?.(agentId, null);
@@ -255,7 +255,7 @@ export class AgentRateLimitAutoResumeManager {
     for (const agentId of this.agentEpochs.keys()) {
       this.nextEpoch(agentId);
     }
-    void this.persistActiveTimers();
+    return this.persistActiveTimers();
   }
 
   private cancelTimerOnly(agentId: string): void {
@@ -362,18 +362,14 @@ export class AgentRateLimitAutoResumeManager {
         return { resumed: false, reason: "Agent already has an active in-flight run" };
       }
 
-      await this.agentManager.appendTimelineItem(agentId, {
-        type: "resume",
-        reason: "rate_limit_retry",
-      });
-
       await this.send({
         agentManager: this.agentManager as unknown as AgentManager,
         agentStorage: this.agentStorage,
         agentId,
-        prompt: formatSystemNotificationPrompt(DEFAULT_RATE_LIMIT_AUTO_RESUME_PROMPT),
+        prompt: DEFAULT_RATE_LIMIT_AUTO_RESUME_PROMPT,
         logger: this.logger,
         unarchive: false,
+        runOptions: { resume: { reason: "rate_limit_retry" } },
       });
 
       this.logger.info({ agentId }, "Rate limit auto-resume continuation dispatched successfully");

@@ -547,26 +547,6 @@ function resolveBrowserToolsEnabled(persisted: ReturnType<typeof loadPersistedCo
   return persisted.daemon?.browserTools?.enabled ?? false;
 }
 
-function resolveAutoResumeRunningAgentsConfig(
-  env: NodeJS.ProcessEnv,
-  persisted: ReturnType<typeof loadPersistedConfig>,
-): { enabled: boolean; prompt: string } {
-  const envEnabled = parseBooleanEnv(env.PASEO_AUTO_RESUME_ENABLED);
-  const envPrompt = env.PASEO_AUTO_RESUME_PROMPT?.trim();
-  const persistedEnabled = persisted.daemon?.autoResumeRunningAgents?.enabled;
-  const persistedPrompt = persisted.daemon?.autoResumeRunningAgents?.prompt?.trim();
-  let prompt = "Resume - there was a power cut";
-  if (envPrompt && envPrompt.length > 0) {
-    prompt = envPrompt;
-  } else if (persistedPrompt && persistedPrompt.length > 0) {
-    prompt = persistedPrompt;
-  }
-  return {
-    enabled: envEnabled ?? persistedEnabled ?? true,
-    prompt,
-  };
-}
-
 /**
  * Both profile lists stay `undefined` when absent rather than defaulting to an
  * empty array: for terminal profiles that is what selects the built-in
@@ -579,7 +559,22 @@ function resolveProfileLists(persisted: ReturnType<typeof loadPersistedConfig>) 
   };
 }
 
-function resolveMcpConfigSettings(
+/** Cache-warming, expiry and resume policies that the fork adds to the daemon config. */
+function resolveCacheAndResumePolicies(persisted: ReturnType<typeof loadPersistedConfig>) {
+  return {
+    autoResumeOnRateLimit: persisted.daemon?.autoResumeOnRateLimit ?? true,
+    cacheWarmSubagents: persisted.daemon?.cacheWarmSubagents ?? true,
+    cacheAutoCompact: persisted.daemon?.cacheAutoCompact ?? false,
+    cacheExpiryStop: resolveCacheExpiryStopPolicy(persisted.daemon?.cacheExpiryStop),
+    childReportExpiredCache: resolveChildReportExpiredCachePolicy(
+      persisted.daemon?.childReportExpiredCache,
+    ),
+    cacheWarmMode: resolveCacheWarmMode(persisted.daemon?.cacheWarmMode),
+  };
+}
+
+function resolveStaticLoadConfigSettings(
+  env: NodeJS.ProcessEnv,
   cli: CliConfigOverrides | undefined,
   persisted: ReturnType<typeof loadPersistedConfig>,
 ) {
@@ -590,14 +585,7 @@ function resolveMcpConfigSettings(
     usageEnabled: resolveUsageEnabled(persisted),
     browserToolsEnabled: resolveBrowserToolsEnabled(persisted),
     autoArchiveAfterMerge: persisted.daemon?.autoArchiveAfterMerge ?? false,
-    autoResumeOnRateLimit: persisted.daemon?.autoResumeOnRateLimit ?? true,
-    cacheWarmSubagents: persisted.daemon?.cacheWarmSubagents ?? true,
-    cacheAutoCompact: persisted.daemon?.cacheAutoCompact ?? false,
-    cacheExpiryStop: resolveCacheExpiryStopPolicy(persisted.daemon?.cacheExpiryStop),
-    childReportExpiredCache: resolveChildReportExpiredCachePolicy(
-      persisted.daemon?.childReportExpiredCache,
-    ),
-    cacheWarmMode: resolveCacheWarmMode(persisted.daemon?.cacheWarmMode),
+    ...resolveCacheAndResumePolicies(persisted),
     appendSystemPrompt: resolveAppendSystemPrompt(persisted),
     ...resolveProfileLists(persisted),
     hostnames: mergeHostnames([
@@ -700,7 +688,6 @@ export function resolveConfigFromPersisted(
     voiceLlmProviderExplicit: voiceLlm.providerExplicit,
     voiceLlmModel: voiceLlm.model,
     agentProviderSettings: extractAgentProviderSettings(settings.providerOverrides),
-    autoResumeRunningAgents: resolveAutoResumeRunningAgentsConfig(env, persisted),
     log: resolveLogConfigFromEnv(env, persisted),
     configReload: {
       env: { ...env },
@@ -738,7 +725,7 @@ export function resolveReloadableConfig(
     relayEnabled: relay.enabled,
     relayRequireProtectedSecurity: relay.requireProtectedSecurity,
     idleRuntimeCleanup: persisted.agents?.idleRuntimeCleanup ?? true,
-    ...resolveRestartRecoveryConfig(persisted.agents),
+    ...resolveRestartRecoveryConfig(persisted.agents, env),
     providerCatalogRefreshTimeoutMs: persisted.agents?.catalogRefreshTimeoutMs,
     metadataGeneration: persisted.agents?.metadataGeneration,
     agentGateway: persisted.agents?.cliproxyapi,
@@ -773,6 +760,7 @@ function resolveOverrideControlledPaths(
       ...resolveDaemonOverrideControlledPaths(env, cli),
       ...resolveLogOverrideControlledPaths(env),
       ...resolveSpeechOverrideControlledPaths(env, persisted),
+      ...resolveRestartRecoveryOverridePaths(env),
     ]),
   ).sort();
 }
@@ -813,12 +801,6 @@ function resolveCoreDaemonOverridePaths(
   }
   if (env.PASEO_APP_BASE_URL !== undefined) paths.push("app.baseUrl");
   if (env.PASEO_PASSWORD?.trim()) paths.push("daemon.auth.password");
-  if (parseBooleanEnv(env.PASEO_AUTO_RESUME_ENABLED) !== undefined) {
-    paths.push("daemon.autoResumeRunningAgents.enabled");
-  }
-  if (env.PASEO_AUTO_RESUME_PROMPT?.trim()) {
-    paths.push("daemon.autoResumeRunningAgents.prompt");
-  }
   return paths;
 }
 
@@ -897,9 +879,20 @@ function resolveSpeechOverrideControlledPaths(
   return paths;
 }
 
-function resolveRestartRecoveryConfig(agents: PersistedConfig["agents"]) {
+// PASEO_RESUME_ON_STARTUP and PASEO_RESUME_PROMPT override the host config for orchestrated daemons.
+function resolveRestartRecoveryConfig(agents: PersistedConfig["agents"], env: NodeJS.ProcessEnv) {
+  const envPrompt = env.PASEO_RESUME_PROMPT?.trim();
   return {
-    resumeOnStartup: agents?.resumeOnStartup ?? false,
-    resumePrompt: agents?.resumePrompt ?? "Resume working.",
+    resumeOnStartup:
+      parseBooleanEnv(env.PASEO_RESUME_ON_STARTUP) ?? agents?.resumeOnStartup ?? false,
+    resumePrompt: envPrompt ? envPrompt : (agents?.resumePrompt ?? "Resume working."),
   };
+}
+
+function resolveRestartRecoveryOverridePaths(env: NodeJS.ProcessEnv): string[] {
+  const paths: string[] = [];
+  if (parseBooleanEnv(env.PASEO_RESUME_ON_STARTUP) !== undefined)
+    paths.push("agents.resumeOnStartup");
+  if (env.PASEO_RESUME_PROMPT?.trim()) paths.push("agents.resumePrompt");
+  return paths;
 }

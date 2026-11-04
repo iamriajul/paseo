@@ -420,8 +420,7 @@ export const ptBR: TranslationResources = {
     },
     resume: {
       rateLimitCooldown: en.message.resume.rateLimitCooldown,
-      poweredOff: "Retomado após um desligamento inesperado",
-      manual: "Retomado",
+      recovery: "---- Recuperação do agente: {{prompt}} ----",
     },
   },
   rateLimitCooldown: {

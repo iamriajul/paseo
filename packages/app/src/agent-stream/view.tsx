@@ -1263,6 +1263,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         switch (item.kind) {
           case "user_message":
             if (isWarmPingRow(item, layoutItem.aboveItem)) return null;
+            if (item.resume) return <ResumeMarker reason={item.resume.reason} prompt={item.text} />;
             return renderUserMessageItem(layoutItem, item);
 
           case "assistant_message":
@@ -1299,9 +1300,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 preTokens={item.preTokens}
               />
             );
-
-          case "resume":
-            return <ResumeMarker reason={item.reason} />;
 
           case "plugin":
             return (

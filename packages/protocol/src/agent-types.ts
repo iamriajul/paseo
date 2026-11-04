@@ -368,6 +368,7 @@ export interface CompactionTimelineItem {
   preTokens?: number;
 }
 
+// COMPAT(resumeTimelineItem): added in v0.8.1, remove after 2027-05-04 once hosts before v0.15.900 are unsupported.
 export interface ResumeTimelineItem {
   [key: string]: unknown;
   type: "resume";
@@ -395,7 +396,14 @@ export interface AgentTaskItem {
 }
 
 export type AgentTimelineItem =
-  | { type: "user_message"; text: string; messageId?: string; clientMessageId?: string }
+  | {
+      type: "user_message";
+      text: string;
+      messageId?: string;
+      clientMessageId?: string;
+      /** Set when the daemon sent this prompt to resume an agent; the app renders it as a marker. */
+      resume?: { reason: string };
+    }
   | { type: "assistant_message"; text: string; messageId?: string }
   | { type: "reasoning"; text: string }
   | ToolCallTimelineItem

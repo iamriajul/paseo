@@ -833,6 +833,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
     text: z.string(),
     messageId: z.string().optional(),
     clientMessageId: z.string().optional(),
+    resume: z.object({ reason: z.string() }).optional(),
   }),
   z.object({
     type: z.literal("assistant_message"),
@@ -871,6 +872,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
     trigger: z.enum(["auto", "manual"]).optional(),
     preTokens: z.number().optional(),
   }),
+  // COMPAT(resumeTimelineItem): added in v0.8.1, remove after 2027-05-04 once hosts before v0.15.900 are unsupported.
   z.object({
     type: z.literal("resume"),
     reason: z.enum(["power_cut", "manual", "rate_limit_retry"]),
@@ -2226,6 +2228,9 @@ export const ShutdownServerRequestMessageSchema = z.object({
   // Shutdown closes terminals unless this is true. Gate on
   // `features.terminalsSurviveRestart`: older daemons drop the field.
   keepTerminals: z.boolean().optional(),
+  // Names a stop the software makes for itself (an app update, a version mismatch). Other reasons
+  // are ignored: a stop a person asked for is not resumed.
+  reason: z.string().optional(),
 });
 
 export const DaemonUpdateRequestMessageSchema = z.object({

@@ -122,7 +122,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
     const now = new Date("2026-10-13T12:00:00.000Z").getTime();
     vi.setSystemTime(now);
 
-    const { manager, appendTimelineItem, sendPrompt } = createHarness();
+    const { manager, sendPrompt } = createHarness();
     const retryTime = "2026-10-13T12:05:00.000Z";
     const text = `Rate limit error RETRY_AFTER:${retryTime}`;
 
@@ -132,14 +132,16 @@ describe("AgentRateLimitAutoResumeManager", () => {
 
     // Advance 4 minutes - should not have fired yet
     await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
-    expect(appendTimelineItem).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
 
     // Advance 1 more minute (total 5 mins) - should fire
     await vi.advanceTimersByTimeAsync(1 * 60 * 1000);
-    expect(appendTimelineItem).toHaveBeenCalledWith("agent-1", {
-      type: "resume",
-      reason: "rate_limit_retry",
-    });
+    expect(sendPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-1",
+        runOptions: { resume: { reason: "rate_limit_retry" } },
+      }),
+    );
     expect(sendPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: "agent-1",
@@ -171,7 +173,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
     const now = new Date("2026-10-13T12:00:00.000Z").getTime();
     vi.setSystemTime(now);
 
-    const { manager, appendTimelineItem } = createHarness();
+    const { manager, sendPrompt } = createHarness();
     manager.scheduleIfNeeded("agent-1", "Rate limit error RETRY_AFTER:2026-10-13T12:05:00Z");
     expect(manager.hasPending("agent-1")).toBe(true);
 
@@ -180,7 +182,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
     expect(manager.hasPending("agent-1")).toBe(false);
 
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-    expect(appendTimelineItem).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("persists pending timers to disk and restores on bootstrap", async () => {
@@ -215,14 +217,16 @@ describe("AgentRateLimitAutoResumeManager", () => {
       },
     ]);
 
-    const { manager: newManager, appendTimelineItem } = createHarness();
+    const { manager: newManager, sendPrompt } = createHarness();
     await newManager.bootstrap();
 
     // Expired one should fire immediately
-    expect(appendTimelineItem).toHaveBeenCalledWith("agent-expired", {
-      type: "resume",
-      reason: "rate_limit_retry",
-    });
+    expect(sendPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-expired",
+        runOptions: { resume: { reason: "rate_limit_retry" } },
+      }),
+    );
 
     // Future one should be scheduled
     expect(newManager.hasPending("agent-future")).toBe(true);
@@ -245,7 +249,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
     const now = new Date("2026-10-13T12:00:00.000Z").getTime();
     vi.setSystemTime(now);
 
-    const { manager, appendTimelineItem, sendPrompt } = createHarness();
+    const { manager, sendPrompt } = createHarness();
     const time1 = "2026-10-13T12:05:00.000Z";
     const time2 = "2026-10-13T12:15:00.000Z";
 
@@ -261,14 +265,16 @@ describe("AgentRateLimitAutoResumeManager", () => {
 
     // Advancing past time1 should NOT fire
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
-    expect(appendTimelineItem).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
 
     // Advancing past time2 SHOULD fire
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-    expect(appendTimelineItem).toHaveBeenCalledWith("agent-1", {
-      type: "resume",
-      reason: "rate_limit_retry",
-    });
+    expect(sendPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-1",
+        runOptions: { resume: { reason: "rate_limit_retry" } },
+      }),
+    );
     expect(sendPrompt).toHaveBeenCalled();
   });
 
@@ -276,7 +282,7 @@ describe("AgentRateLimitAutoResumeManager", () => {
     const now = new Date("2026-10-13T12:00:00.000Z").getTime();
     vi.setSystemTime(now);
 
-    const { manager, appendTimelineItem } = createHarness();
+    const { manager, sendPrompt } = createHarness();
     const retryTime = "2026-10-13T12:05:00.000Z";
     manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime}`);
 
@@ -284,28 +290,28 @@ describe("AgentRateLimitAutoResumeManager", () => {
     manager.cancel("agent-1");
 
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-    expect(appendTimelineItem).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("aborts resume if agent already has an in-flight run", async () => {
     const now = new Date("2026-10-13T12:00:00.000Z").getTime();
     vi.setSystemTime(now);
 
-    const { manager, appendTimelineItem } = createHarness({
+    const { manager, sendPrompt } = createHarness({
       hasInFlightRun: () => true,
     });
     const retryTime = "2026-10-13T12:05:00.000Z";
     manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime}`);
 
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-    expect(appendTimelineItem).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("caps maximum consecutive auto-resumes at 10", async () => {
     const now = new Date("2026-10-13T12:00:00.000Z").getTime();
     vi.setSystemTime(now);
 
-    const { manager, appendTimelineItem } = createHarness();
+    const { manager, sendPrompt } = createHarness();
 
     // Trigger 10 resumes consecutively
     for (let i = 1; i <= 10; i++) {
@@ -313,20 +319,20 @@ describe("AgentRateLimitAutoResumeManager", () => {
       manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime}`);
       await vi.advanceTimersByTimeAsync(1000);
     }
-    expect(appendTimelineItem).toHaveBeenCalledTimes(10);
+    expect(sendPrompt).toHaveBeenCalledTimes(10);
 
     // 11th should be capped
     const retryTime11 = new Date(now + 12000).toISOString();
     manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime11}`);
     await vi.advanceTimersByTimeAsync(2000);
-    expect(appendTimelineItem).toHaveBeenCalledTimes(10);
+    expect(sendPrompt).toHaveBeenCalledTimes(10);
 
     // Reset allows resuming again
     manager.resetConsecutiveResumes("agent-1");
     const retryTime12 = new Date(now + 15000).toISOString();
     manager.scheduleIfNeeded("agent-1", `Rate limit error RETRY_AFTER:${retryTime12}`);
     await vi.advanceTimersByTimeAsync(3000);
-    expect(appendTimelineItem).toHaveBeenCalledTimes(11);
+    expect(sendPrompt).toHaveBeenCalledTimes(11);
   });
   it("notifies agentManager.setRateLimitCooldown when scheduling, canceling, and triggering", async () => {
     const now = new Date("2026-10-13T12:00:00.000Z").getTime();

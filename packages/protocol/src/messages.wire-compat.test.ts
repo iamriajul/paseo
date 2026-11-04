@@ -590,25 +590,36 @@ test("speech config reads remain compatible with clients before features and fut
   ).toEqual({ provider: "future", region: "eu" });
 });
 
-test("resume timeline item wire compatibility across client versions", () => {
-  const legacyResumeSchema = z.object({
-    type: z.literal("resume"),
-    reason: z.enum(["power_cut", "manual"]),
-    interruptedAt: z.string().optional(),
+test("user message resume marker stays optional across client versions", () => {
+  const legacyUserMessageSchema = z.object({
+    type: z.literal("user_message"),
+    text: z.string(),
+    messageId: z.string().optional(),
+    clientMessageId: z.string().optional(),
   });
 
-  const modernItem = {
-    type: "resume",
-    reason: "rate_limit_retry",
+  const markedItem = {
+    type: "user_message",
+    text: "Resume working.",
+    resume: { reason: "restart" },
   };
-  expect(AgentTimelineItemPayloadSchema.parse(modernItem)).toEqual(modernItem);
+  expect(AgentTimelineItemPayloadSchema.parse(markedItem)).toEqual(markedItem);
+  // A client that predates the marker reads the same message as a plain user message.
+  expect(legacyUserMessageSchema.parse(markedItem)).toEqual({
+    type: "user_message",
+    text: "Resume working.",
+  });
 
-  const downgradedItem = {
+  // A host from before the marker still sends the resume timeline item; it keeps parsing.
+  const legacyResume = {
     type: "resume",
-    reason: "manual",
+    reason: "power_cut",
+    interruptedAt: "2026-08-01T02:14:00.000Z",
   };
-  expect(legacyResumeSchema.parse(downgradedItem)).toEqual(downgradedItem);
-  expect(AgentTimelineItemPayloadSchema.parse(downgradedItem)).toEqual(downgradedItem);
+  expect(AgentTimelineItemPayloadSchema.parse(legacyResume)).toEqual(legacyResume);
+
+  const plainItem = { type: "user_message", text: "hello" };
+  expect(AgentTimelineItemPayloadSchema.parse(plainItem)).toEqual(plainItem);
 });
 
 test("agent rate limit cooldown wire compatibility across client versions", () => {

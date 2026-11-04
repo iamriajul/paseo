@@ -50,7 +50,12 @@ async function runStop(options: CommandOptions, deps: StopCommandDeps) {
       // Checked on the connection that carries the shutdown: a daemon without the capability
       // would close the terminals it was asked to keep.
       if (keepTerminals) requireTerminalKeepCapability(client, describeDaemonTarget(target));
-      await client.shutdownServer({ timeout: remaining(), keepTerminals });
+      await client.shutdownServer({
+        timeout: remaining(),
+        keepTerminals,
+        // Set by the desktop app for a stop it makes for itself; see the protocol shutdown request.
+        reason: process.env.PASEO_DAEMON_STOP_REASON?.trim() || undefined,
+      });
     } finally {
       await client.close();
     }
@@ -81,6 +86,7 @@ async function runStop(options: CommandOptions, deps: StopCommandDeps) {
             timeoutMs,
             killTimeoutMs: parseTimeoutMs(options.killTimeout, 3_000),
             requestShutdown,
+            preferLifecycleRpc: true,
           })),
           home: target.home,
         }

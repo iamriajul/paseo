@@ -29,12 +29,15 @@ function parseJsonCliError(stderr: string): Record<string, unknown> | null {
   }
 }
 
-function createExternalCliInvocation(args: string[]): NodeEntrypointInvocation {
+function createExternalCliInvocation(
+  args: string[],
+  env?: Record<string, string>,
+): NodeEntrypointInvocation {
   return createNodeEntrypointInvocation({
     entrypoint: resolveExternalCliEntrypoint(),
     argvMode: "node-script",
     args,
-    baseEnv: process.env,
+    baseEnv: env ? { ...process.env, ...env } : process.env,
   });
 }
 
@@ -96,8 +99,11 @@ export async function runExternalCliTextCommand(args: string[]): Promise<string>
   return result.stdout.trimEnd();
 }
 
-export async function runExternalCliJsonCommand(args: string[]): Promise<unknown> {
-  const invocation = createExternalCliInvocation(args);
+export async function runExternalCliJsonCommand(
+  args: string[],
+  env?: Record<string, string>,
+): Promise<unknown> {
+  const invocation = createExternalCliInvocation(args, env);
   const result = await spawnExternalCli(invocation);
 
   if (result.exitCode !== 0) {

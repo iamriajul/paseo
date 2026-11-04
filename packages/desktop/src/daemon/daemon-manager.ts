@@ -399,20 +399,28 @@ export async function stopCapturedDaemon(input: StopCapturedDaemonInput): Promis
   const stopInstance = input.stopInstance ?? stopDaemonInstance;
   const runCliJson = input.runCliJson ?? runExternalCliJsonCommand;
   const logLifecycle = input.log ?? logDesktopDaemonLifecycle;
+  // Every desktop stop goes over the lifecycle RPC, so the daemon can tell it from a signal. An
+  // automatic stop (an app update, a version mismatch) names its reason, so the daemon resumes its
+  // agents on the next start; a stop the user asks for names none, so it is not resumed.
+  const automatic = input.reason === "app_update" || input.reason === "version_mismatch";
   const stop = (keep: boolean) =>
     stopInstance(input.home, {
       instance: input.instance,
       timeoutMs: 15_000,
       keepTerminals: keep,
+      preferLifecycleRpc: true,
       requestShutdown: async (ready) => {
-        await runCliJson([
-          "daemon",
-          "stop",
-          "--host",
-          ready.listen,
-          ...(keep ? ["--keep-terminals"] : []),
-          "--json",
-        ]);
+        await runCliJson(
+          [
+            "daemon",
+            "stop",
+            "--host",
+            ready.listen,
+            ...(keep ? ["--keep-terminals"] : []),
+            "--json",
+          ],
+          automatic ? { PASEO_DAEMON_STOP_REASON: input.reason } : undefined,
+        );
       },
     });
   try {

@@ -207,6 +207,7 @@ import { setupAutoArchiveOnMerge } from "./auto-archive-on-merge/index.js";
 import { wrapSessionMessage, type SessionOutboundMessage } from "./messages.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { startWorkerTerminalManager } from "../terminal/worker-terminal-manager.js";
+import { buildTerminalGatewayRouting } from "../terminal/harness-routing.js";
 import { applyTerminalAgentHookSetting } from "../terminal/agent-hooks/terminal-agent-hook-setting.js";
 import { loadOrCreateDaemonKeyPair } from "./daemon-keypair.js";
 import { createRelayRuntime, type RelayRuntime } from "./relay-runtime.js";
@@ -812,6 +813,16 @@ export async function createPaseoDaemon(
     paseoVersion: daemonVersion,
     logger,
     getTerminalActivityUrl: () => createTerminalActivityUrl(boundListenTarget),
+    // Resolved per terminal create, not once here, so editing the gateway in config.json reaches
+    // new terminals without a daemon restart.
+    resolveGatewayRouting: () =>
+      buildTerminalGatewayRouting({
+        paseoHome: config.paseoHome,
+        gateway: resolveGatewayConfig(config.agentGateway),
+      }),
+    onGatewayRoutingError: (error) => {
+      logger.warn({ err: error }, "Failed to apply CLIProxyAPI routing to a terminal");
+    },
   });
   applyTerminalAgentHookSetting({ store: daemonConfigStore, logger });
 

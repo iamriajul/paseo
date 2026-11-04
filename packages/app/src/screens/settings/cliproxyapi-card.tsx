@@ -42,10 +42,20 @@ export function CliproxyapiSettingsCard({ serverId }: { serverId: string }) {
       <View style={settingsStyles.card}>
         <View style={settingsStyles.row}>
           <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>Route harnesses through CLIProxyAPI</Text>
+            <Text style={settingsStyles.rowTitle}>Route AI agents through CLIProxyAPI</Text>
             <Text style={settingsStyles.rowHint}>
               Restart the daemon after saving. Env vars PASEO_CLIPROXYAPI_BASE_URL and
               PASEO_CLIPROXYAPI_API_KEY override this card.
+            </Text>
+            {/* The switch covers agents and terminals, and they do not behave the
+                same. Saying so here is cheaper than a user discovering it: a
+                terminal gets the endpoint and key but no per-model metadata, so
+                a Claude terminal keeps its 200k window regardless of what the
+                gateway advertises. OMP is env-only and gets no terminal shim. */}
+            <Text style={settingsStyles.rowHint}>
+              Agents: Claude, Codex, OpenCode, OMP. Terminal tabs: Claude, Codex and OpenCode only.
+              A Claude terminal gets the endpoint and key, but not the real context window of the
+              model you pick there — that stays at 200k.
             </Text>
           </View>
           <Switch

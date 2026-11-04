@@ -19,6 +19,7 @@ import type {
 } from "./terminal.js";
 import { resolvePaseoCliExecutablePath } from "./paseo-cli-path.js";
 import type { CaptureTerminalLinesResult } from "./terminal-capture.js";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 import { connectTerminalWorker, type TerminalWorkerConnection } from "./terminal-worker-client.js";
 import { launchTerminalWorker } from "./terminal-worker-launch.js";
 import { classifyTerminalWorkerProcess } from "./terminal-worker-ownership.js";
@@ -117,6 +118,10 @@ interface WorkerTerminalManagerOptions {
   reconnect?: () => Promise<TerminalWorkerConnection | null>;
   requestTimeoutMs?: number;
   getTerminalActivityUrl?: () => string | null;
+  /** Resolves CLIProxyAPI routing for a create, in the parent. */
+  resolveGatewayRouting?: () => TerminalGatewayRouting;
+  /** Reports a routing failure that was swallowed so a terminal could still open. */
+  onGatewayRoutingError?: (error: unknown) => void;
   resolveCreateEnvironment?: () => TerminalCreateEnvironment;
   // The kill path. The daemon passes the reaper, which verifies every program is gone; the
   // default asks the connected worker to shut down.
@@ -822,6 +827,16 @@ export function createWorkerTerminalManager(
       const terminalId = options.id ?? randomUUID();
       const activityToken = createActivityToken();
       const terminalActivityUrl = managerOptions.getTerminalActivityUrl?.() ?? null;
+      // Resolved here, in the parent, because writing the shims is a filesystem
+      // side effect the worker should not own. Failing open: gateway routing
+      // decorates a terminal, and an unwritable $PASEO_HOME should cost the
+      // user their routing, not the terminal itself.
+      let gatewayRouting: TerminalGatewayRouting | undefined;
+      try {
+        gatewayRouting = managerOptions.resolveGatewayRouting?.();
+      } catch (error) {
+        managerOptions.onGatewayRoutingError?.(error);
+      }
       terminalActivityTokenById.set(terminalId, activityToken);
       const creation = { session: null as TerminalSession | null };
       pendingCreationsById.set(terminalId, creation);
@@ -834,6 +849,7 @@ export function createWorkerTerminalManager(
             id: terminalId,
             activityToken,
             activityUrl: terminalActivityUrl,
+            ...(gatewayRouting ? { gatewayRouting } : {}),
             baseEnv: environment.baseEnv,
             paseoCliPath: environment.paseoCliPath,
           },
@@ -993,6 +1009,8 @@ export interface StartWorkerTerminalManagerOptions {
   logger: Logger;
   getTerminalActivityUrl?: () => string | null;
   requestTimeoutMs?: number;
+  resolveGatewayRouting?: () => TerminalGatewayRouting;
+  onGatewayRoutingError?: (error: unknown) => void;
 }
 
 // The current worker plus one draining a previous protocol. Every live worker counts,
@@ -1184,6 +1202,12 @@ export async function startWorkerTerminalManager(
         : { requestTimeoutMs: options.requestTimeoutMs }),
       ...(options.getTerminalActivityUrl
         ? { getTerminalActivityUrl: options.getTerminalActivityUrl }
+        : {}),
+      ...(options.resolveGatewayRouting
+        ? { resolveGatewayRouting: options.resolveGatewayRouting }
+        : {}),
+      ...(options.onGatewayRoutingError
+        ? { onGatewayRoutingError: options.onGatewayRoutingError }
         : {}),
       closeTerminals: closeAll,
     });

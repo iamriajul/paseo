@@ -8,6 +8,7 @@ export interface WorkerTerminalState {
 }
 import type { TerminalActivity, TerminalActivityState } from "@getpaseo/protocol/terminal-activity";
 import type { CaptureTerminalLinesResult } from "./terminal-capture.js";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 
 export interface WorkerTerminalInfo {
   id: string;
@@ -31,6 +32,12 @@ export interface WorkerCreateTerminalOptions {
   cols?: number;
   activityToken?: string;
   activityUrl?: string | null;
+  /**
+   * Resolved in the parent and shipped to the worker, because the shims are written to disk in
+   * the parent. `gatewayRouting.env` carries the gateway key across the worker IPC boundary; that
+   * channel is local to this machine.
+   */
+  gatewayRouting?: TerminalGatewayRouting;
   // The worker outlives the daemon that started it, so the controlling daemon
   // sends its own environment and Paseo CLI path with every create instead of
   // letting the worker reuse whatever it inherited at launch.
@@ -43,7 +50,7 @@ export interface WorkerCreateTerminalOptions {
 // `shutdown`. A daemon drives a worker of its own version, drains one a version older (no new
 // terminals; it exits after its last terminal), shuts down anything older, and leaves a newer
 // worker running untouched. See docs/terminal-worker.md.
-export const TERMINAL_WORKER_PROTOCOL_VERSION = 5;
+export const TERMINAL_WORKER_PROTOCOL_VERSION = 6;
 
 // Test-only: the protocol version a worker reports, so tests can stand up older and newer
 // workers from one build.

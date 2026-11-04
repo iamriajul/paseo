@@ -1633,19 +1633,19 @@ it.each([1, 4])(
     expect(manager.getTerminal(old.terminalId)).toBeUndefined();
     const workers = await workerRecords(paseoHome);
     expect(workers).toHaveLength(1);
-    expect(workers[0]!.protocolVersion).toBe(5);
+    expect(workers[0]!.protocolVersion).toBe(6);
   },
 );
 
 it("leaves a worker from a newer Paseo running, reports it incompatible, and closes it on a kill stop", async () => {
   const paseoHome = createTemporaryHome();
-  const newer = await leaveWorkerWithTerminal(paseoHome, 6);
+  const newer = await leaveWorkerWithTerminal(paseoHome, 7);
 
   manager = await startRealWorkerManager({ paseoHome });
 
   const unavailable = manager.getUnavailableError?.();
   expect(unavailable).toBeInstanceOf(TerminalWorkerIncompatibleError);
-  expect(unavailable?.message).toContain("worker protocol 6");
+  expect(unavailable?.message).toContain("worker protocol 7");
   await expect(manager.getTerminals(newer.cwd)).rejects.toBeInstanceOf(
     TerminalWorkerIncompatibleError,
   );
@@ -1961,7 +1961,7 @@ it("completes a replay larger than the socket budget while a sibling stays usabl
       completed = message.ok;
   });
   try {
-    framed.send({ type: "hello", secret: record!.secret, protocolVersion: 5 });
+    framed.send({ type: "hello", secret: record!.secret, protocolVersion: 6 });
     await waitForCondition(() => began, 10000);
     framed.send({
       type: "send",
@@ -2689,3 +2689,52 @@ it.skipIf(isPlatform("win32"))(
   },
   30000,
 );
+
+it("opens a terminal unrouted when resolving gateway routing throws", async () => {
+  // Gateway routing decorates a terminal. An unwritable $PASEO_HOME must cost the user their
+  // routing, not the terminal, so the failure is swallowed and reported rather than propagated.
+  const worker = new FakeTerminalWorker();
+  const routingErrors: unknown[] = [];
+  manager = createWorkerTerminalManager({
+    requestTimeoutMs: 5,
+    worker,
+    resolveGatewayRouting: () => {
+      throw new Error("ENOSPC: no space left on device");
+    },
+    onGatewayRoutingError: (error) => {
+      routingErrors.push(error);
+    },
+  });
+
+  const cwd = mkdtempSync(join(tmpdir(), "worker-terminal-manager-routing-"));
+  const createPromise = manager.createTerminal({ cwd, workspaceId: "ws-test" });
+  const createMessage = worker.sentMessages.find(
+    (message): message is Extract<typeof message, { type: "createTerminal" }> =>
+      message.type === "createTerminal",
+  );
+  // Assert the request the parent actually shipped, before answering it: the routing must be
+  // absent rather than half-built.
+  expect(createMessage?.options.gatewayRouting).toBeUndefined();
+
+  const terminalId = createMessage?.options.id;
+  expect(terminalId).toBeTruthy();
+  const terminal = {
+    id: terminalId!,
+    name: "Terminal",
+    cwd,
+    workspaceId: "ws-test",
+    activity: { state: "idle" as const, changedAt: 0 },
+  };
+  const state = createTerminalState();
+  worker.emitWorkerMessage({ type: "terminalCreated", terminal, state });
+  worker.emitWorkerMessage({
+    type: "response",
+    requestId: createMessage!.requestId,
+    ok: true,
+    result: { terminal, state },
+  });
+
+  const session = await createPromise;
+  expect(session).toBeDefined();
+  expect(routingErrors).toHaveLength(1);
+});

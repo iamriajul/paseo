@@ -16,6 +16,7 @@ import { resolve, sep } from "node:path";
 import { assertAbsolutePath, isSameOrDescendantPath } from "../server/path-utils.js";
 import type { TerminalActivity, TerminalActivityState } from "@getpaseo/protocol/terminal-activity";
 import { deriveTerminalActivityStatusBucket } from "@getpaseo/protocol/terminal-activity";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 
 export interface TerminalListItem {
   id: string;
@@ -76,6 +77,7 @@ export interface TerminalManager {
     activityUrl?: string | null;
     baseEnv?: Record<string, string>;
     paseoCliPath?: string | null;
+    gatewayRouting?: TerminalGatewayRouting;
   }): Promise<TerminalSession>;
   registerCwdEnv(options: { cwd: string; env: Record<string, string> }): void;
   validateTerminalActivityToken(terminalId: string, token: string): "valid" | "unknown" | "invalid";
@@ -122,6 +124,14 @@ export interface LocalTerminalManager extends TerminalManager {
 
 function createActivityToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+// Spread into the create call. The conditional sits here, not in createTerminal, which is at the
+// complexity limit.
+function gatewayRoutingOption(routing: TerminalGatewayRouting | undefined): {
+  gatewayRouting?: TerminalGatewayRouting;
+} {
+  return routing ? { gatewayRouting: routing } : {};
 }
 
 export function createTerminalManager(
@@ -346,6 +356,7 @@ export function createTerminalManager(
       activityUrl?: string | null;
       baseEnv?: Record<string, string>;
       paseoCliPath?: string | null;
+      gatewayRouting?: TerminalGatewayRouting;
     }): Promise<LocalTerminalSession> {
       assertAbsolutePath(options.cwd);
 
@@ -382,6 +393,7 @@ export function createTerminalManager(
             ...(mergedEnv ? { env: mergedEnv } : {}),
             ...(options.baseEnv ? { baseEnv: options.baseEnv } : {}),
             ...(options.paseoCliPath === undefined ? {} : { paseoCliPath: options.paseoCliPath }),
+            ...gatewayRoutingOption(options.gatewayRouting),
             activityEnv,
           }),
         );

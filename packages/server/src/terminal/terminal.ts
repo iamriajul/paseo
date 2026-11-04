@@ -21,6 +21,7 @@ import {
   resolvePaseoCliExecutablePath,
 } from "./paseo-cli-path.js";
 import { writePrivateFileAtomicSync } from "../server/private-files.js";
+import type { TerminalGatewayRouting } from "./harness-routing.js";
 import {
   findExecutable,
   findExecutableWithoutProbing,
@@ -156,6 +157,13 @@ export interface CreateTerminalOptions {
   // daemon's environment and its resolved Paseo CLI path.
   baseEnv?: Record<string, string>;
   paseoCliPath?: string | null;
+  /**
+   * CLIProxyAPI routing for harness invocations, resolved per create.
+   *
+   * Terminal-only. The agent path already injects gateway env for Paseo-managed
+   * agents, so a shim here must never leak into provider env.
+   */
+  gatewayRouting?: TerminalGatewayRouting;
 }
 
 function toTerminalActivity(snapshot: {
@@ -188,6 +196,14 @@ interface BuildTerminalEnvironmentInput {
   zshShellIntegrationDir?: string;
   paseoCliBinDir?: string | null;
   paseoHookCliPath?: string | null;
+  /** Gateway shims to put on PATH. Written by the caller, per terminal. */
+  harnessShimDirectory?: string | null;
+  /**
+   * Gateway env for harnesses the shims do not cover (OMP).
+   *
+   * Applied under `env` so `registerCwdEnv` and per-create env still win.
+   */
+  gatewayEnv?: Record<string, string>;
 }
 
 interface EnsureNodePtySpawnHelperExecutableOptions {
@@ -449,16 +465,20 @@ function prepareZshShellIntegrationRuntimeDir(sourceDir = resolveZshShellIntegra
 export function buildTerminalEnvironment(
   input: BuildTerminalEnvironmentInput,
 ): Record<string, string> {
+  // gatewayEnv sits below input.env on purpose: a workspace's own routing, registered through
+  // registerCwdEnv, must not be overridden by the gateway.
   const baseEnv: Record<string, string> = createExternalProcessEnv(
     input.baseEnv ?? process.env,
+    input.gatewayEnv ?? {},
     input.env,
     {
       TERM: "xterm-256color",
       TERM_PROGRAM: "kitty",
     },
   );
+  const envWithShims = prependHarnessShimsToPath(baseEnv, input.harnessShimDirectory);
   const envWithAgentHooks = prependPaseoCliToPath(
-    baseEnv,
+    envWithShims,
     input.paseoCliBinDir === undefined ? resolvePaseoCliBinDir() : input.paseoCliBinDir,
   );
   const envWithHookCli = injectPaseoHookCli(
@@ -527,6 +547,27 @@ function prependPaseoCliToPath(
 
 function getPathEnvKey(env: Record<string, string>): string {
   return Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+}
+
+/**
+ * Put the harness shims ahead of the real binaries on PATH.
+ *
+ * Ahead, so a typed `claude` lands on the shim. The shim then removes this
+ * directory again before exec'ing the real binary, so nothing else in the shell
+ * observes the change.
+ */
+function prependHarnessShimsToPath(
+  env: Record<string, string>,
+  shimDirectory: string | null | undefined,
+): Record<string, string> {
+  if (!shimDirectory) {
+    return env;
+  }
+  const pathKey = getPathEnvKey(env);
+  return {
+    ...env,
+    [pathKey]: prependPathEntry(env[pathKey] ?? "", shimDirectory),
+  };
 }
 
 function prependPathEntry(currentPath: string, entry: string): string {
@@ -764,6 +805,7 @@ export async function createTerminal(
     args = [],
     baseEnv,
     paseoCliPath,
+    gatewayRouting,
   } = options;
   const resolvedShell = shell ?? resolveDefaultTerminalShell({ env: baseEnv });
 
@@ -814,6 +856,12 @@ export async function createTerminal(
       PASEO_WORKSPACE_ID: workspaceId,
     },
     ...resolveTerminalEnvironmentSource({ baseEnv, paseoCliPath }),
+    ...(gatewayRouting
+      ? {
+          harnessShimDirectory: gatewayRouting.shimDirectory,
+          gatewayEnv: gatewayRouting.env,
+        }
+      : {}),
   });
 
   await assertTerminalCommandCanStart({ command, cwd, env: terminalEnv });

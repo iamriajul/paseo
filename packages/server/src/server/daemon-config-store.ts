@@ -400,13 +400,23 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
     ...(patch.providers !== undefined ? { providers: patch.providers } : {}),
     ...(patch.removeProviders !== undefined ? { removeProviders: patch.removeProviders } : {}),
     ...(metadataGeneration ? { metadataGeneration } : {}),
+    ...pickPromptCachePatch(patch),
+    ...pickBehaviourPatchFields(patch),
+  };
+}
+
+// The flat settings that pass straight through when the patch sets them. Kept out of
+// pickSupportedPatchFields, which is at the complexity limit.
+function pickBehaviourPatchFields(
+  patch: MutableDaemonConfigPatch,
+): Partial<SupportedMutableConfigPatch> {
+  return {
     ...(patch.autoArchiveAfterMerge !== undefined
       ? { autoArchiveAfterMerge: patch.autoArchiveAfterMerge }
       : {}),
     ...(patch.autoResumeOnRateLimit !== undefined
       ? { autoResumeOnRateLimit: patch.autoResumeOnRateLimit }
       : {}),
-    ...pickPromptCachePatch(patch),
     ...(patch.enableTerminalAgentHooks !== undefined
       ? { enableTerminalAgentHooks: patch.enableTerminalAgentHooks }
       : {}),
@@ -831,13 +841,12 @@ function mergeMutablePatchIntoPersistedConfig(params: {
   } as PersistedConfig;
 }
 
-function mergeMutableAgentPatch(
-  persistedAgents: PersistedConfig["agents"],
+// True when the patch touches nothing under `agents`, so the persisted block is kept as it is.
+function isEmptyAgentPatch(
   patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
   removeProviders: readonly string[],
-  mergedMetadataGeneration?: MutableDaemonConfig["metadataGeneration"],
-): PersistedConfig["agents"] {
-  if (
+): boolean {
+  return (
     patch.providers === undefined &&
     patch.metadataGeneration === undefined &&
     patch.skills === undefined &&
@@ -845,7 +854,16 @@ function mergeMutableAgentPatch(
     patch.idleRuntimeCleanup === undefined &&
     patch.cliproxyapi === undefined &&
     removeProviders.length === 0
-  ) {
+  );
+}
+
+function mergeMutableAgentPatch(
+  persistedAgents: PersistedConfig["agents"],
+  patch: Omit<SupportedMutableConfigPatch, "removeProviders">,
+  removeProviders: readonly string[],
+  mergedMetadataGeneration?: MutableDaemonConfig["metadataGeneration"],
+): PersistedConfig["agents"] {
+  if (isEmptyAgentPatch(patch, removeProviders)) {
     return persistedAgents;
   }
 

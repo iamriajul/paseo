@@ -40,6 +40,14 @@ export function decodeBinaryFrame(bytes: Uint8Array): BinaryFrame | null {
       const frame = decodeFileTransferFrame(bytes);
       return frame ? { kind: "file_transfer", frame } : null;
     }
+    default:
+      return decodeTcpTunnelBinaryFrame(bytes);
+  }
+}
+
+// Kept out of decodeBinaryFrame's switch, which is at the complexity limit.
+function decodeTcpTunnelBinaryFrame(bytes: Uint8Array): BinaryFrame | null {
+  switch (bytes[0]) {
     case TcpTunnelOpcode.Open:
     case TcpTunnelOpcode.OpenResult:
     case TcpTunnelOpcode.Data:

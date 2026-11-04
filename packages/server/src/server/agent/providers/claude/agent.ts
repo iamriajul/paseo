@@ -884,7 +884,9 @@ function mergeClaudeSettings(
   if (!settings || typeof settings === "string") {
     return settings ?? updates;
   }
-  return { ...settings, ...updates };
+  // Env merges key by key. Paseo pins one variable there, and that must not drop the rest.
+  const env = settings.env || updates.env ? { ...settings.env, ...updates.env } : undefined;
+  return { ...settings, ...updates, ...(env ? { env } : {}) };
 }
 
 function isToolResultTextBlock(value: unknown): value is { type: "text"; text: string } {
@@ -4635,7 +4637,7 @@ class ClaudeAgentSession implements AgentSession {
     const cliSettings = await readClaudeCliSettings(extraArgsSettings, this.config.cwd);
     return {
       extraArgs,
-      settings: { ...cliSettings, ...providerOptions.settings, ...updates },
+      settings: mergeClaudeSettings({ ...cliSettings, ...providerOptions.settings }, updates),
     };
   }
 

@@ -1024,8 +1024,9 @@ describe("ClaudeAgentSession features", () => {
 
     const options = queryFactory.mock.calls[0]?.[0].options;
     expect(options?.extraArgs).toEqual({ chrome: null });
+    // The user's env survives next to Paseo's Bash timeout pin (claude-prompt-cache-warming).
     expect(options?.settings).toEqual({
-      env: { ENABLE_TOOL_SEARCH: "false" },
+      env: { ENABLE_TOOL_SEARCH: "false", BASH_DEFAULT_TIMEOUT_MS: "120000" },
       permissions: { deny: ["Monitor"] },
       fastMode: false,
     });
@@ -1054,7 +1055,7 @@ describe("ClaudeAgentSession features", () => {
     const options = queryFactory.mock.calls[0]?.[0].options;
     expect(options?.extraArgs).toEqual({});
     expect(options?.settings).toEqual({
-      env: { ENABLE_TOOL_SEARCH: "false" },
+      env: { ENABLE_TOOL_SEARCH: "false", BASH_DEFAULT_TIMEOUT_MS: "120000" },
       disableAllHooks: true,
     });
     await session.close();

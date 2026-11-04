@@ -3187,6 +3187,15 @@ export const en = {
         },
         error: "Unable to update the warm-up method",
       },
+      clearCacheMisses: {
+        title: "Clear miss counts",
+        hint_one:
+          "Reset the red miss number on every Claude agent of this host to zero, so it counts new misses only. Session insights keep the full history. {{count}} agent has misses now.",
+        hint_other:
+          "Reset the red miss number on every Claude agent of this host to zero, so it counts new misses only. Session insights keep the full history. {{count}} agents have misses now.",
+        action: "Clear all",
+        error: "Unable to clear the miss counts",
+      },
       childReportExpiredCache: {
         title: "When a child reports to an expired orchestrator",
         options: {

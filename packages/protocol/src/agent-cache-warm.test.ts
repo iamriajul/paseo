@@ -9,6 +9,7 @@ import {
   isCacheWarmReply,
   isClaudeModel,
   recordPromptCacheRequest,
+  visiblePromptCacheMisses,
   recordPromptCacheCompaction,
   isPromptCacheHit,
   isUncountedPromptCacheRequest,
@@ -236,6 +237,22 @@ describe("agent-cache-warm protocol utilities", () => {
       const next = recordPromptCacheRequest(after, request(4, "t3", { readTokens: 0 }));
       expect(next.history?.at(-1)?.afterCompaction).toBeUndefined();
       expect(next.totals?.misses).toBe(1);
+    });
+
+    it("counts misses since the user cleared them while the totals keep the session's", () => {
+      const missed = replay([request(0, "t1"), request(1, "t2", { readTokens: 0 })]);
+      expect(missed?.totals?.misses).toBe(1);
+      const cleared: AgentPromptCacheState = {
+        ...missed!,
+        missesCleared: { at: new Date(2 * minute).toISOString(), misses: 1 },
+      };
+      expect(visiblePromptCacheMisses(cleared.totals!, cleared.missesCleared)).toBe(0);
+
+      // A later request keeps the baseline, so only the new miss shows.
+      const next = recordPromptCacheRequest(cleared, request(3, "t3", { readTokens: 0 }));
+      expect(next.missesCleared).toEqual(cleared.missesCleared);
+      expect(next.totals?.misses).toBe(2);
+      expect(visiblePromptCacheMisses(next.totals!, next.missesCleared)).toBe(1);
     });
 
     it("seeds totals from the snapshot window of a record written before totals existed", () => {

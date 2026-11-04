@@ -262,6 +262,24 @@ export interface AgentPromptCacheState {
   compactions?: PromptCacheCompaction[];
   /** Absent on records written before totals existed until their next request. */
   totals?: PromptCacheTotals;
+  /**
+   * The session's miss total when the user cleared the red count. The count shows misses since;
+   * insights keep reading the full totals and journal.
+   */
+  missesCleared?: PromptCacheMissesCleared;
+}
+
+export interface PromptCacheMissesCleared {
+  at: string;
+  misses: number;
+}
+
+/** Misses since the user last cleared the count: the red number in the pill and sidebar. */
+export function visiblePromptCacheMisses(
+  totals: Pick<PromptCacheTotals, "misses">,
+  cleared: PromptCacheMissesCleared | undefined,
+): number {
+  return Math.max(0, totals.misses - (cleared?.misses ?? 0));
 }
 
 /**
@@ -398,6 +416,7 @@ export function recordPromptCacheRequest(
     history: [...(previous?.history ?? []), entry].slice(-PROMPT_CACHE_HISTORY_LIMIT),
     compactions: previous?.compactions,
     totals: addToTotals(priorTotals, entry),
+    missesCleared: previous?.missesCleared,
   };
 }
 

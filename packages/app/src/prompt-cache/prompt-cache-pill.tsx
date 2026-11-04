@@ -160,13 +160,21 @@ function HistoryBar({ bar }: { bar: PromptCacheHistoryBar }): ReactElement {
   );
 }
 
+function resolveMissesText(cache: PromptCacheState): string {
+  const count = cache.misses === 1 ? "1 miss" : `${cache.misses} misses`;
+  return cache.missesClearedAt
+    ? `${count} since cleared · ${cache.sessionMisses} this session`
+    : `${count} this session`;
+}
+
 function RequestHistory({
   history,
-  misses,
+  cache,
 }: {
   history: PromptCacheHistorySummary;
-  misses: number;
+  cache: PromptCacheState;
 }): ReactElement {
+  const { misses, clearMisses } = cache;
   return (
     <View style={styles.historyBlock} testID="prompt-cache-history">
       <View
@@ -187,9 +195,19 @@ function RequestHistory({
           style={[styles.value, misses > 0 && styles.danger]}
           testID="prompt-cache-history-misses"
         >
-          {misses === 1 ? "1 miss" : `${misses} misses`} this session
+          {resolveMissesText(cache)}
         </Text>
       </View>
+      {misses > 0 && clearMisses ? (
+        <ComposerTrackRow
+          onPress={clearMisses}
+          closeOnSelect={false}
+          testID="prompt-cache-clear-misses-button"
+          accessibilityLabel="Clear the miss count"
+        >
+          <Text style={styles.linkText}>Clear miss count</Text>
+        </ComposerTrackRow>
+      ) : null}
     </View>
   );
 }
@@ -354,7 +372,7 @@ export const PromptCachePill = memo(function PromptCachePill({
               </Text>
             </View>
           ) : null}
-          {history ? <RequestHistory history={history} misses={misses} /> : null}
+          {history ? <RequestHistory history={history} cache={cache} /> : null}
           {warmup && windows ? (
             <View style={styles.capBlock}>
               <SwitchRow

@@ -13300,6 +13300,66 @@ test("shows a closed question until the user's next message, and saves it", asyn
   }
 });
 
+test("clears the red miss count from the session total, saves it and keeps it across requests", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-clear-misses-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+
+  class CacheSession extends TestAgentSession {
+    private turns = 0;
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = `turn-clear-${++this.turns}`;
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: {
+            contextWindowUsedTokens: 1000,
+            requestCache: { readTokens: 900, writeTokens: 50, uncachedTokens: 50 },
+          },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+
+  class CacheClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new CacheSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new CacheClient() },
+    registry: storage,
+    logger,
+  });
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+    // No request recorded yet, so there is nothing to clear.
+    expect(manager.clearPromptCacheMisses(snapshot.id)).toBe(false);
+
+    await manager.runAgent(snapshot.id, "first");
+    expect(manager.clearPromptCacheMisses(snapshot.id)).toBe(true);
+    const cleared = manager.getAgent(snapshot.id)?.promptCache?.missesCleared;
+    expect(cleared).toEqual({ at: expect.any(String), misses: 0 });
+    await manager.flush();
+    expect((await storage.get(snapshot.id))?.promptCache?.missesCleared).toEqual(cleared);
+
+    await manager.runAgent(snapshot.id, "second", { clientMessageId: "msg-second" });
+    expect(manager.getAgent(snapshot.id)?.promptCache?.missesCleared).toEqual(cleared);
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("clearing an absent rate-limit cooldown publishes no state", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-cooldown-noop-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

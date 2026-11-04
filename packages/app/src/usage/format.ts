@@ -101,7 +101,8 @@ function formatRelativeDuration(
   duration: Exclude<RelativeDuration, { kind: "now" }>,
   t: TFunction,
 ): string {
-  if (duration.kind === "under-minute") return `<${formatDurationPart({ unit: "minutes", count: 1 }, t)}`;
+  if (duration.kind === "under-minute")
+    return `<${formatDurationPart({ unit: "minutes", count: 1 }, t)}`;
   const [first, second] = duration.parts.map((part) => formatDurationPart(part, t));
   return second ? t("providerUsage.duration.pair", { first, second }) : first;
 }

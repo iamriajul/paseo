@@ -117,7 +117,7 @@ describe("reset countdown", () => {
     expect(countdown(4 * HOUR + 59 * MINUTE)).toBe("resets in 4h 59m");
     expect(countdown(HOUR)).toBe("resets in 1h");
     expect(countdown(37 * MINUTE)).toBe("resets in 37m");
-    expect(countdown(59 * 1000)).toBe("resets in 0m");
+    expect(countdown(59 * 1000)).toBe("resets in <1m");
   });
 
   it("joins the at-risk countdown the same way", () => {
@@ -205,11 +205,11 @@ describe("precise reset durations", () => {
 
   it("keeps the next-smaller unit so a reset reads precisely", () => {
     const at = (ms: number) => new Date(NOW + ms).toISOString();
-    expect(formatResetLabel(at((24 + 5) * 3600_000), false, NOW)).toBe("resets 1d 5h");
-    expect(formatResetLabel(at((5 * 60 + 30) * 60_000), false, NOW)).toBe("resets 5h 30m");
-    expect(formatResetLabel(at(5 * 3600_000), false, NOW)).toBe("resets 5h");
-    expect(formatResetLabel(at(45 * 60_000), false, NOW)).toBe("resets 45m");
-    expect(formatResetLabel(at(30_000), false, NOW)).toBe("resets <1m");
+    expect(formatResetLabel(at((24 + 5) * 3600_000), false, NOW)).toBe("resets in 1d 5h");
+    expect(formatResetLabel(at((5 * 60 + 30) * 60_000), false, NOW)).toBe("resets in 5h 30m");
+    expect(formatResetLabel(at(5 * 3600_000), false, NOW)).toBe("resets in 5h");
+    expect(formatResetLabel(at(45 * 60_000), false, NOW)).toBe("resets in 45m");
+    expect(formatResetLabel(at(30_000), false, NOW)).toBe("resets in <1m");
   });
 });
 

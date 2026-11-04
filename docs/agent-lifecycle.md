@@ -15,7 +15,7 @@ Each live agent in `AgentManager` carries a `lastStatus` of `initializing`, `idl
 ## Daemon restart recovery
 
 Restart recovery is off by default. Enable `agents.resumeOnStartup` in host config or
-Host settings → Agents to resume interrupted agents after an unexpected stop or a crash. A stop a client asks for, such as `paseo daemon stop`, a restart or Ctrl-C, resumes nothing and cancels pending rate-limit retries; boot cache warm-up leaves those agents dormant until someone uses them (`restart-recovery-policy` in [fork-decisions.md](fork-decisions.md)). The daemon
+Host settings → Agents to resume interrupted agents after an unexpected stop or a crash. A stop a client asks for, such as `paseo daemon stop`, a restart or Ctrl-C, resumes nothing and cancels pending rate-limit retries; boot cache warm-up leaves those agents alone until a prompt is accepted for them (`restart-recovery-policy` in [fork-decisions.md](fork-decisions.md)). The daemon
 reopens the saved provider conversation and settings, then sends `Resume working.`. Customize
 the prompt with `agents.resumePrompt` or the same settings page.
 Disabling recovery consumes pending intent; enabling it later does not revive old work. `PASEO_RESUME_ON_STARTUP` and `PASEO_RESUME_PROMPT` override the host config.

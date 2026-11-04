@@ -189,4 +189,64 @@ describe("restart recovery and the stops a person asks for", () => {
     },
     CASE_TIMEOUT_MS,
   );
+
+  test(
+    "clearing the miss count of a stopped agent leaves it stopped",
+    async () => {
+      await withScenario(async (scenario) => {
+        const { first, client, agentId } = await bootWithRunningAgent(scenario);
+        const exited = once(first.child, "exit");
+        await ignoreFailure(client.shutdownServer());
+        await exited;
+        await client.close();
+        scenario.client = undefined;
+
+        const second = await startFixture(scenario.root);
+        scenario.children.push(second.child);
+        const reopened = new DaemonClient({
+          url: `ws://127.0.0.1:${second.port}/ws`,
+          appVersion: "0.13.0",
+        });
+        scenario.client = reopened;
+        await reopened.connect();
+        // Clearing loads the stored agent so its count can persist. That load is not a use.
+        await reopened.clearPromptCacheMisses({ agentIds: [agentId] });
+        expect(await storageOf(second.paseoHome).get(agentId)).toMatchObject({
+          stoppedByUser: true,
+        });
+        expect(await countResumePrompts(scenario.root)).toBe(0);
+      });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  test(
+    "a prompt the user sends to a stopped agent ends the stop",
+    async () => {
+      await withScenario(async (scenario) => {
+        const { first, client, agentId } = await bootWithRunningAgent(scenario);
+        const exited = once(first.child, "exit");
+        await ignoreFailure(client.shutdownServer());
+        await exited;
+        await client.close();
+        scenario.client = undefined;
+
+        const second = await startFixture(scenario.root);
+        scenario.children.push(second.child);
+        const reopened = new DaemonClient({
+          url: `ws://127.0.0.1:${second.port}/ws`,
+          appVersion: "0.13.0",
+        });
+        scenario.client = reopened;
+        await reopened.connect();
+        await reopened.sendMessage(agentId, "Are you there?");
+        const stopFlag = async (): Promise<boolean | undefined> => {
+          const record = await storageOf(second.paseoHome).get(agentId);
+          return record?.stoppedByUser;
+        };
+        await expect.poll(stopFlag, { timeout: 15_000 }).toBeUndefined();
+      });
+    },
+    CASE_TIMEOUT_MS,
+  );
 });

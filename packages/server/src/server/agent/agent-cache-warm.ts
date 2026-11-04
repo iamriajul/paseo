@@ -56,6 +56,8 @@ interface CacheWarmView {
   forkWarm: boolean;
   /** Host setting `childReportExpiredCache` is keep-warm and a child can still report to it. */
   warmPastCap: boolean;
+  /** The user stopped the agent, and no prompt has been accepted for it since. */
+  stoppedByUser: boolean;
 }
 
 type CacheWarmDecision =
@@ -112,6 +114,7 @@ function viewLiveAgent(
     contextTokens: readContextTokens(agent.promptCache),
     forkWarm: input.forkWarm,
     warmPastCap: input.warmPastCap,
+    stoppedByUser: agent.stoppedByUser === true,
   };
 }
 
@@ -137,6 +140,7 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
     // Loading the record gives it a session that can fork; a crashed run is restart recovery's.
     forkWarm: input.forkWarm && !wasRunning,
     warmPastCap: input.warmPastCap,
+    stoppedByUser: record.stoppedByUser === true,
   };
 }
 
@@ -435,6 +439,9 @@ export class AgentCacheWarmManager {
     const view = this.viewAgent(agentId);
     if (!view) {
       return { kind: "skip", reason: "agent is not known" };
+    }
+    if (view.stoppedByUser) {
+      return { kind: "skip", reason: "the user stopped this agent" };
     }
     return decideCacheWarm({
       view,

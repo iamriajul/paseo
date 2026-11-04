@@ -33,6 +33,7 @@ export type AgentLoaderManager = Pick<
   | "getRegisteredProviderIds"
   | "hydrateTimelineFromProvider"
   | "resumeAgentFromPersistence"
+  | "setAgentStoppedByUser"
 > &
   Partial<Pick<AgentManager, "waitForAgentClose">>;
 
@@ -138,6 +139,11 @@ export async function ensureAgentLoaded(
         env: record.launchEnv,
       });
       deps.logger.info({ agentId, provider: record.provider }, "Agent created from stored config");
+    }
+
+    // Loading an agent, for example to clear its miss count, does not use it, so the stop holds.
+    if (record.stoppedByUser) {
+      deps.agentManager.setAgentStoppedByUser(agentId, true);
     }
 
     await deps.agentManager.hydrateTimelineFromProvider(agentId, {

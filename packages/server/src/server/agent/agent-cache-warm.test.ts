@@ -746,4 +746,27 @@ describe("AgentCacheWarmManager with a real AgentManager", () => {
       await cleanup();
     }
   });
+
+  it("keeps a live agent the user stopped unarmed until a prompt is accepted for it", async () => {
+    const { agentManager, warmManager, agentId, cleanup } = await createManagerHarness();
+    try {
+      const first = agentManager.runAgent(agentId, "do the work");
+      await vi.advanceTimersByTimeAsync(2 * MINUTE + 1);
+      await first;
+      expect(warmManager.getPending(agentId)).not.toBeNull();
+
+      // A load brings a stopped agent back into memory with the stop still on it.
+      agentManager.setAgentStoppedByUser(agentId, true);
+      expect(warmManager.schedule(agentId)).toBe(false);
+      expect(warmManager.getPending(agentId)).toBeNull();
+
+      const second = agentManager.runAgent(agentId, "and again");
+      await vi.advanceTimersByTimeAsync(MINUTE);
+      await second;
+      expect(agentManager.getAgent(agentId)?.stoppedByUser).toBe(false);
+      expect(warmManager.getPending(agentId)).not.toBeNull();
+    } finally {
+      await cleanup();
+    }
+  });
 });

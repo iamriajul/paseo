@@ -2344,8 +2344,9 @@ const BOOT_CATALOG_WARMUP_TIMEOUT_MS = 2_000;
 
 /**
  * A stop a person asked for: nothing the daemon was running comes back on the next start, and boot
- * warm-up leaves every agent that was live at the stop dormant (`stoppedByUser`). A close that
- * never answered (abandoned after AGENT_CLOSE_TIMEOUT_MS) leaves its record running, so the running
+ * warm-up leaves every agent that was live at the stop alone (`stoppedByUser`) until a prompt is
+ * accepted for it. A close that never answered (abandoned after AGENT_CLOSE_TIMEOUT_MS) leaves its
+ * record running, so the running
  * records are closed here. Runs after the persistence hook is detached, so no late snapshot writes
  * a running status back over it.
  */

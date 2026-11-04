@@ -114,6 +114,7 @@ export function toStoredAgentRecord(
     totalWarmPings: agent.totalWarmPings ?? undefined,
     warmUpCostUsd: agent.warmUpCostUsd ?? undefined,
     promptCache: agent.promptCache,
+    stoppedByUser: agent.stoppedByUser === true ? true : undefined,
     lastUsage: sanitizeUsage(agent.lastUsage),
   } satisfies StoredAgentRecord;
 }

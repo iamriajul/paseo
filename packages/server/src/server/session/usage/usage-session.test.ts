@@ -107,6 +107,8 @@ test("off rejects both protocols before runtime discovery and turning on restore
   await usage.handleListReports({ type: "usage.list_reports.request", requestId: "on" });
   expect(calls).toBe(1);
   expect(emitted[2]).toMatchObject({ payload: { error: null } });
+});
+
 test("emits a reset-quota response for a supported provider", async () => {
   const emitted: SessionOutboundMessage[] = [];
   const usage = new UsageSession({

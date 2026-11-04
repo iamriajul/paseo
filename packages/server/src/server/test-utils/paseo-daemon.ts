@@ -57,6 +57,7 @@ interface TestPaseoDaemonOptions {
   pluginsEnabled?: PaseoDaemonConfig["pluginsEnabled"];
   builtinPlugins?: BuiltinPluginLoader;
   plugins?: PaseoDaemonConfig["plugins"];
+  onLifecycleIntent?: PaseoDaemonConfig["onLifecycleIntent"];
 }
 
 export interface TestPaseoDaemon {
@@ -233,6 +234,7 @@ async function prepareTestDaemonConfig(
     resumePrompt: options.resumePrompt,
     pluginsEnabled: options.pluginsEnabled,
     plugins: options.plugins,
+    onLifecycleIntent: options.onLifecycleIntent,
   };
   return { config, paseoHomeRoot, paseoHome, staticDir, createdDirs };
 }

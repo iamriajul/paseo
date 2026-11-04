@@ -452,6 +452,7 @@ npx vitest run packages/app/src/components/sidebar/workspace-meta-row/meta-items
 Restart recovery is upstream's (`agents.resumeOnStartup`, off by default). This fork decides which agents it resumes. A stop a client asks for (the shutdown or restart RPC, or Ctrl-C) marks each agent that was live at the stop `stoppedByUser`, so neither restart recovery nor boot warm-up starts it, and cancels the rate-limit retries still pending. A SIGTERM from the OS or a UPS, and a crash, resume the agents that were running. A crash captures nothing, so a ping turn in flight at the crash resumes like any running agent. An agent resumes only with a provider session, outside a cache warm-up ping, in an unarchived workspace, and with an unexpired prompt cache; those rules hold whatever the cache-warming settings say. `PASEO_RESUME_ON_STARTUP` and `PASEO_RESUME_PROMPT` override the host config.
 
 ```bash
+npx vitest run packages/server/src/server/daemon-e2e/restart-stop-policy.e2e.test.ts --config packages/server/vitest.config.ts --bail=1
 npx vitest run packages/server/src/server/agent/restart-recovery/eligibility.test.ts --config packages/server/vitest.config.ts --bail=1
 grep -q 'isRestartResumeEligible({' packages/server/src/server/bootstrap.ts
 grep -q 'await markStoppedByUser(agentStorage, liveAgentIds)' packages/server/src/server/bootstrap.ts

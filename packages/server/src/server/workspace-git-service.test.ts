@@ -184,6 +184,9 @@ function createPullRequestStatusResult(
   };
 }
 
+/** Captured before any test installs fake timers, for work that must take real time. */
+const realSetTimeout = globalThis.setTimeout;
+
 async function flushPromises(): Promise<void> {
   for (let i = 0; i < 6; i++) {
     await Promise.resolve();
@@ -1091,11 +1094,20 @@ describe("WorkspaceGitServiceImpl", () => {
     },
   ])("$name takes the repository-wide structural fallback", async ({ result }) => {
     const releaseFetch = createDeferred<void>();
-    const getCheckoutSnapshotFacts = vi.fn(async (cwd: string) => ({
-      ...createCheckoutSnapshotFacts(cwd),
-      gitCommonDir: join(REPO_CWD, ".git"),
-      absoluteGitDir: join(REPO_CWD, ".git"),
-    }));
+    let snapshotCalls = 0;
+    const getCheckoutSnapshotFacts = vi.fn(async (cwd: string) => {
+      snapshotCalls += 1;
+      // The first snapshot finishes late in real time, as on a slow Windows runner, so the test
+      // must not release the fetch while that refresh is still running.
+      if (snapshotCalls === 1) {
+        await new Promise<void>((resolve) => realSetTimeout(resolve, 50));
+      }
+      return {
+        ...createCheckoutSnapshotFacts(cwd),
+        gitCommonDir: join(REPO_CWD, ".git"),
+        absoluteGitDir: join(REPO_CWD, ".git"),
+      };
+    });
     const getCheckoutRefDerivedState = vi.fn();
     const service = createService({
       getCheckoutSnapshotFacts,

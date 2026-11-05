@@ -3404,7 +3404,7 @@ function buildCodexCustomProviderConfig(
   // Namespace Paseo ids so they cannot override Codex's built-ins. A colon is
   // forbidden in Paseo ids, keeping these keys distinct from every legacy id
   // when both generations are listed together.
-  const providerKey = `paseo:${customProvider.id}`;
+  const providerKey = codexProviderKey(customProvider.id);
   // CLIProxyAPI keys ChatGPT-parity tools, including image generation, off this
   // header. Without it the provider routes and silently drops those calls.
   if (customProvider.id === GATEWAY_PROVIDER_ID) {
@@ -3420,17 +3420,53 @@ function buildCodexCustomProviderConfig(
   };
 }
 
+function codexProviderKey(providerId: string): string {
+  return `paseo:${providerId}`;
+}
+
 /** Native Codex models keep the local login unless CLIProxyAPI advertised the slug. */
 export function codexConfigForModel(
   customConfig: Record<string, unknown>,
   model: string | null | undefined,
   advertisedIds: ReadonlySet<string> | null | undefined,
 ): Record<string, unknown> {
-  if (customConfig.model_provider !== GATEWAY_PROVIDER_ID) return customConfig;
+  if (customConfig.model_provider !== codexProviderKey(GATEWAY_PROVIDER_ID)) return customConfig;
   const modelId = model?.trim() ?? "";
   if (modelId && advertisedIds?.has(modelId)) return customConfig;
   const { model_provider: _modelProvider, ...rest } = customConfig;
   return rest;
+}
+
+function codexTomlValue(value: unknown): string {
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value).map(
+      ([key, entry]) => `${JSON.stringify(key)}=${codexTomlValue(entry)}`,
+    );
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * `-c` overrides that start `codex app-server` on the provider a model routes to.
+ * Codex 0.166 refuses `turn/start` with `modelProviderMismatch` when a thread's
+ * provider differs from the process's own; thread `config` does not count.
+ */
+function codexProviderLaunchArgs(
+  customConfig: CodexCustomProviderConfig | null | undefined,
+  model: string | null | undefined,
+  advertisedIds: ReadonlySet<string> | null | undefined,
+): string[] {
+  if (!customConfig) return [];
+  const routed = codexConfigForModel({ ...customConfig }, model, advertisedIds);
+  const providerKey = routed.model_provider;
+  if (typeof providerKey !== "string") return [];
+  // Codex splits the key path on dots only, so `paseo:<id>` needs no quoting.
+  const args = ["-c", `model_provider=${JSON.stringify(providerKey)}`];
+  for (const [field, value] of Object.entries(customConfig.model_providers[providerKey] ?? {})) {
+    args.push("-c", `model_providers.${providerKey}.${field}=${codexTomlValue(value)}`);
+  }
+  return args;
 }
 
 interface CodexSubAgentCallState {
@@ -4136,8 +4172,16 @@ export class CodexAppServerAgentSession implements AgentSession {
     const params: Record<string, unknown> = { threadId: this.currentThreadId, excludeTurns: true };
     if (this.deps.customCodexConfig) {
       // Resume otherwise prefers the provider stored on the thread, including
-      // the unnamespaced key emitted by earlier Paseo versions.
-      params.modelProvider = this.deps.customCodexConfig.model_provider;
+      // the unnamespaced key emitted by earlier Paseo versions. A model the
+      // Gateway did not advertise keeps the local login's provider.
+      const routed = codexConfigForModel(
+        { ...this.deps.customCodexConfig },
+        this.config.model,
+        this.deps.cliproxyapiAdvertisedIds,
+      );
+      if (typeof routed.model_provider === "string") {
+        params.modelProvider = routed.model_provider;
+      }
     }
     const developerInstructions = composeSystemPromptParts(
       this.config.systemPrompt,
@@ -7466,6 +7510,13 @@ export class CodexAppServerAgentClient implements AgentClient {
     if (catalogPath) {
       args.push("-c", `model_catalog_json="${catalogPath}"`);
     }
+    args.push(
+      ...codexProviderLaunchArgs(
+        this.customProviderConfig(),
+        options?.model,
+        this.cliproxyapiAdvertisedIds,
+      ),
+    );
     this.logger.trace(
       {
         agentId: options?.agentId,

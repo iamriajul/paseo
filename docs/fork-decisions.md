@@ -592,7 +592,7 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/ser
 
 **Codex Gateway discovery with bare-slug ids, context windows, and thread provider routing**
 
-Gateway-routed Codex (first-party or a derived provider pointing at a Gateway) appends Codex-shape catalog rows — hidden skipped, reasoning levels mapped to thinking options, advertised context windows overlaid on base models, bare-slug ids routed by the synthetic `cliproxyapi` thread `model_provider` — to `model/list` results.
+Gateway-routed Codex (first-party or a derived provider pointing at a Gateway) appends Codex-shape catalog rows — hidden skipped, reasoning levels mapped to thinking options, advertised context windows overlaid on base models, bare-slug ids routed by the synthetic `paseo:cliproxyapi` provider — to `model/list` results. The session's `codex app-server` starts on that provider through `-c` overrides when its model is advertised, because Codex 0.166 rejects a turn whose thread provider differs from the process's own.
 
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1

@@ -526,16 +526,6 @@ grep -q "max-old-space-size=4096" nix/desktop-package.nix
 grep -q "contents: write" .github/workflows/nix-update-hash.yml
 ```
 
-## archive-responds-before-cleanup
-
-**workspace archive answers on the record, not on disk cleanup**
-
-archive_workspace_request resolves once archivedAt is durable and runs paseo.json worktree.teardown plus the directory removal in the background, after giving that cleanup a 15s grace (`ARCHIVE_DIRECTORY_CLEANUP_GRACE_MS` in session.ts) so an ordinary archive still answers with its directory gone, which v0.14.0's worktree e2e asserts. A slow teardown no longer pushes the reply past the client's 60s RPC timeout and the client no longer restores a workspace the daemon archived; the archived state is published before the slow phase so other clients converge, the settling emit still runs after it, and teardown commands are bounded by PASEO_WORKTREE_TEARDOWN_TIMEOUT_MS (default 10 minutes) with the timeout named in the failure
-
-```bash
-npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/workspace-archive-service.test.ts packages/server/src/server/session.workspaces.test.ts packages/server/src/utils/worktree.posix.test.ts --bail=1
-```
-
 ## fork-apk-setup-android-packages
 
 **the fork APK release installs only `platform-tools`, not the removed `tools` package**

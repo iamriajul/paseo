@@ -8053,9 +8053,10 @@ describe("Codex Gateway model discovery", () => {
 });
 
 describe("codexConfigForModel", () => {
+  // The key buildCodexCustomProviderConfig emits for the first-party Gateway.
   const config = {
-    model_provider: "cliproxyapi",
-    model_providers: { cliproxyapi: { base_url: "http://gateway:8317/v1" } },
+    model_provider: "paseo:cliproxyapi",
+    model_providers: { "paseo:cliproxyapi": { base_url: "http://gateway:8317/v1" } },
   };
 
   test("keeps CLIProxyAPI routing only for an advertised slug", () => {
@@ -8153,5 +8154,111 @@ describe("Codex Gateway context window and model catalog", () => {
 
     expect(stdout).toContain("-c");
     expect(stdout).toContain('model_catalog_json="/custom/path/codex-model-catalog.json"');
+  });
+});
+
+describe("Codex Gateway app-server launch provider", () => {
+  // Codex 0.166 refuses turn/start with modelProviderMismatch unless the process
+  // itself started on the thread's provider; thread `config` alone is not enough.
+  function gatewayProvider(advertised: string[], providerId = "cliproxyapi") {
+    const isGateway = providerId === "cliproxyapi";
+    const provider = new CodexAppServerAgentClient(
+      createTestLogger(),
+      {
+        command: {
+          mode: "replace",
+          argv: [process.execPath, "-e", "console.log(JSON.stringify(process.argv.slice(1)))"],
+        },
+        env: { OPENAI_BASE_URL: "http://gateway:8317", OPENAI_API_KEY: "sk-gateway" },
+      },
+      {
+        customProvider: { id: providerId, label: "Custom", extends: "codex" },
+        ...(isGateway
+          ? {
+              gateway: { baseUrl: "http://gateway:8317", apiKey: "sk-gateway" },
+              cliproxyapiAdvertisedIds: new Set(advertised),
+            }
+          : {}),
+        modelCatalogPath: "/catalog.json",
+      } as ConstructorParameters<typeof CodexAppServerAgentClient>[2],
+    );
+    return castInternals<{
+      spawnAppServer: (
+        launchEnv?: Record<string, string>,
+        options?: { model?: string },
+      ) => Promise<ChildProcessWithoutNullStreams>;
+    }>(provider);
+  }
+
+  async function launchArgs(
+    advertised: string[],
+    model?: string,
+    providerId?: string,
+  ): Promise<string[]> {
+    const child = await gatewayProvider(advertised, providerId).spawnAppServer(undefined, {
+      model,
+    });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    await new Promise((resolve) => child.on("exit", resolve));
+    return JSON.parse(stdout) as string[];
+  }
+
+  test("starts an advertised model's process on the Gateway provider", async () => {
+    const args = await launchArgs(["qwen-3.8-27b"], "qwen-3.8-27b");
+    expect(args).toContain('model_provider="paseo:cliproxyapi"');
+    expect(args).toContain('model_providers.paseo:cliproxyapi.base_url="http://gateway:8317/v1"');
+    expect(args).toContain('model_providers.paseo:cliproxyapi.wire_api="responses"');
+    expect(args).toContain(
+      'model_providers.paseo:cliproxyapi.http_headers={"X-OpenAI-Actor-Authorization"="local-proxy"}',
+    );
+  });
+
+  test("starts a model the Gateway did not advertise on the local login", async () => {
+    const args = await launchArgs(["qwen-3.8-27b"], "gpt-5.4");
+    expect(args.some((arg) => arg.startsWith("model_provider"))).toBe(false);
+  });
+
+  test("starts a derived custom provider's process on its own provider for any model", async () => {
+    const args = await launchArgs([], "gpt-5.4", "my-proxy");
+    expect(args).toContain('model_provider="paseo:my-proxy"');
+    expect(args).toContain('model_providers.paseo:my-proxy.base_url="http://gateway:8317/v1"');
+    expect(args).toContain('model_providers.paseo:my-proxy.env_key="OPENAI_API_KEY"');
+  });
+});
+
+describe("Codex thread resume provider", () => {
+  const gatewayConfig = {
+    model_provider: "paseo:cliproxyapi",
+    model_providers: { "paseo:cliproxyapi": { base_url: "http://gateway:8317/v1" } },
+  };
+
+  async function resumeParams(model: string): Promise<Record<string, unknown>> {
+    const session = createSession(
+      { model },
+      {},
+      { customCodexConfig: gatewayConfig, cliproxyapiAdvertisedIds: new Set(["qwen-3.8-27b"]) },
+    );
+    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+    session.client = {
+      request: vi.fn(async (method: string, params: Record<string, unknown>) => {
+        requests.push({ method, params });
+        if (method === "thread/loaded/list") return { data: [] };
+        if (method === "thread/resume") return {};
+        throw new Error(`Unexpected request: ${method}`);
+      }),
+    };
+    await asInternals(session).ensureThreadLoaded();
+    return requests.find((req) => req.method === "thread/resume")!.params;
+  }
+
+  test("resumes an advertised model's thread on the Gateway provider", async () => {
+    expect((await resumeParams("qwen-3.8-27b")).modelProvider).toBe("paseo:cliproxyapi");
+  });
+
+  test("resumes a local-login model's thread without forcing the Gateway", async () => {
+    expect((await resumeParams("gpt-5.4")).modelProvider).toBeUndefined();
   });
 });

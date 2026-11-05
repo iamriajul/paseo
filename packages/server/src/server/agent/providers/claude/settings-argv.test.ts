@@ -39,7 +39,12 @@ test("the real SDK passes the user's settings file contents alongside Paseo flag
     const argv: string[] = JSON.parse(await fs.readFile(capturePath, "utf8"));
     const settingsIndex = argv.indexOf("--settings");
     expect(settingsIndex).toBeGreaterThanOrEqual(0);
-    expect(JSON.parse(argv[settingsIndex + 1]!)).toEqual({ ...userSettings, fastMode: false });
+    // Paseo pins the default Bash timeout in the flag layer (foreground-shell-cap).
+    expect(JSON.parse(argv[settingsIndex + 1]!)).toEqual({
+      ...userSettings,
+      env: { ...userSettings.env, BASH_DEFAULT_TIMEOUT_MS: "120000" },
+      fastMode: false,
+    });
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }

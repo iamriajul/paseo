@@ -1739,17 +1739,18 @@ test("mark unread replies remain source-owned while directory observers receive 
     });
     actor.frames.length = sibling.frames.length = quiet.frames.length = 0;
     await actor.request({ type: "workspace.mark_unread.request", workspaceId, requestId: "mark" });
+    // The reply also carries markedAgentIds and results for batch requests (workspace-mark-unread).
     expect(actor.frames).toContainEqual(
       expect.objectContaining({
         message: {
           type: "workspace.mark_unread.response",
-          payload: {
+          payload: expect.objectContaining({
             workspaceId,
             requestId: "mark",
             markedAgentId: agent.id,
             success: true,
             error: null,
-          },
+          }),
         },
       }),
     );

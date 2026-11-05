@@ -49,7 +49,8 @@ const paseoHome = join(root, "home");
 const cliHome = join(root, "os-home");
 const workDir = join(root, "work");
 for (const dir of [paseoHome, cliHome, workDir]) mkdirSync(dir, { recursive: true });
-const currentProtocolVersion = 5;
+// The fork's gateway routing field bumps the worker protocol (cliproxyapi-terminal-tui-routing).
+const currentProtocolVersion = 6;
 const zsh = ["/bin/zsh", "/usr/bin/zsh"].find((candidate) => existsSync(candidate)) ?? null;
 
 interface Installation {
@@ -456,8 +457,8 @@ try {
   });
   console.log(`Competing listener owns released port ${releasedPort}`);
 
-  // There is no supported previous wire at protocol 5. Future previous-version classification
-  // is covered by terminal-worker-protocol.test.ts; do not simulate an unreleased drain adapter.
+  // Protocols 0 through 4 are obsolete and close. Protocol 5 drains, which
+  // terminal-worker-protocol.test.ts covers; do not simulate an unreleased drain adapter here.
   for (const protocolVersion of [0, 1, 2, 3, 4]) {
     console.log(`Test 4: obsolete protocol ${protocolVersion} is closed before serving terminals`);
     const obsolete = await leaveWorkerWithProtocol(

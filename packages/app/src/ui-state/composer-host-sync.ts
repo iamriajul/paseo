@@ -58,6 +58,8 @@ export function applyRemoteComposerRecord(input: {
 export async function hydrateComposerFromHost(input: {
   client: ComposerHostSyncClient;
   clientDraftKey: string;
+  /** False once the user has typed: that text is newer than the saved draft and wins. */
+  shouldApply?: () => boolean;
 }): Promise<void> {
   const wireKey = toWireComposerKey(input.clientDraftKey);
   if (!wireKey) {
@@ -68,6 +70,9 @@ export async function hydrateComposerFromHost(input: {
     key: wireKey,
   });
   if (payload.error || !payload.record) {
+    return;
+  }
+  if (input.shouldApply && !input.shouldApply()) {
     return;
   }
   applyRemoteComposerRecord({

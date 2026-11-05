@@ -30,6 +30,8 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 const hostSync = vi.hoisted(() => ({
   enabled: false,
   upserts: [] as Array<{ namespace: string; key: string; record: { text?: string } }>,
+  saved: null as null | { text: string; updatedAt: string },
+  gate: null as null | Promise<void>,
 }));
 
 vi.mock("@/runtime/host-features", async (importOriginal) => ({
@@ -40,7 +42,10 @@ vi.mock("@/runtime/host-features", async (importOriginal) => ({
 vi.mock("@/runtime/host-runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/runtime/host-runtime")>();
   const client = {
-    getUiState: async () => ({ error: null, record: null }),
+    getUiState: async () => {
+      await hostSync.gate;
+      return { error: null, record: hostSync.saved };
+    },
     upsertUiState: async (input: (typeof hostSync.upserts)[number]) => {
       hostSync.upserts.push(input);
     },
@@ -49,6 +54,7 @@ vi.mock("@/runtime/host-runtime", async (importOriginal) => {
   };
   return {
     ...actual,
+    useHostRuntimeConnectionStatus: () => (hostSync.enabled ? "online" : "idle"),
     getHostRuntimeStore: () =>
       hostSync.enabled ? { getClient: () => client } : actual.getHostRuntimeStore(),
   };
@@ -552,6 +558,52 @@ describe("useAgentInputDraft live contract", () => {
       await new Promise((resolve) => setTimeout(resolve, 400));
     });
     expect(hostSync.upserts.at(-1)?.record.text).toBe("replaced by dictation");
+  });
+
+  it("keeps text typed while the host answers the draft hydration", async () => {
+    hostSync.enabled = true;
+    hostSync.saved = { text: "saved on the other laptop", updatedAt: "2020-01-01T00:00:00.000Z" };
+    let answerHost!: () => void;
+    hostSync.gate = new Promise<void>((resolve) => {
+      answerHost = resolve;
+    });
+    let latest: ReturnType<typeof useAgentInputDraft> | null = null;
+
+    function Probe() {
+      latest = useAgentInputDraft({ draftKey: "agent:host-1:agent-8" });
+      return null;
+    }
+
+    const container = document.getElementById("root");
+    if (!container) {
+      throw new Error("Missing root container");
+    }
+    const root = createTestRoot(container);
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      latest!.editText("typed while the host answers");
+      answerHost();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    expect(latest!.textReplacement.text).not.toBe("saved on the other laptop");
+    expect(useDraftStore.getState().getDraftInput("agent:host-1:agent-8")?.text).toBe(
+      "typed while the host answers",
+    );
+
+    hostSync.enabled = false;
+    hostSync.saved = null;
+    hostSync.gate = null;
+    await act(async () => {
+      root.unmount();
+    });
   });
 
   it("clear resets text and attachments", async () => {

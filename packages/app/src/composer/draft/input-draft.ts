@@ -140,6 +140,8 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
   const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
   const isHydrated = hydratedDraftKey === draftKey;
   const textReplacementRevisionRef = useRef(0);
+  // Set by any typing, so a host answer that arrives later does not overwrite it.
+  const editedBeforeHostAnswerRef = useRef(false);
   const [textReplacement, setTextReplacement] = useState<TextReplacement>(() => ({
     kind: "initial",
     key: `${draftKey}:0`,
@@ -223,6 +225,7 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
 
   const editText = useCallback(
     (nextText: string) => {
+      editedBeforeHostAnswerRef.current = true;
       if (isWeb) {
         textPublication.stage(nextText);
       } else {
@@ -235,6 +238,7 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
 
   const replaceText = useCallback(
     (nextText: string) => {
+      editedBeforeHostAnswerRef.current = true;
       textPublication.cancel();
       useDraftStore.getState().editDraftText({ draftKey, text: nextText });
       publishTextReplacement("replace", nextText);
@@ -293,21 +297,29 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
 
   useEffect(() => {
     let cancelled = false;
+    editedBeforeHostAnswerRef.current = false;
     void (async () => {
       await useDraftStore.getState().hydrateDraftInput({ draftKey });
       if (supportsUiState && isHostOnline && hostServerId && toWireComposerKey(draftKey)) {
         const client = getHostRuntimeStore().getClient(hostServerId);
         if (client) {
           try {
-            await hydrateComposerFromHost({ client, clientDraftKey: draftKey });
+            await hydrateComposerFromHost({
+              client,
+              clientDraftKey: draftKey,
+              shouldApply: () => !editedBeforeHostAnswerRef.current,
+            });
           } catch (error) {
             console.warn("[ui-state] composer hydrate failed", error);
           }
         }
       }
       if (!cancelled) {
-        const hydratedText = useDraftStore.getState().getDraftInput(draftKey)?.text ?? "";
-        publishTextReplacement("hydrated", hydratedText);
+        // Typed text already belongs to the input; replacing it with the store's text would drop it.
+        if (!editedBeforeHostAnswerRef.current) {
+          const hydratedText = useDraftStore.getState().getDraftInput(draftKey)?.text ?? "";
+          publishTextReplacement("hydrated", hydratedText);
+        }
         setHydratedDraftKey(draftKey);
       }
     })();

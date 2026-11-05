@@ -273,7 +273,6 @@ type ScheduleAgentManager = Pick<
     | "listBackgroundTasks"
     | "listProviderHeartbeats"
     | "resumeAgentFromPersistence"
-    | "setAgentStoppedByUser"
     | "runAgent"
     | "waitForAgentEvent"
     | "waitForAgentClose"

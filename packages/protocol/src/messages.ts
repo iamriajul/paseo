@@ -2235,9 +2235,6 @@ export const ShutdownServerRequestMessageSchema = z.object({
   // Shutdown closes terminals unless this is true. Gate on
   // `features.terminalsSurviveRestart`: older daemons drop the field.
   keepTerminals: z.boolean().optional(),
-  // Names a stop the software makes for itself (an app update, a version mismatch). Other reasons
-  // are ignored: a stop a person asked for is not resumed.
-  reason: z.string().optional(),
 });
 
 export const DaemonUpdateRequestMessageSchema = z.object({

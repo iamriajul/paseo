@@ -102,7 +102,6 @@ async function requestInstanceStop(
   instance: PidLockInfo,
   options: {
     force?: boolean;
-    preferLifecycleRpc?: boolean;
     keepTerminals?: boolean;
     requestShutdown?: (instance: PidLockInfo & { listen: string }) => Promise<void>;
   },
@@ -146,22 +145,10 @@ async function requestInstanceStop(
       forced = true;
     }
   } else {
-    // A stop a person asked for goes over the lifecycle RPC, which the daemon can tell apart from
-    // a signal. A daemon that cannot answer is still stopped by SIGTERM below.
-    if (options.preferLifecycleRpc && instance.listen && options.requestShutdown) {
-      try {
-        await options.requestShutdown({ ...instance, listen: instance.listen });
-        usedLifecycleRpc = true;
-      } catch {
-        // Fall through to the signal.
-      }
-    }
-    if (!usedLifecycleRpc) {
-      try {
-        process.kill(instance.pid, "SIGTERM");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-      }
+    try {
+      process.kill(instance.pid, "SIGTERM");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
     }
   }
   return { forced, usedLifecycleRpc };
@@ -172,7 +159,6 @@ export async function stopDaemonInstance(
   options: {
     instance?: PidLockInfo;
     force?: boolean;
-    preferLifecycleRpc?: boolean;
     // Leave the terminal worker running so the next daemon adopts it. Not valid with force.
     keepTerminals?: boolean;
     timeoutMs?: number;

@@ -245,8 +245,7 @@ export class AgentRateLimitAutoResumeManager {
     this.logger.debug({ agentId }, "Canceled pending rate limit auto-resume");
   }
 
-  /** Resolves once the emptied timer list is on disk, so a stop cannot outrun the write. */
-  cancelAll(): Promise<void> {
+  cancelAll(): void {
     for (const [agentId, entry] of this.activeTimers.entries()) {
       clearTimeout(entry.timeout);
       this.agentManager.setRateLimitCooldown?.(agentId, null);
@@ -255,7 +254,7 @@ export class AgentRateLimitAutoResumeManager {
     for (const agentId of this.agentEpochs.keys()) {
       this.nextEpoch(agentId);
     }
-    return this.persistActiveTimers();
+    void this.persistActiveTimers();
   }
 
   private cancelTimerOnly(agentId: string): void {

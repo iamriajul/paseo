@@ -26,7 +26,7 @@ change. A decision with no command is a decision nothing protects.
 additionalModels/profile contextWindowMaxTokens is source of truth; set CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW with overwrite; match gateway-prefixed and case-insensitive ids; do not shrink the Paseo meter below the configured window
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
 ```
 
 ## composer-track-pills
@@ -107,7 +107,8 @@ npm test --workspace=@getpaseo/app -- src/components/markdown/fence/mermaid/segm
 assistant stream/footer/menu can native-fork a Claude session at a boundary; wrapSessionProvider forwards resolveNativeForkUpToMessageId so the live session still resolves transcript UUIDs. AgentStreamView's memo must still compare turnPresentation and pendingMessageSubmissions — dropping those freezes the working footer after a disconnect.
 
 ```bash
-npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts packages/server/src/server/agent/providers/claude/native-fork.test.ts packages/app/src/agent-stream/fork-strategy.test.ts packages/protocol/src/messages.native-fork.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/provider-registry-wrap.test.ts packages/server/src/server/agent/providers/claude/native-fork.test.ts --bail=1
+npx vitest run packages/app/src/agent-stream/fork-strategy.test.ts packages/protocol/src/messages.native-fork.test.ts --bail=1
 grep -q "left.turnPresentation !== right.turnPresentation" packages/app/src/agent-stream/view.tsx
 grep -q "left.pendingMessageSubmissions !== right.pendingMessageSubmissions" packages/app/src/agent-stream/view.tsx
 ```
@@ -120,7 +121,7 @@ each Browser tab uses workspace-scoped persist:paseo-browser-workspace-${workspa
 
 ```bash
 npx vitest run packages/desktop/src/features/browser-cookies.test.ts packages/desktop/src/features/browser-profile.test.ts packages/desktop/src/features/browser-webviews/index.test.ts packages/app/src/utils/localhost-url.test.ts --bail=1
-npx vitest run packages/server/src/server/tcp-tunnel-forwarder.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/tcp-tunnel-forwarder.test.ts --bail=1
 grep -q "isBlankWebview" packages/app/src/desktop/browser/pane/index.electron.tsx
 npx vitest run packages/desktop/src/features/browser-loopback-direct.test.ts --bail=1
 ```
@@ -155,7 +156,7 @@ npx vitest run packages/app/src/utils/app-visibility.test.ts --bail=1 -t guest
 The Codex usage card resets credits through `provider.usage.reset_quota` (daemon.manage), served by UsageSession from the Codex OAuth reset-credits endpoint with one token refresh; the card force-refreshes afterwards so a pre-reset in-flight list is not shown as current usage
 
 ```bash
-npx vitest run packages/server/src/server/session/usage/codex-quota-reset.test.ts packages/server/src/server/session/usage/usage-session.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session/usage/codex-quota-reset.test.ts packages/server/src/server/session/usage/usage-session.test.ts --bail=1
 ```
 
 ## metadata-endpoint-persist
@@ -165,7 +166,7 @@ npx vitest run packages/server/src/server/session/usage/codex-quota-reset.test.t
 persisted-config keeps metadataGeneration.customEndpoint; daemon-config-store must not persist the default-empty object or a sync/restart wipes a configured URL
 
 ```bash
-npx vitest run packages/server/src/server/persisted-config.test.ts packages/server/src/server/daemon-config-store.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/persisted-config.test.ts packages/server/src/server/daemon-config-store.test.ts --bail=1
 ```
 
 ## history-search
@@ -246,7 +247,7 @@ npx vitest run packages/app/src/workspace-pins/target.test.ts --bail=1
 claude model-manifest keeps dual context-window rows so a 200K pick is explicit and does not silently become 1M. v0.7.2 added Fable 5.1 as a silent 1M row; the CLI catalog fixture must list the dual rows, not upstream's alias-hidden shape.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts --bail=1 -t "defines context window sizes"
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/models.test.ts --bail=1 -t "defines context window sizes"
 rg -q 'claude-fable-5-1\[1m\]' packages/cli/tests/15-provider.test.ts
 ```
 
@@ -267,7 +268,8 @@ npx vitest run packages/app/src/interaction-lock/policy.test.ts --bail=1
 model-browser and provider-diagnostic-sheet keep add/edit custom model plus models.dev lookup; overwrite env patch does not protect this UI
 
 ```bash
-npx vitest run packages/protocol/src/messages.metadata-custom-endpoint.test.ts packages/server/src/server/models-dev/catalog.test.ts --bail=1
+npx vitest run packages/protocol/src/messages.metadata-custom-endpoint.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/models-dev/catalog.test.ts --bail=1
 ```
 
 ## mermaid-error-caption
@@ -315,7 +317,7 @@ npx vitest run packages/app/src/data/push-router.test.ts --bail=1
 provider-snapshot-manager persistClaudeAdditionalModelLimits keeps CPA-discovered windows across daemon restarts
 
 ```bash
-npx vitest run packages/server/src/server/agent/provider-snapshot-manager.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/provider-snapshot-manager.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
 ```
 
 ## steer-official-only
@@ -325,7 +327,8 @@ npx vitest run packages/server/src/server/agent/provider-snapshot-manager.test.t
 dispatch uses official steerActiveTurn only; fork session.steer / steerAgent / composer steer flag / unmounted Queue-steer copy are gone; COMPAT wire steer boolean and supportsSteer stay
 
 ```bash
-npx vitest run packages/server/src/server/agent/provider-registry-wrap.test.ts packages/protocol/src/messages.steer.test.ts packages/protocol/src/messages.active-turn-behavior.test.ts packages/app/src/composer/actions.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/provider-registry-wrap.test.ts --bail=1
+npx vitest run packages/protocol/src/messages.steer.test.ts packages/protocol/src/messages.active-turn-behavior.test.ts packages/app/src/composer/actions.test.ts --bail=1
 npm run test:unit --workspace=@getpaseo/server -- src/server/agent/providers/omp/agent.test.ts --bail=1
 ```
 
@@ -338,7 +341,8 @@ The omp suite runs through the server workspace on purpose: root `npx vitest` ap
 workspace menu exposes Mark as unread when a workspace is done; daemon marks the newest finished root agent with attention to surface in attention group (one per workspace; opening the workspace reveals that agent, which clears it). Batch requests fan out per workspace with per-workspace results; the response keeps markedAgentId for pre-batch clients
 
 ```bash
-npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/server/src/server/session.workspaces.test.ts packages/client/src/daemon-client.test.ts --bail=1
+npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/client/src/daemon-client.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session.workspaces.test.ts --bail=1
 ```
 
 ## fork-rpc-permissions
@@ -348,7 +352,7 @@ npx vitest run packages/protocol/src/messages.workspaces.test.ts packages/server
 owner authority covers workspace.mark_unread, workspace.todos, native_fork, background_tasks, heartbeats, ui_state, tasks, and the other fork session operations; a missing map entry is a silent deny
 
 ```bash
-npx vitest run packages/server/src/server/authorization/index.test.ts --bail=1 -t "owner authority"
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/authorization/index.test.ts --bail=1 -t "owner authority"
 ```
 
 ## workspace-todo-sidebar
@@ -432,7 +436,7 @@ npm test --workspace=@getpaseo/app -- src/agent-stream/presentation.test.ts --ba
 parented Claude agents created via create_agent default featureValues.prompt_cache_ttl=5m; explicit caller value wins verbatim; a non-parented Claude agent starts at 1h like any new agent ([claude-prompt-cache-warming](#claude-prompt-cache-warming), Defaults), and non-Claude agents are untouched; buildOptions maps the value onto the SDK env via CLAUDE_CODE_PROMPT_CACHE_TTL (5m/1h set it, default/missing/invalid unset, user env wins); prompt_cache_ttl (Cache window) select feature always visible for Claude Code agents (an existing agent with no stamped value shows 'default'; a draft shows the new-agent 1h); setFeature validates against default/5m/1h and marks the query for relaunch, because Claude Code reads CLAUDE_CODE_PROMPT_CACHE_TTL only when its process starts; cache warm-up defaults for these children follow [claude-prompt-cache-warming](#claude-prompt-cache-warming)
 
 ```bash
-npx vitest run packages/server/src/server/agent/create-agent/create.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/mcp-server.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/create-agent/create.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/mcp-server.test.ts --bail=1
 ```
 
 ## sidebar-background-heartbeat-indicators
@@ -447,19 +451,16 @@ npx vitest run packages/app/src/components/sidebar/workspace-meta-row/meta-items
 
 ## restart-recovery-policy
 
-**restart recovery resumes what the daemon stopped unexpectedly, not what a person stopped**
+**restart recovery resumes running agents after any daemon stop, as upstream does**
 
-Restart recovery is upstream's (`agents.resumeOnStartup`, off by default). This fork decides which agents it resumes. A stop a client asks for (the shutdown or restart RPC, or Ctrl-C) marks each agent that was live at the stop `stoppedByUser`, and cancels the rate-limit retries still pending. A marked agent stays stopped until a prompt is accepted for it. Loading it, for example to clear its miss count, does not end the stop, and neither restart recovery nor cache warm-up starts it in the meantime. A SIGTERM from the OS or a UPS, and a crash, resume the agents that were running. A crash captures nothing, so a ping turn in flight at the crash resumes like any running agent. An agent resumes only with a provider session, outside a cache warm-up ping, in an unarchived workspace, and with an unexpired prompt cache; those rules hold whatever the cache-warming settings say. `PASEO_RESUME_ON_STARTUP` and `PASEO_RESUME_PROMPT` override the host config.
+Restart recovery is upstream's. Every daemon stop records the agents that are running, and the next start resumes them when `agents.resumeOnStartup` is on (off by default). On top of that, `PASEO_RESUME_ON_STARTUP` and `PASEO_RESUME_PROMPT` override the host config. An agent resumes only with a provider session, outside a cache warm-up ping, in an unarchived workspace, and with an unexpired prompt cache; those rules hold whatever the cache-warming settings say. A pending rate-limit retry survives a stop and fires after the restart. A crash captures nothing, so a warm-up ping in flight at a crash resumes like any running agent. An earlier fork policy kept agents that a manual daemon stop had interrupted down until a prompt was accepted for them. It was dropped to match upstream: manual stops are rare, and the divergence was not worth keeping.
 
 ```bash
-npx vitest run packages/server/src/server/daemon-e2e/restart-stop-policy.e2e.test.ts --config packages/server/vitest.config.ts --bail=1
+npx vitest run packages/server/src/server/daemon-e2e/daemon-restart-resume.e2e.test.ts --config packages/server/vitest.config.ts --bail=1
 npx vitest run packages/server/src/server/agent/restart-recovery/eligibility.test.ts --config packages/server/vitest.config.ts --bail=1
 grep -q 'isRestartResumeEligible({' packages/server/src/server/bootstrap.ts
-grep -q 'await markStoppedByUser(agentStorage, liveAgentIds)' packages/server/src/server/bootstrap.ts
-grep -q 'pendingIntentionalStop = !isAutomaticDaemonStopReason(intent.reason)' packages/server/src/server/daemon-worker.ts
+grep -q 'await restartRecovery.captureRunningAgents();' packages/server/src/server/bootstrap.ts
 grep -q 'PASEO_RESUME_ON_STARTUP' packages/server/src/server/config.ts
-grep -q 'await rateLimitAutoResumeManager.cancelAll()' packages/server/src/server/bootstrap.ts
-npx vitest run packages/server/src/server/agent/agent-cache-warm.test.ts -t "manual stop" --config packages/server/vitest.config.ts --bail=1
 ```
 
 ## restart-recovery-marker
@@ -475,18 +476,6 @@ grep -q 'resume: z.object({ reason: z.string() }).optional()' packages/protocol/
 grep -q 'runOptions: { resume: { reason: "restart" } }' packages/server/src/server/bootstrap.ts
 ```
 
-## desktop-stop-reasons
-
-**an app update or version mismatch resumes the agents it stops; a stop the user asks for does not**
-
-Every desktop stop goes over the lifecycle RPC, so the daemon can tell it from a signal. An app update or a version mismatch names its reason in `PASEO_DAEMON_STOP_REASON`, which the CLI sends with the shutdown request, and the daemon resumes those agents on the next start. Other stops name no reason. `paseo daemon stop` on the local home also tries the RPC before SIGTERM. If the RPC fails, the stop falls back to SIGTERM and its agents resume.
-
-```bash
-(cd packages/desktop && npx vitest run src/daemon/daemon-manager.test.ts --bail=1)
-grep -q 'PASEO_DAEMON_STOP_REASON' packages/desktop/src/daemon/daemon-manager.ts
-grep -q 'preferLifecycleRpc: true' packages/cli/src/commands/daemon/stop.ts
-```
-
 ## schedule-run-live-work
 
 **a scheduled run keeps its workspace while the work it started is still running**
@@ -494,7 +483,7 @@ grep -q 'preferLifecycleRpc: true' packages/cli/src/commands/daemon/stop.ts
 archiveOnFinish waits on live work instead of killing it: non-terminal background tasks (shells, monitors), provider heartbeats, active or paused Paseo heartbeats targeting the run agent, busy terminals in the workspace, running child agents, and — for a worktree run only — a schedule pointed inside the directory the archive would delete. Idle terminals and finished tasks do not pin the workspace. The deferred archive is retried until the work ends.
 
 ```bash
-npx vitest run packages/server/src/server/schedule/live-work.test.ts packages/server/src/server/schedule/service.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/schedule/live-work.test.ts packages/server/src/server/schedule/service.test.ts --bail=1
 ```
 
 ## browser-web-devtools-bridge
@@ -504,7 +493,8 @@ npx vitest run packages/server/src/server/schedule/live-work.test.ts packages/se
 browser-preview rewrites text/html responses to splice a navigation, eruda and element-selector bridge into `<head>`; the web Browser pane drives it over postMessage for history, URL sync, devtools and element attachments. The pane itself lives in fork-owned `web-pane.tsx`, with upstream's `index.web.tsx` reduced to a shim that renders it. Every surface that opens a Browser tab is gated on `useWorkspaceBrowserAvailability`, not `getIsElectron()` — the resolver already answered true for web with a preview template and for Android with a tunnel, while the call sites hard-coded Electron and made the feature unreachable. Nothing is added to `server_info`; the injected script announces itself with a `ready` message, so `packages/protocol` is untouched. `PASEO_BROWSER_PREVIEW_URL_TEMPLATE` is in official's `DAEMON_SETTING_ENV_KEYS` (`packages/server/src/server/config-environment.ts`): config resolution only sees allowlisted variables, so v0.14.900 silently ignored the env var and only `daemon.browserPreview.urlTemplate` in config.json worked.
 
 ```bash
-npx vitest run packages/server/src/server/browser-preview/html-injection.test.ts packages/server/src/server/browser-preview/inject packages/app/src/desktop/browser/pane/web-bridge.test.ts packages/app/src/desktop/browser/pane/web-navigation.test.ts packages/app/src/desktop/browser/pane/web-submit.test.ts packages/app/src/desktop/browser/pane/web-pane.test.tsx --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/browser-preview/html-injection.test.ts packages/server/src/server/browser-preview/inject --bail=1
+npx vitest run packages/app/src/desktop/browser/pane/web-bridge.test.ts packages/app/src/desktop/browser/pane/web-navigation.test.ts packages/app/src/desktop/browser/pane/web-submit.test.ts packages/app/src/desktop/browser/pane/web-pane.test.tsx --bail=1
 grep -q "createHtmlInjectionStream" packages/server/src/server/browser-preview/index.ts
 grep -qF 'from "./web-pane"' packages/app/src/desktop/browser/pane/index.web.tsx
 grep -q "showCreateBrowserTab = useWorkspaceBrowserAvailability" packages/app/src/screens/workspace/workspace-screen.tsx
@@ -573,7 +563,7 @@ node -e 'const fs=require("fs");const g=require("path");const ws={};for(const r 
 Mid-session `setModel` to a gateway model (muse-spark-_) failed with "Couldn't confirm model with the API" while the TUI accepted the same ID, and TUI-side switches displayed as first-party `claude-fable-5` after reload. On control-plane confirmation failure Paseo relaunches the query on the resumed session with the new model; `claude-fable-5-dd-_` wire IDs no longer normalize to the manifest and observed wire IDs decode back to raw catalog IDs for display.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
 ```
 
 ## gateway-first-party-routing
@@ -583,7 +573,7 @@ npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts 
 `agents.gateway` (or `PASEO_GATEWAY_*` env) routes the base providers through CLIProxyAPI without per-provider entries: the registry merges the Gateway env layer under explicit override env for claude/codex and passes the resolved routing to all three clients. Providers with their own routing (Anthropic keys, Z.AI, custom Codex endpoints) and every derived provider are exempt.
 
 ```bash
-npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/agent/provider-registry.test.ts packages/server/src/server/persisted-config.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/agent/provider-registry.test.ts packages/server/src/server/persisted-config.test.ts --bail=1
 ```
 
 ## gateway-detection
@@ -593,7 +583,7 @@ npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/
 Live Gateways omit `X-CPA-*` response headers on `/v1/models`, which silently disabled all discovery. Auto-detect paths now also accept behavioral proof — `claude-fable-5-dd-` listing ids on the Anthropic shape, a `models` envelope on the Codex shape — and first-party routing skips detection outright via `expectGateway`.
 
 ```bash
-npx vitest run packages/server/src/server/agent/gateway/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
 ```
 
 ## gateway-claude-launch
@@ -603,7 +593,7 @@ npx vitest run packages/server/src/server/agent/gateway/models.test.ts packages/
 Gateway-routed custom models disallow `WebSearch` unless the gateway advertises `cpa_capabilities.claude_web_search: true` (a proxy without the bit or with `false` still disallows it to prevent ungrounded or failing searches), gate image blocks on known `inputModalities` with a file-hint fallback, merge auto-persisted limits (now including modalities) into the running client's in-memory models so the first post-discovery session launches with resolved capacity.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
 ```
 
 ## gateway-codex-discovery
@@ -613,7 +603,7 @@ npx vitest run packages/server/src/server/agent/providers/claude/agent.env.test.
 Gateway-routed Codex (first-party or a derived provider pointing at a Gateway) appends Codex-shape catalog rows — hidden skipped, reasoning levels mapped to thinking options, advertised context windows overlaid on base models, bare-slug ids routed by the synthetic `cliproxyapi` thread `model_provider` — to `model/list` results.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1
 ```
 
 ## gateway-claude-effort-identity
@@ -623,7 +613,7 @@ npx vitest run packages/server/src/server/agent/providers/codex-app-server-agent
 Gateway-routed Claude models take their effort levels from the Codex-shape catalog instead of one hardcoded set, and Claude Code is told the model's real name and capabilities through `ANTHROPIC_CUSTOM_MODEL_OPTION_*` / `ANTHROPIC_DEFAULT_FABLE_MODEL_*`. A model the catalog does not describe keeps the full set. The capability list uses the same `max_effort` / `xhigh_effort` tokens Claude Code's own model catalog carries.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-effort.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/cliproxy-effort.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
 ```
 
 ## gateway-codex-cpa-window
@@ -635,8 +625,8 @@ Gateway-discovered models and base models routed through CLIProxyAPI use their a
 The catalog lives in the daemon's `$PASEO_HOME`. A provider `env` that sets `PASEO_HOME` overrides it; any other provider `env` (a derived provider's `OPENAI_*`) does not, so it cannot redirect the catalog to `~/.paseo`. Before this, a test run overwrote the real catalog with fixture rows, and gateway models absent from that file compacted at Codex's own default window. The repo-root vitest config sets a temp `PASEO_HOME` for the same reason.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/codex-catalog.test.ts packages/server/src/server/agent/gateway/models.test.ts --bail=1
-npx vitest run packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1 -t "daemon PASEO_HOME"
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/codex-catalog.test.ts packages/server/src/server/agent/gateway/models.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/codex-app-server-agent.test.ts --bail=1 -t "daemon PASEO_HOME"
 ```
 
 ## gateway-opencode-provider
@@ -646,7 +636,7 @@ npx vitest run packages/server/src/server/agent/providers/codex-app-server-agent
 Every spawned OpenCode server gets an additive `cliproxyapi` provider record (openai-compatible adapter, options, models map built from live Gateway rows with trusted limits) so Gateway slugs register, list, and run sessions; user-defined `provider.cliproxyapi` wins entirely, and the Paseo catalog appends `cliproxyapi/<slug>` rows with the same trust rules.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/opencode-agent.test.ts packages/server/src/server/agent/providers/opencode/bridge.test.ts packages/server/src/server/agent/providers/opencode-server-manager.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/opencode-agent.test.ts packages/server/src/server/agent/providers/opencode/bridge.test.ts packages/server/src/server/agent/providers/opencode-server-manager.test.ts --bail=1
 ```
 
 ## gateway-omp-litellm
@@ -656,7 +646,7 @@ npx vitest run packages/server/src/server/agent/providers/opencode-agent.test.ts
 When `agents.gateway` is set and the base omp provider has no `LITELLM_BASE_URL`/`LITELLM_API_KEY` of its own, the registry injects the Gateway endpoint under explicit provider env. The binary exposes it as its `litellm` provider, so Gateway slugs, limits, and thinking levels appear in the OMP catalog as `litellm/<slug>` with no client changes; derived OMP profiles never inherit the routing.
 
 ```bash
-npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/agent/provider-registry.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/agent/provider-registry.test.ts --bail=1
 ```
 
 ## gateway-quota
@@ -666,7 +656,8 @@ npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/
 The `gateway.quota.get` RPC (gated on `server_info.features.gatewayQuota`) maps the agent's Paseo model id to a Gateway slug and fetches `/v1/quota`, cached 60 seconds, only for Gateway-routed providers. Old Gateways without the route answer empty-body 404s; those and every other failure return `supported: false` and the popover renders nothing instead of an error. The sections mount inside each meter surface (sheet, tooltip, hover card), which unmount while closed, so reads and the stats poll only run while open.
 
 ```bash
-npx vitest run packages/server/src/server/agent/gateway/quota.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/quota.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts --bail=1
+npx vitest run packages/protocol/src/messages.test.ts --bail=1
 ```
 
 ## gateway-claude-cpa-window
@@ -676,7 +667,7 @@ npx vitest run packages/server/src/server/agent/gateway/quota.test.ts packages/s
 Non-official CPA rows such as Space Bunny and MiMo advertise their window, but Claude ignored it and launched at 200k. Those rows now use the advertised window. First-party manifest ids are left alone: the 200k row, its `[1m]` variant, and Opus 5.5 at 1M. CPA reports the base id as 1M, which would collapse that pair.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts packages/server/src/server/agent/providers/claude/agent.test.ts --bail=1
 ```
 
 ## cliproxyapi-config-name
@@ -686,7 +677,7 @@ npx vitest run packages/server/src/server/agent/providers/claude/cliproxy-models
 The config key is `agents.cliproxyapi`. Env is `PASEO_CLIPROXYAPI_*`. The tooltip says CLIProxyAPI quota. The quota RPC is `cliproxyapi.quota.get`, gated on `server_info.features.cliproxyapiQuota`.
 
 ```bash
-npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/persisted-config.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/persisted-config.test.ts --bail=1
 ```
 
 ## gateway-latest-request
@@ -696,7 +687,8 @@ npx vitest run packages/server/src/server/agent/gateway/config.test.ts packages/
 The `cliproxyapi.stats.get` RPC (gated on `server_info.features.cliproxyapiStats`) reads `/v1/last-request-stats`, and the meter's tooltip renders a "CLIProxyAPI latest request" table next to quota: first token and generating above a rule, then the derived total, throughput, and age. It polls every 3s while the tooltip is open and stops with it, so someone watching throughput sees it move without a closed tooltip costing anything. A missing route, an unrun model, and a bad key all hide the section. CLIProxyAPI renamed the route from `/v1/last-request-tps` to `/v1/last-request-stats` in v8.0.902 with the body unchanged and the old path dropped. Because the feature shipped unreleased, Paseo also renamed its own RPC from `cliproxyapi.tps.get` to `cliproxyapi.stats.get` rather than carry a wire alias forever for a name that was never public.
 
 ```bash
-npx vitest run packages/server/src/server/agent/gateway/stats.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts packages/protocol/src/messages.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/stats.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts --bail=1
+npx vitest run packages/protocol/src/messages.test.ts --bail=1
 cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 ```
 
@@ -707,7 +699,7 @@ cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 `normalizeClaudeRuntimeModelId` folds `claude-sonnet-5-5` onto `claude-sonnet-5` because the fallback match is unanchored. `appendCliproxyModelsToClaudeCatalog` skips every row that normalizes, so a new Anthropic minor release advertised by the Gateway was silently dropped from the Claude catalog and never reached Claude Code. The fallback match now refuses to fold a trailing 1-2 digit minor; a 3+ digit run stays foldable so dated spellings (`claude-opus-5-20260724-v1:0`) still resolve.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/models.test.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts --bail=1
 ```
 
 ## cliproxyapi-terminal-tui-routing
@@ -719,7 +711,7 @@ A terminal tab launches harnesses as ordinary child processes, so the agent path
 What a terminal gets is routing, not the full launch contract. A Claude terminal receives the endpoint and key only: Claude asks `/v1/models` for a model's id and description, so a Gateway model is one it does not recognise and runs at its 200k default no matter what the Gateway advertises. The agent path sets the window because it knows the model before launch; a TUI session picks afterwards. `ANTHROPIC_CUSTOM_MODEL_OPTION_*` and the Fable naming are likewise agent-path only. Do not read the shims as parity with the agent path — Codex and OpenCode terminals do reach their advertised limits, Claude does not.
 
 ```bash
-npx vitest run packages/server/src/terminal/harness-shims.test.ts packages/server/src/terminal/harness-shim-writer.test.ts packages/server/src/terminal/harness-routing.test.ts packages/server/src/terminal/worker-terminal-manager.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/terminal/harness-shims.test.ts packages/server/src/terminal/harness-shim-writer.test.ts packages/server/src/terminal/harness-routing.test.ts packages/server/src/terminal/worker-terminal-manager.test.ts --bail=1
 ```
 
 ## gateway-codex-catalog-shape
@@ -729,7 +721,7 @@ npx vitest run packages/server/src/terminal/harness-shims.test.ts packages/serve
 Gateway `/v1/models` rows arrive as `supported_reasoning_levels: [{ effort }]` with no `description` and `visibility: []`. Written verbatim into `codex-model-catalog.json`, Codex's app-server rejects the file (`missing field description`, `invalid type: sequence, expected string or map`) and every Codex spawn exits code 1. `normalizeCodexCatalogModel` fills level descriptions from the effort and maps visibility arrays to `"list"`/`"hide"`; `resolveCodexModelCatalogPath` treats stale pre-normalization files as absent so the next Gateway refresh rebuilds them.
 
 ```bash
-npx vitest run packages/server/src/server/agent/providers/codex-catalog.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/codex-catalog.test.ts --bail=1
 ```
 
 ## gateway-boot-catalog-cache
@@ -739,7 +731,7 @@ npx vitest run packages/server/src/server/agent/providers/codex-catalog.test.ts 
 Discovery was lazy, so a gateway model resumed at boot launched with no `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, Claude Code assumed 200K, and the resumed transcript was compacted against that wrong ceiling. When a gateway is configured, boot waits up to two seconds for `refreshSettingsSnapshot` before restart recovery resumes agents, concurrent with `listen` so the daemon still starts promptly; without a gateway nothing waits. Catalog responses are cached one file per request URL under `$PASEO_HOME/cache/cliproxyapi/`; a live catalog always wins, the cache stands in only when the gateway returned no models, and having neither logs the 200K assumption instead of failing silently. `PASEO_DISABLE_GATEWAY_CACHE=1` skips the cache and is set by both vitest configs, so no suite writes a gateway cache into a real `$PASEO_HOME`.
 
 ```bash
-npx vitest run packages/server/src/server/agent/gateway/http-response-cache.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/http-response-cache.test.ts packages/server/src/server/agent/providers/claude/agent.env.test.ts --bail=1
 grep -q 'void bootCatalogWarmup$' packages/server/src/server/bootstrap.ts
 grep -q 'then(() => restartRecovery.resumePending())' packages/server/src/server/bootstrap.ts
 ```
@@ -752,7 +744,7 @@ Speak tool calls render as collapsed badges (mic icon + "Spoke" + first-line pre
 
 ```bash
 npx vitest run packages/protocol/src/messages.voice-read-aloud-rewrite.test.ts --bail=1
-npx vitest run packages/server/src/server/session/voice/voice-read-aloud-rewrite.test.ts packages/server/src/server/session/voice/voice-turn-controller.test.ts packages/server/src/server/session/voice/voice-session.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session/voice/voice-read-aloud-rewrite.test.ts packages/server/src/server/session/voice/voice-turn-controller.test.ts packages/server/src/server/session/voice/voice-session.test.ts --bail=1
 npm test --workspace=@getpaseo/app -- src/components/read-aloud-buttons.test.ts src/voice/read-aloud-player.test.ts src/voice/read-aloud-voice.test.ts src/voice/voice-runtime.test.ts --bail=1
 grep -q "voice.read_aloud.rewrite.request" packages/protocol/src/messages.ts
 grep -q "commitUtterance" packages/server/src/server/session/voice/voice-turn-controller.ts
@@ -768,7 +760,7 @@ The dictation overlay gains a sparkle-badged polish action next to insert: the r
 
 ```bash
 npx vitest run packages/protocol/src/messages.voice-dictation-polish.test.ts --bail=1
-npx vitest run packages/server/src/server/session/voice/voice-dictation-polish.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session/voice/voice-dictation-polish.test.ts --bail=1
 npx vitest run packages/client/src/daemon-client.test.ts --bail=1 -t "dictation polish"
 npm test --workspace=@getpaseo/app -- src/voice/use-dictation-polish.test.ts src/i18n/resources.test.ts --bail=1
 grep -q "voice.dictation.polish.request" packages/protocol/src/messages.ts
@@ -797,7 +789,7 @@ grep -q "KeepAwakeSection" packages/app/src/screens/settings-screen.tsx
 The Files pane toolbar gains an Upload button (system picker) and the pane accepts file drops. The target is the selected folder, else the selected file's parent, else the workspace root; existing names go through confirm-then-overwrite, enforced server-side by the `overwrite` flag with `alreadyExists` on conflict. Transport is `fs.entry.upload.request/response` over the binary file-transfer frames: the daemon stages in `PASEO_HOME/uploads`, then temp-copies onto the destination filesystem and renames over the target, so the original survives a failed replace and the executable bit is preserved. Dropped folders are skipped with a toast. Gated on `server_info.features.fsEntryUpload`, so old daemons hide the button and disable drop.
 
 ```bash
-npx vitest run packages/server/src/server/file-explorer/service.test.ts packages/server/src/server/session/files/workspace-files-session.test.ts packages/server/src/server/file-upload/index.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-explorer/service.test.ts packages/server/src/server/session/files/workspace-files-session.test.ts packages/server/src/server/file-upload/index.test.ts --bail=1
 npx vitest run packages/client/src/daemon-client.test.ts --bail=1 -t "upload"
 npm test --workspace=@getpaseo/app -- src/file-explorer/upload-target.test.ts src/components/file-drop/partition-dropped-files.test.ts src/composer/attachments/drop.test.ts src/i18n/resources.test.ts --bail=1
 grep -q "fs.entry.upload.request" packages/protocol/src/messages.ts
@@ -813,7 +805,7 @@ The composer toolbar gains a Schedule prompt action (CalendarClock icon) beside 
 
 ```bash
 npx vitest run packages/protocol/src/schedule/cadence.test.ts packages/protocol/src/schedule/types.test.ts --bail=1
-npx vitest run packages/server/src/server/schedule/service.test.ts -t "agent-target schedule" --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/schedule/service.test.ts -t "agent-target schedule" --bail=1
 npm test --workspace=@getpaseo/app -- src/schedules/schedule-cadence-options.test.ts src/schedules/schedule-form-model.test.ts src/heartbeats/select.test.ts src/composer/schedule-prompt.test.ts --bail=1
 grep -q "scheduledPrompt" packages/protocol/src/messages.ts
 grep -q "asUserMessage" packages/server/src/server/schedule/service.ts
@@ -827,9 +819,9 @@ grep -q "composer-schedule-button" packages/app/src/composer/input/input.tsx
 When API quota exhaustion or model cooldown occurs and a recovery timestamp is known (`RETRY_AFTER:<UTC_DATETIME>`), the daemon schedules a timer to automatically resume the session by sending `Resume - rate limit cooldown has ended` as a user message whose `resume` marker has reason `rate_limit_retry`; the app shows that message as the rate-limit marker. The UI surfaces an active cooldown banner and composer track pill with live countdowns and "Resume now" / "Cancel auto-resume" controls. Only the fork [iamriajul/CLIProxyAPI](https://github.com/iamriajul/CLIProxyAPI) writes that marker into the error; Anthropic, OpenAI and upstream CLIProxyAPI errors carry no recovery time, so without that gateway nothing resumes, and the host and agent setting hints say so. The feature is enabled by default with a host-level setting (`autoResumeOnRateLimit`) and per-agent tab settings ("Agent settings..." modal, stored in agent labels as `rate_limit_auto_resume`). While a rate limit cooldown timer is active, scheduled agent heartbeats are skipped to avoid redundant provider requests and timeline noise. Pending retries survive daemon restarts via `pending-rate-limit-auto-resumes.json` and are restored before schedules run. `AgentManager.setRateLimitCooldown` publishes only a real change: every turn start cancels auto-resume, and publishing that no-op clear sent an idle snapshot that reached the app after `turn_started`, flickering the running indicator and jumping the timeline 69px.
 
 ```bash
-npx vitest run packages/server/src/server/agent/agent-rate-limit-auto-resume.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-rate-limit-auto-resume.test.ts --bail=1
 npx vitest run packages/server/src/server/agent/agent-manager.test.ts -t "absent rate-limit cooldown" --config packages/server/vitest.config.ts --bail=1
-npx vitest run packages/server/src/server/schedule/service.test.ts -t "agent-target schedule skips execution when rate limit cooldown is active" --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/schedule/service.test.ts -t "agent-target schedule skips execution when rate limit cooldown is active" --bail=1
 npm test --workspace=@getpaseo/app -- src/screens/workspace/use-workspace-agent-settings.test.tsx src/components/message-resume-label.test.ts --bail=1
 grep -q "autoResumeOnRateLimit" packages/protocol/src/messages.ts
 grep -q "resume?: { reason: string }" packages/protocol/src/agent-types.ts
@@ -844,7 +836,7 @@ grep -q "RateLimitCooldownBanner" packages/app/src/rate-limit-cooldown/rate-limi
 A workspace directory leaves the 180s `git fetch` and the forge PR retain when it is archived, or when no connected client has it open and its newest non-archived agent `updatedAt` is 6 hours old or older. Exactly 6 hours is out. An open client keeps the directory in the set even when every agent clock is stale. The open workspace is `client_heartbeat.openWorkspaceId`. The focused tab is not a workspace, and a files or git tab sets neither focused id. Old clients omit the field and pin nothing. Boot reads the stored agent records, because `listAgents()` is empty until a session resumes.
 
 ```bash
-npx vitest run packages/server/src/server/git-remote-poll/git-remote-poll.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/git-remote-poll/git-remote-poll.test.ts --bail=1
 grep -q "listAgentsIncludingInternal" packages/server/src/server/bootstrap.ts
 ```
 
@@ -872,7 +864,7 @@ Cache warm-up keeps a Claude Code session's Anthropic prompt cache alive just be
 - **Running turns are warmed.** Every request the agent makes restarts the countdown (`AgentCacheWarmManager.onRequestRecorded` re-times the warm-up and ends the idle stretch's count), and a turn that waits on a tool, a subagent, an MCP call or a Monitor is warmed through the fork like an idle agent. A fork's request is a warm-up that belongs to no turn, so the agent's next request still continues its turn (`recordPromptCacheRequest`). The pill and the sidebar count down to the next warm-up during a turn on a host with `server_info.features.cacheWarmFork`; before forks a ping would have queued behind the turn, so the pill showed `cache · expired` when the window passed inside it, and still does on an older host.
 - **Foreground shell cap.** A PreToolUse hook (`providers/claude/foreground-shell-cap.ts`, matcher `Bash|PowerShell`) denies a foreground Bash or PowerShell call whose `timeout` exceeds `FOREGROUND_SHELL_CAP_MS` for the effective TTL: 250 s on 5m, 58 minutes on 1h. The reason names the tool, the cap and `run_in_background`; background calls are exempt. Input it cannot read, or a `timeout` that is not a finite number, is denied as well. It denies instead of clamping because Claude Code shortens a requested timeout silently, and a call that reaches its timeout is moved to the background (or stopped where auto-backgrounding is off), so the model never sees a refusal naming the cap. SDK callback hooks still run under `disableAllHooks`, so internal agents are capped too. It is a hook, not a `BASH_MAX_TIMEOUT_MS` env overlay, because Claude Code applies user, project and local settings `env` over the spawn env, and a launch-time value cannot follow the observed TTL. A call with no `timeout` gets Claude Code's default, which the hook cannot see and which PowerShell reads from the same variable, so Paseo pins `BASH_DEFAULT_TIMEOUT_MS=120000` in the flag settings layer, which outranks every settings file except managed policy. Background calls keep Claude Code's 2-hour cap: in Claude Code 2.1.312 the only thing that lowers it to the foreground max is an internal tool-context field (`shellWallCapMs` in the bundle), which no SDK option exposes and Paseo cannot set.
 - **Self-started turns.** A turn Claude Code starts by itself (a task notification) ends on the autonomous path, whose run settles after the idle state is published. `AgentManager` re-arms the watchdog once that run settles; before, the watchdog saw the still-tracked run as busy and the cache expired.
-- **Restarts.** `AgentCacheWarmManager.bootstrap` arms loaded agents and idle stored agents that are not loaded yet, except an agent that a manual stop marked `stoppedByUser`. That agent is not armed, even after a load, until a prompt is accepted for it (`restart-recovery-policy`). The warm-up loads the rest (`ensureAgentLoaded`) and then forks. It runs after boot restart recovery and the rate-limit bootstrap, even when either fails.
+- **Restarts.** `AgentCacheWarmManager.bootstrap` arms loaded agents and idle stored agents that are not loaded yet. The warm-up loads them (`ensureAgentLoaded`) and then forks. It runs after boot restart recovery and the rate-limit bootstrap, even when either fails.
 - **Request history.** `recordPromptCacheRequest` (protocol) records every main-thread request: its kind (turn start, a later request in the turn, or a warm-up), its read/write/uncached split, the gap since the previous request and, on a turn start, the time since the latest request that was not a warm-up. One entry per request, not per prompt, because each request reads or writes the cache on its own, and a miss in the middle of a turn (a tool call longer than the window) costs as much as a miss on return. A usage report whose read, write and uncached counts are all zero carries no accounting, so it is not an entry. A request is a hit when it read at least 90% of the previous request's input (`PROMPT_CACHE_PREVIOUS_READ_RATIO`, stored as `previousInputTokens`). The cache holds what the previous request sent, so a request that appends a large tool result is still a hit when it reads all of that. The 90% is because an expired cache can still read the shared system prefix, which is most of a small context. Records written before `previousInputTokens` existed fall back to reading at least half of their own input (`PROMPT_CACHE_HIT_RATIO`). A fresh session's first request is never a hit: it has no earlier request to read, even when the API reports a read of the shared system and tool prefix (two fresh QA sessions each read 38,478 tokens on their first request, which is that prefix). A native fork's first request is measured against the last request its parent made before the fork (`PromptCacheInheritance`), because the fork inherits that context and reads it from the cache. A fork started on another model inherits nothing, because a cache belongs to one model, so its first request is a fresh session's. The parent's entry stays warm, and the fork's writes do not evict it. A miss (`isAvoidablePromptCacheMiss`) is a request that came after cached context and was not a hit. A fresh session's first request is neither a hit nor a miss, and the snapshot and chart show it as a neutral first write. The first request after a compaction (`afterCompaction`), at any time, is left out of every count and chart, because the compacted context was never cached; the compaction marks the chart instead. A later user prompt is a miss like any other when the cache had expired. The snapshot carries three things: the latest `PROMPT_CACHE_HISTORY_LIMIT` (24) requests for the pill's bars, the latest compactions, and `promptCache.totals` (requests that had a cache to hit, hits and misses over the whole session, seeded from the window on records written before totals existed). Before the journal it held 60 requests, which was also the only record of the session; that many bars made the popover too large to read, and 60 was still a window, not the session. The whole session now lives in an append-only JSONL journal per agent under `$PASEO_HOME/prompt-cache/` (`agent/prompt-cache-journal.ts`), seeded from the snapshot window the first time an existing agent writes. The insights dialog fetches it with `agent.prompt_cache.history.request`, gated on `server_info.features.promptCacheInsights`, and lets you explore it (`prompt-cache/prompt-cache-explorer.ts`): every tile and the cost split describe the range on screen, a tapped bar shows its requests, Zoom in redraws the chart over that bar's requests down to one bar per request, the chart switches between cache hits and estimated cost, and the request list filters to misses, warm-ups or turns. It first drew 120 grouped columns and listed the latest 30 misses, so a long session's detail was out of reach. Each entry records the `model` the request ran on and its `writeTtl` (optional, absent on older entries), so a Haiku compaction or a window change is priced as what it was. Deleting an agent deletes its journal; archiving keeps it.
 - **What it costs.** `@getpaseo/protocol/claude-pricing` prices requests at Anthropic API list prices, for the app and the daemon alike: reads at the model's cache-read share (0.05× on Opus 5.5, 0.025× on Fable 5.1, 0.1× elsewhere), writes at 1.25× (5m) or 2× (1h), and Haiku 5.5's higher tier past 100k. Only input is priced, because the journal records no output, and only the main thread, so every figure is labelled an API-price estimate; a subscription or gateway bills differently. The insights dialog splits that cost between warm-ups and work and tallies what warm-up bought: an idle stretch (a run of warm-ups) is kept when the request after it read the cache, credited with the write it avoided less its read, and lapsed when the request after it missed or none came within the window. A warm-up reads the context at 0.05× on Opus 5.5 against a 1.25× rewrite, so one avoided 5m miss pays for 25 warm-ups. The context window popover prices the next message from the last request (`prompt-cache/next-message-cost.ts`): a read while the cache is warm, a full write once it expired, and says when the Claude process has stopped. The stored agent record keeps `lastUsage`, so an agent that is not loaded (process stopped, daemon restarted) still reports its context; it was dropped on unload, and the popover read "No context data" exactly when deciding whether to resume. The context window tooltip's Session cost is Claude Code's `total_cost_usd` plus `warmUpCostUsd`, and says how much of it was warm-ups; the insights dialog shows both figures beside its input estimate. Claude Code never counts a fork warm-up (v2): each runs in a throwaway fork whose result Paseo read only for its cache sample. A ping warm-up (v1, the default) is a turn of the session, so Claude Code already counts it and `warmUpCostUsd` stays unset. The fork's own cost is priced from its result's `usage`, which counts only that process, because its `total_cost_usd` restores the session's running total and adds to it; measured on Claude Code 2.1.316 with Haiku 5.5, a resumed process and a `--fork-session` process both continued the parent's total, so the tooltip figure also survives relaunches and needs no running total of its own. `warmUpCostUsd` persists on the agent record and starts at zero for agents warmed before it existed. A per-request `usage_updated` merges into `lastUsage` instead of replacing it; replacing dropped the cost, so the tooltip lost Session cost for the whole of every running turn.
 - **Misses beside the countdown.** The session's miss count shows in red after a middle dot, in the composer pill (a `tone: "danger"` segment) and on the sidebar workspace row. The count is shown only above zero, so a session with no misses has no red number. The row shows it even with no warm-up armed, because a miss is worth seeing whether or not warm-up is on. The pill, popover and insights work with warm-up off, since requests are recorded either way. The red count is misses since the user last cleared it: the popover's "Clear miss count" and Host settings' "Clear miss counts" (every Claude agent of the host) send `agent.prompt_cache.clear_misses.request`, gated on `server_info.features.promptCacheClearMisses`, and the daemon stores the session's miss total at that moment as `promptCache.missesCleared` (`visiblePromptCacheMisses`). Insights keep reading the full totals and journal, so a clear hides nothing from them. It exists because misses earned under one setup, such as v2 fork warm-ups before their routing fix, kept every row red after the cause was gone.

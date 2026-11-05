@@ -543,12 +543,8 @@ export interface PaseoDaemon {
   scriptRuntimeStore: WorkspaceScriptRuntimeStore;
   browserToolsBroker: BrowserToolsBroker;
   start(): Promise<void>;
-  /**
-   * Stops the daemon. Terminals keep running for the next daemon only with keepTerminals. An
-   * intentional stop leaves nothing to resume on the next start; any other stop records the
-   * running agents for restart recovery.
-   */
-  stop(options?: { keepTerminals?: boolean; intentional?: boolean }): Promise<void>;
+  /** Stops the daemon. Terminals keep running for the next daemon only with keepTerminals. */
+  stop(options?: { keepTerminals?: boolean }): Promise<void>;
   getListenTarget(): ListenTarget | null;
   getServerId(): string;
 }
@@ -2231,7 +2227,7 @@ export async function createPaseoDaemon(
     }
   };
 
-  const stop = async (options?: { keepTerminals?: boolean; intentional?: boolean }) => {
+  const stop = async (options?: { keepTerminals?: boolean }) => {
     gitRemotePollGate?.stop();
     const keepTerminals = options?.keepTerminals === true;
     let terminalShutdownError: unknown = null;
@@ -2253,12 +2249,7 @@ export async function createPaseoDaemon(
     await finishSubscriptions.close();
     await wsServer?.agentMessages.close();
     agentManager.prepareForShutdown();
-    const liveAgentIds = new Set(
-      agentManager.listAgents({ includeInternal: true }).map((agent) => agent.id),
-    );
-    // A manual stop does not resume: a rate-limit retry still pending would fire after restart.
-    if (options?.intentional) await rateLimitAutoResumeManager.cancelAll();
-    if (!options?.intentional) await restartRecovery.captureRunningAgents();
+    await restartRecovery.captureRunningAgents();
     await closeAllAgents(logger, agentManager);
     await withTimeout({
       promise: pluginRuntime.drainEvents(),
@@ -2267,7 +2258,6 @@ export async function createPaseoDaemon(
     }).catch((error) => logger.warn({ err: error }, "Plugin lifecycle events did not finish"));
     await agentManager.flushForShutdown().catch(() => undefined);
     detachAgentStoragePersistence();
-    if (options?.intentional) await markStoppedByUser(agentStorage, liveAgentIds);
     await agentStorage.flush().catch(() => undefined);
     await agentProviderRuntime.shutdown();
     await pluginRuntime.stopAllPlugins();
@@ -2341,30 +2331,6 @@ const AGENT_CLOSE_TIMEOUT_MS = 5_000;
  * a partial catalog, which is degraded but never blocked.
  */
 const BOOT_CATALOG_WARMUP_TIMEOUT_MS = 2_000;
-
-/**
- * A stop a person asked for: nothing the daemon was running comes back on the next start, and boot
- * warm-up leaves every agent that was live at the stop alone (`stoppedByUser`) until a prompt is
- * accepted for it. A close that never answered (abandoned after AGENT_CLOSE_TIMEOUT_MS) leaves its
- * record running, so the running
- * records are closed here. Runs after the persistence hook is detached, so no late snapshot writes
- * a running status back over it.
- */
-async function markStoppedByUser(
-  agentStorage: AgentStorage,
-  liveAgentIds: ReadonlySet<string>,
-): Promise<void> {
-  for (const record of await agentStorage.list()) {
-    const running = record.lastStatus === "running" || record.lastStatus === "initializing";
-    if (!running && !record.resumeOnStartup && !liveAgentIds.has(record.id)) continue;
-    await agentStorage.upsert({
-      ...record,
-      lastStatus: running ? "closed" : record.lastStatus,
-      resumeOnStartup: false,
-      stoppedByUser: true,
-    });
-  }
-}
 
 async function closeAllAgents(logger: Logger, agentManager: AgentManager): Promise<void> {
   const agents = agentManager.listAgents({ includeInternal: true });

@@ -475,11 +475,6 @@ interface ManagedAgentBase {
    */
   workspaceId?: string;
   owner?: AgentOwner;
-  /**
-   * A manual stop closed this agent, and no prompt has been accepted for it since
-   * (`restart-recovery-policy`). Restart recovery and cache warm-up leave it alone.
-   */
-  stoppedByUser?: boolean;
   capabilities: AgentCapabilityFlags;
   config: AgentSessionConfig;
   /** Explicit launch overrides, before per-opening hooks and daemon-owned variables. */
@@ -1440,17 +1435,6 @@ export class AgentManager {
   getAgent(id: string): ManagedAgent | null {
     const agent = this.agents.get(id);
     return agent ? { ...agent } : null;
-  }
-
-  /**
-   * Holds a live agent under a manual stop, or releases it. getAgent returns a copy, so a load
-   * that carries the stop has to come through here to reach the agent itself.
-   */
-  setAgentStoppedByUser(agentId: string, stopped: boolean): void {
-    const agent = this.agents.get(agentId);
-    if (agent) {
-      agent.stoppedByUser = stopped;
-    }
   }
 
   async waitForAgentClose(agentId: string): Promise<void> {
@@ -3324,10 +3308,6 @@ export class AgentManager {
       this.runs.settleForegroundStart(pendingRun, { status: "started", turnId });
       agent.activeForegroundTurnId = turnId;
       agent.activeTurnIsWarmPing = options?.isWarmPing ?? false;
-      if (!agent.activeTurnIsWarmPing) {
-        // An accepted turn is a use, whether or not its prompt carries a client message id.
-        agent.stoppedByUser = false;
-      }
       this.openActiveTurn(agent, turnId, turnStartedAt);
       agent.lifecycle = "running";
       this.touchUpdatedAt(agent);
@@ -5911,10 +5891,6 @@ export class AgentManager {
       resume?: { reason: string };
     },
   ): void {
-    if (outcome === "accepted") {
-      // A prompt accepted for the agent is a use, so a manual stop no longer holds it.
-      agent.stoppedByUser = false;
-    }
     const items = projectAgentMessages({
       type: "user_message",
       text: submittedPromptText(prompt),

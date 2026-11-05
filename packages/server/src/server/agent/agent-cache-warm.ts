@@ -56,8 +56,6 @@ interface CacheWarmView {
   forkWarm: boolean;
   /** Host setting `childReportExpiredCache` is keep-warm and a child can still report to it. */
   warmPastCap: boolean;
-  /** The user stopped the agent, and no prompt has been accepted for it since. */
-  stoppedByUser: boolean;
 }
 
 type CacheWarmDecision =
@@ -114,7 +112,6 @@ function viewLiveAgent(
     contextTokens: readContextTokens(agent.promptCache),
     forkWarm: input.forkWarm,
     warmPastCap: input.warmPastCap,
-    stoppedByUser: agent.stoppedByUser === true,
   };
 }
 
@@ -140,7 +137,6 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
     // Loading the record gives it a session that can fork; a crashed run is restart recovery's.
     forkWarm: input.forkWarm && !wasRunning,
     warmPastCap: input.warmPastCap,
-    stoppedByUser: record.stoppedByUser === true,
   };
 }
 
@@ -440,9 +436,6 @@ export class AgentCacheWarmManager {
     if (!view) {
       return { kind: "skip", reason: "agent is not known" };
     }
-    if (view.stoppedByUser) {
-      return { kind: "skip", reason: "the user stopped this agent" };
-    }
     return decideCacheWarm({
       view,
       nowMs: this.now(),
@@ -664,8 +657,7 @@ export class AgentCacheWarmManager {
 
   /**
    * Arms every warmable agent after boot: loaded ones, and idle ones that exist only on
-   * disk, except those a manual stop left stopped. A warm-up for a dormant agent loads it
-   * (`loadAgent`) and then warms it through a fork.
+   * disk. A warm-up for a dormant agent loads it (`loadAgent`) and then warms it through a fork.
    */
   async bootstrap(): Promise<void> {
     for (const agent of this.agentManager.listAgents()) {
@@ -674,12 +666,7 @@ export class AgentCacheWarmManager {
     }
     const records = await this.agentStorage.list();
     for (const record of records) {
-      if (
-        record.archivedAt ||
-        record.internal ||
-        record.stoppedByUser ||
-        this.agentManager.getAgent(record.id)
-      ) {
+      if (record.archivedAt || record.internal || this.agentManager.getAgent(record.id)) {
         continue;
       }
       const view = viewDormantRecord(record, {

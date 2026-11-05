@@ -56,9 +56,6 @@ const STORED_AGENT_SCHEMA = z.object({
   labels: z.record(z.string(), z.string()).default({}),
   lastStatus: AgentStatusSchema.default("closed"),
   resumeOnStartup: z.boolean().optional(),
-  // Set by a manual stop on every agent it closed. Restart recovery and cache warm-up leave the
-  // agent alone until a prompt is accepted for it (`restart-recovery-policy`).
-  stoppedByUser: z.boolean().optional(),
   lastModeId: z.string().nullable().optional(),
   config: SERIALIZABLE_CONFIG_SCHEMA,
   launchEnv: z.record(z.string(), z.string()).optional(),
@@ -285,10 +282,6 @@ export class AgentStorage {
       }
       record.resumeOnStartup =
         existing?.resumeOnStartup && agent.lifecycle !== "idle" && agent.lifecycle !== "error";
-      // A live agent that has not learned of its stop yet keeps the stored one. An accepted
-      // prompt sets the live flag false, which ends the stop.
-      record.stoppedByUser =
-        (agent.stoppedByUser ?? existing?.stoppedByUser) === true ? true : undefined;
       return record;
     });
   }

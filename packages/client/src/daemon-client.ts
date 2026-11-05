@@ -892,8 +892,6 @@ export interface ShutdownServerOptions {
   // Leave terminals running for the next daemon. Only daemons advertising
   // `features.terminalsSurviveRestart` honor it; check before sending.
   keepTerminals?: boolean;
-  // Names a stop the software makes for itself; see the protocol's shutdown request.
-  reason?: string;
 }
 export interface DaemonStatusOptions {
   requestId?: string;
@@ -4707,7 +4705,6 @@ export class DaemonClient {
       type: "shutdown_server_request",
       requestId: resolvedRequestId,
       ...(options?.keepTerminals ? { keepTerminals: true } : {}),
-      ...(options?.reason ? { reason: options.reason } : {}),
     });
     return this.sendRequest({
       requestId: resolvedRequestId,

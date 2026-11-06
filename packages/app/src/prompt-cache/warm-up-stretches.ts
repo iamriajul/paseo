@@ -23,6 +23,22 @@ export function isWarmPingRow(item: StreamItem, above: StreamItem | null): boole
   );
 }
 
+/**
+ * A turn footer hosted on a warm-up turn's rows. Those rows render nothing, so the footer would
+ * be a "Worked for 4s" under no turn at all. The host's neighbours are read both ways because a
+ * native list holds its rows newest first.
+ */
+export function isWarmPingTurnHost(host: {
+  items: readonly StreamItem[];
+  startIndex: number;
+}): boolean {
+  const item = host.items[host.startIndex];
+  if (!item) return false;
+  const before = host.items[host.startIndex - 1] ?? null;
+  const after = host.items[host.startIndex + 1] ?? null;
+  return isWarmPingRow(item, before) || isWarmPingRow(item, after);
+}
+
 interface Bucket {
   recorded: number[];
   pingRows: number[];

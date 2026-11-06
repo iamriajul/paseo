@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CACHE_WARM_PING_PROMPT } from "@getpaseo/protocol/agent-cache-warm";
 import type { StreamItem } from "@/types/stream";
-import { foldWarmUpStretches } from "./warm-up-stretches";
+import { foldWarmUpStretches, isWarmPingTurnHost } from "./warm-up-stretches";
 
 const MINUTE = 60_000;
 
@@ -70,5 +70,23 @@ describe("foldWarmUpStretches", () => {
 
     expect(older.size).toBe(0);
     expect(newer.size).toBe(0);
+  });
+});
+
+describe("isWarmPingTurnHost", () => {
+  it("is a footer on a warm-up turn's reply, in either list order, and not on real work", () => {
+    const rows = [
+      user("u1", 0),
+      assistant("a1", 1),
+      user("p1", 5, DEFAULT_CACHE_WARM_PING_PROMPT),
+      assistant("r1", 5, "ok"),
+    ];
+    expect(isWarmPingTurnHost({ items: rows, startIndex: 3 })).toBe(true);
+    expect(isWarmPingTurnHost({ items: rows.toReversed(), startIndex: 0 })).toBe(true);
+    expect(isWarmPingTurnHost({ items: rows, startIndex: 1 })).toBe(false);
+    // A real "ok" reply to a real prompt keeps its footer.
+    expect(
+      isWarmPingTurnHost({ items: [user("u2", 9), assistant("a2", 9, "ok")], startIndex: 1 }),
+    ).toBe(false);
   });
 });

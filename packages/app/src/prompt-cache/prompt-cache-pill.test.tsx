@@ -158,11 +158,22 @@ vi.mock("./prompt-cache-insights-dialog", async () => {
   };
 });
 
-const { capWarningMinutes } = vi.hoisted(() => ({ capWarningMinutes: { current: 10 } }));
+const { capWarningMinutes, moneyStats } = vi.hoisted(() => ({
+  capWarningMinutes: { current: 10 },
+  moneyStats: { current: false },
+}));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: (select: (settings: { promptCacheCapWarningMinutes: number }) => unknown) =>
-    select({ promptCacheCapWarningMinutes: capWarningMinutes.current }),
+  useSettings: (
+    select: (settings: {
+      promptCacheCapWarningMinutes: number;
+      promptCacheMoneyStats: boolean;
+    }) => unknown,
+  ) =>
+    select({
+      promptCacheCapWarningMinutes: capWarningMinutes.current,
+      promptCacheMoneyStats: moneyStats.current,
+    }),
 }));
 
 vi.mock("@/components/ui/pane-content-toolbar", async () => {
@@ -460,6 +471,33 @@ describe("PromptCachePill", () => {
       });
     }
     expect(flashes).toEqual(new Set(["true", "false"]));
+  });
+
+  it("prices warm-up against a rewrite only while money stats are on, for a priced model", () => {
+    const agent = claudeAgent({
+      ttl: "5m",
+      model: "claude-opus-5-5",
+      consecutiveWarmPings: 2,
+      promptCache: promptCacheAt(NOW - MINUTE),
+    });
+    moneyStats.current = false;
+    expect(renderPill(agent).queryByTestId("prompt-cache-warm-up-cost")).toBeNull();
+    cleanup();
+
+    moneyStats.current = true;
+    // 183,240 tokens on Opus 5.5 ($4/MTok): a read at 0.05× is $0.037, a 5m write at 1.25× $0.92.
+    expect(renderPill(agent).getByTestId("prompt-cache-warm-up-cost").textContent).toBe(
+      "≈ $0.04 each · $0.29 to the cap · rewrite ≈ $0.92",
+    );
+    cleanup();
+
+    // A CLIProxyAPI slug has no price table, so no figures show.
+    expect(
+      renderPill({ ...agent, model: "grok-4.6" } as Agent).queryByTestId(
+        "prompt-cache-warm-up-cost",
+      ),
+    ).toBeNull();
+    moneyStats.current = false;
   });
 
   it("toggles warm-up, and disables turning it on once the cache expired", () => {

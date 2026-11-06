@@ -82,6 +82,8 @@ export interface WarmUpPayback {
 export interface InsightsCost {
   warmUpUsd: number;
   workUsd: number;
+  /** Input tokens of the priced requests that were not warm-ups: the input the work used. */
+  workInputTokens: number;
   /** Requests with no known price, left out of both sums. */
   unpriced: number;
   payback: WarmUpPayback;
@@ -184,6 +186,7 @@ function summarizeCost(input: {
 }): InsightsCost {
   let warmUpUsd = 0;
   let workUsd = 0;
+  let workInputTokens = 0;
   let unpriced = 0;
   for (const entry of input.requests) {
     const usd = input.price(entry);
@@ -193,9 +196,25 @@ function summarizeCost(input: {
       warmUpUsd += usd;
     } else {
       workUsd += usd;
+      workInputTokens += promptCacheInputTokens(entry);
     }
   }
-  return { warmUpUsd, workUsd, unpriced, payback: summarizeWarmUpPayback(input) };
+  return {
+    warmUpUsd,
+    workUsd,
+    workInputTokens,
+    unpriced,
+    payback: summarizeWarmUpPayback(input),
+  };
+}
+
+/**
+ * What a million input tokens of work really cost: all input spend, warm-ups included, over the
+ * input of the requests that were not warm-ups. Null before any priced work.
+ */
+export function effectiveInputUsdPerMTok(cost: InsightsCost): number | null {
+  if (cost.workInputTokens <= 0) return null;
+  return ((cost.warmUpUsd + cost.workUsd) / cost.workInputTokens) * 1_000_000;
 }
 
 const NO_PRICE: RequestPricer = () => null;

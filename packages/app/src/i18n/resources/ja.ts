@@ -2689,6 +2689,11 @@ export const ja: TranslationResources = {
       },
       promptCache: {
         title: "Claude プロンプトキャッシュ",
+        moneyStats: {
+          label: "コストの見積もりを表示",
+          description:
+            "Claude 公式モデルについて、API 定価による ≈ $ の見積もりを表示します：ターンごと、ウォームアップごと、送信前、セッション分析",
+        },
         capWarning: {
           label: "ウォームアップ上限の前に警告",
           description:

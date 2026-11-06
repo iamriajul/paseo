@@ -2719,6 +2719,11 @@ export const fr: TranslationResources = {
       },
       promptCache: {
         title: "Cache de prompts Claude",
+        moneyStats: {
+          label: "Afficher les estimations de coût",
+          description:
+            "Affiche des estimations ≈ $ au prix catalogue de l’API pour les modèles Claude officiels : par tour, par préchauffage, avant l’envoi et dans l’analyse de session",
+        },
         capWarning: {
           label: "Prévenir avant la limite de préchauffage",
           description:

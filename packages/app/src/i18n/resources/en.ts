@@ -2795,6 +2795,11 @@ export const en = {
       },
       promptCache: {
         title: "Claude prompt cache",
+        moneyStats: {
+          label: "Show cost estimates",
+          description:
+            "Show ≈ $ API list-price estimates for first-party Claude models: per turn, per warm-up, before you send and in session insights",
+        },
         capWarning: {
           label: "Warn before the warm-up cap",
           description:

@@ -20,6 +20,7 @@ import { formatCountdownClock, formatPreciseDuration } from "@/usage/format";
 import type { Theme } from "@/styles/theme";
 import {
   usePromptCache,
+  usePromptCacheAgent,
   type PromptCacheState,
   type PromptCacheStatus,
   type PromptCacheWarmup,
@@ -28,6 +29,9 @@ import type { PromptCacheHistoryBar, PromptCacheHistorySummary } from "./prompt-
 import { PromptCacheInsightsDialog } from "./prompt-cache-insights-dialog";
 import { WarmUpCapSlider } from "./warm-up-cap-slider";
 import { useSettings } from "@/hooks/use-settings";
+import { formatUsdEstimate } from "./prompt-cache-cost";
+import { resolveMoneyStatsPrices } from "./money-stats";
+import { resolveNextMessageCost, type NextMessageCost } from "./next-message-cost";
 import {
   usePromptCacheAutoCompact,
   type PromptCacheAutoCompact,
@@ -309,6 +313,36 @@ function isNearCap(warmup: PromptCacheWarmup | null, warningMinutes: number): bo
   return coverEndsInMs !== null && coverEndsInMs > 0 && coverEndsInMs <= warningMinutes * 60_000;
 }
 
+/**
+ * What warm-up costs against what it saves: each warm-up reads the context, the rest of the cap
+ * reads it that many times again, and letting it expire writes it all again.
+ */
+function resolveWarmUpMoneyText(warmup: PromptCacheWarmup, cost: NextMessageCost): string {
+  const remaining = Math.max(0, warmup.maxPings - warmup.pingsUsed);
+  return `≈ ${formatUsdEstimate(cost.warmUsd)} each · ${formatUsdEstimate(cost.warmUsd * remaining)} to the cap · rewrite ≈ ${formatUsdEstimate(cost.coldUsd)}`;
+}
+
+function buildSegments(cache: PromptCacheState, flash: boolean): ComposerTrackPillSegment[] {
+  const busy = cache.status.kind === "busy" || cache.status.kind === "busy-expired";
+  const segments: ComposerTrackPillSegment[] = [
+    { bucket: busy ? ("running" as const) : null, text: resolveSegmentText(cache), flash },
+  ];
+  if (cache.misses > 0) {
+    segments.push({ bucket: null, text: String(cache.misses), tone: "danger" });
+  }
+  return segments;
+}
+
+/** The warm-up cost figures, only while money stats are on and the model has a price. */
+function resolveMoneyCost(input: {
+  enabled: boolean;
+  agent: ReturnType<typeof usePromptCacheAgent>;
+  cache: PromptCacheState;
+}): NextMessageCost | null {
+  if (!input.enabled || !resolveMoneyStatsPrices(input.agent)) return null;
+  return resolveNextMessageCost({ agent: input.agent, view: input.cache });
+}
+
 function resolveAccessibilityLabel(cache: PromptCacheState): string {
   return `Claude prompt cache: ${resolveSegmentText(cache)}`;
 }
@@ -339,6 +373,8 @@ export const PromptCachePill = memo(function PromptCachePill({
   const cache = usePromptCache(serverId, agentId);
   const autoCompact = usePromptCacheAutoCompact(serverId, agentId);
   const capWarningMinutes = useSettings((settings) => settings.promptCacheCapWarningMinutes);
+  const moneyStats = useSettings((settings) => settings.promptCacheMoneyStats);
+  const agent = usePromptCacheAgent(serverId, agentId);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const openInsights = useCallback(() => setInsightsOpen(true), []);
   const closeInsights = useCallback(() => setInsightsOpen(false), []);
@@ -347,21 +383,10 @@ export const PromptCachePill = memo(function PromptCachePill({
     return null;
   }
 
-  const { windows, warmup, lastPrompt, history, misses } = cache;
-  const segments: ComposerTrackPillSegment[] = [
-    {
-      bucket:
-        cache.status.kind === "busy" || cache.status.kind === "busy-expired"
-          ? ("running" as const)
-          : null,
-      text: resolveSegmentText(cache),
-      flash: isNearCap(warmup, capWarningMinutes) && cache.blinkOn,
-    },
-  ];
-  if (misses > 0) {
-    segments.push({ bucket: null, text: String(misses), tone: "danger" });
-  }
+  const { windows, warmup, lastPrompt, history } = cache;
+  const segments = buildSegments(cache, isNearCap(warmup, capWarningMinutes) && cache.blinkOn);
   const canTurnOn = cache.status.kind !== "expired";
+  const moneyCost = resolveMoneyCost({ enabled: moneyStats, agent, cache });
 
   return (
     <>
@@ -400,6 +425,11 @@ export const PromptCachePill = memo(function PromptCachePill({
                 statusTestID="prompt-cache-cap-count"
               />
               <CapProgress warmup={warmup} />
+              {moneyCost && warmup.enabled ? (
+                <Text style={styles.label} testID="prompt-cache-warm-up-cost">
+                  {resolveWarmUpMoneyText(warmup, moneyCost)}
+                </Text>
+              ) : null}
               {warmup.enabled && cache.setMaxPings ? (
                 <WarmUpCapSlider
                   value={warmup.maxPings}

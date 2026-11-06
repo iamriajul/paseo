@@ -6,7 +6,8 @@ import { resolvePromptCacheView, usePromptCacheAgent, useSecondClock } from "./u
 export interface WorkspaceCacheWarm {
   /**
    * The countdown to the next warm-up of the workspace's active agent, or null when nothing is
-   * counting down: warm-up off, Automatic window, the cap reached, the cache already expired, or,
+   * counting down: warm-up off, Automatic window, the cap reached, paused after the idle-cap
+   * compaction, the cache already expired, or,
    * on a host that cannot warm through a fork, a turn running or a question or permission pending.
    * The row ticks only while it shows one.
    */

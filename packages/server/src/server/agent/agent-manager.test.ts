@@ -5733,6 +5733,68 @@ test("cache warm ping turn does not set requiresAttention or touch lastUserMessa
   expect(persisted?.lastUserMessageAt).toBeNull();
 });
 
+test("a cache warm-up turn keeps the warm-up count through its own start", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-warm-turn-order-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  // As Claude does: the provider announces turn_started inside startTurn, before it returns.
+  class EagerStartSession extends TestAgentSession {
+    private eagerTurns = 0;
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = `turn-eager-${++this.eagerTurns}`;
+      this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+  class EagerStartClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new EagerStartSession(config);
+    }
+  }
+  const seenAsWarmUp: Array<boolean | undefined> = [];
+  const cancel = vi.fn();
+  let manager: AgentManager | null = null;
+  const warmManager = {
+    onTurnStarted: (agentId: string) => {
+      seenAsWarmUp.push(manager?.getAgent(agentId)?.activeTurnIsWarmPing);
+    },
+    cancel,
+    schedule: vi.fn(),
+    onAgentRegistered: vi.fn(),
+    resetConsecutivePings: vi.fn(),
+    deleteAgent: vi.fn(),
+    onRequestRecorded: vi.fn(),
+  } as unknown as import("./agent-cache-warm.js").AgentCacheWarmManager;
+  manager = new AgentManager({
+    clients: { codex: new EagerStartClient() },
+    registry: storage,
+    logger,
+    cacheWarmManager: warmManager,
+  });
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    cancel.mockClear();
+    await manager.runAgent(snapshot.id, DEFAULT_CACHE_WARM_PING_PROMPT, { isWarmPing: true });
+    await manager.flush();
+    // Cancelling the watchdog resets the idle stretch's count, so a warm-up turn must not; and
+    // any turn start it sees is already marked a warm-up.
+    expect(cancel).not.toHaveBeenCalled();
+    expect(seenAsWarmUp.every((warm) => warm === true)).toBe(true);
+    expect(manager.getAgent(snapshot.id)?.activeTurnIsWarmPing).toBe(false);
+
+    await manager.runAgent(snapshot.id, "carry on");
+    await manager.flush();
+    expect(cancel).toHaveBeenCalledWith(snapshot.id);
+    await manager.closeAgent(snapshot.id);
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("archiveSnapshot clears persisted attention and normalizes running status", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-archive-attention-"));
   const storagePath = join(workdir, "agents");

@@ -14,6 +14,8 @@ import {
   isPromptCacheHit,
   isUncountedPromptCacheRequest,
   resolveCacheAutoCompactEnabled,
+  isWarmUpPausedAtIdleCap,
+  lastTurnWasCompaction,
   PROMPT_CACHE_HISTORY_LIMIT,
   type AgentPromptCacheState,
   type PromptCacheHistoryEntry,
@@ -365,6 +367,46 @@ describe("agent-cache-warm protocol utilities", () => {
       expect(resolveCacheAutoCompactEnabled({ explicitValue: true, hostDefault: false })).toBe(
         true,
       );
+    });
+  });
+
+  describe("after a compaction", () => {
+    const sample: PromptCacheRequestSample = {
+      at: "2026-11-06T10:00:00.000Z",
+      turnId: "turn-1",
+      isWarmPing: false,
+      readTokens: 1000,
+      writeTokens: 0,
+      uncachedTokens: 0,
+    };
+    function stateWith(
+      compaction: { at: string; atIdleCap?: boolean },
+      lastActivityAt: string,
+    ): AgentPromptCacheState {
+      return {
+        lastRequest: sample,
+        turnFirstRequest: sample,
+        lastActivityAt,
+        compactions: [{ trigger: "manual", ...compaction }],
+      };
+    }
+
+    it("holds until the agent's next request of its own", () => {
+      const compacted = stateWith({ at: "2026-11-06T10:00:05.000Z" }, "2026-11-06T10:00:00.000Z");
+      expect(lastTurnWasCompaction(compacted)).toBe(true);
+      expect(
+        lastTurnWasCompaction({ ...compacted, lastActivityAt: "2026-11-06T10:01:00.000Z" }),
+      ).toBe(false);
+      expect(lastTurnWasCompaction({ ...compacted, compactions: [] })).toBe(false);
+    });
+
+    it("pauses warm-up only after the idle cap's compaction", () => {
+      const at = "2026-11-06T10:00:05.000Z";
+      expect(isWarmUpPausedAtIdleCap(stateWith({ at, atIdleCap: true }, sample.at))).toBe(true);
+      expect(isWarmUpPausedAtIdleCap(stateWith({ at }, sample.at))).toBe(false);
+      expect(
+        isWarmUpPausedAtIdleCap(stateWith({ at, atIdleCap: true }, "2026-11-06T10:02:00.000Z")),
+      ).toBe(false);
     });
   });
 });

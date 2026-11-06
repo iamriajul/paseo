@@ -1092,3 +1092,13 @@ Upstream wraps every agent-to-agent message in a `<paseo-system kind="agent-mess
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-messages/delivery.test.ts packages/server/src/server/agent/agent-messages/command-log.test.ts packages/server/src/server/agent/mcp-parity.e2e.test.ts -t "slash command|replayed raw command|Slash commands from agents" --bail=1
 ```
+
+## menu-measuring-surface-hidden
+
+**on web an anchored menu stays hidden while it measures off-screen**
+
+`AnchoredSurface` renders a menu at -9999 to measure its content, then remounts it at its placed position. A browser counts an off-screen element as visible, so `toBeVisible()` passed on the measuring copy and the next read hit a detached node: `sidebar-context-menu.spec.ts` failed attempt 1 with "Could not measure sidebar-project-context-menu-host…" on 3 of the 5 CI runs of `main` from 2026-11-03 to 2026-11-05, and on branches. The measuring copy now has `visibility: hidden` on web. `onLayout` still measures it, and nothing (test, screen reader, Tab) can find it before it is placed.
+
+```bash
+npm run test:browser --workspace=@getpaseo/app -- src/components/ui/menu/menu-overlay.browser.test.tsx -t "stays hidden while it measures" --bail=1
+```

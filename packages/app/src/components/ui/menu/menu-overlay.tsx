@@ -41,6 +41,8 @@ import {
 } from "../anchor";
 
 const SCROLL_CONTENT_STYLE = { flexGrow: 1 } as const;
+// react-native-web passes `visibility` through; React Native's ViewStyle does not declare it.
+const WEB_MEASURING_STYLE = { visibility: "hidden" } as ViewStyle;
 const CONTENT_ENTERING_DURATION_MS = 150;
 
 const contentEntering = new Keyframe({
@@ -299,6 +301,9 @@ export function AnchoredSurface({
         left: fullWidth ? horizontalPadding : (position?.x ?? -9999),
         transformOrigin: getTransformOrigin(actualPlacement, align),
       },
+      // Off-screen still counts as visible to the browser: a test, or a screen reader, could
+      // find the measuring copy, which is thrown away when the placed surface remounts.
+      !placed && isWeb ? WEB_MEASURING_STYLE : null,
     ];
   }, [
     fullWidth,
@@ -308,6 +313,7 @@ export function AnchoredSurface({
     maxWidth,
     position?.x,
     position?.y,
+    placed,
     actualPlacement,
     align,
   ]);

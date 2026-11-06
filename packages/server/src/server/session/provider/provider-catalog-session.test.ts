@@ -74,6 +74,7 @@ function makeSubsystem(options: MakeOptions = {}) {
     supportsCompactProviderSnapshots: () => options.supportsCompactProviderSnapshots ?? false,
     listProviderAvailability: async () => [],
     listDraftFeatures: async () => [],
+    getAgentSession: () => null,
     ...options.host,
   };
   const providerSnapshotManager = createStub<ProviderSnapshotManager>({
@@ -576,6 +577,7 @@ it("announces shared content without retransmitting models or hashing discovery 
         supportsProviderSnapshotReferences: () => references,
         listProviderAvailability: async () => [],
         listDraftFeatures: async () => [],
+        getAgentSession: () => null,
       },
     });
   const emitted: SessionOutboundMessage[] = [];

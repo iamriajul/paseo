@@ -87,6 +87,23 @@ Everything that is not a usable 200 record — a model that has not run, a provi
 
 The route was `/v1/last-request-tps` through CLIProxyAPI v8.0.901 and became `/v1/last-request-stats` in v8.0.902 — it reports more than throughput. The body is unchanged and the old path is not served, so a Gateway older than v8.0.902 answers 404 for both names. Assume the route is absent until you have probed the Gateway you run: the Gateway reachable while this shipped answered 401 on `/v1/quota` and an empty 404 here.
 
+## Serving account
+
+The context-meter details show "Served by" with the CLIProxyAPI account serving the agent's session, and the newest account switch, through `cliproxyapi.session_route.get` (gated on `server_info.features.cliproxyapiSessionRoute`). When the Gateway moves the session, the agent's timeline gets a notice such as "Switched account: A → B (cooldown)".
+
+The lookup key is the session id CLIProxyAPI derives from each harness's own headers, so Paseo injects nothing:
+
+| Harness  | Header the harness sends                    | Gateway session id    |
+| -------- | ------------------------------------------- | --------------------- |
+| Claude   | `X-Claude-Code-Session-Id`                  | `claude:<session id>` |
+| Codex    | `session_id` (the thread id)                | `codex:<thread id>`   |
+| OpenCode | `X-Session-Id` (for non-OpenCode providers) | `header:<session id>` |
+| OMP      | none Paseo can reproduce                    | not shown             |
+
+The Gateway records each request on its usage bus asynchronously, so the daemon checks two seconds after a turn ends, once per turn. It never polls. Switches that happened before the daemon started are not announced, because the daemon cannot tell which of them a previous process already wrote. The account label is the masked name `/v1/quota` shows; config API keys show as `config:<provider>[<hash>]`.
+
+`/v1/session-route` shipped in CLIProxyAPI v8.0.941. Older Gateways answer 404, and the section and notices stay hidden, the same as quota.
+
 ## Terminal tabs
 
 The table above covers Paseo-managed agents. A terminal tab runs the harness as an ordinary child process, so the agent path injects nothing there. With a Gateway configured, Paseo writes three shims into a shim directory under `$PASEO_HOME` — `harness-shims`, or `cmd-shims` on Windows where the wrappers are `.cmd` — and puts that directory on terminal PATH:

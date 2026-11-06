@@ -115,6 +115,7 @@ import type {
   AgentPromptCacheHistoryResponseMessage,
   AgentPromptCacheClearMissesResponseMessage,
   GatewayStatsGetResponseMessage,
+  GatewaySessionRouteGetResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
   DaemonConfigReloadResponse,
@@ -639,6 +640,7 @@ export type AgentPromptCacheHistoryPayload = AgentPromptCacheHistoryResponseMess
 export type AgentPromptCacheClearMissesPayload =
   AgentPromptCacheClearMissesResponseMessage["payload"];
 type GatewayStatsPayload = GatewayStatsGetResponseMessage["payload"];
+type GatewaySessionRoutePayload = GatewaySessionRouteGetResponseMessage["payload"];
 type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
 type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
 type DiagnosticsPayload = DiagnosticsResponse["payload"];
@@ -6760,6 +6762,20 @@ export class DaemonClient {
         type: "cliproxyapi.stats.get.request",
         provider: options.provider,
         model: options.model,
+      },
+      timeout: 30_000,
+    });
+  }
+
+  async getGatewaySessionRoute(options: {
+    agentId: string;
+    requestId?: string;
+  }): Promise<GatewaySessionRoutePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "cliproxyapi.session_route.get.request",
+        agentId: options.agentId,
       },
       timeout: 30_000,
     });

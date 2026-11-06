@@ -2698,6 +2698,19 @@ export const ptBR: TranslationResources = {
         description: "Linhas mantidas no buffer do terminal integrado",
         accessibilityLabel: "Linhas do scrollback do terminal",
       },
+      promptCache: {
+        title: "Cache de prompts do Claude",
+        capWarning: {
+          label: "Avisar antes do limite de aquecimento",
+          description:
+            "A contagem regressiva do cache pisca quando o aquecimento deixa de cobri-lo dentro deste tempo",
+          options: {
+            "10": "10 minutos",
+            "20": "20 minutos",
+            "30": "30 minutos",
+          },
+        },
+      },
       autoExpandReasoning: {
         label: "Sempre expandir raciocínio",
         description:

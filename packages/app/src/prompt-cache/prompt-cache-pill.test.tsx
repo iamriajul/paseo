@@ -65,13 +65,19 @@ vi.mock("@/composer/tracks", async () => {
       children,
     }: {
       testID?: string;
-      segments: Array<{ text: string }>;
+      segments: Array<{ text: string; flash?: boolean }>;
       children?: React.ReactNode;
     }) =>
       ReactModule.createElement(
         "div",
         { "data-testid": testID },
-        segments.map((s, i) => ReactModule.createElement("span", { key: i }, s.text)),
+        segments.map((s, i) =>
+          ReactModule.createElement(
+            "span",
+            { key: i, "data-flash": String(Boolean(s.flash)) },
+            s.text,
+          ),
+        ),
         children,
       ),
     ComposerTrackRow: ({
@@ -151,6 +157,13 @@ vi.mock("./prompt-cache-insights-dialog", async () => {
       ReactModule.createElement("div", { "data-testid": "insights-dialog" }, String(revision)),
   };
 });
+
+const { capWarningMinutes } = vi.hoisted(() => ({ capWarningMinutes: { current: 10 } }));
+
+vi.mock("@/hooks/use-settings", () => ({
+  useSettings: (select: (settings: { promptCacheCapWarningMinutes: number }) => unknown) =>
+    select({ promptCacheCapWarningMinutes: capWarningMinutes.current }),
+}));
 
 vi.mock("@/components/ui/pane-content-toolbar", async () => {
   const ReactModule = await import("react");
@@ -422,6 +435,31 @@ describe("PromptCachePill", () => {
 
     // An older daemon ignores the cap, so it shows no control.
     expect(renderPill(agent).queryByTestId("prompt-cache-cap-slider")).toBeNull();
+  });
+
+  it("blinks the countdown once warm-up stops covering the cache within the warning window", () => {
+    // 5m window, 8 of 10 warm-ups used, last request 1 minute ago: two more at 4-minute steps,
+    // then a 5-minute window, so warm-up covers the cache for 12 more minutes.
+    const agent = claudeAgent({
+      ttl: "5m",
+      consecutiveWarmPings: 8,
+      promptCache: promptCacheAt(NOW - MINUTE),
+    });
+    capWarningMinutes.current = 10;
+    const far = renderPill(agent);
+    expect(far.getByText("warm · 3:00").getAttribute("data-flash")).toBe("false");
+    cleanup();
+
+    capWarningMinutes.current = 20;
+    const near = renderPill(agent);
+    const flashes = new Set<string | null>();
+    for (let tick = 0; tick < 2; tick += 1) {
+      flashes.add(near.getByText(/^warm · /).getAttribute("data-flash"));
+      act(() => {
+        vi.advanceTimersByTime(SECOND);
+      });
+    }
+    expect(flashes).toEqual(new Set(["true", "false"]));
   });
 
   it("toggles warm-up, and disables turning it on once the cache expired", () => {

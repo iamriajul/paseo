@@ -27,6 +27,7 @@ import {
 import type { PromptCacheHistoryBar, PromptCacheHistorySummary } from "./prompt-cache-history";
 import { PromptCacheInsightsDialog } from "./prompt-cache-insights-dialog";
 import { WarmUpCapSlider } from "./warm-up-cap-slider";
+import { useSettings } from "@/hooks/use-settings";
 import {
   usePromptCacheAutoCompact,
   type PromptCacheAutoCompact,
@@ -302,6 +303,12 @@ function AutoCompactDefault({
   );
 }
 
+/** Warm-up stops covering the cache within the user's warning window. */
+function isNearCap(warmup: PromptCacheWarmup | null, warningMinutes: number): boolean {
+  const coverEndsInMs = warmup?.enabled ? warmup.coverEndsInMs : null;
+  return coverEndsInMs !== null && coverEndsInMs > 0 && coverEndsInMs <= warningMinutes * 60_000;
+}
+
 function resolveAccessibilityLabel(cache: PromptCacheState): string {
   return `Claude prompt cache: ${resolveSegmentText(cache)}`;
 }
@@ -331,6 +338,7 @@ export const PromptCachePill = memo(function PromptCachePill({
 }): ReactElement | null {
   const cache = usePromptCache(serverId, agentId);
   const autoCompact = usePromptCacheAutoCompact(serverId, agentId);
+  const capWarningMinutes = useSettings((settings) => settings.promptCacheCapWarningMinutes);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const openInsights = useCallback(() => setInsightsOpen(true), []);
   const closeInsights = useCallback(() => setInsightsOpen(false), []);
@@ -347,6 +355,7 @@ export const PromptCachePill = memo(function PromptCachePill({
           ? ("running" as const)
           : null,
       text: resolveSegmentText(cache),
+      flash: isNearCap(warmup, capWarningMinutes) && cache.blinkOn,
     },
   ];
   if (misses > 0) {

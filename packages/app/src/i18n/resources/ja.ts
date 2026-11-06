@@ -2687,6 +2687,19 @@ export const ja: TranslationResources = {
         description: "組み込みターミナルバッファに保持する行数",
         accessibilityLabel: "ターミナルスクロールバック行数",
       },
+      promptCache: {
+        title: "Claude プロンプトキャッシュ",
+        capWarning: {
+          label: "ウォームアップ上限の前に警告",
+          description:
+            "この時間内にウォームアップがキャッシュを維持できなくなると、カウントダウンが点滅します",
+          options: {
+            "10": "10 分",
+            "20": "20 分",
+            "30": "30 分",
+          },
+        },
+      },
       autoExpandReasoning: {
         label: "常に思考プロセスを展開",
         description: "デフォルトでAIのエージェント思考・推論ブロックを完全に展開して表示します",

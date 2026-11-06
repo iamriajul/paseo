@@ -162,7 +162,12 @@ export interface AppSettings {
   /** Desktop-only preferences for implicit opens into the ordinary side pane. */
   openInSidePane: OpenInSidePanePreferences;
   pullRequestOpenLocation: PullRequestOpenLocation;
+  /** Minutes before warm-up stops covering a Claude cache at which its countdown blinks. */
+  promptCacheCapWarningMinutes: PromptCacheCapWarningMinutes;
 }
+
+export const PROMPT_CACHE_CAP_WARNING_MINUTES = [10, 20, 30] as const;
+export type PromptCacheCapWarningMinutes = (typeof PROMPT_CACHE_CAP_WARNING_MINUTES)[number];
 
 export type AppSettingsUpdate =
   | Partial<AppSettings>
@@ -226,6 +231,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   keepScreenAwake: true,
   openInSidePane: DEFAULT_OPEN_IN_SIDE_PANE_PREFERENCES,
   pullRequestOpenLocation: "explorer",
+  promptCacheCapWarningMinutes: 10,
 };
 
 export const DEFAULT_APP_SETTINGS: Settings = {
@@ -366,6 +372,7 @@ const StoredAppSettingsSchema = z
         legacyPullRequestsInSidePane: undefined,
       }),
     pullRequestOpenLocation: z.enum(["main", "side", "explorer"]).optional(),
+    promptCacheCapWarningMinutes: z.union([z.literal(10), z.literal(20), z.literal(30)]).catch(10),
     // COMPAT(explorerSidebarRouting): replaced by source-specific side-pane preferences in v0.6.
     openSupportingTabsInSidePanel: z.boolean().optional().catch(undefined),
     // COMPAT(rendererDesktopSettings): these fields used to share this renderer-owned key.

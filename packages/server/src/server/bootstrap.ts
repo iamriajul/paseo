@@ -166,6 +166,7 @@ import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
 import { isRestartResumeEligible } from "./agent/restart-recovery/eligibility.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
+import { attachGatewaySessionRouteWatcher } from "./agent/gateway/session-route-watcher.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import { TaskStore } from "./tasks/task-store.js";
 import { UiStateStore } from "./ui-state/store.js";
@@ -1220,6 +1221,12 @@ export async function createPaseoDaemon(
     agentManager,
     agentStorage,
   );
+  const detachGatewaySessionRouteWatcher = attachGatewaySessionRouteWatcher({
+    logger,
+    agentManager,
+    gateway: () => providerSnapshotManager.getGatewayConfig(),
+    isGatewayRouted: (provider) => providerSnapshotManager.isGatewayRouted(provider),
+  });
   await agentStorage.initialize();
   const restartRecovery = createRestartRecovery({
     storage: agentStorage,
@@ -2262,6 +2269,7 @@ export async function createPaseoDaemon(
     }).catch((error) => logger.warn({ err: error }, "Plugin lifecycle events did not finish"));
     await agentManager.flushForShutdown().catch(() => undefined);
     detachAgentStoragePersistence();
+    detachGatewaySessionRouteWatcher();
     await agentStorage.flush().catch(() => undefined);
     await agentProviderRuntime.shutdown();
     await pluginRuntime.stopAllPlugins();

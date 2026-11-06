@@ -17,6 +17,8 @@ import { GatewayQuotaSection } from "@/gateway-quota/section";
 import { useGatewayQuota } from "@/gateway-quota/use-gateway-quota";
 import { GatewayStatsSection } from "@/gateway-stats/section";
 import { useGatewayStats } from "@/gateway-stats/use-gateway-stats";
+import { GatewaySessionRouteSection } from "@/gateway-session-route/section";
+import { useGatewaySessionRoute } from "@/gateway-session-route/use-gateway-session-route";
 interface ContextWindowMeterProps {
   serverId: string;
   agentId: string;
@@ -160,13 +162,16 @@ const ContextWindowRing = withUnistyles(function ContextWindowRing({
  */
 function GatewayMeterSections({
   serverId,
+  agentId,
   provider,
   model,
 }: {
   serverId: string;
+  agentId: string;
   provider: string | null | undefined;
   model: string | null | undefined;
 }) {
+  const gatewaySessionRoute = useGatewaySessionRoute(serverId, agentId);
   const { view: gatewayQuotaView } = useGatewayQuota(serverId, provider, model);
   const { sample: gatewayStatsSample, isLive: gatewayStatsIsLive } = useGatewayStats({
     serverId,
@@ -176,6 +181,7 @@ function GatewayMeterSections({
   });
   return (
     <>
+      <GatewaySessionRouteSection route={gatewaySessionRoute} />
       <GatewayQuotaSection view={gatewayQuotaView} serverId={serverId} />
       <GatewayStatsSection sample={gatewayStatsSample} isLive={gatewayStatsIsLive} />
     </>
@@ -265,7 +271,12 @@ export function ContextWindowMeter({
             showTitle={false}
             refreshable
           />
-          <GatewayMeterSections serverId={serverId} provider={provider} model={model} />
+          <GatewayMeterSections
+            serverId={serverId}
+            agentId={agentId}
+            provider={provider}
+            model={model}
+          />
         </ContextWindowSheet>
       </>
     );
@@ -307,7 +318,12 @@ export function ContextWindowMeter({
             showTitle
             refreshable={false}
           />
-          <GatewayMeterSections serverId={serverId} provider={provider} model={model} />
+          <GatewayMeterSections
+            serverId={serverId}
+            agentId={agentId}
+            provider={provider}
+            model={model}
+          />
         </TooltipContent>
       </Tooltip>
     );
@@ -342,7 +358,12 @@ export function ContextWindowMeter({
           showTitle
           refreshable
         />
-        <GatewayMeterSections serverId={serverId} provider={provider} model={model} />
+        <GatewayMeterSections
+          serverId={serverId}
+          agentId={agentId}
+          provider={provider}
+          model={model}
+        />
       </HoverCardContent>
     </HoverCard>
   );

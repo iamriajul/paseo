@@ -2242,6 +2242,8 @@ export class VoiceAssistantWebSocketServer {
         promptCacheClearMisses: true,
         // COMPAT(cliproxyapiStats): added in v0.9.910, drop the gate once daemon floor >= v0.9.910.
         cliproxyapiStats: true,
+        // COMPAT(cliproxyapiSessionRoute): added in v0.15.902, drop gate after 2027-05-01.
+        cliproxyapiSessionRoute: true,
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.

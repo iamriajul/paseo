@@ -2191,6 +2191,12 @@ export const GatewayStatsGetRequestMessageSchema = z.object({
   model: z.string(),
 });
 
+export const GatewaySessionRouteGetRequestMessageSchema = z.object({
+  type: z.literal("cliproxyapi.session_route.get.request"),
+  requestId: z.string(),
+  agentId: z.string(),
+});
+
 export const ResumeAgentRequestMessageSchema = z.object({
   type: z.literal("resume_agent_request"),
   handle: AgentPersistenceHandleSchema,
@@ -3820,6 +3826,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentPromptCacheClearMissesRequestMessageSchema,
   ResumeAgentRequestMessageSchema,
   GatewayStatsGetRequestMessageSchema,
+  GatewaySessionRouteGetRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
   CancelAgentRequestMessageSchema,
@@ -4293,6 +4300,8 @@ export const ServerInfoStatusPayloadSchema = z
         cacheWarmMaxPings: z.boolean().optional(),
         // COMPAT(cliproxyapiStats): added in v0.9.910, drop the gate once daemon floor >= v0.9.910.
         cliproxyapiStats: z.boolean().optional(),
+        // COMPAT(cliproxyapiSessionRoute): added in v0.15.902, drop gate after 2027-05-01.
+        cliproxyapiSessionRoute: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
@@ -7450,6 +7459,41 @@ export const GatewayStatsGetResponseMessageSchema = z.object({
   }),
 });
 
+export const GatewayRouteAccountSchema = z.object({
+  /** Masked account name, or the provider name once the account was removed. */
+  label: z.string(),
+  provider: z.string(),
+  plan: z.string().optional(),
+  inCooldown: z.boolean(),
+});
+
+export const GatewaySessionRouteSchema = z.object({
+  account: GatewayRouteAccountSchema,
+  /** When the current account first served the session. */
+  since: z.string(),
+  /** Recent account switches, oldest first. */
+  switches: z.array(
+    z.object({
+      at: z.string(),
+      from: GatewayRouteAccountSchema,
+      to: GatewayRouteAccountSchema,
+      reason: z.string(),
+      statusCode: z.number().optional(),
+    }),
+  ),
+});
+
+export const GatewaySessionRouteGetResponseMessageSchema = z.object({
+  type: z.literal("cliproxyapi.session_route.get.response"),
+  payload: z.object({
+    requestId: z.string(),
+    supported: z.boolean(),
+    // Null when the agent is not CLIProxyAPI-routed, the Gateway has not served
+    // its session, or the Gateway predates the route. Callers render nothing.
+    route: GatewaySessionRouteSchema.nullable(),
+  }),
+});
+
 const AgentSlashCommandSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -8167,6 +8211,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   FileDownloadTokenResponseSchema,
   FileUploadResponseSchema,
   GatewayStatsGetResponseMessageSchema,
+  GatewaySessionRouteGetResponseMessageSchema,
   ListProviderModelsResponseMessageSchema,
   ListProviderModesResponseMessageSchema,
   ListProviderFeaturesResponseMessageSchema,
@@ -8411,6 +8456,10 @@ export type GatewayQuotaWindow = z.infer<typeof GatewayQuotaWindowSchema>;
 export type GatewayQuotaAccount = z.infer<typeof GatewayQuotaAccountSchema>;
 export type GatewayStatsSample = z.infer<typeof GatewayStatsSampleSchema>;
 export type GatewayStatsGetResponseMessage = z.infer<typeof GatewayStatsGetResponseMessageSchema>;
+export type GatewaySessionRoute = z.infer<typeof GatewaySessionRouteSchema>;
+export type GatewaySessionRouteGetResponseMessage = z.infer<
+  typeof GatewaySessionRouteGetResponseMessageSchema
+>;
 export type GatewayQuotaGetResponseMessage = z.infer<typeof GatewayQuotaGetResponseMessageSchema>;
 export type AgentPromptCacheHistoryResponseMessage = z.infer<
   typeof AgentPromptCacheHistoryResponseMessageSchema

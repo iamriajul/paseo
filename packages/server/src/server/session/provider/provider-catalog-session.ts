@@ -22,6 +22,11 @@ import type { ProviderAvailability } from "../../agent/agent-manager.js";
 import { getCachedGatewayQuota } from "../../agent/gateway/quota.js";
 import { resolveGatewayModelSlug } from "../../agent/gateway/slug.js";
 import { fetchGatewayStats, type GatewayStatsResult } from "../../agent/gateway/stats.js";
+import {
+  gatewaySessionIdFor,
+  getCachedGatewaySessionRoute,
+  type GatewaySessionRouteResult,
+} from "../../agent/gateway/session-route.js";
 import { expandTilde } from "../../../utils/path.js";
 
 // COMPAT(customModeIcons): the only mode icons known to clients before v0.1.84. Any
@@ -53,6 +58,8 @@ export interface ProviderCatalogSessionHost {
   publishSnapshot(project: () => SessionOutboundMessage | null): void;
   listProviderAvailability(): Promise<ProviderAvailability[]>;
   listDraftFeatures(config: AgentSessionConfig): Promise<AgentFeature[]>;
+  /** The agent's provider and provider session id, or null for an unknown agent. */
+  getAgentSession(agentId: string): { provider: AgentProvider; sessionId: string | null } | null;
 }
 
 export interface ProviderCatalogSessionOptions {
@@ -602,6 +609,49 @@ export class ProviderCatalogSession {
       this.logger.error(
         { err, provider: msg.provider, model: msg.model },
         "Failed to fetch CLIProxyAPI throughput; hiding throughput",
+      );
+      unsupported();
+    }
+  }
+
+  /**
+   * The CLIProxyAPI account serving an agent's session, briefly cached. An agent
+   * that is not Gateway-routed, a session the Gateway has not served, and a
+   * Gateway without the route all report `supported: false` with no route.
+   */
+  async handleGatewaySessionRouteGetRequest(
+    msg: Extract<SessionInboundMessage, { type: "cliproxyapi.session_route.get.request" }>,
+  ): Promise<void> {
+    const answer = (result: GatewaySessionRouteResult) =>
+      this.host.emit({
+        type: "cliproxyapi.session_route.get.response",
+        payload: { requestId: msg.requestId, supported: result.supported, route: result.route },
+      });
+    const unsupported = () => answer({ supported: false, route: null });
+    try {
+      const gateway = this.providerSnapshotManager.getGatewayConfig();
+      const agent = this.host.getAgentSession(msg.agentId);
+      if (!gateway || !agent || !this.providerSnapshotManager.isGatewayRouted(agent.provider)) {
+        unsupported();
+        return;
+      }
+      const session = gatewaySessionIdFor(agent.provider, agent.sessionId);
+      if (!session) {
+        unsupported();
+        return;
+      }
+      answer(
+        await getCachedGatewaySessionRoute({
+          baseUrl: gateway.baseUrl,
+          token: gateway.apiKey,
+          session,
+        }),
+      );
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        { err, agentId: msg.agentId },
+        "Failed to fetch CLIProxyAPI session route; hiding it",
       );
       unsupported();
     }

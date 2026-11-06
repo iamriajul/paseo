@@ -340,6 +340,7 @@ function DraftPanel() {
     target,
     openFileInWorkspace,
     openImportSheet,
+    openUrlInBrowserTab,
     retargetCurrentTab,
   } = usePaneContext();
   const { isInteractive } = usePaneFocus();
@@ -364,6 +365,7 @@ function DraftPanel() {
       initialSetup={target.setup}
       isPaneFocused={isInteractive}
       onOpenWorkspaceFile={openFileInWorkspace}
+      onOpenUrlInBrowserTab={openUrlInBrowserTab}
       onCreated={handleCreated}
       onOpenImportSheet={openImportSheet}
     />

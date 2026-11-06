@@ -17,9 +17,15 @@ export const portsPanelPresentation = {
 
 /** Ports of the workspace's scripts. Before v0.14.0 this was a fixed compact Explorer tab. */
 function PortsPanel() {
-  const { serverId, workspaceId, target } = usePaneContext();
+  const { serverId, workspaceId, target, openUrlInBrowserTab } = usePaneContext();
   invariant(target.kind === "ports", "PortsPanel requires ports target");
-  return <ExplorerPortsPane serverId={serverId} workspaceId={workspaceId} />;
+  return (
+    <ExplorerPortsPane
+      serverId={serverId}
+      workspaceId={workspaceId}
+      onOpenUrlInBrowserTab={openUrlInBrowserTab}
+    />
+  );
 }
 
 export const portsPanelRegistration = definePanel("ports", {

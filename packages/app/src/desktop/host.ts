@@ -189,6 +189,28 @@ export interface DesktopBrowserBridge {
   }) => void;
   sendLoopbackTunnelData?: (payload: { tunnelId: string; binaryBase64: string }) => void;
   sendLoopbackTunnelClose?: (payload: { tunnelId: string; reason?: string | null }) => void;
+  startPortForward?: (input: {
+    browserId: string;
+    ports: number[];
+    fallbackToAnyPort?: boolean;
+  }) => Promise<DesktopPortForwardStartResult>;
+  stopPortForward?: (input: { browserId: string; remotePort: number }) => Promise<void>;
+  listPortForwards?: (browserId: string) => Promise<DesktopPortForwardList>;
+}
+
+export type DesktopPortForwardStatus =
+  | { state: "forwarding"; remotePort: number; localPort: number }
+  | { state: "port-in-use"; remotePort: number }
+  | { state: "failed"; remotePort: number; error: string };
+
+export type DesktopPortForwardStartResult =
+  | { kind: "local-host" }
+  | { kind: "unavailable"; reason: string }
+  | { kind: "started"; forwards: DesktopPortForwardStatus[] };
+
+export interface DesktopPortForwardList {
+  forwards: DesktopPortForwardStatus[];
+  observedPorts: number[];
 }
 
 export interface DesktopInvokeBridge {

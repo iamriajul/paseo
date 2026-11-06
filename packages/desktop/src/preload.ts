@@ -184,5 +184,14 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
       ipcRenderer.send("paseo:browser:loopback-tunnel-data", payload),
     sendLoopbackTunnelClose: (payload: { tunnelId: string; reason?: string | null }) =>
       ipcRenderer.send("paseo:browser:loopback-tunnel-close", payload),
+    startPortForward: (input: {
+      browserId: string;
+      ports: number[];
+      fallbackToAnyPort?: boolean;
+    }) => ipcRenderer.invoke("paseo:browser:port-forward:start", input),
+    stopPortForward: (input: { browserId: string; remotePort: number }) =>
+      ipcRenderer.invoke("paseo:browser:port-forward:stop", input),
+    listPortForwards: (browserId: string) =>
+      ipcRenderer.invoke("paseo:browser:port-forward:list", browserId),
   },
 });

@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { BrowserServicesMenu, useBrowserTabService } from "./services-menu";
+import { BrowserPortForwardMenu } from "./port-forward-menu";
 import {
   autoRetryDelaySeconds,
   BrowserLoadFailure,
@@ -1681,6 +1682,11 @@ export function BrowserPane({
             workspaceId={workspaceId}
             currentUrl={browser?.url ?? ""}
             onNavigate={navigate}
+            triggerStyle={baseIconButtonStyle}
+          />
+          <BrowserPortForwardMenu
+            browserId={browserId}
+            url={browser?.url ?? ""}
             triggerStyle={baseIconButtonStyle}
           />
           <DeviceSizeMenu

@@ -417,14 +417,19 @@ class FakeAgentSession implements AgentSession {
   private async resolveSlashCommandInput(
     prompt: AgentPromptInput,
   ): Promise<{ commandName: string; args?: string } | null> {
-    if (
-      (this.providerName !== "codex" && this.providerName !== "opencode") ||
-      typeof prompt !== "string"
-    ) {
+    if (typeof prompt !== "string") {
       return null;
     }
     const parsed = this.parseSlashCommandInput(prompt);
     if (!parsed) {
+      return null;
+    }
+    // Claude runs only /compact here; its other fake commands stay plain prompts.
+    if (
+      this.providerName !== "codex" &&
+      this.providerName !== "opencode" &&
+      !(this.providerName === "claude" && parsed.commandName === "compact")
+    ) {
       return null;
     }
     const commands = await this.listCommands();
@@ -450,7 +455,10 @@ class FakeAgentSession implements AgentSession {
     return { sessionId: this.id, finalText: resultText, timeline, usage };
   }
 
-  async startTurn(prompt: AgentPromptInput): Promise<{ turnId: string }> {
+  async startTurn(
+    prompt: AgentPromptInput,
+    options?: AgentRunOptions,
+  ): Promise<{ turnId: string }> {
     if (this.activeForegroundTurnId) {
       throw new Error("A foreground turn is already active");
     }
@@ -459,7 +467,7 @@ class FakeAgentSession implements AgentSession {
     this.activeForegroundTurnId = turnId;
     this.onStartTurn?.(prompt, this.config);
 
-    void this.emitTurnEvents(prompt);
+    void this.emitTurnEvents(prompt, options?.clientMessageId);
 
     return { turnId };
   }
@@ -483,10 +491,10 @@ class FakeAgentSession implements AgentSession {
     }
   }
 
-  private async emitSlashCommandTurn(slashCommand: {
-    commandName: string;
-    args?: string;
-  }): Promise<void> {
+  private async emitSlashCommandTurn(
+    slashCommand: { commandName: string; args?: string },
+    clientMessageId?: string,
+  ): Promise<void> {
     const threadStarted: AgentStreamEvent = {
       type: "thread_started",
       provider: this.providerName,
@@ -502,6 +510,25 @@ class FakeAgentSession implements AgentSession {
     await this.appendHistoryEvent(turnStarted);
     this.notifySubscribers(turnStarted);
 
+    // Like Claude, echo the submitted command under the caller's message ID.
+    if (clientMessageId) {
+      const echo: AgentStreamEvent = {
+        type: "timeline",
+        provider: this.providerName,
+        timestamp: new Date().toISOString(),
+        item: {
+          type: "user_message",
+          text: ["/" + slashCommand.commandName, slashCommand.args].filter(Boolean).join(" "),
+          clientMessageId,
+        },
+      };
+      await this.appendHistoryEvent(echo);
+      this.notifySubscribers(echo);
+    }
+    // A held command turn stands in for a compaction that is still running.
+    await this.beforeTurnComplete?.(
+      ["/" + slashCommand.commandName, slashCommand.args].filter(Boolean).join(" "),
+    );
     const result = await this.runSlashCommand(slashCommand.commandName, slashCommand.args);
     for (const item of result.timeline) {
       const timelineEvent: AgentStreamEvent = {
@@ -723,13 +750,13 @@ class FakeAgentSession implements AgentSession {
     return false;
   }
 
-  private async emitTurnEvents(prompt: AgentPromptInput): Promise<void> {
+  private async emitTurnEvents(prompt: AgentPromptInput, clientMessageId?: string): Promise<void> {
     this.interruptSignal = createDeferred<void>();
     const slashCommand = await this.resolveSlashCommandInput(prompt);
     const textPrompt = typeof prompt === "string" ? prompt : JSON.stringify(prompt);
     try {
       if (slashCommand) {
-        await this.emitSlashCommandTurn(slashCommand);
+        await this.emitSlashCommandTurn(slashCommand, clientMessageId);
         return;
       }
 
@@ -957,6 +984,7 @@ class FakeAgentSession implements AgentSession {
       return [
         { name: "help", description: "Help", argumentHint: "" },
         { name: "context", description: "Context", argumentHint: "" },
+        { name: "compact", description: "Compact the conversation", argumentHint: "" },
         {
           name: "rewind",
           description: "Rewind tracked files to a previous user message",
@@ -980,6 +1008,13 @@ class FakeAgentSession implements AgentSession {
     usage: AgentUsage;
   }> {
     const fullName = commandName.trim();
+    if (fullName === "compact") {
+      return {
+        text: "",
+        timeline: [{ type: "compaction", status: "completed", trigger: "manual" }],
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    }
     if (this.providerName === "codex" && fullName.startsWith("prompts:")) {
       const promptId = fullName.slice("prompts:".length);
       return {

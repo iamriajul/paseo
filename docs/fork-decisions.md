@@ -1070,3 +1070,13 @@ grep -q '"paseo/no-to-sorted": "error"' .oxlintrc.json
 grep -q '"PASEO_RELAY_UPSTREAM:"' packages/relay/src/e2e.test.ts
 FORCE_RELAY_E2E=1 npx vitest run packages/relay/src/e2e.test.ts --root packages/relay --bail=1
 ```
+
+## agent-sent-slash-commands
+
+**a slash command another agent sends runs on the recipient (getpaseo/paseo#8708)**
+
+Upstream wraps every agent-to-agent message in a `<paseo-system kind="agent-message">` envelope, so a `/compact` sent with `paseo send` from an agent shell or with MCP `send_agent_prompt` reached the recipient as text and never compacted. Orchestrators park long-running owners with `/compact`, and that failed silently. Now a message that is exactly one command the recipient advertises reaches the provider raw (`AgentManager.resolveCommandPrompt`), while the timeline records the envelope, so the row still names the sender. The transcript holds only the bare command, so each delivery is also logged under `$PASEO_HOME/agent-commands/` and replay restores its sender (`attributeReplayedCommands`). Delivery dispatches it alone, never batched with neighbouring messages, and only once the recipient is idle (`sendAgentCommandWhenIdle`): it never steers into a running turn or replaces it, and messages queued after it wait until its turn ends, so none of them replaces the compaction (a follow-up message cancelled it in the first live run). Other agent messages stay wrapped. Upstream left the choice between this and an explicit raw opt-in open; this fork runs advertised commands without an opt-in. Semantics: [docs/timeline-sync.md](timeline-sync.md).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-messages/delivery.test.ts packages/server/src/server/agent/agent-messages/command-log.test.ts packages/server/src/server/agent/mcp-parity.e2e.test.ts -t "slash command|replayed raw command|Slash commands from agents" --bail=1
+```

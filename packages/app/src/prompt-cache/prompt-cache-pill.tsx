@@ -80,6 +80,9 @@ function resolveSegmentText(cache: PromptCacheState): string {
       if (warmup?.plan.kind === "capped") {
         return `capped · ${formatCountdownClock(status.remainingMs)}`;
       }
+      if (warmup?.plan.kind === "paused-after-compaction") {
+        return `paused · ${formatCountdownClock(status.remainingMs)}`;
+      }
       return `cache · ${formatCountdownClock(status.remainingMs)}`;
   }
 }
@@ -116,6 +119,8 @@ function resolveWarmupText(warmup: PromptCacheWarmup): string {
       return "Paused (cache expired)";
     case "capped":
       return "Capped for this idle stretch";
+    case "paused-after-compaction":
+      return "Paused after compacting · resumes on your next message";
     case "parent-answers":
       return "Waits for the parent agent";
     case "waits-for-permission":

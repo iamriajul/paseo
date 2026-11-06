@@ -3190,7 +3190,10 @@ export class AgentManager {
     const { agent, agentId, pendingRun, prompt, options } = params;
     this.rateLimitAutoResumeManager?.cancel(agentId);
     this.rateLimitAutoResumeManager?.resetConsecutiveResumes(agentId);
-    this.cacheWarmManager?.cancel(agentId);
+    // A warm-up turn keeps the idle stretch's warm-up count, which cancelling the watchdog resets.
+    // It is marked before the provider starts it, so anything the start triggers sees a warm-up.
+    agent.activeTurnIsWarmPing = options?.isWarmPing === true;
+    if (!agent.activeTurnIsWarmPing) this.cacheWarmManager?.cancel(agentId);
     try {
       const result = await agent.session.startTurn(prompt, options);
       if (pendingRun.settled) {
@@ -3211,6 +3214,7 @@ export class AgentManager {
       agent.pendingReplacement = false;
       const errorMsg = error instanceof Error ? error.message : "Failed to start turn";
       this.runs.settleForegroundStart(pendingRun, { status: "failed", error: errorMsg });
+      agent.activeTurnIsWarmPing = false;
       try {
         // A terminal rejection belongs after the submitted prompt even though no provider turn exists.
         if (options?.clientMessageId) {

@@ -7,6 +7,8 @@ import {
   visiblePromptCacheMisses,
   type PromptCacheTotals,
   isQuestionPermission,
+  isWarmUpPausedAtIdleCap,
+  lastTurnWasCompaction,
   resolveCacheWarmEnabled,
   resolveEffectivePromptCacheWindows,
   resolvePromptCacheAnchorMs,
@@ -37,6 +39,8 @@ export type PromptCacheWarmupPlan =
   | { kind: "after-turn" }
   | { kind: "expired" }
   | { kind: "capped" }
+  /** Compacted at the idle cap; the user's next message resumes warm-up. */
+  | { kind: "paused-after-compaction" }
   | { kind: "parent-answers" }
   | { kind: "waits-for-permission" }
   | { kind: "pauses-question"; remainingMs: number }
@@ -72,6 +76,8 @@ export interface PromptCacheState {
   missesClearedAt: string | null;
   /** Requests over the whole session; it changes whenever a request is recorded. */
   requests: number;
+  /** Nothing of the agent's own ran since its latest compaction, so a message writes only that. */
+  lastTurnCompacted: boolean;
   toggleWarmup: () => Promise<void>;
   /** Clears the red count; null when the host cannot. */
   clearMisses: (() => Promise<void>) | null;
@@ -89,6 +95,7 @@ interface AgentCacheFacts {
   warmupEnabled: boolean;
   pingsUsed: number;
   totalPings: number;
+  pausedAtIdleCap: boolean;
 }
 
 function readFeatureValue(agent: Agent, id: string): unknown {
@@ -116,6 +123,7 @@ function readAgentCacheFacts(agent: Agent): AgentCacheFacts {
     }),
     pingsUsed: agent.consecutiveWarmPings ?? 0,
     totalPings: agent.totalWarmPings ?? 0,
+    pausedAtIdleCap: isWarmUpPausedAtIdleCap(agent.promptCache),
   };
 }
 
@@ -151,6 +159,7 @@ function resolveWarmupPlan(input: {
 }): PromptCacheWarmupPlan {
   const { facts, windows, status, now } = input;
   if (!facts.warmupEnabled) return { kind: "off" };
+  if (facts.pausedAtIdleCap) return { kind: "paused-after-compaction" };
   if (input.forkWarm) return resolveForkWarmPlan({ facts, windows, status, now });
   if (status.kind === "busy" || status.kind === "busy-expired") return { kind: "after-turn" };
   if (status.kind === "expired" || facts.anchorMs === null) return { kind: "expired" };
@@ -252,6 +261,7 @@ export function resolvePromptCacheView(
     history: summarizePromptCacheHistory(agent?.promptCache?.history),
     ...resolveMissCounts(totals, agent),
     requests: totals.requests,
+    lastTurnCompacted: lastTurnWasCompaction(agent?.promptCache),
   };
 }
 

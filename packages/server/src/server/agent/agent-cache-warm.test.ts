@@ -327,16 +327,54 @@ describe("AgentCacheWarmManager", () => {
       }
     }
 
-    it("compacts a large context while the cache is still warm, then turns warm-up off", async () => {
+    it("compacts a large context while the cache is still warm, then pauses warm-up", async () => {
       const harness = createHarness({ ttl: "5m", autoCompact: true, contextTokens: 250_000 });
       await runToCap(harness);
+      // Long after the compaction: the compacted context still reads 250k, yet nothing is sent.
+      for (let tick = 0; tick < 3; tick += 1) {
+        await vi.advanceTimersByTimeAsync(4.5 * MINUTE);
+        harness.manager.schedule("agent-1");
+      }
 
       const prompts = sentPrompts(harness.sendPrompt);
       expect(prompts.filter(isPingPrompt)).toHaveLength(10);
       expect(prompts.slice(10)).toEqual(["/compact"]);
-      expect(harness.setAgentFeature).toHaveBeenCalledWith("agent-1", "cache_warm", false);
+      // Paused, not off: the agent keeps warm-up on and the count stays at the cap.
+      expect(harness.setAgentFeature).not.toHaveBeenCalled();
+      expect(harness.manager.getConsecutivePings("agent-1")).toBe(10);
       // The compaction is no warm-up: the lifetime total stays at the ten pings.
       expect(harness.agent.totalWarmPings).toBe(10);
+    });
+
+    it("resumes warm-up on the agent's next message after the idle-cap compaction", async () => {
+      const harness = createHarness({ ttl: "5m", autoCompact: true, contextTokens: 250_000 });
+      await runToCap(harness);
+      expect(harness.manager.schedule("agent-1")).toBe(false);
+
+      harness.manager.onTurnStarted("agent-1");
+      harness.agent.promptCache = promptCacheAt(Date.now(), 60_000);
+      harness.manager.onRequestRecorded("agent-1");
+      expect(harness.manager.getConsecutivePings("agent-1")).toBe(0);
+      await vi.advanceTimersByTimeAsync(4.5 * MINUTE);
+
+      expect(sentPrompts(harness.sendPrompt).slice(11)).toEqual([DEFAULT_CACHE_WARM_PING_PROMPT]);
+    });
+
+    it("stays paused across a restart while the idle-cap compaction is the latest thing", async () => {
+      const harness = createHarness({ ttl: "5m", autoCompact: true, contextTokens: 250_000 });
+      const compactedAt = new Date(START + MINUTE).toISOString();
+      harness.agent.promptCache = {
+        ...promptCacheAt(START + MINUTE, 40_000),
+        lastActivityAt: new Date(START).toISOString(),
+        compactions: [{ at: compactedAt, trigger: "manual", atIdleCap: true }],
+      };
+      expect(harness.manager.schedule("agent-1")).toBe(false);
+
+      harness.agent.promptCache = {
+        ...harness.agent.promptCache,
+        lastActivityAt: new Date(START + 2 * MINUTE).toISOString(),
+      };
+      expect(harness.manager.schedule("agent-1")).toBe(true);
     });
 
     it("lets a context under 200k tokens expire, because compacting it saves little", async () => {

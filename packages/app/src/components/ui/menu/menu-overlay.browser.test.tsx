@@ -121,4 +121,19 @@ describe("anchored menu surface on web", () => {
     const panel = element("panel").getBoundingClientRect();
     expect(panel.width).toBeGreaterThanOrEqual(body.width);
   });
+
+  it("stays hidden while it measures off-screen, so it is visible only where it lands", async () => {
+    mountMenuAbovePill(<View testID="body" style={SHORT} />);
+
+    // Before its content has been laid out, the surface sits at -9999 to be measured.
+    const measuring = element("panel");
+    expect(measuring.getBoundingClientRect().left).toBeLessThan(-1000);
+    expect(getComputedStyle(measuring).visibility).toBe("hidden");
+
+    await wait(SETTLE_MS);
+
+    const placed = element("panel");
+    expect(placed.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
+    expect(getComputedStyle(placed).visibility).toBe("visible");
+  });
 });

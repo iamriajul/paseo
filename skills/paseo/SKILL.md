@@ -117,9 +117,9 @@ Only set feature IDs returned by `inspect_provider`. For Codex fast mode, look f
 
 ## Schedules and heartbeats
 
-**`create_schedule`** — starts a new agent on a cron cadence. Required: `prompt`, `cron`, `provider`. Optional: `timezone`, `name`, `cwd`, `maxRuns`, `expiresIn`. Use when the recurring work should live in fresh agents.
+**`create_schedule`** — starts a new agent on a cron cadence. Required: `prompt`, `cron`, `provider`. Optional: `timezone`, `name`, `cwd`, `maxRuns`, `skipWhileActive` (skip a trigger while an earlier run's agent is running or unarchived), `expiresIn`. Use when the recurring work should live in fresh agents.
 
-**`create_heartbeat`** — sends you a prompt on a cron cadence. Required: `prompt`, `cron`. Optional: `timezone`, `name`, `maxRuns`, `expiresIn`. Use for reminders, PR/build babysitting, and status checks that should return to this conversation.
+**`create_heartbeat`** — sends you a prompt on a cron cadence. Required: `prompt`, `cron`. Optional: `timezone`, `name`, `maxRuns`, `skipWhileActive` (skip a trigger while you are mid-turn), `expiresIn`. Use for reminders, PR/build babysitting, and status checks that should return to this conversation.
 
 **`delete_heartbeat`** stops it. MCP intentionally exposes no heartbeat update tool; delete and recreate when its task or cadence changes.
 

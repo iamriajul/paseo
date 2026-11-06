@@ -25,6 +25,7 @@ export interface ScheduleUpdateOptions extends ScheduleCommandOptions {
   cwd?: string;
   maxRuns?: string | false;
   expiresIn?: string | false;
+  skipWhileActive?: boolean;
 }
 
 export async function runUpdateCommand(
@@ -47,6 +48,7 @@ export async function runUpdateCommand(
     expiresIn: options.expiresIn === false ? undefined : options.expiresIn,
     clearMaxRuns: options.maxRuns === false,
     clearExpires: options.expiresIn === false,
+    skipWhileActive: options.skipWhileActive,
   });
   const { client } = await connectScheduleClient(options.daemonTarget);
   try {

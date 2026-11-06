@@ -4184,6 +4184,8 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceTerminals: z.boolean().optional(),
         // COMPAT(scheduleFeatureValues): added in v0.11.916, remove gate after 2027-04-29.
         scheduleFeatureValues: z.boolean().optional(),
+        // COMPAT(scheduleSkipWhileActive): added in v0.15.902, remove gate after 2027-05-06.
+        scheduleSkipWhileActive: z.boolean().optional(),
         // COMPAT(checkoutForgeSetAutoMerge): added in v0.2.0-beta.1. Remove the
         // feature gate and checkoutGithubSetAutoMerge fallback after 2027-01-17
         // once the supported daemon floor is >= v0.2.0.

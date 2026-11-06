@@ -94,8 +94,11 @@ paseo schedule pause <id>
 paseo schedule resume <id>
 paseo schedule run-once <id>
 paseo schedule update <id> --every 10m --max-runs 6
+paseo schedule update <id> --skip-while-active
 paseo schedule delete <id>
 ```
+
+`--skip-while-active`（用于 `create` 和 `update`）会在之前某次运行的 Agent 仍在运行或尚未归档时跳过触发；`--no-skip-while-active` 关闭该选项。参见[上一次运行仍活跃时跳过](/docs/schedules#skip-while-a-previous-run-is-active)。
 
 ## 节奏 {#cadence}
 

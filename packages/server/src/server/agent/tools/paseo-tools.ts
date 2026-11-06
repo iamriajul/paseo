@@ -399,6 +399,7 @@ interface ScheduleUpdateToolInput {
   name?: string | null;
   prompt?: string;
   maxRuns?: number | null;
+  skipWhileActive?: boolean;
   provider?: string;
   model?: string | null;
   mode?: string | null;
@@ -544,6 +545,7 @@ function buildScheduleUpdateInput(input: ScheduleUpdateToolInput): UpdateSchedul
     ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
     ...(cadence !== undefined ? { cadence } : {}),
     ...(input.maxRuns !== undefined ? { maxRuns: input.maxRuns } : {}),
+    ...(input.skipWhileActive !== undefined ? { skipWhileActive: input.skipWhileActive } : {}),
     ...(expiresAt !== undefined ? { expiresAt } : {}),
     ...(Object.keys(newAgentConfig).length > 0 ? { newAgentConfig } : {}),
   };
@@ -2734,12 +2736,29 @@ function createToolCatalog(
           cwd: z.string().optional(),
           isolation: z.enum(["local", "worktree"]).optional(),
           maxRuns: z.number().int().positive().optional(),
+          skipWhileActive: z
+            .boolean()
+            .optional()
+            .describe(
+              "Skip a trigger while an earlier run's agent is still running or not yet archived.",
+            ),
           expiresIn: scheduleDurationInputSchema.optional(),
         })
         .superRefine(addScheduleCadenceIssue),
       outputSchema: ScheduleSummarySchema.shape,
     },
-    async ({ prompt, cron, timezone, name, provider, cwd, isolation, maxRuns, expiresIn }) => {
+    async ({
+      prompt,
+      cron,
+      timezone,
+      name,
+      provider,
+      cwd,
+      isolation,
+      maxRuns,
+      skipWhileActive,
+      expiresIn,
+    }) => {
       if (!scheduleService) {
         throw new Error("Schedule service is not configured");
       }
@@ -2754,6 +2773,7 @@ function createToolCatalog(
         target: resolveNewAgentScheduleTarget({ provider, cwd, isolation }),
         ...(name?.trim() ? { name: name.trim() } : {}),
         ...(maxRuns === undefined ? {} : { maxRuns }),
+        ...(skipWhileActive === undefined ? {} : { skipWhileActive }),
         ...(expiresAt === undefined ? {} : { expiresAt }),
       });
 
@@ -2781,12 +2801,16 @@ function createToolCatalog(
             .describe("IANA time zone for the cron cadence. For example: America/New_York."),
           name: z.string().optional(),
           maxRuns: z.number().int().positive().optional(),
+          skipWhileActive: z
+            .boolean()
+            .optional()
+            .describe("Skip a trigger while you are still working on a turn."),
           expiresIn: scheduleDurationInputSchema.optional(),
         })
         .superRefine(addScheduleCadenceIssue),
       outputSchema: ScheduleSummarySchema.shape,
     },
-    async ({ prompt, cron, timezone, name, maxRuns, expiresIn }) => {
+    async ({ prompt, cron, timezone, name, maxRuns, skipWhileActive, expiresIn }) => {
       if (!scheduleService) {
         throw new Error("Schedule service is not configured");
       }
@@ -2805,6 +2829,7 @@ function createToolCatalog(
         target: { type: "agent", agentId: callerAgentId },
         ...(name?.trim() ? { name: name.trim() } : {}),
         ...(maxRuns === undefined ? {} : { maxRuns }),
+        ...(skipWhileActive === undefined ? {} : { skipWhileActive }),
         ...(expiresAt === undefined ? {} : { expiresAt }),
       });
 
@@ -2989,6 +3014,12 @@ function createToolCatalog(
             .nullable()
             .optional()
             .describe("New max runs limit (null to clear)."),
+          skipWhileActive: z
+            .boolean()
+            .optional()
+            .describe(
+              "Skip a trigger while an earlier run's agent is still running or not yet archived.",
+            ),
           provider: z
             .string()
             .trim()

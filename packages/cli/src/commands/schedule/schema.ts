@@ -53,13 +53,20 @@ export const scheduleLogSchema: OutputSchema<ScheduleLogRow> = {
   ],
 };
 
+function formatRunStatus(run: ScheduleRunRecord): string {
+  if (run.skipReason === undefined) {
+    return run.status;
+  }
+  return run.skipCount && run.skipCount > 1 ? `skipped x${run.skipCount}` : "skipped";
+}
+
 export function toScheduleLogRow(run: ScheduleRunRecord): ScheduleLogRow {
   return {
     id: run.id,
-    status: run.status,
+    status: formatRunStatus(run),
     startedAt: run.startedAt,
     agentId: run.agentId ? run.agentId.slice(0, 7) : null,
-    output: run.output,
+    output: run.skipReason ?? run.output,
     error: run.error,
   };
 }
@@ -85,6 +92,8 @@ export function createScheduleInspectRows(schedule: ScheduleRecord): ScheduleIns
     { key: "PausedAt", value: schedule.pausedAt ?? "null" },
     { key: "ExpiresAt", value: schedule.expiresAt ?? "null" },
     { key: "MaxRuns", value: schedule.maxRuns == null ? "null" : `${schedule.maxRuns}` },
+    { key: "SkipWhileActive", value: schedule.skipWhileActive ? "true" : "false" },
+    { key: "LastSkippedAt", value: schedule.lastSkippedAt ?? "null" },
     { key: "RunCount", value: `${schedule.runs.length}` },
   ];
 }

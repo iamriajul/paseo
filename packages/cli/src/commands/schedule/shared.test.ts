@@ -159,6 +159,15 @@ describe("parseScheduleCreateInput thinking", () => {
   });
 });
 
+describe("parseScheduleCreateInput skip while active", () => {
+  test("--skip-while-active is sent only when given", () => {
+    expect(parseScheduleCreateInput({ ...baseOptions, skipWhileActive: true })).toMatchObject({
+      skipWhileActive: true,
+    });
+    expect(parseScheduleCreateInput(baseOptions)).not.toHaveProperty("skipWhileActive");
+  });
+});
+
 describe("parseScheduleUpdateInput", () => {
   test("rejects calls with no fields to update", () => {
     expect(() => parseScheduleUpdateInput({ id: "abc" })).toThrow(
@@ -268,6 +277,17 @@ describe("parseScheduleUpdateInput", () => {
     expect(parseScheduleUpdateInput({ id: "abc", clearMaxRuns: true })).toEqual({
       id: "abc",
       maxRuns: null,
+    });
+  });
+
+  test("--skip-while-active sets the option; --no-skip-while-active clears it", () => {
+    expect(parseScheduleUpdateInput({ id: "abc", skipWhileActive: true })).toEqual({
+      id: "abc",
+      skipWhileActive: true,
+    });
+    expect(parseScheduleUpdateInput({ id: "abc", skipWhileActive: false })).toEqual({
+      id: "abc",
+      skipWhileActive: false,
     });
   });
 

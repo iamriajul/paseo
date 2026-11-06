@@ -42,6 +42,8 @@ export interface ScheduleRunRecord {
   agentId: string | null;
   output: string | null;
   error: string | null;
+  skipReason?: string;
+  skipCount?: number;
 }
 
 export interface ScheduleRecord {
@@ -58,6 +60,8 @@ export interface ScheduleRecord {
   pausedAt: string | null;
   expiresAt: string | null;
   maxRuns: number | null;
+  skipWhileActive?: boolean;
+  lastSkippedAt?: string | null;
   runs: ScheduleRunRecord[];
 }
 
@@ -84,6 +88,7 @@ export interface CreateScheduleInput {
   maxRuns?: number;
   expiresAt?: string;
   runOnCreate?: boolean;
+  skipWhileActive?: boolean;
 }
 
 export interface ScheduleCreatePayload {
@@ -149,6 +154,7 @@ export interface UpdateScheduleInput {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  skipWhileActive?: boolean;
 }
 
 export interface ScheduleUpdatePayload {

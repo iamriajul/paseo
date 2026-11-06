@@ -1025,6 +1025,7 @@ export interface CreateScheduleOptions {
   maxRuns?: number;
   expiresAt?: string;
   runOnCreate?: boolean;
+  skipWhileActive?: boolean;
   requestId?: string;
 }
 export interface InspectScheduleOptions {
@@ -1052,6 +1053,7 @@ export interface UpdateScheduleOptions {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  skipWhileActive?: boolean;
   requestId?: string;
 }
 export type TaskUploadAttachmentInput = NonNullable<FileUploadResult["file"]>;
@@ -7539,6 +7541,7 @@ export class DaemonClient {
         ...(typeof options.maxRuns === "number" ? { maxRuns: options.maxRuns } : {}),
         ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
         ...(typeof options.runOnCreate === "boolean" ? { runOnCreate: options.runOnCreate } : {}),
+        ...(options.skipWhileActive ? { skipWhileActive: true } : {}),
       },
       responseType: "schedule/create/response",
     });
@@ -7632,6 +7635,9 @@ export class DaemonClient {
         ...(options.newAgentConfig !== undefined ? { newAgentConfig: options.newAgentConfig } : {}),
         ...(options.maxRuns !== undefined ? { maxRuns: options.maxRuns } : {}),
         ...(options.expiresAt !== undefined ? { expiresAt: options.expiresAt } : {}),
+        ...(options.skipWhileActive !== undefined
+          ? { skipWhileActive: options.skipWhileActive }
+          : {}),
       },
       responseType: "schedule/update/response",
     });

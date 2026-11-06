@@ -8,7 +8,10 @@ import type { ActiveConnection } from "@/runtime/host-runtime";
 import { useHostRuntimeSnapshot } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { openServiceUrl } from "@/utils/open-service-url";
-import { resolveWorkspaceScriptLink } from "@/utils/workspace-script-links";
+import {
+  resolveServiceBrowserUrl,
+  resolveWorkspaceScriptLink,
+} from "@/utils/workspace-script-links";
 
 export interface ExplorerPortsPaneProps {
   serverId: string;
@@ -23,6 +26,7 @@ interface PortRow {
   protocol: "HTTP" | "TCP";
   lifecycle: WorkspaceScriptPayload["lifecycle"];
   openUrl: string | null;
+  inAppUrl: string | null;
 }
 
 const EMPTY_SCRIPTS: WorkspaceScriptPayload[] = [];
@@ -48,6 +52,7 @@ function buildPortRows(input: {
       protocol: script.type === "service" ? "HTTP" : "TCP",
       lifecycle: script.lifecycle,
       openUrl: link.primary?.url ?? null,
+      inAppUrl: resolveServiceBrowserUrl({ script, selected: link.primary }),
     });
   }
   return rows.sort((a, b) => {
@@ -81,7 +86,10 @@ export function ExplorerPortsPane({
       if (!row.openUrl) {
         return;
       }
-      void openServiceUrl(row.openUrl, { openInApp: onOpenUrlInBrowserTab });
+      void openServiceUrl(row.openUrl, {
+        openInApp: onOpenUrlInBrowserTab,
+        inAppUrl: row.inAppUrl,
+      });
     },
     [onOpenUrlInBrowserTab],
   );

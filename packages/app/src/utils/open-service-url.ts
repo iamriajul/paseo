@@ -10,17 +10,20 @@ import { openExternalUrl } from "@/utils/open-external-url";
 export interface OpenServiceUrlOptions {
   /** Returns false to decline the URL; anything else counts as opened in-app. */
   openInApp?: (url: string) => boolean | void;
+  /** URL to open in the workspace Browser when it differs from the external one. */
+  inAppUrl?: string | null;
 }
 
 export async function openServiceUrl(url: string, options?: OpenServiceUrlOptions): Promise<void> {
   const openInApp = options?.openInApp;
+  const inAppUrl = options?.inAppUrl ?? url;
   if (!openInApp) {
     await openExternalUrl(url);
     return;
   }
 
   if (!isElectronRuntime()) {
-    if (openInApp(url) !== false) {
+    if (openInApp(inAppUrl) !== false) {
       return;
     }
     await openExternalUrl(url);
@@ -30,7 +33,7 @@ export async function openServiceUrl(url: string, options?: OpenServiceUrlOption
   const behavior = await resolveBehavior(url);
   // Same refusal check as the non-Electron branch above: the in-app opener can
   // decline, and dropping the link on the floor is not the fallback.
-  if (behavior === "in-app" && openInApp(url) !== false) {
+  if (behavior === "in-app" && openInApp(inAppUrl) !== false) {
     return;
   }
   await openExternalUrl(url);

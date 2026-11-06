@@ -2,7 +2,7 @@
 
 The in-app Browser has workspace-aware localhost routing on Electron desktop, Android, and web builds. When a Browser tab belongs to a workspace on host `H`, loopback URLs loaded inside that Browser are resolved against host `H`, not against the machine running the client.
 
-This is separate from the service proxy. The service proxy exposes `paseo.json` service scripts through generated hostnames and optional public URLs. Browser localhost routing is for loopback URLs such as `http://localhost:5173`, `http://127.0.0.1:3000`, or a WebSocket opened to `ws://localhost:3000`.
+This is separate from the service proxy. The service proxy exposes `paseo.json` service scripts through generated hostnames and optional public URLs. Browser localhost routing is for loopback URLs such as `http://localhost:5173`, `http://127.0.0.1:3000`, or a WebSocket opened to `ws://localhost:3000`. Inside the Browser, `paseo.json` services ride this route too; see [Workspace services in the Browser](#workspace-services-in-the-browser).
 
 ## Routing scope
 
@@ -73,6 +73,15 @@ Two attach races also produced blank or broken agent tabs, and both are covered 
 - The guest's first proxied request can reach the proxy before the renderer's `register-attached` IPC maps its webContents. Proxy credentials are matched by the guest's session partition, not only by the registered browserId.
 
 Whether a host is this machine is remembered per `serverId` once any registration says so. The automation handler knows the connection and declares it; the pane registering the same tab does not, and the cached daemon status can be empty. Flipping that workspace's session from direct to the tunnel proxy ran `closeAllConnections()` mid-load.
+
+## Workspace services in the Browser
+
+`paseo.json` services are part of the Browser, not a separate origin:
+
+- The Browser toolbar lists the workspace's services. A running one opens at `http://localhost:<port>/`; a stopped one starts and opens once the daemon reports it running. The URL bar shows the service name when the tab's port belongs to a running service.
+- Opening a service in the Browser from the scripts menu or the ports panel uses the same `http://localhost:<port>/` route (`resolveServiceBrowserUrl` in `packages/app/src/utils/workspace-script-links.ts`). External opens keep the selected route, and a selected public URL stays public in the Browser too.
+
+So a service, a hand-typed `localhost:<port>` tab and an agent's `browser_new_tab` share one origin and one cookie jar. The generated `*.localhost` service hostname is still what external browsers and public aliases use.
 
 ## Web build
 
@@ -168,7 +177,7 @@ Only `normalizeHostHeader` and `stripHopByHopHeaders` are imported from `service
 - **Devtools need internet from the client.** eruda is fetched from jsdelivr by the previewed page rather than bundled into the server package. A client that cannot reach the CDN gets no devtools and no explanation: the toolbar button un-toggles and stops there.
 - **A `Content-Security-Policy` added after the daemon disables the whole bridge.** The proxy strips CSP from the dev server's response and from meta tags in the head window, but it cannot strip one a reverse proxy adds on the way out. That blocks the injected inline scripts, so the tab degrades to the same no-bridge toolbar as a direct URL, with no notice to say so — the notice is keyed on the URL being unproxied, and this one is proxied.
 - **A `<head>` still open after 64 KiB streams unmodified**, degrading the same silent way. The cap only bites once that many bytes actually arrive: a shorter document that ends without ever closing its head is still injected. Clamping there keeps output independent of upstream chunking, and a head that large is not worth delaying the response for.
-- **A port already exposed as a service-proxy route is reachable at two origins.** If a `paseo.json` service script and a manually opened Browser tab point at the same port, the service hostname and the preview hostname are different origins with separate cookie jars — signing in on one does not carry over to the other. This is intended: [service proxy](service-proxy.md) routes and preview routes serve different purposes, and neither is aware of the other's routes.
+- **On the web build, a service opened through its generated hostname and the same port opened as a preview are two origins.** The service hostname and the preview hostname have separate cookie jars, so signing in on one does not carry over. Electron and Android do not have this split: they open services at the localhost route ([Workspace services in the Browser](#workspace-services-in-the-browser)). The web build keeps both because a public service URL works without a preview template.
 
 ## Code Server
 

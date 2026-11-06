@@ -1,4 +1,5 @@
 import { useCallback, useMemo, type ReactElement } from "react";
+import { resolveServiceBrowserUrl } from "@/utils/workspace-script-links";
 import type { GestureResponderEvent } from "react-native";
 import { Pressable, Text, View } from "react-native";
 import {
@@ -329,8 +330,11 @@ function ScriptRow({
   const handleOpenService = useCallback(() => {
     if (!selectedLink) return;
     closeMenu();
-    void openServiceUrl(selectedLink.url, { openInApp: onOpenUrlInBrowserTab });
-  }, [selectedLink, closeMenu, onOpenUrlInBrowserTab]);
+    void openServiceUrl(selectedLink.url, {
+      openInApp: onOpenUrlInBrowserTab,
+      inAppUrl: resolveServiceBrowserUrl({ script, selected: selectedLink }),
+    });
+  }, [selectedLink, closeMenu, onOpenUrlInBrowserTab, script]);
 
   const handleView = useCallback(() => {
     if (liveTerminalId) onViewTerminal?.(liveTerminalId);

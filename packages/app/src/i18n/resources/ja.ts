@@ -663,6 +663,12 @@ export const ja: TranslationResources = {
         label: "デバイスサイズ",
         responsive: "レスポンシブ",
       },
+      services: {
+        label: "ワークスペースのサービス",
+        starting: "起動中…",
+        unhealthy: "異常",
+        startAndOpen: "起動して開く",
+      },
       errors: {
         failedToLoad: "ページの読み込みに失敗しました",
         loadFailedTitle: "このページを読み込めませんでした",

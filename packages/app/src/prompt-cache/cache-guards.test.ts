@@ -64,7 +64,7 @@ describe("resolveColdSendGuard", () => {
       resolveColdSendGuard({
         agent: opus,
         text: "carry on",
-        view: { status: { kind: "expired" } },
+        view: { status: { kind: "expired" }, lastTurnCompacted: false },
       }),
     ).toBe(true);
   });
@@ -74,21 +74,31 @@ describe("resolveColdSendGuard", () => {
       resolveColdSendGuard({
         agent: opus,
         text: "carry on",
-        view: { status: { kind: "warm", remainingMs: 1_000 } },
+        view: { status: { kind: "warm", remainingMs: 1_000 }, lastTurnCompacted: false },
       }),
     ).toBe(false);
     expect(
       resolveColdSendGuard({
         agent: { provider: "claude", modelId: "claude-haiku-5-5" },
         text: "carry on",
-        view: { status: { kind: "expired" } },
+        view: { status: { kind: "expired" }, lastTurnCompacted: false },
       }),
     ).toBe(false);
     expect(
       resolveColdSendGuard({
         agent: opus,
         text: " /compact",
-        view: { status: { kind: "expired" } },
+        view: { status: { kind: "expired" }, lastTurnCompacted: false },
+      }),
+    ).toBe(false);
+  });
+
+  test("sends at once right after a compaction, the user's or the idle cap's", () => {
+    expect(
+      resolveColdSendGuard({
+        agent: opus,
+        text: "carry on",
+        view: { status: { kind: "expired" }, lastTurnCompacted: true },
       }),
     ).toBe(false);
   });

@@ -20,6 +20,8 @@ import {
   latestPromptCacheEntry,
   promptCacheInputTokens,
   CACHE_AUTO_COMPACT_FEATURE_ID,
+  CACHE_WARM_MAX_PINGS_FEATURE_ID,
+  isCacheWarmMaxPingsValue,
   type PromptCacheCompaction,
   type AgentPromptCacheState,
   type PromptCacheRequestSample,
@@ -2627,10 +2629,16 @@ export class AgentManager {
   async setAgentFeature(agentId: string, featureId: string, value: unknown): Promise<void> {
     const agent = this.requireAgent(agentId);
 
-    if (featureId === CACHE_AUTO_COMPACT_FEATURE_ID) {
-      // Daemon-owned: the warm-up watchdog reads it, the provider never sees it.
-      if (typeof value !== "boolean") {
+    if (
+      featureId === CACHE_AUTO_COMPACT_FEATURE_ID ||
+      featureId === CACHE_WARM_MAX_PINGS_FEATURE_ID
+    ) {
+      // Daemon-owned: the warm-up watchdog reads them, the provider never sees them.
+      if (featureId === CACHE_AUTO_COMPACT_FEATURE_ID && typeof value !== "boolean") {
         throw new Error("cache_auto_compact expects a boolean");
+      }
+      if (featureId === CACHE_WARM_MAX_PINGS_FEATURE_ID && !isCacheWarmMaxPingsValue(value)) {
+        throw new Error("cache_warm_max_pings expects a whole number from 1 to 12");
       }
       agent.config.featureValues = { ...agent.config.featureValues, [featureId]: value };
       this.cacheWarmManager?.schedule(agentId);

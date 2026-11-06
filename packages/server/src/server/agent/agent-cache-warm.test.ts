@@ -42,6 +42,8 @@ interface HarnessOptions {
   observedTtl?: "5m" | "1h";
   autoCompact?: boolean;
   autoCompactByDefault?: boolean;
+  /** The agent's own warm-up cap per idle stretch. */
+  maxPings?: unknown;
   /** Cache reads of every request, so roughly the context size. */
   contextTokens?: number;
   /** The session warms through a throwaway fork instead of a ping turn. */
@@ -59,6 +61,9 @@ function buildAgent(options: HarnessOptions): ManagedAgent {
   }
   if (options.autoCompact !== undefined) {
     featureValues.cache_auto_compact = options.autoCompact;
+  }
+  if (options.maxPings !== undefined) {
+    featureValues.cache_warm_max_pings = options.maxPings;
   }
   const requestAtMs = options.requestAtMs === undefined ? START : options.requestAtMs;
   const lastResponseAtMs = options.lastResponseAtMs ?? requestAtMs;
@@ -443,6 +448,22 @@ describe("AgentCacheWarmManager", () => {
       await runToCap(optedOut);
       expect(optedOut.sendPrompt).toHaveBeenCalledTimes(10);
     });
+  });
+
+  it("stops at the agent's own cap, and never past the window's maximum", async () => {
+    async function pingsSent(maxPings: unknown): Promise<number> {
+      vi.setSystemTime(START);
+      const { manager, sendPrompt } = createHarness({ ttl: "5m", maxPings });
+      manager.schedule("agent-1");
+      for (let ping = 0; ping < 14; ping += 1) {
+        await vi.advanceTimersByTimeAsync(4.5 * MINUTE);
+        manager.schedule("agent-1");
+      }
+      return sendPrompt.mock.calls.length;
+    }
+    expect(await pingsSent(3)).toBe(3);
+    expect(await pingsSent(12)).toBe(10);
+    expect(await pingsSent("lots")).toBe(10);
   });
 
   it("starts the cap again when the user sends a real prompt, keeping the lifetime total", async () => {

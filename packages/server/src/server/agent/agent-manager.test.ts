@@ -12963,6 +12963,16 @@ test("setAgentFeature notifies cacheWarmManager on prompt_cache_ttl and cache_wa
 
     await manager.setAgentFeature(snapshot.id, "cache_warm", true);
     expect(onFeatureToggled).toHaveBeenCalledWith(snapshot.id, true);
+
+    // The warm-up cap is the daemon's own: kept in featureValues, carried on the snapshot.
+    await manager.setAgentFeature(snapshot.id, "cache_warm_max_pings", 4);
+    expect(manager.getAgent(snapshot.id)?.config.featureValues?.cache_warm_max_pings).toBe(4);
+    await expect(manager.setAgentFeature(snapshot.id, "cache_warm_max_pings", 13)).rejects.toThrow(
+      "cache_warm_max_pings expects a whole number from 1 to 12",
+    );
+    await expect(
+      manager.setAgentFeature(snapshot.id, "cache_warm_max_pings", 2.5),
+    ).rejects.toThrow();
   } finally {
     if (snapshotId) await manager.closeAgent(snapshotId);
     rmSync(workdir, { recursive: true, force: true });

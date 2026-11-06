@@ -26,6 +26,7 @@ import {
 } from "./use-prompt-cache";
 import type { PromptCacheHistoryBar, PromptCacheHistorySummary } from "./prompt-cache-history";
 import { PromptCacheInsightsDialog } from "./prompt-cache-insights-dialog";
+import { WarmUpCapSlider } from "./warm-up-cap-slider";
 import {
   usePromptCacheAutoCompact,
   type PromptCacheAutoCompact,
@@ -390,6 +391,14 @@ export const PromptCachePill = memo(function PromptCachePill({
                 statusTestID="prompt-cache-cap-count"
               />
               <CapProgress warmup={warmup} />
+              {warmup.enabled && cache.setMaxPings ? (
+                <WarmUpCapSlider
+                  value={warmup.maxPings}
+                  max={warmup.windowMaxPings}
+                  coversText={formatPreciseDuration(windows.warmIntervalMs * warmup.maxPings)}
+                  onChange={cache.setMaxPings}
+                />
+              ) : null}
               <View style={styles.switchGroupGap} />
               <SwitchRow
                 label="Compact at cap"

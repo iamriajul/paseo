@@ -36,6 +36,35 @@ export const CACHE_WARM_FEATURE_ID = "cache_warm";
 export const CACHE_AUTO_COMPACT_FEATURE_ID = "cache_auto_compact";
 
 /**
+ * Per-agent warm-up cap: how many warm-ups one idle stretch may send, from 1 up to the window's
+ * own maximum. Stored daemon-side in featureValues like `cache_auto_compact`; unset uses the
+ * window's maximum.
+ */
+export const CACHE_WARM_MAX_PINGS_FEATURE_ID = "cache_warm_max_pings";
+
+/** Whether a value can be stored as a warm-up cap; the window's maximum clamps it at use. */
+export function isCacheWarmMaxPingsValue(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= ONE_HOUR_CACHE_WARM_MAX_PINGS
+  );
+}
+
+/** The window with the agent's own warm-up cap applied, never above the window's maximum. */
+export function applyCacheWarmMaxPings(
+  windows: PromptCacheWindows,
+  explicitValue: unknown,
+): PromptCacheWindows {
+  if (!isCacheWarmMaxPingsValue(explicitValue)) return windows;
+  return {
+    ...windows,
+    maxConsecutivePings: Math.min(explicitValue, windows.maxConsecutivePings),
+  };
+}
+
+/**
  * Below this the context is too small for a compaction to pay: a fresh Claude Code session already
  * starts near 60k tokens, so compacting 150k saves little and loses the detail.
  */

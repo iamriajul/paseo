@@ -38,15 +38,17 @@ export function resolveModelSwitchGuard(input: {
 /**
  * Whether a message to this agent waits for confirmation: its cache has expired, so the message
  * writes the whole context again at its model's price. Haiku is already the cheap compaction
- * model, and a slash command is not a prompt that needs the context.
+ * model, a slash command is not a prompt that needs the context, and right after a compaction
+ * (the user's or the idle cap's) the message writes only the summary, so there is nothing to save.
  */
 export function resolveColdSendGuard(input: {
   agent: GuardedAgent;
   text: string;
-  view: Pick<PromptCacheView, "status">;
+  view: Pick<PromptCacheView, "status" | "lastTurnCompacted">;
 }): boolean {
   if (!isFirstPartyClaude(input.agent) || isHaikuModel(input.agent.modelId)) return false;
   if (input.text.trimStart().startsWith("/")) return false;
+  if (input.view.lastTurnCompacted) return false;
   return input.view.status.kind === "expired";
 }
 

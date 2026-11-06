@@ -40,6 +40,8 @@ import {
 } from "./prompt-cache-insights";
 import { usePromptCacheAgent } from "./use-prompt-cache";
 import { useMoneyStatsEnabled } from "./money-stats-context";
+import { resolveMoneyStatsPrices } from "./money-stats";
+import { SessionActivitySection } from "./session-activity-section";
 
 const HEADER = { title: "Session cache insights" };
 /** Request rows shown before "Show more"; the chart already places every request in time. */
@@ -149,6 +151,13 @@ export function PromptCacheInsightsDialog({
       }),
     [model, cacheWindowMs],
   );
+  const sessionRequests = agent?.promptCache?.totals?.requests;
+  const busy = agent?.status === "running";
+  const priced = resolveMoneyStatsPrices(agent) !== null;
+  const session = useMemo(
+    () => ({ requests: sessionRequests, busy, priced }),
+    [sessionRequests, busy, priced],
+  );
   return (
     <AdaptiveModalSheet
       header={HEADER}
@@ -157,9 +166,24 @@ export function PromptCacheInsightsDialog({
       desktopMaxWidth={760}
       testID="prompt-cache-insights"
     >
-      <InsightsBody load={load} price={price} cacheWindowMs={cacheWindowMs} reported={reported} />
+      <InsightsBody
+        load={load}
+        price={price}
+        cacheWindowMs={cacheWindowMs}
+        reported={reported}
+        session={session}
+      />
     </AdaptiveModalSheet>
   );
+}
+
+/** What the activity chart needs from the agent itself, beyond the journal. */
+interface SessionFacts {
+  /** The snapshot's whole-session request total; above the journal's means the journal is partial. */
+  requests: number | undefined;
+  busy: boolean;
+  /** The model has a price, so money figures can show. */
+  priced: boolean;
 }
 
 function InsightsBody({
@@ -167,11 +191,13 @@ function InsightsBody({
   price,
   cacheWindowMs,
   reported,
+  session,
 }: {
   load: InsightsLoad;
   price: RequestPricer;
   cacheWindowMs: number;
   reported: ReportedCost;
+  session: SessionFacts;
 }): ReactElement {
   switch (load.kind) {
     case "loading":
@@ -189,6 +215,7 @@ function InsightsBody({
           price={price}
           cacheWindowMs={cacheWindowMs}
           reported={reported}
+          session={session}
         />
       );
   }
@@ -239,11 +266,13 @@ function InsightsExplorer({
   price,
   cacheWindowMs,
   reported,
+  session,
 }: {
   data: InsightsData;
   price: RequestPricer;
   cacheWindowMs: number;
   reported: ReportedCost;
+  session: SessionFacts;
 }): ReactElement {
   const shown = useMemo(() => selectShownRequests(data.requests), [data.requests]);
   const [zoomStack, setZoomStack] = useState<InsightsRange[]>([]);
@@ -371,6 +400,13 @@ function InsightsExplorer({
         cost={sessionCost}
         reported={zoomStack.length === 0 ? reported : null}
         showRate={moneyStats}
+      />
+      <SessionActivitySection
+        requests={data.requests}
+        sessionRequests={session.requests}
+        busy={session.busy}
+        price={moneyStats && session.priced ? price : null}
+        nowMs={Date.now()}
       />
       <View style={styles.chartHeader}>
         <Text style={styles.sectionTitle}>

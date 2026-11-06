@@ -1112,3 +1112,13 @@ npm run test:browser --workspace=@getpaseo/app -- src/components/ui/menu/menu-ov
 ```bash
 grep -q 'panel?.contains(source.node)' packages/app/e2e/support/helpers/command-center-file-search.ts
 ```
+
+## e2e-dist-untransformed
+
+**Playwright loads workspace `dist` without transforming it**
+
+A worker's first test failed now and then with `SyntaxError: The requested module './…js' does not provide an export named '…'`, naming a different `packages/protocol` or `packages/client` dist module each time (8 of 328 cached CI job logs, 2026-10 to 2026-11-06). The cause is Playwright 1.58's transform cache. Its ESM `load` hook runs on Node's loader thread, where `isWorkerProcess()` is false, so workers write cache entries with a plain `writeFileSync`. When two workers start together, both compile the same `dist` files the seed client imports, and one can read the other's half-written entry. Truncating this checkout's cached `timeline-subscription/index.js` reproduces the CI error exactly. `playwright.config.ts` now lists `**/packages/*/dist/**` under `build.external`, so Node loads built JavaScript as it is and the cache is never consulted for it.
+
+```bash
+grep -q 'external: \["\*\*/packages/\*/dist/\*\*"\]' packages/app/playwright.config.ts
+```

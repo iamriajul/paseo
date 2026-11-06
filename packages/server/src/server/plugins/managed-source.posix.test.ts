@@ -1,4 +1,14 @@
-import { mkdir, rename, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -38,11 +48,17 @@ async function commitAll(repository: string, message: string): Promise<string> {
 
 /** Points https://github.com/fixture/repository.git at a local repository for the callback. */
 async function withGitHubFixture(repository: string, run: () => Promise<void>): Promise<void> {
-  const overlay = {
-    GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: `url.${pathToFileURL(repository).href}.insteadOf`,
-    GIT_CONFIG_VALUE_0: "https://github.com/fixture/repository.git",
-  };
+  await withEnv(
+    {
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: `url.${pathToFileURL(repository).href}.insteadOf`,
+      GIT_CONFIG_VALUE_0: "https://github.com/fixture/repository.git",
+    },
+    run,
+  );
+}
+
+async function withEnv(overlay: Record<string, string>, run: () => Promise<void>): Promise<void> {
   const previous = Object.fromEntries(Object.keys(overlay).map((key) => [key, process.env[key]]));
   Object.assign(process.env, overlay);
   try {
@@ -277,6 +293,81 @@ describe("managed Git plugin sources", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   }, 30_000);
+});
+
+describe("Git plugin submodules", () => {
+  it("initializes a plugin's submodules", async () => {
+    const library = await mkdtemp(path.join(tmpdir(), "paseo-plugin-git-library-"));
+    roots.push(library);
+    await runGitCommand(["init", "-b", "main"], { cwd: library });
+    await writeFile(path.join(library, "shared.ts"), "export const shared = 1;\n");
+    await runGitCommand(["add", "-A"], { cwd: library });
+    await runGitCommand(
+      ["-c", "user.name=Paseo Tests", "-c", "user.email=paseo@example.test", "commit", "-m", "lib"],
+      { cwd: library },
+    );
+    const repository = await createRepository();
+    await runGitCommand(
+      ["-c", "protocol.file.allow=always", "submodule", "add", pathToFileURL(library).href, "lib"],
+      { cwd: repository },
+    );
+    await commitAll(repository, "add submodule");
+    const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-git-home-"));
+    roots.push(home);
+    // Git refuses file:// submodules by default since 2.38.1.
+    await withEnv(
+      {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "protocol.file.allow",
+        GIT_CONFIG_VALUE_0: "always",
+      },
+      async () => {
+        const sources = new ManagedPluginSources(home);
+        const candidate = await sources.prepareInstall({
+          source: `git:${pathToFileURL(repository).href}`,
+        });
+        expect(await readFile(path.join(candidate.directory, "lib", "shared.ts"), "utf8")).toBe(
+          "export const shared = 1;\n",
+        );
+        await sources.discard(candidate);
+      },
+    );
+  }, 30_000);
+
+  // git-submodule is a shell script. On Windows it starts Git's MSYS sh with the staging
+  // checkout as its working directory; when MSYS process startup stalls on a CI runner, the
+  // install hangs past the test deadline and the staging cleanup fails with EBUSY.
+  it.skipIf(process.platform === "win32")(
+    "installs a plugin without submodules without starting git-submodule",
+    async () => {
+      const repository = await createRepository();
+      const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-git-home-"));
+      roots.push(home);
+      const execPath = await mkdtemp(path.join(tmpdir(), "paseo-git-exec-path-"));
+      roots.push(execPath);
+      const { stdout } = await runGitCommand(["--exec-path"], { cwd: home });
+      const realExecPath = stdout.trim();
+      for (const entry of await readdir(realExecPath)) {
+        if (entry !== "git-submodule")
+          await symlink(path.join(realExecPath, entry), path.join(execPath, entry));
+      }
+      await writeFile(
+        path.join(execPath, "git-submodule"),
+        "#!/bin/sh\necho 'git-submodule started' >&2\nexit 1\n",
+      );
+      await chmod(path.join(execPath, "git-submodule"), 0o755);
+
+      await withEnv({ GIT_EXEC_PATH: execPath }, async () => {
+        const sources = new ManagedPluginSources(home);
+        const candidate = await sources.prepareInstall({
+          source: `git:${pathToFileURL(repository).href}`,
+        });
+        expect(candidate.defaultId).toBe("managed-example");
+        await sources.discard(candidate);
+      });
+    },
+    30_000,
+  );
 });
 
 describe("registry plugin sources", () => {

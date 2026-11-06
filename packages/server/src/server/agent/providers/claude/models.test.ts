@@ -13,6 +13,7 @@ import {
   normalizeClaudeManifestModelId,
   parseClaudeCodeVersion,
   resolveClaudeDisabledThinkingForModel,
+  resolveClaudeWarmUpRequestSettings,
 } from "./model-manifest.js";
 import { discoverClaudeModels } from "./model-discovery.js";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
@@ -1456,5 +1457,38 @@ describe("enrichClaudeCatalogModel", () => {
       thinkingOptions: [],
     });
     expect(model.thinkingOptions).toEqual([]);
+  });
+});
+
+describe("resolveClaudeWarmUpRequestSettings", () => {
+  it("lowers effort only on models whose cache survives an effort change", () => {
+    for (const model of [
+      "claude-opus-5-5",
+      "claude-opus-5-5[1m]",
+      "claude-sonnet-5-5",
+      "claude-fable-5-1",
+      "claude-fable-5-1[1m]",
+    ]) {
+      expect(resolveClaudeWarmUpRequestSettings(model)).toEqual({
+        effort: "low",
+        disableThinking: false,
+      });
+    }
+    expect(resolveClaudeWarmUpRequestSettings("claude-haiku-5-5")).toEqual({
+      effort: "low",
+      disableThinking: true,
+    });
+    for (const model of [
+      "claude-opus-5",
+      "claude-fable-5",
+      "claude-opus-4-8",
+      "claude-haiku-4-5",
+      null,
+    ]) {
+      expect(resolveClaudeWarmUpRequestSettings(model)).toEqual({
+        effort: null,
+        disableThinking: false,
+      });
+    }
   });
 });

@@ -16,6 +16,12 @@ interface ClaudeModelManifestEntry {
   defaultThinkingOptionId?: ClaudeEffortLevel;
   supportsThinkingDisabled?: boolean;
   supportsFastMode?: boolean;
+  /**
+   * Changing effort or thinking between requests keeps this model's prompt cache, so a warm-up
+   * can run at the lowest effort (Anthropic 5.5+ and Fable 5.1+, per a user ruling). Older models
+   * are left out: their warm-ups keep the agent's own effort and thinking.
+   */
+  effortChangeKeepsCache?: boolean;
 }
 
 /**
@@ -54,6 +60,7 @@ export const CLAUDE_ULTRACODE_THINKING_OPTION_ID = "ultracode";
 export const CLAUDE_MODEL_MANIFEST = [
   {
     id: "claude-opus-5-5[1m]",
+    effortChangeKeepsCache: true,
     label: "Opus 5.5 1M",
     description: "Opus 5.5 with 1M context window",
     minimumClaudeCodeVersion: "2.1.280",
@@ -64,6 +71,7 @@ export const CLAUDE_MODEL_MANIFEST = [
   },
   {
     id: "claude-opus-5-5",
+    effortChangeKeepsCache: true,
     label: "Opus 5.5",
     description: "Opus 5.5 · Latest release",
     defaultPriority: 3,
@@ -104,6 +112,7 @@ export const CLAUDE_MODEL_MANIFEST = [
   },
   {
     id: "claude-fable-5-1[1m]",
+    effortChangeKeepsCache: true,
     label: "Fable 5.1 1M",
     description: "Fable 5.1 with 1M context window",
     contextWindowMaxTokens: 1_000_000,
@@ -111,6 +120,7 @@ export const CLAUDE_MODEL_MANIFEST = [
   },
   {
     id: "claude-fable-5-1",
+    effortChangeKeepsCache: true,
     label: "Fable 5.1",
     description: "Fable 5.1 · Most powerful model",
     contextWindowMaxTokens: 200_000,
@@ -153,6 +163,7 @@ export const CLAUDE_MODEL_MANIFEST = [
   },
   {
     id: "claude-sonnet-5-5",
+    effortChangeKeepsCache: true,
     label: "Sonnet 5.5",
     description: "Sonnet 5.5 · Best for everyday tasks",
     minimumClaudeCodeVersion: "2.1.284",
@@ -230,6 +241,7 @@ export const CLAUDE_MODEL_MANIFEST = [
   },
   {
     id: "claude-haiku-5-5",
+    effortChangeKeepsCache: true,
     label: "Haiku 5.5",
     description: "Haiku 5.5 · Fastest for quick answers",
     minimumClaudeCodeVersion: "2.1.293",
@@ -439,20 +451,32 @@ export function resolveClaudeDisabledThinkingForModel(
   };
 }
 
+/** What a warm-up overrides on a model whose cache survives an effort change. */
+export interface ClaudeWarmUpRequestSettings {
+  /** The model's lowest effort; null keeps the agent's own. */
+  effort: ClaudeEffortLevel | null;
+  /** Thinking off for the request; false keeps the agent's own. */
+  disableThinking: boolean;
+}
+
 /**
- * The effort a warm-up turn runs at: the model's lowest, or null when it has no effort levels.
- * A warm-up only has to reply "ok", and higher effort spends output tokens before the reply.
- * Measured against the API: changing effort between turns reads the whole cached prefix.
+ * The settings a warm-up runs at. A warm-up only has to reply "ok", and higher effort spends
+ * output tokens before the reply. Only a model marked `effortChangeKeepsCache` gets the lowest
+ * effort and, where it can, thinking off; any other model warms at the agent's own settings so
+ * the request matches the cached prefix.
  */
-export function resolveClaudeWarmPingEffort(
+export function resolveClaudeWarmUpRequestSettings(
   modelId: string | null | undefined,
-): ClaudeEffortLevel | null {
+): ClaudeWarmUpRequestSettings {
   const normalizedModelId = normalizeClaudeManifestModelId(modelId);
-  const model = normalizedModelId
+  const model: ClaudeModelManifestEntry | undefined = normalizedModelId
     ? CLAUDE_MODEL_MANIFEST.find((candidate) => candidate.id === normalizedModelId)
     : undefined;
-  const effortLevels = model && "effortLevels" in model ? model.effortLevels : undefined;
-  return effortLevels?.[0] ?? null;
+  if (model?.effortChangeKeepsCache !== true) return { effort: null, disableThinking: false };
+  return {
+    effort: model.effortLevels?.[0] ?? null,
+    disableThinking: model.supportsThinkingDisabled === true,
+  };
 }
 
 export function isClaudeManifestModelId(modelId: string): boolean {

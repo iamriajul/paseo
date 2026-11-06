@@ -639,11 +639,15 @@ export class AgentCacheWarmManager {
   }
 
   private sendCacheWarmPing(agentId: string): Promise<boolean> {
-    return this.sendPrompt(agentId, this.pingPrompt);
+    return this.sendPrompt(agentId, this.pingPrompt, { lowestWarmUpEffort: true });
   }
 
   /** Sent as a warm-up turn so it raises no attention and keeps the idle-stretch counts. */
-  private async sendPrompt(agentId: string, prompt: string): Promise<boolean> {
+  private async sendPrompt(
+    agentId: string,
+    prompt: string,
+    options?: { lowestWarmUpEffort: true },
+  ): Promise<boolean> {
     const result = await this.send({
       agentManager: this.agentManager,
       agentStorage: this.agentStorage,
@@ -654,6 +658,7 @@ export class AgentCacheWarmManager {
       logger: this.logger,
       runOptions: {
         isWarmPing: true,
+        ...options,
       },
     });
     return result.disposition !== "skipped";

@@ -1237,6 +1237,96 @@ describe("ClaudeAgentSession features", () => {
     }
   });
 
+  test("a fork on a model whose cache an effort change breaks keeps the agent's effort and thinking", async () => {
+    const forkMessages: SDKMessage[] = [{ type: "result", subtype: "success" } as SDKMessage];
+    const queryFactory = vi.fn(() => {
+      const iterator = forkMessages[Symbol.iterator]();
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => ({ next: async () => iterator.next() }),
+      };
+    });
+    const session = await new ClaudeAgentClient({
+      logger,
+      queryFactory: queryFactory as unknown as ClaudeQueryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    }).createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "claude-opus-4-8",
+      thinkingOptionId: "high",
+      featureValues: { prompt_cache_ttl: "5m" },
+    });
+    (session as unknown as { claudeSessionId: string }).claudeSessionId = "session-1";
+    try {
+      await session.warmPromptCache?.();
+      const { options } = queryFactory.mock.calls[0]![0] as { options: Record<string, unknown> };
+      expect(options.effort).toBe("high");
+      expect(options.thinking).toEqual({ type: "adaptive", display: "summarized" });
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("runs a v1 warm-up ping at the lowest effort, then restores the configured effort", async () => {
+    const { queryFactory, queryMock } = createQueryMock();
+    const session = await new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    }).createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "claude-opus-5-5",
+      thinkingOptionId: "high",
+    });
+
+    try {
+      const { turnId } = await session.startTurn("Reply with ok only.", {
+        isWarmPing: true,
+        lowestWarmUpEffort: true,
+      });
+      expect(queryMock.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "low" });
+      // A real message steered in now would run at the warm-up's effort, so it is refused.
+      await expect(
+        session.steerActiveTurn?.("Carry on with the task.", { expectedTurnId: turnId }),
+      ).resolves.toEqual({ status: "unavailable" });
+
+      await session.interrupt();
+      await vi.waitFor(() => {
+        expect(queryMock.applyFlagSettings).toHaveBeenLastCalledWith({ effortLevel: "high" });
+      });
+
+      queryMock.applyFlagSettings.mockClear();
+      await session.startTurn("Carry on with the task.");
+      expect(queryMock.applyFlagSettings).not.toHaveBeenCalled();
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("keeps the agent's effort for a ping on an older model and for the idle-cap compaction", async () => {
+    for (const { model, options } of [
+      { model: "claude-opus-5", options: { isWarmPing: true, lowestWarmUpEffort: true } },
+      { model: "claude-opus-5-5", options: { isWarmPing: true } },
+    ]) {
+      const { queryFactory, queryMock } = createQueryMock();
+      const session = await new ClaudeAgentClient({
+        logger,
+        queryFactory,
+        resolveBinary: async () => "/test/claude/bin",
+      }).createSession({ provider: "claude", cwd: process.cwd(), model, thinkingOptionId: "high" });
+      try {
+        await session.startTurn("Reply with ok only.", options);
+        expect(queryMock.applyFlagSettings).not.toHaveBeenCalledWith(
+          expect.objectContaining({ effortLevel: expect.anything() }),
+        );
+      } finally {
+        await session.close();
+      }
+    }
+  });
+
   test("reads the warm-up request past the result a resumed session emits for orphaned background tasks", async () => {
     // Order captured from Claude Code 2.1.316 resuming a session whose Monitors were still running:
     // it reports them, ends that report with an empty result, and only then sends the prompt.

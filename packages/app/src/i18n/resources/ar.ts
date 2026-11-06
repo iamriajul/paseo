@@ -2612,6 +2612,11 @@ export const ar: TranslationResources = {
       },
       promptCache: {
         title: "ذاكرة التخزين المؤقت لموجّهات Claude",
+        moneyStats: {
+          label: "إظهار تقديرات التكلفة",
+          description:
+            "إظهار تقديرات ≈ $ بأسعار قائمة الواجهة البرمجية لنماذج Claude الأصلية: لكل دورة، ولكل تسخين، وقبل الإرسال، وفي رؤى الجلسة",
+        },
         capWarning: {
           label: "التنبيه قبل حد التسخين",
           description:

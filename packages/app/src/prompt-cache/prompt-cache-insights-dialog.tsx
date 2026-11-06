@@ -30,6 +30,7 @@ import {
 } from "./prompt-cache-explorer";
 import {
   createRequestPricer,
+  effectiveInputUsdPerMTok,
   selectShownRequests,
   summarizePromptCacheInsights,
   type InsightsColumn,
@@ -38,6 +39,7 @@ import {
   type RequestPricer,
 } from "./prompt-cache-insights";
 import { usePromptCacheAgent } from "./use-prompt-cache";
+import { useMoneyStatsEnabled } from "./money-stats-context";
 
 const HEADER = { title: "Session cache insights" };
 /** Request rows shown before "Show more"; the chart already places every request in time. */
@@ -251,6 +253,7 @@ function InsightsExplorer({
   const [metric, setMetric] = useState<ChartMetric>("cache");
   const [filter, setFilter] = useState<RequestFilter>("all");
   const [limit, setLimit] = useState(LIST_PAGE);
+  const moneyStats = useMoneyStatsEnabled();
 
   // A live session grows while the dialog is open; the whole-session range follows it.
   const range = zoomStack.at(-1) ?? { start: 0, end: shown.length };
@@ -364,7 +367,11 @@ function InsightsExplorer({
         <Tile label="Warm-ups" value={String(insights.warmUps)} />
         <Tile label="Compactions" value={String(insights.compactions.length)} />
       </View>
-      <CostSplit cost={sessionCost} reported={zoomStack.length === 0 ? reported : null} />
+      <CostSplit
+        cost={sessionCost}
+        reported={zoomStack.length === 0 ? reported : null}
+        showRate={moneyStats}
+      />
       <View style={styles.chartHeader}>
         <Text style={styles.sectionTitle}>
           {metric === "cache" ? "How each request met the cache" : "Estimated input cost"}
@@ -497,10 +504,14 @@ function RangeBar({
 function CostSplit({
   cost,
   reported,
+  showRate,
 }: {
   cost: InsightsCost;
   reported: ReportedCost | null;
+  /** Money stats are on, so the effective input rate shows. */
+  showRate: boolean;
 }): ReactElement | null {
+  const rate = showRate ? effectiveInputUsdPerMTok(cost) : null;
   const total = cost.warmUpUsd + cost.workUsd;
   if (total <= 0) return null;
   const warmShare = cost.warmUpUsd / total;
@@ -523,6 +534,11 @@ function CostSplit({
           label={`Warm-ups ${formatUsdEstimate(cost.warmUpUsd)} · ${formatPercent(warmShare)}`}
         />
       </View>
+      {rate === null ? null : (
+        <Text style={styles.listText} testID="prompt-cache-insights-effective-rate">
+          Effective input rate ≈ {formatUsdEstimate(rate)} per million tokens, warm-ups included
+        </Text>
+      )}
       {stretches > 0 || payback.ongoing ? (
         <Text style={styles.listText} testID="prompt-cache-insights-payback">
           {describePayback(cost)}

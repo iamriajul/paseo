@@ -54,6 +54,7 @@ import {
   type DraftAgentControlsProps,
 } from "@/composer/agent-controls";
 import { ContextWindowMeter } from "@/components/context-window-meter";
+import { PromptSendCost } from "@/prompt-cache/prompt-send-cost";
 import { resolveSessionCostUsd } from "@/prompt-cache/prompt-cache-cost";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
 import {
@@ -2124,21 +2125,25 @@ function ComposerContentImpl({
   const beforeVoiceContent = useMemo(
     () =>
       hasAgent ? (
-        <View style={styles.contextWindowMeterSlot}>
-          <ContextWindowMeter
-            serverId={serverId}
-            agentId={agentId}
-            maxTokens={agentState.contextWindowMaxTokens}
-            usedTokens={agentState.contextWindowUsedTokens}
-            totalCostUsd={agentState.totalCostUsd}
-            provider={agentState.provider}
-            model={agentState.model}
-            glyphSize={contextWindowMeterGlyphSize}
-          />
-        </View>
+        <>
+          <PromptSendCost serverId={serverId} agentId={agentId} textSource={textSource} />
+          <View style={styles.contextWindowMeterSlot}>
+            <ContextWindowMeter
+              serverId={serverId}
+              agentId={agentId}
+              maxTokens={agentState.contextWindowMaxTokens}
+              usedTokens={agentState.contextWindowUsedTokens}
+              totalCostUsd={agentState.totalCostUsd}
+              provider={agentState.provider}
+              model={agentState.model}
+              glyphSize={contextWindowMeterGlyphSize}
+            />
+          </View>
+        </>
       ) : null,
     [
       hasAgent,
+      textSource,
       serverId,
       agentId,
       agentState.contextWindowMaxTokens,

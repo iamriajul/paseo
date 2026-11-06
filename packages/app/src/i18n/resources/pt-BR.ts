@@ -2609,6 +2609,11 @@ export const ptBR: TranslationResources = {
       },
       promptCache: {
         title: "Cache de prompts do Claude",
+        moneyStats: {
+          label: "Mostrar estimativas de custo",
+          description:
+            "Mostra estimativas ≈ $ pelo preço de tabela da API para os modelos próprios do Claude: por turno, por aquecimento, antes de enviar e nos insights da sessão",
+        },
         capWarning: {
           label: "Avisar antes do limite de aquecimento",
           description:

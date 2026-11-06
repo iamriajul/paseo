@@ -20,6 +20,8 @@ import type { TurnFooterHost } from "./layout";
 import { AssistantForkMenu } from "@/components/assistant-fork-menu";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { usePromptCacheMoney } from "@/prompt-cache/money-stats-context";
+import { formatUsdEstimate } from "@/prompt-cache/prompt-cache-cost";
 
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const workingIndicatorColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
@@ -224,6 +226,16 @@ function CompletedTurnFooter({
     () => (turnText.trim() ? { text: turnText, serverId, client } : null),
     [turnText, serverId, client],
   );
+  const money = usePromptCacheMoney();
+  const completedAtMs = timing?.completedAt.getTime();
+  const durationMs = timing?.durationMs;
+  const costLabel = useMemo(() => {
+    if (!money || completedAtMs === undefined || durationMs === undefined || durationMs === null) {
+      return null;
+    }
+    const usd = money.turnCostUsd(completedAtMs - durationMs, completedAtMs);
+    return usd === null ? null : `≈ ${formatUsdEstimate(usd)}`;
+  }, [money, completedAtMs, durationMs]);
   return (
     <View style={stylesheet.turnFooterSlot}>
       <AssistantTurnFooter
@@ -233,6 +245,7 @@ function CompletedTurnFooter({
         onFork={boundary && onForkAssistantTurn ? handleFork : undefined}
         showNativeForkOption={supportsNativeFork}
         readAloud={readAloud}
+        costLabel={costLabel}
       />
     </View>
   );

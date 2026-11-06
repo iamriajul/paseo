@@ -141,9 +141,20 @@ export async function startCommandCenterLayoutObservation(page: Page): Promise<v
 
     if (typeof PerformanceObserver !== "undefined") {
       try {
+        // Count only shifts inside the Command Center. The workspace behind the modal can
+        // still be settling, e.g. the new-tab launcher re-centres when its terminal profiles
+        // load, and on a slow runner that lands after the panel opened.
         const performanceObserver = new PerformanceObserver((list) => {
+          const panel = document.querySelector(selectors.panel);
           for (const entry of list.getEntries()) {
-            observation.layoutShift += (entry as PerformanceEntry & { value?: number }).value ?? 0;
+            const shift = entry as PerformanceEntry & {
+              value?: number;
+              sources?: ReadonlyArray<{ node: Node | null }>;
+            };
+            const insidePanel = (shift.sources ?? []).some(
+              (source) => source.node !== null && panel?.contains(source.node) === true,
+            );
+            if (insidePanel) observation.layoutShift += shift.value ?? 0;
           }
         });
         performanceObserver.observe({ type: "layout-shift", buffered: false });

@@ -1102,3 +1102,13 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/ser
 ```bash
 npm run test:browser --workspace=@getpaseo/app -- src/components/ui/menu/menu-overlay.browser.test.tsx -t "stays hidden while it measures" --bail=1
 ```
+
+## command-center-layout-shift-scope
+
+**the Command Center layout oracle counts only shifts inside the panel**
+
+`command-center-file-search.spec.ts` "stays geometrically stable" summed every layout shift on the page. When a workspace opens, its new-tab launcher behind the modal grows and re-centres once its terminal profiles load. On a slow runner that lands after the Command Center opened, so the test failed with a shift of 0.0035 while all of its own surfaces held still (seen 2026-11-03 and 2026-11-06). The observer now counts a shift only when one of its sources sits inside `command-center-panel`. A shift inside the panel still fails the test.
+
+```bash
+grep -q 'panel?.contains(source.node)' packages/app/e2e/support/helpers/command-center-file-search.ts
+```

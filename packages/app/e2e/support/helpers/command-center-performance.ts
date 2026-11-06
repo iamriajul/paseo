@@ -49,11 +49,22 @@ export async function searchCommandCenter(panel: Locator, query: string) {
 }
 
 export async function warmCommandCenterRows(page: Page) {
-  // FlatList fills its overscan window in timed batches after the first visible frame.
-  await page.waitForTimeout(600);
-  await page.evaluate(() => {
-    globalThis.__PASEO_RENDER_PROFILE_REASONS__ = {};
-  });
+  // FlatList fills its overscan window in timed batches after the first visible frame, and on a
+  // slow runner they keep landing well after any fixed wait. Count from a quiet window, so a
+  // row's first mount is never read as a re-render.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          globalThis.__PASEO_RENDER_PROFILE_REASONS__ = {};
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          return Object.keys(globalThis.__PASEO_RENDER_PROFILE_REASONS__ ?? {}).some((id) =>
+            id.startsWith("CommandCenterResultRow:"),
+          );
+        }),
+      { message: "Command Center rows kept rendering" },
+    )
+    .toBe(false);
 }
 
 export async function expectOnlyCommandCenterRowRendered(page: Page, resultId: string) {

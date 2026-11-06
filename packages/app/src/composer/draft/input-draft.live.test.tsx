@@ -167,6 +167,27 @@ Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
 });
 const { useAgentInputDraft } = await import("./input-draft");
 
+/** Types a few microtasks after the host's text reaches the store, so before React renders. */
+function typeOnceHostTextLands(input: {
+  draftKey: string;
+  hostText: string;
+  answerHost: () => void;
+  type: () => string;
+}): Promise<string> {
+  return new Promise((resolve) => {
+    const unsubscribe = useDraftStore.subscribe((state) => {
+      if (state.getDraftInput(input.draftKey)?.text !== input.hostText) return;
+      unsubscribe();
+      void afterMicrotasks(20).then(() => resolve(input.type()));
+    });
+    input.answerHost();
+  });
+}
+
+async function afterMicrotasks(count: number): Promise<void> {
+  for (let hop = 0; hop < count; hop += 1) await Promise.resolve();
+}
+
 describe("useAgentInputDraft live contract", () => {
   beforeEach(() => {
     hostSync.enabled = false;
@@ -597,6 +618,73 @@ describe("useAgentInputDraft live contract", () => {
     expect(useDraftStore.getState().getDraftInput("agent:host-1:agent-8")?.text).toBe(
       "typed while the host answers",
     );
+
+    hostSync.enabled = false;
+    hostSync.saved = null;
+    hostSync.gate = null;
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps text typed after the host answered but before the input applied the answer", async () => {
+    hostSync.enabled = true;
+    hostSync.saved = { text: "saved on the other laptop", updatedAt: "2020-01-01T00:00:00.000Z" };
+    let answerHost!: () => void;
+    hostSync.gate = new Promise<void>((resolve) => {
+      answerHost = resolve;
+    });
+    const draftKey = "agent:host-1:agent-9";
+    let latest: ReturnType<typeof useAgentInputDraft> | null = null;
+
+    function Probe() {
+      latest = useAgentInputDraft({ draftKey });
+      return null;
+    }
+
+    const container = document.getElementById("root");
+    if (!container) {
+      throw new Error("Missing root container");
+    }
+    const root = createTestRoot(container);
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+    expect(latest!.textReplacement.kind).toBe("initial");
+
+    // Outside act, React renders on a scheduler task while the hydration and the keystroke
+    // both run as microtasks, so the keystroke lands after the hydration published its
+    // replacement and before the input applied it, as on a busy browser.
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+      value: false,
+      configurable: true,
+    });
+    try {
+      const typedBeforeRender = await typeOnceHostTextLands({
+        draftKey,
+        hostText: "saved on the other laptop",
+        answerHost,
+        type: () => {
+          const renderedKind = latest!.textReplacement.kind;
+          latest!.editText("typed before the answer landed");
+          return renderedKind;
+        },
+      });
+      expect(typedBeforeRender).toBe("initial");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } finally {
+      Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+        value: true,
+        configurable: true,
+      });
+    }
+
+    expect(latest!.textReplacement.kind).toBe("hydrated");
+    expect(latest!.textReplacement.text).toBe("typed before the answer landed");
 
     hostSync.enabled = false;
     hostSync.saved = null;

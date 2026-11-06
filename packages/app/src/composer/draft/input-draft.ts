@@ -142,11 +142,19 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
   const textReplacementRevisionRef = useRef(0);
   // Set by any typing, so a host answer that arrives later does not overwrite it.
   const editedBeforeHostAnswerRef = useRef(false);
+  // A hydrated replacement reaches the input on a later render, so a keystroke can land in
+  // between. While it is pending, the first edit swaps its text for the user's.
+  const hydratedReplacementPendingRef = useRef(false);
   const [textReplacement, setTextReplacement] = useState<TextReplacement>(() => ({
     kind: "initial",
     key: `${draftKey}:0`,
     text: textSource.getSnapshot(),
   }));
+
+  // The input applies a replacement in its own effect, which runs before this one.
+  useEffect(() => {
+    hydratedReplacementPendingRef.current = false;
+  }, [textReplacement]);
 
   const publishTextReplacement = useCallback(
     (kind: "hydrated" | "replace", nextText: string) => {
@@ -226,6 +234,13 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
   const editText = useCallback(
     (nextText: string) => {
       editedBeforeHostAnswerRef.current = true;
+      if (hydratedReplacementPendingRef.current) {
+        hydratedReplacementPendingRef.current = false;
+        // Keeping the key makes this a no-op if the input already applied the replacement.
+        setTextReplacement((current) =>
+          current.kind === "hydrated" ? { ...current, text: nextText } : current,
+        );
+      }
       if (isWeb) {
         textPublication.stage(nextText);
       } else {
@@ -239,6 +254,7 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
   const replaceText = useCallback(
     (nextText: string) => {
       editedBeforeHostAnswerRef.current = true;
+      hydratedReplacementPendingRef.current = false;
       textPublication.cancel();
       useDraftStore.getState().editDraftText({ draftKey, text: nextText });
       publishTextReplacement("replace", nextText);
@@ -318,6 +334,7 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
         // Typed text already belongs to the input; replacing it with the store's text would drop it.
         if (!editedBeforeHostAnswerRef.current) {
           const hydratedText = useDraftStore.getState().getDraftInput(draftKey)?.text ?? "";
+          hydratedReplacementPendingRef.current = true;
           publishTextReplacement("hydrated", hydratedText);
         }
         setHydratedDraftKey(draftKey);

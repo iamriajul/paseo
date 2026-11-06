@@ -248,8 +248,15 @@ export function detectCodeServerLocalhostUrl(
 export function buildCodeServerUrlOpeners(input: {
   env: NodeJS.ProcessEnv;
   execFile?: ExecFileSyncLike;
+  platform?: NodeJS.Platform;
 }): CodeServerUrlOpeners | null {
-  const localhostUrl = detectCodeServerLocalhostUrl(input.execFile);
+  // Every handshake builds this synchronously. Windows has no ps, or Git's MSYS ps, which
+  // rejects -axo, so detection never succeeds there; it only blocked the event loop, for
+  // the full timeout whenever MSYS process startup stalls.
+  const localhostUrl =
+    (input.platform ?? process.platform) === "win32"
+      ? null
+      : detectCodeServerLocalhostUrl(input.execFile);
   const externalUrl = normalizeCodeServerExternalUrl(input.env.CODE_SERVER_URL);
   if (!localhostUrl && !externalUrl) {
     return null;

@@ -90,3 +90,48 @@ export function resolveWorkspaceScriptLink(input: {
 
   return { primary: targets[0] ?? null, targets };
 }
+
+/**
+ * The URL a service opens at inside the workspace Browser: plain
+ * `http://localhost:<port>`. Browser localhost routing sends it to the service on
+ * the workspace host, so a service opened from the scripts menu, the ports panel
+ * or the Browser's own services menu shares one origin (and one cookie jar)
+ * with a localhost tab the user or an agent opened by hand. A public URL stays
+ * public: it is reachable as-is and the user picked it on purpose.
+ */
+export function resolveServiceBrowserUrl(input: {
+  script: WorkspaceScriptPayload;
+  selected: WorkspaceScriptLinkTarget | null;
+}): string | null {
+  if (input.selected?.kind === "public") {
+    return input.selected.url;
+  }
+  if (input.script.type !== "service" || input.script.port === null) {
+    return input.selected?.url ?? null;
+  }
+  return `http://localhost:${input.script.port}/`;
+}
+
+/** The running service whose port a loopback URL points at, if any. */
+export function findServiceForBrowserUrl(input: {
+  url: string;
+  scripts: readonly WorkspaceScriptPayload[];
+}): WorkspaceScriptPayload | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(input.url);
+  } catch {
+    return null;
+  }
+  if (!isLoopbackHost(parsed.hostname.replace(/^\[|\]$/g, "")) && parsed.hostname !== "0.0.0.0") {
+    return null;
+  }
+  const defaultPort = parsed.protocol === "https:" ? 443 : 80;
+  const port = parsed.port ? Number(parsed.port) : defaultPort;
+  return (
+    input.scripts.find(
+      (script) =>
+        script.type === "service" && script.lifecycle === "running" && script.port === port,
+    ) ?? null
+  );
+}

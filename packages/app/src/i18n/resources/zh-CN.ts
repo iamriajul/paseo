@@ -657,6 +657,12 @@ export const zhCN: TranslationResources = {
         label: "设备尺寸",
         responsive: "自适应",
       },
+      services: {
+        label: "工作区服务",
+        starting: "正在启动…",
+        unhealthy: "异常",
+        startAndOpen: "启动并打开",
+      },
       errors: {
         failedToLoad: "页面加载失败",
         loadFailedTitle: "无法加载此页面",

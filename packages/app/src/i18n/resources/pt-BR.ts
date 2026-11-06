@@ -663,6 +663,12 @@ export const ptBR: TranslationResources = {
         label: "Tamanho do dispositivo",
         responsive: "Responsivo",
       },
+      services: {
+        label: "Serviços do workspace",
+        starting: "Iniciando…",
+        unhealthy: "com falha",
+        startAndOpen: "Iniciar e abrir",
+      },
       errors: {
         failedToLoad: "Falha ao carregar página",
         loadFailedTitle: "Não foi possível carregar esta página",

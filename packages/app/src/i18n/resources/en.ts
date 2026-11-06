@@ -655,6 +655,12 @@ export const en = {
         label: "Device size",
         responsive: "Responsive",
       },
+      services: {
+        label: "Workspace services",
+        starting: "Starting…",
+        unhealthy: "unhealthy",
+        startAndOpen: "Start and open",
+      },
       errors: {
         failedToLoad: "Failed to load page",
         loadFailedTitle: "Couldn't load this page",

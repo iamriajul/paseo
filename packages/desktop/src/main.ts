@@ -87,6 +87,12 @@ import {
   unregisterBrowserLoopbackProxy,
 } from "./features/browser-loopback-proxy.js";
 import { PaseoBrowserCookieSync } from "./features/browser-cookies.js";
+import { BrowserPortForwards } from "./features/browser-port-forward.js";
+import {
+  forgetObservedLoopbackPorts,
+  listObservedLoopbackPorts,
+  observeBrowserLoopbackTraffic,
+} from "./features/browser-loopback-traffic.js";
 import {
   clearPaseoBrowserProfile,
   getLegacyPaseoBrowserProfileSession,
@@ -457,6 +463,11 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
     throw new Error("Attached browser guest disappeared after registration");
   }
   browserKeyboard.attach({ contents: guest, hostContents: event.sender });
+  observeBrowserLoopbackTraffic({
+    session: guest.session,
+    resolveBrowserId: (webContentsId) =>
+      getPaseoBrowserIdForWebContents(webContents.fromId(webContentsId) ?? null),
+  });
   log.info("[browser-webview] registered", {
     browserId: input.browserId,
     webContentsId: input.webContentsId,
@@ -502,6 +513,8 @@ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, brows
     );
     unregisterPaseoBrowserFromHost(event.sender.id, normalizedBrowserId);
     if (!hasOtherHost) {
+      await browserPortForwards.stopAll(normalizedBrowserId);
+      forgetObservedLoopbackPorts(normalizedBrowserId);
       await unregisterBrowserLoopbackProxy(normalizedBrowserId);
       if (workspaceId && listRegisteredPaseoBrowserIdsForWorkspace(workspaceId).length === 0) {
         browserCookieSync.unregisterWorkspacePartition(
@@ -528,6 +541,62 @@ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, brows
       }
     }
   }
+});
+
+const browserPortForwards = new BrowserPortForwards();
+
+function readPortForwardStartInput(
+  input: unknown,
+): { browserId: string; ports: number[]; fallbackToAnyPort: boolean } | null {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  if (typeof record.browserId !== "string" || record.browserId.trim().length === 0) {
+    return null;
+  }
+  if (!Array.isArray(record.ports)) {
+    return null;
+  }
+  return {
+    browserId: record.browserId.trim(),
+    ports: record.ports.filter((port): port is number => typeof port === "number"),
+    fallbackToAnyPort: record.fallbackToAnyPort === true,
+  };
+}
+
+ipcMain.handle("paseo:browser:port-forward:start", async (_event, rawInput: unknown) => {
+  const input = readPortForwardStartInput(rawInput);
+  if (!input) {
+    throw new Error("Invalid port forward request");
+  }
+  const result = await browserPortForwards.start(input);
+  log.info("[browser-port-forward] start", { browserId: input.browserId, result });
+  return result;
+});
+
+ipcMain.handle("paseo:browser:port-forward:stop", async (_event, rawInput: unknown) => {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return;
+  }
+  const record = rawInput as Record<string, unknown>;
+  if (typeof record.browserId === "string" && typeof record.remotePort === "number") {
+    await browserPortForwards.stop({
+      browserId: record.browserId.trim(),
+      remotePort: record.remotePort,
+    });
+  }
+});
+
+ipcMain.handle("paseo:browser:port-forward:list", (_event, browserId: unknown) => {
+  if (typeof browserId !== "string" || browserId.trim().length === 0) {
+    return { forwards: [], observedPorts: [] };
+  }
+  const id = browserId.trim();
+  return {
+    forwards: browserPortForwards.list(id),
+    observedPorts: listObservedLoopbackPorts(id),
+  };
 });
 
 ipcMain.on("paseo:browser:loopback-tunnel-open-result", (_event, payload: unknown) => {

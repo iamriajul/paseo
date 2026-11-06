@@ -586,6 +586,57 @@ function requestRendererTunnel(
   });
 }
 
+/** Where a Browser tab's localhost traffic goes: its host and the renderer that owns its tunnels. */
+export interface BrowserLoopbackRoute extends RendererTunnelRoute {
+  /** The host is this machine; its ports are already reachable here. */
+  directLoopback: boolean;
+}
+
+export function getBrowserLoopbackRoute(browserId: string): BrowserLoopbackRoute | null {
+  const workspaceKey = workspaceKeyByBrowserId.get(browserId);
+  const record = workspaceKey ? recordsByWorkspaceKey.get(workspaceKey) : null;
+  if (!record) {
+    return null;
+  }
+  return {
+    ...routeForRecord(record),
+    browserId,
+    directLoopback: record.directLoopback,
+  };
+}
+
+/**
+ * Relays an accepted local socket to `port` on the route's host through the
+ * renderer's daemon TCP tunnel, the same path Browser localhost uses. Rejects
+ * (and leaves the socket to the caller) when the tunnel cannot open.
+ */
+export async function relaySocketThroughHostTunnel(input: {
+  route: RendererTunnelRoute;
+  socket: Socket;
+  port: number;
+}): Promise<void> {
+  const tunnelId = randomUUID();
+  const { socket } = input;
+  socket.pause();
+  const closeBrowserTunnel = () => {
+    closeTunnel(tunnelId, "Forwarded socket closed", { notifyRenderer: true });
+  };
+  socket.once("close", closeBrowserTunnel);
+  try {
+    await requestRendererTunnel(input.route, tunnelId, socket, input.port, "ipv4");
+  } catch (error) {
+    socket.off("close", closeBrowserTunnel);
+    throw error;
+  }
+  socket.on("data", (chunk: Buffer) => {
+    sendTunnelData(tunnelId, chunk);
+  });
+  socket.once("error", (error) => {
+    closeTunnel(tunnelId, error.message, { notifyRenderer: true });
+  });
+  socket.resume();
+}
+
 function sendTunnelData(tunnelId: string, chunk: Buffer): void {
   const tunnel = tunnelsById.get(tunnelId);
   if (!tunnel) {

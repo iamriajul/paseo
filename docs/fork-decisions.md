@@ -164,6 +164,19 @@ grep -q "inAppUrl: resolveServiceBrowserUrl" packages/app/src/screens/workspace/
 grep -q "inAppUrl" packages/app/src/utils/open-service-url.ts
 ```
 
+## browser-open-on-this-computer
+
+**forward a Browser tab's ports to the desktop machine and open it in the system browser**
+
+Electron main binds the tab's ports (the page port, every loopback port its traffic used, and user-added ones) on this machine's loopback at the same numbers and relays each connection through the existing renderer TCP tunnel. `main.ts` installs the traffic observer when a guest registers, stops a tab's forwards when it unregisters, and adds the `port-forward:*` IPC; `preload.ts` and `host.ts` expose it. See [Open on this computer](browser-localhost-routing.md#open-on-this-computer).
+
+```bash
+npx vitest run packages/desktop/src/features/browser-port-forward.test.ts packages/desktop/src/features/browser-loopback-traffic.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/desktop/browser/pane/port-forward-menu.test.ts --bail=1
+grep -q "paseo:browser:port-forward:start" packages/desktop/src/main.ts
+grep -q "startPortForward" packages/desktop/src/preload.ts
+```
+
 ## code-server-tab
 
 **register Code Server as a workspace tab kind**

@@ -1,5 +1,9 @@
 import { isSameOrDescendantPath } from "../path-utils.js";
-import { CACHE_AUTO_COMPACT_FEATURE_ID } from "@getpaseo/protocol/agent-cache-warm";
+import {
+  CACHE_AUTO_COMPACT_FEATURE_ID,
+  CACHE_WARM_MAX_PINGS_FEATURE_ID,
+  isCacheWarmMaxPingsValue,
+} from "@getpaseo/protocol/agent-cache-warm";
 import type {
   AgentListItemPayload,
   AgentSnapshotPayload,
@@ -267,9 +271,13 @@ type CacheWarmState = Pick<
 /** The agent's explicit idle-cap compaction choice; an unset one follows the host default. */
 function projectCacheAutoCompact(
   config: { featureValues?: Record<string, unknown> | null } | null | undefined,
-): Pick<AgentSnapshotPayload, "cacheAutoCompact"> {
+): Pick<AgentSnapshotPayload, "cacheAutoCompact" | "cacheWarmMaxPings"> {
   const value = config?.featureValues?.[CACHE_AUTO_COMPACT_FEATURE_ID];
-  return typeof value === "boolean" ? { cacheAutoCompact: value } : {};
+  const maxPings = config?.featureValues?.[CACHE_WARM_MAX_PINGS_FEATURE_ID];
+  return {
+    ...(typeof value === "boolean" ? { cacheAutoCompact: value } : {}),
+    ...(isCacheWarmMaxPingsValue(maxPings) ? { cacheWarmMaxPings: maxPings } : {}),
+  };
 }
 
 function projectCacheWarmState(source: CacheWarmState): CacheWarmState {

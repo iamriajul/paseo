@@ -51,6 +51,8 @@ vi.mock("lucide-react-native", async () => {
       ReactModule.createElement("svg", { "data-testid": "icon-database", ...props }),
     Flame: (props: Record<string, unknown>) =>
       ReactModule.createElement("svg", { "data-testid": "icon-flame", ...props }),
+    Minus: () => ReactModule.createElement("svg"),
+    Plus: () => ReactModule.createElement("svg"),
   };
 });
 
@@ -150,6 +152,33 @@ vi.mock("./prompt-cache-insights-dialog", async () => {
   };
 });
 
+vi.mock("@/components/ui/pane-content-toolbar", async () => {
+  const ReactModule = await import("react");
+  return {
+    ToolbarButton: ({
+      children,
+      onPress,
+      disabled,
+      testID,
+    }: {
+      children?: React.ReactNode;
+      onPress?: () => void;
+      disabled?: boolean;
+      testID?: string;
+    }) =>
+      ReactModule.createElement(
+        "button",
+        {
+          type: "button",
+          "data-testid": testID,
+          disabled: disabled || undefined,
+          onClick: () => !disabled && onPress?.(),
+        },
+        children,
+      ),
+  };
+});
+
 vi.mock("@/components/ui/button", async () => {
   const ReactModule = await import("react");
   return {
@@ -235,12 +264,13 @@ describe("PromptCachePill", () => {
     vi.useRealTimers();
   });
 
-  function renderPill(agent: Agent) {
+  function renderPill(agent: Agent, features: Record<string, boolean> = {}) {
     useSessionStore.setState({
       sessions: {
         "server-1": {
           agents: new Map([[agent.id, agent]]),
           agentDetails: new Map([[agent.id, agent]]),
+          serverInfo: { features },
         } as unknown as SessionState,
       },
     });
@@ -372,6 +402,26 @@ describe("PromptCachePill", () => {
     expect(getByTestId("prompt-cache-toggle-warmup-switch").getAttribute("aria-checked")).toBe(
       "true",
     );
+  });
+
+  it("sets the warm-up cap from 1 to the window's maximum on a host that enforces it", () => {
+    const agent = claudeAgent({
+      ttl: "5m",
+      cacheWarmMaxPings: 4,
+      promptCache: promptCacheAt(NOW - MINUTE),
+    });
+    const { getByTestId, queryByTestId } = renderPill(agent, { cacheWarmMaxPings: true });
+    expect(getByTestId("prompt-cache-cap-slider-value").textContent).toBe("4 of 10 · covers 16m");
+    expect(getByTestId("prompt-cache-cap-count").textContent).toContain("0/4");
+    expect(queryByTestId("prompt-cache-cap-step-11")).toBeNull();
+    fireEvent.click(getByTestId("prompt-cache-cap-step-6"));
+    expect(setAgentFeatureMock).toHaveBeenCalledWith("agent-1", "cache_warm_max_pings", 6);
+    fireEvent.click(getByTestId("prompt-cache-cap-decrease"));
+    expect(setAgentFeatureMock).toHaveBeenLastCalledWith("agent-1", "cache_warm_max_pings", 3);
+    cleanup();
+
+    // An older daemon ignores the cap, so it shows no control.
+    expect(renderPill(agent).queryByTestId("prompt-cache-cap-slider")).toBeNull();
   });
 
   it("toggles warm-up, and disables turning it on once the cache expired", () => {

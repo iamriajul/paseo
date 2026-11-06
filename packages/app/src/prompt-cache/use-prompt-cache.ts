@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import {
+  applyCacheWarmMaxPings,
+  CACHE_WARM_MAX_PINGS_FEATURE_ID,
   isClaudeModel,
   sumPromptCacheTotals,
   visiblePromptCacheMisses,
@@ -50,7 +52,10 @@ export interface PromptCacheWarmup {
   enabled: boolean;
   plan: PromptCacheWarmupPlan;
   pingsUsed: number;
+  /** The agent's cap per idle stretch: its own choice, else the window's maximum. */
   maxPings: number;
+  /** The window's own maximum, the top of the cap's range. */
+  windowMaxPings: number;
   totalPings: number;
 }
 
@@ -81,10 +86,14 @@ export interface PromptCacheState {
   toggleWarmup: () => Promise<void>;
   /** Clears the red count; null when the host cannot. */
   clearMisses: (() => Promise<void>) | null;
+  /** Sets the agent's warm-up cap; null when the host does not enforce one. */
+  setMaxPings: ((maxPings: number) => Promise<void>) | null;
 }
 
 interface AgentCacheFacts {
   windows: PromptCacheWindows | null;
+  /** The window's cap before the agent's own; the top of the cap's range. */
+  windowMaxPings: number | null;
   /** Warm-up needs a chosen Cache window; an observed TTL under Automatic does not enable it. */
   warmupAvailable: boolean;
   isDelegated: boolean;
@@ -106,11 +115,13 @@ function readAgentCacheFacts(agent: Agent): AgentCacheFacts {
   const promptCacheTtl = readFeatureValue(agent, "prompt_cache_ttl");
   const pending = agent.pendingPermissions ?? [];
   const hasPendingPermission = pending.length > 0;
+  const windows = resolveEffectivePromptCacheWindows({
+    observedTtl: agent.promptCache?.observedTtl,
+    promptCacheTtl,
+  });
   return {
-    windows: resolveEffectivePromptCacheWindows({
-      observedTtl: agent.promptCache?.observedTtl,
-      promptCacheTtl,
-    }),
+    windows: windows ? applyCacheWarmMaxPings(windows, agent.cacheWarmMaxPings) : null,
+    windowMaxPings: windows?.maxConsecutivePings ?? null,
     warmupAvailable: resolvePromptCacheWindows(promptCacheTtl) !== null,
     isDelegated: isDelegatedAgent({ labels: agent.labels }),
     isBusy: (agent.status === "running" || agent.turn?.phase === "open") && !hasPendingPermission,
@@ -210,7 +221,10 @@ function resolveTotals(agent: Agent | undefined): PromptCacheTotals {
   return promptCache?.totals ?? sumPromptCacheTotals(promptCache?.history ?? []);
 }
 
-export type PromptCacheView = Omit<PromptCacheState, "toggleWarmup" | "clearMisses">;
+export type PromptCacheView = Omit<
+  PromptCacheState,
+  "toggleWarmup" | "clearMisses" | "setMaxPings"
+>;
 
 function resolveMissCounts(
   totals: PromptCacheTotals,
@@ -221,6 +235,26 @@ function resolveMissCounts(
     misses: visiblePromptCacheMisses(totals, cleared),
     sessionMisses: totals.misses,
     missesClearedAt: cleared?.at ?? null,
+  };
+}
+
+/** Null while the Cache window is Automatic, where warm-up is unavailable. */
+function resolveWarmup(input: {
+  facts: AgentCacheFacts;
+  status: PromptCacheStatus;
+  now: number;
+  forkWarm: boolean;
+}): PromptCacheWarmup | null {
+  const { facts, status, now, forkWarm } = input;
+  const { windows } = facts;
+  if (!windows || !facts.warmupAvailable) return null;
+  return {
+    enabled: facts.warmupEnabled,
+    plan: resolveWarmupPlan({ facts, windows, status, now, forkWarm }),
+    pingsUsed: Math.min(facts.pingsUsed, windows.maxConsecutivePings),
+    maxPings: windows.maxConsecutivePings,
+    windowMaxPings: facts.windowMaxPings ?? windows.maxConsecutivePings,
+    totalPings: facts.totalPings,
   };
 }
 
@@ -236,22 +270,9 @@ export function resolvePromptCacheView(
   );
   const facts = agent && isClaude ? readAgentCacheFacts(agent) : null;
   const status: PromptCacheStatus = facts ? resolveStatus(facts, now) : { kind: "automatic" };
-  const warmup: PromptCacheWarmup | null =
-    facts?.windows && facts.warmupAvailable
-      ? {
-          enabled: facts.warmupEnabled,
-          plan: resolveWarmupPlan({
-            facts,
-            windows: facts.windows,
-            status,
-            now,
-            forkWarm: options?.forkWarm === true,
-          }),
-          pingsUsed: Math.min(facts.pingsUsed, facts.windows.maxConsecutivePings),
-          maxPings: facts.windows.maxConsecutivePings,
-          totalPings: facts.totalPings,
-        }
-      : null;
+  const warmup = facts
+    ? resolveWarmup({ facts, status, now, forkWarm: options?.forkWarm === true })
+    : null;
   return {
     isClaude,
     windows: facts?.windows ?? null,
@@ -330,5 +351,19 @@ export function usePromptCache(serverId: string, agentId: string): PromptCacheSt
     }
   }, [client, agentId]);
 
-  return { ...view, toggleWarmup, clearMisses: canClearMisses && client ? clearMisses : null };
+  const canSetMaxPings = useHostFeature(serverId, "cacheWarmMaxPings");
+  const setMaxPings = useCallback(
+    async (maxPings: number) => {
+      if (!client) return;
+      await client.setAgentFeature(agentId, CACHE_WARM_MAX_PINGS_FEATURE_ID, maxPings);
+    },
+    [client, agentId],
+  );
+
+  return {
+    ...view,
+    toggleWarmup,
+    clearMisses: canClearMisses && client ? clearMisses : null,
+    setMaxPings: canSetMaxPings && client ? setMaxPings : null,
+  };
 }

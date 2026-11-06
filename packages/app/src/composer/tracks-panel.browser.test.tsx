@@ -65,6 +65,20 @@ function isPanelOpen(): boolean {
   return pill().getAttribute("aria-expanded") === "true";
 }
 
+/**
+ * The menu first renders a hidden copy to measure, then remounts it at its placed position. Keys
+ * only reach the placed row, so wait for it instead of focusing the measuring copy.
+ */
+async function placedRow(testID: string): Promise<HTMLElement> {
+  return vi.waitFor(() => {
+    const element = row(testID);
+    if (!(element instanceof HTMLElement) || getComputedStyle(element).visibility !== "visible") {
+      throw new Error(`${testID} is not placed yet`);
+    }
+    return element;
+  });
+}
+
 describe("composer track panel", () => {
   it("dismisses itself when a row is chosen", () => {
     const onPress = vi.fn();
@@ -171,7 +185,7 @@ describe("composer track panel", () => {
     expect(isPanelOpen()).toBe(true);
   });
 
-  it.each(["Enter", " "])("selects a track row with %j", (key) => {
+  it.each(["Enter", " "])("selects a track row with %j", async (key) => {
     const select = vi.fn();
     mount(
       <ComposerTrackPill testID="pill" segments={SUBAGENT_SEGMENTS} panelTitle="Subagents">
@@ -181,7 +195,7 @@ describe("composer track panel", () => {
       </ComposerTrackPill>,
     );
     openPanel();
-    const target = row("row") as HTMLElement;
+    const target = await placedRow("row");
     act(() => {
       target.focus();
       target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));

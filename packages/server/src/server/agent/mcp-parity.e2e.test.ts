@@ -14,6 +14,8 @@ import type { AgentClient, AgentProvider, AgentSessionConfig } from "./agent-sdk
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { DaemonClient } from "../test-utils/daemon-client.js";
 import { parseAgentMessage } from "./agent-messages/index.js";
+import { getOrCreateServerId } from "../server-id.js";
+import { CLAUDE_NEW_AGENT_PROMPT_CACHE_TTL } from "./providers/claude/feature-definitions.js";
 
 interface StructuredContent {
   [key: string]: unknown;
@@ -404,6 +406,7 @@ describe("Suite A: Core Fixes", () => {
           expect(parseAgentMessage(callerPrompts[0]).source).toEqual({
             kind: "agent-notification",
             agentId: childId,
+            serverId: getOrCreateServerId(daemon.paseoHome),
             title: "Notification child",
             event: "finished",
           });
@@ -517,6 +520,7 @@ describe("Suite A: Core Fixes", () => {
         expect(notification.source).toEqual({
           kind: "agent-notification",
           agentId: childId,
+          serverId: getOrCreateServerId(daemon.paseoHome),
           title: "Watched child",
           event: "errored",
         });
@@ -579,7 +583,11 @@ describe("Suite A: Core Fixes", () => {
             type: "tool_call",
             agentMessage: {
               event: outcome,
-              sender: { id: childId, title: "Follow-up child" },
+              sender: {
+                id: childId,
+                serverId: getOrCreateServerId(daemonHandle.paseoHome),
+                title: "Follow-up child",
+              },
               text: expect.stringContaining(`(Follow-up child) ${outcome}.`),
             },
           }),
@@ -679,7 +687,11 @@ describe("Suite A: Core Fixes", () => {
     try {
       agentId = await createTopLevelAgent({ settings: { features: { test_feature: true } } });
       const internalSnapshot = daemonHandle.daemon.agentManager.getAgent(agentId);
-      expect(internalSnapshot?.config.featureValues).toEqual({ test_feature: true });
+      // A new Claude agent gets the fork's 1h cache window.
+      expect(internalSnapshot?.config.featureValues).toEqual({
+        test_feature: true,
+        prompt_cache_ttl: CLAUDE_NEW_AGENT_PROMPT_CACHE_TTL,
+      });
 
       const status = await callToolStructured(topLevelClient, "get_agent_status", { agentId });
       const snapshot = z.record(z.string(), z.unknown()).parse(status.snapshot);
@@ -697,7 +709,11 @@ describe("Suite A: Core Fixes", () => {
         settings: { features: { test_feature: true } },
       });
       const internalSnapshot = daemonHandle.daemon.agentManager.getAgent(agentId);
-      expect(internalSnapshot?.config.featureValues).toEqual({ test_feature: true });
+      // An orchestrator-spawned Claude subagent gets a 5m cache window.
+      expect(internalSnapshot?.config.featureValues).toEqual({
+        test_feature: true,
+        prompt_cache_ttl: "5m",
+      });
 
       const status = await callToolStructured(topLevelClient, "get_agent_status", { agentId });
       const snapshot = z.record(z.string(), z.unknown()).parse(status.snapshot);
@@ -717,7 +733,11 @@ describe("Suite A: Core Fixes", () => {
       });
       expect(updated.success).toBe(true);
       const internalSnapshot = daemonHandle.daemon.agentManager.getAgent(agentId);
-      expect(internalSnapshot?.config.featureValues).toEqual({ test_feature: true });
+      // A new Claude agent gets the fork's 1h cache window.
+      expect(internalSnapshot?.config.featureValues).toEqual({
+        test_feature: true,
+        prompt_cache_ttl: CLAUDE_NEW_AGENT_PROMPT_CACHE_TTL,
+      });
 
       const status = await callToolStructured(topLevelClient, "get_agent_status", { agentId });
       const snapshot = z.record(z.string(), z.unknown()).parse(status.snapshot);

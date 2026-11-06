@@ -664,6 +664,12 @@ export const fr: TranslationResources = {
         label: "Taille de l’appareil",
         responsive: "Adaptatif",
       },
+      services: {
+        label: "Services de l’espace de travail",
+        starting: "Démarrage…",
+        unhealthy: "en échec",
+        startAndOpen: "Démarrer et ouvrir",
+      },
       errors: {
         failedToLoad: "Impossible de charger la page",
         loadFailedTitle: "Impossible de charger cette page",

@@ -658,6 +658,12 @@ export const ko: TranslationResources = {
         label: "장치 크기",
         responsive: "반응형",
       },
+      services: {
+        label: "워크스페이스 서비스",
+        starting: "시작하는 중…",
+        unhealthy: "비정상",
+        startAndOpen: "시작하고 열기",
+      },
       errors: {
         failedToLoad: "페이지를 불러오지 못했습니다",
         loadFailedTitle: "이 페이지를 불러올 수 없습니다",

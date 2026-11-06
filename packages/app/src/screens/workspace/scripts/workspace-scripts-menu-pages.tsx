@@ -1,4 +1,5 @@
 import { useCallback, useMemo, type ReactElement } from "react";
+import { resolveServiceBrowserUrl } from "@/utils/workspace-script-links";
 import { View } from "react-native";
 import { Copy, Eye, Play, RotateCw, Square, SquareTerminal } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -275,8 +276,11 @@ function RunningScriptPage({
 
   const handleOpenService = useCallback(() => {
     if (!selected) return;
-    void openServiceUrl(selected.url, { openInApp: onOpenUrlInBrowserTab });
-  }, [selected, onOpenUrlInBrowserTab]);
+    void openServiceUrl(selected.url, {
+      openInApp: onOpenUrlInBrowserTab,
+      inAppUrl: resolveServiceBrowserUrl({ script, selected: selected }),
+    });
+  }, [selected, onOpenUrlInBrowserTab, script]);
   const handleViewTerminal = useCallback(() => {
     if (liveTerminalId) onViewTerminal(liveTerminalId);
   }, [liveTerminalId, onViewTerminal]);

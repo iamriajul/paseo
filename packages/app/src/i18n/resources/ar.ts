@@ -658,6 +658,12 @@ export const ar: TranslationResources = {
         label: "حجم الجهاز",
         responsive: "متجاوب",
       },
+      services: {
+        label: "خدمات مساحة العمل",
+        starting: "جارٍ البدء…",
+        unhealthy: "غير سليمة",
+        startAndOpen: "ابدأ وافتح",
+      },
       errors: {
         failedToLoad: "فشل تحميل الصفحة",
         loadFailedTitle: "تعذر تحميل هذه الصفحة",

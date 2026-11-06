@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { WorkspaceScriptPayload } from "@getpaseo/protocol/messages";
 import type { ActiveConnection } from "@/runtime/host-runtime";
-import { resolveWorkspaceScriptLink } from "./workspace-script-links";
+import {
+  findServiceForBrowserUrl,
+  resolveServiceBrowserUrl,
+  resolveWorkspaceScriptLink,
+} from "./workspace-script-links";
 
 const runningService: WorkspaceScriptPayload = {
   scriptName: "web",
@@ -200,5 +204,38 @@ describe("resolveWorkspaceScriptLink", () => {
       primary: null,
       targets: [],
     });
+  });
+});
+
+describe("service Browser route", () => {
+  it("opens a local service at its localhost route so it shares the hand-typed origin", () => {
+    const link = resolveLink(null);
+    expect(link.primary?.kind).toBe("paseo");
+    expect(resolveServiceBrowserUrl({ script: runningService, selected: link.primary })).toBe(
+      "http://localhost:3000/",
+    );
+  });
+
+  it("keeps a public route public", () => {
+    const selected = {
+      kind: "public" as const,
+      label: "web.example.com",
+      url: "https://web.example.com",
+    };
+    expect(resolveServiceBrowserUrl({ script: runningService, selected })).toBe(
+      "https://web.example.com",
+    );
+  });
+
+  it("recognises a Browser tab that shows a running service", () => {
+    const scripts = [runningService];
+    expect(findServiceForBrowserUrl({ url: "http://localhost:3000/login", scripts })).toBe(
+      runningService,
+    );
+    expect(findServiceForBrowserUrl({ url: "http://127.0.0.1:3000/", scripts })).toBe(
+      runningService,
+    );
+    expect(findServiceForBrowserUrl({ url: "http://localhost:3001/", scripts })).toBeNull();
+    expect(findServiceForBrowserUrl({ url: "https://example.com:3000/", scripts })).toBeNull();
   });
 });

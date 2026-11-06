@@ -152,6 +152,18 @@ grep -q "onOpenLocalhostUrl={openWorkspaceLoopbackUrl}" packages/app/src/screens
 grep -q "useWorkspaceLoopbackOpener" packages/app/src/agent-stream/view.tsx
 ```
 
+## browser-workspace-services
+
+**paseo.json services open in the Browser at their localhost route**
+
+The scripts menu and ports panel open a service in the Browser at `http://localhost:<port>/` (`resolveServiceBrowserUrl`), not at its generated `*.localhost` hostname, so it shares one origin with hand-typed and agent-opened localhost tabs. A selected public route stays public. `openServiceUrl` takes the in-app URL separately so external opens keep the selected route. The Browser toolbar's services menu and URL-bar chip are fork modules.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/utils/workspace-script-links.test.ts --bail=1
+grep -q "inAppUrl: resolveServiceBrowserUrl" packages/app/src/screens/workspace/scripts/workspace-scripts-button.tsx
+grep -q "inAppUrl" packages/app/src/utils/open-service-url.ts
+```
+
 ## code-server-tab
 
 **register Code Server as a workspace tab kind**

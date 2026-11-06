@@ -664,6 +664,12 @@ export const es: TranslationResources = {
         label: "Tamaño del dispositivo",
         responsive: "Adaptable",
       },
+      services: {
+        label: "Servicios del espacio de trabajo",
+        starting: "Iniciando…",
+        unhealthy: "con fallos",
+        startAndOpen: "Iniciar y abrir",
+      },
       errors: {
         failedToLoad: "No se pudo cargar la página",
         loadFailedTitle: "No se pudo cargar esta página",

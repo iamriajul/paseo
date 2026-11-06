@@ -664,6 +664,12 @@ export const ru: TranslationResources = {
         label: "Размер экрана устройства",
         responsive: "Адаптивный режим",
       },
+      services: {
+        label: "Сервисы рабочего пространства",
+        starting: "Запуск…",
+        unhealthy: "неисправен",
+        startAndOpen: "Запустить и открыть",
+      },
       errors: {
         failedToLoad: "Не удалось загрузить страницу",
         loadFailedTitle: "Не удалось загрузить эту страницу",

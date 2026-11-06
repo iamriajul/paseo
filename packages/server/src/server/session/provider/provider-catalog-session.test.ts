@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import pino from "pino";
 import {
   ProviderCatalogSession,
@@ -17,8 +17,10 @@ import type { ProviderSnapshotEntry } from "../../agent/agent-sdk-types.js";
 import { expandProviderSnapshot } from "@getpaseo/protocol/provider-snapshot-codec";
 import {
   GatewayQuotaGetResponseMessageSchema,
+  GatewaySessionRouteGetResponseMessageSchema,
   GatewayStatsGetResponseMessageSchema,
 } from "@getpaseo/protocol/messages";
+import { GATEWAY_SESSION_ROUTE_CACHE_TTL_MS } from "../../agent/gateway/session-route.js";
 import { getCachedGatewayQuota } from "../../agent/gateway/quota.js";
 import { fetchGatewayStats } from "../../agent/gateway/stats.js";
 
@@ -512,6 +514,191 @@ describe("ProviderCatalogSession", () => {
     const res = findByType(emitted, "list_provider_features_response");
     expect(res?.payload.error).toBe("feature probe failed");
     expect(res?.payload.requestId).toBe("f1");
+  });
+});
+
+// The session-route handler runs the real fetch, parse and 15s cache; only the
+// network is stubbed. The cache is module-wide and keyed by session, so every
+// test uses its own session id.
+describe("ProviderCatalogSession session route", () => {
+  const gateway = { baseUrl: "http://gateway:8317", apiKey: "sk-test" };
+  const account = (name: string, inCooldown: boolean) => ({
+    provider: "claude",
+    provider_name: "Claude",
+    name,
+    type: "oauth",
+    plan: "Max",
+    in_cooldown: inCooldown,
+  });
+  const routeBody = {
+    session: "claude:s-mapped",
+    account: account("u***b@example.com", false),
+    model: "claude-haiku-5-5",
+    since: "2026-11-06T11:00:05Z",
+    last_seen: "2026-11-06T11:00:09Z",
+    switches: [
+      {
+        at: "2026-11-06T11:00:05Z",
+        from: account("u***a@example.com", true),
+        to: account("u***b@example.com", false),
+        reason: "quota",
+        status_code: 429,
+      },
+    ],
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function stubFetch(respond: () => Response | Promise<Response>) {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => respond());
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function jsonResponse(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  function makeRouteSubsystem(options: {
+    gatewayConfig?: typeof gateway | null;
+    routed?: boolean;
+    agent?: { provider: string; sessionId: string | null } | null;
+  }) {
+    return makeSubsystem({
+      snapshot: {
+        getGatewayConfig: () =>
+          options.gatewayConfig === undefined ? gateway : options.gatewayConfig,
+        isGatewayRouted: () => options.routed ?? true,
+      },
+      host: {
+        getAgentSession: () =>
+          options.agent === undefined
+            ? { provider: "claude", sessionId: "s-default" }
+            : options.agent,
+      },
+    });
+  }
+
+  async function requestRoute(subsystem: ProviderCatalogSession, requestId: string) {
+    await subsystem.handleGatewaySessionRouteGetRequest({
+      type: "cliproxyapi.session_route.get.request",
+      requestId,
+      agentId: "agent-1",
+    });
+  }
+
+  function routeResponse(emitted: SessionOutboundMessage[], requestId: string) {
+    const res = emitted.find(
+      (msg) =>
+        msg.type === "cliproxyapi.session_route.get.response" &&
+        msg.payload.requestId === requestId,
+    );
+    return GatewaySessionRouteGetResponseMessageSchema.parse(res);
+  }
+
+  it.each([
+    ["no gateway is configured", { gatewayConfig: null }],
+    ["the agent is unknown", { agent: null }],
+    ["the provider is not gateway-routed", { routed: false }],
+    [
+      "the harness sends no session the gateway keys",
+      { agent: { provider: "pi", sessionId: "p1" } },
+    ],
+    ["the agent has no session yet", { agent: { provider: "claude", sessionId: null } }],
+  ])("hides the route without a gateway read when %s", async (_label, options) => {
+    const fetchMock = stubFetch(() => jsonResponse(routeBody));
+    const { subsystem, emitted } = makeRouteSubsystem(options);
+
+    await requestRoute(subsystem, "r-unsupported");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(routeResponse(emitted, "r-unsupported").payload).toEqual({
+      requestId: "r-unsupported",
+      supported: false,
+      route: null,
+    });
+  });
+
+  it.each([
+    ["the gateway has no record (404)", () => jsonResponse({ error: "no request served" }, 404)],
+    ["the gateway predates the route (empty 404)", () => new Response("", { status: 404 })],
+    ["the read fails", () => Promise.reject(new TypeError("fetch failed"))],
+  ])("hides the route when %s", async (label, respond) => {
+    const fetchMock = stubFetch(respond);
+    const { subsystem, emitted } = makeRouteSubsystem({
+      agent: { provider: "claude", sessionId: `s-fail-${label}` },
+    });
+
+    await requestRoute(subsystem, "r-fail");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(findByType(emitted, "rpc_error")).toBeUndefined();
+    expect(routeResponse(emitted, "r-fail").payload).toEqual({
+      requestId: "r-fail",
+      supported: false,
+      route: null,
+    });
+  });
+
+  it("maps a real route body for the agent's canonical session", async () => {
+    const fetchMock = stubFetch(() => jsonResponse(routeBody));
+    const { subsystem, emitted } = makeRouteSubsystem({
+      agent: { provider: "claude", sessionId: "s-mapped" },
+    });
+
+    await requestRoute(subsystem, "r-ok");
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toBe("http://gateway:8317/v1/session-route?session=claude%3As-mapped");
+    expect(init?.headers).toEqual({ Authorization: "Bearer sk-test" });
+    expect(routeResponse(emitted, "r-ok").payload).toEqual({
+      requestId: "r-ok",
+      supported: true,
+      route: {
+        account: { label: "u***b@example.com", provider: "Claude", plan: "Max", inCooldown: false },
+        since: "2026-11-06T11:00:05Z",
+        switches: [
+          {
+            at: "2026-11-06T11:00:05Z",
+            from: { label: "u***a@example.com", provider: "Claude", plan: "Max", inCooldown: true },
+            to: { label: "u***b@example.com", provider: "Claude", plan: "Max", inCooldown: false },
+            reason: "quota",
+            statusCode: 429,
+          },
+        ],
+      },
+    });
+  });
+
+  it("serves a session from cache for 15 seconds, then reads the gateway again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
+    const fetchMock = stubFetch(() => jsonResponse(routeBody));
+    const { subsystem, emitted } = makeRouteSubsystem({
+      agent: { provider: "claude", sessionId: "s-cached" },
+    });
+
+    await requestRoute(subsystem, "c1");
+    vi.setSystemTime(Date.now() + GATEWAY_SESSION_ROUTE_CACHE_TTL_MS - 1);
+    await requestRoute(subsystem, "c2");
+
+    expect(GATEWAY_SESSION_ROUTE_CACHE_TTL_MS).toBe(15_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(routeResponse(emitted, "c2").payload.route).toEqual(
+      routeResponse(emitted, "c1").payload.route,
+    );
+
+    vi.setSystemTime(Date.now() + 1);
+    await requestRoute(subsystem, "c3");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(routeResponse(emitted, "c3").payload.supported).toBe(true);
   });
 });
 

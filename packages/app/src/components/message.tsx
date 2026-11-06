@@ -93,6 +93,8 @@ import { ToolCallDetailsContent } from "./tool-call-details";
 import { useToolCallSheet } from "./tool-call-sheet";
 import { ReadAloudButton, ReadAloudButtons } from "@/components/read-aloud-buttons";
 import { useHostFeature } from "@/runtime/host-features";
+import { usePromptCacheMoney } from "@/prompt-cache/money-stats-context";
+import { formatUsdEstimate } from "@/prompt-cache/prompt-cache-cost";
 export type { InlinePathTarget } from "@/assistant-file-links";
 export type { AssistantForkTarget };
 
@@ -566,6 +568,8 @@ interface AssistantTurnFooterProps {
     serverId?: string;
     client?: DaemonClient | null;
   } | null;
+  /** The turn's ≈ $ estimate while money stats are on; drawn after the duration. */
+  costLabel?: string | null;
 }
 
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
@@ -595,6 +599,11 @@ const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
     left: 0,
     color: theme.colors.foregroundMuted,
     fontSize: STREAM_METADATA_FONT_SIZE,
+  },
+  costLabel: {
+    color: theme.colors.foregroundMuted,
+    fontSize: STREAM_METADATA_FONT_SIZE,
+    marginLeft: -theme.spacing[1],
   },
   // Pinned slot for the footer read-aloud pair: always mounted so the footer
   // never shifts when the buttons reveal, hidden via opacity on web wide
@@ -630,6 +639,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   onFork,
   showNativeForkOption = false,
   readAloud = null,
+  costLabel = null,
 }: AssistantTurnFooterProps) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
@@ -725,6 +735,11 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
             </Text>
           </View>
         </Pressable>
+      ) : null}
+      {costLabel ? (
+        <Text style={assistantTurnFooterStylesheet.costLabel} testID="assistant-turn-cost">
+          · {costLabel}
+        </Text>
       ) : null}
     </View>
   );
@@ -1662,13 +1677,16 @@ export const CacheWarmStretchMarker = memo(function CacheWarmStretchMarker({
   firstAt,
   lastAt,
 }: CacheWarmStretchMarkerProps) {
+  const money = usePromptCacheMoney();
+  const costUsd = money ? money.warmUpStretchCostUsd(firstAt, lastAt) : null;
+  const label = getCacheWarmStretchLabel({ count, firstAt, lastAt });
   return (
     <View style={cacheWarmedStylesheet.container} testID="cache-warmed-marker">
       <View style={cacheWarmedStylesheet.line} />
       <View style={cacheWarmedStylesheet.label}>
         <ThemedFlame size={12} uniProps={statusWarningColorMapping} />
         <Text style={cacheWarmedStylesheet.text}>
-          {getCacheWarmStretchLabel({ count, firstAt, lastAt })}
+          {costUsd === null ? label : `${label} · ≈ ${formatUsdEstimate(costUsd)}`}
         </Text>
       </View>
       <View style={cacheWarmedStylesheet.line} />

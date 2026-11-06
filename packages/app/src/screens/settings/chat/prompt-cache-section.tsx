@@ -1,6 +1,11 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsCard, SettingsSection, SettingsSelect } from "@/components/settings";
+import {
+  SettingsCard,
+  SettingsSection,
+  SettingsSelect,
+  SettingsSwitch,
+} from "@/components/settings";
 import {
   PROMPT_CACHE_CAP_WARNING_MINUTES,
   useAppSettings,
@@ -30,9 +35,21 @@ export function PromptCacheSection() {
     [updateSettings],
   );
 
+  const changeMoneyStats = useCallback(
+    (promptCacheMoneyStats: boolean) => void updateSettings({ promptCacheMoneyStats }),
+    [updateSettings],
+  );
+
   return (
     <SettingsSection title={t("settings.general.promptCache.title")}>
       <SettingsCard>
+        <SettingsSwitch
+          label={t("settings.general.promptCache.moneyStats.label")}
+          hint={t("settings.general.promptCache.moneyStats.description")}
+          value={settings.promptCacheMoneyStats}
+          onValueChange={changeMoneyStats}
+          testID="settings-prompt-cache-money-stats"
+        />
         <SettingsSelect
           label={t("settings.general.promptCache.capWarning.label")}
           hint={t("settings.general.promptCache.capWarning.description")}

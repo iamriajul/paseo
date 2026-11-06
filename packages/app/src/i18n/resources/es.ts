@@ -2653,6 +2653,11 @@ export const es: TranslationResources = {
       },
       promptCache: {
         title: "Caché de prompts de Claude",
+        moneyStats: {
+          label: "Mostrar estimaciones de coste",
+          description:
+            "Muestra estimaciones ≈ $ a precio de lista de la API para los modelos propios de Claude: por turno, por precalentamiento, antes de enviar y en el análisis de la sesión",
+        },
         capWarning: {
           label: "Avisar antes del límite de precalentamiento",
           description:

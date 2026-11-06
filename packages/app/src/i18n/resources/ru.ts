@@ -2642,6 +2642,11 @@ export const ru: TranslationResources = {
       },
       promptCache: {
         title: "Кэш промптов Claude",
+        moneyStats: {
+          label: "Показывать оценку стоимости",
+          description:
+            "Показывает оценки ≈ $ по прайс-листу API для собственных моделей Claude: за ход, за прогрев, перед отправкой и в аналитике сессии",
+        },
         capWarning: {
           label: "Предупреждать до лимита прогрева",
           description:

@@ -4,7 +4,8 @@ import { formatUsdEstimate, resolveSessionCostUsd } from "./prompt-cache-cost";
 describe("formatUsdEstimate", () => {
   it("keeps cents and marks amounts too small to show", () => {
     expect(formatUsdEstimate(2.25)).toBe("$2.25");
-    expect(formatUsdEstimate(0.004)).toBe("<$0.01");
+    expect(formatUsdEstimate(0.004)).toBe("$0.004");
+    expect(formatUsdEstimate(0.0004)).toBe("<$0.001");
     expect(formatUsdEstimate(1234.4)).toBe("$1,234");
   });
 });

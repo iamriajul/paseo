@@ -2615,6 +2615,11 @@ export const ko: TranslationResources = {
       },
       promptCache: {
         title: "Claude 프롬프트 캐시",
+        moneyStats: {
+          label: "비용 추정 표시",
+          description:
+            "Claude 자사 모델에 대해 API 정가 기준 ≈ $ 추정치를 표시합니다: 턴별, 워밍업별, 보내기 전, 세션 인사이트",
+        },
         capWarning: {
           label: "워밍업 한도 전에 경고",
           description:

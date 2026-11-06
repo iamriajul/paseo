@@ -1,6 +1,11 @@
+/**
+ * Cents above a cent; a tenth of a cent below it, because a Haiku turn or warm-up costs a fraction
+ * of a cent and "<$0.01" on every one of them says nothing.
+ */
 export function formatUsdEstimate(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "$0";
-  if (value < 0.01) return "<$0.01";
+  if (value < 0.001) return "<$0.001";
+  if (value < 0.01) return `$${value.toFixed(3)}`;
   if (value < 100) return `$${value.toFixed(2)}`;
   return `$${Math.round(value).toLocaleString("en-US")}`;
 }

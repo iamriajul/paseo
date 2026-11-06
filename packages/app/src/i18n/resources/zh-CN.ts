@@ -2576,6 +2576,11 @@ export const zhCN: TranslationResources = {
       },
       promptCache: {
         title: "Claude 提示词缓存",
+        moneyStats: {
+          label: "显示费用估算",
+          description:
+            "为 Claude 官方模型显示按 API 标价估算的 ≈ $：每轮、每次预热、发送前以及会话分析中",
+        },
         capWarning: {
           label: "预热上限前提醒",
           description: "预热将在此时间内停止维持缓存时，缓存倒计时会闪烁",

@@ -313,3 +313,40 @@ test("runtime safety sees queued messages until provider dispatch settles", asyn
   await delivery.close();
   expect(delivery.hasPending("parent")).toBe(false);
 });
+
+test("a slash command from an agent is dispatched alone, between its neighbours", async () => {
+  const clock = createClock();
+  const sent: Array<{ prompt: AgentPromptInput; command: boolean }> = [];
+  const delivery = createAgentMessageDelivery({
+    schedule: clock.schedule,
+    dispatch: async (batch) => {
+      sent.push({ prompt: batch.prompt, command: batch.command });
+      return "turn_started";
+    },
+    onError: (error) => {
+      throw error;
+    },
+  });
+  const source = { kind: "agent-message", agentId: "orchestrator" } as const;
+  delivery.enqueue({ recipientId: "owner", messageId: "a", prompt: "Wrap up", source });
+  delivery.enqueue({
+    recipientId: "owner",
+    messageId: "b",
+    prompt: "/compact keep the plan",
+    source,
+  });
+  delivery.enqueue({ recipientId: "owner", messageId: "c", prompt: "Then report", source });
+  delivery.enqueue({ recipientId: "owner", messageId: "d", prompt: "and stop", source });
+  clock.advance(2000);
+  await delivery.close();
+  expect(
+    sent.map((batch) => ({
+      command: batch.command,
+      texts: parseAgentMessages(String(batch.prompt))?.map((message) => message.text),
+    })),
+  ).toEqual([
+    { command: false, texts: ["Wrap up"] },
+    { command: true, texts: ["/compact keep the plan"] },
+    { command: false, texts: ["Then report", "and stop"] },
+  ]);
+});

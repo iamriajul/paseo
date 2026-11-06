@@ -1206,3 +1206,272 @@ describe("Suite E: Workspace Tools", () => {
     }
   });
 });
+
+describe("Suite F: Slash commands from agents", () => {
+  async function startCommandDaemon(options?: {
+    holdChild?: Promise<void>;
+    onHeld?: () => void;
+    heldPrompt?: string;
+  }) {
+    const childPrompts: string[] = [];
+    const interrupts: string[] = [];
+    const daemon = await createTestPaseoDaemon({
+      agentClients: createTestAgentClients({
+        onInterrupt() {
+          interrupts.push("interrupt");
+        },
+        onStartTurn(prompt, config) {
+          if (config.title === "Command recipient" && typeof prompt === "string")
+            childPrompts.push(prompt);
+        },
+        async beforeTurnComplete(prompt) {
+          if (
+            options?.holdChild &&
+            typeof prompt === "string" &&
+            (prompt === options.heldPrompt ||
+              parseAgentMessage(prompt)?.text === "Hold this child turn")
+          ) {
+            options.onHeld?.();
+            await options.holdChild;
+          }
+        },
+      }),
+    });
+    const client = new DaemonClient({
+      url: `ws://127.0.0.1:${daemon.port}/ws`,
+      appVersion: "0.15.0",
+    });
+    await client.connect();
+    await client.fetchAgents({ subscribe: {} });
+    const parent = await client.createAgent({
+      provider: "claude",
+      cwd: daemon.paseoHome,
+      title: "Command sender",
+      modeId: "bypassPermissions",
+    });
+    const mcp = await createMcpClient(
+      buildExpectedAgentMcpUrl({ host: "127.0.0.1", port: daemon.port, agentId: parent.id }),
+    );
+    const created = await callToolStructured(mcp, "create_agent", {
+      relationship: { kind: "subagent" },
+      workspace: { kind: "current" },
+      title: "Command recipient",
+      provider: "claude/claude-test-model",
+      initialPrompt:
+        options?.holdChild && !options.heldPrompt ? "Hold this child turn" : "say done and stop",
+      notifyOnFinish: false,
+      settings: { modeId: "bypassPermissions" },
+    });
+    const childId = str(created.agentId);
+    const send = {
+      MCP: async (prompt: string) => {
+        await callToolStructured(mcp, "send_agent_prompt", {
+          agentId: childId,
+          prompt,
+          notifyOnFinish: false,
+        });
+      },
+      CLI: async (prompt: string) => {
+        await client.sendAgentMessage(childId, prompt, { sourceAgentId: parent.id });
+      },
+    };
+    return {
+      daemon,
+      parentId: parent.id,
+      childId,
+      childPrompts,
+      interrupts,
+      send,
+      timeline: () => daemon.daemon.agentManager.getTimeline(childId),
+      close: async () => {
+        await mcp.close();
+        await client.close();
+        await daemon.close();
+      },
+    };
+  }
+
+  test.each(["MCP", "CLI"] as const)(
+    "an agent's /compact over %s runs on an idle recipient and keeps its sender",
+    async (surface) => {
+      const harness = await startCommandDaemon();
+      try {
+        await waitFor({
+          timeoutMs: 10000,
+          label: "recipient idle",
+          check: () =>
+            harness.daemon.daemon.agentManager.getAgent(harness.childId)?.lifecycle === "idle"
+              ? true
+              : null,
+        });
+        await harness.send[surface]("/compact keep the plan");
+        await harness.send[surface]("What is left?");
+        await waitFor({
+          timeoutMs: 15000,
+          label: "compaction and the following message",
+          check: () => (harness.childPrompts.length === 3 ? true : null),
+        });
+
+        expect(harness.childPrompts[1]).toBe("/compact keep the plan");
+        expect(parseAgentMessage(harness.childPrompts[2]!)).toMatchObject({
+          source: { kind: "agent-message", agentId: harness.parentId },
+          text: "What is left?",
+        });
+        await waitFor({
+          timeoutMs: 10000,
+          label: "recipient compacted",
+          check: () =>
+            harness.timeline().some((item) => item.type === "compaction") ? true : null,
+        });
+        const timeline = harness.timeline();
+        const commandIndex = timeline.findIndex(
+          (item) =>
+            item.type === "tool_call" && item.agentMessage?.text === "/compact keep the plan",
+        );
+        expect(timeline[commandIndex]).toMatchObject({
+          type: "tool_call",
+          agentMessage: {
+            event: "message",
+            sender: { id: harness.parentId, title: "Command sender" },
+            text: "/compact keep the plan",
+          },
+        });
+        expect(timeline.findIndex((item) => item.type === "compaction")).toBeGreaterThan(
+          commandIndex,
+        );
+        expect(
+          timeline.filter((item) => item.type === "user_message" && item.text.includes("/compact")),
+        ).toEqual([]);
+
+        // A timeline rebuilt from the provider's transcript, which holds only the raw command.
+        await harness.daemon.daemon.agentManager.hydrateTimelineFromProvider(harness.childId, {
+          force: true,
+        });
+        const replayed = harness.timeline();
+        expect(
+          replayed.filter((item) => item.type === "user_message" && item.text.includes("/compact")),
+        ).toEqual([]);
+        expect(replayed).toContainEqual(
+          expect.objectContaining({
+            type: "tool_call",
+            agentMessage: expect.objectContaining({
+              sender: expect.objectContaining({ id: harness.parentId }),
+              text: "/compact keep the plan",
+            }),
+          }),
+        );
+      } finally {
+        await harness.close();
+      }
+    },
+    30000,
+  );
+
+  test("an agent's /compact waits for a busy recipient's turn instead of steering or replacing it", async () => {
+    let releaseChild!: () => void;
+    const holdChild = new Promise<void>((resolve) => {
+      releaseChild = resolve;
+    });
+    let childReachedGate!: () => void;
+    const childAtGate = new Promise<void>((resolve) => {
+      childReachedGate = resolve;
+    });
+    const harness = await startCommandDaemon({ holdChild, onHeld: () => childReachedGate() });
+    const terminalEvents: string[] = [];
+    const unsubscribe = harness.daemon.daemon.agentManager.subscribe(
+      (event) => {
+        if (
+          event.type === "agent_stream" &&
+          (event.event.type === "turn_completed" || event.event.type === "turn_canceled")
+        )
+          terminalEvents.push(event.event.type);
+      },
+      { agentId: harness.childId, replayState: false },
+    );
+    try {
+      await childAtGate;
+      await harness.send.MCP("/compact");
+      // Past the two quiet seconds the delivery queue waits before dispatching.
+      await sleep(3000);
+      expect(harness.daemon.daemon.agentManager.getAgent(harness.childId)?.lifecycle).toBe(
+        "running",
+      );
+      expect(harness.childPrompts).toHaveLength(1);
+      expect(harness.timeline().some((item) => item.type === "compaction")).toBe(false);
+
+      releaseChild();
+      await waitFor({
+        timeoutMs: 10000,
+        label: "compaction after the held turn",
+        check: () => (harness.timeline().some((item) => item.type === "compaction") ? true : null),
+      });
+      expect(harness.childPrompts[1]).toBe("/compact");
+      expect(terminalEvents[0]).toBe("turn_completed");
+      expect(terminalEvents).not.toContain("turn_canceled");
+    } finally {
+      releaseChild();
+      unsubscribe();
+      await harness.close();
+    }
+  }, 30000);
+  test("a message sent right after an agent's /compact waits for the compaction to finish", async () => {
+    let releaseCompaction!: () => void;
+    const holdChild = new Promise<void>((resolve) => {
+      releaseCompaction = resolve;
+    });
+    let compacting!: () => void;
+    const compactionStarted = new Promise<void>((resolve) => {
+      compacting = resolve;
+    });
+    const harness = await startCommandDaemon({
+      holdChild,
+      heldPrompt: "/compact",
+      onHeld: () => compacting(),
+    });
+    const terminalEvents: string[] = [];
+    const unsubscribe = harness.daemon.daemon.agentManager.subscribe(
+      (event) => {
+        if (
+          event.type === "agent_stream" &&
+          (event.event.type === "turn_completed" || event.event.type === "turn_canceled")
+        )
+          terminalEvents.push(event.event.type);
+      },
+      { agentId: harness.childId, replayState: false },
+    );
+    try {
+      await waitFor({
+        timeoutMs: 10000,
+        label: "recipient idle",
+        check: () =>
+          harness.daemon.daemon.agentManager.getAgent(harness.childId)?.lifecycle === "idle"
+            ? true
+            : null,
+      });
+      terminalEvents.length = 0;
+      await harness.send.CLI("/compact");
+      await compactionStarted;
+      await harness.send.CLI("What is left?");
+      await sleep(3000);
+      expect(harness.childPrompts).toHaveLength(2);
+      expect(terminalEvents).toEqual([]);
+      expect(harness.interrupts).toEqual([]);
+
+      releaseCompaction();
+      await waitFor({
+        timeoutMs: 10000,
+        label: "message after the compaction",
+        check: () => (harness.childPrompts.length === 3 ? true : null),
+      });
+      expect(parseAgentMessage(harness.childPrompts[2]!)?.text).toBe("What is left?");
+      expect(harness.timeline().some((item) => item.type === "compaction")).toBe(true);
+      expect(terminalEvents[0]).toBe("turn_completed");
+      expect(terminalEvents).not.toContain("turn_canceled");
+      expect(harness.interrupts).toEqual([]);
+    } finally {
+      releaseCompaction();
+      unsubscribe();
+      await harness.close();
+    }
+  }, 30000);
+});

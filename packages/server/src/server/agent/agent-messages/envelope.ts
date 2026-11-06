@@ -8,7 +8,7 @@ import type {
 } from "../agent-sdk-types.js";
 
 const agentIdSchema = z.string().min(1);
-const sourceSchema = z.discriminatedUnion("kind", [
+export const sourceSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("agent-message"),
     agentId: agentIdSchema,
@@ -154,6 +154,41 @@ export function prepareAgentMessage(
         ? envelope
         : [{ type: "text", text: envelope }, ...prompt.filter((block) => block.type === "image")],
   };
+}
+
+const SLASH_COMMAND_PATTERN = /^\/([^\s/]+)(?:\s[\s\S]*)?$/;
+
+/** The text of a prompt that is one typed text block; attachments rendered as text carry a mimeType. */
+function readSingleText(prompt: AgentPromptInput): string | null {
+  if (typeof prompt === "string") return prompt;
+  if (!Array.isArray(prompt)) return null;
+  const [block] = prompt;
+  return prompt.length === 1 && block?.type === "text" && !("mimeType" in block)
+    ? block.text
+    : null;
+}
+
+/** The text of a prompt that is exactly one slash command invocation, such as `/compact focus`. */
+export function readSlashCommandText(prompt: AgentPromptInput): string | null {
+  const trimmed = readSingleText(prompt)?.trim();
+  return trimmed && SLASH_COMMAND_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+/** The command an agent sent, read back out of its wrapped `agent-message` prompt. */
+export function readAgentCommand(prompt: AgentPromptInput): AgentCommand | null {
+  const wrapped = readSingleText(prompt);
+  const message = wrapped === null ? null : parseAgentMessage(wrapped);
+  if (message?.source?.kind !== "agent-message") return null;
+  const text = readSlashCommandText(message.text);
+  const name = text ? SLASH_COMMAND_PATTERN.exec(text)?.[1] : undefined;
+  return text && name ? { messageId: message.id, source: message.source, name, text } : null;
+}
+
+export interface AgentCommand {
+  messageId: string;
+  source: AgentPromptSource;
+  name: string;
+  text: string;
 }
 
 /** The same projection owns provider echoes, acceptance, import, and replay. */

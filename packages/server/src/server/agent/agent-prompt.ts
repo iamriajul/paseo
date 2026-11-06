@@ -395,6 +395,70 @@ export async function sendPreparedPromptToAgent(
   });
 }
 
+/** How often a waiting command checks whether its recipient went idle. */
+const AGENT_COMMAND_IDLE_POLL_MS = 500;
+
+/** Resolves once the agent could start a turn without replacing one; an unloaded agent can. */
+async function waitUntilAgentReady(
+  agentManager: AgentManager,
+  agentId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  while (agentManager.getAgent(agentId) && !canStartWithoutReplacing(agentManager, agentId)) {
+    signal.throwIfAborted();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", abort);
+        resolve();
+      }, AGENT_COMMAND_IDLE_POLL_MS);
+      function abort(): void {
+        clearTimeout(timer);
+        reject(signal.reason);
+      }
+      signal.addEventListener("abort", abort, { once: true });
+    });
+  }
+}
+
+/**
+ * Send a slash command another agent wrote as its own turn once the recipient is idle, and
+ * return when that turn ends. It never steers (the provider would read it as text) and never
+ * replaces the running turn. Delivery dispatches a recipient's messages in order, so holding
+ * until the command's turn ends keeps a later message from replacing a compaction in progress.
+ */
+export async function sendAgentCommandWhenIdle(
+  params: Omit<SendPromptToAgentParams, "source" | "messageId" | "replaceRunning"> & {
+    signal: AbortSignal;
+  },
+): Promise<{ disposition: PromptDispatchDisposition }> {
+  const { signal, ...send } = params;
+  const { agentManager, agentId } = params;
+  // Out-of-band commands (such as `/goal pause`) are built to run beside a turn.
+  if (
+    agentManager.getAgent(agentId) &&
+    !canStartWithoutReplacing(agentManager, agentId) &&
+    (await agentManager.tryRunOutOfBand(agentId, params.prompt, params.runOptions))
+  ) {
+    params.onDispatch?.("out_of_band");
+    return { disposition: "out_of_band" };
+  }
+  for (;;) {
+    await waitUntilAgentReady(agentManager, agentId, signal);
+    const result = await sendPreparedPromptToAgent({
+      ...send,
+      activeTurnBehavior: "interrupt",
+      replaceRunning: false,
+    });
+    if (result.disposition === "skipped") continue;
+    if (result.disposition === "turn_started") {
+      await waitForAgentRunStartWithTimeout(agentManager, agentId);
+      // Shutdown stops the wait, not the command, which is already running.
+      await waitUntilAgentReady(agentManager, agentId, signal).catch(() => undefined);
+    }
+    return result;
+  }
+}
+
 export async function startCreatedAgentInitialPrompt(
   params: StartCreatedAgentInitialPromptParams,
 ): Promise<ManagedAgent> {

@@ -9,6 +9,7 @@ import {
   type AgentMessageDelivery,
 } from "./agent/agent-messages/index.js";
 import {
+  sendAgentCommandWhenIdle,
   sendPreparedPromptToAgent,
   waitForAgentRunStartWithTimeout,
 } from "./agent/agent-prompt.js";
@@ -756,18 +757,24 @@ export class VoiceAssistantWebSocketServer {
     this.agentStorage = agentStorage;
     this.agentMessages = createAgentMessageDelivery({
       dispatch: async (batch) => {
-        const { disposition } = await sendPreparedPromptToAgent({
+        const send = {
           agentManager,
           agentStorage,
           agentId: batch.recipientId,
           prompt: batch.prompt,
-          activeTurnBehavior: batch.activeTurnBehavior,
           sessionMode: batch.sessionMode,
           clearPendingPermissions: batch.clearPendingPermissions,
           unarchive: batch.unarchive,
           runOptions: { clientMessageId: batch.messageIds[0] },
           onDispatch: batch.onDispatch,
           logger: this.logger,
+        };
+        if (batch.command) {
+          return (await sendAgentCommandWhenIdle({ ...send, signal: batch.signal })).disposition;
+        }
+        const { disposition } = await sendPreparedPromptToAgent({
+          ...send,
+          activeTurnBehavior: batch.activeTurnBehavior,
         });
         if (disposition === "turn_started")
           await waitForAgentRunStartWithTimeout(agentManager, batch.recipientId);

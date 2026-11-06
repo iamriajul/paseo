@@ -4,8 +4,16 @@ export {
   parseAgentMessages,
   prepareAgentMessage,
   projectAgentMessages,
+  readAgentCommand,
+  readSlashCommandText,
   formatSystemNotificationPrompt,
   isSystemInjectedEnvelope,
+  type AgentCommand,
   type AgentPromptSource,
 } from "./envelope.js";
+export {
+  AgentCommandLog,
+  attributeReplayedCommands,
+  type DeliveredAgentCommand,
+} from "./command-log.js";
 export { createAgentMessageDelivery, type AgentMessageDelivery } from "./delivery.js";

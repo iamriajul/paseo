@@ -74,6 +74,15 @@ export class InMemoryAgentTimelineStore {
     return row ? cloneRow(row) : null;
   }
 
+  /** The row recorded for a message another agent sent, by its delivery ID. */
+  getAgentMessage(agentId: string, messageId: string): AgentTimelineRow | null {
+    const callId = `paseo-agent-message:${messageId}`;
+    const row = this.requireState(agentId)
+      .projection.getRows()
+      .find((candidate) => candidate.item.type === "tool_call" && candidate.item.callId === callId);
+    return row ? cloneRow(row) : null;
+  }
+
   enrichSubmittedUserMessage(
     agentId: string,
     clientMessageId: string,

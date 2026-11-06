@@ -22,6 +22,7 @@ import {
   type ChildReportExpiredCachePolicy,
 } from "@getpaseo/protocol/agent-cache-warm";
 import { PromptCacheJournal } from "./agent/prompt-cache-journal.js";
+import { AgentCommandLog } from "./agent/agent-messages/index.js";
 import {
   createGitRemotePollGate,
   type GitRemotePollGate,
@@ -1173,6 +1174,9 @@ export async function createPaseoDaemon(
       (finishSubscriptionsRef?.hasPendingForCaller(agentId) ?? false),
   });
   agentManager.setCacheWarmManager(cacheWarmManager);
+  agentManager.setAgentCommandLog(
+    new AgentCommandLog({ directory: path.join(config.paseoHome, "agent-commands"), logger }),
+  );
   agentManager.setPromptCacheJournal(
     new PromptCacheJournal({
       directory: path.join(config.paseoHome, "prompt-cache"),

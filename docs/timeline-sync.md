@@ -289,6 +289,21 @@ also the projected call ID, so a provider echo cannot create a second row. Sende
 do not imply local ownership or authorization. Capture the sender title at delivery: archived or
 removed senders must remain understandable without a live directory lookup.
 
+A message from another agent that is exactly one slash command the recipient advertises
+(`/compact keep the plan`) reaches the provider raw, because a provider runs a command only when it
+is the whole prompt. Delivery never batches it with neighbouring messages, and it waits until the
+recipient is idle, then runs as its own turn: steering would reach the provider as text, and
+replacing would cancel the running turn or a compaction in progress. Messages queued after it wait
+until its turn ends, so none of them replaces the compaction. Out-of-band commands (`/goal pause`)
+still run beside a turn. A daemon shutdown drops a command still waiting for its recipient.
+
+The live timeline records the wrapped prompt, so the row keeps the sender, and the provider's echo
+of the bare command is folded into that row by its delivery ID. The provider's transcript holds only
+the bare command, so the daemon also appends each one to `$PASEO_HOME/agent-commands/<agent>.jsonl`
+(`agent-messages/command-log.ts`). Replay gives a transcript prompt with the same text, written
+within two minutes of a delivery, back its sender. Each delivery claims one prompt, in order, so a
+person's identical command stays theirs.
+
 The optional `agentMessage` payload carries event, sender, and delivered text. Shared client
 presentation (`protocol/paseo-tool-presentation`) owns its heading and expanded details, next to the
 labels for every Paseo MCP tool. The daemon

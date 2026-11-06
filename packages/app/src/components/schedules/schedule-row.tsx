@@ -93,6 +93,13 @@ function stateBadge(state: ScheduleDerivedState): {
   }
 }
 
+function isSkipNewerThanRun(schedule: ScheduleSummary): boolean {
+  if (!schedule.lastSkippedAt) {
+    return false;
+  }
+  return !schedule.lastRunAt || schedule.lastSkippedAt > schedule.lastRunAt;
+}
+
 // Meta reads left-to-right as identity → history → future: how often, when it
 // was created, when it last ran, and (only while it can still run) when it runs
 // next. Status lives on the badge, never repeated here.
@@ -101,6 +108,7 @@ function buildMeta(input: {
   state: ScheduleDerivedState;
   createdAgo: string;
   lastRunAgo: string;
+  lastSkippedAgo: string;
   serverName: string | undefined;
   singleHost: boolean;
 }): string {
@@ -110,6 +118,9 @@ function buildMeta(input: {
     `Created ${input.createdAgo}`,
     schedule.lastRunAt ? `Last run ${input.lastRunAgo}` : "Never run",
   ];
+  if (isSkipNewerThanRun(schedule)) {
+    parts.push(`Skipped ${input.lastSkippedAgo}, previous run still active`);
+  }
   if (state === "active") {
     const next = formatNextRun(schedule.nextRunAt);
     if (next) {
@@ -135,7 +146,18 @@ function ScheduleMeta({
 }) {
   const createdAgo = useTimeAgo(new Date(schedule.createdAt));
   const lastRunAgo = useTimeAgo(schedule.lastRunAt ? new Date(schedule.lastRunAt) : null);
-  const meta = buildMeta({ schedule, state, createdAgo, lastRunAgo, serverName, singleHost });
+  const lastSkippedAgo = useTimeAgo(
+    schedule.lastSkippedAt ? new Date(schedule.lastSkippedAt) : null,
+  );
+  const meta = buildMeta({
+    schedule,
+    state,
+    createdAgo,
+    lastRunAgo,
+    lastSkippedAgo,
+    serverName,
+    singleHost,
+  });
   return (
     <Text style={settingsStyles.rowHint} numberOfLines={1}>
       {meta}

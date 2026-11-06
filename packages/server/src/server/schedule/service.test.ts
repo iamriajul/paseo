@@ -3940,3 +3940,224 @@ describe("ScheduleService", () => {
     expect(await service.completeForAgent(agentId)).toBe(0);
   });
 });
+
+describe("ScheduleService skipWhileActive", () => {
+  let tempDir: string;
+  let agentStorage: AgentStorage;
+  let now: Date;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "schedule-skip-test-"));
+    await mkdir(join(tempDir, "agents"), { recursive: true });
+    agentStorage = new AgentStorage(join(tempDir, "agents"), createTestLogger());
+    await agentStorage.initialize();
+    now = new Date("2026-01-01T00:00:00.000Z");
+  });
+
+  afterEach(async () => {
+    await agentStorage.flush();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  const runAgentId = "44444444-4444-4444-8444-444444444444";
+  const secondRunAgentId = "55555555-5555-4555-8555-555555555555";
+
+  // A record a restarted daemon can load back from disk.
+  function runAgentRecord(id: string, archivedAt: string | null = null) {
+    return {
+      ...buildAgentRecord({ id, cwd: tempDir, iso: now.toISOString(), archivedAt }),
+      runtimeInfo: undefined,
+    };
+  }
+
+  function createSkipService(input: {
+    agentStorage: AgentStorage;
+    agentManager?: AgentManager;
+    runAgentIds: string[];
+  }) {
+    const runner = vi.fn(async (): Promise<ScheduleExecutionResult> => {
+      const agentId = input.runAgentIds.shift() ?? null;
+      if (agentId) {
+        await input.agentStorage.upsert(runAgentRecord(agentId));
+      }
+      return { agentId, output: "ran" };
+    });
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: input.agentManager ?? new AgentManager({ logger: createTestLogger() }),
+      agentStorage: input.agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner,
+    });
+    return { service, runner };
+  }
+
+  async function archiveAgent(storage: AgentStorage, agentId: string): Promise<void> {
+    await storage.upsert(runAgentRecord(agentId, now.toISOString()));
+  }
+
+  test("skips a trigger while an earlier run's agent is unarchived, across a restart", async () => {
+    const { service, runner } = createSkipService({
+      agentStorage,
+      runAgentIds: [runAgentId, secondRunAgentId],
+    });
+    const created = await service.create({
+      prompt: "nightly triage",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+      maxRuns: 2,
+      skipWhileActive: true,
+    });
+    expect(created.skipWhileActive).toBe(true);
+
+    await service.tick();
+    expect(runner).toHaveBeenCalledTimes(1);
+
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+    expect(runner).toHaveBeenCalledTimes(1);
+    const skipped = await service.inspect(created.id);
+    expect(skipped.runs).toHaveLength(2);
+    expect(skipped.runs[1]).toMatchObject({
+      scheduledFor: "2026-01-01T00:01:00.000Z",
+      status: "succeeded",
+      agentId: null,
+      skipReason: `Agent ${runAgentId} from an earlier run is not archived yet`,
+    });
+    expect(skipped.lastSkippedAt).toBe("2026-01-01T00:01:00.000Z");
+    expect(skipped.lastRunAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(skipped.nextRunAt).toBe("2026-01-01T00:02:00.000Z");
+    // The skip does not use up one of the two allowed runs.
+    expect(skipped.status).toBe("active");
+
+    // A restarted daemon reads the archive state from agent storage on disk.
+    await agentStorage.flush();
+    const restartedStorage = new AgentStorage(join(tempDir, "agents"), createTestLogger());
+    await restartedStorage.initialize();
+    const restarted = createSkipService({
+      agentStorage: restartedStorage,
+      runAgentIds: [secondRunAgentId],
+    });
+    now = new Date("2026-01-01T00:02:00.000Z");
+    await restarted.service.tick();
+    expect(restarted.runner).not.toHaveBeenCalled();
+    // Back-to-back skips share one run entry.
+    const afterRestart = await restarted.service.logs(created.id);
+    expect(afterRestart).toHaveLength(2);
+    expect(afterRestart[1]).toMatchObject({
+      scheduledFor: "2026-01-01T00:01:00.000Z",
+      startedAt: "2026-01-01T00:01:00.000Z",
+      endedAt: "2026-01-01T00:02:00.000Z",
+      skipCount: 2,
+      skipReason: `Agent ${runAgentId} from an earlier run is not archived yet`,
+    });
+
+    await archiveAgent(restartedStorage, runAgentId);
+    now = new Date("2026-01-01T00:03:00.000Z");
+    await restarted.service.tick();
+    expect(restarted.runner).toHaveBeenCalledTimes(1);
+    const finished = await restarted.service.inspect(created.id);
+    expect(finished.runs.at(-1)).toMatchObject({
+      status: "succeeded",
+      agentId: secondRunAgentId,
+    });
+    expect(finished.status).toBe("completed");
+    expect(finished.runs).toHaveLength(3);
+    await restartedStorage.flush();
+  });
+
+  test("runs over an unarchived earlier agent when the option is off", async () => {
+    const { service, runner } = createSkipService({
+      agentStorage,
+      runAgentIds: [runAgentId, secondRunAgentId],
+    });
+    const created = await service.create({
+      prompt: "nightly triage",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+    });
+    expect(created.skipWhileActive).toBeUndefined();
+
+    await service.tick();
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+
+    expect(runner).toHaveBeenCalledTimes(2);
+    const inspected = await service.inspect(created.id);
+    expect(inspected.runs.map((run) => run.skipReason)).toEqual([undefined, undefined]);
+    expect(inspected.lastSkippedAt).toBeUndefined();
+  });
+
+  test("a manual run is not skipped", async () => {
+    const { service, runner } = createSkipService({
+      agentStorage,
+      runAgentIds: [runAgentId, secondRunAgentId],
+    });
+    const created = await service.create({
+      prompt: "nightly triage",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+      skipWhileActive: true,
+    });
+    await service.tick();
+    await service.runOnce(created.id);
+    expect(runner).toHaveBeenCalledTimes(2);
+  });
+
+  test("an agent-target schedule skips while its agent has a turn running", async () => {
+    const manager = new AgentManager({ logger: createTestLogger() });
+    let turnRunning = true;
+    vi.spyOn(manager, "hasInFlightRun").mockImplementation(() => turnRunning);
+    await agentStorage.upsert(runAgentRecord(runAgentId));
+    const { service, runner } = createSkipService({
+      agentStorage,
+      agentManager: manager,
+      runAgentIds: [],
+    });
+    const created = await service.create({
+      prompt: "check in",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: runAgentId },
+      skipWhileActive: true,
+    });
+
+    await service.tick();
+    expect(runner).not.toHaveBeenCalled();
+    expect((await service.logs(created.id))[0]?.skipReason).toBe(
+      `Agent ${runAgentId} is still running a turn`,
+    );
+
+    turnRunning = false;
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  test("update and createOrReplace set and clear the option", async () => {
+    const { service } = createSkipService({ agentStorage, runAgentIds: [] });
+    const target = {
+      type: "new-agent" as const,
+      config: { provider: "claude", cwd: tempDir },
+    };
+    const created = await service.create({
+      prompt: "nightly triage",
+      name: "triage",
+      cadence: { type: "every", everyMs: 60_000 },
+      target,
+    });
+    const enabled = await service.update({ id: created.id, skipWhileActive: true });
+    expect(enabled.skipWhileActive).toBe(true);
+    const untouched = await service.update({ id: created.id, prompt: "renamed" });
+    expect(untouched.skipWhileActive).toBe(true);
+    const replaced = await service.createOrReplace({
+      prompt: "nightly triage",
+      name: "triage",
+      cadence: { type: "every", everyMs: 60_000 },
+      target,
+    });
+    expect(replaced.id).toBe(created.id);
+    expect(replaced.skipWhileActive).toBe(false);
+  });
+});

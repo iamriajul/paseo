@@ -153,6 +153,7 @@ export function parseScheduleCreateInput(options: {
   maxRuns?: string;
   expiresIn?: string;
   runNow?: boolean;
+  skipWhileActive?: boolean;
 }): CreateScheduleInput {
   const prompt = options.prompt.trim();
   if (!prompt) {
@@ -228,6 +229,7 @@ export function parseScheduleCreateInput(options: {
     ...(options.name?.trim() ? { name: options.name.trim() } : {}),
     ...(maxRuns !== undefined ? { maxRuns } : {}),
     ...(expiresAt ? { expiresAt } : {}),
+    ...(options.skipWhileActive ? { skipWhileActive: true } : {}),
   };
 }
 
@@ -253,6 +255,7 @@ export interface ScheduleUpdateOptionsInput {
   expiresIn?: string;
   clearMaxRuns?: boolean;
   clearExpires?: boolean;
+  skipWhileActive?: boolean;
 }
 
 export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): UpdateScheduleInput {
@@ -277,7 +280,8 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
     cadence === undefined &&
     newAgentConfig === undefined &&
     maxRuns === undefined &&
-    expiresAt === undefined
+    expiresAt === undefined &&
+    options.skipWhileActive === undefined
   ) {
     throw {
       code: "NO_UPDATES",
@@ -293,6 +297,7 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
     ...(newAgentConfig !== undefined ? { newAgentConfig } : {}),
     ...(maxRuns !== undefined ? { maxRuns } : {}),
     ...(expiresAt !== undefined ? { expiresAt } : {}),
+    ...(options.skipWhileActive !== undefined ? { skipWhileActive: options.skipWhileActive } : {}),
   };
 }
 

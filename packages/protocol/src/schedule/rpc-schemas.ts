@@ -36,6 +36,9 @@ export const ScheduleCreateRequestSchema = z.object({
   maxRuns: z.number().int().positive().optional(),
   expiresAt: z.string().optional(),
   runOnCreate: z.boolean().optional(),
+  // COMPAT(scheduleSkipWhileActive): added in v0.15.902, remove gate after 2027-05-06. Older
+  // daemons strip this field, so clients send it only when the feature is advertised.
+  skipWhileActive: z.boolean().optional(),
 });
 
 export const ScheduleListRequestSchema = z.object({
@@ -102,6 +105,7 @@ export const ScheduleUpdateRequestSchema = z.object({
   newAgentConfig: ScheduleUpdateNewAgentConfigSchema.optional(),
   maxRuns: z.number().int().positive().nullable().optional(),
   expiresAt: z.string().nullable().optional(),
+  skipWhileActive: z.boolean().optional(),
 });
 
 export const ScheduleCreateResponseSchema = z.object({

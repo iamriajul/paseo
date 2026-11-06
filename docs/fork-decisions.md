@@ -791,6 +791,22 @@ grep -q "moveStagedUploadIntoWorkspace" packages/server/src/server/file-explorer
 grep -q "fsEntryUpload" packages/app/src/components/file-explorer-pane.tsx
 ```
 
+## schedule-skip-while-active
+
+**a schedule can skip a trigger while an earlier run is still active**
+
+Upstream only refuses to start a schedule twice in the same process (`runningScheduleIds`). A nightly schedule whose agent the user keeps open for review would start a second agent the next night. `skipWhileActive` (off by default) skips a due trigger while an agent an earlier run created is unarchived, read from agent storage so it survives a restart; for an agent-target schedule it skips while the agent has a turn in flight. The skip is decided inside the serialized claim in `claimDueRun`, appends a run with `skipReason` (status `succeeded`, so older clients still parse it; back-to-back skips update one entry with `skipCount` so a short cadence does not grow the log per trigger), sets `lastSkippedAt`, advances `nextRunAt`, and does not count toward `maxRuns`. Manual runs are never skipped. App, CLI (`--skip-while-active`) and MCP (`create_schedule`, `update_schedule`, `create_heartbeat`) expose it; the app gates on `server_info.features.scheduleSkipWhileActive`. User-facing semantics: `public-docs/schedules.md#skip-while-a-previous-run-is-active`.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/schedule/service.test.ts --bail=1
+npx vitest run packages/cli/src/commands/schedule/shared.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/schedules/schedule-form-model.test.ts --bail=1
+grep -q 'describe("ScheduleService skipWhileActive"' packages/server/src/server/schedule/service.test.ts
+grep -q "scheduleSkipWhileActive: true" packages/server/src/server/websocket-server.ts
+grep -q 'skipWhileActive: z' packages/server/src/server/agent/tools/paseo-tools.ts
+grep -q 'schedule-skip-while-active-switch' packages/app/src/components/schedules/schedule-form-sheet.tsx
+```
+
 ## scheduled-agent-prompts
 
 **schedule a prompt on any running agent with one-shot timers or calendar cadences**

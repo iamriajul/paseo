@@ -358,6 +358,7 @@ describe("schedule form model", () => {
       showArchiveOnFinishField: false,
       showPromptCacheField: false,
       showCacheWarmUpField: false,
+      showSkipWhileActiveField: false,
     });
 
     form.setProject(buildProjectOptionId("host-a", "project-a"), { label: "Project A" });
@@ -371,6 +372,7 @@ describe("schedule form model", () => {
       showArchiveOnFinishField: true,
       showPromptCacheField: false,
       showCacheWarmUpField: false,
+      showSkipWhileActiveField: false,
     });
 
     form.applyProviderSnapshot("host-a", providerSnapshot(HOST_B_MODELS));
@@ -385,6 +387,72 @@ describe("schedule form model", () => {
       showArchiveOnFinishField: true,
       showPromptCacheField: false,
       showCacheWarmUpField: false,
+      showSkipWhileActiveField: false,
+    });
+  });
+
+  describe("skip while active", () => {
+    const skipHosts = [
+      { serverId: "host-a", label: "Host A", supportsScheduleSkipWhileActive: true },
+      { serverId: "host-b", label: "Host B" },
+    ];
+
+    it("shows the switch once a project is chosen on a host that supports it", () => {
+      const form = openWithHosts({
+        mode: "create",
+        hosts: skipHosts,
+        defaults: { serverId: "host-a", projectTargets: PROJECT_TARGETS, preferences: {} },
+      });
+      expect(form.getState()).toMatchObject({
+        disclosure: { showSkipWhileActiveField: false },
+        submitSkipWhileActive: undefined,
+      });
+
+      form.setProject(buildProjectOptionId("host-a", "project-a"), { label: "Project A" });
+      expect(form.getState()).toMatchObject({
+        disclosure: { showSkipWhileActiveField: true },
+        skipWhileActive: false,
+        submitSkipWhileActive: false,
+      });
+
+      form.setSkipWhileActive(true);
+      expect(form.getState().submitSkipWhileActive).toBe(true);
+    });
+
+    it("sends nothing to a host that does not support it", () => {
+      const form = openWithHosts({
+        mode: "create",
+        hosts: skipHosts,
+        defaults: { serverId: "host-b", projectTargets: PROJECT_TARGETS, preferences: {} },
+      });
+      form.setProject(buildProjectOptionId("host-b", "project-b"), { label: "Project B" });
+      form.setSkipWhileActive(true);
+      expect(form.getState()).toMatchObject({
+        disclosure: { showSkipWhileActiveField: false },
+        submitSkipWhileActive: undefined,
+      });
+    });
+
+    it("seeds edit from the stored schedule", () => {
+      const form = openWithHosts({
+        mode: "edit",
+        schedule: {
+          ...scheduleOnHost({
+            serverId: "host-a",
+            serverName: "Host A",
+            cwd: "/repo/a",
+            model: "model-a",
+          }),
+          skipWhileActive: true,
+        },
+        hosts: skipHosts,
+        defaults: { serverId: null, projectTargets: PROJECT_TARGETS, preferences: {} },
+      });
+      expect(form.getState()).toMatchObject({
+        disclosure: { showSkipWhileActiveField: true },
+        skipWhileActive: true,
+        submitSkipWhileActive: true,
+      });
     });
   });
 

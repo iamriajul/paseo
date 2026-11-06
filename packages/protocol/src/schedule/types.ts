@@ -53,6 +53,17 @@ export const ScheduleRunSchema = z.object({
   workspaceId: z.string().nullable().optional(),
   output: z.string().nullable(),
   error: z.string().nullable(),
+  /**
+   * Set when the trigger started nothing because an earlier run was still active
+   * (`skipWhileActive`). A skipped run has status "succeeded" so older clients still
+   * parse it, and it does not count toward `maxRuns`. Back-to-back skips share one entry.
+   */
+  skipReason: z.string().optional(),
+  /**
+   * How many back-to-back triggers this skipped run stands for; absent means one. `startedAt` is
+   * the first skip and `endedAt` the latest.
+   */
+  skipCount: z.number().int().positive().optional(),
 });
 export type ScheduleRun = z.infer<typeof ScheduleRunSchema>;
 
@@ -70,6 +81,10 @@ export const StoredScheduleSchema = z.object({
   pausedAt: z.string().nullable(),
   expiresAt: z.string().nullable(),
   maxRuns: z.number().int().positive().nullable(),
+  /** A trigger is skipped while an earlier run of this schedule is still active. */
+  skipWhileActive: z.boolean().optional(),
+  /** When a trigger was last skipped by `skipWhileActive`; the run log holds the reason. */
+  lastSkippedAt: z.string().nullable().optional(),
   runs: z.array(ScheduleRunSchema),
 });
 export type StoredSchedule = z.infer<typeof StoredScheduleSchema>;
@@ -87,6 +102,7 @@ export interface CreateScheduleInput {
   maxRuns?: number | null;
   expiresAt?: string | null;
   runOnCreate?: boolean | null;
+  skipWhileActive?: boolean;
 }
 
 export interface UpdateScheduleNewAgentConfig {
@@ -109,6 +125,7 @@ export interface UpdateScheduleInput {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  skipWhileActive?: boolean;
 }
 
 export interface ScheduleExecutionResult {

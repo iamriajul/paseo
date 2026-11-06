@@ -48,6 +48,7 @@ export interface ScheduleFormHost {
   supportsWorkspaceMultiplicity?: boolean;
   /** The host can change a schedule's feature values on edit; creation always could. */
   supportsScheduleFeatureValues?: boolean;
+  supportsScheduleSkipWhileActive?: boolean;
 }
 
 export interface ScheduleFormSnapshot {
@@ -82,6 +83,7 @@ export interface ScheduleDisclosureState {
   showArchiveOnFinishField: boolean;
   showPromptCacheField: boolean;
   showCacheWarmUpField: boolean;
+  showSkipWhileActiveField: boolean;
 }
 
 export interface ScheduleProviderSnapshotRequest {
@@ -134,6 +136,9 @@ export interface ScheduleFormState {
   storedFeatureValues: Record<string, unknown> | undefined;
   promptCache: SchedulePromptCacheChoice;
   promptCacheWarmUp: boolean;
+  skipWhileActive: boolean;
+  /** Undefined sends nothing: the field is hidden because the host cannot take it. */
+  submitSkipWhileActive: boolean | undefined;
   /** Undefined sends nothing: no values to store, or a host that cannot take them on edit. */
   submitFeatureValues: Record<string, unknown> | undefined;
   providerResolutionByServerId: Record<string, ProviderResolutionStatus>;
@@ -162,6 +167,7 @@ export interface ScheduleFormModel {
   setCadence: (value: ScheduleCadence) => void;
   setIsolation: (value: "local" | "worktree") => void;
   setArchiveOnFinish: (value: boolean) => void;
+  setSkipWhileActive: (value: boolean) => void;
   setPromptCacheTtl: (value: SchedulePromptCacheTtl) => void;
   setPromptCacheWarmUp: (value: boolean) => void;
   setSubmitError: (value: string | null) => void;
@@ -550,6 +556,7 @@ function resolveDisclosure(state: ScheduleFormState): ScheduleDisclosureState {
       showArchiveOnFinishField: false,
       showPromptCacheField: false,
       showCacheWarmUpField: false,
+      showSkipWhileActiveField: false,
     };
   }
 
@@ -578,6 +585,10 @@ function resolveDisclosure(state: ScheduleFormState): ScheduleDisclosureState {
       }),
     showPromptCacheField,
     showCacheWarmUpField: showPromptCacheField && state.promptCache.ttl !== "default",
+    showSkipWhileActiveField:
+      hasProject &&
+      state.hosts.find((entry) => entry.serverId === state.selectedServerId)
+        ?.supportsScheduleSkipWhileActive === true,
   };
 }
 
@@ -697,6 +708,9 @@ function updateDerivedState(input: {
   };
   return {
     ...withDisclosure,
+    submitSkipWhileActive: disclosure.showSkipWhileActiveField
+      ? withDisclosure.skipWhileActive
+      : undefined,
     submitFeatureValues: resolveSubmitFeatureValues(withDisclosure),
     canSubmit: resolveCanSubmit(withDisclosure),
   };
@@ -794,6 +808,8 @@ function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
       config ? config.featureValues : claudePreferenceFeatureValues(snapshot.defaults.preferences),
     ),
     promptCacheWarmUp: false,
+    skipWhileActive: snapshot.schedule?.skipWhileActive ?? false,
+    submitSkipWhileActive: undefined,
     submitFeatureValues: undefined,
     providerResolutionByServerId: buildInitialProviderResolution(providerSnapshotRequest),
     providerSnapshotRequest,
@@ -806,6 +822,7 @@ function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
       showArchiveOnFinishField: false,
       showPromptCacheField: false,
       showCacheWarmUpField: false,
+      showSkipWhileActiveField: false,
     },
     canSubmit: false,
     submitError: null,
@@ -1238,6 +1255,9 @@ export function openScheduleForm(snapshot: ScheduleFormSnapshot): ScheduleFormMo
     },
     setArchiveOnFinish(value) {
       publish({ ...state, archiveOnFinish: value });
+    },
+    setSkipWhileActive(value) {
+      publish({ ...state, skipWhileActive: value });
     },
     setPromptCacheTtl(value) {
       userModified = { ...userModified, promptCache: true };

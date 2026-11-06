@@ -397,22 +397,24 @@ options from the previous variant.
 
 One file per schedule. ID is 8 hex characters.
 
-| Field       | Type                                  | Description                      |
-| ----------- | ------------------------------------- | -------------------------------- |
-| `id`        | `string`                              | 8-char hex ID                    |
-| `name`      | `string?`                             | Human-readable name              |
-| `prompt`    | `string`                              | The prompt to send               |
-| `cadence`   | `ScheduleCadence`                     | Timing (see below)               |
-| `target`    | `ScheduleTarget`                      | What to run (see below)          |
-| `status`    | `"active" \| "paused" \| "completed"` | Current state                    |
-| `createdAt` | `string` (ISO 8601)                   |                                  |
-| `updatedAt` | `string` (ISO 8601)                   |                                  |
-| `nextRunAt` | `string?` (ISO 8601)                  | Next scheduled execution         |
-| `lastRunAt` | `string?` (ISO 8601)                  | Last execution time              |
-| `pausedAt`  | `string?` (ISO 8601)                  | When paused                      |
-| `expiresAt` | `string?` (ISO 8601)                  | Auto-expire time                 |
-| `maxRuns`   | `number?`                             | Max executions before completing |
-| `runs`      | `ScheduleRun[]`                       | Execution history                |
+| Field             | Type                                  | Description                                                                                                                  |
+| ----------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | `string`                              | 8-char hex ID                                                                                                                |
+| `name`            | `string?`                             | Human-readable name                                                                                                          |
+| `prompt`          | `string`                              | The prompt to send                                                                                                           |
+| `cadence`         | `ScheduleCadence`                     | Timing (see below)                                                                                                           |
+| `target`          | `ScheduleTarget`                      | What to run (see below)                                                                                                      |
+| `status`          | `"active" \| "paused" \| "completed"` | Current state                                                                                                                |
+| `createdAt`       | `string` (ISO 8601)                   |                                                                                                                              |
+| `updatedAt`       | `string` (ISO 8601)                   |                                                                                                                              |
+| `nextRunAt`       | `string?` (ISO 8601)                  | Next scheduled execution                                                                                                     |
+| `lastRunAt`       | `string?` (ISO 8601)                  | Last execution time                                                                                                          |
+| `pausedAt`        | `string?` (ISO 8601)                  | When paused                                                                                                                  |
+| `expiresAt`       | `string?` (ISO 8601)                  | Auto-expire time                                                                                                             |
+| `maxRuns`         | `number?`                             | Max executions before completing                                                                                             |
+| `skipWhileActive` | `boolean?`                            | Skip a trigger while an earlier run is active ([semantics](../public-docs/schedules.md#skip-while-a-previous-run-is-active)) |
+| `lastSkippedAt`   | `string?` (ISO 8601)                  | Last trigger skipped by `skipWhileActive`                                                                                    |
+| `runs`            | `ScheduleRun[]`                       | Execution history                                                                                                            |
 
 ### Nested: ScheduleCadence (discriminated union on `type`)
 
@@ -426,16 +428,18 @@ One file per schedule. ID is 8 hex characters.
 
 ### Nested: ScheduleRun
 
-| Field          | Type                                   | Description             |
-| -------------- | -------------------------------------- | ----------------------- |
-| `id`           | `string`                               | Run ID                  |
-| `scheduledFor` | `string` (ISO 8601)                    | Intended execution time |
-| `startedAt`    | `string` (ISO 8601)                    |                         |
-| `endedAt`      | `string?` (ISO 8601)                   |                         |
-| `status`       | `"running" \| "succeeded" \| "failed"` |                         |
-| `agentId`      | `string?` (UUID)                       | Agent used for this run |
-| `output`       | `string?`                              | Agent output text       |
-| `error`        | `string?`                              | Error message if failed |
+| Field          | Type                                   | Description                                                                                                          |
+| -------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `id`           | `string`                               | Run ID                                                                                                               |
+| `scheduledFor` | `string` (ISO 8601)                    | Intended execution time                                                                                              |
+| `startedAt`    | `string` (ISO 8601)                    |                                                                                                                      |
+| `endedAt`      | `string?` (ISO 8601)                   |                                                                                                                      |
+| `status`       | `"running" \| "succeeded" \| "failed"` |                                                                                                                      |
+| `agentId`      | `string?` (UUID)                       | Agent used for this run                                                                                              |
+| `output`       | `string?`                              | Agent output text                                                                                                    |
+| `error`        | `string?`                              | Error message if failed                                                                                              |
+| `skipReason`   | `string?`                              | Set on a skipped trigger; status stays `succeeded` so older clients parse it, and it does not count toward `maxRuns` |
+| `skipCount`    | `number?`                              | Back-to-back skips share one entry: the count (absent means 1), `startedAt` the first skip, `endedAt` the latest     |
 
 ---
 

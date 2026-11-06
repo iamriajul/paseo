@@ -472,6 +472,16 @@ projected history snapshots replace a stored prefix by overlap, but live provide
 npm test --workspace=@getpaseo/app -- src/types/stream.test.ts --bail=1
 ```
 
+## plugin-git-submodule-skip
+
+**Git plugin installs start git-submodule only when the checkout has .gitmodules**
+
+`git submodule` is a shell script, so on Windows it starts Git's MSYS `sh` with the staging checkout as its working directory. Windows runners stall MSYS process startup for minutes at a time, which hung installs past their test deadline and left the staging `checkout` busy (EBUSY on cleanup); upstream's own Windows unit job hits the same EBUSY in the legacy Git layout test. A checkout without `.gitmodules` has nothing to initialize, so the step is skipped. Upstream candidate.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/plugins/managed-source.posix.test.ts -t "submodule" --bail=1
+```
+
 ## plugin-head-turn-phase
 
 **live-head plugin cards use the turn phase, not hardcoded streaming**

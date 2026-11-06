@@ -536,6 +536,9 @@ async function checkout(checkoutRoot: string, commit: string): Promise<void> {
     envOverlay: GIT_ENV,
     timeout: GIT_TIMEOUT_MS,
   });
+  // git-submodule is a shell script, so on Windows it starts Git's MSYS sh with this
+  // checkout as its working directory. Skip it when there is nothing to initialize.
+  if (!existsSync(path.join(checkoutRoot, ".gitmodules"))) return;
   await runGitCommand(["submodule", "update", "--init", "--recursive"], {
     cwd: checkoutRoot,
     envOverlay: GIT_ENV,

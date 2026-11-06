@@ -22,6 +22,10 @@ export default defineConfig({
   // Files run concurrently, while each worker owns its daemon state. Keeping a
   // spec on one worker avoids repeating its file-level setup across daemons.
   fullyParallel: false,
+  // Workspace dist is built JavaScript, so load it untransformed. Playwright's ESM loader
+  // thread writes its transform cache even inside workers, and two workers starting
+  // together could read each other's half-written entry: "does not provide an export".
+  build: { external: ["**/packages/*/dist/**"] },
   workers: Number(process.env.E2E_WORKERS ?? (process.env.CI ? "2" : "1")),
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"]],

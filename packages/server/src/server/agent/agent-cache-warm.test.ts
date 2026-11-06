@@ -207,7 +207,11 @@ describe("AgentCacheWarmManager", () => {
     expect(sendPrompt).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1000);
     expect(sendPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: DEFAULT_CACHE_WARM_PING_PROMPT, replaceRunning: false }),
+      expect.objectContaining({
+        prompt: DEFAULT_CACHE_WARM_PING_PROMPT,
+        replaceRunning: false,
+        runOptions: { isWarmPing: true, lowestWarmUpEffort: true },
+      }),
     );
   });
 
@@ -339,6 +343,10 @@ describe("AgentCacheWarmManager", () => {
       const prompts = sentPrompts(harness.sendPrompt);
       expect(prompts.filter(isPingPrompt)).toHaveLength(10);
       expect(prompts.slice(10)).toEqual(["/compact"]);
+      // The compaction summarises the context, so it keeps the agent's own effort.
+      expect(harness.sendPrompt).toHaveBeenLastCalledWith(
+        expect.objectContaining({ prompt: "/compact", runOptions: { isWarmPing: true } }),
+      );
       // Paused, not off: the agent keeps warm-up on and the count stays at the cap.
       expect(harness.setAgentFeature).not.toHaveBeenCalled();
       expect(harness.manager.getConsecutivePings("agent-1")).toBe(10);

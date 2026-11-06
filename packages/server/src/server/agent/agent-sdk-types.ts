@@ -195,6 +195,11 @@ export interface AgentRunOptions {
   maxThinkingTokens?: number;
   clientMessageId?: string;
   isWarmPing?: boolean;
+  /**
+   * A v1 warm-up ping: run the turn at the model's lowest effort where an effort change keeps the
+   * cache. The idle-cap compaction is a warm-up turn too, but keeps the agent's own effort.
+   */
+  lowestWarmUpEffort?: boolean;
   /** Marks the submitted prompt as a resume: its user message carries the reason and renders as a marker. */
   resume?: { reason: string };
 }

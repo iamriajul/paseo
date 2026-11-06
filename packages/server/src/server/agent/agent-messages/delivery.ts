@@ -1,7 +1,7 @@
 import type { PromptDispatchDisposition } from "../agent-prompt.js";
 import { randomUUID } from "node:crypto";
 import type { AgentPromptInput, AgentPromptContentBlock } from "../agent-sdk-types.js";
-import { prepareAgentMessage, type AgentPromptSource } from "./envelope.js";
+import { prepareAgentMessage, readSlashCommandText, type AgentPromptSource } from "./envelope.js";
 
 interface Message {
   recipientId: string;
@@ -33,6 +33,14 @@ interface DispatchRequest {
   sessionMode?: string;
   clearPendingPermissions: boolean;
   unarchive: boolean;
+  /**
+   * The request is one slash command another agent sent. It runs as its own turn once the
+   * recipient is idle, and later requests wait until that turn ends: steering it would deliver
+   * text, and replacing would cancel the running turn or a compaction in progress.
+   */
+  command: boolean;
+  /** Aborted when delivery closes, so a command still waiting for an idle recipient gives up. */
+  signal: AbortSignal;
   onDispatch(disposition: PromptDispatchDisposition): void;
 }
 interface Dependencies {
@@ -51,6 +59,10 @@ export interface AgentMessageDelivery {
   waitForDispatch(recipientId: string, signal: AbortSignal): Promise<void>;
 }
 
+function isCommand(message: Message): boolean {
+  return message.source.kind === "agent-message" && readSlashCommandText(message.prompt) !== null;
+}
+
 /** Recipient-owned agent delivery. Human prompts never enter this module. */
 export function createAgentMessageDelivery(dependencies: Dependencies): AgentMessageDelivery {
   const schedule =
@@ -61,6 +73,7 @@ export function createAgentMessageDelivery(dependencies: Dependencies): AgentMes
     });
   const pending = new Map<string, { messages: Admitted[]; cancel(): void }>();
   const dispatching = new Map<string, Promise<void>>();
+  const closeController = new AbortController();
   let closed = false;
   let closing: Promise<void> | undefined;
 
@@ -82,6 +95,8 @@ export function createAgentMessageDelivery(dependencies: Dependencies): AgentMes
       sessionMode: messages.find((message) => message.sessionMode)?.sessionMode,
       clearPendingPermissions: messages.some((message) => message.clearPendingPermissions),
       unarchive: messages.some((message) => message.unarchive !== false),
+      command: messages.length === 1 && isCommand(messages[0]!),
+      signal: closeController.signal,
       onDispatch: (disposition) => {
         for (const message of messages) {
           try {
@@ -123,10 +138,13 @@ export function createAgentMessageDelivery(dependencies: Dependencies): AgentMes
     let group: Admitted[] = [];
     let mode: string | undefined;
     for (const message of entry.messages) {
-      // Explicitly conflicting send options require separate, ordered dispatches.
+      // Explicitly conflicting send options require separate, ordered dispatches, and a
+      // command is never batched: it reaches the provider raw, so it has to be the whole prompt.
       if (
         group.length &&
-        ((message.activeTurnBehavior ?? "steer") !== (group[0]!.activeTurnBehavior ?? "steer") ||
+        (isCommand(message) ||
+          isCommand(group[0]!) ||
+          (message.activeTurnBehavior ?? "steer") !== (group[0]!.activeTurnBehavior ?? "steer") ||
           (mode && message.sessionMode && mode !== message.sessionMode))
       ) {
         dispatch(recipientId, group);
@@ -184,6 +202,8 @@ export function createAgentMessageDelivery(dependencies: Dependencies): AgentMes
       if (closing) return closing;
       closed = true;
       for (const recipientId of pending.keys()) flush(recipientId);
+      // A command still waiting for its recipient to go idle is not delivered.
+      closeController.abort(new Error("Agent message delivery closed"));
       // Each failure is reported and rejects its receipts; shutdown still drains other recipients.
       closing = Promise.allSettled(dispatching.values()).then(() => undefined);
       return closing;

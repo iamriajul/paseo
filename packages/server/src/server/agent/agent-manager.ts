@@ -107,7 +107,14 @@ import {
   type PendingForegroundRun,
 } from "./agent-run-state.js";
 import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
-import { parseAgentMessage, projectAgentMessages } from "./agent-messages/index.js";
+import {
+  attributeReplayedCommands,
+  parseAgentMessage,
+  projectAgentMessages,
+  readAgentCommand,
+  type AgentCommand,
+  type AgentCommandLog,
+} from "./agent-messages/index.js";
 import { isStaleProviderSessionError } from "./stale-provider-session-error.js";
 import {
   PASEO_MCP_SERVER_NAME,
@@ -896,6 +903,7 @@ export class AgentManager {
   private rateLimitAutoResumeManager: AgentRateLimitAutoResumeManager | null = null;
   private cacheWarmManager: AgentCacheWarmManager | null = null;
   private promptCacheJournal: PromptCacheJournal | null = null;
+  private agentCommandLog: AgentCommandLog | null = null;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
@@ -948,6 +956,10 @@ export class AgentManager {
 
   setCacheWarmManager(manager: AgentCacheWarmManager | null): void {
     this.cacheWarmManager = manager;
+  }
+
+  setAgentCommandLog(log: AgentCommandLog | null): void {
+    this.agentCommandLog = log;
   }
 
   setPromptCacheJournal(journal: PromptCacheJournal | null): void {
@@ -3180,6 +3192,20 @@ export class AgentManager {
     });
   }
 
+  /**
+   * A slash command another agent sent reaches the provider raw, so the provider runs it.
+   * The timeline still records the wrapped prompt, which keeps the sender's attribution.
+   */
+  private async resolveCommandPrompt(
+    agent: ActiveManagedAgent,
+    command: AgentCommand,
+    prompt: AgentPromptInput,
+  ): Promise<AgentPromptInput> {
+    if (!agent.session.listCommands) return prompt;
+    const commands = await agent.session.listCommands();
+    return commands.some((advertised) => advertised.name === command.name) ? command.text : prompt;
+  }
+
   private async startPendingForegroundTurn(params: {
     agent: ActiveManagedAgent;
     agentId: string;
@@ -3192,7 +3218,16 @@ export class AgentManager {
     this.rateLimitAutoResumeManager?.resetConsecutiveResumes(agentId);
     this.cacheWarmManager?.cancel(agentId);
     try {
-      const result = await agent.session.startTurn(prompt, options);
+      const command = readAgentCommand(prompt);
+      const providerPrompt = command
+        ? await this.resolveCommandPrompt(agent, command, prompt)
+        : prompt;
+      const sentAt = new Date().toISOString();
+      const result = await agent.session.startTurn(providerPrompt, options);
+      if (command && providerPrompt !== prompt) {
+        const { messageId, source, text } = command;
+        void this.agentCommandLog?.append(agentId, { messageId, source, text, sentAt });
+      }
       if (pendingRun.settled) {
         throw new Error(`Agent ${agentId} run was canceled before its turn started`);
       }
@@ -4126,6 +4161,7 @@ export class AgentManager {
   async deleteAgentState(agentId: string): Promise<void> {
     this.discardRetainedAgentState(agentId);
     await this.promptCacheJournal?.delete(agentId);
+    await this.agentCommandLog?.delete(agentId);
     await this.deleteCommittedTimeline(agentId);
   }
 
@@ -5060,18 +5096,19 @@ export class AgentManager {
     broadcast: boolean,
     broadcastTimeline: boolean,
   ): Promise<void> {
-    const historyEvents: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
+    const projectedEvents: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
     const providerSubagentEvents: Extract<AgentStreamEvent, { type: "provider_subagent" }>[] = [];
     for await (const rawEvent of agent.session.streamHistory()) {
       const event = limitAgentStreamEventContent(rawEvent);
       if (event.type === "timeline") {
         for (const item of projectAgentMessages(event.item)) {
-          historyEvents.push({ ...event, item });
+          projectedEvents.push({ ...event, item });
         }
       } else if (event.type === "provider_subagent") {
         providerSubagentEvents.push(event);
       }
     }
+    const historyEvents = await this.attributeReplayedAgentCommands(agent.id, projectedEvents);
 
     this.agentStreamCoalescer.flushAndDiscard(agent.id);
     await this.deleteCommittedTimeline(agent.id);
@@ -5116,6 +5153,18 @@ export class AgentManager {
     this.emitState(agent);
   }
 
+  /** The provider's transcript holds commands other agents sent raw; give them their sender. */
+  private async attributeReplayedAgentCommands<
+    T extends { item: AgentTimelineItem; timestamp?: string },
+  >(agentId: string, events: T[]): Promise<T[]> {
+    if (!this.agentCommandLog) return events;
+    const commands = await this.agentCommandLog.read(agentId).catch((error: unknown) => {
+      this.logger.warn({ err: error, agentId }, "Failed to read the agent command log");
+      return [];
+    });
+    return commands.length ? attributeReplayedCommands(events, commands) : events;
+  }
+
   private async primeTimelineFromLegacyProviderHistory(
     agent: ActiveManagedAgent,
     broadcast: boolean | (() => boolean),
@@ -5124,7 +5173,7 @@ export class AgentManager {
       | Iterable<AgentStreamEvent> = agent.session.streamHistory(),
   ): Promise<void> {
     const deferredBroadcast = typeof broadcast === "function";
-    const historyEvents: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
+    const projectedEvents: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
     const historySubagentEvents: Extract<AgentStreamEvent, { type: "provider_subagent" }>[] = [];
     agent.historyPrimed = false;
     try {
@@ -5141,13 +5190,14 @@ export class AgentManager {
           continue;
         }
         for (const item of projectAgentMessages(event.item)) {
-          historyEvents.push({ ...event, item });
+          projectedEvents.push({ ...event, item });
         }
       }
     } catch (error) {
       this.logger.warn({ err: error, agentId: agent.id }, "Failed to hydrate provider history");
       throw error;
     }
+    const historyEvents = await this.attributeReplayedAgentCommands(agent.id, projectedEvents);
 
     // The replay is the timeline, so drop the rows a previous hydration committed.
     // Keeping them would leave getTimelineRows reading one copy per hydration.
@@ -5934,6 +5984,10 @@ export class AgentManager {
   ): AgentTimelineRow | null {
     const { clientMessageId, messageId } = item;
     if (!clientMessageId) return null;
+    // A command another agent sent reached the provider raw, so its echo is the bare command.
+    // The submitted row is the sender-attributed agent message.
+    const agentCommand = this.timelineStore.getAgentMessage(agent.id, clientMessageId);
+    if (agentCommand) return agentCommand;
     let existing = this.timelineStore.getSubmittedUserMessage(agent.id, clientMessageId);
     if (!existing) {
       this.recordSubmittedPromptItem(

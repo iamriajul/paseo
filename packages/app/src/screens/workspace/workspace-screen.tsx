@@ -1,4 +1,5 @@
 import { planTimelineTailFetch } from "@/timeline/timeline-sync-plan";
+import { useWorkspaceLoopbackOpener } from "@/hooks/use-workspace-loopback-opener";
 import { useHostFeature } from "@/runtime/host-features";
 import {
   AssistantFileLinkResolverProvider,
@@ -1936,6 +1937,14 @@ function WorkspaceScreenContent({
     },
     [openWorkspaceTabFocused, persistenceKey, showCreateBrowserTab],
   );
+
+  // Links rendered anywhere in the workspace outside a chat message (question
+  // and plan cards, file previews, sheets) resolve through this provider config,
+  // so loopback links reach the workspace Browser from every surface.
+  const openWorkspaceLoopbackUrl = useWorkspaceLoopbackOpener({
+    serverId: normalizedServerId,
+    openInBrowserTab: handleOpenUrlInBrowserTab,
+  });
 
   useDesktopBrowserNewTabRequests({
     enabled: Boolean(persistenceKey),
@@ -3878,6 +3887,7 @@ function WorkspaceScreenContent({
         serverId={normalizedServerId}
         workspaceRoot={workspaceDirectory ?? undefined}
         onOpenWorkspaceFile={openMarkdownPath}
+        onOpenLocalhostUrl={openWorkspaceLoopbackUrl}
         toast={toast}
       >
         {renderedWorkspaceScreen}

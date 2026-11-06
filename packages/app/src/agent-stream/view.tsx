@@ -119,7 +119,6 @@ import { buildNewWorkspaceRoute } from "@/utils/host-routes";
 import { useHostFeature } from "@/runtime/host-features";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { isWeb } from "@/constants/platform";
-import { useWorkspaceBrowserAvailability } from "@/desktop/browser/workspace-browser-availability";
 import type { Theme } from "@/styles/theme";
 import { recordRenderProfileReasons } from "@/utils/render-profiler";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -132,8 +131,7 @@ import type { WorkspaceComposerAttachment } from "@/attachments/types";
 import type { WorkspaceDraftTabSetup, WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { toErrorMessage } from "@/utils/error-messages";
 import { useWorkspaceDraftSubmissionStore } from "@/stores/workspace-draft-submission-store";
-import { isLoopbackHttpUrl, rewriteWithVscodeProxyUri } from "@/utils/localhost-url";
-import { openExternalUrl } from "@/utils/open-external-url";
+import { useWorkspaceLoopbackOpener } from "@/hooks/use-workspace-loopback-opener";
 import { useStreamHistoryWindow } from "./use-stream-history-window";
 import { PluginTimelineItemView, useInstalledTimelineTransform } from "@/plugins/timeline";
 import { RateLimitCooldownBanner } from "@/rate-limit-cooldown/rate-limit-cooldown-banner";
@@ -617,13 +615,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     // Get serverId (fallback to agent's serverId if not provided)
     const resolvedServerId = serverId ?? context.serverId ?? "";
     const transformTimelineItem = useInstalledTimelineTransform(resolvedServerId);
-    const hasWorkspaceBrowser = useWorkspaceBrowserAvailability(resolvedServerId);
-
-    const vscodeProxyUri = useSessionStore((state) =>
-      resolvedServerId
-        ? state.sessions[resolvedServerId]?.serverInfo?.urlOpeners?.vscodeProxyUri
-        : undefined,
-    );
     const client = useSessionStore((state) => state.sessions[resolvedServerId]?.client ?? null);
     const sessionStreamHead = useSessionStore((state) =>
       state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
@@ -656,23 +647,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     });
 
     const workspaceRoot = context.cwd?.trim() || "";
-    const handleLocalhostUrlPress = useStableEvent((url: string) => {
-      if (!isLoopbackHttpUrl(url)) {
-        return false;
-      }
-      // Only report the press as handled if a tab actually opened. Returning
-      // true on a refusal suppressed everything below it, so a localhost link
-      // in chat did nothing at all.
-      if (hasWorkspaceBrowser && onOpenUrlInBrowserTab?.(url)) {
-        return true;
-      }
-
-      const rewritten = rewriteWithVscodeProxyUri({ url, vscodeProxyUri });
-      if (!rewritten) {
-        return false;
-      }
-      void openExternalUrl(rewritten);
-      return true;
+    const handleLocalhostUrlPress = useWorkspaceLoopbackOpener({
+      serverId: resolvedServerId,
+      openInBrowserTab: onOpenUrlInBrowserTab,
     });
     const { revealDirectory } = useFileExplorerActions({
       serverId: resolvedServerId,

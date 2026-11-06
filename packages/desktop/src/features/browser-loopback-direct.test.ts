@@ -52,7 +52,7 @@ describe("direct loopback re-registration", () => {
   test("applies setProxy when switching the workspace to direct", async () => {
     await registerBrowserLoopbackProxy({
       browserId: "tab-1",
-      serverId: "server-1",
+      serverId: "server-2",
       workspaceId: "ws-beta",
       rendererWebContentsId: 999,
       directLoopback: false,
@@ -61,7 +61,7 @@ describe("direct loopback re-registration", () => {
 
     await registerBrowserLoopbackProxy({
       browserId: "tab-1",
-      serverId: "server-1",
+      serverId: "server-2",
       workspaceId: "ws-beta",
       rendererWebContentsId: 999,
       directLoopback: true,
@@ -69,5 +69,40 @@ describe("direct loopback re-registration", () => {
     expect(setProxy.mock.calls.length).toBeGreaterThan(afterTunnel);
 
     await unregisterBrowserLoopbackProxy("tab-1");
+  });
+
+  test("a pane registering without the flag keeps a declared-local host direct", async () => {
+    // browser_new_tab (automation) knows the connection is this machine and
+    // registers direct. The pane that mounts for the same tab registers without
+    // the flag. Flipping the session to the tunnel proxy there ran
+    // closeAllConnections() mid-load and left the tab blank.
+    await registerBrowserLoopbackProxy({
+      browserId: "agent-tab",
+      serverId: "local-daemon",
+      workspaceId: "ws-gamma",
+      rendererWebContentsId: 999,
+      directLoopback: true,
+    });
+    setProxy.mockClear();
+    closeAllConnections.mockClear();
+
+    await registerBrowserLoopbackProxy({
+      browserId: "agent-tab",
+      serverId: "local-daemon",
+      workspaceId: "ws-gamma",
+      rendererWebContentsId: 999,
+    });
+    await registerBrowserLoopbackProxy({
+      browserId: "user-tab",
+      serverId: "local-daemon",
+      workspaceId: "ws-delta",
+      rendererWebContentsId: 999,
+    });
+
+    expect(setProxy).not.toHaveBeenCalledWith(expect.objectContaining({ mode: "fixed_servers" }));
+    expect(closeAllConnections).not.toHaveBeenCalled();
+
+    await unregisterBrowserLoopbackProxy("agent-tab");
+    await unregisterBrowserLoopbackProxy("user-tab");
   });
 });

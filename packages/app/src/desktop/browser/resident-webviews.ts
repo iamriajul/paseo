@@ -15,6 +15,23 @@ const RESIDENT_VIEWPORT_HEIGHT = 800;
 const residentWebviewsByBrowserId = new Map<string, HTMLElement>();
 const residentSurfacesByBrowserId = new Map<string, HTMLElement>();
 const residentWebviewSizesByBrowserId = new Map<string, { width: number; height: number }>();
+// Browsers whose surface a mounted pane currently presents. Automation must not
+// park these: a parked surface shrinks to 1x1 and the pane shows an empty (black)
+// area until something re-presents it.
+const presentedBrowserIds = new Set<string>();
+// Main-frame failures seen by a webview, recorded from creation. Agent-opened
+// tabs load in a parked webview before any pane listens; a pane that later
+// takes the webview reads this so a failure that happened before it mounted is
+// shown (and retried) instead of leaving an empty surface.
+const loadFailuresByBrowserId = new Map<string, BrowserWebviewLoadFailure>();
+
+export interface BrowserWebviewLoadFailure {
+  errorCode: number;
+  errorDescription: string;
+  url: string;
+}
+
+const ERR_ABORTED = -3;
 
 interface BrowserWebviewElement extends HTMLElement {
   src: string;
@@ -60,8 +77,22 @@ function registerBrowserWhenAttached(
 ): void {
   // Reparenting a webview can replace its guest WebContents without replacing
   // this DOM element, so every attachment needs a fresh main-process registration.
-  webview.addEventListener("did-attach", () => {
-    const webContentsId = webview.getWebContentsId();
+  // getWebContentsId() throws until Electron has the guest id, which can lag
+  // did-attach (seen when a remote tab's first load fails). An uncaught throw
+  // there left the tab unregistered: browser_new_tab timed out and the tab had
+  // no automation. Later lifecycle events retry until one registration lands.
+  let registeredWebContentsId: number | null = null;
+  const register = () => {
+    let webContentsId: number;
+    try {
+      webContentsId = webview.getWebContentsId();
+    } catch {
+      return;
+    }
+    if (webContentsId === registeredWebContentsId) {
+      return;
+    }
+    registeredWebContentsId = webContentsId;
     void browser
       .registerAttachedBrowser({
         browserId: identity.browserId,
@@ -69,9 +100,40 @@ function registerBrowserWhenAttached(
         webContentsId,
       })
       .catch((error) => {
+        registeredWebContentsId = null;
         console.error("[browser-webview] attached registration failed", error);
       });
+  };
+  for (const eventName of ["did-attach", "dom-ready", "did-stop-loading", "did-fail-load"]) {
+    webview.addEventListener(eventName, register);
+  }
+}
+
+function trackLoadFailures(webview: HTMLElement, browserId: string): void {
+  webview.addEventListener("did-start-loading", () => {
+    loadFailuresByBrowserId.delete(browserId);
   });
+  webview.addEventListener("did-fail-load", (event) => {
+    const details = event as Event & {
+      errorCode?: unknown;
+      errorDescription?: unknown;
+      isMainFrame?: unknown;
+      validatedURL?: unknown;
+    };
+    if (details.isMainFrame === false || details.errorCode === ERR_ABORTED) {
+      return;
+    }
+    loadFailuresByBrowserId.set(browserId, {
+      errorCode: typeof details.errorCode === "number" ? details.errorCode : 0,
+      errorDescription:
+        typeof details.errorDescription === "string" ? details.errorDescription : "",
+      url: typeof details.validatedURL === "string" ? details.validatedURL : "",
+    });
+  });
+}
+
+export function readBrowserWebviewLoadFailure(browserId: string): BrowserWebviewLoadFailure | null {
+  return loadFailuresByBrowserId.get(browserId) ?? null;
 }
 
 function trimNonEmpty(value: string | null | undefined): string | null {
@@ -266,6 +328,7 @@ export function presentBrowserWebview(
   if (webview.parentElement !== surface) {
     surface.appendChild(webview);
   }
+  presentedBrowserIds.add(normalizedBrowserId);
   const anchorBounds = anchor.getBoundingClientRect();
   const clipBounds = clip.getBoundingClientRect();
   const left = Math.max(anchorBounds.left, clipBounds.left);
@@ -332,6 +395,7 @@ export function prepareBrowserWebview(
     (webview as BrowserWebviewElement).src = input.initialUrl;
   }
   registerBrowserWhenAttached(webview as BrowserWebviewElement, input, browser);
+  trackLoadFailures(webview, input.browserId);
 }
 
 export function ensureResidentBrowserWebview(input: {
@@ -352,7 +416,9 @@ export function ensureResidentBrowserWebview(input: {
   const resident = residentWebviewsByBrowserId.get(browserId) ?? null;
   if (resident?.isConnected) {
     assignBlankWebviewUrl(resident, input.url);
-    releaseResidentBrowserWebview(browserId, resident);
+    if (!presentedBrowserIds.has(browserId)) {
+      releaseResidentBrowserWebview(browserId, resident);
+    }
     return resident;
   }
 
@@ -415,6 +481,7 @@ export function releaseResidentBrowserWebview(browserId: string, webview: HTMLEl
   }
 
   residentWebviewsByBrowserId.set(normalizedBrowserId, webview);
+  presentedBrowserIds.delete(normalizedBrowserId);
   applyResidentWebviewStyle(webview, normalizedBrowserId);
   const surface = getBrowserSurface(normalizedBrowserId, ownerDocument);
   applyParkedBrowserSurfaceStyle(surface);
@@ -457,6 +524,8 @@ export function removeResidentBrowserWebview(browserId: string): void {
   residentWebviewsByBrowserId.delete(normalizedBrowserId);
   residentSurfacesByBrowserId.delete(normalizedBrowserId);
   residentWebviewSizesByBrowserId.delete(normalizedBrowserId);
+  presentedBrowserIds.delete(normalizedBrowserId);
+  loadFailuresByBrowserId.delete(normalizedBrowserId);
   resident?.remove();
   surface?.remove();
 }
@@ -468,5 +537,7 @@ export function clearResidentBrowserWebviewsForTests(): void {
   residentWebviewsByBrowserId.clear();
   residentSurfacesByBrowserId.clear();
   residentWebviewSizesByBrowserId.clear();
+  presentedBrowserIds.clear();
+  loadFailuresByBrowserId.clear();
   readDocument()?.getElementById(RESIDENT_BROWSER_HOST_ID)?.remove();
 }

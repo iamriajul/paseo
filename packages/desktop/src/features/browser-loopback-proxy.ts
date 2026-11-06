@@ -14,6 +14,8 @@ export interface BrowserLoopbackProxyRegistration {
 
 interface WorkspaceProxyRecord {
   workspaceKey: string;
+  /** Electron session partition the proxy is installed on. */
+  partition: string;
   serverId: string;
   workspaceId: string;
   rendererWebContentsId: number;
@@ -52,6 +54,8 @@ export interface ProxyTarget {
 
 export interface ParsedProxyRequest {
   target: ProxyTarget;
+  /** A top-level page load, which gets a readable error page instead of an empty 502. */
+  wantsDocument: boolean;
   initialUpstreamBytes: Buffer;
   connectPreambleBytes: Buffer;
   proxyAuthorization: string | null;
@@ -60,7 +64,7 @@ export interface ParsedProxyRequest {
 interface TunnelState {
   tunnelId: string;
   browserId: string;
-  workspaceKey: string;
+  rendererWebContentsId: number;
   socket: Socket;
   opened: boolean;
   resolveOpen: () => void;
@@ -78,9 +82,22 @@ const RENDERER_TUNNEL_OPEN_TIMEOUT_MS = 15_000;
 const recordsByWorkspaceKey = new Map<string, WorkspaceProxyRecord>();
 const workspaceKeyByBrowserId = new Map<string, string>();
 const tunnelsById = new Map<string, TunnelState>();
+// Hosts a renderer has declared to be this machine. The automation handler knows
+// the connection and declares it; a pane re-registering the same tab does not,
+// and the cached daemon status can be empty or name another daemon. Without
+// this memory that second registration flipped the workspace session from
+// direct to the tunnel proxy and closeAllConnections() killed the page load.
+const directLoopbackServerIds = new Set<string>();
 
 export function resolveBrowserLoopbackProxyCredentials(input: {
-  browserId: string;
+  browserId: string | null;
+  /**
+   * True when the requesting guest's session is this partition's session. The
+   * guest's first request can reach the proxy before the renderer's
+   * register-attached IPC maps its webContents to a browserId; without this the
+   * 407 challenge goes unanswered and the tab renders an empty (black) page.
+   */
+  guestUsesPartition?: (partition: string) => boolean;
   isProxy: boolean;
   host: string;
   port: number;
@@ -88,9 +105,8 @@ export function resolveBrowserLoopbackProxyCredentials(input: {
   if (!input.isProxy || input.host !== LOOPBACK_PROXY_HOST) {
     return null;
   }
-  const workspaceKey = workspaceKeyByBrowserId.get(input.browserId) ?? `browser:${input.browserId}`;
-  const record = recordsByWorkspaceKey.get(workspaceKey);
-  if (!record || record.port !== input.port) {
+  const record = findProxyRecordForGuest(input);
+  if (!record) {
     return null;
   }
   return {
@@ -99,10 +115,37 @@ export function resolveBrowserLoopbackProxyCredentials(input: {
   };
 }
 
+function findProxyRecordForGuest(input: {
+  browserId: string | null;
+  guestUsesPartition?: (partition: string) => boolean;
+  port: number;
+}): WorkspaceProxyRecord | null {
+  if (input.browserId) {
+    const workspaceKey =
+      workspaceKeyByBrowserId.get(input.browserId) ?? `browser:${input.browserId}`;
+    const record = recordsByWorkspaceKey.get(workspaceKey);
+    if (record && record.port === input.port) {
+      return record;
+    }
+  }
+  if (!input.guestUsesPartition) {
+    return null;
+  }
+  for (const record of recordsByWorkspaceKey.values()) {
+    if (record.port === input.port && input.guestUsesPartition(record.partition)) {
+      return record;
+    }
+  }
+  return null;
+}
+
 export async function registerBrowserLoopbackProxy(
   input: BrowserLoopbackProxyRegistration,
 ): Promise<void> {
-  const directLoopback = input.directLoopback === true;
+  if (input.directLoopback === true) {
+    directLoopbackServerIds.add(input.serverId);
+  }
+  const directLoopback = directLoopbackServerIds.has(input.serverId);
   const workspaceKey = getWorkspaceKey(input);
   workspaceKeyByBrowserId.set(input.browserId, workspaceKey);
 
@@ -121,6 +164,7 @@ export async function registerBrowserLoopbackProxy(
     } else {
       recordsByWorkspaceKey.set(workspaceKey, {
         workspaceKey,
+        partition,
         serverId: input.serverId,
         workspaceId: input.workspaceId,
         rendererWebContentsId: input.rendererWebContentsId,
@@ -157,7 +201,7 @@ export async function registerBrowserLoopbackProxy(
     return;
   }
 
-  const record = await createWorkspaceProxyRecord(input, workspaceKey);
+  const record = await createWorkspaceProxyRecord(input, workspaceKey, partition);
   if (existing) {
     for (const b of existing.browsers) {
       record.browsers.add(b);
@@ -247,10 +291,12 @@ export function handleLoopbackTunnelClose(payload: unknown): void {
 async function createWorkspaceProxyRecord(
   input: BrowserLoopbackProxyRegistration,
   workspaceKey: string,
+  partition: string,
 ): Promise<WorkspaceProxyRecord> {
   const server = createServer();
   const record: WorkspaceProxyRecord = {
     workspaceKey,
+    partition,
     serverId: input.serverId,
     workspaceId: input.workspaceId,
     rendererWebContentsId: input.rendererWebContentsId,
@@ -405,11 +451,22 @@ async function connectViaWorkspaceTunnel(
   };
   socket.once("close", closeBrowserTunnel);
   try {
-    await requestRendererTunnel(record, tunnelId, socket, parsed.target.port, tunnelHost);
-  } catch {
+    await requestRendererTunnel(
+      routeForRecord(record),
+      tunnelId,
+      socket,
+      parsed.target.port,
+      tunnelHost,
+    );
+  } catch (error) {
     socket.off("close", closeBrowserTunnel);
     if (!socket.destroyed) {
-      socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+      socket.end(
+        buildProxyFailureResponse({
+          parsed,
+          reason: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
     return;
   }
@@ -462,17 +519,33 @@ function connectDirect(socket: Socket, parsed: ParsedProxyRequest): void {
     socket.resume();
   });
 
-  upstream.once("error", () => {
+  upstream.once("error", (error) => {
     if (!connected && !socket.destroyed) {
-      socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+      socket.end(buildProxyFailureResponse({ parsed, reason: error.message }));
       return;
     }
     socket.destroy();
   });
 }
 
+interface RendererTunnelRoute {
+  rendererWebContentsId: number;
+  browserId: string;
+  serverId: string;
+  workspaceId: string;
+}
+
+function routeForRecord(record: WorkspaceProxyRecord): RendererTunnelRoute {
+  return {
+    rendererWebContentsId: record.rendererWebContentsId,
+    browserId: record.activeBrowserId || record.browsers.values().next().value || "",
+    serverId: record.serverId,
+    workspaceId: record.workspaceId,
+  };
+}
+
 function requestRendererTunnel(
-  record: WorkspaceProxyRecord,
+  route: RendererTunnelRoute,
   tunnelId: string,
   socket: Socket,
   port: number,
@@ -481,7 +554,7 @@ function requestRendererTunnel(
   return new Promise((resolve, reject) => {
     const timeoutHandle = setTimeout(() => {
       tunnelsById.delete(tunnelId);
-      sendToRenderer(record, "browser-loopback-tunnel-close", {
+      sendToRenderer(route.rendererWebContentsId, "browser-loopback-tunnel-close", {
         tunnelId,
         reason: "Workspace localhost tunnel open timed out.",
       });
@@ -489,19 +562,19 @@ function requestRendererTunnel(
     }, RENDERER_TUNNEL_OPEN_TIMEOUT_MS);
     tunnelsById.set(tunnelId, {
       tunnelId,
-      browserId: record.activeBrowserId || record.browsers.values().next().value || "",
-      workspaceKey: record.workspaceKey,
+      browserId: route.browserId,
+      rendererWebContentsId: route.rendererWebContentsId,
       socket,
       opened: false,
       resolveOpen: resolve,
       rejectOpen: reject,
       timeoutHandle,
     });
-    const sent = sendToRenderer(record, "browser-loopback-tunnel-open", {
+    const sent = sendToRenderer(route.rendererWebContentsId, "browser-loopback-tunnel-open", {
       tunnelId,
-      browserId: record.activeBrowserId || record.browsers.values().next().value || "",
-      serverId: record.serverId,
-      workspaceId: record.workspaceId,
+      browserId: route.browserId,
+      serverId: route.serverId,
+      workspaceId: route.workspaceId,
       port,
       host,
     });
@@ -515,11 +588,10 @@ function requestRendererTunnel(
 
 function sendTunnelData(tunnelId: string, chunk: Buffer): void {
   const tunnel = tunnelsById.get(tunnelId);
-  const record = tunnel ? recordsByWorkspaceKey.get(tunnel.workspaceKey) : null;
-  if (!tunnel || !record) {
+  if (!tunnel) {
     return;
   }
-  sendToRenderer(record, "browser-loopback-tunnel-data", {
+  sendToRenderer(tunnel.rendererWebContentsId, "browser-loopback-tunnel-data", {
     tunnelId,
     binaryBase64: chunk.toString("base64"),
   });
@@ -532,9 +604,11 @@ function closeTunnel(tunnelId: string, reason: string, options: { notifyRenderer
   }
   tunnelsById.delete(tunnelId);
   clearTimeout(tunnel.timeoutHandle);
-  const record = recordsByWorkspaceKey.get(tunnel.workspaceKey);
-  if (options.notifyRenderer && record) {
-    sendToRenderer(record, "browser-loopback-tunnel-close", { tunnelId, reason });
+  if (options.notifyRenderer) {
+    sendToRenderer(tunnel.rendererWebContentsId, "browser-loopback-tunnel-close", {
+      tunnelId,
+      reason,
+    });
   }
   if (!tunnel.opened) {
     tunnel.rejectOpen(new Error(reason));
@@ -545,11 +619,11 @@ function closeTunnel(tunnelId: string, reason: string, options: { notifyRenderer
 }
 
 function sendToRenderer(
-  record: WorkspaceProxyRecord,
+  rendererWebContentsId: number,
   eventName: string,
   payload: unknown,
 ): boolean {
-  const contents = allWebContents.fromId(record.rendererWebContentsId);
+  const contents = allWebContents.fromId(rendererWebContentsId);
   if (!contents || contents.isDestroyed()) {
     return false;
   }
@@ -587,6 +661,7 @@ function parseProxyRequest(buffer: Buffer, headerEnd: number): ParsedProxyReques
     }
     return {
       target: { host: authority.host, port: authority.port, path: "", isConnect: true },
+      wantsDocument: false,
       initialUpstreamBytes: remainder,
       connectPreambleBytes: Buffer.from("HTTP/1.1 200 Connection Established\r\n\r\n"),
       proxyAuthorization,
@@ -603,6 +678,7 @@ function parseProxyRequest(buffer: Buffer, headerEnd: number): ParsedProxyReques
   );
   return {
     target: { ...target, isConnect: false },
+    wantsDocument: !isUpgrade && isDocumentRequest(headers),
     initialUpstreamBytes:
       remainder.byteLength > 0 ? Buffer.concat([rewrittenHead, remainder]) : rewrittenHead,
     connectPreambleBytes: Buffer.alloc(0),
@@ -737,6 +813,88 @@ function rewriteUpstreamHeaders(headers: string[], options: { forceClose: boolea
     result.push("Connection: close");
   }
   return result;
+}
+
+function isDocumentRequest(headers: string[]): boolean {
+  const dest = findHeader(headers, "sec-fetch-dest");
+  if (dest) {
+    return dest.toLowerCase() === "document";
+  }
+  return findHeader(headers, "accept")?.toLowerCase().includes("text/html") === true;
+}
+
+const ERROR_PAGE_RETRY_LIMIT_SECONDS = 30;
+/**
+ * A successful load never runs the error page, so the attempt count can't be reset there. A count
+ * older than this belongs to an earlier outage, and a new one starts again at the short backoff.
+ */
+const ERROR_PAGE_RETRY_STALE_MS = 2 * 60 * 1000;
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Electron renders nothing for an empty 502, so a failed localhost load used
+ * to leave the tab black with no hint. Page loads get a readable page that
+ * says what failed and retries with backoff, so a tab opened before the dev
+ * server or host connection is ready recovers by itself.
+ */
+export function buildProxyFailureResponse(input: {
+  parsed: Pick<ParsedProxyRequest, "target" | "wantsDocument">;
+  reason: string;
+}): string {
+  const head = ["HTTP/1.1 502 Bad Gateway", "Cache-Control: no-store", "Connection: close"];
+  if (!input.parsed.wantsDocument) {
+    return [...head, "Content-Length: 0", "", ""].join("\r\n");
+  }
+  const target = `${input.parsed.target.host}:${input.parsed.target.port}`;
+  const body = `<!doctype html><html><head><meta charset="utf-8"><title>Can't reach ${escapeHtml(target)}</title>
+<style>
+:root{color-scheme:light dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:14px/1.5 system-ui,sans-serif;background:Canvas;color:CanvasText}
+main{max-width:520px;padding:24px}
+h1{font-size:18px;margin:0 0 8px}
+p{margin:0 0 12px;opacity:.8}
+code{font:12px ui-monospace,monospace;word-break:break-word}
+button{font:inherit;padding:6px 14px;border-radius:6px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer}
+</style></head><body><main data-paseo-browser-error="proxy">
+<h1>Can't reach ${escapeHtml(target)}</h1>
+<p>Paseo could not connect to this port on the workspace host. Check that the dev server is running.</p>
+<p><code>${escapeHtml(input.reason)}</code></p>
+<p><button id="retry" type="button">Retry now</button> <span id="status"></span></p>
+</main><script>
+(function(){
+  var key = "paseo-browser-retry:" + location.href;
+  var saved = (sessionStorage.getItem(key) || "").split("|");
+  var outageContinues = Date.now() - Number(saved[1] || 0) < ${ERROR_PAGE_RETRY_STALE_MS};
+  var attempt = (outageContinues ? Number(saved[0] || 0) : 0) + 1;
+  sessionStorage.setItem(key, attempt + "|" + Date.now());
+  var wait = Math.min(${ERROR_PAGE_RETRY_LIMIT_SECONDS}, Math.pow(2, Math.min(attempt, 5)));
+  var status = document.getElementById("status");
+  function reload(){ location.reload(); }
+  document.getElementById("retry").addEventListener("click", reload);
+  var left = wait;
+  function tick(){
+    status.textContent = "Retrying in " + left + "s";
+    if (left <= 0) { reload(); return; }
+    left -= 1; setTimeout(tick, 1000);
+  }
+  tick();
+})();
+</script></body></html>`;
+  const bodyBytes = Buffer.byteLength(body, "utf8");
+  return [
+    ...head,
+    "Content-Type: text/html; charset=utf-8",
+    `Content-Length: ${bodyBytes}`,
+    "",
+    body,
+  ].join("\r\n");
 }
 
 function isUpgradeRequest(headers: string[]): boolean {

@@ -666,6 +666,11 @@ export const fr: TranslationResources = {
       },
       errors: {
         failedToLoad: "Impossible de charger la page",
+        loadFailedTitle: "Impossible de charger cette page",
+        crashed: "Cette page a planté",
+        crashedDetail: "La page ne répond plus. Réessayer la recharge.",
+        retry: "Réessayer",
+        retryingIn: "Nouvel essai dans {{seconds}} s",
         invalidUrl: "URL du navigateur invalide",
         unsupportedProtocol: "URL bloquée, protocole non pris en charge : {{protocol}}",
         localhostHttpsUnsupported:

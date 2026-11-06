@@ -666,6 +666,11 @@ export const es: TranslationResources = {
       },
       errors: {
         failedToLoad: "No se pudo cargar la página",
+        loadFailedTitle: "No se pudo cargar esta página",
+        crashed: "Esta página se bloqueó",
+        crashedDetail: "La página dejó de responder. Reintentar la vuelve a cargar.",
+        retry: "Reintentar",
+        retryingIn: "Reintentando en {{seconds}} s",
         invalidUrl: "Navegador no válidoURL",
         unsupportedProtocol: "Navegador bloqueado no compatibleURL:{{protocol}}",
         localhostHttpsUnsupported: "HTTPS de localhost no es compatible. Usa HTTP para localhost.",

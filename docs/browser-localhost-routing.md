@@ -2,12 +2,12 @@
 
 The in-app Browser has workspace-aware localhost routing on Electron desktop, Android, and web builds. When a Browser tab belongs to a workspace on host `H`, loopback URLs loaded inside that Browser are resolved against host `H`, not against the machine running the client.
 
-This is separate from the service proxy. The service proxy exposes `paseo.json` service scripts through generated hostnames and optional public URLs. Browser localhost routing is for raw loopback URLs that a user or page enters directly, such as `http://localhost:5173`, `http://127.0.0.1:3000`, or a WebSocket opened to `ws://localhost:3000`.
+This is separate from the service proxy. The service proxy exposes `paseo.json` service scripts through generated hostnames and optional public URLs. Browser localhost routing is for loopback URLs such as `http://localhost:5173`, `http://127.0.0.1:3000`, or a WebSocket opened to `ws://localhost:3000`.
 
 ## Routing scope
 
 - Applies to Electron Browser panes and browser automation tabs, human-operated Android Browser panes, and web build Browser panes on hosts that advertise a preview template. Browser automation and DevTools remain Electron-only.
-- Applies per Browser instance. Each Browser uses its own Electron session partition, so multiple Browser panes can point `localhost:3000` at different workspace hosts at the same time.
+- Applies per workspace. Browser tabs of one workspace share an Electron session partition and its proxy; tabs of different workspaces use different partitions, so two workspaces on different hosts can each point `localhost:3000` at their own host at the same time. See [Browser profile compatibility](#browser-profile-compatibility).
 - Android's WebView proxy override is process-wide, so Android activates one selected host route at a time. Tabs for that host share it; switching hosts unmounts the previous host's WebViews, closes its tunnels, rotates proxy credentials, and reloads saved URLs when that host is selected again.
 - Electron retains its existing loopback set: `localhost`, `*.localhost`, `127.*`, `::1`, `::`, and `0.0.0.0`. Android tunnels only standard loopback names and addresses (`localhost`, `*.localhost`, valid `127.*`, and `::1`); unspecified listen addresses are rejected. Explicit IPv6 loopback URLs are tunneled to `::1` on the host daemon; all other tunneled forms use `127.0.0.1`.
 - Preserves the visible URL and page origin. The user still sees `localhost:<port>` in the Browser, and page code still observes the same origin it requested.
@@ -18,7 +18,7 @@ This is separate from the service proxy. The service proxy exposes `paseo.json` 
 ## How it works
 
 1. The renderer registers each Browser with Electron main using `{ browserId, serverId, workspaceId }` before the first real navigation. Human-operated panes start on `about:blank`, wait for that IPC, then `loadURL`. Automation registers, then creates the resident webview.
-2. Electron main creates a loopback HTTP proxy for that Browser and applies it to the Browser's `persist:paseo-browser-${browserId}` session partition with loopback proxy bypass disabled. The proxy requires per-Browser Basic proxy auth; Electron main only supplies those credentials for the matching Browser webContents. If the tab's `serverId` matches the already-known local desktop daemon, loopback connects directly on this machine instead of opening a workspace TCP tunnel.
+2. Electron main creates a loopback HTTP proxy for the Browser's workspace and applies it to the workspace's `persist:paseo-browser-workspace-${workspaceId}` session partition with loopback proxy bypass disabled. The proxy requires Basic proxy auth; Electron main answers the challenge only for a guest whose session is that partition's session. If the tab's host is this machine, loopback connects directly on this machine instead of opening a workspace TCP tunnel.
 3. For non-loopback requests, the proxy connects directly to the requested host.
 4. For loopback requests on a remote host, the proxy asks the renderer to open a TCP tunnel on the Browser's registered `serverId`.
 5. The renderer uses that host's existing daemon WebSocket client to open a binary TCP tunnel to the daemon.
@@ -51,6 +51,28 @@ Android requires both `PROXY_OVERRIDE` and `PROXY_OVERRIDE_REVERSE_BYPASS`. If t
 - Backgrounding stops the proxy and all open TCP streams. Returning creates a new authenticated session and reloads retained Browser panes.
 - Host changes clear the old proxy override before the new route becomes usable. Native operation generations prevent a late start callback from replacing a newer route.
 - Settings > General > Clear browser data clears WebView cookies, cache, DOM storage, form data, and live histories, then reloads Browser panes. It does not delete tab records or saved URLs.
+
+## Failures and recovery
+
+A Browser tab never shows an empty surface without saying why. Electron draws nothing for a failed load: no error page, just the transparent guest, which reads as a black tab in dark themes. Before this, the common case was an agent calling `browser_new_tab` right after starting a dev server. The tab loads in a parked resident webview before any pane listens, the first load fails with `ERR_CONNECTION_REFUSED`, nobody records it, and the pane that mounts later reuses the resident without reloading because its `src` is already set. The tab stayed black until the user pasted the URL into a new tab.
+
+What handles each failure:
+
+| Failure                                          | Where                                                                                     | What the user sees                                                                                                                                             |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Main-frame load fails (refused, reset, DNS, TLS) | `did-fail-load` in the pane, or recorded by `resident-webviews.ts` before the pane mounts | `BrowserLoadFailure` card over the webview with Retry; connection-type errors retry by themselves with backoff (2 s doubling to 30 s) while the tab is visible |
+| Guest renderer crashes                           | `render-process-gone` in the pane                                                         | Same card, "This page crashed", Retry reloads                                                                                                                  |
+| Workspace tunnel cannot open (remote host)       | loopback proxy, `buildProxyFailureResponse`                                               | A page from the proxy naming the port and the reason, retrying itself with backoff; subresource and WebSocket failures stay an empty 502                       |
+| Host connection drops and returns                | `useHostRuntimeIsConnected` in the pane                                                   | A tab showing a failure retries at once on reconnect                                                                                                           |
+
+The webview surface paints above the app, so the pane parks it while the card is up and presents it again on retry.
+
+Two attach races also produced blank or broken agent tabs, and both are covered by tests:
+
+- `getWebContentsId()` can throw at `did-attach` when a remote tab's first load fails. The uncaught throw left the tab unregistered, so `browser_new_tab` timed out and the tab had no automation. Registration now retries on later lifecycle events.
+- The guest's first proxied request can reach the proxy before the renderer's `register-attached` IPC maps its webContents. Proxy credentials are matched by the guest's session partition, not only by the registered browserId.
+
+Whether a host is this machine is remembered per `serverId` once any registration says so. The automation handler knows the connection and declares it; the pane registering the same tab does not, and the cached daemon status can be empty. Flipping that workspace's session from direct to the tunnel proxy ran `closeAllConnections()` mid-load.
 
 ## Web build
 

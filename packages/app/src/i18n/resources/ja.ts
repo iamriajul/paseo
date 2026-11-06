@@ -665,6 +665,11 @@ export const ja: TranslationResources = {
       },
       errors: {
         failedToLoad: "ページの読み込みに失敗しました",
+        loadFailedTitle: "このページを読み込めませんでした",
+        crashed: "このページがクラッシュしました",
+        crashedDetail: "ページが応答しなくなりました。再試行すると再読み込みします。",
+        retry: "再試行",
+        retryingIn: "{{seconds}}秒後に再試行",
         invalidUrl: "無効なブラウザURL",
         unsupportedProtocol: "サポートされていないブラウザURLをブロック: {{protocol}}",
         localhostHttpsUnsupported:

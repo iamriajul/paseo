@@ -35,6 +35,12 @@ import { useTranslation } from "react-i18next";
 import * as Clipboard from "expo-clipboard";
 import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
+import {
+  autoRetryDelaySeconds,
+  BrowserLoadFailure,
+  isAutoRetryableLoadError,
+} from "./load-failure";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/contexts/toast-context";
 import {
@@ -68,6 +74,7 @@ import {
   applyInactiveBrowserWebviewViewport,
   prepareBrowserWebview,
   presentBrowserWebview,
+  readBrowserWebviewLoadFailure,
   rememberBrowserWebviewSize,
   releaseResidentBrowserWebview,
   removeResidentBrowserWebview,
@@ -214,6 +221,16 @@ function readWebviewSrc(webview: ElectronWebview): string {
 function isBlankWebview(webview: ElectronWebview): boolean {
   const current = readWebviewSrc(webview);
   return current.length === 0 || current === "about:blank";
+}
+
+/** A main-frame failure the webview hit before this pane mounted, as a lastError message. */
+function describeEarlierLoadFailure(browserId: string, failedToLoadLabel: string): string | null {
+  const failure = readBrowserWebviewLoadFailure(browserId);
+  if (!failure) {
+    return null;
+  }
+  const description = failure.errorDescription.trim() || failedToLoadLabel;
+  return failure.url ? `${description}: ${failure.url}` : description;
 }
 
 function registerWorkspaceBrowserThenLoad(input: {
@@ -667,6 +684,16 @@ export function BrowserPane({
   const isPresented = useRetainedPanelActive();
   const isPresentedRef = useRef(isPresented);
   isPresentedRef.current = isPresented;
+  const loadError = browser?.lastError ?? null;
+  // The webview surface paints above the app, so a failed or crashed page is
+  // parked while the failure card is up; otherwise the card would sit under an
+  // empty guest.
+  const showLoadFailure = loadError !== null && browser?.isLoading !== true;
+  const showLoadFailureRef = useRef(showLoadFailure);
+  showLoadFailureRef.current = showLoadFailure;
+  const guestCrashedRef = useRef(false);
+  const autoRetryAttemptRef = useRef(0);
+  const isHostConnected = useHostRuntimeIsConnected(serverId);
   const webviewRef = useRef<ElectronWebview | null>(null);
   const webviewHostRef = useRef<HTMLDivElement | null>(null);
   const webviewClipRef = useRef<HTMLElement | null>(null);
@@ -720,13 +747,10 @@ export function BrowserPane({
     ],
     [theme.colors.foreground],
   );
-  const errorTextStyle = useMemo(
-    () => [styles.metaError, { color: theme.colors.palette.red[500] }],
-    [theme.colors.palette.red],
-  );
   const browserErrorLabels = useMemo(
     () => ({
       failedToLoad: t("workspace.browser.errors.failedToLoad"),
+      crashed: t("workspace.browser.errors.crashedDetail"),
       invalidUrl: t("workspace.browser.errors.invalidUrl"),
       unsupportedProtocol: (protocol: string) =>
         t("workspace.browser.errors.unsupportedProtocol", { protocol }),
@@ -831,7 +855,7 @@ export function BrowserPane({
       },
     });
     releaseResidentBrowserWebview(browserId, webview);
-    if (isPresentedRef.current) {
+    if (isPresentedRef.current && !showLoadFailureRef.current) {
       presentBrowserWebview(browserId, webview, host, clip, browserViewportRef.current);
     } else {
       applyInactiveBrowserWebviewViewport(browserId, webview, browserViewportRef.current);
@@ -840,7 +864,7 @@ export function BrowserPane({
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
-            if (!isPresentedRef.current) {
+            if (!isPresentedRef.current || showLoadFailureRef.current) {
               return;
             }
             presentBrowserWebview(
@@ -920,7 +944,16 @@ export function BrowserPane({
         lastError: message,
       });
     };
+    const handleRenderProcessGone = () => {
+      guestCrashedRef.current = true;
+      updateBrowserRef.current(browserIdRef.current, {
+        isLoading: false,
+        lastError: browserErrorLabelsRef.current.crashed,
+      });
+    };
     const handleDomReady = () => {
+      guestCrashedRef.current = false;
+      autoRetryAttemptRef.current = 0;
       syncNavigationState();
       // The previous page's overlay is gone after a load; re-apply markers for
       // the freshly loaded document.
@@ -949,6 +982,7 @@ export function BrowserPane({
     webview.addEventListener("page-favicon-updated", handleFaviconUpdated);
     webview.addEventListener("did-fail-load", handleLoadFailed);
     webview.addEventListener("dom-ready", handleDomReady);
+    webview.addEventListener("render-process-gone", handleRenderProcessGone);
     webview.addEventListener("focus", handleWebviewFocus);
     webview.addEventListener("mousedown", handleWebviewFocus);
 
@@ -963,6 +997,18 @@ export function BrowserPane({
         lastError: initialUnsafeNavigationMessage,
       });
     }
+    if (residentWebview && !initialUnsafeNavigationMessage) {
+      const earlierError = describeEarlierLoadFailure(
+        browserId,
+        browserErrorLabelsRef.current.failedToLoad,
+      );
+      if (earlierError) {
+        updateBrowserRef.current(browserIdRef.current, {
+          isLoading: false,
+          lastError: earlierError,
+        });
+      }
+    }
 
     return () => {
       sizeObserver?.disconnect();
@@ -975,6 +1021,7 @@ export function BrowserPane({
       webview.removeEventListener("page-favicon-updated", handleFaviconUpdated);
       webview.removeEventListener("did-fail-load", handleLoadFailed);
       webview.removeEventListener("dom-ready", handleDomReady);
+      webview.removeEventListener("render-process-gone", handleRenderProcessGone);
       webview.removeEventListener("focus", handleWebviewFocus);
       webview.removeEventListener("mousedown", handleWebviewFocus);
       const browserStillExists = Boolean(
@@ -998,7 +1045,7 @@ export function BrowserPane({
     if (!webview) {
       return;
     }
-    if (!isPresented) {
+    if (!isPresented || showLoadFailure) {
       releaseResidentBrowserWebview(browserId, webview);
       return;
     }
@@ -1016,7 +1063,7 @@ export function BrowserPane({
     } else {
       rememberResolvedBrowserWebviewSize(browserId, webview);
     }
-  }, [browserId, browserViewport, isPresented]);
+  }, [browserId, browserViewport, isPresented, showLoadFailure]);
 
   const navigate = useCallback(
     (nextUrl: string) => {
@@ -1068,6 +1115,62 @@ export function BrowserPane({
     webviewRef.current?.goForward?.();
     syncNavigationState();
   }, [syncNavigationState]);
+
+  const retryFailedLoad = useCallback(() => {
+    const webview = webviewRef.current;
+    const url = browserRef.current?.url ?? initialUrlRef.current;
+    if (!webview) {
+      return;
+    }
+    // Retry must not load what navigate() refuses (an unsupported scheme on
+    // the tab record would otherwise load on Retry).
+    const unsafeNavigationMessage = getUnsafeNavigationMessage(url, browserErrorLabelsRef.current);
+    if (unsafeNavigationMessage) {
+      updateBrowserRef.current(browserIdRef.current, {
+        isLoading: false,
+        lastError: unsafeNavigationMessage,
+      });
+      return;
+    }
+    updateBrowserRef.current(browserIdRef.current, { isLoading: true, lastError: null });
+    if (guestCrashedRef.current || !webview.loadURL) {
+      webview.reload?.();
+      return;
+    }
+    void webview.loadURL(url).catch((error: unknown) => {
+      const message = getLoadUrlRejectionMessage(error, browserErrorLabelsRef.current.failedToLoad);
+      if (message) {
+        updateBrowserRef.current(browserIdRef.current, { isLoading: false, lastError: message });
+      }
+    });
+  }, []);
+
+  const autoRetryInSeconds =
+    showLoadFailure && isPresented && isHostConnected && isAutoRetryableLoadError(loadError ?? "")
+      ? autoRetryDelaySeconds(autoRetryAttemptRef.current + 1)
+      : null;
+  useEffect(() => {
+    if (autoRetryInSeconds === null) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      autoRetryAttemptRef.current += 1;
+      retryFailedLoad();
+    }, autoRetryInSeconds * 1000);
+    return () => clearTimeout(timer);
+  }, [autoRetryInSeconds, loadError, retryFailedLoad]);
+
+  // A host reconnect brings the localhost tunnel back: retry right away
+  // instead of waiting out the backoff.
+  const wasHostConnectedRef = useRef(isHostConnected);
+  useEffect(() => {
+    const reconnected = isHostConnected && !wasHostConnectedRef.current;
+    wasHostConnectedRef.current = isHostConnected;
+    if (reconnected && showLoadFailureRef.current) {
+      autoRetryAttemptRef.current = 0;
+      retryFailedLoad();
+    }
+  }, [isHostConnected, retryFailedLoad]);
 
   const handleRefresh = useCallback(() => {
     if (browser?.isLoading) {
@@ -1612,13 +1715,6 @@ export function BrowserPane({
           </ToolbarButton>
         </View>
       </View>
-      {browser?.lastError ? (
-        <View style={styles.errorRow}>
-          <Text numberOfLines={1} style={errorTextStyle}>
-            {browser.lastError}
-          </Text>
-        </View>
-      ) : null}
       <View
         ref={setWebviewClipNode}
         style={webviewWrapStyle}
@@ -1628,6 +1724,18 @@ export function BrowserPane({
           ref: setWebviewHostNode,
           style: webviewHostStyle,
         })}
+        {showLoadFailure && loadError ? (
+          <BrowserLoadFailure
+            title={
+              guestCrashedRef.current
+                ? t("workspace.browser.errors.crashed")
+                : t("workspace.browser.errors.loadFailedTitle")
+            }
+            message={loadError}
+            retryInSeconds={autoRetryInSeconds}
+            onRetry={retryFailedLoad}
+          />
+        ) : null}
         {pendingSelection ? (
           <BrowserElementAnnotationCard
             anchor={webviewClipRef.current}
@@ -1828,16 +1936,6 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     paddingVertical: 0,
     paddingHorizontal: 0,
-  },
-  errorRow: {
-    paddingHorizontal: theme.spacing[2],
-    paddingVertical: theme.spacing[1],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    backgroundColor: theme.colors.surface0,
-  },
-  metaError: {
-    fontSize: theme.fontSize.sm,
   },
   webviewWrap: {
     flex: 1,

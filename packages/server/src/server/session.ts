@@ -1159,6 +1159,12 @@ export class Session {
           this.supports(CLIENT_CAPS.providerSnapshotReferences),
         listProviderAvailability: () => this.agentManager.listProviderAvailability(),
         listDraftFeatures: (config) => this.agentManager.listDraftFeatures(config),
+        getAgentSession: (agentId) => {
+          const agent = this.agentManager.getAgent(agentId);
+          return agent
+            ? { provider: agent.provider, sessionId: agent.persistence?.sessionId ?? null }
+            : null;
+        },
       },
       providerSnapshotManager,
       logger: this.sessionLogger,
@@ -3759,6 +3765,8 @@ export class Session {
         return this.providerCatalogSession.handleGatewayQuotaGetRequest(msg);
       case "cliproxyapi.stats.get.request":
         return this.providerCatalogSession.handleGatewayStatsGetRequest(msg);
+      case "cliproxyapi.session_route.get.request":
+        return this.providerCatalogSession.handleGatewaySessionRouteGetRequest(msg);
       default:
         return undefined;
     }

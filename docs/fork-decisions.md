@@ -735,6 +735,18 @@ npx vitest run packages/protocol/src/messages.test.ts --bail=1
 cd packages/app && npx vitest run --project unit src/gateway-stats --bail=1
 ```
 
+## gateway-session-route
+
+**the context meter names the CLIProxyAPI account serving the agent, and the timeline notes account switches**
+
+The `cliproxyapi.session_route.get` RPC (gated on `server_info.features.cliproxyapiSessionRoute`) maps the agent to the canonical session id CLIProxyAPI keys its routing by (`claude:`, `codex:`, or `header:` for OpenCode, plus the persisted provider session id) and reads `/v1/session-route`, cached 15 seconds. The meter details show "Served by" above the quota section, plus the newest switch. A daemon watcher reads the same route once per finished turn, two seconds after it ends because the Gateway records requests asynchronously, and appends one `notification` item per switch newer than the daemon process ("Switched account: A → B (quota, 429)"). It reads per turn rather than on a timer so an idle agent costs nothing. It skips switches from before the daemon started, because it cannot tell which ones a previous process already announced. A Gateway without the route, an unrouted agent, and an unserved session all hide everything.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/session-route.test.ts packages/server/src/server/agent/gateway/session-route-watcher.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts --bail=1
+grep -q 'attachGatewaySessionRouteWatcher' packages/server/src/server/bootstrap.ts
+cd packages/app && npx vitest run --project unit src/gateway-session-route --bail=1
+```
+
 ## gateway-unmanifested-minor-release
 
 **a first-party minor release the manifest does not list is a gateway row, not a spelling of the major it extends**

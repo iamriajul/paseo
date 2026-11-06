@@ -882,7 +882,8 @@ test("keeps a submitted message height stable when its canonical echo arrives", 
   gate.holdNextAgentStreamItem("user_message");
   await recordTurnFrames(page, prompt);
   await submitMessage(page, prompt);
-  await gate.waitForHeldAgentStreamItem("user_message");
+  // Bounded so a lost send fails here with the traffic since the hold, not as a bare test timeout.
+  await gate.waitForHeldAgentStreamItem("user_message", { timeoutMs: 20_000 });
   const submittedRow = page.getByTestId("user-message").filter({ hasText: prompt });
   await expect(submittedRow).toBeVisible();
   await recordPaintsFor(page, 80);

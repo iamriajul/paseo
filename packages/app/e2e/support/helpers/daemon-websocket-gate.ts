@@ -251,6 +251,12 @@ function agentStreamEventKey(type: string): string {
   return `agent-stream-event:${type}`;
 }
 
+function describeServerTraffic(message: ClientRequest | null): string {
+  if (message?.type !== "agent_stream") return `daemon ${String(message?.type ?? "?")}`;
+  const item = readAgentStreamItemType(message);
+  return `daemon agent_stream ${readAgentStreamEventType(message) ?? "?"}${item ? `:${item}` : ""}`;
+}
+
 function agentStreamItemKey(type: string): string {
   return `agent-stream-item:${type}`;
 }
@@ -312,6 +318,16 @@ export async function installDaemonWebSocketGate(page: Page) {
   const pendingServerMessageHolds = new Map<string, PendingServerMessageHold>();
   const heldServerMessages: HeldServerMessage[] = [];
   const heldServerMessageWaiters = new Set<() => void>();
+  // Traffic since each agent stream item hold, so a wait that times out can say which side
+  // went quiet: the client never sent, or the daemon's item never arrived.
+  const agentStreamItemHoldTraffic = new Map<string, { startedAt: number; entries: string[] }>();
+  const recordHoldTraffic = (entry: string) => {
+    for (const traffic of agentStreamItemHoldTraffic.values()) {
+      if (traffic.entries.length < 200) {
+        traffic.entries.push(`+${Date.now() - traffic.startedAt}ms ${entry}`);
+      }
+    }
+  };
   const suppressedServerMessageTypes = new Set<string>();
   const suppressedAgentStreamEventTypes = new Set<string>();
   const suppressedAgentStreamItemTypes = new Set<string>();
@@ -392,6 +408,7 @@ export async function installDaemonWebSocketGate(page: Page) {
     parsed: ClientRequest | null;
   }): boolean => {
     const agentId = readAgentStreamAgentId(input.parsed);
+    recordHoldTraffic(describeServerTraffic(input.parsed));
     const blocked = agentId
       ? heldServerMessages.find((held) => held.blockedAgentId === agentId)
       : undefined;
@@ -473,6 +490,7 @@ export async function installDaemonWebSocketGate(page: Page) {
       const request = readClientRequest(message);
       recordClientRequest(request, clientRequestCounts, timelineRequestCounts, directoryStarts);
       if (typeof request?.type === "string") {
+        recordHoldTraffic(`client ${request.type}`);
         const requests = clientRequests.get(request.type) ?? [];
         requests.push(request);
         clientRequests.set(request.type, requests);
@@ -662,6 +680,10 @@ export async function installDaemonWebSocketGate(page: Page) {
       });
     },
     holdNextAgentStreamItem(type: string): void {
+      agentStreamItemHoldTraffic.set(agentStreamItemKey(type), {
+        startedAt: Date.now(),
+        entries: [],
+      });
       pendingServerMessageHolds.set(agentStreamItemKey(type), {
         matches: (message) => readAgentStreamItemType(message) === type,
       });
@@ -725,10 +747,28 @@ export async function installDaemonWebSocketGate(page: Page) {
         heldServerMessage.browser.send(follower);
       }
     },
-    async waitForHeldAgentStreamItem(type: string): Promise<void> {
+    async waitForHeldAgentStreamItem(type: string, options: { timeoutMs: number }): Promise<void> {
       const key = agentStreamItemKey(type);
-      while (!heldServerMessages.some((message) => message.key === key)) {
-        await new Promise<void>((resolve) => heldServerMessageWaiters.add(resolve));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<"timed-out">((resolve) => {
+        timer = setTimeout(() => resolve("timed-out"), options.timeoutMs);
+      });
+      try {
+        while (!heldServerMessages.some((message) => message.key === key)) {
+          const arrival = new Promise<"arrived">((resolve) =>
+            heldServerMessageWaiters.add(() => resolve("arrived")),
+          );
+          if ((await Promise.race([arrival, timedOut])) === "timed-out") {
+            const traffic = agentStreamItemHoldTraffic.get(key)?.entries ?? [];
+            throw new Error(
+              `No ${type} agent stream item arrived within ${options.timeoutMs} ms of the hold. ` +
+                `Traffic since the hold:\n${traffic.join("\n") || "(none)"}`,
+            );
+          }
+        }
+      } finally {
+        clearTimeout(timer);
+        agentStreamItemHoldTraffic.delete(key);
       }
     },
     releaseHeldAgentStreamItem(type: string): void {

@@ -1253,3 +1253,13 @@ grep -q "notReadyProviders: notReadyProfileProviders" packages/app/src/composer/
 ```bash
 grep -q 'Command Center rows kept rendering' packages/app/e2e/support/helpers/command-center-performance.ts
 ```
+
+## consecutive-turns-bounded-echo-wait
+
+**the canonical-echo test bounds its wait for the submitted message and reports the traffic**
+
+`agent-consecutive-turns.spec.ts` "keeps a submitted message height stable when its canonical echo arrives" holds the daemon's `user_message` stream item and waits for it. That wait had no timeout, so when the item never came the test died as a bare 60 s test timeout naming no step (attempt 1 on `main` 2026-11-05 and on branches; about 95 local runs under CPU throttle did not reproduce it). `waitForHeldAgentStreamItem` now takes a timeout, and on expiry throws with every client request and daemon message since the hold, so the next failure shows whether the client never sent or the daemon's echo never arrived. This changes how the test fails, not whether it passes.
+
+```bash
+grep -q 'Traffic since the hold' packages/app/e2e/support/helpers/daemon-websocket-gate.ts
+```

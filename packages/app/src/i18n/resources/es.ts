@@ -2651,6 +2651,19 @@ export const es: TranslationResources = {
         description: "Líneas mantenidas en el búfer de terminal incorporado",
         accessibilityLabel: "Líneas del historial de terminal",
       },
+      promptCache: {
+        title: "Caché de prompts de Claude",
+        capWarning: {
+          label: "Avisar antes del límite de precalentamiento",
+          description:
+            "La cuenta atrás de la caché parpadea cuando el precalentamiento deja de cubrirla dentro de este tiempo",
+          options: {
+            "10": "10 minutos",
+            "20": "20 minutos",
+            "30": "30 minutos",
+          },
+        },
+      },
       autoExpandReasoning: {
         label: "Siempre expandir razonamiento",
         description:

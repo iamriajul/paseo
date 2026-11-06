@@ -41,6 +41,8 @@ import {
   resolveContentMaxWidth,
   sanitizeFontFamily,
   saveAppSettings as saveAppSettingsPure,
+  PROMPT_CACHE_CAP_WARNING_MINUTES,
+  type PromptCacheCapWarningMinutes,
   type AppSettings,
   type AppSettingsUpdate,
   type ChatDisplay,
@@ -61,6 +63,7 @@ import {
 } from "./storage";
 
 export {
+  PROMPT_CACHE_CAP_WARNING_MINUTES,
   APP_SETTINGS_KEY,
   DEFAULT_APP_SETTINGS,
   ATTENTION_SOUND_PRESETS,
@@ -88,6 +91,7 @@ export {
   sanitizeFontFamily,
 };
 export type {
+  PromptCacheCapWarningMinutes,
   AppSettings,
   AppSettingsUpdate,
   ChatDisplay,

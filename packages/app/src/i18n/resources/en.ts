@@ -2729,6 +2729,19 @@ export const en = {
         description: "Lines kept in the built-in terminal buffer",
         accessibilityLabel: "Terminal scrollback lines",
       },
+      promptCache: {
+        title: "Claude prompt cache",
+        capWarning: {
+          label: "Warn before the warm-up cap",
+          description:
+            "Blink the cache countdown when warm-up stops covering the cache within this time",
+          options: {
+            "10": "10 minutes",
+            "20": "20 minutes",
+            "30": "30 minutes",
+          },
+        },
+      },
       autoExpandReasoning: {
         label: "Always expand reasoning",
         description: "Show agent thinking and chain-of-thought blocks fully expanded by default",

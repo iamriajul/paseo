@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   browserLoopbackProxyBypassRules,
+  buildProxyFailureResponse,
   parseBrowserLoopbackProxyRequestForTest,
   registerBrowserLoopbackProxy,
   resolveBrowserLoopbackProxyCredentials,
@@ -87,6 +88,42 @@ describe("browser loopback proxy", () => {
   });
 });
 
+describe("loopback proxy failure responses", () => {
+  test("a failed page load gets a readable, self-retrying error page", () => {
+    const parsed = parseRawRequest(
+      [
+        "GET http://localhost:3000/ HTTP/1.1",
+        "Host: localhost:3000",
+        "Sec-Fetch-Dest: document",
+        "Accept: text/html",
+        "",
+        "",
+      ].join("\r\n"),
+    );
+    expect(parsed?.wantsDocument).toBe(true);
+    const response = buildProxyFailureResponse({
+      parsed: parsed!,
+      reason: "Workspace host is not connected.",
+    });
+    const [head, body] = response.split("\r\n\r\n");
+    expect(head).toContain("HTTP/1.1 502 Bad Gateway");
+    expect(head).toContain(`Content-Length: ${Buffer.byteLength(body!, "utf8")}`);
+    expect(body).toContain("Can't reach localhost:3000");
+    expect(body).toContain("Workspace host is not connected.");
+    expect(body).toContain("location.reload()");
+  });
+
+  test("subresource and WebSocket failures stay empty so pages see a plain error", () => {
+    const fetchRequest = parseRawRequest(
+      ["GET /api HTTP/1.1", "Host: localhost:3000", "Sec-Fetch-Dest: empty", "", ""].join("\r\n"),
+    );
+    expect(fetchRequest?.wantsDocument).toBe(false);
+    expect(buildProxyFailureResponse({ parsed: fetchRequest!, reason: "<refused>" })).not.toContain(
+      "<refused>",
+    );
+  });
+});
+
 describe("workspace loopback proxy multi-tab lifecycle", () => {
   test("shares proxy and credentials across tabs of the same workspace", async () => {
     await registerBrowserLoopbackProxy({
@@ -138,5 +175,38 @@ describe("workspace loopback proxy multi-tab lifecycle", () => {
         port: 12345,
       }),
     ).toBeNull();
+  });
+
+  test("answers the proxy challenge for a guest that has not registered yet", async () => {
+    await registerBrowserLoopbackProxy({
+      browserId: "tab-early",
+      serverId: "server-remote",
+      workspaceId: "ws-early",
+      rendererWebContentsId: 999,
+      directLoopback: false,
+    });
+    const port = getBrowserLoopbackProxyPortForTest("tab-early")!;
+
+    // The guest's first request reaches the proxy before register-attached maps
+    // its webContents to a browserId. Its session still identifies it.
+    const credentials = resolveBrowserLoopbackProxyCredentials({
+      browserId: null,
+      guestUsesPartition: (partition) => partition === "persist:paseo-browser-workspace-ws-early",
+      isProxy: true,
+      host: "127.0.0.1",
+      port,
+    });
+    expect(credentials).not.toBeNull();
+    expect(
+      resolveBrowserLoopbackProxyCredentials({
+        browserId: null,
+        guestUsesPartition: (partition) => partition === "persist:paseo-browser-workspace-other",
+        isProxy: true,
+        host: "127.0.0.1",
+        port,
+      }),
+    ).toBeNull();
+
+    await unregisterBrowserLoopbackProxy("tab-early");
   });
 });

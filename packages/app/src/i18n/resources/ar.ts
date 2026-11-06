@@ -660,6 +660,11 @@ export const ar: TranslationResources = {
       },
       errors: {
         failedToLoad: "فشل تحميل الصفحة",
+        loadFailedTitle: "تعذر تحميل هذه الصفحة",
+        crashed: "تعطلت هذه الصفحة",
+        crashedDetail: "توقفت الصفحة عن الاستجابة. تؤدي إعادة المحاولة إلى إعادة تحميلها.",
+        retry: "إعادة المحاولة",
+        retryingIn: "إعادة المحاولة خلال {{seconds}} ث",
         invalidUrl: "متصفح غير صالح URL",
         unsupportedProtocol: "متصفح محظور غير مدعوم URL:{{protocol}}",
         localhostHttpsUnsupported: "لا يدعم HTTPS للمضيف المحلي. استخدم HTTP للمضيف المحلي.",

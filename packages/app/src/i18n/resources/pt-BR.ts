@@ -665,6 +665,11 @@ export const ptBR: TranslationResources = {
       },
       errors: {
         failedToLoad: "Falha ao carregar página",
+        loadFailedTitle: "Não foi possível carregar esta página",
+        crashed: "Esta página travou",
+        crashedDetail: "A página parou de responder. Tentar novamente a recarrega.",
+        retry: "Tentar novamente",
+        retryingIn: "Nova tentativa em {{seconds}} s",
         invalidUrl: "URL de navegador inválida",
         unsupportedProtocol: "URL de navegador sem suporte bloqueada: {{protocol}}",
         localhostHttpsUnsupported: "HTTPS no localhost não é compatível. Use HTTP para localhost.",

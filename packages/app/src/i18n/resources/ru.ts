@@ -666,6 +666,11 @@ export const ru: TranslationResources = {
       },
       errors: {
         failedToLoad: "Не удалось загрузить страницу",
+        loadFailedTitle: "Не удалось загрузить эту страницу",
+        crashed: "Страница аварийно завершилась",
+        crashedDetail: "Страница перестала отвечать. Повтор перезагрузит её.",
+        retry: "Повторить",
+        retryingIn: "Повтор через {{seconds}} с",
         invalidUrl: "Недопустимый URL браузера",
         unsupportedProtocol:
           "URL браузера с неподдерживаемым протоколом заблокирован: {{protocol}}",

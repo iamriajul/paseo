@@ -659,6 +659,11 @@ export const zhCN: TranslationResources = {
       },
       errors: {
         failedToLoad: "页面加载失败",
+        loadFailedTitle: "无法加载此页面",
+        crashed: "此页面已崩溃",
+        crashedDetail: "页面已停止响应。重试会重新加载页面。",
+        retry: "重试",
+        retryingIn: "{{seconds}} 秒后重试",
         invalidUrl: "浏览器 URL 无效",
         unsupportedProtocol: "已阻止不支持的浏览器 URL：{{protocol}}",
         localhostHttpsUnsupported: "不支持 localhost HTTPS。请为 localhost 使用 HTTP。",

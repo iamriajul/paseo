@@ -3,6 +3,7 @@ import { Buffer } from "buffer";
 import { AppState } from "react-native";
 import { observeOpenWorkspaceAgentIds } from "@/stores/workspace-layout-store";
 import { useQueryClient } from "@tanstack/react-query";
+import { schedulesQueryBaseKey } from "@/schedules/aggregated-schedules";
 import { useTranslation } from "react-i18next";
 import { useClientActivity } from "@/hooks/use-client-activity";
 import { useAppVisible } from "@/hooks/use-app-visible";
@@ -563,6 +564,11 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       },
     );
 
+    // Runs, skips and completions happen on the daemon's own ticks; this is how the list hears.
+    const unsubSchedulesChanged = client.on("schedules.changed", () => {
+      void queryClient.invalidateQueries({ queryKey: schedulesQueryBaseKey });
+    });
+
     const unsubCheckoutStatusUpdate = onFeed("checkout_status_update", (message) => {
       if (message.type !== "checkout_status_update") return;
       applyCheckoutStatusUpdateFromEvent({ queryClient, serverId, message });
@@ -741,6 +747,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       unsubProviderSubagentUpdate();
       unsubBackgroundTasksUpdate();
       unsubProviderHeartbeatsUpdate();
+      unsubSchedulesChanged();
       unsubAgentAttention();
       unsubCheckoutStatusUpdate();
       unsubWorkspaceTodosUpdate();

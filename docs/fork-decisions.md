@@ -288,7 +288,7 @@ npx vitest run packages/app/src/components/markdown/fence/mermaid/render-model.t
 
 input-draft keeps host ui_state sync so composer text survives switching devices. Every user edit writes the host copy: `editText` and `replaceText` as well as `saveDraft`. Official #4902 moved typing off `saveDraft` onto `editDraftText`, which left the host write on the attachments path only, so v0.14.900 shipped with typed drafts never reaching the host. Remote records land through the store and are published into the input with `publishTextReplacement`, never through those two callbacks, so a synced edit does not echo back. A saved draft that answers after the user has typed does not replace that text: once `editText` or `replaceText` has run, hydration skips the host record and publishes no replacement. Without this, a slow host dropped text typed during hydration, and the composer then showed the saved draft (under CPU load, the context-window e2e failed this way).
 
-Live updates need two things official's owned-subscription model does not give a fork push for free. The daemon delivers an unsolicited message to a modern client only as a subscribed session event, so the fork's pushes (`ui_state.updated`, workspace todos, background tasks and their output, provider heartbeats) are listed once in `FORK_SESSION_EVENTS` in protocol `messages.ts`. The event subscription schema, `sessionEventCategory` in `server/session.ts` and the app's subscription in `runtime/fork-session-events.ts` all read that list; add a new fork push there or no current client receives it. The app subscribes when `server_info.features.forkSessionEvents` is set: a daemon without the flag would reject the whole subscription over an unknown event name. Without this, every fork push was dropped at the socket since the v0.8 sync. And since official isolated typing, the input owns its text, so the `ui_state.updated` handler in `input-draft.ts` publishes accepted remote text with `publishTextReplacement`; a store write alone never reaches the screen.
+Live updates need two things official's owned-subscription model does not give a fork push for free. The daemon delivers an unsolicited message to a modern client only as a subscribed session event, so the fork's pushes (`ui_state.updated`, workspace todos, background tasks and their output, provider heartbeats) are listed once in `FORK_SESSION_EVENTS` in protocol `messages.ts`. The event subscription schema, `sessionEventCategory` in `server/session.ts` and the app's subscription in `runtime/fork-session-events.ts` all read that list; add a new fork push there or no current client receives it. A push that arrives after `forkSessionEvents` shipped needs its own flag and its own subscription instead (`schedules.changed`, see `schedule-list-live-updates`): a daemon with `forkSessionEvents` but without the new name would reject the whole fork subscription. The app subscribes when `server_info.features.forkSessionEvents` is set: a daemon without the flag would reject the whole subscription over an unknown event name. Without this, every fork push was dropped at the socket since the v0.8 sync. And since official isolated typing, the input owns its text, so the `ui_state.updated` handler in `input-draft.ts` publishes accepted remote text with `publishTextReplacement`; a store write alone never reaches the screen.
 
 Review drafts sync the same way (`ui-state/review-host-sync.ts`). Every path that removes comments locally must also write the host copy: the review surface hydrates from the host when it mounts, so a comment removed only locally comes back. v0.14.0's Send feedback clears sent comments through `clearSentReviewDraftComments`, so `review/feedback/use-feedback.ts` calls `syncReviewDraftToHost` after it; without that, official's `composer-diff-stat` spec sees the review pill return after a layout switch.
 
@@ -805,6 +805,19 @@ grep -q 'describe("ScheduleService skipWhileActive"' packages/server/src/server/
 grep -q "scheduleSkipWhileActive: true" packages/server/src/server/websocket-server.ts
 grep -q 'skipWhileActive: z' packages/server/src/server/agent/tools/paseo-tools.ts
 grep -q 'schedule-skip-while-active-switch' packages/app/src/components/schedules/schedule-form-sheet.tsx
+```
+
+## schedule-list-live-updates
+
+**the schedules list follows runs, skips and completions without a reload**
+
+Upstream refetches the schedule list only after the app's own mutations or a reconnect, so a run, skip or completion the daemon records on its own tick stayed invisible until reload. `ScheduleStore` reports every write and delete, `ScheduleService.subscribeToChanges` exposes it, and a session emits `schedules.changed` (payload `scheduleId`) while a client subscribes to it. The app subscribes in `runtime/fork-session-events.ts` when `server_info.features.scheduleChangedEvents` is set and invalidates the schedules query in `session-context.tsx`. Clients from before explicit event subscriptions never receive it (`legacyWantsEvent`).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/schedule/schedules-changed.e2e.test.ts --bail=1
+grep -q 'test("reports the runs and skips it records on its own ticks"' packages/server/src/server/schedule/service.test.ts
+grep -q 'client.on("schedules.changed"' packages/app/src/contexts/session-context.tsx
+grep -q 'observeEvents(\["schedules.changed"\])' packages/app/src/runtime/fork-session-events.ts
 ```
 
 ## scheduled-agent-prompts

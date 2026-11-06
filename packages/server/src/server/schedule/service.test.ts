@@ -4090,6 +4090,33 @@ describe("ScheduleService skipWhileActive", () => {
     expect(inspected.lastSkippedAt).toBeUndefined();
   });
 
+  test("reports the runs and skips it records on its own ticks", async () => {
+    const { service } = createSkipService({ agentStorage, runAgentIds: [runAgentId] });
+    const created = await service.create({
+      prompt: "nightly triage",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+      skipWhileActive: true,
+    });
+    const changed: string[] = [];
+    const unsubscribe = service.subscribeToChanges((scheduleId) => changed.push(scheduleId));
+
+    await service.tick();
+    const afterRun = changed.length;
+    expect(afterRun).toBeGreaterThan(0);
+
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+    expect(changed.length).toBeGreaterThan(afterRun);
+    expect(new Set(changed)).toEqual(new Set([created.id]));
+
+    unsubscribe();
+    now = new Date("2026-01-01T00:02:00.000Z");
+    const beforeUnsubscribedTick = changed.length;
+    await service.tick();
+    expect(changed).toHaveLength(beforeUnsubscribedTick);
+  });
+
   test("a manual run is not skipped", async () => {
     const { service, runner } = createSkipService({
       agentStorage,

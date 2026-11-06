@@ -468,6 +468,7 @@ const OUTBOUND_PERMISSION = {
   "schedule/resume/response": "automation.manage",
   "schedule/run-once/response": "automation.manage",
   "schedule/update/response": "automation.manage",
+  "schedules.changed": "automation.manage",
   script_status_update: "workspace.read",
   send_agent_message_response: ["workspace.write", "hub.execute"],
   set_agent_feature_response: "workspace.write",

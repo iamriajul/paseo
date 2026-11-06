@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import test from "node:test";
-import { parseDecisions, DECISIONS_PATH } from "./fork-verify.mjs";
+import { parseDecisions, proofEnvironment, DECISIONS_PATH } from "./fork-verify.mjs";
 
 const F = "```";
 
@@ -55,4 +55,19 @@ test("every decision in docs/fork-decisions.md carries a proof command", () => {
   assert.ok(decisions.length > 0, "must document at least one decision");
   const unprotected = decisions.filter((d) => d.commands.length === 0).map((d) => d.id);
   assert.deepEqual(unprotected, [], `decisions with no proof command: ${unprotected.join(", ")}`);
+});
+
+test("proofEnvironment drops an agent session's Claude, Anthropic and Paseo home variables", () => {
+  assert.deepEqual(
+    proofEnvironment({
+      PATH: "/usr/bin",
+      HOME: "/home/user",
+      CLAUDECODE: "1",
+      CLAUDE_CODE_ENTRYPOINT: "sdk-cli",
+      ANTHROPIC_BASE_URL: "http://gateway",
+      PASEO_HOME: "/home/user/.paseo",
+      PASEO_LISTEN: "127.0.0.1:6768",
+    }),
+    { PATH: "/usr/bin", HOME: "/home/user", PASEO_LISTEN: "127.0.0.1:6768" },
+  );
 });

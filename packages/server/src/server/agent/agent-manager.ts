@@ -582,6 +582,19 @@ type ActiveManagedAgent =
 type LiveManagedAgent = ActiveManagedAgent;
 type AgentLabelPatch = Record<string, string | null>;
 
+/**
+ * The turn a cache sample belongs to, unique over the agent's life. A provider session numbers its
+ * turns from 1, so a session resumed after its runtime stopped (the sweep at cache expiry, a
+ * restart, a compaction that relaunches it) reuses `foreground-turn-1`; the turn's start time
+ * tells it from the earlier one, so its first request still starts a turn.
+ */
+function promptCacheTurnKey(agent: ActiveManagedAgent): string | null {
+  if (!agent.activeTurnId) return null;
+  return agent.activeTurnStartedAt
+    ? `${agent.activeTurnId}@${agent.activeTurnStartedAt.toISOString()}`
+    : agent.activeTurnId;
+}
+
 function attachManagedTurnIdentity(
   agent: ActiveManagedAgent,
   event: AgentStreamEvent,
@@ -3209,6 +3222,7 @@ export class AgentManager {
       }
       return result.turnId;
     } catch (error) {
+      agent.activeTurnIsWarmPing = false;
       if (pendingRun.settled) {
         throw error;
       }
@@ -3222,7 +3236,6 @@ export class AgentManager {
       agent.pendingReplacement = false;
       const errorMsg = error instanceof Error ? error.message : "Failed to start turn";
       this.runs.settleForegroundStart(pendingRun, { status: "failed", error: errorMsg });
-      agent.activeTurnIsWarmPing = false;
       try {
         // A terminal rejection belongs after the submitted prompt even though no provider turn exists.
         if (options?.clientMessageId) {
@@ -5603,7 +5616,7 @@ export class AgentManager {
     const sample: PromptCacheRequestSample = {
       ...tokens,
       at: new Date().toISOString(),
-      turnId: warmUp ? warmUp.turnId : agent.activeTurnId,
+      turnId: warmUp ? warmUp.turnId : promptCacheTurnKey(agent),
       isWarmPing: warmUp ? true : Boolean(agent.activeTurnIsWarmPing),
       ...resolveRequestModel(agent),
     };

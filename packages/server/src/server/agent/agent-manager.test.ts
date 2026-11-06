@@ -12979,6 +12979,64 @@ test("setAgentFeature notifies cacheWarmManager on prompt_cache_ttl and cache_wa
   }
 });
 
+test("a turn on a new session instance starts a new turn in the cache history, though its id repeats", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-turn-key-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  // A provider session numbers its turns from 1, so a relaunched or reloaded session (as after a
+  // compaction) reuses the previous instance's turn ids.
+  class RestartingIdsSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = "turn-1";
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: { requestCache: { readTokens: 900, writeTokens: 50, uncachedTokens: 1 } },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+  class RestartingIdsClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new RestartingIdsSession(config);
+    }
+    override async resumeSession(
+      _handle: AgentPersistenceHandle,
+      config?: Partial<AgentSessionConfig>,
+    ) {
+      return new RestartingIdsSession({
+        provider: "codex",
+        cwd: workdir,
+        ...config,
+      } as AgentSessionConfig);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new RestartingIdsClient() },
+    registry: storage,
+    logger,
+  });
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    await manager.runAgent(snapshot.id, "first");
+    // What the idle-runtime sweep does once the cache expires; the next message loads it again.
+    await manager.flush();
+    await manager.closeAgent(snapshot.id);
+    await ensureAgentLoaded(snapshot.id, { agentManager: manager, agentStorage: storage, logger });
+    await manager.runAgent(snapshot.id, "second");
+    const kinds = manager.getAgent(snapshot.id)?.promptCache?.history?.map((entry) => entry.kind);
+    expect(kinds).toEqual(["turn", "turn"]);
+    await manager.closeAgent(snapshot.id);
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("records each request's cache split, the turn's first request, the written TTL and the prompt history", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-prompt-cache-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
@@ -13037,14 +13095,14 @@ test("records each request's cache split, the turn's first request, the written 
 
     const promptCache = manager.getAgent(snapshot.id)?.promptCache;
     expect(promptCache?.turnFirstRequest).toMatchObject({
-      turnId: "turn-cache-1",
+      turnId: expect.stringMatching(/^turn-cache-1@/),
       isWarmPing: false,
       readTokens: 0,
       writeTokens: 900,
       uncachedTokens: 100,
     });
     expect(promptCache?.lastRequest).toMatchObject({
-      turnId: "turn-cache-1",
+      turnId: expect.stringMatching(/^turn-cache-1@/),
       readTokens: 1000,
       writeTokens: 150,
     });
@@ -13434,7 +13492,7 @@ test("records a fork warm-up as a warm-up request without starting a turn", asyn
 
     const promptCache = manager.getAgent(agent.id)?.promptCache;
     expect(promptCache?.history?.map((entry) => entry.kind)).toEqual(["turn", "warm-up"]);
-    expect(promptCache?.turnFirstRequest.turnId).toBe("turn-fork-warm-1");
+    expect(promptCache?.turnFirstRequest.turnId).toMatch(/^turn-fork-warm-1@/);
     expect(promptCache?.lastRequest.isWarmPing).toBe(true);
   } finally {
     if (agentId) await manager.closeAgent(agentId);

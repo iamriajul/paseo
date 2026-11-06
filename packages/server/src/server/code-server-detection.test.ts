@@ -97,4 +97,22 @@ describe("code-server detection", () => {
       externalUrl: "https://code-server.example.test/",
     });
   });
+
+  test("starts no process on Windows and still advertises CODE_SERVER_URL", () => {
+    const commands: string[] = [];
+    const execFile = (file: string, args: readonly string[] = []) => {
+      commands.push(`${file} ${args.join(" ")}`);
+      return "7 /opt/code-server --auth none --port 13337\n";
+    };
+
+    expect(
+      buildCodeServerUrlOpeners({
+        env: { CODE_SERVER_URL: "https://code-server.example.test/" },
+        execFile,
+        platform: "win32",
+      }),
+    ).toEqual({ externalUrl: "https://code-server.example.test/" });
+    expect(buildCodeServerUrlOpeners({ env: {}, execFile, platform: "win32" })).toBeNull();
+    expect(commands).toEqual([]);
+  });
 });

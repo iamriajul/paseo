@@ -1243,3 +1243,13 @@ Official v0.15.0 can drop a profile's feature values (for example `fast_mode`) w
 npm test --workspace=@getpaseo/app -- src/hooks/use-draft-agent-features.test.tsx --bail=1
 grep -q "notReadyProviders: notReadyProfileProviders" packages/app/src/composer/agent-controls/index.tsx
 ```
+
+## command-center-render-count-quiet-window
+
+**the Command Center render oracle starts counting once rows stop mounting**
+
+`command-center-scroll.spec.ts` "live search updates render only the changed row" reset its row render counts after a fixed 600 ms, then renamed one agent and expected only that row to render. FlatList keeps mounting its overscan cells in timed batches, and on a slow runner some mounted after the reset, so their first render read as a re-render of an unchanged row (attempt 1 on `main` 2026-11-05 and on branches; locally 2 of 15 at 4x CPU throttle, both late mounts). The helper now resets and waits until a 300 ms window passes with no row render. A row that re-renders because of the update still fails the test.
+
+```bash
+grep -q 'Command Center rows kept rendering' packages/app/e2e/support/helpers/command-center-performance.ts
+```

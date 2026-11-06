@@ -164,8 +164,48 @@ function normalizeMaxRuns(value: number | null | undefined): number | null {
   return value;
 }
 
+/**
+ * Records a skipped trigger. Back-to-back skips share one run entry so a long-open agent on a
+ * short cadence does not grow the run log by one entry per trigger: `startedAt` keeps the first
+ * skip, `endedAt` and `skipReason` follow the latest, and `skipCount` counts them.
+ */
+function appendSkippedRun(
+  runs: ScheduleRun[],
+  input: { scheduledFor: string; skipReason: string; now: Date },
+): ScheduleRun[] {
+  const at = input.now.toISOString();
+  const last = runs.at(-1);
+  if (last?.skipReason !== undefined) {
+    return [
+      ...runs.slice(0, -1),
+      {
+        ...last,
+        endedAt: at,
+        skipReason: input.skipReason,
+        skipCount: (last.skipCount ?? 1) + 1,
+      },
+    ];
+  }
+  return [
+    ...runs,
+    {
+      id: randomUUID(),
+      scheduledFor: input.scheduledFor,
+      startedAt: at,
+      endedAt: at,
+      status: "succeeded",
+      agentId: null,
+      output: null,
+      error: null,
+      skipReason: input.skipReason,
+    },
+  ];
+}
+
+// A skipped trigger started nothing, so it does not use up one of the schedule's runs.
 function countCompletedRuns(schedule: StoredSchedule): number {
-  return schedule.runs.filter((run) => run.status !== "running").length;
+  return schedule.runs.filter((run) => run.status !== "running" && run.skipReason === undefined)
+    .length;
 }
 
 function shouldArchiveScheduleRunWorkspace(input: {
@@ -415,6 +455,7 @@ export class ScheduleService {
       pausedAt: null,
       expiresAt: input.expiresAt ?? null,
       maxRuns: normalizeMaxRuns(input.maxRuns),
+      ...(input.skipWhileActive ? { skipWhileActive: true } : {}),
       runs: [],
     };
   }
@@ -451,6 +492,7 @@ export class ScheduleService {
           nextRunAt: nextRunAt.toISOString(),
           expiresAt: input.expiresAt ?? null,
           maxRuns: normalizeMaxRuns(input.maxRuns),
+          skipWhileActive: input.skipWhileActive === true,
           updatedAt: now.toISOString(),
         };
       },
@@ -549,6 +591,10 @@ export class ScheduleService {
 
       if (input.expiresAt !== undefined) {
         updated = { ...updated, expiresAt: input.expiresAt };
+      }
+
+      if (input.skipWhileActive !== undefined) {
+        updated = { ...updated, skipWhileActive: input.skipWhileActive };
       }
 
       return { ...updated, updatedAt: now.toISOString() };
@@ -924,7 +970,7 @@ export class ScheduleService {
     now: Date,
   ): Promise<{ schedule: StoredSchedule; runId: string } | null> {
     let claimed: { schedule: StoredSchedule; runId: string } | null = null;
-    const updatedSchedule = await this.store.update(scheduleId, (schedule) => {
+    const updatedSchedule = await this.store.update(scheduleId, async (schedule) => {
       if (
         schedule.status !== "active" ||
         !schedule.nextRunAt ||
@@ -935,6 +981,25 @@ export class ScheduleService {
       }
 
       const scheduledFor = schedule.nextRunAt;
+      const skipReason = await this.findActiveRunSkipReason(schedule);
+      if (skipReason !== null) {
+        this.logger.info(
+          { scheduleId, scheduledFor, skipReason },
+          "Skipped scheduled run; an earlier run is still active",
+        );
+        return {
+          ...schedule,
+          nextRunAt: advanceNextRunAtPast(
+            schedule.cadence,
+            computeNextRunAt(schedule.cadence, new Date(scheduledFor)),
+            now,
+          ).toISOString(),
+          lastSkippedAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          runs: appendSkippedRun(schedule.runs, { scheduledFor, skipReason, now }),
+        };
+      }
+
       const isFinalRun =
         schedule.maxRuns !== null && countCompletedRuns(schedule) + 1 >= schedule.maxRuns;
       const nextRunAt = isFinalRun
@@ -969,6 +1034,46 @@ export class ScheduleService {
     });
     requireSchedule(updatedSchedule, scheduleId);
     return claimed;
+  }
+
+  /**
+   * Why a due trigger of a `skipWhileActive` schedule must not start, or null when it may.
+   *
+   * A new-agent schedule is active while any agent one of its runs created is still
+   * unarchived: a finished run that kept its workspace (archiveOnFinish off, or archive
+   * deferred on live work) still holds the user's attention. The archive flag lives in agent
+   * storage, so the answer survives a daemon restart.
+   *
+   * An agent-target schedule never creates agents and its target is never archived while
+   * the schedule lives, so it is active only while that agent has a turn in flight.
+   */
+  private async findActiveRunSkipReason(schedule: StoredSchedule): Promise<string | null> {
+    if (!schedule.skipWhileActive) {
+      return null;
+    }
+    if (schedule.target.type === "agent") {
+      const agentId = schedule.target.agentId;
+      return this.agentManager.hasInFlightRun(agentId)
+        ? `Agent ${agentId} is still running a turn`
+        : null;
+    }
+    const checked = new Set<string>();
+    for (let index = schedule.runs.length - 1; index >= 0; index -= 1) {
+      const run = schedule.runs[index];
+      if (!run.agentId || checked.has(run.agentId)) {
+        continue;
+      }
+      checked.add(run.agentId);
+      const record = await this.agentStorage.get(run.agentId);
+      if (!record || record.archivedAt) {
+        continue;
+      }
+      const lifecycle = this.agentManager.getAgent(run.agentId)?.lifecycle;
+      return lifecycle === "running" || lifecycle === "initializing"
+        ? `Agent ${run.agentId} from an earlier run is still running`
+        : `Agent ${run.agentId} from an earlier run is not archived yet`;
+    }
+    return null;
   }
 
   private async appendRunningRun(

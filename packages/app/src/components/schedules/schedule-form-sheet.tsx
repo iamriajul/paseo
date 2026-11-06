@@ -153,6 +153,8 @@ function selectScheduleHosts(
         state.sessions[host.serverId]?.serverInfo?.features?.workspaceMultiplicity === true,
       supportsScheduleFeatureValues:
         state.sessions[host.serverId]?.serverInfo?.features?.scheduleFeatureValues === true,
+      supportsScheduleSkipWhileActive:
+        state.sessions[host.serverId]?.serverInfo?.features?.scheduleSkipWhileActive === true,
     }));
 }
 
@@ -439,6 +441,9 @@ function OpenScheduleFormSheet({
           ...buildOptionalNewAgentFields(state),
         },
         maxRuns,
+        ...(state.submitSkipWhileActive !== undefined
+          ? { skipWhileActive: state.submitSkipWhileActive }
+          : {}),
       });
       return true;
     }
@@ -460,6 +465,7 @@ function OpenScheduleFormSheet({
         },
       },
       ...(maxRuns != null ? { maxRuns } : {}),
+      ...(state.submitSkipWhileActive ? { skipWhileActive: true } : {}),
     });
     return true;
   }, [createSchedule, mode, persistPreferences, schedule, state, updateSchedule]);
@@ -692,6 +698,17 @@ function ScheduleFormFields({
           keyboardType="number-pad"
         />
       </Field>
+
+      {state.disclosure.showSkipWhileActiveField ? (
+        <Field label="Skip while previous run is active">
+          <Switch
+            value={state.skipWhileActive}
+            onValueChange={model.setSkipWhileActive}
+            accessibilityLabel="Skip while previous run is active"
+            testID="schedule-skip-while-active-switch"
+          />
+        </Field>
+      ) : null}
 
       {state.submitError ? <Text style={styles.submitError}>{state.submitError}</Text> : null}
     </>

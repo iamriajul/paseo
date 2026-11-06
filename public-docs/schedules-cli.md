@@ -96,8 +96,11 @@ paseo schedule pause <id>
 paseo schedule resume <id>
 paseo schedule run-once <id>
 paseo schedule update <id> --every 10m --max-runs 6
+paseo schedule update <id> --skip-while-active
 paseo schedule delete <id>
 ```
+
+`--skip-while-active` (on `create` and `update`) skips a trigger while an earlier run's agent is still running or not yet archived; `--no-skip-while-active` turns it off. See [Skip while a previous run is active](/docs/schedules#skip-while-a-previous-run-is-active).
 
 ## Cadence
 

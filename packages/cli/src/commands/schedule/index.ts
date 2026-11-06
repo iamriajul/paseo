@@ -36,6 +36,10 @@ export function createScheduleCommand(): Command {
       .option("--cwd <path>", "Working directory (default: current; required with --host)")
       .option("--run-now", "Fire one immediate run on creation")
       .option("--max-runs <n>", "Maximum number of runs")
+      .option(
+        "--skip-while-active",
+        "Skip a trigger while an earlier run's agent is still running or not yet archived",
+      )
       .option("--expires-in <duration>", "Time to live for the schedule"),
   ).action(withOutput(runCreateCommand));
 
@@ -95,6 +99,11 @@ export function createScheduleCommand(): Command {
       .option("--cwd <path>", "New working directory (only for new-agent target)")
       .option("--max-runs <n>", "Set or change maximum number of runs")
       .option("--no-max-runs", "Clear the max-runs limit")
+      .option(
+        "--skip-while-active",
+        "Skip a trigger while an earlier run's agent is still running or not yet archived",
+      )
+      .option("--no-skip-while-active", "Run every trigger even while an earlier run is active")
       .option("--expires-in <duration>", "Set or change time to live for the schedule")
       .option("--no-expires-in", "Clear the expiration"),
   ).action(withOutput(runUpdateCommand));

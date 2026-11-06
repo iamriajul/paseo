@@ -41,3 +41,13 @@ cron 是标准的节奏表示。CLI 接受 `5m` 或 `1h` 这样的简单预设�
 要保留运行结果，在应用的定时任务视图中打开该定时任务，关闭 **Archive on finish** 并保存。Paseo 会让每次运行的工作区和 Agent 保持活跃，直到你手动归档；在创建 Agent 之前就失败的运行仍会被清理。该选项同样适用于本地隔离；归档本地工作区不会删除项目目录。
 
 存储的选项是 `target.config.archiveOnFinish`，一个布尔值，省略时默认为 `true`。CLI 和 MCP 的定时任务工具不提供这个选项；请在应用中修改。heartbeat 使用已有的 Agent，没有这个选项。
+
+## 上一次运行仍活跃时跳过 {#skip-while-a-previous-run-is-active}
+
+如果上一次运行仍需要你处理时不应开始新的运行，请打开 **Skip while previous run is active**，例如你会让夜间任务的 Agent 保持打开直到审阅完毕。该选项默认关闭。
+
+开启后，每次触发都会检查该定时任务之前的运行是否仍然活跃。对于新建 Agent 的定时任务，只要某次运行创建的 Agent 仍在运行或尚未归档，该运行就算活跃；开启 **Archive on finish** 时，即直到该运行的工作区被归档。被跳过的触发不会启动任何内容：Paseo 会在定时任务日志中写入一条带 `skipReason` 的运行记录（连续的跳过共用一条记录，带有 `skipCount` 以及首次和最近一次跳过的时间），在定时任务行上显示 "Skipped … previous run still active"，并照常等待下一次触发。被跳过的触发不计入 **Max runs**。**Run now** 永远不会被跳过。
+
+该检查从 Agent 存储读取归档状态，因此守护进程重启后依然有效。heartbeat（提示已有 Agent 的定时任务）没有需要等待的独立运行；开启该选项后，当该 Agent 正在执行一轮对话时，触发会被跳过。
+
+可以在定时任务表单中设置，也可以在 `paseo schedule create` 和 `paseo schedule update` 上使用 `--skip-while-active` / `--no-skip-while-active`，或在 MCP 工具 `create_schedule`、`update_schedule` 和 `create_heartbeat` 上使用 `skipWhileActive`。存储的字段是 `skipWhileActive`。它需要宿主声明 `server_info.features.scheduleSkipWhileActive`；对较旧的宿主，应用会隐藏该开关。

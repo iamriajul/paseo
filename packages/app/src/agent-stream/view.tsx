@@ -46,6 +46,7 @@ import {
 import {
   foldWarmUpStretches,
   isWarmPingRow,
+  isWarmPingTurnHost,
   sameWarmUpStretches,
   type WarmUpStretches,
 } from "@/prompt-cache/warm-up-stretches";
@@ -1299,7 +1300,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       ],
     );
 
-    const bottomTurnFooterHost = streamLayout.auxiliaryTurnFooter;
+    // A warm-up turn renders no rows, so it has no work to put a footer under.
+    const bottomTurnFooterHost =
+      streamLayout.auxiliaryTurnFooter && !isWarmPingTurnHost(streamLayout.auxiliaryTurnFooter)
+        ? streamLayout.auxiliaryTurnFooter
+        : null;
 
     const renderStreamItem = useCallback(
       (layoutItem: StreamLayoutItem) => {

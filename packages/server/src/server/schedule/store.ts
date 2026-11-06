@@ -105,6 +105,7 @@ export class ScheduleStore {
   private readonly scheduleMutations = new Map<string, Promise<unknown>>();
   private readonly identityMutations = new Map<string, Promise<unknown>>();
   private reportedInvalidFiles = new Set<string>();
+  private readonly changeListeners = new Set<(scheduleId: string) => void>();
 
   constructor(
     private readonly dir: string,
@@ -217,9 +218,28 @@ export class ScheduleStore {
     });
   }
 
+  /** Called after every write or delete, including the daemon's own run bookkeeping. */
+  subscribeToChanges(listener: (scheduleId: string) => void): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
+
+  private notifyChanged(scheduleId: string): void {
+    for (const listener of this.changeListeners) {
+      try {
+        listener(scheduleId);
+      } catch (error) {
+        this.logger.warn({ err: error, scheduleId }, "Schedule change listener failed");
+      }
+    }
+  }
+
   private async write(schedule: StoredSchedule): Promise<void> {
     await this.ensureDir();
     await writeJsonFileAtomic(this.filePath(schedule.id), schedule);
+    this.notifyChanged(schedule.id);
   }
 
   async delete(id: string): Promise<void> {
@@ -227,6 +247,7 @@ export class ScheduleStore {
       await this.ensureDir();
       await rm(this.filePath(id), { force: true });
     });
+    this.notifyChanged(id);
   }
 
   private async serializeScheduleMutation<T>(

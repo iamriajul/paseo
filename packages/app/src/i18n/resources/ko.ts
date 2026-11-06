@@ -2586,6 +2586,19 @@ export const ko: TranslationResources = {
         description: "내장 터미널 버퍼에 보관되는 줄 수",
         accessibilityLabel: "터미널 스크롤백 줄 수",
       },
+      promptCache: {
+        title: "Claude 프롬프트 캐시",
+        capWarning: {
+          label: "워밍업 한도 전에 경고",
+          description:
+            "이 시간 안에 워밍업이 캐시를 더 이상 유지하지 못하면 카운트다운이 깜박입니다",
+          options: {
+            "10": "10분",
+            "20": "20분",
+            "30": "30분",
+          },
+        },
+      },
       autoExpandReasoning: {
         label: "추론 항상 펼치기",
         description: "에이전트의 사고 및 추론 블록을 기본적으로 모두 펼쳐 표시합니다.",

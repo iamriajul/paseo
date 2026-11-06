@@ -9,6 +9,7 @@ const warmup: NonNullable<PromptCacheView["warmup"]> = {
   pingsUsed: 0,
   maxPings: 12,
   windowMaxPings: 12,
+  coverEndsInMs: null,
   totalPings: 0,
 };
 

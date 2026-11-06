@@ -2624,6 +2624,19 @@ export const fr: TranslationResources = {
         description: "Lignes conservées dans le tampon du terminal intégré",
         accessibilityLabel: "Lignes d’historique du terminal",
       },
+      promptCache: {
+        title: "Cache de prompts Claude",
+        capWarning: {
+          label: "Prévenir avant la limite de préchauffage",
+          description:
+            "Le compte à rebours du cache clignote quand le préchauffage cesse de le couvrir dans ce délai",
+          options: {
+            "10": "10 minutes",
+            "20": "20 minutes",
+            "30": "30 minutes",
+          },
+        },
+      },
       autoExpandReasoning: {
         label: "Toujours afficher le raisonnement",
         description: "Afficher par défaut le raisonnement de l’agent entièrement déplié",

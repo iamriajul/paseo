@@ -2547,6 +2547,18 @@ export const zhCN: TranslationResources = {
         description: "内置终端缓冲区保留的行数",
         accessibilityLabel: "终端回滚行数",
       },
+      promptCache: {
+        title: "Claude 提示词缓存",
+        capWarning: {
+          label: "预热上限前提醒",
+          description: "预热将在此时间内停止维持缓存时，缓存倒计时会闪烁",
+          options: {
+            "10": "10 分钟",
+            "20": "20 分钟",
+            "30": "30 分钟",
+          },
+        },
+      },
       autoExpandReasoning: {
         label: "始终展开推理过程",
         description: "默认情况下完全展开 AI 的思考和推理过程",

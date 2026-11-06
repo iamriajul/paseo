@@ -2610,6 +2610,19 @@ export const ar: TranslationResources = {
         description: "يتم الاحتفاظ بالخطوط في المخزن المؤقت الطرفي المدمج",
         accessibilityLabel: "خطوط التمرير Terminal",
       },
+      promptCache: {
+        title: "ذاكرة التخزين المؤقت لموجّهات Claude",
+        capWarning: {
+          label: "التنبيه قبل حد التسخين",
+          description:
+            "يومض عدّاد ذاكرة التخزين المؤقت عندما يتوقف التسخين عن تغطيتها خلال هذه المدة",
+          options: {
+            "10": "10 دقائق",
+            "20": "20 دقيقة",
+            "30": "30 دقيقة",
+          },
+        },
+      },
       autoExpandReasoning: {
         label: "عرض التفكير دائماً",
         description: "إظهار تفكير الوكيل وخطوات الاستدلال بشكل كامل بشكل افتراضي",

@@ -66,6 +66,11 @@ export interface ComposerTrackPillSegment {
    * trailing figure on the segment before it rather than a state of its own, so it takes no mark.
    */
   tone?: "danger";
+  /**
+   * Draws the label in the warning colour. A caller that toggles it each second makes the text
+   * blink, which the prompt-cache countdown does as the warm-up cap nears.
+   */
+  flash?: boolean;
 }
 
 export interface ComposerTrackPillProps {
@@ -194,7 +199,11 @@ function ComposerTrackPillTrigger({
               <ComposerTrackMark bucket={segment.bucket} />
             )}
             <Text
-              style={segment.tone === "danger" ? styles.dangerLabel : labelStyle}
+              style={
+                segment.tone === "danger"
+                  ? styles.dangerLabel
+                  : [labelStyle, segment.flash && styles.flashLabel]
+              }
               numberOfLines={1}
             >
               {segment.text}
@@ -448,6 +457,9 @@ const styles = StyleSheet.create((theme) => {
       fontSize: theme.fontSize.sm,
       color: theme.colors.statusDanger,
       fontWeight: theme.fontWeight.medium,
+    },
+    flashLabel: {
+      color: theme.colors.statusWarning,
     },
     // Trims the ring's halo so the circle you can see is the box, like the dot's box is the dot.
     ringMark: {

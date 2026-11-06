@@ -57,6 +57,11 @@ export interface PromptCacheWarmup {
   /** The window's own maximum, the top of the cap's range. */
   windowMaxPings: number;
   totalPings: number;
+  /**
+   * Time until the cache expires once the cap's remaining warm-ups are spent, while warm-up is
+   * counting towards the cap; null otherwise (off, paused, after a turn, expired).
+   */
+  coverEndsInMs: number | null;
 }
 
 export interface PromptCacheState {
@@ -88,6 +93,8 @@ export interface PromptCacheState {
   clearMisses: (() => Promise<void>) | null;
   /** Sets the agent's warm-up cap; null when the host does not enforce one. */
   setMaxPings: ((maxPings: number) => Promise<void>) | null;
+  /** Flips each second while a countdown ticks, so a near-cap countdown can blink. */
+  blinkOn: boolean;
 }
 
 interface AgentCacheFacts {
@@ -223,7 +230,7 @@ function resolveTotals(agent: Agent | undefined): PromptCacheTotals {
 
 export type PromptCacheView = Omit<
   PromptCacheState,
-  "toggleWarmup" | "clearMisses" | "setMaxPings"
+  "toggleWarmup" | "clearMisses" | "setMaxPings" | "blinkOn"
 >;
 
 function resolveMissCounts(
@@ -238,6 +245,25 @@ function resolveMissCounts(
   };
 }
 
+/**
+ * When warm-up stops covering the cache: each remaining warm-up re-arms the window one interval
+ * after the previous request, and the last one leaves the cache a full window to live.
+ */
+function resolveCoverEndsInMs(input: {
+  facts: AgentCacheFacts;
+  windows: PromptCacheWindows;
+  plan: PromptCacheWarmupPlan;
+  now: number;
+}): number | null {
+  const { facts, windows, plan, now } = input;
+  if ((plan.kind !== "next-ping" && plan.kind !== "capped") || facts.anchorMs === null) {
+    return null;
+  }
+  const remainingPings = Math.max(0, windows.maxConsecutivePings - facts.pingsUsed);
+  const endsAtMs = facts.anchorMs + remainingPings * windows.warmIntervalMs + windows.cacheWindowMs;
+  return Math.max(0, endsAtMs - now);
+}
+
 /** Null while the Cache window is Automatic, where warm-up is unavailable. */
 function resolveWarmup(input: {
   facts: AgentCacheFacts;
@@ -248,9 +274,11 @@ function resolveWarmup(input: {
   const { facts, status, now, forkWarm } = input;
   const { windows } = facts;
   if (!windows || !facts.warmupAvailable) return null;
+  const plan = resolveWarmupPlan({ facts, windows, status, now, forkWarm });
   return {
     enabled: facts.warmupEnabled,
-    plan: resolveWarmupPlan({ facts, windows, status, now, forkWarm }),
+    plan,
+    coverEndsInMs: resolveCoverEndsInMs({ facts, windows, plan, now }),
     pingsUsed: Math.min(facts.pingsUsed, windows.maxConsecutivePings),
     maxPings: windows.maxConsecutivePings,
     windowMaxPings: facts.windowMaxPings ?? windows.maxConsecutivePings,
@@ -365,5 +393,6 @@ export function usePromptCache(serverId: string, agentId: string): PromptCacheSt
     toggleWarmup,
     clearMisses: canClearMisses && client ? clearMisses : null,
     setMaxPings: canSetMaxPings && client ? setMaxPings : null,
+    blinkOn: Math.floor(now / 1000) % 2 === 0,
   };
 }

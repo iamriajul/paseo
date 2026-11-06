@@ -627,7 +627,7 @@ describe("useAgentInputDraft live contract", () => {
     });
   });
 
-  it("keeps text typed after the host answered but before the input applied the answer", async () => {
+  it("keeps every keystroke typed after the host answered but before the input applied the answer", async () => {
     hostSync.enabled = true;
     hostSync.saved = { text: "saved on the other laptop", updatedAt: "2020-01-01T00:00:00.000Z" };
     let answerHost!: () => void;
@@ -670,6 +670,7 @@ describe("useAgentInputDraft live contract", () => {
         answerHost,
         type: () => {
           const renderedKind = latest!.textReplacement.kind;
+          latest!.editText("typed before the answer");
           latest!.editText("typed before the answer landed");
           return renderedKind;
         },

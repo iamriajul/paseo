@@ -142,8 +142,8 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
   const textReplacementRevisionRef = useRef(0);
   // Set by any typing, so a host answer that arrives later does not overwrite it.
   const editedBeforeHostAnswerRef = useRef(false);
-  // A hydrated replacement reaches the input on a later render, so a keystroke can land in
-  // between. While it is pending, the first edit swaps its text for the user's.
+  // A hydrated replacement reaches the input on a later render, so keystrokes can land in
+  // between. Until the input has applied it, every edit swaps its text for the user's.
   const hydratedReplacementPendingRef = useRef(false);
   const [textReplacement, setTextReplacement] = useState<TextReplacement>(() => ({
     kind: "initial",
@@ -235,10 +235,13 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
     (nextText: string) => {
       editedBeforeHostAnswerRef.current = true;
       if (hydratedReplacementPendingRef.current) {
-        hydratedReplacementPendingRef.current = false;
-        // Keeping the key makes this a no-op if the input already applied the replacement.
+        // A fresh key, because React may have committed the replacement and not yet run the
+        // input's apply effect; that effect then writes the saved text, and this puts the
+        // user's back.
+        textReplacementRevisionRef.current += 1;
+        const key = `${draftKey}:${textReplacementRevisionRef.current}`;
         setTextReplacement((current) =>
-          current.kind === "hydrated" ? { ...current, text: nextText } : current,
+          current.kind === "hydrated" ? { kind: "hydrated", key, text: nextText } : current,
         );
       }
       if (isWeb) {

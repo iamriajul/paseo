@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { resolveWorkspaceUrlOpenAction } from "./workspace-url-open-action";
+import {
+  openWorkspaceLoopbackUrl,
+  resolveWorkspaceUrlOpenAction,
+} from "./workspace-url-open-action";
 
 const TEMPLATE = "https://{{port}}--main--coder--iamriajul.coder.riajul.dev";
 
@@ -55,5 +58,42 @@ describe("workspace URL open action", () => {
         hasWorkspaceBrowser: false,
       }),
     ).toEqual({ kind: "external", url: "http://localhost:5173" });
+  });
+
+  test("opens a loopback link in the workspace Browser", () => {
+    const opened: string[] = [];
+    const external: string[] = [];
+    const handled = openWorkspaceLoopbackUrl({
+      url: "http://localhost:3000/",
+      hasWorkspaceBrowser: true,
+      openInBrowserTab: (url) => (opened.push(url), true),
+      openExternal: (url) => external.push(url),
+    });
+    expect(handled).toBe(true);
+    expect(opened).toEqual(["http://localhost:3000/"]);
+    expect(external).toEqual([]);
+  });
+
+  test("falls back to the proxy-rewritten URL when the Browser tab refuses", () => {
+    const external: string[] = [];
+    const handled = openWorkspaceLoopbackUrl({
+      url: "http://localhost:5173/",
+      hasWorkspaceBrowser: true,
+      vscodeProxyUri: TEMPLATE,
+      openInBrowserTab: () => false,
+      openExternal: (url) => external.push(url),
+    });
+    expect(handled).toBe(true);
+    expect(external).toEqual(["https://5173--main--coder--iamriajul.coder.riajul.dev/"]);
+  });
+
+  test("leaves non-loopback links to the caller", () => {
+    const handled = openWorkspaceLoopbackUrl({
+      url: "https://example.com/",
+      hasWorkspaceBrowser: true,
+      openInBrowserTab: () => true,
+      openExternal: () => undefined,
+    });
+    expect(handled).toBe(false);
   });
 });

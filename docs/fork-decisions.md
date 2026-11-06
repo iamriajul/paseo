@@ -140,6 +140,18 @@ grep -q "BrowserLoadFailure" packages/app/src/desktop/browser/pane/index.electro
 grep -q "guestUsesPartition" packages/desktop/src/main.ts
 ```
 
+## workspace-loopback-links
+
+**every link surface in a workspace opens localhost links in the workspace Browser**
+
+Only chat messages had a localhost handler, so a localhost link in a question card, plan card, file preview or sheet went to the system browser. `useWorkspaceLoopbackOpener` is the one routing decision; the workspace screen passes it to the workspace-level `AssistantFileLinkResolverProvider`, chat passes it per message, and the draft tab, subagent panel and ports panel now pass the pane's `openUrlInBrowserTab`.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/utils/workspace-url-open-action.test.ts --bail=1
+grep -q "onOpenLocalhostUrl={openWorkspaceLoopbackUrl}" packages/app/src/screens/workspace/workspace-screen.tsx
+grep -q "useWorkspaceLoopbackOpener" packages/app/src/agent-stream/view.tsx
+```
+
 ## code-server-tab
 
 **register Code Server as a workspace tab kind**

@@ -7,6 +7,7 @@ import {
   getResidentBrowserWebview,
   prepareBrowserWebview,
   presentBrowserWebview,
+  readBrowserWebviewLoadFailure,
   rememberBrowserWebviewSize,
   releaseResidentBrowserWebview,
   removeResidentBrowserWebview,
@@ -163,6 +164,67 @@ describe("resident browser webviews", () => {
     expect(webview.parentElement).toBe(permanentParent);
   });
 
+  it("keeps a presented pane visible when automation ensures the same browser", () => {
+    // A pane can mount and present a tab before browser_new_tab's own
+    // ensureResidentBrowserWebview call lands. That call must not park the
+    // presented surface, or the visible tab turns into an empty black area.
+    const webview = document.createElement("webview");
+    prepareTestBrowser(webview, {
+      browserId: "browser-presented-race",
+      workspaceId: "workspace-presented-race",
+      initialUrl: "http://localhost:3000/",
+    });
+    releaseResidentBrowserWebview("browser-presented-race", webview);
+    const anchor = document.createElement("div");
+    const clip = document.createElement("div");
+    Object.defineProperty(anchor, "getBoundingClientRect", {
+      value: () => ({ left: 40, top: 60, width: 640, height: 480 }),
+    });
+    Object.defineProperty(clip, "getBoundingClientRect", {
+      value: () => ({ left: 40, top: 60, width: 640, height: 480 }),
+    });
+    presentBrowserWebview("browser-presented-race", webview, anchor, clip, { mode: "responsive" });
+
+    const ensured = ensureTestBrowser({
+      browserId: "browser-presented-race",
+      workspaceId: "workspace-presented-race",
+      url: "http://localhost:3000/",
+    });
+
+    expect(ensured).toBe(webview);
+    const surface = webview.parentElement;
+    expect(surface?.getAttribute("aria-hidden")).toBe("false");
+    expect(surface?.style.width).toBe("640px");
+    expect(surface?.style.height).toBe("480px");
+  });
+
+  it("remembers a failed first load of an agent tab for the pane that mounts later", () => {
+    const webview = ensureTestBrowser({
+      browserId: "browser-failed-early",
+      workspaceId: "workspace-failed-early",
+      url: "http://localhost:3000/",
+    });
+    if (!webview) throw new Error("Expected resident webview");
+    webview.dispatchEvent(new Event("did-start-loading"));
+    webview.dispatchEvent(
+      Object.assign(new Event("did-fail-load"), {
+        errorCode: -102,
+        errorDescription: "ERR_CONNECTION_REFUSED",
+        isMainFrame: true,
+        validatedURL: "http://localhost:3000/",
+      }),
+    );
+
+    expect(readBrowserWebviewLoadFailure("browser-failed-early")).toEqual({
+      errorCode: -102,
+      errorDescription: "ERR_CONNECTION_REFUSED",
+      url: "http://localhost:3000/",
+    });
+
+    webview.dispatchEvent(new Event("did-start-loading"));
+    expect(readBrowserWebviewLoadFailure("browser-failed-early")).toBeNull();
+  });
+
   it("clips an oversized fixed viewport to its pane without resizing the webview", () => {
     const webview = ensureTestBrowser({
       browserId: "browser-oversized",
@@ -253,6 +315,36 @@ describe("resident browser webviews", () => {
     expect(attachedBrowsers).toEqual([
       { browserId: "browser-first", workspaceId: "workspace-a", webContentsId: 101 },
       { browserId: "browser-second", workspaceId: "workspace-b", webContentsId: 202 },
+    ]);
+  });
+
+  it("registers a guest whose id is not readable at did-attach on a later event", () => {
+    const webview = ensureTestBrowser({
+      browserId: "browser-late-id",
+      workspaceId: "workspace-late-id",
+      url: "http://localhost:3000/",
+    });
+    if (!webview) throw new Error("Expected resident webview");
+    let guestId: number | null = null;
+    Object.assign(webview, {
+      getWebContentsId: () => {
+        if (guestId === null) {
+          throw new Error(
+            "The WebView must be attached to the DOM and the dom-ready event emitted before this method can be called.",
+          );
+        }
+        return guestId;
+      },
+    });
+
+    expect(() => webview.dispatchEvent(new Event("did-attach"))).not.toThrow();
+    expect(attachedBrowsers).toEqual([]);
+
+    guestId = 303;
+    webview.dispatchEvent(new Event("did-stop-loading"));
+    webview.dispatchEvent(new Event("dom-ready"));
+    expect(attachedBrowsers).toEqual([
+      { browserId: "browser-late-id", workspaceId: "workspace-late-id", webContentsId: 303 },
     ]);
   });
 

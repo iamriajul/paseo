@@ -126,6 +126,20 @@ grep -q "isBlankWebview" packages/app/src/desktop/browser/pane/index.electron.ts
 npx vitest run packages/desktop/src/features/browser-loopback-direct.test.ts --bail=1
 ```
 
+## browser-tab-load-recovery
+
+**a Browser tab that fails to load shows why and recovers instead of staying black**
+
+Agent tabs (`browser_new_tab`) load in a parked resident webview before any pane listens. When that first load failed (dev server not listening yet, tunnel not ready), nothing recorded it, Electron drew an empty guest, and the pane that mounted later reused the resident without reloading because its `src` was set. `resident-webviews.ts` now records main-frame failures from creation and the pane shows them on mount; the pane covers a failed or crashed guest with `BrowserLoadFailure` (retry, backoff auto-retry for connection errors, immediate retry on host reconnect) and parks the webview so the card is visible. The loopback proxy answers a failed page load with a readable, self-retrying error page instead of an empty 502. Four races are fixed at the source: `ensureResidentBrowserWebview` no longer parks a webview a pane is presenting; attached registration retries when `getWebContentsId()` throws at `did-attach` (the uncaught throw made `browser_new_tab` time out); proxy credentials match the guest by session partition, since its first request can beat `register-attached`; and a host declared local stays direct, because a pane re-registering without the flag flipped the session to the tunnel proxy and `closeAllConnections()` killed the load. See [Failures and recovery](browser-localhost-routing.md#failures-and-recovery).
+
+```bash
+npm test --workspace=@getpaseo/app -- --project browser src/desktop/browser/resident-webviews.browser.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/desktop/browser/pane/load-failure.test.ts --bail=1
+npx vitest run packages/desktop/src/features/browser-loopback-proxy.test.ts packages/desktop/src/features/browser-loopback-direct.test.ts --bail=1
+grep -q "BrowserLoadFailure" packages/app/src/desktop/browser/pane/index.electron.tsx
+grep -q "guestUsesPartition" packages/desktop/src/main.ts
+```
+
 ## code-server-tab
 
 **register Code Server as a workspace tab kind**

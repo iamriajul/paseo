@@ -543,10 +543,11 @@ ipcMain.on("paseo:browser:loopback-tunnel-close", (_event, payload: unknown) => 
 });
 
 app.on("login", (event, contents, _details, authInfo, callback) => {
-  const browserId = getPaseoBrowserIdForWebContents(contents);
-  const credentials = browserId
+  const credentials = contents
     ? resolveBrowserLoopbackProxyCredentials({
-        browserId,
+        browserId: getPaseoBrowserIdForWebContents(contents),
+        guestUsesPartition: (partition) =>
+          !contents.isDestroyed() && contents.session === session.fromPartition(partition),
         isProxy: authInfo.isProxy,
         host: authInfo.host,
         port: authInfo.port,

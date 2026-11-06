@@ -660,6 +660,11 @@ export const ko: TranslationResources = {
       },
       errors: {
         failedToLoad: "페이지를 불러오지 못했습니다",
+        loadFailedTitle: "이 페이지를 불러올 수 없습니다",
+        crashed: "이 페이지가 중단되었습니다",
+        crashedDetail: "페이지가 응답하지 않습니다. 다시 시도하면 새로 고칩니다.",
+        retry: "다시 시도",
+        retryingIn: "{{seconds}}초 후 다시 시도",
         invalidUrl: "잘못된 브라우저 URL",
         unsupportedProtocol: "지원되지 않는 브라우저 URL을 차단했습니다: {{protocol}}",
         localhostHttpsUnsupported: "Localhost HTTPS isn't supported. Use HTTP for localhost.",

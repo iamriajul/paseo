@@ -657,6 +657,11 @@ export const en = {
       },
       errors: {
         failedToLoad: "Failed to load page",
+        loadFailedTitle: "Couldn't load this page",
+        crashed: "This page crashed",
+        crashedDetail: "The page stopped responding. Retry reloads it.",
+        retry: "Retry",
+        retryingIn: "Retrying in {{seconds}}s",
         invalidUrl: "Invalid browser URL",
         unsupportedProtocol: "Blocked unsupported browser URL: {{protocol}}",
         localhostHttpsUnsupported: "Localhost HTTPS isn't supported. Use HTTP for localhost.",

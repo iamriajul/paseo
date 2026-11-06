@@ -3676,6 +3676,9 @@ export const SessionEventSubscriptionSchema = z.enum([
   "hub.execution.agent.update",
   "hub.execution.agent.stream",
   ...FORK_SESSION_EVENTS,
+  // Separate from FORK_SESSION_EVENTS: it has its own feature flag (scheduleChangedEvents), so a
+  // daemon that predates it never sees it in the fork events subscription and rejects that.
+  "schedules.changed",
 ]);
 export type SessionEventSubscription = z.infer<typeof SessionEventSubscriptionSchema>;
 export const SessionEventsSetSubscriptionRequestSchema = z.object({
@@ -4186,6 +4189,8 @@ export const ServerInfoStatusPayloadSchema = z
         scheduleFeatureValues: z.boolean().optional(),
         // COMPAT(scheduleSkipWhileActive): added in v0.15.902, remove gate after 2027-05-06.
         scheduleSkipWhileActive: z.boolean().optional(),
+        // COMPAT(scheduleChangedEvents): added in v0.15.902, remove gate after 2027-05-06.
+        scheduleChangedEvents: z.boolean().optional(),
         // COMPAT(checkoutForgeSetAutoMerge): added in v0.2.0-beta.1. Remove the
         // feature gate and checkoutGithubSetAutoMerge fallback after 2027-01-17
         // once the supported daemon floor is >= v0.2.0.
@@ -5573,6 +5578,18 @@ export const ProviderHeartbeatsUpdateMessageSchema = z.object({
   payload: z.object({
     parentAgentId: z.string(),
     heartbeats: z.array(ProviderHeartbeatDescriptorPayloadSchema),
+  }),
+});
+
+/**
+ * A schedule changed on the daemon: created, edited, run, skipped or completed. Clients refetch
+ * their schedule list. Delivered only to a `session.events` subscription, which clients request
+ * when server_info.features.scheduleChangedEvents is set.
+ */
+export const SchedulesChangedMessageSchema = z.object({
+  type: z.literal("schedules.changed"),
+  payload: z.object({
+    scheduleId: z.string(),
   }),
 });
 
@@ -8038,6 +8055,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProviderHeartbeatsListResponseMessageSchema,
   ProviderHeartbeatsUpdateMessageSchema,
   ProviderHeartbeatsDeleteResponseMessageSchema,
+  SchedulesChangedMessageSchema,
   SetAgentTimelineSubscriptionResponseMessageSchema,
   AgentAttentionRequiredMessageSchema,
   AgentForkContextResponseMessageSchema,

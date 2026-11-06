@@ -852,6 +852,7 @@ export class Session {
   private readonly pluginRuntime: SessionOptions["pluginRuntime"];
   private readonly orchestrationSkills: SessionOptions["orchestrationSkills"];
   private unsubscribeAgentEvents: (() => void) | null = null;
+  private unsubscribeScheduleChanges: (() => void) | null = null;
   private unsubscribeProjectMutations: (() => void) | null = null;
   private unsubscribePluginChanges: (() => void) | null = null;
   private unsubscribeWorkspaceMutations: (() => void) | null = null;
@@ -907,6 +908,7 @@ export class Session {
   ) => void;
   private readonly checkoutSession: CheckoutSession;
   private readonly scheduleSession: ScheduleSession;
+  private readonly scheduleService: ScheduleService;
   private readonly taskSession: TaskSession;
   private readonly uiStateSession: UiStateSession;
   private readonly providerCatalogSession: ProviderCatalogSession;
@@ -1105,6 +1107,7 @@ export class Session {
       onBranchChanged,
       logger: this.sessionLogger,
     });
+    this.scheduleService = scheduleService;
     this.scheduleSession = new ScheduleSession({
       host: { emit: (msg) => this.emit(msg) },
       scheduleService,
@@ -2090,6 +2093,18 @@ export class Session {
     }
     this.refreshWorkspaceProducers(workspaces);
     this.refreshCatalogProducers(legacy);
+    this.refreshScheduleProducer();
+  }
+
+  private refreshScheduleProducer(): void {
+    if (!this.wantsEvent("schedules.changed")) {
+      this.unsubscribeScheduleChanges?.();
+      this.unsubscribeScheduleChanges = null;
+      return;
+    }
+    this.unsubscribeScheduleChanges ??= this.scheduleService.subscribeToChanges((scheduleId) =>
+      this.emit({ type: "schedules.changed", payload: { scheduleId } }),
+    );
   }
 
   private refreshWorkspaceProducers(observing: boolean): void {
@@ -9971,6 +9986,8 @@ export class Session {
     }
     this.unsubscribeProjectMutations?.();
     this.unsubscribeProjectMutations = null;
+    this.unsubscribeScheduleChanges?.();
+    this.unsubscribeScheduleChanges = null;
     this.unsubscribePluginChanges?.();
     this.unsubscribePluginChanges = null;
     this.unsubscribeWorkspaceMutations?.();
@@ -10048,8 +10065,15 @@ function isForkSessionEvent(type: string): type is (typeof FORK_SESSION_EVENTS)[
   return (FORK_SESSION_EVENTS as readonly string[]).includes(type);
 }
 
+/** Fork pushes delivered only to explicit subscriptions; schedules.changed has its own flag. */
+function isForkPushEvent(
+  type: string,
+): type is (typeof FORK_SESSION_EVENTS)[number] | "schedules.changed" {
+  return isForkSessionEvent(type) || type === "schedules.changed";
+}
+
 function sessionEventCategory(message: SessionOutboundMessage): SessionEventSubscription | null {
-  if (isForkSessionEvent(message.type)) return message.type;
+  if (isForkPushEvent(message.type)) return message.type;
   switch (message.type) {
     case "project.update":
     case "providers_snapshot_update":
@@ -10098,6 +10122,9 @@ function legacyWantsEvent(
       return !capabilities.has(CLIENT_CAPS.explicitEventSubscriptions);
     case "agent.provider_subagents.update":
       return capabilities.has(CLIENT_CAPS.providerSubagents);
+    // A client that predates explicit subscriptions predates this message too.
+    case "schedules.changed":
+      return false;
     default:
       return true;
   }

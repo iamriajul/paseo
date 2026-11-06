@@ -2134,6 +2134,8 @@ export class VoiceAssistantWebSocketServer {
         scheduleFeatureValues: true,
         // COMPAT(scheduleSkipWhileActive): added in v0.15.902, remove gate after 2027-05-06.
         scheduleSkipWhileActive: true,
+        // COMPAT(scheduleChangedEvents): added in v0.15.902, remove gate after 2027-05-06.
+        scheduleChangedEvents: true,
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.

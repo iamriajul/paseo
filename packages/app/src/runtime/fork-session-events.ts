@@ -17,4 +17,14 @@ export function useForkSessionEvents(client: DaemonClient | null, serverId: stri
       void subscription.release().catch(() => undefined);
     };
   }, [client, supported]);
+
+  // Its own subscription: a daemon that predates the event would reject the fork set over it.
+  const schedulesSupported = useHostFeature(serverId, "scheduleChangedEvents");
+  useEffect(() => {
+    if (!client || !schedulesSupported) return;
+    const subscription = client.observeEvents(["schedules.changed"]);
+    return () => {
+      void subscription.release().catch(() => undefined);
+    };
+  }, [client, schedulesSupported]);
 }

@@ -503,6 +503,11 @@ export class ScheduleService {
     return this.store.list();
   }
 
+  /** Every persisted change, including runs and skips the daemon records on its own ticks. */
+  subscribeToChanges(listener: (scheduleId: string) => void): () => void {
+    return this.store.subscribeToChanges(listener);
+  }
+
   async inspect(id: string): Promise<StoredSchedule> {
     const schedule = await this.store.get(id);
     return requireSchedule(schedule, id);

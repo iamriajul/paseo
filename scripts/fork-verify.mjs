@@ -51,6 +51,19 @@ export function parseDecisions(markdown) {
   return decisions;
 }
 
+/**
+ * The environment a proof command runs in. An agent session (Claude Code under the Paseo daemon)
+ * hands its children CLAUDE*, ANTHROPIC* and PASEO_HOME; provider env tests read those and fail,
+ * so fork-verify reported decisions as broken that pass in CI. Proofs run without them.
+ */
+export function proofEnvironment(env) {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      ([name]) => !/^(CLAUDE|ANTHROPIC)/.test(name) && name !== "PASEO_HOME",
+    ),
+  );
+}
+
 function loadDecisions() {
   if (!existsSync(DECISIONS_PATH)) {
     throw new Error(`missing ${DECISIONS_PATH}`);
@@ -81,6 +94,7 @@ function run() {
 
   const unprotected = selected.filter((d) => d.commands.length === 0);
   const failed = [];
+  const env = proofEnvironment(process.env);
 
   for (const [i, d] of selected.entries()) {
     if (d.commands.length === 0) {
@@ -89,7 +103,7 @@ function run() {
     }
     process.stdout.write(`run  ${i + 1}/${selected.length} ${d.id} ... `);
     const failing = d.commands.find(
-      (cmd) => spawnSync(cmd, { cwd: repoRoot, shell: true, stdio: "pipe" }).status !== 0,
+      (cmd) => spawnSync(cmd, { cwd: repoRoot, env, shell: true, stdio: "pipe" }).status !== 0,
     );
     if (failing === undefined) {
       console.log("ok");

@@ -67,7 +67,7 @@ import {
   getClaudeCustomModelThinkingOptions,
   parseClaudeCodeVersion,
   resolveClaudeDisabledThinkingForModel,
-  resolveClaudeWarmPingEffort,
+  resolveClaudeWarmUpRequestSettings,
 } from "./model-manifest.js";
 import { expandTilde } from "../../../../utils/path.js";
 import {
@@ -2851,6 +2851,9 @@ class ClaudeAgentSession implements AgentSession {
    * cleared by the turn's result or an idle session state. See observeMainTurnBracket.
    */
   private mainTurnInFlight = false;
+  /** A v1 warm-up ping lowered the running process's effort; restored when its turn ends. */
+  private warmPingEffortApplied = false;
+  private warmPingEffortSync: Promise<void> = Promise.resolve();
   private foregroundHasVisibleActivity = false;
   private activeTurnHasAssistantText = false;
   private readonly contextUsage: ClaudeContextUsageState;
@@ -3060,6 +3063,7 @@ class ClaudeAgentSession implements AgentSession {
       if (!this.input) {
         throw new Error("Claude session input stream not initialized");
       }
+      await this.syncWarmPingEffort(options?.lowestWarmUpEffort === true);
       this.activeForegroundQuery = this.query;
       this.activeForegroundInput = this.input;
       this.startQueryPump();
@@ -3087,7 +3091,9 @@ class ClaudeAgentSession implements AgentSession {
     prompt: AgentPromptInput,
     options: SteerActiveTurnOptions,
   ): Promise<SteerResult> {
-    if (this.resolveSlashCommandInvocation(prompt)) {
+    // A message steered into a warm-up ping would run at its lowered effort; refusing makes the
+    // caller replace the ping turn, which puts the agent's own effort back first.
+    if (this.resolveSlashCommandInvocation(prompt) || this.warmPingEffortApplied) {
       return { status: "unavailable" };
     }
     const sdkPrompt = await this.prepareClaudePrompt(prompt);
@@ -3591,7 +3597,7 @@ class ClaudeAgentSession implements AgentSession {
     const sessionId = this.claudeSessionId;
     if (this.closed || !sessionId || this.pendingFreshSessionId) return null;
     const options = await this.buildOptions(this.currentMode);
-    const lowestEffort = resolveClaudeWarmPingEffort(this.config.model);
+    const warmUp = resolveClaudeWarmUpRequestSettings(this.config.model);
     const fork: ClaudeOptions = {
       ...options,
       resume: sessionId,
@@ -3610,10 +3616,9 @@ class ClaudeAgentSession implements AgentSession {
       canUseTool: async () => ({ behavior: "deny", message: "A cache warm-up runs no tools." }),
       stderr: (data: string) =>
         this.logger.debug({ stderr: data.trim() }, "Cache warm-up fork stderr"),
-      ...(lowestEffort ? { effort: lowestEffort } : {}),
-      ...(resolveClaudeDisabledThinkingForModel(this.config.model).supported
-        ? { thinking: { type: "disabled" } }
-        : {}),
+      // Only where an effort change keeps the cache; otherwise the agent's own settings stand.
+      ...(warmUp.effort ? { effort: warmUp.effort } : {}),
+      ...(warmUp.disableThinking ? { thinking: { type: "disabled" } } : {}),
     };
     delete fork.sessionId;
     const query = claudeQuery(
@@ -4294,8 +4299,9 @@ class ClaudeAgentSession implements AgentSession {
     this.logger.debug({ options: summarizeClaudeOptionsForLog(options) }, "claude query");
     this.input = input;
     this.runtimeSafety.reset();
-    // A fresh Claude process has no turn of its own in flight.
+    // A fresh Claude process has no turn of its own in flight, and starts at the configured effort.
     this.mainTurnInFlight = false;
+    this.warmPingEffortApplied = false;
     this.query = claudeQuery(
       { prompt: input.iterable, options },
       {
@@ -4362,6 +4368,48 @@ class ClaudeAgentSession implements AgentSession {
       );
     } catch (error) {
       this.logger.warn({ err: error, label }, "Claude query operation did not settle cleanly");
+    }
+  }
+
+  /**
+   * Restores the configured effort as soon as a warm-up ping's turn ends, so a turn Claude starts
+   * on its own (a task notification, a wake-up) does not run at the lowered one.
+   */
+  private restoreAfterWarmPing(): void {
+    if (this.warmPingEffortApplied) {
+      this.warmPingEffortSync = this.syncWarmPingEffort(false);
+    }
+  }
+
+  /**
+   * Lowers the running process to the warm-up effort for a v1 ping, or puts the configured one
+   * back. Only a model whose cache survives an effort change is lowered
+   * (`resolveClaudeWarmUpRequestSettings`). Thinking stays as configured: on Claude Code 2.1.314
+   * neither `setMaxThinkingTokens(0)` nor the `alwaysThinkingEnabled` flag turns adaptive thinking
+   * off mid-session, and the former changes the thinking display instead.
+   */
+  private async syncWarmPingEffort(lowered: boolean): Promise<void> {
+    await this.warmPingEffortSync;
+    const query = this.query;
+    if (!query || this.warmPingEffortApplied === lowered) {
+      return;
+    }
+    const configuredEffort = this.resolveThinkingConfig().effort;
+    try {
+      if (lowered) {
+        const lowest = resolveClaudeWarmUpRequestSettings(this.config.model).effort;
+        if (lowest === null || lowest === configuredEffort) {
+          return;
+        }
+        await query.applyFlagSettings({ effortLevel: lowest });
+        this.warmPingEffortApplied = true;
+        return;
+      }
+      // Cleared only once the restore landed, so a failed one is retried at the next turn.
+      await query.applyFlagSettings({ effortLevel: configuredEffort ?? null });
+      this.warmPingEffortApplied = false;
+    } catch (error) {
+      this.logger.warn({ err: error, lowered }, "Failed to change the warm-up effort");
     }
   }
 
@@ -4893,6 +4941,7 @@ class ClaudeAgentSession implements AgentSession {
     this.activeTurnHasAssistantText = false;
     this.compactionMarkerOpen = false;
     this.syncTurnState("foreground turn terminal");
+    this.restoreAfterWarmPing();
   }
 
   private dispatchEvents(events: AgentStreamEvent[]): void {
@@ -4911,6 +4960,7 @@ class ClaudeAgentSession implements AgentSession {
         this.cancelCurrentTurn = null;
         this.activeTurnHasAssistantText = false;
         this.syncTurnState("foreground turn terminal");
+        this.restoreAfterWarmPing();
       } else if (this.autonomousTurn) {
         this.autonomousTurn = null;
         this.activeForegroundQuery = null;

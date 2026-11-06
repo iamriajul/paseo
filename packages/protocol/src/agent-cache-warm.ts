@@ -445,6 +445,30 @@ export function recordPromptCacheCompaction(
 }
 
 /**
+ * The agent's latest activity was a compaction, the user's own `/compact` or the idle cap's: no
+ * request of the agent's own came after it. The next message writes only the compacted summary.
+ * A compaction is recorded after its own request starts, so a user's `/compact` turn counts too.
+ */
+export function lastTurnWasCompaction(
+  promptCache: Pick<AgentPromptCacheState, "compactions" | "lastActivityAt"> | null | undefined,
+): boolean {
+  const last = promptCache?.compactions?.at(-1);
+  if (!last) return false;
+  return (promptCache?.lastActivityAt ?? "") <= last.at;
+}
+
+/**
+ * Warm-up compacted at the idle cap and the agent has made no request of its own since, so warm-up
+ * stays paused until the next message. The compaction is a warm-up turn, so its requests do not
+ * move `lastActivityAt`; the next message does, and that resumes warm-up.
+ */
+export function isWarmUpPausedAtIdleCap(
+  promptCache: Pick<AgentPromptCacheState, "compactions" | "lastActivityAt"> | null | undefined,
+): boolean {
+  return promptCache?.compactions?.at(-1)?.atIdleCap === true && lastTurnWasCompaction(promptCache);
+}
+
+/**
  * Anthropic restarts the cache TTL when a request is processed, not when the turn ends.
  * A turn makes many requests, so the latest request start is the anchor; turn end is
  * only the fallback for records written before request samples existed.

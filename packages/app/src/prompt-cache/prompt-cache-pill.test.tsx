@@ -351,6 +351,29 @@ describe("PromptCachePill", () => {
     expect(getByText("capped · 4:00")).toBeTruthy();
   });
 
+  it("shows warm-up paused after the idle-cap compaction until the next message", () => {
+    const compactedAt = new Date(NOW - MINUTE).toISOString();
+    const { getByText, getByTestId } = renderPill(
+      claudeAgent({
+        ttl: "5m",
+        consecutiveWarmPings: 10,
+        promptCache: {
+          ...promptCacheAt(NOW - MINUTE),
+          lastActivityAt: new Date(NOW - 50 * MINUTE).toISOString(),
+          compactions: [{ at: compactedAt, trigger: "manual", atIdleCap: true }],
+        },
+      }),
+    );
+    expect(getByText("paused · 4:00")).toBeTruthy();
+    expect(getByTestId("prompt-cache-cap-count").textContent).toContain(
+      "Paused after compacting · resumes on your next message",
+    );
+    // Warm-up stays on: the switch is not what resumes it.
+    expect(getByTestId("prompt-cache-toggle-warmup-switch").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
   it("toggles warm-up, and disables turning it on once the cache expired", () => {
     const live = renderPill(
       claudeAgent({ ttl: "1h", cacheWarm: false, promptCache: promptCacheAt(NOW) }),

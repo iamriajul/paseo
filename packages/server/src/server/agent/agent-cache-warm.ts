@@ -15,6 +15,7 @@ import {
   isCacheWarmReply,
   isClaudeModel,
   isQuestionPermission,
+  isWarmUpPausedAtIdleCap,
   type PromptCacheTtl,
   type PromptCacheWindows,
 } from "@getpaseo/protocol/agent-cache-warm";
@@ -56,6 +57,8 @@ interface CacheWarmView {
   forkWarm: boolean;
   /** Host setting `childReportExpiredCache` is keep-warm and a child can still report to it. */
   warmPastCap: boolean;
+  /** Warm-up compacted at the idle cap; it resumes when the agent makes a request of its own. */
+  pausedAtIdleCap: boolean;
 }
 
 type CacheWarmDecision =
@@ -73,6 +76,8 @@ type CacheWarmDecision =
 
 interface ViewInput {
   consecutivePings: number;
+  /** The manager compacted this agent at the cap and nothing of its own ran since. */
+  compactedAtCap: boolean;
   autoCompactByDefault: boolean;
   forkWarm: boolean;
   warmPastCap: boolean;
@@ -112,6 +117,7 @@ function viewLiveAgent(
     contextTokens: readContextTokens(agent.promptCache),
     forkWarm: input.forkWarm,
     warmPastCap: input.warmPastCap,
+    pausedAtIdleCap: input.compactedAtCap || isWarmUpPausedAtIdleCap(agent.promptCache),
   };
 }
 
@@ -137,6 +143,7 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
     // Loading the record gives it a session that can fork; a crashed run is restart recovery's.
     forkWarm: input.forkWarm && !wasRunning,
     warmPastCap: input.warmPastCap,
+    pausedAtIdleCap: input.compactedAtCap || isWarmUpPausedAtIdleCap(record.promptCache),
   };
 }
 
@@ -178,12 +185,12 @@ export function resolveCacheWarmWindows(view: {
     : null;
 }
 
-function decideCacheWarm(input: {
-  view: CacheWarmView;
-  nowMs: number;
-  lastAttemptMs: number | null;
-}): CacheWarmDecision {
-  const { view, nowMs, lastAttemptMs } = input;
+type Warmable =
+  | { kind: "warmable"; windows: PromptCacheWindows }
+  | { kind: "skip"; reason: string };
+
+/** Whether warm-up applies to the agent at all, before anything about its timing. */
+function resolveWarmable(view: CacheWarmView): Warmable {
   if (view.activity === "closed") {
     return { kind: "skip", reason: "agent is closed" };
   }
@@ -191,6 +198,21 @@ function decideCacheWarm(input: {
   if (!windows) {
     return { kind: "skip", reason: "warm-up is off or the cache window is Automatic" };
   }
+  if (view.pausedAtIdleCap) {
+    return { kind: "skip", reason: "paused after the idle-cap compaction until the next message" };
+  }
+  return { kind: "warmable", windows };
+}
+
+function decideCacheWarm(input: {
+  view: CacheWarmView;
+  nowMs: number;
+  lastAttemptMs: number | null;
+}): CacheWarmDecision {
+  const { view, nowMs, lastAttemptMs } = input;
+  const warmable = resolveWarmable(view);
+  if (warmable.kind === "skip") return warmable;
+  const { windows } = warmable;
   if (view.forkWarm) {
     return decideForkWarm({ view, windows, nowMs, lastAttemptMs });
   }
@@ -322,6 +344,12 @@ export class AgentCacheWarmManager {
   private readonly consecutivePings = new Map<string, number>();
   private readonly lastAttemptAt = new Map<string, number>();
   private readonly pingsInFlight = new Set<string>();
+  /**
+   * Compacted at the idle cap, until the agent's next request of its own. The compaction record in
+   * the cache state says the same once it lands and survives a restart; this covers the turn
+   * before it lands and a compaction that reported none.
+   */
+  private readonly compactedAtCap = new Set<string>();
   /** Agents known only from storage after a daemon restart, until something loads them. */
   private readonly dormantRecords = new Map<string, StoredAgentRecord>();
 
@@ -379,6 +407,7 @@ export class AgentCacheWarmManager {
 
   resetConsecutivePings(agentId: string): void {
     this.lastAttemptAt.delete(agentId);
+    this.compactedAtCap.delete(agentId);
     this.setConsecutivePings(agentId, 0);
   }
 
@@ -410,6 +439,7 @@ export class AgentCacheWarmManager {
     const agent = this.agentManager.getAgent(agentId);
     const input: ViewInput = {
       consecutivePings: this.getConsecutivePings(agentId),
+      compactedAtCap: this.compactedAtCap.has(agentId),
       autoCompactByDefault: this.isCacheAutoCompactByDefault(),
       warmPastCap: this.warmsPastCap(agentId),
       forkWarm:
@@ -514,9 +544,10 @@ export class AgentCacheWarmManager {
   }
 
   /**
-   * Compacts instead of letting the cache expire, then turns warm-up off: the compacted context
-   * is cheap to write again, so keeping it warm would cost more than it saves. It is no warm-up,
-   * so the ping counts stay as they are.
+   * Compacts instead of letting the cache expire, then pauses warm-up until the agent's next
+   * request of its own: the compacted context is cheap to write again, so keeping it warm would
+   * cost more than it saves. Warm-up stays on, so the next message resumes it with a fresh count.
+   * It is no warm-up, so the ping counts stay as they are.
    */
   private async compactAtCap(agentId: string, contextTokens: number): Promise<boolean> {
     this.logger.info({ agentId, contextTokens }, "Compacting at the warm-up idle cap");
@@ -527,9 +558,7 @@ export class AgentCacheWarmManager {
       // Before the compaction turn, so no heartbeat or schedule can wake the session after it.
       await this.idleCapCompactionHandler?.(agentId);
       sent = await this.sendPrompt(agentId, CACHE_AUTO_COMPACT_PROMPT);
-      if (sent) {
-        await this.agentManager.setAgentFeature(agentId, CLAUDE_CACHE_WARM_FEATURE_ID, false);
-      }
+      if (sent) this.compactedAtCap.add(agentId);
     } catch (error) {
       this.logger.warn({ err: error, agentId }, "Idle-cap compaction failed");
     } finally {
@@ -602,7 +631,10 @@ export class AgentCacheWarmManager {
   /** A request of the agent's own restarts the TTL and ends the idle stretch's warm-up count. */
   onRequestRecorded(agentId: string): void {
     if (this.getConsecutivePings(agentId) > 0) this.resetConsecutivePings(agentId);
-    else this.lastAttemptAt.delete(agentId);
+    else {
+      this.lastAttemptAt.delete(agentId);
+      this.compactedAtCap.delete(agentId);
+    }
     this.schedule(agentId);
   }
 
@@ -652,6 +684,7 @@ export class AgentCacheWarmManager {
     }
     this.consecutivePings.clear();
     this.lastAttemptAt.clear();
+    this.compactedAtCap.clear();
     this.dormantRecords.clear();
   }
 
@@ -671,6 +704,7 @@ export class AgentCacheWarmManager {
       }
       const view = viewDormantRecord(record, {
         consecutivePings: 0,
+        compactedAtCap: false,
         autoCompactByDefault: false,
         forkWarm: false,
         warmPastCap: false,

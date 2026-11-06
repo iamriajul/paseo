@@ -1078,6 +1078,8 @@ export const AgentSnapshotPayloadSchema = z.object({
   promptCache: AgentPromptCacheStateSchema.optional(),
   /** Explicit per-agent idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact: z.boolean().optional(),
+  /** Explicit per-agent warm-up cap per idle stretch; absent uses the window's maximum. */
+  cacheWarmMaxPings: z.number().optional(),
   /**
    * Whether the agent's provider process is running. A loaded agent can have none: Claude starts
    * its process on the first turn. Absent from daemons and providers that do not report it.
@@ -4270,6 +4272,8 @@ export const ServerInfoStatusPayloadSchema = z
         promptCacheInsights: z.boolean().optional(),
         // COMPAT(promptCacheClearMisses): added in v0.14.908, drop gate after 2027-05-01.
         promptCacheClearMisses: z.boolean().optional(),
+        // COMPAT(cacheWarmMaxPings): added in v0.15.902, drop gate after 2027-05-01.
+        cacheWarmMaxPings: z.boolean().optional(),
         // COMPAT(cliproxyapiStats): added in v0.9.910, drop the gate once daemon floor >= v0.9.910.
         cliproxyapiStats: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.

@@ -57,10 +57,16 @@ export function derivePendingPermissionKey(
   return `${agentId}:${fallbackId}`;
 }
 
-function pickCacheAutoCompact(source: { cacheAutoCompact?: boolean }): {
+function pickCacheAutoCompact(source: { cacheAutoCompact?: boolean; cacheWarmMaxPings?: number }): {
   cacheAutoCompact?: boolean;
+  cacheWarmMaxPings?: number;
 } {
-  return source.cacheAutoCompact === undefined ? {} : { cacheAutoCompact: source.cacheAutoCompact };
+  return {
+    ...(source.cacheAutoCompact === undefined ? {} : { cacheAutoCompact: source.cacheAutoCompact }),
+    ...(source.cacheWarmMaxPings === undefined
+      ? {}
+      : { cacheWarmMaxPings: source.cacheWarmMaxPings }),
+  };
 }
 
 function pickWarmUpCost(source: { warmUpCostUsd?: number }): { warmUpCostUsd?: number } {

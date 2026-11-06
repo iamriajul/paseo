@@ -88,6 +88,8 @@ export interface Agent {
   promptCache?: AgentPromptCacheState;
   /** Explicit idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact?: boolean;
+  /** Explicit warm-up cap per idle stretch; absent uses the window's maximum. */
+  cacheWarmMaxPings?: number;
   /** Whether the provider process runs; absent when the daemon or provider does not report it. */
   runtimeActive?: boolean;
   lastActivityAt: Date;

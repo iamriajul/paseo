@@ -1,7 +1,9 @@
 import type { Logger } from "pino";
 import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 import {
+  applyCacheWarmMaxPings,
   CACHE_AUTO_COMPACT_FEATURE_ID,
+  CACHE_WARM_MAX_PINGS_FEATURE_ID,
   CACHE_AUTO_COMPACT_MIN_CONTEXT_TOKENS,
   CACHE_AUTO_COMPACT_PROMPT,
   promptCacheInputTokens,
@@ -180,8 +182,11 @@ export function resolveCacheWarmWindows(view: {
   });
   // Timed on the TTL the process really writes: after a Cache window change it keeps the old
   // one until it relaunches.
-  return enabled
+  const windows = enabled
     ? resolveEffectivePromptCacheWindows({ observedTtl: view.observedTtl, promptCacheTtl })
+    : null;
+  return windows
+    ? applyCacheWarmMaxPings(windows, view.featureValues?.[CACHE_WARM_MAX_PINGS_FEATURE_ID])
     : null;
 }
 

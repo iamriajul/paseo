@@ -74,6 +74,17 @@ Two attach races also produced blank or broken agent tabs, and both are covered 
 
 Whether a host is this machine is remembered per `serverId` once any registration says so. The automation handler knows the connection and declares it; the pane registering the same tab does not, and the cached daemon status can be empty. Flipping that workspace's session from direct to the tunnel proxy ran `closeAllConnections()` mid-load.
 
+## Open on this computer
+
+A Browser tab showing a localhost URL on a remote host has an "Open on this computer" toolbar menu (Electron desktop). It forwards the tab's ports to the machine running the desktop app and opens the page in the system browser.
+
+- The port set is the address bar's port, every loopback port the page's own traffic used (documents, scripts, fetch/XHR, WebSockets, recorded by `browser-loopback-traffic.ts` from `session.webRequest.onSendHeaders`), and ports the user adds. Forwarding only the page port leaves an app half-working when it calls an API or HMR socket on another port.
+- Each forward is a listener on `127.0.0.1:<same port>` in Electron main (`browser-port-forward.ts`). Every accepted connection rides the same renderer TCP tunnel as Browser localhost, so it needs no new protocol and works wherever the tab's localhost works.
+- Same port numbers keep absolute URLs working. A port already taken on this machine is reported as in use; "Use free ports instead" binds a random port, and the menu says pages that hard-code a port may break.
+- Forwards belong to the tab and stop when it closes. A tab whose host is this machine needs no forward: the menu opens the URL directly.
+
+Mobile does not get this. The user's own browser on a phone is a different app, and switching to it backgrounds Paseo; Android stops the Browser proxy and every TCP stream on background (see [Android lifecycle](#android-lifecycle)), and iOS suspends the WebSocket the tunnel rides on. Keeping forwards alive would need an Android foreground service that keeps the JS daemon client and its sockets running, and iOS has no equivalent. The web build cannot bind ports at all.
+
 ## Workspace services in the Browser
 
 `paseo.json` services are part of the Browser, not a separate origin:
@@ -218,6 +229,14 @@ npx vitest run packages/server/src/server/tcp-tunnel-forwarder.test.ts --bail=1
 ```
 
 For full Electron behavior, use a real Browser pane or browser automation tab because the important behavior depends on Electron session proxying and webview partitions.
+
+Failure handling, link routing, services and port forwarding have focused coverage:
+
+```bash
+npx vitest run packages/desktop/src/features/browser-loopback-proxy.test.ts packages/desktop/src/features/browser-loopback-direct.test.ts packages/desktop/src/features/browser-port-forward.test.ts packages/desktop/src/features/browser-loopback-traffic.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/desktop/browser/pane/load-failure.test.ts src/desktop/browser/pane/port-forward-menu.test.ts src/utils/workspace-url-open-action.test.ts src/utils/workspace-script-links.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- --project browser src/desktop/browser/resident-webviews.browser.test.ts --bail=1
+```
 
 Android request parsing has Kotlin unit coverage in the local Expo module. `.github/workflows/ci.yml` runs those tests and a one-worker debug assembly only when Android Browser paths change. Do not use local Expo prebuild, Gradle, emulator, Maestro, APK, or AAB builds as routine verification for this feature; use focused JS tests plus formatting, lint, and typecheck locally, and leave native compilation and device validation to GitHub Actions or the cloud release workflow.
 

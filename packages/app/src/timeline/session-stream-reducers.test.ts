@@ -2680,6 +2680,45 @@ describe("processTimelineResponse", () => {
     expect(result.older).toBe("none");
   });
 
+  it("names an older segment of the live reply apart from the reply in the head", () => {
+    // A reply split by tool calls shares one message id across its segments. When the
+    // loaded window starts after its first segment, the live segment in the head takes the
+    // bare id, so the first segment arriving with an older page must not take it too.
+    const currentTail: StreamItem[] = [
+      {
+        kind: "user_message",
+        id: "current-3",
+        text: "current-3",
+        timestamp: new Date(3000),
+      },
+    ];
+    const currentHead = [{ ...makeAssistantItem("live segment", "reply-1"), messageId: "reply-1" }];
+
+    const result = processTimelineResponse({
+      ...baseTimelineInput,
+      currentTail,
+      currentHead,
+      currentCursor: { epoch: "epoch-1", startSeq: 3, endSeq: 5 },
+      payload: {
+        ...baseTimelineInput.payload,
+        direction: "before",
+        epoch: "epoch-1",
+        startCursor: { seq: 1 },
+        endCursor: { seq: 2 },
+        entries: [
+          {
+            ...makeTimelineEntry(1, "first segment"),
+            item: { type: "assistant_message", text: "first segment", messageId: "reply-1" },
+          },
+        ],
+      },
+    });
+
+    expect(getAssistantTexts(result.tail)).toEqual(["first segment"]);
+    const ids = [...result.tail, ...result.head].map((item) => item.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("keeps only projected entries anchored in an older response page", () => {
     const currentTail: StreamItem[] = [
       {

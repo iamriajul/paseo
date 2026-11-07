@@ -270,6 +270,33 @@ describe("archiveByScope", () => {
     expect(existsSync(worktree.worktreePath)).toBe(false);
   });
 
+  test("workspace scope finishes without waiting for the main repo refresh", async () => {
+    const { tempDir, repoDir } = createGitRepo();
+    const paseoHome = path.join(tempDir, ".paseo");
+    const worktree = await createPaseoOwnedWorktree(repoDir, paseoHome, "busy-main-repo");
+    const workspaceId = "ws-busy-main-repo";
+    const dependencies = createArchiveDeps({
+      paseoHome,
+      activeWorkspaces: [{ workspaceId, cwd: worktree.worktreePath, kind: "worktree" }],
+    });
+    const getSnapshot = vi.fn(() => new Promise<never>(() => {}));
+    dependencies.workspaceGitService = {
+      getSnapshot,
+      invalidateWorktrees: () => {},
+    } as unknown as ArchiveDependencies["workspaceGitService"];
+
+    const result = await archiveByScope(dependencies, {
+      scope: { kind: "workspace", workspaceId },
+      requestId: "req-busy-main-repo",
+    });
+
+    expect(result.removedDirectory).toBe(true);
+    expect(getSnapshot).toHaveBeenCalledWith(expect.any(String), {
+      force: true,
+      reason: "archive-worktree",
+    });
+  });
+
   test("workspace scope archives the record but leaves a plugin-placed directory whose marker is gone", async () => {
     const { tempDir, repoDir } = createGitRepo();
     const paseoHome = path.join(tempDir, ".paseo");

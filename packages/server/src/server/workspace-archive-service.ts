@@ -167,20 +167,6 @@ async function archiveByScopeWithPriority(
       request.requestId,
     );
 
-    if (target.backing?.mainRepoRoot) {
-      try {
-        await dependencies.workspaceGitService.getSnapshot(target.backing.mainRepoRoot, {
-          force: true,
-          reason: "archive-worktree",
-        });
-      } catch (error) {
-        dependencies.sessionLogger?.warn(
-          { err: error, cwd: target.backing.mainRepoRoot, requestId: request.requestId },
-          "Failed to force-refresh workspace git snapshot after archiving",
-        );
-      }
-    }
-
     if (target.backing !== null) {
       const removal = await maybeRemoveDirectory(
         dependencies,
@@ -199,11 +185,35 @@ async function archiveByScopeWithPriority(
       ...(directoryLeftBehind ? { directoryLeftBehind } : {}),
     };
   } finally {
+    if (target.backing?.mainRepoRoot) {
+      refreshMainRepoAfterArchive(dependencies, target.backing.mainRepoRoot, request.requestId);
+    }
     if (targetWorkspaceIds.length > 0) {
       dependencies.clearWorkspaceArchiving(targetWorkspaceIds);
       await dependencies.emitWorkspaceUpdatesForWorkspaceIds(targetWorkspaceIds);
     }
   }
+}
+
+/**
+ * Not awaited: the archive does not read the result, and a refresh that joins an
+ * in-flight background refresh of the main repo runs at that refresh's normal git
+ * priority, behind every queued poll. Requested after removal so it sees the
+ * worktree gone.
+ */
+function refreshMainRepoAfterArchive(
+  dependencies: ArchiveDependencies,
+  mainRepoRoot: string,
+  requestId: string,
+): void {
+  void dependencies.workspaceGitService
+    .getSnapshot(mainRepoRoot, { force: true, reason: "archive-worktree" })
+    .catch((error: unknown) => {
+      dependencies.sessionLogger?.warn(
+        { err: error, cwd: mainRepoRoot, requestId },
+        "Failed to force-refresh workspace git snapshot after archiving",
+      );
+    });
 }
 
 async function resolveArchiveTarget(

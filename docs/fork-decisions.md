@@ -1146,3 +1146,13 @@ Archived workspaces came back in the sidebar and stayed there. The daemon writes
 ```bash
 npx vitest run --root packages/app src/workspace/workspace-archive.test.ts --bail=1 -t "keeps the workspace hidden"
 ```
+
+## workspace-archive-main-repo-refresh-detached
+
+**Archiving does not wait for the main repo git refresh**
+
+Upstream awaited a forced refresh of the main repo before removing the worktree. The main repo is usually mid-refresh from polling, so the forced request joined that in-flight job and its queued follow-up ran in the poll's normal git priority, behind every queued poll (p50 queue wait 6.8 s per git command on 2026-11-07). The archive never reads the result. The refresh is now requested after the directory is removed, so it sees the worktree gone, and is not awaited.
+
+```bash
+cd packages/server && npx vitest run src/server/workspace-archive-service.test.ts --bail=1 -t "finishes without waiting for the main repo refresh"
+```

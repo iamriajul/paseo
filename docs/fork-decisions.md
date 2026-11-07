@@ -1166,3 +1166,13 @@ Upstream closed a `WorkspaceGitService` target on its last unsubscribe. App sock
 ```bash
 cd packages/server && npx vitest run src/server/workspace-git-service.primitive.test.ts --bail=1 -t "re-registered soon after its last unsubscribe|closes once the linger period passes"
 ```
+
+## degraded-poll-idle-ceiling
+
+**Degraded polling of a workspace nobody uses backs off to ten minutes**
+
+Upstream capped degraded polling at 60 s for every listed workspace. On a host with 116 listed worktrees, each too large for the Linux watcher cap, that is about two refreshes a second forever, almost all for worktrees untouched for days; fallback polling was 12% of 557,138 git commands in 13 h even though reconnect churn kept resetting it. A workspace outside the remote-poll set (not open in a client, no agent updated within six hours) now keeps doubling to a 10-minute ceiling, and entering the set restarts its poll at 5 s. The rule lives in [file-observation.md](file-observation.md).
+
+```bash
+cd packages/server && npx vitest run src/server/workspace-git-service.observation.test.ts --bail=1 -t "outside the remote-poll set backs off to ten minutes"
+```

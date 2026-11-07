@@ -402,6 +402,16 @@ grep -q 'testID="composer-alternate-send-button"' packages/app/src/composer/inpu
 grep -q 'queues a draft with the button beside Send' packages/app/e2e/browser/agent-message-submission.spec.ts
 ```
 
+## older-page-reserves-head-ids
+
+**an older timeline page never reuses an id the live head holds**
+
+A reply split by tool calls keeps one message id across its segments. When the loaded window starts after the first segment, the segment streaming in the head takes the bare id; official then hydrated the older page that brings in the first segment with only the tail's ids reserved, so both rows got the same id and React warned "Encountered two children with the same key" on every render of a long turn after a reload. `applyAcceptedTimelinePage` reserves the head's ids as well.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/timeline/session-stream-reducers.test.ts -t "names an older segment of the live reply" --bail=1
+```
+
 ## workspace-mark-unread
 
 **Workspaces can be marked as unread**

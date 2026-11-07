@@ -390,6 +390,18 @@ npm run test:unit --workspace=@getpaseo/server -- src/server/agent/providers/omp
 
 The omp suite runs through the server workspace on purpose: root `npx vitest` applies the 5s default timeout, and the prompt-rejection tests wait out the 5s no-turn settle window. The server config gives them 30s.
 
+## composer-alternate-send-button
+
+**the composer shows the alternate send action as a button beside Send**
+
+While a turn runs and the draft has content, a ghost button sits between Schedule and Send for the action that is not the default: "Queue for after this turn" (ListEnd icon) when the default steers or interrupts, "Send now" (Zap icon) when the default queues. Official only offers the alternate through Mod+Enter and a long-press on Send, and the long-press is announced only as an accessibility hint, so users with steer as the default never found the queue. The button hides when the agent is idle (queue and send are the same then) and when the draft is empty (Stop owns the slot). Its desktop tooltip names the shortcut. With the "Mod+Enter sends" setting, official had no alternate shortcut at all; the fork maps Mod+Shift+Enter to it, while Mod+Shift+Enter stays a no-op on an idle agent. The long-press on Send is unchanged. Schedule and the alternate button share the voice button's 28px circle (`toolbarIconButton`); Schedule's style names were never defined, so it rendered as a 16px tap target beside Send.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/composer/input/state.test.ts src/composer/input/labels.test.ts --bail=1
+grep -q 'testID="composer-alternate-send-button"' packages/app/src/composer/input/input.tsx
+grep -q 'queues a draft with the button beside Send' packages/app/e2e/browser/agent-message-submission.spec.ts
+```
+
 ## workspace-mark-unread
 
 **Workspaces can be marked as unread**
@@ -917,7 +929,7 @@ grep -q 'observeEvents(\["schedules.changed"\])' packages/app/src/runtime/fork-s
 
 **schedule a prompt on any running agent with one-shot timers or calendar cadences**
 
-The composer toolbar gains a Schedule prompt action (CalendarClock icon) beside the Send button. The schedule sheet supports one-shot timer presets ("In 15 minutes", "In 30 minutes", "In 1 hour", "In 2 hours", "In 4 hours", "Tomorrow 9:00") and custom cron, prefilled with the composer draft. On schedule, the composer clears, a confirmation toast appears, and the scheduled prompt appears in the Heartbeats / Scheduled Prompts track above the composer with countdown labels ("in 30m"). Scheduled prompts target the agent with `asUserMessage: true` and `maxRuns: 1`. On fire, the daemon delivers the prompt directly to the agent as a real user message (waiting if an active turn is in-flight) rather than wrapping it in a system notification envelope, so the user's prompt appears in the conversation timeline and the agent runs autonomously. Gated on `server_info.features.scheduledPrompt`.
+The composer toolbar gains a Schedule prompt action (CalendarClock icon) beside the Send button, shown once the draft has text (a schedule fires a prompt, so an empty draft has nothing to schedule; `shouldShowScheduleButton`). The schedule sheet supports one-shot timer presets ("In 15 minutes", "In 30 minutes", "In 1 hour", "In 2 hours", "In 4 hours", "Tomorrow 9:00") and custom cron, prefilled with the composer draft. On schedule, the composer clears, a confirmation toast appears, and the scheduled prompt appears in the Heartbeats / Scheduled Prompts track above the composer with countdown labels ("in 30m"). Scheduled prompts target the agent with `asUserMessage: true` and `maxRuns: 1`. On fire, the daemon delivers the prompt directly to the agent as a real user message (waiting if an active turn is in-flight) rather than wrapping it in a system notification envelope, so the user's prompt appears in the conversation timeline and the agent runs autonomously. Gated on `server_info.features.scheduledPrompt`.
 
 ```bash
 npx vitest run packages/protocol/src/schedule/cadence.test.ts packages/protocol/src/schedule/types.test.ts --bail=1

@@ -10,7 +10,9 @@ import {
   resolveMessageInputEnterAction,
   resolveRetainedSelection,
   resolveAlternateSendAction,
+  resolveAlternateSendButtonAction,
   runAlternateSendAction,
+  shouldShowScheduleButton,
   runDefaultSendAction,
   runMessageInputKeyboardAction,
   stopRealtimeVoice,
@@ -322,6 +324,54 @@ describe("composer send behavior", () => {
   });
 });
 
+describe("alternate send button", () => {
+  it("offers the alternate only while Send shows and is not interrupting", () => {
+    expect(
+      resolveAlternateSendButtonAction({
+        alternateSendAction: "queue",
+        showsSend: true,
+        canPressLoadingButton: false,
+      }),
+    ).toBe("queue");
+    expect(
+      resolveAlternateSendButtonAction({
+        alternateSendAction: "send",
+        showsSend: true,
+        canPressLoadingButton: false,
+      }),
+    ).toBe("send");
+    expect(
+      resolveAlternateSendButtonAction({
+        alternateSendAction: "queue",
+        showsSend: false,
+        canPressLoadingButton: false,
+      }),
+    ).toBeNull();
+    expect(
+      resolveAlternateSendButtonAction({
+        alternateSendAction: "queue",
+        showsSend: true,
+        canPressLoadingButton: true,
+      }),
+    ).toBeNull();
+    expect(
+      resolveAlternateSendButtonAction({
+        alternateSendAction: null,
+        showsSend: true,
+        canPressLoadingButton: false,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("schedule button visibility", () => {
+  it("shows only once a prompt is typed on an agent that can schedule", () => {
+    expect(shouldShowScheduleButton({ canSchedulePrompt: true, hasText: true })).toBe(true);
+    expect(shouldShowScheduleButton({ canSchedulePrompt: true, hasText: false })).toBe(false);
+    expect(shouldShowScheduleButton({ canSchedulePrompt: false, hasText: true })).toBe(false);
+  });
+});
+
 describe("resolveMessageInputEnterAction", () => {
   function enterContext(
     overrides: Partial<MessageInputEnterContext> = {},
@@ -419,7 +469,7 @@ describe("resolveMessageInputEnterAction", () => {
     ).toBeNull();
   });
 
-  it("returns null for Shift+Cmd+Enter and Shift+Ctrl+Enter when modifier Enter sends", () => {
+  it("returns null for Shift+Cmd+Enter and Shift+Ctrl+Enter while idle when modifier Enter sends", () => {
     expect(
       resolveMessageInputEnterAction(
         enterContext({ sendShortcut: "mod-enter", shiftKey: true, metaKey: true }),
@@ -430,6 +480,32 @@ describe("resolveMessageInputEnterAction", () => {
         enterContext({ sendShortcut: "mod-enter", shiftKey: true, ctrlKey: true }),
       ),
     ).toBeNull();
+  });
+
+  it("takes the alternate on Shift+Cmd+Enter and Shift+Ctrl+Enter while running when modifier Enter sends", () => {
+    for (const modifier of [{ metaKey: true }, { ctrlKey: true }]) {
+      expect(
+        resolveMessageInputEnterAction(
+          enterContext({
+            sendShortcut: "mod-enter",
+            shiftKey: true,
+            isAgentRunning: true,
+            ...modifier,
+          }),
+        ),
+      ).toBe("alternate-send");
+      expect(
+        resolveMessageInputEnterAction(
+          enterContext({
+            sendShortcut: "mod-enter",
+            shiftKey: true,
+            isAgentRunning: true,
+            onQueue: undefined,
+            ...modifier,
+          }),
+        ),
+      ).toBeNull();
+    }
   });
 
   it("sends on Cmd+Enter and Ctrl+Enter while idle when modifier Enter sends", () => {

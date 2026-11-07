@@ -33,8 +33,10 @@ import {
   Mic,
   MicOff,
   CornerDownLeft,
+  ListEnd,
   Plus,
   Square,
+  Zap,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useDictation } from "@/hooks/use-dictation";
@@ -90,6 +92,7 @@ const ComposerTextInput = withUnistyles(EditingTextInput, (theme) => ({
 }));
 const ThemedCalendarClock = withUnistyles(CalendarClock);
 import {
+  resolveAlternateSendLabel,
   resolveSendTooltipLabel,
   resolveSubmitAccessibilityHint,
   resolveSubmitAccessibilityLabel,
@@ -100,6 +103,8 @@ import {
   applyDictationTranscript,
   computeCanStartDictation,
   resolveAlternateSendAction,
+  resolveAlternateSendButtonAction,
+  shouldShowScheduleButton,
   resolveComposerSurfacePresentation,
   resolveComposerSurfaceText,
   resolveMessageInputEnterAction,
@@ -108,6 +113,7 @@ import {
   runDefaultSendAction,
   runMessageInputKeyboardAction,
   stopRealtimeVoice,
+  type AlternateSendAction,
 } from "./state";
 
 const DEFAULT_SEND_KEYS: ShortcutKey[][] = [["Enter"]];
@@ -115,6 +121,13 @@ const MOD_ENTER_SEND_KEYS: ShortcutKey[][] = [["mod", "Enter"]];
 
 function resolveSendKeys(sendShortcut: SendShortcut): ShortcutKey[][] {
   return sendShortcut === "mod-enter" ? MOD_ENTER_SEND_KEYS : DEFAULT_SEND_KEYS;
+}
+
+const MOD_SHIFT_ENTER_KEYS: ShortcutKey[][] = [["mod", "shift", "Enter"]];
+
+/** Mirrors resolveMessageInputEnterAction: the alternate is Send's chord plus one modifier. */
+function resolveAlternateSendKeys(sendShortcut: SendShortcut): ShortcutKey[][] {
+  return sendShortcut === "mod-enter" ? MOD_SHIFT_ENTER_KEYS : MOD_ENTER_SEND_KEYS;
 }
 const COMPOSER_INPUT_DATASET = { composerInput: "" } as const;
 
@@ -879,6 +892,55 @@ function SendButtonTooltip({
   );
 }
 
+function AlternateSendButtonTooltip({
+  action,
+  disabled,
+  onPress,
+  buttonIconSize,
+  label,
+  shortcutKeys,
+}: {
+  action: AlternateSendAction | null;
+  disabled: boolean;
+  onPress: () => void;
+  buttonIconSize: number;
+  label: string;
+  shortcutKeys: ShortcutChord;
+}) {
+  if (!action) return null;
+  const Icon = action === "queue" ? ThemedListEnd : ThemedZap;
+  return (
+    <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
+      <TooltipTrigger
+        onPress={onPress}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        testID="composer-alternate-send-button"
+        style={styles.toolbarIconButton}
+      >
+        {({ hovered }: { hovered?: boolean }) => (
+          <View
+            style={[
+              styles.toolbarIconButtonContent,
+              hovered && styles.iconButtonHovered,
+              disabled && styles.buttonDisabled,
+            ]}
+          >
+            <Icon
+              size={buttonIconSize}
+              uniProps={hovered ? iconForegroundMapping : iconForegroundMutedMapping}
+            />
+          </View>
+        )}
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center" offset={8}>
+        <SendTooltipBody label={label} sendKeys={shortcutKeys} />
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function ScheduleButtonTooltip({
   visible,
   disabled,
@@ -906,12 +968,12 @@ function ScheduleButtonTooltip({
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         testID="composer-schedule-button"
-        style={styles.scheduleButton}
+        style={styles.toolbarIconButton}
       >
         {({ hovered }: { hovered?: boolean }) => (
           <View
             style={[
-              styles.scheduleButtonContent,
+              styles.toolbarIconButtonContent,
               hovered && styles.iconButtonHovered,
               isButtonDisabled && styles.buttonDisabled,
             ]}
@@ -1997,6 +2059,19 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       t,
     });
 
+    const alternateSendButtonAction = resolveAlternateSendButtonAction({
+      alternateSendAction,
+      showsSend: (isFullscreen ? "send" : primaryActionKind) === "send",
+      canPressLoadingButton,
+    });
+    const alternateSendLabel = alternateSendButtonAction
+      ? resolveAlternateSendLabel(alternateSendButtonAction, t)
+      : "";
+    const showScheduleButton = shouldShowScheduleButton({
+      canSchedulePrompt,
+      hasText: hasLiveText,
+    });
+
     const handleInputChange = useCallback(
       (nextValue: string) => {
         updateComposerHeightForText?.(valueRef.current, nextValue);
@@ -2275,13 +2350,21 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             />
             {rightContent}
             <ScheduleButtonTooltip
-              visible={canSchedulePrompt}
+              visible={showScheduleButton}
               disabled={disabled}
               isConnected={isConnected}
               onPress={onSchedulePrompt}
               buttonIconSize={buttonIconSize}
               accessibilityLabel={t("composer.schedule.schedulePrompt")}
               tooltipLabel={t("composer.schedule.schedulePrompt")}
+            />
+            <AlternateSendButtonTooltip
+              action={alternateSendButtonAction}
+              disabled={isPresentedSendDisabled}
+              onPress={handleAlternateSendAction}
+              buttonIconSize={buttonIconSize}
+              label={alternateSendLabel}
+              shortcutKeys={resolveAlternateSendKeys(sendShortcut)}
             />
             {sendButton}
           </View>
@@ -2308,9 +2391,14 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         voiceMuteToggleKeys,
         dictationToggleKeys,
         rightContent,
-        canSchedulePrompt,
+        showScheduleButton,
         onSchedulePrompt,
         buttonIconSize,
+        alternateSendButtonAction,
+        isPresentedSendDisabled,
+        handleAlternateSendAction,
+        alternateSendLabel,
+        sendShortcut,
         sendButton,
       ],
     );
@@ -2552,6 +2640,21 @@ const styles = StyleSheet.create((theme: Theme) => ({
   voiceButtonRecording: {
     backgroundColor: theme.colors.destructive,
   },
+  // Ghost icon buttons beside the accent Send (Schedule, the alternate send): the same 28px
+  // circle as the voice button, so neither is a small tap target next to Send. Send's own
+  // left margin keeps it apart from them, so they never read as one split control.
+  toolbarIconButton: {
+    width: 28,
+    height: 28,
+    borderRadius: theme.borderRadius.full,
+  },
+  toolbarIconButtonContent: {
+    width: 28,
+    height: 28,
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sendButton: {
     width: 28,
     height: 28,
@@ -2606,6 +2709,8 @@ const ThemedMic = withUnistyles(Mic);
 const ThemedMicOff = withUnistyles(MicOff);
 const ThemedArrowUp = withUnistyles(ArrowUp);
 const ThemedCornerDownLeft = withUnistyles(CornerDownLeft);
+const ThemedListEnd = withUnistyles(ListEnd);
+const ThemedZap = withUnistyles(Zap);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 
 const iconForegroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });

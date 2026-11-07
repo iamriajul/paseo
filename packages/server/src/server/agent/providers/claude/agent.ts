@@ -858,13 +858,14 @@ const CACHE_WARM_FORK_TIMEOUT_MS = 120_000;
 const SESSION_ID_HEADER = "X-Claude-Code-Session-Id";
 
 /**
- * Flag-settings env for a warm-up fork, with `X-Claude-Code-Session-Id` set to the session it
- * forks. A fork is a new session, so Claude Code sends the fork's own ID, and a gateway that keeps
- * sessions sticky to accounts (CLIProxyAPI session-affinity) binds it to a fresh account with none
- * of the session's cache. A custom header replaces Claude Code's own (checked against Claude Code
- * 2.1.316). It sits in the flag settings layer, which outranks every settings file.
+ * Flag-settings env with `X-Claude-Code-Session-Id` set to the session whose account should serve
+ * the request: the forked session for a warm-up fork, the root session for a native fork. A fork is
+ * a new session, so Claude Code sends the fork's own ID, and a gateway that keeps sessions sticky
+ * to accounts (CLIProxyAPI session-affinity) binds it to a fresh account with none of the session's
+ * cache. A custom header replaces Claude Code's own (checked against Claude Code 2.1.316). It sits
+ * in the flag settings layer, which outranks every settings file.
  */
-function routeForkAsSession(options: ClaudeOptions, sessionId: string): Record<string, string> {
+function routeAsSession(options: ClaudeOptions, sessionId: string): Record<string, string> {
   const flagEnv =
     options.settings && typeof options.settings !== "string" ? options.settings.env : undefined;
   const existing = flagEnv?.ANTHROPIC_CUSTOM_HEADERS ?? options.env?.ANTHROPIC_CUSTOM_HEADERS ?? "";
@@ -3596,6 +3597,7 @@ class ClaudeAgentSession implements AgentSession {
   async warmPromptCache(): Promise<CacheWarmResult | null> {
     const sessionId = this.claudeSessionId;
     if (this.closed || !sessionId || this.pendingFreshSessionId) return null;
+    const routedSessionId = this.config.providerOptions.sessionAffinityId ?? sessionId;
     const options = await this.buildOptions(this.currentMode);
     const warmUp = resolveClaudeWarmUpRequestSettings(this.config.model);
     const fork: ClaudeOptions = {
@@ -3611,7 +3613,7 @@ class ClaudeAgentSession implements AgentSession {
       hooks: {},
       settings: mergeClaudeSettings(options.settings, {
         disableAllHooks: true,
-        env: routeForkAsSession(options, sessionId),
+        env: routeAsSession(options, routedSessionId),
       }),
       canUseTool: async () => ({ behavior: "deny", message: "A cache warm-up runs no tools." }),
       stderr: (data: string) =>
@@ -4551,10 +4553,8 @@ class ClaudeAgentSession implements AgentSession {
   private async buildOptions(permissionMode: PermissionMode): Promise<ClaudeOptions> {
     const { thinking, effort, ultracode } = this.resolveThinkingConfig();
     const appendedSystemPrompt = this.buildAppendedSystemPrompt();
-    const providerOptions = applyClaudeToolPolicy(
-      this.config.providerOptions,
-      this.config.toolPolicy,
-    );
+    const { sessionAffinityId, ...launchProviderOptions } = this.config.providerOptions;
+    const providerOptions = applyClaudeToolPolicy(launchProviderOptions, this.config.toolPolicy);
     const settingsOptions = await this.buildSettingsOptions(providerOptions, { ultracode });
     const sdkEnv = this.harnessEnvironment;
     assertClaudeModeCanRun(permissionMode, sdkEnv);
@@ -4639,6 +4639,11 @@ class ClaudeAgentSession implements AgentSession {
       ];
     }
     this.applyGatewayDisallowedTools(base, envWithCacheTtl);
+    if (sessionAffinityId) {
+      base.settings = mergeClaudeSettings(base.settings, {
+        env: routeAsSession(base, sessionAffinityId),
+      });
+    }
     return base;
   }
 

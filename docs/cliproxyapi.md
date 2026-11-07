@@ -100,6 +100,8 @@ The lookup key is the session id CLIProxyAPI derives from each harness's own hea
 | OpenCode | `X-Session-Id` (for non-OpenCode providers) | `header:<session id>` |
 | OMP      | none Paseo can reproduce                    | not shown             |
 
+A Claude native fork sends its root session's id, not its own, so the Gateway keeps it on the account whose cache holds the context the two share; its "Served by" is that session's route. See [claude-native-fork](fork-decisions.md#claude-native-fork).
+
 The Gateway records each request on its usage bus asynchronously, so the daemon checks two seconds after a turn ends, once per turn. It never polls. Switches that happened before the daemon started are not announced, because the daemon cannot tell which of them a previous process already wrote. The account label is the masked name `/v1/quota` shows; config API keys show as `config:<provider>[<hash>]`.
 
 `/v1/session-route` shipped in CLIProxyAPI v8.0.941. Older Gateways answer 404, and the section and notices stay hidden, the same as quota.

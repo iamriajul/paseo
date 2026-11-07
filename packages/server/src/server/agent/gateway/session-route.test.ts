@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   describeGatewaySwitch,
   fetchGatewaySessionRoute,
+  gatewayRoutedSessionId,
   gatewaySessionIdFor,
 } from "./session-route.js";
 
@@ -128,5 +129,21 @@ describe("describeGatewaySwitch", () => {
     expect(describeGatewaySwitch({ at: "", from, to, reason: "quota", statusCode: 429 })).toBe(
       "Switched account: A → B (quota, 429)",
     );
+  });
+});
+
+describe("gatewayRoutedSessionId", () => {
+  test("a native fork looks up the root session it routes under", () => {
+    expect(
+      gatewayRoutedSessionId({
+        config: { providerOptions: { sessionAffinityId: "root" } },
+        persistence: { sessionId: "fork" },
+      }),
+    ).toBe("root");
+  });
+
+  test("any other agent looks up its own session", () => {
+    expect(gatewayRoutedSessionId({ config: {}, persistence: { sessionId: "own" } })).toBe("own");
+    expect(gatewayRoutedSessionId({ config: {}, persistence: null })).toBeNull();
   });
 });

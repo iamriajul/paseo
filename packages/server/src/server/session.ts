@@ -130,6 +130,7 @@ import {
 import { buildStoredAgentPayload, toAgentPayload } from "./agent/agent-projections.js";
 import { assertPluginTimelineDataSize } from "./agent/agent-timeline-content.js";
 import { parsePluginClientId } from "./plugins/plugin-session-identity.js";
+import { gatewayRoutedSessionId } from "./agent/gateway/session-route.js";
 import { buildAgentForkContextAttachment } from "./agent/activity-curator.js";
 import { buildAgentPrompt } from "./agent/prompt-attachments.js";
 import type { StructuredGenerationDaemonConfig } from "./agent/structured-generation-providers.js";
@@ -1163,7 +1164,7 @@ export class Session {
         getAgentSession: (agentId) => {
           const agent = this.agentManager.getAgent(agentId);
           return agent
-            ? { provider: agent.provider, sessionId: agent.persistence?.sessionId ?? null }
+            ? { provider: agent.provider, sessionId: gatewayRoutedSessionId(agent) }
             : null;
         },
       },

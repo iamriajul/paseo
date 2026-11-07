@@ -49,6 +49,13 @@ export const ClaudeProviderOptionsSchema = z
     disallowedTools: z.array(z.string()).optional(),
     additionalDirectories: z.array(z.string()).optional(),
     extraArgs: z.record(z.string(), z.string().nullable()).optional(),
+    /**
+     * Claude session id every request names in `X-Claude-Code-Session-Id` instead of the
+     * session's own. A native fork sets it to the session it forked from, so a gateway that keeps
+     * sessions sticky to accounts (CLIProxyAPI session-affinity) serves it from the account that
+     * holds the shared prefix in its prompt cache. Paseo sets it; it is not a launch option.
+     */
+    sessionAffinityId: z.string().optional(),
     sandbox: z
       .object({
         enabled: z.boolean().optional(),

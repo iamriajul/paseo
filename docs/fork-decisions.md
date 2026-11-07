@@ -412,6 +412,17 @@ A reply split by tool calls keeps one message id across its segments. When the l
 npm test --workspace=@getpaseo/app -- src/timeline/session-stream-reducers.test.ts -t "names an older segment of the live reply" --bail=1
 ```
 
+## app-settings-cross-document
+
+**app settings follow a change made in another document without a reload**
+
+App settings load from storage once and are then served from the query cache (`staleTime: Infinity`). A change made in a second tab, or on a full-load Settings page the user went Back past, stayed invisible until a reload, so the composer kept the old Default send. On web, `syncAppSettingsAcrossDocuments` re-reads the settings on a `storage` event for the settings key and on a `pageshow` restored from the back-forward cache.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/hooks/use-settings/cross-document.test.ts --bail=1
+grep -q "syncAppSettingsAcrossDocuments" packages/app/src/hooks/use-settings/index.ts
+```
+
 ## workspace-mark-unread
 
 **Workspaces can be marked as unread**

@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { WorkspaceScriptPayload } from "@getpaseo/protocol/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot } from "react-dom/client";
+import { openExternalUrl } from "@/utils/open-external-url";
 import { WorkspaceScriptsButton } from "./workspace-scripts-button";
 
 void testI18n;
@@ -196,6 +197,7 @@ vi.mock("lucide-react-native", () => {
       "data-testid": props.testID,
     });
   return {
+    AppWindow: createIcon("AppWindow"),
     ChevronDown: createIcon("ChevronDown"),
     Copy: createIcon("Copy"),
     Eye: createIcon("Eye"),
@@ -228,6 +230,7 @@ function script(
     health: input.health ?? null,
     exitCode: input.exitCode ?? null,
     terminalId: input.terminalId ?? null,
+    ...(input.preview ? { preview: true } : {}),
   };
 }
 
@@ -603,5 +606,44 @@ describe("WorkspaceScriptsButton", () => {
     await act(async () => {});
 
     expect(startWorkspaceScriptMock).toHaveBeenCalledWith("workspace-1", "dev");
+  });
+
+  it("has no Open preview button when paseo.json marks no preview", () => {
+    current = renderScripts([script({ scriptName: "web", type: "service" })]);
+    expect(document.querySelector('[data-testid="workspace-scripts-open-preview"]')).toBeNull();
+  });
+
+  it("starts a stopped preview service and opens it once it runs", async () => {
+    vi.mocked(openExternalUrl).mockClear();
+    const stopped = {
+      scriptName: "web",
+      type: "service" as const,
+      preview: true,
+      localProxyUrl: "http://web--repo.localhost:6767",
+      proxyUrl: "http://web--repo.localhost:6767",
+    };
+    current = renderScripts([script(stopped), script({ scriptName: "lint" })]);
+
+    const previewButton = document.querySelector('[data-testid="workspace-scripts-open-preview"]');
+    expect(previewButton).not.toBeNull();
+    fireEvent.click(previewButton as HTMLElement);
+    await act(async () => {});
+
+    expect(startWorkspaceScriptMock).toHaveBeenCalledWith("workspace-1", "web");
+    expect(openExternalUrl).not.toHaveBeenCalled();
+
+    const running = { ...stopped, lifecycle: "running" as const, port: 4100 };
+    await current.rerender([script(running), script({ scriptName: "lint" })]);
+    await act(async () => {});
+    // Running is not listening yet: wait for the health probe.
+    expect(openExternalUrl).not.toHaveBeenCalled();
+
+    await current.rerender([
+      script({ ...running, health: "healthy" }),
+      script({ scriptName: "lint" }),
+    ]);
+    await act(async () => {});
+
+    expect(openExternalUrl).toHaveBeenCalledWith("http://web--repo.localhost:6767");
   });
 });

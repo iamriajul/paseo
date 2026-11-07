@@ -181,12 +181,29 @@ grep -q "useWorkspaceLoopbackOpener" packages/app/src/agent-stream/view.tsx
 
 **paseo.json services open in the Browser at their localhost route**
 
-The scripts menu and ports panel open a service in the Browser at `http://localhost:<port>/` (`resolveServiceBrowserUrl`), not at its generated `*.localhost` hostname, so it shares one origin with hand-typed and agent-opened localhost tabs. A selected public route stays public. `openServiceUrl` takes the in-app URL separately so external opens keep the selected route. The Browser toolbar's services menu and URL-bar chip are fork modules.
+The scripts menu and ports panel open a service in the Browser at `http://localhost:<port>/` (`resolveServiceBrowserUrl`), not at its generated `*.localhost` hostname, so it shares one origin with hand-typed and agent-opened localhost tabs. A selected public route stays public. `openServiceUrl` takes the in-app URL separately so external opens keep the selected route; the scripts menus reach it through `openService` in `use-workspace-script-actions.ts`. The Browser toolbar's services menu and URL-bar chip are fork modules, mounted by the Electron, Android and web panes alike.
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/utils/workspace-script-links.test.ts --bail=1
-grep -q "inAppUrl: resolveServiceBrowserUrl" packages/app/src/screens/workspace/scripts/workspace-scripts-button.tsx
+grep -q "inAppUrl: resolveServiceBrowserUrl" packages/app/src/screens/workspace/scripts/use-workspace-script-actions.ts
 grep -q "inAppUrl" packages/app/src/utils/open-service-url.ts
+grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/index.electron.tsx
+grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/index.android.tsx
+grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/web-toolbar.tsx
+```
+
+## service-main-preview
+
+**paseo.json marks one service as the workspace's main preview**
+
+`"preview": true` on a `"type": "service"` script makes it the main preview. `getScriptConfigs` keeps only a literal `true` on a service, first in file order, and the projection sends `preview: true` on that one payload (an optional wire field: older daemons omit it, which reads as no preview, so the app needs no capability gate). The app opens it from the header scripts button's Open preview half, the compact header menu's Open preview row and the top of the Browser's services menu, starting it first when it is stopped. Start-then-open lives in `packages/app/src/workspace-services/` so other viewers reuse it.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/script-status-projection.test.ts -t "main preview" --bail=1
+npm test --workspace=@getpaseo/app -- src/workspace-services/workspace-services.test.ts --bail=1
+grep -q "preview: z.boolean().optional()" packages/protocol/src/messages.ts
+grep -q "<PreviewSegment" packages/app/src/screens/workspace/scripts/workspace-scripts-button.tsx
+grep -q "scriptsMenu.previewItem" packages/app/src/screens/workspace/workspace-header-menu.tsx
 ```
 
 ## browser-open-on-this-computer

@@ -450,6 +450,8 @@ export function WebBrowserPane({
     <View style={styles.pane}>
       {showChrome ? (
         <WebBrowserToolbar
+          serverId={serverId}
+          workspaceId={workspaceId}
           state={toolbarState}
           bridgeAvailable={state.bridgeReady}
           isSelecting={isSelecting}

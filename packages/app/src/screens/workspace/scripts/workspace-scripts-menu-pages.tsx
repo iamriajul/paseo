@@ -1,7 +1,6 @@
 import { useCallback, useMemo, type ReactElement } from "react";
-import { resolveServiceBrowserUrl } from "@/utils/workspace-script-links";
 import { View } from "react-native";
-import { Copy, Eye, Play, RotateCw, Square, SquareTerminal } from "lucide-react-native";
+import { AppWindow, Copy, Eye, Play, RotateCw, Square, SquareTerminal } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import {
@@ -12,11 +11,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { WorkspaceDescriptor } from "@/stores/session-store";
 import type { Theme } from "@/styles/theme";
-import { openServiceUrl } from "@/utils/open-service-url";
 import type {
   WorkspaceScriptLinkKind,
   WorkspaceScriptLinkTarget,
 } from "@/utils/workspace-script-links";
+import { useWorkspaceServiceOpener } from "@/workspace-services/use-workspace-services";
+import { findMainPreviewService } from "@/workspace-services/workspace-services";
 import { ExitCodeBadge, routeLabelKey, ScriptIcon } from "./script-marks";
 import { scriptToneColorMapping, summarizeScripts, type ScriptsSummary } from "./script-status";
 import {
@@ -28,6 +28,7 @@ type WorkspaceScript = WorkspaceDescriptor["scripts"][number];
 
 const ThemedPlay = withUnistyles(Play);
 const ThemedEye = withUnistyles(Eye);
+const ThemedAppWindow = withUnistyles(AppWindow);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedRotateCw = withUnistyles(RotateCw);
@@ -39,6 +40,8 @@ const playFillTransparent = { fill: "transparent" };
 const ROW_ICON_SIZE = 16;
 const TRAILING_ICON_SIZE = 14;
 
+const accentColorMapping = (theme: Theme) => ({ color: theme.colors.accent });
+const OPEN_PREVIEW_ICON = <ThemedAppWindow size={ROW_ICON_SIZE} uniProps={accentColorMapping} />;
 const OPEN_SERVICE_ICON = <ThemedEye size={ROW_ICON_SIZE} uniProps={mutedColorMapping} />;
 const VIEW_TERMINAL_ICON = (
   <ThemedSquareTerminal size={ROW_ICON_SIZE} uniProps={mutedColorMapping} />
@@ -69,6 +72,8 @@ export interface UseWorkspaceScriptsMenuPagesInput {
 export interface WorkspaceScriptsMenuPages {
   /** The root row that leads to the scripts page. Null when the workspace has no scripts. */
   trigger: ReactElement | null;
+  /** The root row that opens the service paseo.json marks `"preview": true`. Null without one. */
+  previewItem: ReactElement | null;
   pages: MenuPageDefinition[];
   /** A running service reports unhealthy, so the menu's own trigger should say so. */
   needsAttention: boolean;
@@ -136,7 +141,50 @@ export function useWorkspaceScriptsMenuPages({
     ];
   }, [actions, liveTerminalIds, onOpenUrlInBrowserTab, onViewTerminal, scripts, t]);
 
-  return { trigger, pages, needsAttention: summary.tone === "unhealthy" };
+  const previewService = useMemo(() => findMainPreviewService(scripts), [scripts]);
+  const { openService } = actions;
+  const handleOpenPreview = useCallback(
+    (service: WorkspaceScript) => openService(service, onOpenUrlInBrowserTab),
+    [onOpenUrlInBrowserTab, openService],
+  );
+  const previewOpener = useWorkspaceServiceOpener({
+    scripts,
+    start: actions.start,
+    onOpen: handleOpenPreview,
+  });
+  const previewItem = previewService ? (
+    <OpenPreviewRow
+      scriptName={previewService.scriptName}
+      starting={previewOpener.pendingScriptName === previewService.scriptName}
+      onOpen={previewOpener.open}
+    />
+  ) : null;
+
+  return { trigger, previewItem, pages, needsAttention: summary.tone === "unhealthy" };
+}
+
+/** Opens the main preview in one press; a stopped preview service starts first. */
+function OpenPreviewRow({
+  scriptName,
+  starting,
+  onOpen,
+}: {
+  scriptName: string;
+  starting: boolean;
+  onOpen: (scriptName: string) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const handleSelect = useCallback(() => onOpen(scriptName), [onOpen, scriptName]);
+  return (
+    <DropdownMenuItem
+      leading={OPEN_PREVIEW_ICON}
+      description={starting ? t("workspace.browser.services.starting") : scriptName}
+      onSelect={handleSelect}
+      testID="workspace-header-open-preview"
+    >
+      {t("workspace.scripts.actions.openPreview")}
+    </DropdownMenuItem>
+  );
 }
 
 /** The root row: ▶ in the colour of the whole set, and what is running as its value. */
@@ -272,15 +320,12 @@ function RunningScriptPage({
   const { t } = useTranslation();
   const { scriptName } = script;
   const { selected, targets } = actions.resolveLinks(script);
-  const { stop, restart, copyUrl, selectRoute } = actions;
+  const { stop, restart, copyUrl, selectRoute, openService } = actions;
 
-  const handleOpenService = useCallback(() => {
-    if (!selected) return;
-    void openServiceUrl(selected.url, {
-      openInApp: onOpenUrlInBrowserTab,
-      inAppUrl: resolveServiceBrowserUrl({ script, selected: selected }),
-    });
-  }, [selected, onOpenUrlInBrowserTab, script]);
+  const handleOpenService = useCallback(
+    () => openService(script, onOpenUrlInBrowserTab),
+    [onOpenUrlInBrowserTab, openService, script],
+  );
   const handleViewTerminal = useCallback(() => {
     if (liveTerminalId) onViewTerminal(liveTerminalId);
   }, [liveTerminalId, onViewTerminal]);

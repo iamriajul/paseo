@@ -36,6 +36,7 @@ import {
   type BrowserViewport,
 } from "@/desktop/browser/store";
 import type { WebNavigationState } from "./web-navigation";
+import { BrowserServiceChip, BrowserServicesMenu } from "./services-menu";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
@@ -203,6 +204,8 @@ function deviceSizeIdForViewport(viewport: BrowserViewport): BrowserDeviceSizeId
 }
 
 interface WebBrowserToolbarProps {
+  serverId: string;
+  workspaceId: string;
   state: WebNavigationState;
   bridgeAvailable: boolean;
   isSelecting: boolean;
@@ -226,6 +229,8 @@ interface WebBrowserToolbarProps {
 // is what the design's degradation table promises. Reload never needs the bridge
 // either; the pane remounts the iframe instead.
 export function WebBrowserToolbar({
+  serverId,
+  workspaceId,
   state,
   bridgeAvailable,
   isSelecting,
@@ -281,6 +286,7 @@ export function WebBrowserToolbar({
         </ToolbarButton>
       </View>
       <View style={styles.urlBarWrap}>
+        <BrowserServiceChip serverId={serverId} workspaceId={workspaceId} url={state.displayUrl} />
         {/* key remounts the field so it resyncs whenever the bridge reports a new URL. */}
         <ThemedUrlInput
           key={state.displayUrl}
@@ -295,6 +301,13 @@ export function WebBrowserToolbar({
         />
       </View>
       <View style={styles.group}>
+        <BrowserServicesMenu
+          serverId={serverId}
+          workspaceId={workspaceId}
+          currentUrl={state.displayUrl}
+          onNavigate={onSubmitUrl}
+          triggerStyle={triggerStyle}
+        />
         <DeviceSizeMenu selectedId={selectedDeviceSizeId} onSelect={handleSelectDeviceSize} />
         <ToolbarButton
           label={t("workspace.browser.controls.openDevTools")}

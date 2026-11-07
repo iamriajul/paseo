@@ -11,6 +11,7 @@ import React, {
   type SetStateAction,
 } from "react";
 import { Pressable, Text, View, type LayoutChangeEvent, type ScrollView } from "react-native";
+import { useAgentBringToFrontMenu } from "@/components/agent-bring-to-front-menu";
 import { useFilePanelOpenWithMenu } from "@/file-panels";
 import {
   CopyX,
@@ -779,6 +780,14 @@ function TabChip({
     { serverId, workspaceId, tabId: tab.tabId },
     contextMenuTestId,
   );
+  const bringToFront = useAgentBringToFrontMenu(
+    tab.target.kind === "agent" ? { serverId, agentId: tab.target.agentId } : null,
+    contextMenuTestId,
+  );
+  const menuPages = useMemo(
+    () => [...openWith.pages, ...bringToFront.pages],
+    [openWith.pages, bringToFront.pages],
+  );
   const middleClickRef = useMiddleClickClose(
     useCallback(() => void onCloseTab(tab.tabId), [onCloseTab, tab.tabId]),
   );
@@ -959,13 +968,16 @@ function TabChip({
         <ContextMenuContent
           align="start"
           width={DROPDOWN_WIDTH}
-          pages={openWith.pages}
+          pages={menuPages}
           testID={contextMenuTestId}
         >
           {menuEntries.map((entry) => {
             if (entry.kind === "separator") return <ContextMenuSeparator key={entry.key} />;
             if (entry.kind === "file-panel-open-with") {
               return <Fragment key={entry.key}>{openWith.trigger}</Fragment>;
+            }
+            if (entry.kind === "agent-bring-to-front") {
+              return <Fragment key={entry.key}>{bringToFront.trigger}</Fragment>;
             }
             return <TabContextMenuItem key={entry.key} entry={entry} />;
           })}

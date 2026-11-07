@@ -735,6 +735,14 @@ export const ptBR: TranslationResources = {
       },
       menu: {
         openFor: "Abrir menu de {{label}}",
+        bringToFront: {
+          label: "Trazer para a frente",
+          default: "Padrão",
+          defaultOn: "Padrão (ativado)",
+          defaultOff: "Padrão (desativado)",
+          always: "Sempre",
+          never: "Nunca",
+        },
         copyResumeCommand: "Copiar comando de retomada",
         copyAgentId: "Copiar ID do agente",
         copyTerminalId: "Copiar ID do terminal",
@@ -1285,6 +1293,10 @@ export const ptBR: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Trazer para a frente: ativado · clique para desativar",
+      offTooltip: "Trazer para a frente: desativado · clique para ativar",
+    },
     statusGroupAccessibility: "Grupo {{label}}",
     statusBucket: {
       needsInput: "Precisa de resposta",

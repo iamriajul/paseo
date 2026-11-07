@@ -83,6 +83,8 @@ Relevant pieces:
 
 Shared by **agent** attention (`finished` / `permission`; errors remain non-OS-notify as today) and **terminal** attention.
 
+"Intrusive" in the columns below is the effective value for the event: an agent's own override (Always / Never) when it has one, otherwise the global setting. Terminals always use the global setting. See [Per-agent override and sidebar toggle](#per-agent-override-and-sidebar-toggle).
+
 | Client state                                                                                  | Intrusive off                                                                                                   | Intrusive on                                                                                       |
 | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | **Unfocused** (not actively visible: other app, other Space, window blurred, document hidden) | If bubble on → OS bubble; if sound on → play with bubble (and/or standalone if bubble off — see Delivery rules) | Focus/show Paseo window + navigate to target + sound if on; OS bubble only if bubble still enabled |
@@ -119,6 +121,15 @@ Shared by **agent** attention (`finished` / `permission`; errors remain non-OS-n
   - Play sound (toggle)
   - Sound preset (picker; disabled when sound off)
 - Test notification path should respect sound/bubble settings (and document that intrusive is not triggered by the test button unless we explicitly simulate an attention event later).
+
+### Per-agent override and sidebar toggle
+
+Added 2026-11-07. With many agents running, one global switch is too coarse, and turning it off through Settings pulls the user out of what they are doing.
+
+- **Sidebar toggle (desktop app only).** A Bring to front icon in the left sidebar footer, before Help, flips `attentionIntrusiveMode` in one click. It is the same setting as the Settings switch. On shows the icon in the accent colour; off shows it muted with a slash. The tooltip names the state and the action ("Bring to front: on · click to turn off").
+- **Per-agent override (desktop app only).** An agent tab's context menu has a "Bring to front" submenu: Default (follows the global setting, and says whether that is on or off), Always, Never. `resolveBringToFront` in `packages/app/src/utils/attention-interrupt-plan.ts` applies the override first, then the global setting. An override never pulls focus while Paseo is in use; the matrix rows for a focused app are unchanged.
+- **Device-local storage.** Overrides live in `@paseo:agent-bring-to-front` (`packages/app/src/stores/agent-bring-to-front-store.ts`), keyed by host and agent. The global setting they override is device-local, and only the desktop app can bring a window forward, so syncing through the daemon's ui_state store would buy nothing and would need a new protocol namespace gated on a host feature.
+- **Other channels unchanged.** The OS bubble, banner and sound follow their own settings whatever the override says.
 
 ## Target architecture (to-be)
 
@@ -196,3 +207,4 @@ These are left to the implementation plan, not further product interview:
 ## Revision history
 
 - 2026-07-26 — Initial design from user workflow interview + codebase due diligence. Approach: client-side attention layer; discoverability of Status mode instead of a new Needs Attention strip.
+- 2026-11-07 — Per-agent Always / Never override and the sidebar footer toggle for intrusive mode.

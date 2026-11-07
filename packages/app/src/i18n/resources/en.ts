@@ -733,6 +733,14 @@ export const en = {
       },
       menu: {
         openFor: "Open menu for {{label}}",
+        bringToFront: {
+          label: "Bring to front",
+          default: "Default",
+          defaultOn: "Default (on)",
+          defaultOff: "Default (off)",
+          always: "Always",
+          never: "Never",
+        },
         copyResumeCommand: "Copy resume command",
         copyAgentId: "Copy agent id",
         copyTerminalId: "Copy terminal id",
@@ -1273,6 +1281,10 @@ export const en = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Bring to front: on · click to turn off",
+      offTooltip: "Bring to front: off · click to turn on",
+    },
     statusGroupAccessibility: "{{label}} group",
     statusBucket: {
       needsInput: "Needs input",

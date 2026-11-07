@@ -183,6 +183,32 @@ describe("buildWorkspaceTabMenuEntries", () => {
     expect(onOpenAgentSettings).toHaveBeenCalledWith(tab);
   });
 
+  it("places the bring-to-front row after agent settings on desktop menus only", () => {
+    const keysFor = (surface: "desktop" | "mobile") =>
+      buildWorkspaceTabMenuEntries({
+        surface,
+        tab: createAgentTab(),
+        index: 0,
+        tabCount: 1,
+        menuTestIDBase: "workspace-tab-context-agent_123",
+        onCopyResumeCommand: vi.fn(),
+        onCopyAgentId: vi.fn(),
+        onCopyTerminalId: vi.fn(),
+        onCopyFilePath: vi.fn(),
+        onReloadAgent: vi.fn(),
+        onRenameTab: vi.fn(),
+        onOpenAgentSettings: vi.fn(),
+        onCloseTab: vi.fn(),
+        onCloseTabsBefore: vi.fn(),
+        onCloseTabsAfter: vi.fn(),
+        onCloseOtherTabs: vi.fn(),
+      }).map((entry) => entry.key);
+
+    const desktop = keysFor("desktop");
+    expect(desktop.indexOf("agent-bring-to-front")).toBe(desktop.indexOf("agent-settings") + 1);
+    expect(keysFor("mobile")).not.toContain("agent-bring-to-front");
+  });
+
   it("invokes onRenameTab when the rename entry is selected for agent tabs", () => {
     const onRenameTab = vi.fn();
     const tab = createAgentTab();

@@ -736,6 +736,14 @@ export const es: TranslationResources = {
       },
       menu: {
         openFor: "Menú abierto para{{label}}",
+        bringToFront: {
+          label: "Traer al frente",
+          default: "Predeterminado",
+          defaultOn: "Predeterminado (activado)",
+          defaultOff: "Predeterminado (desactivado)",
+          always: "Siempre",
+          never: "Nunca",
+        },
         copyResumeCommand: "Copiar comando de reanudación",
         copyAgentId: "Copiar ID del agente",
         copyTerminalId: "Copiar ID del terminal",
@@ -1295,6 +1303,10 @@ export const es: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Traer al frente: activado · haz clic para desactivar",
+      offTooltip: "Traer al frente: desactivado · haz clic para activar",
+    },
     statusGroupAccessibility: "Grupo {{label}}",
     statusBucket: {
       needsInput: "Necesita datos",

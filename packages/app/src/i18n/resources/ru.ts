@@ -737,6 +737,14 @@ export const ru: TranslationResources = {
       },
       menu: {
         openFor: "Открыть меню для {{label}}",
+        bringToFront: {
+          label: "На передний план",
+          default: "По умолчанию",
+          defaultOn: "По умолчанию (вкл.)",
+          defaultOff: "По умолчанию (выкл.)",
+          always: "Всегда",
+          never: "Никогда",
+        },
         copyResumeCommand: "Копировать команду продолжения",
         copyAgentId: "Скопировать идентификатор агента",
         copyTerminalId: "Скопировать идентификатор терминала",
@@ -1279,6 +1287,10 @@ export const ru: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Выводить на передний план: вкл. · нажмите, чтобы выключить",
+      offTooltip: "Выводить на передний план: выкл. · нажмите, чтобы включить",
+    },
     statusGroupAccessibility: "Группа «{{label}}»",
     statusBucket: {
       needsInput: "Ожидает ввода",

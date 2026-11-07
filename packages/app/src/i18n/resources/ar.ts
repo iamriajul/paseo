@@ -730,6 +730,14 @@ export const ar: TranslationResources = {
       },
       menu: {
         openFor: "فتح القائمة لـ{{label}}",
+        bringToFront: {
+          label: "إحضار إلى الأمام",
+          default: "افتراضي",
+          defaultOn: "افتراضي (مفعّل)",
+          defaultOff: "افتراضي (متوقف)",
+          always: "دائمًا",
+          never: "أبدًا",
+        },
         copyResumeCommand: "نسخ أمر السيرة الذاتية",
         copyAgentId: "نسخ معرف الوكيل",
         copyTerminalId: "نسخ معرف المحطة",
@@ -1262,6 +1270,10 @@ export const ar: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "الإحضار إلى الأمام: مفعّل · انقر للإيقاف",
+      offTooltip: "الإحضار إلى الأمام: متوقف · انقر للتفعيل",
+    },
     statusGroupAccessibility: "مجموعة {{label}}",
     statusBucket: {
       needsInput: "تحتاج إدخالاً",

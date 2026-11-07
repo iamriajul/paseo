@@ -40,6 +40,7 @@ import {
   type SessionState,
 } from "@/stores/session-store";
 import { deliverAttentionInterrupt } from "@/utils/deliver-attention-interrupt";
+import { getAgentBringToFrontOverride } from "@/stores/agent-bring-to-front-store";
 import { getIsAppActivelyVisible, getIsAppVisible } from "@/utils/app-visibility";
 import {
   getInitKey,
@@ -312,6 +313,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
         body: notification.body,
         data: notification.data,
         target: { kind: "agent", id: params.agentId },
+        bringToFrontOverride: getAgentBringToFrontOverride(serverId, params.agentId),
         focusedAgentId: attentionFocusedAgentId,
         focusedTerminalId: attentionFocusedTerminalId,
         isActivelyVisible: getIsAppActivelyVisible(appState),

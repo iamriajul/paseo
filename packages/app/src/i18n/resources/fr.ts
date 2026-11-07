@@ -737,6 +737,14 @@ export const fr: TranslationResources = {
       },
       menu: {
         openFor: "Ouvrir le menu de {{label}}",
+        bringToFront: {
+          label: "Premier plan",
+          default: "Par défaut",
+          defaultOn: "Par défaut (activé)",
+          defaultOff: "Par défaut (désactivé)",
+          always: "Toujours",
+          never: "Jamais",
+        },
         copyResumeCommand: "Copier la commande de reprise",
         copyAgentId: "Copier l’ID de l’agent",
         copyTerminalId: "Copier l’ID du terminal",
@@ -1289,6 +1297,10 @@ export const fr: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Mettre au premier plan : activé · cliquer pour désactiver",
+      offTooltip: "Mettre au premier plan : désactivé · cliquer pour activer",
+    },
     statusGroupAccessibility: "Groupe {{label}}",
     statusBucket: {
       needsInput: "Attend une réponse",

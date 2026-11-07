@@ -77,6 +77,18 @@ client heartbeats report getIsAppActivelyVisible() so fullscreen Space swipes (d
 npx vitest run packages/app/src/utils/app-visibility.test.ts --bail=1 -t "fullscreen Space swipe"
 ```
 
+## bring-to-front-quick-toggle
+
+**"Bring Paseo to the front" has a sidebar toggle and a per-agent override**
+
+The desktop sidebar footer (`left-sidebar.tsx`) renders `SidebarBringToFrontToggle` before Help; it flips `attentionIntrusiveMode`, the setting under Settings → Permissions → Attention. Desktop agent tab menus (`workspace-tab-menu.ts`, rendered by `workspace-desktop-tabs-row.tsx`) carry an `agent-bring-to-front` entry for the Default / Always / Never submenu from `useAgentBringToFrontMenu`; the mobile tab menu never receives it and skips the kind. The planner applies the agent's override before the global setting. Why the override is device-local, and the behaviour rules, are in the [attention design](superpowers/specs/2026-07-26-intrusive-desktop-attention-design.md#per-agent-override-and-sidebar-toggle).
+
+```bash
+npm test --workspace=@getpaseo/app -- src/utils/attention-interrupt-plan.test.ts src/screens/workspace/workspace-tab-menu.test.ts --bail=1 -t "bring"
+grep -q '<SidebarBringToFrontToggle />' packages/app/src/components/left-sidebar.tsx
+grep -q 'entry.kind === "agent-bring-to-front"' packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
+```
+
 ## macos-focus-steal
 
 **macOS attention focus steals from other Spaces**

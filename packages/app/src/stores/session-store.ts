@@ -41,6 +41,7 @@ import type {
   ServerInfoStatusPayload,
   ProjectPlacementPayload,
   AgentRateLimitCooldownPayload,
+  AgentCacheWarmPause,
   ServerCapabilities,
   WorkspaceDescriptorPayload,
   WorkspaceProjectDescriptorPayload,
@@ -97,6 +98,8 @@ export interface Agent {
   cacheWarmMaxPings?: number;
   /** Whether the provider process runs; absent when the daemon or provider does not report it. */
   runtimeActive?: boolean;
+  /** Warm-up paused because the CLIProxyAPI account serving the agent is blocked. Live only. */
+  cacheWarmPause?: AgentCacheWarmPause;
   lastActivityAt: Date;
   capabilities: AgentCapabilityFlags;
   currentModeId: string | null;

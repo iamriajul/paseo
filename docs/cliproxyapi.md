@@ -108,6 +108,10 @@ The Gateway records each request on its usage bus asynchronously, so the daemon 
 
 `/v1/session-route` shipped in CLIProxyAPI v8.0.941. Older Gateways answer 404, and the section and account lines stay hidden, the same as quota.
 
+## Warm-up and blocked accounts
+
+Cache warm-up checks the account serving the agent right before each warm-up. When that account is in cooldown, or one of its quota windows is at 100%, Paseo sends nothing and pauses warm-up until your next message: the Gateway would reject the warm-up or write the context cold on another account, and the blocked account's cache expires before it recovers. The pill reads `paused` and the popover says why and until when. An agent the Gateway does not route, or a Gateway without `/v1/session-route` or `/v1/quota`, warms as before. See [cache-warm-blocked-account](fork-decisions.md#cache-warm-blocked-account).
+
 ## Terminal tabs
 
 The table above covers Paseo-managed agents. A terminal tab runs the harness as an ordinary child process, so the agent path injects nothing there. With a Gateway configured, Paseo writes three shims into a shim directory under `$PASEO_HOME` — `harness-shims`, or `cmd-shims` on Windows where the wrappers are `.cmd` — and puts that directory on terminal PATH:

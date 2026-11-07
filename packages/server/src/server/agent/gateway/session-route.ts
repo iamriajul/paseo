@@ -17,6 +17,7 @@ const AccountPayloadSchema = z.object({
   type: z.string().optional(),
   plan: z.string().optional(),
   in_cooldown: z.boolean(),
+  cooldown_until: z.string().optional(),
 });
 
 const SessionRoutePayloadSchema = z.object({
@@ -42,6 +43,8 @@ export interface GatewayRouteAccount {
   provider: string;
   plan?: string;
   inCooldown: boolean;
+  /** When the cooldown ends, on Gateways that report it. */
+  cooldownUntil?: string;
 }
 
 export interface GatewayRouteSwitch {
@@ -160,18 +163,35 @@ export async function fetchGatewaySessionRoute(
   };
 }
 
-const routeCache = new Map<string, { result: GatewaySessionRouteResult; expiresAt: number }>();
+const routeCache = new Map<
+  string,
+  { result: GatewaySessionRouteResult; fetchedAt: number; expiresAt: number }
+>();
 
-/** Briefly cached read for the tooltip; the switch watcher reads uncached. */
+/**
+ * Briefly cached read for the tooltip; the switch watcher reads uncached. `maxAgeMs` tightens the
+ * cache for a caller that acts on the answer, like the warm-up account check.
+ */
 export async function getCachedGatewaySessionRoute(
-  options: FetchGatewaySessionRouteOptions,
+  options: FetchGatewaySessionRouteOptions & { maxAgeMs?: number },
   now: () => number = Date.now,
 ): Promise<GatewaySessionRouteResult> {
   const key = `${options.baseUrl.trim()} ${options.session}`;
   const cached = routeCache.get(key);
-  if (cached && now() < cached.expiresAt) return cached.result;
+  if (
+    cached &&
+    now() < cached.expiresAt &&
+    (options.maxAgeMs === undefined || now() - cached.fetchedAt < options.maxAgeMs)
+  ) {
+    return cached.result;
+  }
   const result = await fetchGatewaySessionRoute(options);
-  routeCache.set(key, { result, expiresAt: now() + GATEWAY_SESSION_ROUTE_CACHE_TTL_MS });
+  const fetchedAt = now();
+  routeCache.set(key, {
+    result,
+    fetchedAt,
+    expiresAt: fetchedAt + GATEWAY_SESSION_ROUTE_CACHE_TTL_MS,
+  });
   for (const [entryKey, entry] of routeCache) {
     if (now() >= entry.expiresAt) routeCache.delete(entryKey);
   }
@@ -197,6 +217,9 @@ function mapAccount(account: z.infer<typeof AccountPayloadSchema>): GatewayRoute
     provider: providerName,
     ...(plan ? { plan } : {}),
     inCooldown: account.in_cooldown,
+    ...(account.cooldown_until && !Number.isNaN(Date.parse(account.cooldown_until))
+      ? { cooldownUntil: account.cooldown_until }
+      : {}),
   };
 }
 

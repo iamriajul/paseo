@@ -222,6 +222,10 @@ const perfNow: () => number =
     : () => Date.now();
 
 const PROJECT_GITHUB_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
+// Archiving waits for worktree teardown and directory removal, which took up to six
+// minutes on a busy host. The record is archived first, so a 60 s timeout reported a
+// successful archive as a failure.
+const ARCHIVE_WORKSPACE_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface ImportAgentInputBase {
   cwd?: string;
@@ -3344,6 +3348,7 @@ export class DaemonClient {
         workspaceId,
       },
       responseType: "archive_workspace_response",
+      timeout: ARCHIVE_WORKSPACE_TIMEOUT_MS,
     });
   }
 

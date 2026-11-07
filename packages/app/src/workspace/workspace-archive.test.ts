@@ -161,7 +161,7 @@ describe("archiveWorkspaceOptimistically", () => {
     const client = createClient(
       vi.fn(async () => {
         throw new DaemonConnectionError(
-          "Timeout waiting for message (60000ms)",
+          "Timeout waiting for message (600000ms)",
           "DAEMON_REQUEST_TIMEOUT",
         );
       }),

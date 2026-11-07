@@ -1147,6 +1147,18 @@ Archived workspaces came back in the sidebar and stayed there. The daemon writes
 npx vitest run --root packages/app src/workspace/workspace-archive.test.ts --bail=1 -t "keeps the workspace hidden"
 ```
 
+## archive-workspace-client-timeout
+
+**The client waits up to ten minutes for an archive reply**
+
+`archive_workspace_request` replies after worktree teardown and directory removal. A worktree here holds 40,000 to 56,000 files, and on a busy host those requests ran 78 s to 6 min while the record itself was archived within 5 s (daemon log, 2026-11-06). The client's 60 s session RPC default then reported a successful archive as a failure. `DaemonClient.archiveWorkspace` now waits `ARCHIVE_WORKSPACE_TIMEOUT_MS` (10 min).
+
+A first version replied as soon as the record was archived. That was dropped: callers of `archiveWorkspace` rely on the directory being gone when it resolves, including archive followed by restore, which would race the still-running removal (seven server e2e tests caught it).
+
+```bash
+cd packages/client && npx vitest run src/daemon-client.test.ts --bail=1 -t "waits ten minutes for an archive reply"
+```
+
 ## workspace-archive-main-repo-refresh-detached
 
 **Archiving does not wait for the main repo git refresh**

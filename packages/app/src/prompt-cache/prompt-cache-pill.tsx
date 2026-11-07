@@ -16,7 +16,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { formatTokenCount } from "@/components/context-window-meter.utils";
-import { formatCountdownClock, formatPreciseDuration } from "@/usage/format";
+import type { AgentCacheWarmPause } from "@getpaseo/protocol/messages";
+import { formatCountdownClock, formatPreciseDuration, formatResetTime } from "@/usage/format";
 import type { Theme } from "@/styles/theme";
 import {
   usePromptCache,
@@ -86,7 +87,10 @@ function resolveSegmentText(cache: PromptCacheState): string {
       if (warmup?.plan.kind === "capped") {
         return `capped · ${formatCountdownClock(status.remainingMs)}`;
       }
-      if (warmup?.plan.kind === "paused-after-compaction") {
+      if (
+        warmup?.plan.kind === "paused-after-compaction" ||
+        warmup?.plan.kind === "paused-account"
+      ) {
         return `paused · ${formatCountdownClock(status.remainingMs)}`;
       }
       return `cache · ${formatCountdownClock(status.remainingMs)}`;
@@ -127,6 +131,8 @@ function resolveWarmupText(warmup: PromptCacheWarmup): string {
       return "Capped for this idle stretch";
     case "paused-after-compaction":
       return "Paused after compacting · resumes on your next message";
+    case "paused-account":
+      return describeAccountPause(plan.pause);
     case "parent-answers":
       return "Waits for the parent agent";
     case "waits-for-permission":
@@ -136,6 +142,20 @@ function resolveWarmupText(warmup: PromptCacheWarmup): string {
     case "next-ping":
       return `Next in ${formatCountdownClock(plan.remainingMs)}`;
   }
+}
+
+/**
+ * "Paused · account in cooldown until 17:43 · resumes on your next message". The account cannot
+ * take a warm-up, so its cache would expire before it recovers anyway.
+ */
+export function describeAccountPause(pause: AgentCacheWarmPause, now = Date.now()): string {
+  const until = formatResetTime(pause.until, now);
+  const when = until ? ` until ${until}` : "";
+  const blocked =
+    pause.reason === "quota"
+      ? `account's ${pause.window ? `${pause.window} ` : ""}quota used up${when}`
+      : `account in cooldown${when}`;
+  return `Paused · ${blocked} · resumes on your next message`;
 }
 
 function resolveLastPromptText(sample: PromptCacheRequestSample): string {

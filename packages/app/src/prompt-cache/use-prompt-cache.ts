@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
+import type { AgentCacheWarmPause } from "@getpaseo/protocol/messages";
 import {
   applyCacheWarmMaxPings,
   CACHE_WARM_MAX_PINGS_FEATURE_ID,
@@ -43,6 +44,8 @@ export type PromptCacheWarmupPlan =
   | { kind: "capped" }
   /** Compacted at the idle cap; the user's next message resumes warm-up. */
   | { kind: "paused-after-compaction" }
+  /** The CLIProxyAPI account serving the agent is blocked; the next message resumes warm-up. */
+  | { kind: "paused-account"; pause: AgentCacheWarmPause }
   | { kind: "parent-answers" }
   | { kind: "waits-for-permission" }
   | { kind: "pauses-question"; remainingMs: number }
@@ -112,6 +115,7 @@ interface AgentCacheFacts {
   pingsUsed: number;
   totalPings: number;
   pausedAtIdleCap: boolean;
+  accountPause: AgentCacheWarmPause | null;
 }
 
 function readFeatureValue(agent: Agent, id: string): unknown {
@@ -142,6 +146,7 @@ function readAgentCacheFacts(agent: Agent): AgentCacheFacts {
     pingsUsed: agent.consecutiveWarmPings ?? 0,
     totalPings: agent.totalWarmPings ?? 0,
     pausedAtIdleCap: isWarmUpPausedAtIdleCap(agent.promptCache),
+    accountPause: agent.cacheWarmPause ?? null,
   };
 }
 
@@ -178,6 +183,7 @@ function resolveWarmupPlan(input: {
   const { facts, windows, status, now } = input;
   if (!facts.warmupEnabled) return { kind: "off" };
   if (facts.pausedAtIdleCap) return { kind: "paused-after-compaction" };
+  if (facts.accountPause) return { kind: "paused-account", pause: facts.accountPause };
   if (input.forkWarm) return resolveForkWarmPlan({ facts, windows, status, now });
   if (status.kind === "busy" || status.kind === "busy-expired") return { kind: "after-turn" };
   if (status.kind === "expired" || facts.anchorMs === null) return { kind: "expired" };

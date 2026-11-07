@@ -167,6 +167,7 @@ import { AgentStorage } from "./agent/agent-storage.js";
 import { isRestartResumeEligible } from "./agent/restart-recovery/eligibility.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { attachGatewaySessionRouteWatcher } from "./agent/gateway/session-route-watcher.js";
+import { readWarmUpAccountBlock } from "./agent/gateway/warm-up-account.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import { TaskStore } from "./tasks/task-store.js";
 import { UiStateStore } from "./ui-state/store.js";
@@ -1173,6 +1174,22 @@ export async function createPaseoDaemon(
     warmsPastCap: (agentId) =>
       childReportPolicy() === "keep-warm" &&
       (finishSubscriptionsRef?.hasPendingForCaller(agentId) ?? false),
+    readAccountBlock: async (agentId) => {
+      const agent = agentManager.getAgent(agentId) ?? (await agentStorage.get(agentId));
+      if (!agent) return null;
+      return readWarmUpAccountBlock({
+        agent: {
+          provider: agent.provider,
+          config: {
+            model: agent.config?.model ?? null,
+            providerOptions: agent.config?.providerOptions ?? undefined,
+          },
+          persistence: agent.persistence,
+        },
+        gateway: providerSnapshotManager.getGatewayConfig(),
+        isGatewayRouted: (provider) => providerSnapshotManager.isGatewayRouted(provider),
+      });
+    },
   });
   agentManager.setCacheWarmManager(cacheWarmManager);
   agentManager.setAgentCommandLog(

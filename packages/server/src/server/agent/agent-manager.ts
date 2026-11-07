@@ -3,6 +3,7 @@ import type { AgentToolResult } from "@getpaseo/plugin/server";
 import type { RuntimeCleanupCandidate } from "./idle-runtime-cleanup/index.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import type { AgentRateLimitAutoResumeManager } from "./agent-rate-limit-auto-resume.js";
+import type { WarmUpAccountBlock } from "./gateway/warm-up-account.js";
 import type { AgentCacheWarmManager } from "./agent-cache-warm.js";
 import type { PromptCacheJournal, PromptCacheJournalHistory } from "./prompt-cache-journal.js";
 import {
@@ -519,6 +520,8 @@ interface ManagedAgentBase {
   promptCache?: AgentPromptCacheState;
   /** CLIProxyAPI accounts that served the session, oldest first; see GatewayAccountChange. */
   gatewayAccounts?: GatewayAccountChange[];
+  /** Warm-up paused for the serving account; live only, the next check decides after a restart. */
+  cacheWarmPause?: WarmUpAccountBlock;
   lastUsage?: AgentUsage;
   lastError?: string;
   attention: AttentionState;
@@ -2833,6 +2836,15 @@ export class AgentManager {
     if (options?.publish) {
       this.emitState(agent, { isWarmPing: true });
     }
+  }
+
+  /** Publishes why warm-up is paused for the serving account, or that it no longer is. */
+  setCacheWarmPause(agentId: string, pause: WarmUpAccountBlock | null): void {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+    if (pause) agent.cacheWarmPause = pause;
+    else delete agent.cacheWarmPause;
+    this.emitState(agent, { isWarmPing: true });
   }
 
   /**
@@ -5785,7 +5797,11 @@ export class AgentManager {
       (agent as ActiveManagedAgent).lifecycle = "idle";
       this.emitState(agent);
     }
-    void this.checkRateLimitAutoResumeOnIdle(agent.id);
+    // A warm-up has no work to resume. A warm ping that met a 429 reports it as its reply, and an
+    // auto-resume scheduled from that would later send a real turn and write the cache cold; the
+    // failed-turn path already skips warm pings the same way. Read here, before the foreground
+    // turn is finalized and the flag cleared.
+    if (!agent.activeTurnIsWarmPing) void this.checkRateLimitAutoResumeOnIdle(agent.id);
     void this.refreshRuntimeInfo(agent);
   }
 

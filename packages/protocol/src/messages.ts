@@ -1048,6 +1048,23 @@ export const AgentRateLimitCooldownPayloadSchema = z.object({
 
 export type AgentRateLimitCooldownPayload = z.infer<typeof AgentRateLimitCooldownPayloadSchema>;
 
+/**
+ * Warm-up is paused because the CLIProxyAPI account serving the agent could not take it. It
+ * resumes on the agent's next request of its own.
+ */
+export const AgentCacheWarmPauseSchema = z.object({
+  /** "cooldown" | "quota", or a newer value a later daemon adds. */
+  reason: z.string(),
+  /** Masked account label. */
+  account: z.string(),
+  /** When the account can serve again, when the Gateway says. */
+  until: z.string().optional(),
+  /** The used-up quota window's name, for a quota pause. */
+  window: z.string().optional(),
+});
+
+export type AgentCacheWarmPause = z.infer<typeof AgentCacheWarmPauseSchema>;
+
 export const AgentSnapshotPayloadSchema = z.object({
   id: z.string(),
   provider: AgentProviderSchema,
@@ -1091,6 +1108,8 @@ export const AgentSnapshotPayloadSchema = z.object({
    * each switch. Absent for agents the Gateway does not serve and on older daemons.
    */
   gatewayAccounts: z.array(GatewayAccountChangeSchema).optional(),
+  /** Present while warm-up is paused for the serving account; absent on older daemons. */
+  cacheWarmPause: AgentCacheWarmPauseSchema.optional(),
   /** Explicit per-agent idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact: z.boolean().optional(),
   /** Explicit per-agent warm-up cap per idle stretch; absent uses the window's maximum. */
@@ -7382,6 +7401,8 @@ export const GatewayQuotaAccountSchema = z.object({
   type: z.enum(["oauth", "api"]),
   plan: z.string().optional(),
   inCooldown: z.boolean(),
+  /** When the cooldown ends, on Gateways that report it. */
+  cooldownUntil: z.string().optional(),
   windowsObservedAt: z.string().nullable().optional(),
   windows: z.array(GatewayQuotaWindowSchema),
   resetCredits: z.array(GatewayQuotaResetCreditSchema).optional(),
@@ -7452,6 +7473,8 @@ export const GatewayRouteAccountSchema = z.object({
   provider: z.string(),
   plan: z.string().optional(),
   inCooldown: z.boolean(),
+  /** When the cooldown ends, on Gateways that report it. */
+  cooldownUntil: z.string().optional(),
 });
 
 export const GatewaySessionRouteSchema = z.object({

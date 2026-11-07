@@ -12,6 +12,7 @@ import {
 import { AgentStorage, type StoredAgentRecord } from "./agent-storage.js";
 import { AgentManager, type ManagedAgent } from "./agent-manager.js";
 import type { AgentPersistenceHandle, AgentStreamEvent } from "./agent-sdk-types.js";
+import type { WarmUpAccountBlock } from "./gateway/warm-up-account.js";
 
 const MINUTE = 60 * 1000;
 const START = new Date("2026-10-27T10:00:00.000Z").getTime();
@@ -52,6 +53,8 @@ interface HarnessOptions {
   warmsPastCap?: () => boolean;
   /** Host warm-up mode: true for v2 (fork), false for v1 (ping). */
   warmsThroughFork?: () => boolean;
+  /** The serving account check the manager runs right before a warm-up is sent. */
+  readAccountBlock?: (agentId: string) => Promise<WarmUpAccountBlock | null>;
 }
 
 function buildAgent(options: HarnessOptions): ManagedAgent {
@@ -101,6 +104,9 @@ function createHarness(options: HarnessOptions = {}) {
     agent.promptCache = promptCacheAt(Date.now(), options.contextTokens);
     return true;
   });
+  const setCacheWarmPause = vi.fn((_id: string, pause: WarmUpAccountBlock | null) => {
+    agent.cacheWarmPause = pause ?? undefined;
+  });
   const respondToPermission = vi.fn(async () => {
     agent.pendingPermissions.clear();
     agent.promptCache = promptCacheAt(Date.now());
@@ -119,6 +125,7 @@ function createHarness(options: HarnessOptions = {}) {
       },
       listAgents: () => [agent],
       setAgentFeature,
+      setCacheWarmPause,
       setCacheWarmCounts: (
         _id: string,
         counts: { consecutiveWarmPings: number; totalWarmPings?: number },
@@ -134,9 +141,31 @@ function createHarness(options: HarnessOptions = {}) {
     onIdleCapCompaction: options.onIdleCapCompaction,
     warmsPastCap: options.warmsPastCap,
     warmsThroughFork: options.warmsThroughFork,
+    readAccountBlock: options.readAccountBlock,
   });
-  return { manager, agent, sendPrompt, respondToPermission, setAgentFeature, warmPromptCache };
+  return {
+    manager,
+    agent,
+    sendPrompt,
+    respondToPermission,
+    setAgentFeature,
+    warmPromptCache,
+    setCacheWarmPause,
+  };
 }
+
+/** The account check's answer, as a stub the harness can inject. */
+function answersAccountBlock(
+  block: WarmUpAccountBlock | null,
+): (agentId: string) => Promise<WarmUpAccountBlock | null> {
+  return async () => block;
+}
+
+async function failsAccountCheck(): Promise<WarmUpAccountBlock | null> {
+  throw new Error("gateway unreachable");
+}
+
+async function settlesImmediately(): Promise<void> {}
 
 function sentPrompts(sendPrompt: { mock: { calls: unknown[] } }): string[] {
   const calls = sendPrompt.mock.calls as Array<[{ prompt: string }]>;
@@ -197,6 +226,116 @@ describe("AgentCacheWarmManager", () => {
     await vi.advanceTimersByTimeAsync(5 * MINUTE);
     expect(warmPromptCache).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  describe("serving account check", () => {
+    const cooldown: WarmUpAccountBlock = {
+      reason: "cooldown",
+      account: "u***a@example.com",
+      until: "2026-10-27T10:30:00.000Z",
+    };
+    const usedUp: WarmUpAccountBlock = {
+      reason: "quota",
+      account: "u***a@example.com",
+      window: "5h",
+      until: "2026-10-27T14:00:00.000Z",
+    };
+
+    it("skips a ping and pauses while the serving account cools down, until a request of its own", async () => {
+      const readAccountBlock = vi.fn(answersAccountBlock(cooldown));
+      const { manager, agent, sendPrompt, setCacheWarmPause } = createHarness({
+        ttl: "5m",
+        readAccountBlock,
+      });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(readAccountBlock).toHaveBeenCalledWith("agent-1");
+      expect(sendPrompt).not.toHaveBeenCalled();
+      expect(setCacheWarmPause).toHaveBeenLastCalledWith("agent-1", cooldown);
+      // Paused: no further warm-up is armed for this idle stretch.
+      expect(manager.schedule("agent-1")).toBe(false);
+      await vi.advanceTimersByTimeAsync(10 * MINUTE);
+      expect(sendPrompt).not.toHaveBeenCalled();
+
+      // The agent's next request of its own resumes warm-up, and the check runs again.
+      readAccountBlock.mockResolvedValue(null);
+      agent.promptCache = promptCacheAt(Date.now());
+      manager.onRequestRecorded("agent-1");
+      expect(setCacheWarmPause).toHaveBeenLastCalledWith("agent-1", null);
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(sendPrompt).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips a fork warm-up while one of the account's quota windows is used up", async () => {
+      const { manager, warmPromptCache, setCacheWarmPause } = createHarness({
+        ttl: "5m",
+        forkWarm: true,
+        readAccountBlock: answersAccountBlock(usedUp),
+      });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(warmPromptCache).not.toHaveBeenCalled();
+      expect(setCacheWarmPause).toHaveBeenLastCalledWith("agent-1", usedUp);
+    });
+
+    it("skips the idle-cap compaction too, which would reach the same blocked account", async () => {
+      const onIdleCapCompaction = vi.fn(settlesImmediately);
+      const { manager, agent, sendPrompt } = createHarness({
+        ttl: "5m",
+        autoCompact: true,
+        contextTokens: 300_000,
+        onIdleCapCompaction,
+        readAccountBlock: answersAccountBlock(usedUp),
+      });
+      agent.consecutiveWarmPings = 10;
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(onIdleCapCompaction).not.toHaveBeenCalled();
+      expect(sendPrompt).not.toHaveBeenCalled();
+    });
+
+    it("warms as before when the account is not blocked", async () => {
+      const { manager, sendPrompt, setCacheWarmPause } = createHarness({
+        ttl: "5m",
+        readAccountBlock: answersAccountBlock(null),
+      });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(sentPrompts(sendPrompt)).toEqual([DEFAULT_CACHE_WARM_PING_PROMPT]);
+      expect(setCacheWarmPause).not.toHaveBeenCalled();
+    });
+
+    it("warms as before when the check cannot answer, rather than guessing", async () => {
+      const { manager, sendPrompt } = createHarness({
+        ttl: "5m",
+        readAccountBlock: failsAccountCheck,
+      });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(sendPrompt).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends nothing when a turn starts while the check is in flight", async () => {
+      let agentRef: ManagedAgent | null = null;
+      const { manager, agent, sendPrompt } = createHarness({
+        ttl: "5m",
+        readAccountBlock: async () => {
+          // The user's message lands while the Gateway answers.
+          if (agentRef) agentRef.lifecycle = "running";
+          return null;
+        },
+      });
+      agentRef = agent;
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(sendPrompt).not.toHaveBeenCalled();
+    });
   });
 
   it("never warms an Automatic cache window, even when warm-up was switched on", () => {

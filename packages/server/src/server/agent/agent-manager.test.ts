@@ -5733,6 +5733,72 @@ test("cache warm ping turn does not set requiresAttention or touch lastUserMessa
   expect(persisted?.lastUserMessageAt).toBeNull();
 });
 
+test("a warm-up turn that meets a 429 schedules no rate-limit auto-resume", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-warm-429-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  // As Claude Code reports a gateway 429: the reply text carries the Gateway's retry time.
+  const limited = "API Error: 429 rate limited. RETRY_AFTER:2099-01-01T00:00:00Z";
+  class RateLimitedSession extends TestAgentSession {
+    private turns = 0;
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = `turn-429-${++this.turns}`;
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "timeline",
+          provider: this.provider,
+          item: { type: "assistant_message", text: limited },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+  }
+  class RateLimitedClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new RateLimitedSession(config);
+    }
+  }
+  const scheduleIfNeeded = vi.fn(() => true);
+  const rateLimitAutoResumeManager = {
+    scheduleIfNeeded,
+    cancel: vi.fn(),
+    getConsecutiveResumes: vi.fn(() => 0),
+    getPending: vi.fn(() => null),
+    resetConsecutiveResumes: vi.fn(),
+  } as unknown as import("./agent-rate-limit-auto-resume.js").AgentRateLimitAutoResumeManager;
+  const manager = new AgentManager({
+    clients: { codex: new RateLimitedClient() },
+    registry: storage,
+    logger,
+    rateLimitAutoResumeManager,
+  });
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    await manager.runAgent(snapshot.id, DEFAULT_CACHE_WARM_PING_PROMPT, { isWarmPing: true });
+    await manager.flush();
+    // A warm-up has no work to resume; a resume would send a real turn and write the cache cold.
+    await vi.waitFor(() => expect(manager.getAgent(snapshot.id)?.lifecycle).toBe("idle"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(scheduleIfNeeded).not.toHaveBeenCalled();
+
+    // The same reply on a turn of the agent's own still schedules the resume.
+    await manager.runAgent(snapshot.id, "carry on");
+    await manager.flush();
+    await vi.waitFor(() =>
+      expect(scheduleIfNeeded).toHaveBeenCalledWith(
+        snapshot.id,
+        expect.stringContaining("RETRY_AFTER:2099-01-01T00:00:00Z"),
+      ),
+    );
+    await manager.closeAgent(snapshot.id);
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("a cache warm-up turn keeps the warm-up count through its own start", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-warm-turn-order-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

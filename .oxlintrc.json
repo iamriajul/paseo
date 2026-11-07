@@ -530,7 +530,9 @@
     {
       "files": ["packages/app/src/**/*.{ts,tsx}"],
       "rules": {
-        "paseo/no-raw-pressable": "error"
+        "paseo/no-raw-pressable": "error",
+        // Metro loads `.web`/`.electron`/`.native`/`.ios`/`.android` variants that tsc never sees.
+        "paseo/platform-split-exports": "error"
       }
     },
     {

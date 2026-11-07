@@ -6,7 +6,6 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -918,9 +917,18 @@ exit 0
     );
     const work = join(directory, "work");
     mkdirSync(work);
-    // Real script files, so their isMainModule guard matches; node_modules resolves js-yaml.
     cpSync(new URL("scripts", repoRoot), join(work, "scripts"), { recursive: true });
-    symlinkSync(new URL("node_modules", repoRoot), join(work, "node_modules"));
+    // The `changes` job runs this suite without installing dependencies, so the scripts
+    // that need js-yaml are stubbed: the merge stub records which arch manifests it got,
+    // in order. merge-mac-manifest.test.mjs and validate-desktop-manifests.test.mjs cover
+    // the real YAML handling.
+    writeFileSync(
+      join(work, "scripts", "merge-mac-manifest.mjs"),
+      'import fs from "node:fs";\nconst [, , out, ...inputs] = process.argv;\nfs.writeFileSync(out, inputs.join("\\n") + "\\n");\n',
+    );
+    for (const name of ["stamp-rollout.mjs", "validate-desktop-manifests.mjs"]) {
+      writeFileSync(join(work, "scripts", name), "");
+    }
     for (const [arch, files] of Object.entries(manifests)) {
       const dir = join(work, "release-manifests", `mac-manifest-${arch}`);
       mkdirSync(dir, { recursive: true });
@@ -967,9 +975,7 @@ test("finalize publishes an arm64-only macOS release with its updater manifest",
     manifests: { arm64: ["Paseo-1.2.3-arm64-mac.zip"] },
   });
   assert.equal(run.status, 0, run.output);
-  assert.match(run.mac, /url: Paseo-1\.2\.3-arm64-mac\.zip/);
-  assert.match(run.mac, /minimumSystemVersion: 22\.0\.0/);
-  assert.match(run.mac, /rolloutHours: 0/);
+  assert.equal(run.mac, "mac-manifest-arm64/latest-mac.yml\n");
   assert.ok(
     run.calls.some((call) => /^release upload untagged-1 .*final\/latest-mac\.yml/.test(call)),
     run.calls.join("\n"),
@@ -984,8 +990,8 @@ test("finalize merges both macOS arches when both are enabled", () => {
     manifests: { arm64: ["Paseo-arm64.zip"], x64: ["Paseo-x64.zip"] },
   });
   assert.equal(run.status, 0, run.output);
-  assert.match(run.mac, /path: Paseo-arm64\.zip/);
-  assert.match(run.mac, /url: Paseo-x64\.zip/);
+  // arm64 first, so its top-level fields win in the merged manifest.
+  assert.equal(run.mac, "mac-manifest-arm64/latest-mac.yml\nmac-manifest-x64/latest-mac.yml\n");
 });
 
 test("finalize publishes a release with no desktop targets and keeps a failed enabled target as a draft", () => {

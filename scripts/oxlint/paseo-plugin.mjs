@@ -1,3 +1,5 @@
+import { platformSplitExports } from "./platform-split-exports.mjs";
+
 // Repo-specific oxlint rules. Each rule is its own name, so its burn-down list in .oxlintrc.json
 // is one override that cannot interact with the `no-restricted-imports` burn-downs.
 
@@ -179,6 +181,7 @@ export default {
   rules: {
     "no-raw-pressable": noRawPressable,
     "no-sync-io": noSyncIo,
+    "platform-split-exports": platformSplitExports,
     "no-to-sorted": noToSorted,
   },
 };

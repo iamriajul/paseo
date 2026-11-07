@@ -172,3 +172,122 @@ test("sorting a copy is allowed", () => {
   );
   assert.equal(result.failed, false, result.output);
 });
+
+// Lints `entry` inside a tree of files laid out like packages/app/src, so `@/` resolves.
+function lintPlatformTree(files, entry) {
+  const dir = mkdtempSync(path.join(tmpdir(), "paseo-oxlint-"));
+  try {
+    writeFileSync(
+      path.join(dir, ".oxlintrc.json"),
+      JSON.stringify({
+        jsPlugins: [pluginPath],
+        rules: { "paseo/platform-split-exports": "error" },
+      }),
+    );
+    for (const [name, source] of Object.entries(files)) {
+      const file = path.join(dir, "packages/app/src", name);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, source);
+    }
+    const result = spawnSync(
+      oxlintBin,
+      ["-c", ".oxlintrc.json", path.join("packages/app/src", entry)],
+      { cwd: dir, encoding: "utf8" },
+    );
+    return { failed: result.status !== 0, output: result.stdout + result.stderr };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// The production crash: the native clock exports a hook the web clock does not.
+const SPLIT_CLOCK = {
+  "ring/clock.ts":
+    "export function useStatusRingRotation() { return 0; }\nexport const PERIOD = 900;\nexport interface Clock { now: number }\n",
+  "ring/clock.web.ts":
+    "export function useStatusRingAnimationRef() { return null; }\nexport const PERIOD = 900;\n",
+};
+
+test("shared code importing a name the web variant lacks is reported", () => {
+  const result = lintPlatformTree(
+    {
+      ...SPLIT_CLOCK,
+      "row.tsx":
+        'import { useStatusRingRotation } from "@/ring/clock";\nexport const r = useStatusRingRotation;\n',
+    },
+    "row.tsx",
+  );
+  assert.equal(result.failed, true, result.output);
+  assert.match(result.output, /platform-split-exports/);
+  assert.match(result.output, /useStatusRingRotation/);
+  assert.match(result.output, /clock\.web\.ts/);
+  assert.match(result.output, /web, electron/);
+});
+
+test("names every variant exports, types, and a variant file's own imports are allowed", () => {
+  const files = {
+    ...SPLIT_CLOCK,
+    "row.tsx":
+      'import { PERIOD, type Clock } from "@/ring/clock";\nimport type { Clock as C } from "./ring/clock";\nexport const p: Clock | C | number = PERIOD;\n',
+    "ring/index.web.tsx":
+      'import { useStatusRingAnimationRef } from "@/ring/clock";\nexport const r = useStatusRingAnimationRef;\n',
+    "ring/index.tsx":
+      'import { useStatusRingRotation } from "@/ring/clock";\nexport const r = useStatusRingRotation;\n',
+    "ring/explicit.tsx":
+      'import { useStatusRingAnimationRef } from "@/ring/clock.web";\nexport const r = useStatusRingAnimationRef;\n',
+  };
+  for (const entry of ["row.tsx", "ring/index.web.tsx", "ring/index.tsx", "ring/explicit.tsx"]) {
+    const result = lintPlatformTree(files, entry);
+    assert.equal(result.failed, false, `${entry}: ${result.output}`);
+  }
+});
+
+test("tests resolve the web variant only, as Vitest does", () => {
+  const result = lintPlatformTree(
+    {
+      ...SPLIT_CLOCK,
+      "ring/clock.test.ts":
+        'import { useStatusRingAnimationRef } from "./clock";\nexport const r = useStatusRingAnimationRef;\n',
+    },
+    "ring/clock.test.ts",
+  );
+  assert.equal(result.failed, false, result.output);
+});
+
+test("a shared barrel over a split module, a namespace import, and an electron overlay are checked", () => {
+  const barrel = lintPlatformTree(
+    {
+      "limit/impl.web.ts": "export const LIMIT = 1;\nexport function cap() {}\n",
+      "limit/impl.native.ts": "export function cap() {}\n",
+      "limit/index.ts": 'export * from "./impl";\n',
+      "use.ts": 'import { LIMIT } from "@/limit";\nexport const l = LIMIT;\n',
+    },
+    "use.ts",
+  );
+  assert.equal(barrel.failed, true, barrel.output);
+  assert.match(barrel.output, /LIMIT[\s\S]*impl\.native\.ts[\s\S]*ios, android/);
+
+  const namespace = lintPlatformTree(
+    {
+      ...SPLIT_CLOCK,
+      "row.tsx":
+        'import * as clock from "@/ring/clock";\nexport const ok = clock.PERIOD;\nexport const r = clock.useStatusRingRotation;\n',
+    },
+    "row.tsx",
+  );
+  assert.equal(namespace.failed, true, namespace.output);
+  assert.match(namespace.output, /`useStatusRingRotation`/);
+  assert.doesNotMatch(namespace.output, /`PERIOD`/);
+
+  const electron = lintPlatformTree(
+    {
+      "source.web.ts": "export function open() {}\nexport function close() {}\n",
+      "source.electron.ts": "export function open() {}\n",
+      "source.ts": "export function open() {}\nexport function close() {}\n",
+      "use.ts": 'export { close } from "./source";\n',
+    },
+    "use.ts",
+  );
+  assert.equal(electron.failed, true, electron.output);
+  assert.match(electron.output, /source\.electron\.ts, which Metro loads on electron;/);
+});

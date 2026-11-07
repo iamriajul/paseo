@@ -170,6 +170,14 @@ export default defineConfig({
       "react/jsx-dev-runtime",
       "react-native-gesture-handler > hoist-non-react-statics",
       "react-native-gesture-handler > invariant",
+      // Reached by the sidebar workspace row's browser test; listed so a cold cache does not
+      // re-optimize mid-run and reload the test page ("Vite unexpectedly reloaded a test").
+      "zustand/traditional",
+      "react-native-draggable-flatlist",
+      "@dnd-kit/core",
+      "@dnd-kit/sortable",
+      "@dnd-kit/utilities",
+      "expo-haptics",
     ],
     exclude: [
       "react-native-enriched-markdown",

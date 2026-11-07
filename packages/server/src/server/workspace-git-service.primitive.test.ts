@@ -458,6 +458,28 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
     service.dispose();
   });
 
+  test("attributes Git commands submitted by a checkout read", async () => {
+    const tempDir = realpathSync(mkdtempSync(join(tmpdir(), "workspace-git-checkout-provenance-")));
+    const repoDir = join(tempDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: repoDir, stdio: "pipe" });
+    snapshotGitCommandRuntimeMetrics();
+    const service = createService({
+      getCheckoutStatus: getCheckoutStatusUncached as never,
+    });
+
+    try {
+      await service.getCheckout(repoDir);
+
+      const metrics = snapshotGitCommandRuntimeMetrics();
+      expect(metrics.submitted).toBeGreaterThan(0);
+      expect(metrics.provenanceTop).toEqual([["workspace-git:checkout-read", metrics.submitted]]);
+    } finally {
+      service.dispose();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test("attributes Git commands submitted by a workspace refresh", async () => {
     const tempDir = realpathSync(mkdtempSync(join(tmpdir(), "workspace-git-provenance-")));
     const repoDir = join(tempDir, "repo");
@@ -1695,6 +1717,7 @@ describe("WorkspaceGitServiceImpl D2 read methods", () => {
         cwd: REPO_CWD,
         acceptExitCodes: [0, 1],
       }),
+      "workspace-git:ref-exists",
     );
     branchLookup.resolve({
       stdout: "",

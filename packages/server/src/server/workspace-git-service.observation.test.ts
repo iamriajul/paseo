@@ -1644,9 +1644,18 @@ describe("WorkspaceGitService checkout observation", () => {
       expect(getCheckoutStatus).toHaveBeenCalledTimes(expectedCalls);
     }
 
+    expect(service.getMetrics()).toMatchObject({
+      degradedPollTargetCount: 1,
+      degradedPollIdleTargetCount: 1,
+    });
+
     service.applyRemotePoll(new Set([REPO_CWD]));
     await vi.advanceTimersByTimeAsync(5_000);
     expect(getCheckoutStatus).toHaveBeenCalledTimes(11);
+    expect(service.getMetrics()).toMatchObject({
+      degradedPollTargetCount: 1,
+      degradedPollIdleTargetCount: 0,
+    });
 
     subscription.unsubscribe();
     service.dispose();

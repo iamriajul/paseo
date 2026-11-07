@@ -1546,6 +1546,28 @@ test("waits ten minutes for an archive reply instead of the session RPC default"
   await rejection;
 });
 
+test("bounds the wait for a command list so a lost reply is retried promptly", async () => {
+  useHeartbeatClock();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_list_commands_timeout",
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const listing = client.listCommands({ agentId: "agent-1" });
+  const rejection = expect(listing).rejects.toThrow("Timeout waiting for message (15000ms)");
+  await vi.advanceTimersByTimeAsync(14_999);
+  await vi.advanceTimersByTimeAsync(1);
+  await rejection;
+  expect(client.getConnectionState().status).toBe("connected");
+});
+
 test("defaults session RPC waiters to sixty seconds", async () => {
   useHeartbeatClock();
   const logger = createMockLogger();

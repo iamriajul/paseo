@@ -1,0 +1,242 @@
+import type { Logger } from "pino";
+import {
+  encodeServerBrowserFrame,
+  ServerBrowserOpcode,
+  type ServerBrowserBinaryFrame,
+} from "@getpaseo/protocol/binary-frames/server-browser";
+import type { SessionInboundMessage, SessionOutboundMessage } from "../messages.js";
+import type { SessionDelivery } from "../session/owned-subscriptions/index.js";
+import { SCREENCAST_MAX_WINDOW } from "./screencast-hub.js";
+import { assertNavigableUrl, type ServerBrowserHost } from "./server-browser-host.js";
+
+export const SERVER_BROWSER_REQUEST_TYPES = [
+  "browser.server.tabs.subscribe.request",
+  "browser.server.tab.open.request",
+  "browser.server.tab.close.request",
+  "browser.server.tab.navigate.request",
+  "browser.server.tab.set_viewport.request",
+  "browser.server.workspace.clear_data.request",
+  "browser.server.screencast.start.request",
+  "browser.server.input.request",
+] as const;
+
+type ServerBrowserRequest = Extract<
+  SessionInboundMessage,
+  { type: (typeof SERVER_BROWSER_REQUEST_TYPES)[number] }
+>;
+
+export function isServerBrowserRequest(msg: SessionInboundMessage): msg is ServerBrowserRequest {
+  return (SERVER_BROWSER_REQUEST_TYPES as readonly string[]).includes(msg.type);
+}
+
+const SCREENCAST_FAMILY = "server-browser-screencast";
+// The window bounds frames in flight end to end; this only stops piling onto a stalled socket.
+const MAX_PENDING_SENDS = SCREENCAST_MAX_WINDOW;
+
+interface ScreencastStream {
+  subscriptionId: string;
+  browserId: string;
+  viewerId: string;
+}
+
+/** One client session's view of the server browser: RPCs, tab pushes, screencast streams. */
+export class ServerBrowserSessionHandlers {
+  private readonly streams = new Map<number, ScreencastStream>();
+  private nextStreamId = 1;
+
+  public constructor(
+    private readonly params: {
+      host: ServerBrowserHost;
+      delivery: SessionDelivery;
+      emit: (message: SessionOutboundMessage) => void;
+      logger: Logger;
+      sessionId: string;
+    },
+  ) {}
+
+  public handle(msg: ServerBrowserRequest): Promise<void> {
+    switch (msg.type) {
+      case "browser.server.tabs.subscribe.request":
+        return this.subscribeTabs(msg);
+      case "browser.server.screencast.start.request":
+        return this.startScreencast(msg);
+      default:
+        return this.handleCommand(msg);
+    }
+  }
+
+  public handleBinary(frame: ServerBrowserBinaryFrame, source: object): void {
+    if (frame.opcode !== ServerBrowserOpcode.FrameAck) return;
+    const stream = this.streams.get(frame.streamId);
+    if (!stream) return;
+    // Only the socket that owns the stream may spend its credit.
+    if (
+      !this.params.delivery
+        .subscriptionIds(source, SCREENCAST_FAMILY)
+        .includes(stream.subscriptionId)
+    ) {
+      return;
+    }
+    this.params.host.getTab(stream.browserId)?.screencast.ack(stream.viewerId, frame.seq);
+  }
+
+  private async subscribeTabs(
+    msg: Extract<ServerBrowserRequest, { type: "browser.server.tabs.subscribe.request" }>,
+  ): Promise<void> {
+    const { host, delivery, emit } = this.params;
+    let unsubscribe: (() => void) | undefined;
+    const owner = delivery.begin("server-browser-tabs", undefined, () => unsubscribe?.());
+    unsubscribe = host.subscribe((tabs, status) => {
+      owner.emit({ type: "browser.server.tabs.update", payload: { tabs, status } });
+    });
+    emit({
+      type: "browser.server.tabs.subscribe.response",
+      payload: {
+        requestId: msg.requestId,
+        subscriptionId: owner.responseId,
+        tabs: host.listTabs(),
+        status: host.status(),
+      },
+    });
+  }
+
+  private async startScreencast(
+    msg: Extract<ServerBrowserRequest, { type: "browser.server.screencast.start.request" }>,
+  ): Promise<void> {
+    const { host, delivery, emit } = this.params;
+    const tab = host.getTab(msg.browserId);
+    if (!tab) {
+      emit({
+        type: "browser.server.screencast.start.response",
+        payload: { requestId: msg.requestId, error: `No server browser tab ${msg.browserId}` },
+      });
+      return;
+    }
+    const streamId = this.nextStreamId++;
+    const viewerId = `${this.params.sessionId}:${streamId}`;
+    const owner = delivery.begin(SCREENCAST_FAMILY, undefined, () => {
+      this.streams.delete(streamId);
+      host.getTab(msg.browserId)?.screencast.removeViewer(viewerId);
+    });
+    this.streams.set(streamId, { subscriptionId: owner.id, browserId: msg.browserId, viewerId });
+    let pendingSends = 0;
+    emit({
+      type: "browser.server.screencast.start.response",
+      payload: { requestId: msg.requestId, subscriptionId: owner.responseId, streamId },
+    });
+    tab.screencast.addViewer(
+      viewerId,
+      {
+        send: (frame, seq) => {
+          pendingSends += 1;
+          void owner
+            .emitBinaryAndWait(
+              encodeServerBrowserFrame({
+                streamId,
+                seq,
+                width: frame.width,
+                height: frame.height,
+                jpeg: frame.jpeg,
+              }),
+            )
+            .catch(() => {})
+            .finally(() => {
+              pendingSends -= 1;
+            });
+        },
+        isCongested: () => pendingSends >= MAX_PENDING_SENDS,
+      },
+      { maxWidth: msg.maxWidth, maxHeight: msg.maxHeight },
+    );
+  }
+
+  private async handleCommand(
+    msg: Exclude<
+      ServerBrowserRequest,
+      { type: "browser.server.tabs.subscribe.request" | "browser.server.screencast.start.request" }
+    >,
+  ): Promise<void> {
+    let error: string | undefined;
+    let browserId: string | undefined;
+    try {
+      browserId = await this.runCommand(msg);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+      this.params.logger.debug({ err: caught, type: msg.type }, "Server browser request failed");
+    }
+    const payload = { requestId: msg.requestId, ...(error ? { error } : {}) };
+    switch (msg.type) {
+      case "browser.server.tab.open.request":
+        this.params.emit({
+          type: "browser.server.tab.open.response",
+          payload: { ...payload, ...(browserId ? { browserId } : {}) },
+        });
+        return;
+      case "browser.server.tab.close.request":
+        this.params.emit({ type: "browser.server.tab.close.response", payload });
+        return;
+      case "browser.server.tab.navigate.request":
+        this.params.emit({ type: "browser.server.tab.navigate.response", payload });
+        return;
+      case "browser.server.tab.set_viewport.request":
+        this.params.emit({ type: "browser.server.tab.set_viewport.response", payload });
+        return;
+      case "browser.server.workspace.clear_data.request":
+        this.params.emit({ type: "browser.server.workspace.clear_data.response", payload });
+        return;
+      case "browser.server.input.request":
+        this.params.emit({ type: "browser.server.input.response", payload });
+        return;
+    }
+  }
+
+  private async runCommand(
+    msg: Exclude<
+      ServerBrowserRequest,
+      { type: "browser.server.tabs.subscribe.request" | "browser.server.screencast.start.request" }
+    >,
+  ): Promise<string | undefined> {
+    const { host } = this.params;
+    if (msg.type === "browser.server.tab.open.request") {
+      const tab = await host.openTab({
+        workspaceId: msg.workspaceId,
+        url: msg.url,
+        openedBy: "user",
+      });
+      return tab.browserId;
+    }
+    if (msg.type === "browser.server.workspace.clear_data.request") {
+      await host.clearWorkspaceData(msg.workspaceId);
+      return undefined;
+    }
+    if (msg.type === "browser.server.tab.close.request") {
+      await host.closeTab(msg.browserId);
+      return undefined;
+    }
+    const tab = host.getTab(msg.browserId);
+    if (!tab) throw new Error(`No server browser tab ${msg.browserId}`);
+    switch (msg.type) {
+      case "browser.server.tab.navigate.request":
+        if (msg.action === "back") await tab.goHistory(-1);
+        else if (msg.action === "forward") await tab.goHistory(1);
+        else if (msg.action === "reload") await tab.reload();
+        else await navigateTo(tab, msg.url);
+        return undefined;
+      case "browser.server.tab.set_viewport.request":
+        await tab.setViewport({ width: msg.width, height: msg.height, mobile: msg.mobile });
+        return undefined;
+      case "browser.server.input.request":
+        await tab.dispatchInput(msg.events);
+        return undefined;
+    }
+  }
+}
+
+async function navigateTo(
+  tab: NonNullable<ReturnType<ServerBrowserHost["getTab"]>>,
+  url: string | undefined,
+): Promise<void> {
+  if (!url) throw new Error("navigate with action url needs a url");
+  assertNavigableUrl(url);
+  await tab.navigate(url);
+}

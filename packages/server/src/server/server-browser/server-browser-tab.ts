@@ -1,0 +1,537 @@
+import type { BrowserAutomationConsoleLogEntry } from "@getpaseo/protocol/browser-automation/rpc-schemas";
+import type {
+  ServerBrowserInputEvent,
+  ServerBrowserTab as ServerBrowserTabInfo,
+} from "@getpaseo/protocol/server-browser/rpc-schemas";
+import type { CdpConnection, CdpEvent, CdpParams } from "./cdp-connection.js";
+import { CdpSessionQueue } from "./engine/cdp-session-queue.js";
+import type { TabContents, TabImage } from "./engine/service.js";
+import type { IsolatedKeyboardInputEvent } from "./engine/trusted-input.js";
+import { ScreencastHub, type ScreencastSize } from "./screencast-hub.js";
+import { cdpKeyEventsForElectronKey } from "./key-events.js";
+
+const MAX_CONSOLE_ENTRIES = 200;
+const LOAD_WAIT_MS = 15_000;
+export const DEFAULT_VIEWPORT = { width: 1280, height: 800, mobile: false } as const;
+
+export interface ServerBrowserViewport {
+  width: number;
+  height: number;
+  mobile: boolean;
+}
+
+export interface ServerBrowserTabOptions {
+  browserId: string;
+  workspaceId: string;
+  contentsId: number;
+  targetId: string;
+  sessionId: string;
+  connection: CdpConnection;
+  openedBy: "agent" | "user";
+  viewport?: ServerBrowserViewport;
+  onChange: () => void;
+  now?: () => number;
+}
+
+/**
+ * One page target in a workspace's Chromium. Implements the desktop engine's TabContents so the
+ * vendored automation commands run unchanged, and owns the tab's screencast fan-out.
+ */
+export class ServerBrowserTab {
+  public readonly browserId: string;
+  public readonly workspaceId: string;
+  public readonly openedBy: "agent" | "user";
+  public readonly createdAt: number;
+  public readonly contents: TabContents;
+  public readonly screencast: ScreencastHub;
+  public lastUsedAt: number;
+
+  private targetId: string;
+  private sessionId: string;
+  private connection: CdpConnection;
+  private readonly contentsId: number;
+  private readonly onChange: () => void;
+  private readonly now: () => number;
+  private readonly queue = new CdpSessionQueue();
+  private readonly console: BrowserAutomationConsoleLogEntry[] = [];
+  private loadWaiters: Array<() => void> = [];
+  private url = "about:blank";
+  private title = "";
+  private loading = false;
+  private canGoBack = false;
+  private canGoForward = false;
+  private viewport: ServerBrowserViewport;
+  private closed = false;
+  private screencastSize: ScreencastSize | null = null;
+
+  public constructor(options: ServerBrowserTabOptions) {
+    this.browserId = options.browserId;
+    this.workspaceId = options.workspaceId;
+    this.openedBy = options.openedBy;
+    this.contentsId = options.contentsId;
+    this.targetId = options.targetId;
+    this.sessionId = options.sessionId;
+    this.connection = options.connection;
+    this.onChange = options.onChange;
+    this.now = options.now ?? Date.now;
+    this.createdAt = this.now();
+    this.lastUsedAt = this.createdAt;
+    this.viewport = options.viewport ?? { ...DEFAULT_VIEWPORT };
+    this.contents = this.createContents();
+    this.screencast = new ScreencastHub({
+      start: (size) => this.startScreencast(size),
+      stop: () => this.stopScreencast(),
+    });
+  }
+
+  public get isClosed(): boolean {
+    return this.closed;
+  }
+
+  public get cdpTargetId(): string {
+    return this.targetId;
+  }
+
+  public get currentUrl(): string {
+    return this.url;
+  }
+
+  public get currentViewport(): ServerBrowserViewport {
+    return { ...this.viewport };
+  }
+
+  public owns(sessionId: string | undefined): boolean {
+    return sessionId === this.sessionId;
+  }
+
+  public info(): ServerBrowserTabInfo {
+    return {
+      browserId: this.browserId,
+      workspaceId: this.workspaceId,
+      url: this.url,
+      title: this.title,
+      isLoading: this.loading,
+      canGoBack: this.canGoBack,
+      canGoForward: this.canGoForward,
+      viewport: { ...this.viewport },
+      openedBy: this.openedBy,
+      createdAt: this.createdAt,
+    };
+  }
+
+  public async initialize(): Promise<void> {
+    await this.send("Page.enable");
+    await this.send("Runtime.enable");
+    await this.send("Page.setLifecycleEventsEnabled", { enabled: true });
+    await this.applyViewport();
+  }
+
+  /** Rebinds this browserId to a fresh target after the workspace browser relaunched. */
+  public rebind(target: { targetId: string; sessionId: string; connection: CdpConnection }): void {
+    this.targetId = target.targetId;
+    this.sessionId = target.sessionId;
+    this.connection = target.connection;
+    this.closed = false;
+    this.screencast.resetLastFrame();
+    if (this.screencastSize) void this.startScreencast(this.screencastSize);
+  }
+
+  public touch(): void {
+    this.lastUsedAt = this.now();
+  }
+
+  public handleEvent(event: CdpEvent): void {
+    switch (event.method) {
+      case "Page.frameNavigated":
+        this.onFrameNavigated(event.params);
+        return;
+      case "Page.navigatedWithinDocument":
+        this.url = stringParam(event.params, "url") ?? this.url;
+        void this.refreshHistory();
+        return;
+      case "Page.frameStartedLoading":
+        if (this.isMainFrame(event.params)) this.setLoading(true);
+        return;
+      case "Page.frameStoppedLoading":
+        if (this.isMainFrame(event.params)) this.setLoading(false);
+        return;
+      case "Page.loadEventFired":
+        this.setLoading(false);
+        void this.refreshTitle();
+        return;
+      case "Page.screencastFrame":
+        this.onScreencastFrame(event.params);
+        return;
+      case "Page.javascriptDialogOpening":
+        // Headless has no one to answer; an open dialog would wedge every later command.
+        void this.send("Page.handleJavaScriptDialog", {
+          accept: true,
+          promptText: stringParam(event.params, "defaultPrompt") ?? "",
+        }).catch(() => {});
+        this.recordConsole(
+          "warning",
+          `Dialog auto-accepted: ${stringParam(event.params, "message") ?? ""}`,
+        );
+        return;
+      case "Runtime.consoleAPICalled":
+        this.onConsole(event.params);
+        return;
+      case "Runtime.exceptionThrown":
+        this.onException(event.params);
+        return;
+      default:
+        return;
+    }
+  }
+
+  public markClosed(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.screencast.resetLastFrame();
+    for (const resolve of this.loadWaiters.splice(0)) resolve();
+  }
+
+  public dispose(): void {
+    this.markClosed();
+    this.screencastSize = null;
+    this.screencast.close();
+  }
+
+  public updateTargetInfo(info: { url?: string; title?: string }): void {
+    let changed = false;
+    if (info.title !== undefined && info.title !== this.title) {
+      this.title = info.title;
+      changed = true;
+    }
+    if (info.url !== undefined && info.url !== this.url && info.url !== "") {
+      this.url = info.url;
+      changed = true;
+    }
+    if (changed) this.onChange();
+  }
+
+  public async navigate(url: string): Promise<void> {
+    this.touch();
+    const result = await this.send("Page.navigate", { url });
+    const errorText = stringParam(result, "errorText");
+    if (errorText && errorText !== "net::ERR_ABORTED") {
+      throw new Error(`Navigation to ${url} failed: ${errorText}`);
+    }
+  }
+
+  public async goHistory(delta: -1 | 1): Promise<void> {
+    this.touch();
+    const history = (await this.send("Page.getNavigationHistory")) as {
+      currentIndex: number;
+      entries: Array<{ id: number }>;
+    };
+    const entry = history.entries[history.currentIndex + delta];
+    if (entry) await this.send("Page.navigateToHistoryEntry", { entryId: entry.id });
+  }
+
+  public async reload(): Promise<void> {
+    this.touch();
+    await this.send("Page.reload");
+  }
+
+  public async setViewport(viewport: ServerBrowserViewport): Promise<void> {
+    this.viewport = { ...viewport };
+    await this.applyViewport();
+    this.onChange();
+  }
+
+  /** Applies viewer input. Pointer coordinates are fractions of the frame. */
+  public async dispatchInput(events: ServerBrowserInputEvent[]): Promise<void> {
+    this.touch();
+    // One queue slot per batch, taken synchronously: a later request's mouse-up must not
+    // overtake this request's mouse-down while it awaits the move before it.
+    await this.queue.run(async () => {
+      for (const event of events) await this.dispatchOne(event);
+    });
+  }
+
+  private async dispatchOne(event: ServerBrowserInputEvent): Promise<void> {
+    switch (event.kind) {
+      case "mouse": {
+        const type = { move: "mouseMoved", down: "mousePressed", up: "mouseReleased" }[
+          event.action
+        ];
+        await this.rawSend("Input.dispatchMouseEvent", {
+          type,
+          ...this.toPagePoint(event.x, event.y),
+          button: event.button,
+          buttons: event.action === "up" || event.button === "none" ? 0 : buttonMask(event.button),
+          clickCount: event.clickCount,
+          modifiers: modifierMask(event.modifiers),
+        });
+        return;
+      }
+      case "wheel":
+        await this.rawSend("Input.dispatchMouseEvent", {
+          type: "mouseWheel",
+          ...this.toPagePoint(event.x, event.y),
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+        });
+        return;
+      case "key":
+        await this.rawSend("Input.dispatchKeyEvent", {
+          type: cdpKeyEventType(event.action, event.text),
+          key: event.key,
+          code: event.code,
+          windowsVirtualKeyCode: event.keyCode,
+          ...(event.action === "down" && event.text ? { text: event.text } : {}),
+          modifiers: modifierMask(event.modifiers),
+        });
+        return;
+      case "text":
+        await this.rawSend("Input.insertText", { text: event.text });
+        return;
+    }
+  }
+
+  private toPagePoint(x: number, y: number): { x: number; y: number } {
+    const clamp = (value: number) => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+    return { x: clamp(x) * this.viewport.width, y: clamp(y) * this.viewport.height };
+  }
+
+  private createContents(): TabContents {
+    return {
+      id: this.contentsId,
+      getURL: () => this.url,
+      getTitle: () => this.title,
+      canGoBack: () => this.canGoBack,
+      canGoForward: () => this.canGoForward,
+      isLoading: () => this.loading,
+      isDestroyed: () => this.closed,
+      executeJavaScript: (code) => this.evaluate(code),
+      loadURL: (url) => this.loadUrl(url),
+      goBack: () => void this.goHistory(-1).catch(() => {}),
+      goForward: () => void this.goHistory(1).catch(() => {}),
+      reload: () => void this.reload().catch(() => {}),
+      captureFrame: () => this.captureFrame(),
+      invalidate: () => {},
+      withFrameProduction: (capture) => capture(),
+      sendInputEvent: (event) => this.sendElectronKey(event),
+      insertText: async (text) => {
+        await this.send("Input.insertText", { text });
+      },
+      getConsoleMessages: () => [...this.console],
+      sendDebugCommand: (command, params) => this.send(command, params ?? {}),
+    };
+  }
+
+  private async evaluate(code: string): Promise<unknown> {
+    this.touch();
+    const result = (await this.send("Runtime.evaluate", {
+      expression: code,
+      awaitPromise: true,
+      returnByValue: true,
+      userGesture: true,
+    })) as {
+      result?: { value?: unknown };
+      exceptionDetails?: { text?: string; exception?: { description?: string } };
+    };
+    if (result.exceptionDetails) {
+      const description =
+        result.exceptionDetails.exception?.description ??
+        result.exceptionDetails.text ??
+        "Script failed";
+      throw new Error(description);
+    }
+    return result.result?.value;
+  }
+
+  private async loadUrl(url: string): Promise<void> {
+    const loaded = this.waitForLoad();
+    await this.navigate(url);
+    await loaded;
+    await this.refreshTitle();
+  }
+
+  /** Resolves on the next main-frame load, or after LOAD_WAIT_MS for a page that never finishes. */
+  private waitForLoad(): Promise<void> {
+    let release = () => {};
+    const loaded = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.loadWaiters.push(release);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, LOAD_WAIT_MS);
+    });
+    return Promise.race([loaded, timeout]).finally(() => {
+      clearTimeout(timer);
+      this.loadWaiters = this.loadWaiters.filter((waiter) => waiter !== release);
+    });
+  }
+
+  private async captureFrame(): Promise<TabImage> {
+    const result = (await this.send("Page.captureScreenshot", { format: "png" })) as {
+      data: string;
+    };
+    const png = Buffer.from(result.data, "base64");
+    const size = pngSize(png);
+    return { toPNG: () => png, getSize: () => size };
+  }
+
+  private sendElectronKey(event: IsolatedKeyboardInputEvent): void {
+    for (const params of cdpKeyEventsForElectronKey(event)) {
+      void this.send("Input.dispatchKeyEvent", params).catch(() => {});
+    }
+  }
+
+  private send(method: string, params: CdpParams = {}): Promise<CdpParams> {
+    return this.queue.run(() => this.rawSend(method, params));
+  }
+
+  private rawSend(method: string, params: CdpParams = {}): Promise<CdpParams> {
+    if (this.closed) return Promise.reject(new Error("Browser tab has been closed"));
+    return this.connection.send(method, params, this.sessionId);
+  }
+
+  private async applyViewport(): Promise<void> {
+    await this.send("Emulation.setDeviceMetricsOverride", {
+      width: this.viewport.width,
+      height: this.viewport.height,
+      deviceScaleFactor: this.viewport.mobile ? 2 : 1,
+      mobile: this.viewport.mobile,
+    });
+    await this.send("Emulation.setTouchEmulationEnabled", {
+      enabled: this.viewport.mobile,
+      ...(this.viewport.mobile ? { maxTouchPoints: 5 } : {}),
+    });
+  }
+
+  private startScreencast(size: ScreencastSize): void {
+    this.screencastSize = size;
+    void this.rawSend("Page.startScreencast", {
+      format: "jpeg",
+      quality: 60,
+      maxWidth: size.maxWidth,
+      maxHeight: size.maxHeight,
+      everyNthFrame: 1,
+    }).catch(() => {});
+  }
+
+  private stopScreencast(): void {
+    this.screencastSize = null;
+    void this.rawSend("Page.stopScreencast").catch(() => {});
+  }
+
+  private onScreencastFrame(params: CdpParams): void {
+    const data = stringParam(params, "data");
+    const frameSessionId = params.sessionId;
+    if (!data || typeof frameSessionId !== "number") return;
+    const metadata = (params.metadata ?? {}) as { deviceWidth?: number; deviceHeight?: number };
+    this.screencast.pushFrame(
+      {
+        jpeg: Buffer.from(data, "base64"),
+        width: metadata.deviceWidth ?? this.viewport.width,
+        height: metadata.deviceHeight ?? this.viewport.height,
+      },
+      () => {
+        void this.rawSend("Page.screencastFrameAck", { sessionId: frameSessionId }).catch(() => {});
+      },
+    );
+  }
+
+  private onFrameNavigated(params: CdpParams): void {
+    const frame = params.frame as
+      | { parentId?: string; url?: string; urlFragment?: string }
+      | undefined;
+    if (!frame || frame.parentId) return;
+    this.url = `${frame.url ?? this.url}${frame.urlFragment ?? ""}`;
+    this.onChange();
+    void this.refreshHistory();
+  }
+
+  private isMainFrame(params: CdpParams): boolean {
+    return params.frameId === this.targetId;
+  }
+
+  private setLoading(loading: boolean): void {
+    if (this.loading === loading) return;
+    this.loading = loading;
+    if (!loading) for (const resolve of this.loadWaiters.splice(0)) resolve();
+    this.onChange();
+  }
+
+  private async refreshHistory(): Promise<void> {
+    try {
+      const history = (await this.send("Page.getNavigationHistory")) as {
+        currentIndex: number;
+        entries: unknown[];
+      };
+      this.canGoBack = history.currentIndex > 0;
+      this.canGoForward = history.currentIndex < history.entries.length - 1;
+      this.onChange();
+    } catch {
+      // The tab closed mid-refresh.
+    }
+  }
+
+  private async refreshTitle(): Promise<void> {
+    try {
+      const title = await this.evaluate("document.title");
+      if (typeof title === "string") this.updateTargetInfo({ title });
+    } catch {
+      // The page navigated away mid-read.
+    }
+  }
+
+  private onConsole(params: CdpParams): void {
+    const args =
+      (params.args as Array<{ value?: unknown; description?: string }> | undefined) ?? [];
+    const message = args
+      .map((arg) => (arg.value !== undefined ? String(arg.value) : (arg.description ?? "")))
+      .join(" ");
+    const level = typeof params.type === "string" ? params.type : "log";
+    this.recordConsole(level === "warning" ? "warning" : level, message);
+  }
+
+  private onException(params: CdpParams): void {
+    const details = params.exceptionDetails as
+      | { text?: string; exception?: { description?: string }; url?: string; lineNumber?: number }
+      | undefined;
+    this.recordConsole("error", details?.exception?.description ?? details?.text ?? "Uncaught", {
+      ...(details?.url ? { source: details.url } : {}),
+      ...(typeof details?.lineNumber === "number" ? { line: details.lineNumber } : {}),
+    });
+  }
+
+  private recordConsole(
+    level: string,
+    message: string,
+    extra: { source?: string; line?: number } = {},
+  ): void {
+    this.console.push({ level, message, timestamp: this.now(), ...extra });
+    if (this.console.length > MAX_CONSOLE_ENTRIES) this.console.shift();
+  }
+}
+
+function cdpKeyEventType(action: "down" | "up", text: string | undefined): string {
+  if (action === "up") return "keyUp";
+  // A keyDown with text inserts it; rawKeyDown leaves text to a separate char/insertText.
+  return text ? "keyDown" : "rawKeyDown";
+}
+
+function stringParam(params: CdpParams, key: string): string | undefined {
+  const value = params[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+const MODIFIER_BITS = { Alt: 1, Control: 2, Meta: 4, Shift: 8 } as const;
+
+function modifierMask(modifiers: Array<keyof typeof MODIFIER_BITS> | undefined): number {
+  return (modifiers ?? []).reduce((mask, modifier) => mask | MODIFIER_BITS[modifier], 0);
+}
+
+function buttonMask(button: "left" | "right" | "middle"): number {
+  return { left: 1, right: 2, middle: 4 }[button];
+}
+
+function pngSize(png: Buffer): { width: number; height: number } {
+  if (png.length < 24) return { width: 0, height: 0 };
+  return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
+}

@@ -196,7 +196,11 @@ import {
   type CliConfigOverrides,
 } from "./config.js";
 import { resolvePaseoToolPolicy } from "./agent/paseo-tool-policy.js";
-import { BrowserToolsBroker } from "./browser-tools/broker.js";
+import type { BrowserToolsBroker } from "./browser-tools/broker.js";
+import {
+  createServerBrowser,
+  resolveInitialServerBrowserConfig,
+} from "./server-browser/bootstrap.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
 import { WorkspaceGitServiceImpl } from "./workspace-git-service.js";
 import { resolveWorkspaceIdForPath } from "./resolve-workspace-id-for-path.js";
@@ -454,6 +458,7 @@ export interface PaseoDaemonConfig {
   mcpInjectIntoAgents?: boolean;
   usageEnabled?: boolean;
   browserToolsEnabled?: boolean;
+  serverBrowser?: { enabled?: boolean; executablePath?: string };
   git?: {
     maxProcessesPerSecond: number;
     maxProcessConcurrency: number;
@@ -684,6 +689,7 @@ function createInitialMutableDaemonConfig(config: ResolvedDaemonSettings): Mutab
       : {}),
     usage: { enabled: config.usageEnabled !== false },
     browserTools: { enabled: config.browserToolsEnabled ?? false },
+    serverBrowser: resolveInitialServerBrowserConfig(config.serverBrowser),
     providers,
     cliproxyapi: config.agentGateway,
     metadataGeneration: {
@@ -757,7 +763,11 @@ export async function createPaseoDaemon(
     logger.error({ err: error }, "Failed to maintain orchestration skills at startup");
   });
   const browserToolsPolicy = new DaemonConfigBrowserToolsPolicy(daemonConfigStore);
-  const browserToolsBroker = new BrowserToolsBroker({});
+  const { browserToolsBroker, stopServerBrowser } = createServerBrowser({
+    paseoHome: config.paseoHome,
+    logger,
+    daemonConfigStore,
+  });
   const pluginRuntime: PluginService = new PluginService(logger, daemonConfigStore, daemonVersion, {
     usageAgents: {
       hasAgent: (id) => agentManager.getAgent(id) !== null,
@@ -2274,6 +2284,7 @@ export async function createPaseoDaemon(
     await idleRuntimeCleanup.close();
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();
+    await stopServerBrowser();
     await finishSubscriptions.close();
     await wsServer?.agentMessages.close();
     agentManager.prepareForShutdown();

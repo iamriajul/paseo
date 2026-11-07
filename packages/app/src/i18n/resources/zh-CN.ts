@@ -262,6 +262,16 @@ export const zhCN: TranslationResources = {
       proposedPlan: "建议计划",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "聊天显示",
+    followSettings: "使用设置",
+    tooltipFollowingSettings: "聊天显示：{{mode}}（来自设置）",
+    tooltipOverridden: "聊天显示：{{mode}}（此智能体）",
+    errors: {
+      disconnected: "未连接到主机",
+      saveFailed: "无法保存聊天显示",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "未找到 Agent",

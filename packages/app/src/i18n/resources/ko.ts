@@ -262,6 +262,16 @@ export const ko: TranslationResources = {
       proposedPlan: "제안된 계획",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "채팅 표시",
+    followSettings: "설정 따르기",
+    tooltipFollowingSettings: "채팅 표시: {{mode}} (설정)",
+    tooltipOverridden: "채팅 표시: {{mode}} (이 에이전트)",
+    errors: {
+      disconnected: "호스트에 연결되지 않음",
+      saveFailed: "채팅 표시를 저장하지 못했습니다",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "에이전트를 찾을 수 없습니다",

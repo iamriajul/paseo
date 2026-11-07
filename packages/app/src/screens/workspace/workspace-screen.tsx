@@ -540,6 +540,11 @@ function WorkspaceHeaderTitleBar({
   );
 }
 
+/** The agent a tab shows, or null for every other kind of tab. */
+function agentIdOfTab(tab: WorkspaceTabDescriptor | null): string | null {
+  return tab?.target.kind === "agent" ? tab.target.agentId : null;
+}
+
 type PaneDirection = "left" | "right" | "up" | "down";
 
 function parsePaneDirection(actionId: string): PaneDirection | null {
@@ -3449,6 +3454,7 @@ function WorkspaceScreenContent({
       handleOpenUrlInBrowserTab,
     ],
   );
+  const compactChatDisplayAgentId = agentIdOfTab(activeTabDescriptor);
   const compactWorkspaceHeader = useMemo(
     () =>
       isMobile ? (
@@ -3487,6 +3493,7 @@ function WorkspaceScreenContent({
             normalizedServerId={normalizedServerId}
             normalizedWorkspaceId={normalizedWorkspaceId}
             scripts={compactHeaderScripts}
+            chatDisplayAgentId={compactChatDisplayAgentId}
             currentBranchName={currentBranchName}
             showWorkspaceSetup={showWorkspaceSetup}
             showCreateBrowserTab={showCreateBrowserTab}
@@ -3505,6 +3512,7 @@ function WorkspaceScreenContent({
     [
       activeTabKey,
       canOpenImportSheet,
+      compactChatDisplayAgentId,
       compactHeaderScripts,
       createTerminalDisabled,
       currentBranchName,

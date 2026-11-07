@@ -264,6 +264,16 @@ export const ja: TranslationResources = {
       proposedPlan: "提案されたプラン",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "チャットの表示",
+    followSettings: "設定に従う",
+    tooltipFollowingSettings: "チャットの表示: {{mode}}（設定）",
+    tooltipOverridden: "チャットの表示: {{mode}}（このエージェント）",
+    errors: {
+      disconnected: "ホストに接続されていません",
+      saveFailed: "チャットの表示を保存できませんでした",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "エージェントが見つかりません",

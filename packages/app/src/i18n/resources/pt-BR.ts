@@ -263,6 +263,16 @@ export const ptBR: TranslationResources = {
       proposedPlan: "Plano proposto",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "Exibição do chat",
+    followSettings: "Usar Configurações",
+    tooltipFollowingSettings: "Exibição do chat: {{mode}} (das Configurações)",
+    tooltipOverridden: "Exibição do chat: {{mode}} (este agente)",
+    errors: {
+      disconnected: "Sem conexão com o host",
+      saveFailed: "Não foi possível salvar a exibição do chat",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "Agente não encontrado",

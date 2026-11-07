@@ -262,6 +262,16 @@ export const es: TranslationResources = {
       proposedPlan: "Plan propuesto",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "Visualización del chat",
+    followSettings: "Usar Ajustes",
+    tooltipFollowingSettings: "Visualización del chat: {{mode}} (de Ajustes)",
+    tooltipOverridden: "Visualización del chat: {{mode}} (este agente)",
+    errors: {
+      disconnected: "Sin conexión con el host",
+      saveFailed: "No se pudo guardar la visualización del chat",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "Agentno encontrado",

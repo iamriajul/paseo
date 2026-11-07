@@ -263,6 +263,16 @@ export const fr: TranslationResources = {
       proposedPlan: "Plan proposé",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "Affichage du chat",
+    followSettings: "Utiliser les réglages",
+    tooltipFollowingSettings: "Affichage du chat : {{mode}} (réglages)",
+    tooltipOverridden: "Affichage du chat : {{mode}} (cet agent)",
+    errors: {
+      disconnected: "Non connecté à l’hôte",
+      saveFailed: "Impossible d’enregistrer l’affichage du chat",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "Agent introuvable",

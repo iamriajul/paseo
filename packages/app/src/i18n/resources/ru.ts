@@ -262,6 +262,16 @@ export const ru: TranslationResources = {
       proposedPlan: "Предлагаемый план",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "Отображение чата",
+    followSettings: "Как в настройках",
+    tooltipFollowingSettings: "Отображение чата: {{mode}} (из настроек)",
+    tooltipOverridden: "Отображение чата: {{mode}} (этот агент)",
+    errors: {
+      disconnected: "Нет подключения к хосту",
+      saveFailed: "Не удалось сохранить отображение чата",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "Агент не найден",

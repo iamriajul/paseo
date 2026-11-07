@@ -256,6 +256,16 @@ export const en = {
       proposedPlan: "Proposed plan",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "Chat display",
+    followSettings: "Use Settings",
+    tooltipFollowingSettings: "Chat display: {{mode}} (from Settings)",
+    tooltipOverridden: "Chat display: {{mode}} (this agent)",
+    errors: {
+      disconnected: "Not connected to the host",
+      saveFailed: "Couldn't save the chat display",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "Agent not found",

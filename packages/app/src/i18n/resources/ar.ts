@@ -260,6 +260,16 @@ export const ar: TranslationResources = {
       proposedPlan: "الخطة المقترحة",
     },
   },
+  agentChatDisplay: {
+    rowLabel: "عرض المحادثة",
+    followSettings: "استخدام الإعدادات",
+    tooltipFollowingSettings: "عرض المحادثة: {{mode}} (من الإعدادات)",
+    tooltipOverridden: "عرض المحادثة: {{mode}} (لهذا الوكيل)",
+    errors: {
+      disconnected: "غير متصل بالمضيف",
+      saveFailed: "تعذّر حفظ عرض المحادثة",
+    },
+  },
   agentPanel: {
     states: {
       notFound: "لم يتم العثور على Agent",

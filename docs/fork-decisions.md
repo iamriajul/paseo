@@ -1263,3 +1263,18 @@ grep -q 'Command Center rows kept rendering' packages/app/e2e/support/helpers/co
 ```bash
 grep -q 'Traffic since the hold' packages/app/e2e/support/helpers/daemon-websocket-gate.ts
 ```
+
+## agent-chat-display-override
+
+**an agent can override the Settings chat display, from the pane toolbar or the compact menu**
+
+Settings › Chat › Chat display (full, collapse tool calls, collapse turns) applies to every chat. Each agent can now pick its own mode, or follow Settings. On wide layouts the pane toolbar carries a menu button next to maximize while the pane shows an agent: its glyph is the mode the chat renders, its tooltip names the mode and whether it comes from Settings or from this agent, and it reads as pressed while the agent has its own choice. Compact layouts have no pane toolbar, so the workspace ⋯ menu carries a `Chat display  <mode> ›` row, dotted while the agent has its own choice, leading to a page with the same options. Both surfaces render `AgentChatDisplayOptions` (`packages/app/src/chat-display/`), with `Use Settings` first and the Settings value under it, so the way back is the first row.
+
+The choice is the agent label `paseo.chat-display`, written with `update_agent`. A label lives in the daemon with the agent, reaches every device through the agent's own updates, and goes when the agent goes, and every daemon already accepts it, so the feature needs no protocol change and no `server_info.features` gate. The fork's `ui_state` store was the other candidate and was rejected: it would need a new namespace, and older apps fail validation on any `ui_state.updated` carrying a namespace they don't know, which breaks the protocol contract. Wire labels can't delete a key, so following Settings writes an empty value, and the app reads any value that isn't a mode as following Settings.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/chat-display/agent-override.test.ts --bail=1
+grep -q "useAgentChatDisplay(serverId, agentId).effective" packages/app/src/agent-stream/view.tsx
+grep -q "<AgentChatDisplayToolbarButton" packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
+grep -q "chatDisplayMenu.trigger" packages/app/src/screens/workspace/workspace-header-menu.tsx
+```

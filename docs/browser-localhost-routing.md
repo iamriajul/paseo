@@ -2,6 +2,8 @@
 
 The in-app Browser has workspace-aware localhost routing on Electron desktop, Android, and web builds. When a Browser tab belongs to a workspace on host `H`, loopback URLs loaded inside that Browser are resolved against host `H`, not against the machine running the client.
 
+With a host's experimental server browser on, workspace URLs open in a headless Chromium on the host instead, where loopback needs no routing; see [Server browser](server-browser.md).
+
 This is separate from the service proxy. The service proxy exposes `paseo.json` service scripts through generated hostnames and optional public URLs. Browser localhost routing is for loopback URLs such as `http://localhost:5173`, `http://127.0.0.1:3000`, or a WebSocket opened to `ws://localhost:3000`. Inside the Browser, `paseo.json` services ride this route too; see [Workspace services in the Browser](#workspace-services-in-the-browser).
 
 ## Routing scope

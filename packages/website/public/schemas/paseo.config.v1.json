@@ -87,6 +87,18 @@
           },
           "additionalProperties": {}
         },
+        "serverBrowser": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "executablePath": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": {}
+        },
         "git": {
           "type": "object",
           "properties": {

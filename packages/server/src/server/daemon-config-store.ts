@@ -24,6 +24,7 @@ interface SupportedMutableConfigPatch {
   mcp?: { injectIntoAgents?: boolean };
   usage?: { enabled: boolean };
   browserTools?: { enabled?: boolean };
+  serverBrowser?: { enabled?: boolean; executablePath?: string };
   providers?: MutableDaemonConfig["providers"];
   removeProviders?: string[];
   metadataGeneration?: MutableDaemonConfigPatch["metadataGeneration"];
@@ -197,6 +198,7 @@ const RELOADABLE_PATHS = [
   "daemon.mcp.injectIntoAgents",
   "daemon.usage.enabled",
   "daemon.browserTools.enabled",
+  "daemon.serverBrowser",
   "daemon.hostnames",
   "daemon.cors.allowedOrigins",
   "daemon.trustedProxies",
@@ -231,6 +233,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.mcp.injectIntoAgents", "mcp.injectIntoAgents"],
   ["daemon.usage.enabled", "usage.enabled"],
   ["daemon.browserTools.enabled", "browserTools.enabled"],
+  ["daemon.serverBrowser", "serverBrowser"],
   ["daemon.hostnames", "hostnames"],
   ["daemon.cors.allowedOrigins", "cors.allowedOrigins"],
   ["daemon.trustedProxies", "trustedProxies"],
@@ -430,6 +433,7 @@ function pickBehaviourPatchFields(
       : {}),
     ...(patch.terminalProfiles !== undefined ? { terminalProfiles: patch.terminalProfiles } : {}),
     ...(patch.agentProfiles !== undefined ? { agentProfiles: patch.agentProfiles } : {}),
+    ...(patch.serverBrowser !== undefined ? { serverBrowser: patch.serverBrowser } : {}),
     ...(patch.pluginsEnabled !== undefined ? { pluginsEnabled: patch.pluginsEnabled } : {}),
     ...(patch.plugins !== undefined ? { plugins: patch.plugins } : {}),
     ...(patch.features !== undefined ? { features: patch.features } : {}),
@@ -928,6 +932,9 @@ function mergeMutableDaemonPatch(
   if (patch.usage) next.usage = patch.usage;
   if (patch.browserTools?.enabled !== undefined) {
     next.browserTools = { ...next.browserTools, enabled: patch.browserTools.enabled };
+  }
+  if (patch.serverBrowser !== undefined) {
+    next.serverBrowser = { ...next.serverBrowser, ...patch.serverBrowser };
   }
   if (patch.autoArchiveAfterMerge !== undefined) {
     next.autoArchiveAfterMerge = patch.autoArchiveAfterMerge;

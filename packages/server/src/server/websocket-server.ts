@@ -51,6 +51,7 @@ import {
   wrapSessionMessage,
 } from "./messages.js";
 import { asUint8Array, decodeBinaryFrame } from "@getpaseo/protocol/binary-frames/index";
+import { serverBrowserOf } from "./server-browser/routing-broker.js";
 import type { TerminalActivity } from "@getpaseo/protocol/terminal-activity";
 import { MAX_WEBSOCKET_MESSAGE_BYTES } from "@getpaseo/protocol/websocket-message-limit";
 import type { HostnamesConfig } from "./hostnames.js";
@@ -2285,6 +2286,8 @@ export class VoiceAssistantWebSocketServer {
         agentNativeFork: true,
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
         tcpTunnel: true,
+        // COMPAT(serverBrowser): added in v0.15.x (fork), drop gate after 2027-05-01.
+        serverBrowser: serverBrowserOf(this.browserToolsBroker) !== null,
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: true,
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

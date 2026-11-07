@@ -5,6 +5,11 @@ import { ConnectedHostSession } from "./connected-hosts/index.js";
 import type { ConnectedHosts } from "./connected-hosts/index.js";
 import { searchTimeline } from "./agent/chat-search/index.js";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
+import { serverBrowserOf } from "./server-browser/routing-broker.js";
+import {
+  isServerBrowserRequest,
+  ServerBrowserSessionHandlers,
+} from "./server-browser/session-handlers.js";
 import type { GitRemotePollClientPin } from "./git-remote-poll/git-remote-poll-gate.js";
 import { BrowserAutomationHostCapabilitySchema } from "@getpaseo/protocol/browser-automation/capabilities";
 import type {
@@ -815,6 +820,7 @@ export class Session {
       ),
   );
   private readonly browserToolsBroker: SessionOptions["browserToolsBroker"];
+  private serverBrowserSession: ServerBrowserSessionHandlers | null = null;
   readonly clientId: string;
   private readonly authorization: SessionAuthorization;
   private appVersion: string | null;
@@ -2804,6 +2810,19 @@ export class Session {
     this.emit(message);
   }
 
+  private requireServerBrowserSession(): ServerBrowserSessionHandlers {
+    const host = serverBrowserOf(this.browserToolsBroker);
+    if (!host) throw new Error("The server browser is unavailable on this host");
+    this.serverBrowserSession ??= new ServerBrowserSessionHandlers({
+      host,
+      delivery: this.delivery,
+      emit: (message) => this.emit(message),
+      logger: this.sessionLogger,
+      sessionId: this.sessionId,
+    });
+    return this.serverBrowserSession;
+  }
+
   private async registerBrowserHost(
     request: Extract<SessionInboundMessage, { type: "browser.host.register.request" }>,
     respond = true,
@@ -3494,7 +3513,9 @@ export class Session {
       case "models.dev.lookup_model.request":
         return this.handleModelsDevLookupModelRequest(msg);
       default:
-        return undefined;
+        return isServerBrowserRequest(msg)
+          ? this.requireServerBrowserSession().handle(msg)
+          : undefined;
     }
   }
 
@@ -3866,6 +3887,10 @@ export class Session {
     }
     if (binaryFrame.kind === "tcp_tunnel") {
       this.tcpTunnelForwarder.handleFrame(binaryFrame.frame, source);
+      return;
+    }
+    if (binaryFrame.kind === "server_browser") {
+      this.serverBrowserSession?.handleBinary(binaryFrame.frame, source);
       return;
     }
     this.terminalController.handleBinaryFrame(binaryFrame.frame, source);

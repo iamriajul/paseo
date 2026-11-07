@@ -1263,3 +1263,14 @@ grep -q 'Command Center rows kept rendering' packages/app/e2e/support/helpers/co
 ```bash
 grep -q 'Traffic since the hold' packages/app/e2e/support/helpers/daemon-websocket-gate.ts
 ```
+
+## release-targets
+
+**release tags build only the targets `RELEASE_TARGETS` enables: macOS Apple silicon and the Android APK by default**
+
+Official tags build every desktop platform, Docker, and npm. The fork's user ships macOS arm64 and the APK, and the Intel macOS leg (20 to 28 minutes) lost its runner on a release and left the whole release a draft. `scripts/release-targets.mjs` resolves the variable, a dispatch's `targets` input, or the platform a tag or dispatch names, and every tag-triggered job checks its output before a runner starts. `finalize-rollout` expects manifests only for enabled desktop platforms, `merge-mac-manifest.mjs` takes one manifest per built arch, and a run with no desktop target publishes the release without manifests. [fork-release.md](fork-release.md#release-targets) owns the target names and how to enable one. The proof runs the real finalize step against a stub `gh`.
+
+```bash
+node --test --test-name-pattern "RELEASE_TARGETS|release target|finalize|preserving release architectures" scripts/ci-workflow.test.mjs
+npx vitest run scripts/merge-mac-manifest.test.mjs --bail=1
+```

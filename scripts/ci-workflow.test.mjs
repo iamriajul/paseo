@@ -1,11 +1,26 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { relative as relativePath } from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
+import {
+  DEFAULT_RELEASE_TARGETS,
+  RELEASE_TARGETS,
+  formatGithubOutput,
+  resolveReleaseTargets,
+} from "./release-targets.mjs";
 
 const repoRoot = new URL("../", import.meta.url);
 const ciWorkflowPath = new URL(".github/workflows/ci.yml", repoRoot);
@@ -14,6 +29,7 @@ const nixWorkflowPath = new URL(".github/workflows/nix.yml", repoRoot);
 const filtersPath = new URL(".github/ci-paths.yml", repoRoot);
 const serverTsconfigPath = new URL("packages/server/tsconfig.server.json", repoRoot);
 const desktopPackagePath = new URL("packages/desktop/package.json", repoRoot);
+const desktopReleasePath = new URL(".github/workflows/desktop-release.yml", repoRoot);
 
 const gatedCiJobs = new Map([
   ["quality", { name: "quality", contracts: ["format", "quality", "relay", "sdk"] }],
@@ -675,10 +691,15 @@ test("macOS jobs use latest runners while preserving release architectures", () 
       /^    runs-on: macos-latest$/m,
     );
   }
-  const release = readFileSync(new URL(".github/workflows/desktop-release.yml", repoRoot), "utf8");
-  assert.match(release, /runner: macos-latest\n\s+electron_arch: arm64/);
-  // GitHub has no standard macos-latest-intel alias; use the newest Intel image.
-  assert.match(release, /runner: macos-26-intel\n\s+electron_arch: x64/);
+  const { include } = releaseTargetOutputs(RELEASE_TARGETS)["macos-matrix"];
+  assert.deepEqual(
+    include.map(({ runner, electron_arch }) => [runner, electron_arch]),
+    [
+      ["macos-latest", "arm64"],
+      // GitHub has no standard macos-latest-intel alias; use the newest Intel image.
+      ["macos-26-intel", "x64"],
+    ],
+  );
 });
 
 test("macOS signing repair keeps certificate and keychain passwords separate", () => {
@@ -729,4 +750,269 @@ test("macOS signing repair keeps certificate and keychain passwords separate", (
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+function releaseTargetOutputs(enabled) {
+  return Object.fromEntries(
+    formatGithubOutput(enabled)
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const [key, ...rest] = line.split("=");
+        const value = rest.join("=");
+        return [key, key === "macos-matrix" ? JSON.parse(value) : value];
+      }),
+  );
+}
+
+test("release tags build only macOS arm64 and the Android APK unless RELEASE_TARGETS says otherwise", () => {
+  assert.deepEqual(DEFAULT_RELEASE_TARGETS, ["desktop-macos-arm64", "android-apk"]);
+  for (const variable of [undefined, "", "  "]) {
+    assert.deepEqual(resolveReleaseTargets({ variable }), DEFAULT_RELEASE_TARGETS);
+  }
+  const outputs = releaseTargetOutputs(resolveReleaseTargets({}));
+  assert.equal(outputs["desktop-macos-arm64"], "true");
+  assert.equal(outputs["android-apk"], "true");
+  for (const target of RELEASE_TARGETS.filter((t) => !DEFAULT_RELEASE_TARGETS.includes(t))) {
+    assert.equal(outputs[target], "false", target);
+  }
+  assert.equal(outputs["desktop-macos"], "true");
+  assert.deepEqual(outputs["macos-matrix"].include, [
+    { runner: "macos-latest", electron_arch: "arm64", node_heap_mb: 4096 },
+  ]);
+
+  assert.deepEqual(resolveReleaseTargets({ variable: "docker, npm android-apk" }), [
+    "android-apk",
+    "docker",
+    "npm",
+  ]);
+  assert.deepEqual(resolveReleaseTargets({ variable: "all" }), RELEASE_TARGETS);
+  assert.throws(() => resolveReleaseTargets({ variable: "desktop-mac" }), /desktop-mac/);
+  assert.equal(releaseTargetOutputs(["android-apk"])["desktop-macos"], "false");
+  assert.deepEqual(releaseTargetOutputs(["android-apk"])["macos-matrix"], { include: [] });
+});
+
+test("a dispatch input or an explicit scope overrides RELEASE_TARGETS", () => {
+  const variable = "desktop-macos-arm64,android-apk";
+  assert.deepEqual(resolveReleaseTargets({ input: "desktop-windows", variable }), [
+    "desktop-windows",
+  ]);
+  // Platform tags, the desktop `platform` input, and single-target dispatches name their targets.
+  assert.deepEqual(resolveReleaseTargets({ variable, scope: "macos" }), [
+    "desktop-macos-arm64",
+    "desktop-macos-x64",
+  ]);
+  assert.deepEqual(resolveReleaseTargets({ variable, scope: "docker" }), ["docker"]);
+  assert.deepEqual(resolveReleaseTargets({ variable, scope: "desktop" }).length, 4);
+  // The input narrows within an explicit scope.
+  assert.deepEqual(resolveReleaseTargets({ input: "desktop-macos-x64,docker", scope: "macos" }), [
+    "desktop-macos-x64",
+  ]);
+  assert.throws(() => resolveReleaseTargets({ scope: "ios" }), /ios/);
+});
+
+test("every tag-triggered build job waits on its release target before a runner starts", () => {
+  const gated = [
+    [
+      "desktop-release.yml",
+      "publish-macos",
+      "needs.release-targets.outputs.desktop-macos == 'true'",
+    ],
+    [
+      "desktop-release.yml",
+      "publish-linux",
+      "needs.release-targets.outputs.desktop-linux == 'true'",
+    ],
+    [
+      "desktop-release.yml",
+      "publish-windows",
+      "needs.release-targets.outputs.desktop-windows == 'true'",
+    ],
+    [
+      "android-apk-release.yml",
+      "ensure-release",
+      "needs.release-targets.outputs.android-apk == 'true'",
+    ],
+    [
+      "android-apk-release.yml",
+      "publish-fork-android-apk",
+      "needs.release-targets.outputs.android-apk == 'true'",
+    ],
+    [
+      "android-apk-release.yml",
+      "publish-android-apk-eas",
+      "needs.release-targets.outputs.android-apk == 'true'",
+    ],
+    [
+      "android-browser-native.yml",
+      "android-browser-native",
+      "needs.release-targets.outputs.android-browser-native == 'true'",
+    ],
+    [
+      "npm-global-install-release.yml",
+      "package-npm-global-install",
+      "needs.release-targets.outputs.npm == 'true'",
+    ],
+    ["docker.yml", "build", "needs.setup.outputs.enabled == 'true'"],
+    ["docker.yml", "publish", "needs.setup.outputs.enabled == 'true'"],
+  ];
+  for (const [file, jobId, condition] of gated) {
+    const source = readFileSync(new URL(`.github/workflows/${file}`, repoRoot), "utf8");
+    const job = jobBlocks(source).get(jobId)?.join("\n");
+    assert.ok(job, `${file} has job ${jobId}`);
+    const ifLine = job.match(/^    if: (.*)$/m)?.[1] ?? "";
+    assert.ok(ifLine.includes(condition), `${file} ${jobId} is gated by ${condition}`);
+  }
+  for (const file of [
+    "desktop-release.yml",
+    "android-apk-release.yml",
+    "android-browser-native.yml",
+    "npm-global-install-release.yml",
+    "docker.yml",
+  ]) {
+    const source = readFileSync(new URL(`.github/workflows/${file}`, repoRoot), "utf8");
+    assert.match(source, /RELEASE_TARGETS_VARIABLE: \$\{\{ vars\.RELEASE_TARGETS \}\}/, file);
+    assert.match(source, /run: node scripts\/release-targets\.mjs >> "\$GITHUB_OUTPUT"/, file);
+  }
+  const macos = jobBlocks(readFileSync(desktopReleasePath, "utf8")).get("publish-macos").join("\n");
+  assert.match(
+    macos,
+    /matrix: \$\{\{ fromJSON\(needs\.release-targets\.outputs\.macos-matrix\) \}\}/,
+  );
+});
+
+// Runs the real finalize step with a stub `gh`, so the draft-release decision is tested, not grepped.
+function runFinalize({ enabled, results, manifests }) {
+  const workflow = readFileSync(desktopReleasePath, "utf8");
+  const finalize = jobBlocks(workflow).get("finalize-rollout").join("\n");
+  const step = finalize.match(
+    /- name: Assemble manifests and publish release\n[\s\S]*?\n        run: \|\n([\s\S]*?)(?=\n      - name:|$)/,
+  );
+  assert.ok(step, "finalize-rollout assembles manifests");
+  const values = {
+    "github.repository": "owner/paseo",
+    "needs.publish-macos.result": results.macos,
+    "needs.publish-linux.result": results.linux,
+    "needs.publish-windows.result": results.windows,
+  };
+  const script = step[1].replace(/^          /gm, "").replace(/\$\{\{ ([^}]+?) \}\}/g, (_, key) => {
+    assert.ok(key in values, `finalize uses unknown expression ${key}`);
+    return values[key];
+  });
+  const directory = mkdtempSync(join(tmpdir(), "release-finalize-"));
+  try {
+    const bin = join(directory, "bin");
+    mkdirSync(bin);
+    const log = join(directory, "gh.log");
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/bash
+printf '%s\\n' "$*" >> "${log}"
+case "$1 $2" in
+  "api repos/owner/paseo/releases/tags/v1.2.3") echo '{"id":1,"tag_name":"v1.2.3","draft":true,"html_url":"https://github.com/owner/paseo/releases/tag/untagged-1"}' ;;
+  "api repos/owner/paseo/releases?per_page=100") echo '' ;;
+esac
+exit 0
+`,
+      { mode: 0o755 },
+    );
+    const work = join(directory, "work");
+    mkdirSync(work);
+    // Real script files, so their isMainModule guard matches; node_modules resolves js-yaml.
+    cpSync(new URL("scripts", repoRoot), join(work, "scripts"), { recursive: true });
+    symlinkSync(new URL("node_modules", repoRoot), join(work, "node_modules"));
+    for (const [arch, files] of Object.entries(manifests)) {
+      const dir = join(work, "release-manifests", `mac-manifest-${arch}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "latest-mac.yml"),
+        `version: 1.2.3\nfiles:\n${files.map((url) => `  - url: ${url}\n    sha512: x\n`).join("")}path: ${files[0]}\nsha512: x\n`,
+      );
+    }
+    const result = spawnSync("bash", ["-c", script], {
+      cwd: work,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        GH_TOKEN: "test",
+        RELEASE_CHANNEL: "latest",
+        RELEASE_TAG: "v1.2.3",
+        ROLLOUT_HOURS: "0",
+        IS_PRERELEASE: "false",
+        MACOS_ENABLED: String(enabled.includes("macos")),
+        LINUX_ENABLED: String(enabled.includes("linux")),
+        WINDOWS_ENABLED: String(enabled.includes("windows")),
+      },
+      timeout: 30000,
+    });
+    const calls = readFileSync(log, "utf8").trim().split("\n");
+    const finalManifest = join(work, "release-manifests", "final", "latest-mac.yml");
+    let mac = null;
+    try {
+      mac = readFileSync(finalManifest, "utf8");
+    } catch {}
+    return { status: result.status, output: result.stdout + result.stderr, calls, mac };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+const published = (calls) => calls.some((call) => /^release edit .*--draft=false/.test(call));
+
+test("finalize publishes an arm64-only macOS release with its updater manifest", () => {
+  const run = runFinalize({
+    enabled: ["macos"],
+    results: { macos: "success", linux: "skipped", windows: "skipped" },
+    manifests: { arm64: ["Paseo-1.2.3-arm64-mac.zip"] },
+  });
+  assert.equal(run.status, 0, run.output);
+  assert.match(run.mac, /url: Paseo-1\.2\.3-arm64-mac\.zip/);
+  assert.match(run.mac, /minimumSystemVersion: 22\.0\.0/);
+  assert.match(run.mac, /rolloutHours: 0/);
+  assert.ok(
+    run.calls.some((call) => /^release upload untagged-1 .*final\/latest-mac\.yml/.test(call)),
+    run.calls.join("\n"),
+  );
+  assert.ok(published(run.calls), run.calls.join("\n"));
+});
+
+test("finalize merges both macOS arches when both are enabled", () => {
+  const run = runFinalize({
+    enabled: ["macos"],
+    results: { macos: "success", linux: "skipped", windows: "skipped" },
+    manifests: { arm64: ["Paseo-arm64.zip"], x64: ["Paseo-x64.zip"] },
+  });
+  assert.equal(run.status, 0, run.output);
+  assert.match(run.mac, /path: Paseo-arm64\.zip/);
+  assert.match(run.mac, /url: Paseo-x64\.zip/);
+});
+
+test("finalize publishes a release with no desktop targets and keeps a failed enabled target as a draft", () => {
+  const none = runFinalize({
+    enabled: [],
+    results: { macos: "skipped", linux: "skipped", windows: "skipped" },
+    manifests: {},
+  });
+  assert.equal(none.status, 0, none.output);
+  assert.ok(!none.calls.some((call) => call.startsWith("release upload")), none.calls.join("\n"));
+  assert.ok(published(none.calls), none.calls.join("\n"));
+
+  const failed = runFinalize({
+    enabled: ["macos"],
+    results: { macos: "failure", linux: "skipped", windows: "skipped" },
+    manifests: {},
+  });
+  assert.equal(failed.status, 1, failed.output);
+  assert.match(failed.output, /::error::/);
+  assert.ok(!published(failed.calls));
+
+  const missing = runFinalize({
+    enabled: ["macos", "linux"],
+    results: { macos: "success", linux: "skipped", windows: "skipped" },
+    manifests: { arm64: ["Paseo-arm64.zip"] },
+  });
+  assert.equal(missing.status, 1, missing.output);
+  assert.match(missing.output, /Missing updater manifests: latest-linux\.yml/);
+  assert.ok(!published(missing.calls));
 });

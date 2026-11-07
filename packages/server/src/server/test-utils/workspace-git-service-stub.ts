@@ -91,6 +91,8 @@ export function createNoopWorkspaceGitService(
       fetchInFlightCount: 0,
       snapshotUpdatedListenerCount: 0,
       watcherErrorCallbackCount: 0,
+      degradedPollTargetCount: 0,
+      degradedPollIdleTargetCount: 0,
       fileObserver: {
         activeObservationCount: 0,
         nativeHandleCount: 0,

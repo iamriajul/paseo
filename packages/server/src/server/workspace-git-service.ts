@@ -286,6 +286,10 @@ export interface WorkspaceGitServiceMetrics {
   fetchInFlightCount: number;
   snapshotUpdatedListenerCount: number;
   watcherErrorCallbackCount: number;
+  /** Working-tree and repository-metadata watches currently on degraded polling. */
+  degradedPollTargetCount: number;
+  /** Of those, the ones backing off to the idle ceiling: no workspace in the remote-poll set. */
+  degradedPollIdleTargetCount: number;
   fileObserver: FileObserverDiagnostics;
 }
 
@@ -798,8 +802,25 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       fetchInFlightCount,
       snapshotUpdatedListenerCount: this.snapshotUpdatedListeners.size,
       watcherErrorCallbackCount: this.watcherErrorCallbackCount,
+      ...this.degradedPollMetrics(),
       fileObserver: this.fileObserver.getDiagnostics(),
     };
+  }
+
+  private degradedPollMetrics(): Pick<
+    WorkspaceGitServiceMetrics,
+    "degradedPollTargetCount" | "degradedPollIdleTargetCount"
+  > {
+    let degradedPollTargetCount = 0;
+    let degradedPollIdleTargetCount = 0;
+    for (const target of [...this.workingTreeWatchTargets.values(), ...this.repoTargets.values()]) {
+      if (!target.fallbackPolling) continue;
+      degradedPollTargetCount += 1;
+      if (![...target.workspaceKeys].some((cwd) => this.isRemotePollAdmitted(cwd))) {
+        degradedPollIdleTargetCount += 1;
+      }
+    }
+    return { degradedPollTargetCount, degradedPollIdleTargetCount };
   }
 
   async getSnapshot(
@@ -824,6 +845,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       paseoHome: this.paseoHome,
       worktreesRoot: this.worktreesRoot,
       logger: this.logger,
+      runGitCommand: createRunGitCommand("workspace-git:checkout-read"),
     });
     const cached = this.getCachedSnapshot(normalizedCwd);
     if (cached && cached.git.isGit !== status.isGit) {
@@ -925,11 +947,11 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     const ref = `refs/heads/${normalizedBranch}`;
     const key = JSON.stringify(["local-branch", normalizedCwd, ref]);
     return this.readAuxiliaryCache(this.localBranchCache, key, options, async () => {
-      const result = await this.deps.runGitCommand(["rev-parse", "--verify", "--quiet", ref], {
-        cwd: normalizedCwd,
-        envOverlay: READ_ONLY_GIT_ENV,
-        acceptExitCodes: [0, 1],
-      });
+      const result = await this.deps.runGitCommand(
+        ["rev-parse", "--verify", "--quiet", ref],
+        { cwd: normalizedCwd, envOverlay: READ_ONLY_GIT_ENV, acceptExitCodes: [0, 1] },
+        "workspace-git:ref-exists",
+      );
       return result.exitCode === 0;
     });
   }
@@ -959,10 +981,11 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     const paseoOnly = options?.paseoOnly !== false;
     const key = JSON.stringify(["stashes", normalizedCwd, paseoOnly]);
     return this.readAuxiliaryCache(this.stashListCache, key, readOptions, async () => {
-      const { stdout } = await this.deps.runGitCommand(["stash", "list", "--format=%gd%x00%s"], {
-        cwd: normalizedCwd,
-        envOverlay: READ_ONLY_GIT_ENV,
-      });
+      const { stdout } = await this.deps.runGitCommand(
+        ["stash", "list", "--format=%gd%x00%s"],
+        { cwd: normalizedCwd, envOverlay: READ_ONLY_GIT_ENV },
+        "workspace-git:stash-list",
+      );
       return parseWorkspaceGitStashList(stdout, { paseoOnly });
     });
   }
@@ -2203,10 +2226,11 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
 
   private async resolveCheckoutWatchRoot(cwd: string): Promise<string | null> {
     try {
-      const { stdout } = await this.deps.runGitCommand(["rev-parse", "--show-toplevel"], {
-        cwd,
-        envOverlay: READ_ONLY_GIT_ENV,
-      });
+      const { stdout } = await this.deps.runGitCommand(
+        ["rev-parse", "--show-toplevel"],
+        { cwd, envOverlay: READ_ONLY_GIT_ENV },
+        "workspace-git:watch-root",
+      );
       return parseGitRevParsePath(stdout);
     } catch {
       return null;
@@ -3157,6 +3181,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       const result = await this.deps.runGitCommand(
         ["ls-files", "-o", "-i", "--directory", "--exclude-standard"],
         { cwd: rootPath, env: READ_ONLY_GIT_ENV },
+        "workspace-git:watch-ignore-scan",
       );
       for (const raw of result.stdout.split("\n")) {
         if (!raw.endsWith("/")) {

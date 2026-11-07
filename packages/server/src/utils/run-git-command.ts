@@ -568,7 +568,12 @@ function executeGitCommand<Output>(
   return promise;
 }
 
-export const runGitCommand: RunGitCommand = runGitCommandWithProvenance;
+/** `provenance` names the caller in git runtime metrics; unlabeled calls count as unattributed. */
+export const runGitCommand: (
+  args: string[],
+  options: GitCommandOptions,
+  provenance?: string,
+) => Promise<GitCommandResult> = runGitCommandWithProvenance;
 
 function formatGitCommand(args: string[]): string {
   return ["git", ...args].join(" ");

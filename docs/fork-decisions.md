@@ -1176,3 +1176,13 @@ Upstream capped degraded polling at 60 s for every listed workspace. On a host w
 ```bash
 cd packages/server && npx vitest run src/server/workspace-git-service.observation.test.ts --bail=1 -t "outside the remote-poll set backs off to ten minutes"
 ```
+
+## workspace-git-metrics-attribution
+
+**Git runtime metrics name the workspace git service's own commands and degraded polls**
+
+On 2026-11-07, 56% of 557,138 git commands showed as `unattributed`, so the runtime metrics could not say whether checkout reads, watcher ignore scans, or polling drove the load. `WorkspaceGitService` now labels its direct commands (`workspace-git:checkout-read`, `watch-ignore-scan`, `watch-root`, `ref-exists`, `stash-list`), and its metrics report `degradedPollTargetCount` and `degradedPollIdleTargetCount`, the watches on degraded polling and those backing off to the idle ceiling.
+
+```bash
+cd packages/server && npx vitest run src/server/workspace-git-service.primitive.test.ts src/server/workspace-git-service.observation.test.ts --bail=1 -t "attributes Git commands submitted by a checkout read|outside the remote-poll set backs off to ten minutes"
+```

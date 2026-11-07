@@ -1511,6 +1511,41 @@ test("bounds the wait for push token revocation", async () => {
   expect(client.getConnectionState().status).toBe("connected");
 });
 
+test("waits ten minutes for an archive reply instead of the session RPC default", async () => {
+  useHeartbeatClock();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_archive_timeout",
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const archive = client.archiveWorkspace("workspace-1", "req-archive-1");
+  let settled = false;
+  void archive.then(
+    () => {
+      settled = true;
+      return undefined;
+    },
+    () => {
+      settled = true;
+      return undefined;
+    },
+  );
+
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(settled).toBe(false);
+
+  const rejection = expect(archive).rejects.toThrow("Timeout waiting for message (600000ms)");
+  await vi.advanceTimersByTimeAsync(540_000);
+  await rejection;
+});
+
 test("defaults session RPC waiters to sixty seconds", async () => {
   useHeartbeatClock();
   const logger = createMockLogger();

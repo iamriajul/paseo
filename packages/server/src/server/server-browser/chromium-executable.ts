@@ -1,5 +1,6 @@
 import { constants } from "node:fs";
 import { access, readdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -15,7 +16,15 @@ export interface ChromiumExecutableSearch {
   platform?: ChromiumPlatform;
   isExecutable?: (path: string) => Promise<boolean>;
   listDirectory?: (path: string) => Promise<string[]>;
+  /**
+   * Where `PLAYWRIGHT_BROWSERS_PATH=0` installs put browsers: playwright-core/.local-browsers.
+   * Null when no playwright-core is resolvable from the daemon.
+   */
+  hermeticBrowsersDir?: () => string | null;
 }
+
+/** `PLAYWRIGHT_BROWSERS_PATH=0`: Playwright keeps browsers inside its own package. */
+const HERMETIC_SENTINEL = "0";
 
 export type ChromiumExecutableResolution =
   | { ok: true; path: string; source: "config" | "env" | "playwright" | "system" }
@@ -41,24 +50,68 @@ export async function resolveChromiumExecutable(
   });
   if (explicit) return explicit;
 
-  const cacheDir = playwrightCacheDir({ env, home: search.home ?? homedir(), host, paths });
+  const hermetic = env.PLAYWRIGHT_BROWSERS_PATH?.trim() === HERMETIC_SENTINEL;
+  const cacheDir = hermetic
+    ? (search.hermeticBrowsersDir ?? defaultHermeticBrowsersDir)()
+    : playwrightCacheDir({ env, home: search.home ?? homedir(), host, paths });
+  const fromPlaywright = cacheDir
+    ? await findInPlaywrightCache({ cacheDir, host, paths, isExecutable, listDirectory })
+    : null;
+  if (fromPlaywright) return { ok: true, path: fromPlaywright, source: "playwright" };
+
+  const fromPath = await findOnPath({ env, host, paths, isExecutable });
+  if (fromPath) return { ok: true, path: fromPath, source: "system" };
+
+  return { ok: false, message: notFoundMessage(hermetic) };
+}
+
+async function findInPlaywrightCache(params: {
+  cacheDir: string;
+  host: ChromiumPlatform;
+  paths: path.PlatformPath;
+  isExecutable: (path: string) => Promise<boolean>;
+  listDirectory: (path: string) => Promise<string[]>;
+}): Promise<string | null> {
+  const { cacheDir, host, paths, isExecutable, listDirectory } = params;
   const entries = await listDirectory(cacheDir);
   for (const candidate of playwrightCandidates({ cacheDir, entries, host, paths })) {
-    if (await isExecutable(candidate)) return { ok: true, path: candidate, source: "playwright" };
+    if (await isExecutable(candidate)) return candidate;
   }
+  return null;
+}
 
+async function findOnPath(params: {
+  env: NodeJS.ProcessEnv;
+  host: ChromiumPlatform;
+  paths: path.PlatformPath;
+  isExecutable: (path: string) => Promise<boolean>;
+}): Promise<string | null> {
+  const { env, host, paths, isExecutable } = params;
   const pathDirs = (env.PATH ?? env.Path ?? "").split(paths.delimiter).filter(Boolean);
   for (const name of systemBrowserNames(host)) {
     for (const dir of pathDirs) {
       const candidate = paths.join(dir, name);
-      if (await isExecutable(candidate)) return { ok: true, path: candidate, source: "system" };
+      if (await isExecutable(candidate)) return candidate;
     }
   }
+  return null;
+}
 
-  return {
-    ok: false,
-    message: `No Chromium found for the server browser. Install one on the daemon host with \`${SERVER_BROWSER_INSTALL_COMMAND}\` (run as the user the daemon runs as), or set serverBrowser.executablePath in config.json.`,
-  };
+function notFoundMessage(hermetic: boolean): string {
+  if (hermetic) {
+    // The install command would put the browser back inside some project's playwright-core.
+    return `No Chromium found for the server browser. The daemon runs with PLAYWRIGHT_BROWSERS_PATH=0, so Playwright installs browsers inside each project's own node_modules, where the daemon does not look. Unset PLAYWRIGHT_BROWSERS_PATH for the daemon and run \`${SERVER_BROWSER_INSTALL_COMMAND}\` as the user it runs as, or set serverBrowser.executablePath in config.json.`;
+  }
+  return `No Chromium found for the server browser. Install one on the daemon host with \`${SERVER_BROWSER_INSTALL_COMMAND}\` (run as the user the daemon runs as), or set serverBrowser.executablePath in config.json.`;
+}
+
+function defaultHermeticBrowsersDir(): string | null {
+  try {
+    const manifest = createRequire(import.meta.url).resolve("playwright-core/package.json");
+    return path.join(path.dirname(manifest), ".local-browsers");
+  } catch {
+    return null;
+  }
 }
 
 /** A path the user named wins, and a wrong one is reported rather than silently replaced. */
@@ -97,7 +150,7 @@ function systemBrowserNames(host: ChromiumPlatform): string[] {
   return host === "win32" ? ["chrome.exe", "chromium.exe", "msedge.exe"] : names;
 }
 
-/** Playwright's own resolution: PLAYWRIGHT_BROWSERS_PATH, else the per-OS cache. */
+/** Playwright's shared cache: PLAYWRIGHT_BROWSERS_PATH (not the "0" sentinel), else per OS. */
 function playwrightCacheDir(params: {
   env: NodeJS.ProcessEnv;
   home: string;
@@ -106,7 +159,7 @@ function playwrightCacheDir(params: {
 }): string {
   const { env, home, host, paths } = params;
   const configured = env.PLAYWRIGHT_BROWSERS_PATH?.trim();
-  if (configured && configured !== "0") return configured;
+  if (configured) return configured;
   if (host === "darwin") return paths.join(home, "Library", "Caches", "ms-playwright");
   if (host === "win32") {
     return paths.join(
@@ -133,6 +186,8 @@ const LAYOUTS: Record<ChromiumPlatform, { shell: string[][]; full: string[][] }>
     shell: [
       ["chrome-headless-shell-mac-arm64", "chrome-headless-shell"],
       ["chrome-headless-shell-mac-x64", "chrome-headless-shell"],
+      // Playwright 1.49-1.56 extracted the shell under its legacy directory name.
+      ["chrome-mac", "headless_shell"],
     ],
     full: [
       [
@@ -153,7 +208,11 @@ const LAYOUTS: Record<ChromiumPlatform, { shell: string[][]; full: string[][] }>
     ],
   },
   win32: {
-    shell: [["chrome-headless-shell-win64", "chrome-headless-shell.exe"]],
+    shell: [
+      ["chrome-headless-shell-win64", "chrome-headless-shell.exe"],
+      // Playwright 1.49-1.56 extracted the shell under its legacy directory name.
+      ["chrome-win", "headless_shell.exe"],
+    ],
     full: [
       ["chrome-win64", "chrome.exe"],
       ["chrome-win", "chrome.exe"],

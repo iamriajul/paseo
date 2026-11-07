@@ -1352,6 +1352,16 @@ grep -q "notReadyProviders: notReadyProfileProviders" packages/app/src/composer/
 grep -q 'Command Center rows kept rendering' packages/app/e2e/support/helpers/command-center-performance.ts
 ```
 
+## file-explorer-delete-color-placed-menu
+
+**the file explorer test reads the Delete colour from the placed menu**
+
+`file-explorer-context-actions.spec.ts` "creates, renames, copies, and deletes entries" read the Delete label's colour right after opening the row menu. The menu first renders a hidden copy to measure, then remounts it at its placed position. On a slow runner the read hit the measuring copy, which was detached before `getComputedStyle` ran, so the colour came back `""` and the stroke check failed (attempt 1 of CI 42403865123). With placement held for 1.5 s, the read landed on the hidden copy, which was detached later and then read `""`. The test now waits for the visible Delete action first, as clicks already do.
+
+```bash
+grep -q 'file-explorer-row-\\d+-delete\$/).filter({ visible: true })' packages/app/e2e/browser/file-explorer-context-actions.spec.ts
+```
+
 ## consecutive-turns-bounded-echo-wait
 
 **the canonical-echo test bounds its wait for the submitted message and reports the traffic**

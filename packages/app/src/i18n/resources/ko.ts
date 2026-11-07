@@ -856,6 +856,7 @@ export const ko: TranslationResources = {
         chooseUrl: "URL를 선택하세요",
         copyUrl: "URL 복사",
         openService: "서비스 보기",
+        openPreview: "미리보기 열기",
         restart: "다시 시작",
         run: "실행",
         stop: "중지",
@@ -864,6 +865,7 @@ export const ko: TranslationResources = {
       accessibility: {
         trigger: "워크스페이스 스크립트",
         openService: "{{scriptName}} 서비스 보기",
+        openPreview: "{{scriptName}} 미리보기 열기",
         viewTerminal: "{{scriptName}} 터미널 보기",
         runScript: "{{scriptName}} 스크립트 실행",
         stopScript: "{{scriptName}} 중지",

@@ -865,6 +865,7 @@ export const es: TranslationResources = {
         chooseUrl: "Elegir URL",
         copyUrl: "Copiar URL",
         openService: "Ver servicio",
+        openPreview: "Abrir vista previa",
         restart: "Reiniciar",
         run: "Correr",
         stop: "Detener",
@@ -873,6 +874,7 @@ export const es: TranslationResources = {
       accessibility: {
         trigger: "GuionesWorkspace",
         openService: "Ver servicio {{scriptName}}",
+        openPreview: "Abrir vista previa de {{scriptName}}",
         viewTerminal: "Ver terminal{{scriptName}}",
         runScript: "Ejecute el script{{scriptName}}",
         stopScript: "Detener{{scriptName}}",

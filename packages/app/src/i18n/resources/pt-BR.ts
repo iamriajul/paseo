@@ -861,6 +861,7 @@ export const ptBR: TranslationResources = {
         chooseUrl: "Escolher URL",
         copyUrl: "Copiar URL",
         openService: "Ver serviço",
+        openPreview: "Abrir prévia",
         restart: "Reiniciar",
         run: "Executar",
         stop: "Parar",
@@ -869,6 +870,7 @@ export const ptBR: TranslationResources = {
       accessibility: {
         trigger: "Scripts do workspace",
         openService: "Ver serviço {{scriptName}}",
+        openPreview: "Abrir prévia de {{scriptName}}",
         viewTerminal: "Ver terminal de {{scriptName}}",
         runScript: "Executar script {{scriptName}}",
         stopScript: "Parar {{scriptName}}",

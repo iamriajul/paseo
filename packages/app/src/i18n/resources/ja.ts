@@ -861,6 +861,7 @@ export const ja: TranslationResources = {
         chooseUrl: "URLを選択",
         copyUrl: "URLをコピー",
         openService: "サービスを表示",
+        openPreview: "プレビューを開く",
         restart: "再起動",
         run: "実行",
         stop: "停止",
@@ -869,6 +870,7 @@ export const ja: TranslationResources = {
       accessibility: {
         trigger: "ワークスペーススクリプト",
         openService: "{{scriptName}}サービスを表示",
+        openPreview: "{{scriptName}}のプレビューを開く",
         viewTerminal: "{{scriptName}}ターミナルを表示",
         runScript: "{{scriptName}}スクリプトを実行",
         stopScript: "{{scriptName}}を停止",

@@ -4662,6 +4662,9 @@ export const WorkspaceScriptPayloadSchema = z.object({
   health: WorkspaceScriptHealthSchema.nullable(),
   exitCode: z.number().nullable().optional().default(null),
   terminalId: z.string().nullable().optional().default(null),
+  // The workspace's main preview service (`"preview": true` in paseo.json). Older daemons omit
+  // it, which reads the same as a workspace without a main preview.
+  preview: z.boolean().optional(),
 });
 
 const WorkspaceGitRuntimePayloadSchema = z

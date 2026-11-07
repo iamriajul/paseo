@@ -106,5 +106,6 @@ export function useAgentCommandsQuery({
     isLoading,
     isError: query.isError && query.data === undefined,
     error: query.error,
+    refetch: query.refetch,
   };
 }

@@ -1295,3 +1295,13 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/ser
 ```bash
 npx vitest run packages/client/src/daemon-client.test.ts --bail=1 -t "bounds the wait for a command list"
 ```
+
+## composer-commands-loading-and-retry
+
+**the `/` popover opens while the agent's command list is slow, and retries a failed one on open**
+
+Upstream hides the popover while the command list loads, so a loading row does not flash before the list. A load that outlasts a moment then looked like no popover at all, for as long as the host took, even though the app's own commands (`/clear`, `/exit`) were ready. The popover now stays hidden only for the first 300 ms of a load (`COMMANDS_LOADING_GRACE_MS`), then opens with the commands it has, or "Loading commands..." when it has none. A list whose fetch failed (retries exhausted) stayed failed until the agent panel remounted; typing `/` now fetches it again (`useRefetchFailedCommandsOnOpen`). The "Composer command list availability" tests in `composer-autocomplete.spec.ts` hold and fail the daemon's reply to prove both; they fail without this change.
+
+```bash
+grep -q 'COMMANDS_LOADING_GRACE_MS' packages/app/src/hooks/use-agent-autocomplete.ts && grep -q 'useRefetchFailedCommandsOnOpen' packages/app/src/hooks/use-agent-autocomplete.ts
+```

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -269,6 +269,54 @@ function resolveAutocompleteMode(args: {
   return null;
 }
 
+const COMMANDS_LOADING_GRACE_MS = 300;
+
+/**
+ * Hiding the popover for the first moment of a command load avoids a loading row flashing
+ * before the list. Past that, it shows the loading row: a slow host must not look like silence.
+ */
+function useAutocompleteVisible(input: {
+  canShowAutocomplete: boolean;
+  mode: AutocompleteMode;
+  isCommandsLoading: boolean;
+}): boolean {
+  const isWaitingForCommands = input.mode === "command" && input.isCommandsLoading;
+  const commandsSlow = useActiveFor(isWaitingForCommands, COMMANDS_LOADING_GRACE_MS);
+  return input.canShowAutocomplete && !(isWaitingForCommands && !commandsSlow);
+}
+
+/** True once `active` has stayed true for `delayMs`. */
+function useActiveFor(active: boolean, delayMs: number): boolean {
+  const [elapsed, setElapsed] = useState(false);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setTimeout(() => setElapsed(true), delayMs);
+    return () => {
+      clearTimeout(timer);
+      setElapsed(false);
+    };
+  }, [active, delayMs]);
+  return active && elapsed;
+}
+
+/**
+ * A failed command list stays failed until something asks again. Typing `/` is that ask, so a
+ * list that failed earlier (a lost reply, a host that was busy) is fetched again on open.
+ */
+function useRefetchFailedCommandsOnOpen(input: {
+  isCommandMode: boolean;
+  isError: boolean;
+  refetchCommands: () => unknown;
+}): void {
+  const { isCommandMode, isError, refetchCommands } = input;
+  const wasCommandModeRef = useRef(false);
+  useEffect(() => {
+    const opened = isCommandMode && !wasCommandModeRef.current;
+    wasCommandModeRef.current = isCommandMode;
+    if (opened && isError) void refetchCommands();
+  }, [isCommandMode, isError, refetchCommands]);
+}
+
 function resolveAutocompleteIsVisible(args: {
   mode: AutocompleteMode;
   canLoadCommands: boolean;
@@ -438,10 +486,10 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     enabled: mode === "command" && canLoadCommands && canListCommands,
     draftConfig: queryDraftConfig,
   });
-  const { commands, isError, error } = commandsQuery;
+  const { commands, isError, error, refetch: refetchCommands } = commandsQuery;
   const isCommandsLoading = canListCommands && commandsQuery.isLoading;
-
-  const isVisible = canShowAutocomplete && !(mode === "command" && isCommandsLoading);
+  useRefetchFailedCommandsOnOpen({ isCommandMode: mode === "command", isError, refetchCommands });
+  const isVisible = useAutocompleteVisible({ canShowAutocomplete, mode, isCommandsLoading });
 
   const fileSuggestionsQuery = useQuery({
     queryKey: [

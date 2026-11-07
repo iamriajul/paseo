@@ -1617,6 +1617,41 @@ describe("WorkspaceGitService checkout observation", () => {
     service.dispose();
   });
 
+  test("degraded polling of a workspace outside the remote-poll set backs off to ten minutes", async () => {
+    const watcher = createWatcherHarness({ failDirectories: new Set([REPO_CWD]) });
+    const getCheckoutStatus = vi.fn(async (cwd: string) => createCheckoutStatus(cwd));
+    const service = createService(watcher, { getCheckoutStatus });
+    service.applyRemotePoll(new Set());
+    const subscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+
+    await vi.waitFor(() => {
+      expect(service.getMetrics().workingTreeWatchTargetCount).toBe(1);
+      expect(getCheckoutStatus).toHaveBeenCalledTimes(1);
+    });
+
+    for (const [elapsedMs, expectedCalls] of [
+      [5_000, 2],
+      [10_000, 3],
+      [20_000, 4],
+      [40_000, 5],
+      [80_000, 6],
+      [160_000, 7],
+      [320_000, 8],
+      [600_000, 9],
+      [600_000, 10],
+    ] as const) {
+      await vi.advanceTimersByTimeAsync(elapsedMs);
+      expect(getCheckoutStatus).toHaveBeenCalledTimes(expectedCalls);
+    }
+
+    service.applyRemotePoll(new Set([REPO_CWD]));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(getCheckoutStatus).toHaveBeenCalledTimes(11);
+
+    subscription.unsubscribe();
+    service.dispose();
+  });
+
   test("degraded repository-metadata polling backs off and resets on a change", async () => {
     // Only the Git-directory watcher fails, so the metadata fallback is the one poll loop running.
     const watcher = createWatcherHarness({ failDirectories: new Set([GIT_DIR]) });

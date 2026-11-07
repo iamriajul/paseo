@@ -232,6 +232,32 @@ npx vitest run packages/app/src/panels/panel-manifest.test.ts packages/app/src/w
 npm test --workspace=@getpaseo/app -- src/stores/server-info.test.ts --bail=1
 ```
 
+## server-browser
+
+**an experimental daemon-run headless Chromium that agents drive and every client watches**
+
+Fork modules hold the feature (`packages/server/src/server/server-browser/`, `packages/protocol/src/server-browser/`, `packages/app/src/server-browser/`); official files only wire it in. Protocol: `messages.ts` spreads the `browser.server.*` schemas into the session unions, adds `features.serverBrowser` and the `serverBrowser` daemon config, and `binary-frames/demux.ts` decodes the Frame/FrameAck opcodes. Server: `bootstrap.ts` builds the broker through `createServerBrowser` (a `BrowserToolsBroker` subclass that routes new tabs to the server browser while the switch is on) and stops it on shutdown; `session.ts` dispatches the RPCs and the ack frame; `websocket-server.ts` advertises the feature; `config.ts`, `persisted-config.ts` and `daemon-config-store.ts` carry the switch; `operation-permissions.ts` maps every RPC. Client: `daemon-client.ts` routes frames by stream id. App: the `server_browser` tab kind (`model.ts`, `identity.ts`, `panel-manifest.ts`, `register-panels.ts`, `workspace-tab-menu.ts`), `workspace-screen.tsx` sends workspace URL opens to it and keeps its tabs in sync, and the Browser tools card renders the switch. See [Server browser](server-browser.md).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/router.test.ts packages/server/src/server/server-browser/screencast-hub.test.ts packages/server/src/server/server-browser/engine-sync.test.ts packages/server/src/server/server-browser/chromium-executable.test.ts packages/server/src/server/server-browser/config.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/server-browser/input.test.ts --bail=1
+grep -q "SERVER_BROWSER_INBOUND_SCHEMAS" packages/protocol/src/messages.ts
+grep -q 'kind: "server_browser"' packages/protocol/src/binary-frames/demux.ts
+grep -q "createServerBrowser" packages/server/src/server/bootstrap.ts
+grep -q "await stopServerBrowser()" packages/server/src/server/bootstrap.ts
+grep -q "requireServerBrowserSession().handle" packages/server/src/server/session.ts
+grep -q 'binaryFrame.kind === "server_browser"' packages/server/src/server/session.ts
+grep -q "serverBrowser: serverBrowserOf" packages/server/src/server/websocket-server.ts
+grep -q '"browser.server.input.request"' packages/server/src/server/authorization/operation-permissions.ts
+grep -q "observeServerBrowserScreencast" packages/client/src/daemon-client.ts
+grep -q "serverBrowserPanelRegistration" packages/app/src/panels/register-panels.ts
+grep -q "server_browser: {" packages/app/src/panels/panel-manifest.ts
+grep -q 'case "server_browser"' packages/app/src/workspace-tabs/identity.ts
+grep -q "openInServerBrowser(url)" packages/app/src/screens/workspace/workspace-screen.tsx
+grep -q "useServerBrowserSync(normalizedServerId)" packages/app/src/screens/workspace/workspace-screen.tsx
+grep -q "<ServerBrowserSettingsRow" packages/app/src/screens/settings/browser-tools-card.tsx
+```
+
 ## guest-webview-focus
 
 **guest webview and Electron OS focus count as in-app**

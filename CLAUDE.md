@@ -181,7 +181,7 @@ The app runs on iOS, Android, web (browser), and web (Electron desktop). Code is
 ### Rules
 
 - **Default is cross-platform.** Don't gate unless you have a specific reason.
-- **Prefer Metro file extensions over `if` statements.** When a module has fundamentally different implementations per platform, use `.web.ts` / `.native.ts` file extensions instead of runtime `if (isWeb)` branches. Metro resolves the correct file at build time — the unused platform code is never bundled. Reserve `if (isWeb)` for small, inline checks (a single line or a few props). If you find yourself writing a large `if (isWeb) { ... } else { ... }` block, split into separate files instead.
+- **Prefer Metro file extensions over `if` statements.** When a module has fundamentally different implementations per platform, use `.web.ts` / `.native.ts` file extensions instead of runtime `if (isWeb)` branches. Metro resolves the correct file at build time — the unused platform code is never bundled. Reserve `if (isWeb)` for small, inline checks (a single line or a few props). If you find yourself writing a large `if (isWeb) { ... } else { ... }` block, split into separate files instead. Every variant must export every name shared code imports from the module: `tsc` checks only the base file, so a name missing from `.web.ts` is `undefined` on web. `paseo/platform-split-exports` reports it.
   ```
   hooks/
     use-audio-recorder.web.ts    ← uses Web Audio API
@@ -305,7 +305,7 @@ The app runs on iOS, Android, web (browser), and web (Electron desktop). Code is
 ### Rules
 
 - **Default is cross-platform.** Don't gate unless you have a specific reason.
-- **Prefer Metro file extensions over `if` statements.** When a module has fundamentally different implementations per platform, use `.web.ts` / `.native.ts` file extensions instead of runtime `if (isWeb)` branches. Metro resolves the correct file at build time — the unused platform code is never bundled. Reserve `if (isWeb)` for small, inline checks (a single line or a few props). If you find yourself writing a large `if (isWeb) { ... } else { ... }` block, split into separate files instead.
+- **Prefer Metro file extensions over `if` statements.** When a module has fundamentally different implementations per platform, use `.web.ts` / `.native.ts` file extensions instead of runtime `if (isWeb)` branches. Metro resolves the correct file at build time — the unused platform code is never bundled. Reserve `if (isWeb)` for small, inline checks (a single line or a few props). If you find yourself writing a large `if (isWeb) { ... } else { ... }` block, split into separate files instead. Every variant must export every name shared code imports from the module: `tsc` checks only the base file, so a name missing from `.web.ts` is `undefined` on web. `paseo/platform-split-exports` reports it.
   ```
   hooks/
     use-audio-recorder.web.ts    ← uses Web Audio API

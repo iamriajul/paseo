@@ -1088,6 +1088,20 @@ grep -q '"paseo/no-to-sorted": "error"' .oxlintrc.json
 ! grep -rn "\.toSorted(" packages/app/src packages/protocol/src --include=*.ts --include=*.tsx
 ```
 
+## platform-split-exports
+
+**shared app code may only import names every platform variant of the module exports**
+
+Metro resolves `foo.web.ts`, `foo.electron.ts`, `foo.ios.ts`, `foo.android.ts` and `foo.native.ts` ahead of `foo.ts`, but `tsc` checks only `foo.ts`. The background-task ring this fork added to the sidebar workspace row (`sidebar-background-heartbeat-indicators`) imported `useStatusRingRotation` from `@/components/status-ring/clock`, which only the native `clock.ts` exports. On web and desktop the import was `undefined`, so the app crashed ("useStatusRingRotation is not a function") whenever a workspace had a running background task, and kept crashing on Reload until the task ended. The row now renders official's `StatusRing` with the terminal glyph in its centre: `StatusRing` takes an optional `center` in both `index.tsx` and `index.web.tsx` and hands it to `StatusRingFrame`, so web turns the ring with the Web Animations timeline and native with the shared UI-thread clock, the same as every other ring.
+
+`paseo/platform-split-exports` in `scripts/oxlint/platform-split-exports.mjs` resolves each local import the way each platform bundle would (Electron overlays `.electron` on web, per `packages/app/metro.config.cjs`; tests resolve web, per `packages/app/vitest.config.ts`), follows re-exports per platform, and reports a value one platform's module exports and another's does not. On `packages/app/src` it found only this import.
+
+```bash
+npm test --workspace=@getpaseo/app -- --project=browser src/components/sidebar/sidebar-workspace-row-content.browser.test.tsx --bail=1
+node --test scripts/oxlint/paseo-plugin.test.mjs
+grep -q '"paseo/platform-split-exports": "error"' .oxlintrc.json
+```
+
 ## relay-e2e-local-upstream
 
 **the relay e2e test serves through the local Durable Object, not the production upstream**

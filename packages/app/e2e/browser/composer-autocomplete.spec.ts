@@ -765,3 +765,106 @@ test.describe("Composer autocomplete", () => {
     });
   });
 });
+
+interface ControlledListCommands {
+  /** Hold every command list reply until `release`. */
+  hold(): void;
+  release(): void;
+  /** Answer every command list with an error until `succeed`. */
+  fail(): void;
+  succeed(): void;
+}
+
+async function installControlledListCommands(page: Page): Promise<ControlledListCommands> {
+  let holding = false;
+  let failing = false;
+  const held: Array<() => void> = [];
+  await page.routeWebSocket(daemonWsRoutePattern(), (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      if (typeof message !== "string") {
+        ws.send(message);
+        return;
+      }
+      const parsed = JSON.parse(message) as {
+        type?: string;
+        message?: { type?: string; payload?: { commands?: unknown; error?: string | null } };
+      };
+      if (parsed.type !== "session" || parsed.message?.type !== "list_commands_response") {
+        ws.send(message);
+        return;
+      }
+      const payload = parsed.message.payload ?? {};
+      payload.commands = failing ? [] : TEST_COMMANDS;
+      payload.error = failing ? "Commands are unavailable right now" : null;
+      const reply = JSON.stringify(parsed);
+      if (holding) held.push(() => ws.send(reply));
+      else ws.send(reply);
+    });
+  });
+  return {
+    hold: () => {
+      holding = true;
+    },
+    release: () => {
+      holding = false;
+      for (const send of held.splice(0)) send();
+    },
+    fail: () => {
+      failing = true;
+    },
+    succeed: () => {
+      failing = false;
+    },
+  };
+}
+
+test.describe("Composer command list availability", () => {
+  test("opens the popover while the host is slow to list the agent's commands", async ({
+    page,
+  }) => {
+    const commands = await installControlledListCommands(page);
+    commands.hold();
+    const agent = await openReadyMockAgent(page);
+
+    try {
+      const input = composerLocator(page);
+      await expect(input).toBeEditable({ timeout: 30_000 });
+      await input.fill("/");
+      const popover = page.getByTestId("composer-autocomplete-popover");
+      // The app's own commands are listed while the agent's are still on the way.
+      await expect(popover.getByText("/clear", { exact: true })).toBeVisible();
+
+      commands.release();
+      await expect(popover.getByText("/help", { exact: true }).first()).toBeVisible();
+    } finally {
+      commands.release();
+      await agent.cleanup();
+    }
+  });
+
+  test("lists commands again when / is typed after the list failed", async ({ page }) => {
+    const commands = await installControlledListCommands(page);
+    commands.fail();
+    const agent = await openReadyMockAgent(page);
+
+    try {
+      const input = composerLocator(page);
+      await expect(input).toBeEditable({ timeout: 30_000 });
+      await input.fill("/");
+      const popover = page.getByTestId("composer-autocomplete-popover");
+      // The query retries three times with backoff before it reports the failure.
+      await expect(popover.getByText("Commands are unavailable right now")).toBeVisible({
+        timeout: 20_000,
+      });
+
+      commands.succeed();
+      await input.fill("");
+      await input.fill("/");
+      await expect(popover.getByText("/help", { exact: true }).first()).toBeVisible();
+    } finally {
+      await agent.cleanup();
+    }
+  });
+});

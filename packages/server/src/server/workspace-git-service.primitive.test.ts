@@ -24,6 +24,7 @@ import {
 } from "../utils/run-git-command.js";
 import {
   getWorkspaceGitSelfHealPhaseMs,
+  WORKSPACE_GIT_TARGET_LINGER_MS,
   WorkspaceGitServiceImpl,
   type WorkspaceGitRuntimeSnapshot,
 } from "./workspace-git-service.js";
@@ -406,11 +407,15 @@ function buildServiceDeps(options?: CreateServiceOptions) {
   return deps;
 }
 
-function createService(options?: CreateServiceOptions) {
+function createService(
+  options?: CreateServiceOptions,
+  serviceOptions?: { targetLingerMs?: number },
+) {
   const service = new WorkspaceGitServiceImpl({
     logger: createLogger() as never,
     paseoHome: "/tmp/paseo-test",
     deps: buildServiceDeps(options),
+    ...serviceOptions,
   });
   return service;
 }
@@ -999,6 +1004,41 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
     service.dispose();
   });
 
+  test("a workspace re-registered soon after its last unsubscribe keeps its snapshot", async () => {
+    const getCheckoutStatus = vi.fn(async (cwd: string) => createCheckoutStatus(cwd));
+    const service = createService({ getCheckoutStatus });
+
+    const first = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+    await vi.waitFor(() => expect(getCheckoutStatus).toHaveBeenCalled());
+    await flushPromises();
+    const readsAfterInitialRefresh = getCheckoutStatus.mock.calls.length;
+
+    first.unsubscribe();
+    await vi.advanceTimersByTimeAsync(WORKSPACE_GIT_TARGET_LINGER_MS - 1_000);
+    const second = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+    await flushPromises();
+
+    expect(getCheckoutStatus).toHaveBeenCalledTimes(readsAfterInitialRefresh);
+    expect(service.getMetrics().workspaceTargetCount).toBe(1);
+
+    second.unsubscribe();
+    service.dispose();
+  });
+
+  test("a workspace with no listener closes once the linger period passes", async () => {
+    const service = createService();
+
+    const subscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+    await flushPromises();
+    subscription.unsubscribe();
+    expect(service.getMetrics().workspaceTargetCount).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(WORKSPACE_GIT_TARGET_LINGER_MS);
+    expect(service.getMetrics().workspaceTargetCount).toBe(0);
+
+    service.dispose();
+  });
+
   test("stale workspace watcher callbacks do not refresh after unsubscribe", async () => {
     const watchCallbacks: Array<{
       path: string;
@@ -1011,11 +1051,14 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
       },
     );
     const getCheckoutStatus = vi.fn(async (cwd: string) => createCheckoutStatus(cwd));
-    const service = createService({
-      getCheckoutStatus,
-      resolveAbsoluteGitDir: vi.fn(async () => join(REPO_CWD, ".git")),
-      subscribe,
-    });
+    const service = createService(
+      {
+        getCheckoutStatus,
+        resolveAbsoluteGitDir: vi.fn(async () => join(REPO_CWD, ".git")),
+        subscribe,
+      },
+      { targetLingerMs: 0 },
+    );
 
     const subscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
     await flushPromises();
@@ -1048,10 +1091,13 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
       }),
     };
     const getCheckoutStatus = vi.fn(async (cwd: string) => createCheckoutStatus(cwd));
-    const service = createService({
-      getCheckoutStatus,
-      github,
-    });
+    const service = createService(
+      {
+        getCheckoutStatus,
+        github,
+      },
+      { targetLingerMs: 0 },
+    );
 
     const subscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
     await flushPromises();

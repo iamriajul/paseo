@@ -1156,3 +1156,13 @@ Upstream awaited a forced refresh of the main repo before removing the worktree.
 ```bash
 cd packages/server && npx vitest run src/server/workspace-archive-service.test.ts --bail=1 -t "finishes without waiting for the main repo refresh"
 ```
+
+## workspace-git-target-linger
+
+**A workspace's git target outlives its last listener by two minutes**
+
+Upstream closed a `WorkspaceGitService` target on its last unsubscribe. App sockets on a remote host drop and return every few minutes (335 reconnects in about 20 h, median gap 36 s, 71% within 2 min), and the session releases its workspace subscription with the socket. Each reconnect then ran an initial refresh and a watcher setup for every listed workspace, and restarted degraded polling at 5 s. `workspace-refresh:initial` was 25% of 557,138 git commands in 13 h, twice the share of fallback polling, and a failed capped watcher setup costs about 290 ms of CPU per workspace. The target now closes `WORKSPACE_GIT_TARGET_LINGER_MS` after its last listener leaves, and a re-registration inside that window keeps the snapshot, watcher state, and poll backoff.
+
+```bash
+cd packages/server && npx vitest run src/server/workspace-git-service.primitive.test.ts --bail=1 -t "re-registered soon after its last unsubscribe|closes once the linger period passes"
+```

@@ -145,6 +145,8 @@ export const fr: TranslationResources = {
       sendMessage: "Envoyer le message",
       longPressToQueue: "Appui long pour mettre en file d’attente",
       longPressToSendNow: "Appui long pour envoyer maintenant",
+      queueAfterTurn: "Mettre en file pour après ce tour",
+      sendNow: "Envoyer maintenant",
       queue: "Mettre en file d’attente",
       send: "Envoyer",
     },

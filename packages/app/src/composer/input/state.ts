@@ -129,8 +129,9 @@ export function runDefaultSendAction(ctx: SendActionContext): void {
 export type AlternateSendAction = "queue" | "send";
 
 /**
- * What Mod+Enter and a long-press on Send do instead of the default send. Null while
- * no turn is running, where both fall back to the default send.
+ * What the alternate button beside Send, its shortcut (Mod+Enter, or Mod+Shift+Enter when
+ * Mod+Enter sends) and a long-press on Send do instead of the default send. Null while no
+ * turn is running, where they all fall back to the default send.
  */
 export function resolveAlternateSendAction(
   ctx: Pick<SendActionContext, "defaultSendBehavior" | "isAgentRunning" | "onQueue">,
@@ -168,11 +169,39 @@ export function resolveMessageInputEnterAction(
   ctx: MessageInputEnterContext,
 ): MessageInputEnterAction | null {
   if (!ctx.submitOnEnter) return null;
-  if (ctx.shiftKey) return null;
   const hasModifier = ctx.metaKey || ctx.ctrlKey;
-  if (ctx.sendShortcut === "mod-enter") return hasModifier ? "default-send" : null;
-  if (hasModifier && ctx.isAgentRunning && ctx.onQueue) return "alternate-send";
+  const canAlternate = ctx.isAgentRunning && Boolean(ctx.onQueue);
+  if (ctx.sendShortcut === "mod-enter") {
+    if (!hasModifier) return null;
+    // Plain Enter already inserts a newline here, so Shift is free to pick the alternate.
+    if (ctx.shiftKey) return canAlternate ? "alternate-send" : null;
+    return "default-send";
+  }
+  if (ctx.shiftKey) return null;
+  if (hasModifier && canAlternate) return "alternate-send";
   return "default-send";
+}
+
+/**
+ * The alternate action the composer offers as its own button beside Send. Only while
+ * Send itself shows (there is something to send and the turn is not being interrupted),
+ * because with nothing typed the running agent's Stop control owns that slot.
+ */
+export function resolveAlternateSendButtonAction(input: {
+  alternateSendAction: AlternateSendAction | null;
+  showsSend: boolean;
+  canPressLoadingButton: boolean;
+}): AlternateSendAction | null {
+  if (!input.showsSend || input.canPressLoadingButton) return null;
+  return input.alternateSendAction;
+}
+
+/** A schedule fires a prompt, so its button shows only once there is one to schedule. */
+export function shouldShowScheduleButton(input: {
+  canSchedulePrompt: boolean;
+  hasText: boolean;
+}): boolean {
+  return input.canSchedulePrompt && input.hasText;
 }
 
 export function runMessageInputKeyboardAction(

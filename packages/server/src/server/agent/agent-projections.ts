@@ -118,6 +118,7 @@ export function toStoredAgentRecord(
     totalWarmPings: agent.totalWarmPings ?? undefined,
     warmUpCostUsd: agent.warmUpCostUsd ?? undefined,
     promptCache: agent.promptCache,
+    gatewayAccounts: agent.gatewayAccounts,
     lastUsage: sanitizeUsage(agent.lastUsage),
   } satisfies StoredAgentRecord;
 }
@@ -265,7 +266,7 @@ function resolveStoredAgentThinking(
 
 type CacheWarmState = Pick<
   AgentSnapshotPayload,
-  "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd" | "promptCache"
+  "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd" | "promptCache" | "gatewayAccounts"
 >;
 
 /** The agent's explicit idle-cap compaction choice; an unset one follows the host default. */
@@ -288,6 +289,7 @@ function projectCacheWarmState(source: CacheWarmState): CacheWarmState {
     ...(source.totalWarmPings !== undefined ? { totalWarmPings: source.totalWarmPings } : {}),
     ...(source.warmUpCostUsd !== undefined ? { warmUpCostUsd: source.warmUpCostUsd } : {}),
     ...(source.promptCache ? { promptCache: source.promptCache } : {}),
+    ...(source.gatewayAccounts?.length ? { gatewayAccounts: source.gatewayAccounts } : {}),
   };
 }
 

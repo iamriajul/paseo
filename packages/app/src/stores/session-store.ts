@@ -24,7 +24,10 @@ import {
 import type { PendingPermission } from "@/types/shared";
 import type { ComposerAttachment } from "@/attachments/types";
 import type { AgentLifecycleStatus } from "@getpaseo/protocol/agent-lifecycle";
-import type { AgentPromptCacheState } from "@getpaseo/protocol/agent-cache-warm";
+import type {
+  AgentPromptCacheState,
+  GatewayAccountChange,
+} from "@getpaseo/protocol/agent-cache-warm";
 import type {
   AgentPermissionRequest,
   AgentFeature,
@@ -86,6 +89,8 @@ export interface Agent {
   /** What the agent's cache warm-ups cost, at API list prices. */
   warmUpCostUsd?: number;
   promptCache?: AgentPromptCacheState;
+  /** CLIProxyAPI accounts that served the session, oldest first. */
+  gatewayAccounts?: GatewayAccountChange[];
   /** Explicit idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact?: boolean;
   /** Explicit warm-up cap per idle stretch; absent uses the window's maximum. */

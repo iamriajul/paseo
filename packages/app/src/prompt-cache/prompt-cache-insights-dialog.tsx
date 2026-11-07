@@ -4,6 +4,7 @@ import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import {
   FIVE_MINUTE_CACHE_WINDOW_MS,
+  type GatewayAccountChange,
   type PromptCacheCompaction,
   type PromptCacheHistoryEntry,
 } from "@getpaseo/protocol/agent-cache-warm";
@@ -20,6 +21,7 @@ import { formatUsdEstimate } from "./prompt-cache-cost";
 import {
   REQUEST_FILTERS,
   describeRequest,
+  indexSwitchMisses,
   matchesRequestFilter,
   sliceInsightsRange,
   describeReportedCost,
@@ -52,6 +54,8 @@ const COMPACTION_LIMIT = 30;
 interface InsightsData {
   requests: PromptCacheHistoryEntry[];
   compactions: PromptCacheCompaction[];
+  /** CLIProxyAPI account changes; empty on hosts that do not journal them. */
+  accounts: GatewayAccountChange[];
 }
 
 type InsightsLoad =
@@ -98,7 +102,11 @@ function useInsightsLoad(input: {
       if (!client) throw new Error(t("workspace.terminal.hostDisconnected"));
       const payload = await client.getPromptCacheHistory({ agentId: input.agentId });
       if (payload.error) throw new Error(payload.error);
-      return { requests: payload.requests, compactions: payload.compactions };
+      return {
+        requests: payload.requests,
+        compactions: payload.compactions,
+        accounts: payload.accounts ?? [],
+      };
     },
     enabled: Boolean(input.visible && client && supported),
     retry: false,
@@ -370,6 +378,7 @@ function InsightsExplorer({
   const clearSelection = useCallback(() => setSelection(null), []);
 
   const misses = insights.missesAfterExpiry + insights.missesWhileWarm;
+  const switchMisses = useMemo(() => indexSwitchMisses(data.accounts), [data.accounts]);
   return (
     <View style={styles.content}>
       <RangeBar
@@ -451,7 +460,12 @@ function InsightsExplorer({
         {filtered.slice(0, limit).map((entry) => (
           <RequestListRow
             key={`${entry.at}-${entry.kind}`}
-            row={describeRequest({ entry, price, cacheWindowMs })}
+            row={describeRequest({
+              entry,
+              price,
+              cacheWindowMs,
+              switchedAccount: switchMisses.get(entry.at),
+            })}
           />
         ))}
         {filtered.length > limit ? (

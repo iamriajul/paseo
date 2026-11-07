@@ -2,6 +2,7 @@ import {
   isAvoidablePromptCacheMiss,
   isPromptCacheHit,
   promptCacheInputTokens,
+  type GatewayAccountChange,
   type PromptCacheCompaction,
   type PromptCacheHistoryEntry,
 } from "@getpaseo/protocol/agent-cache-warm";
@@ -83,17 +84,34 @@ export interface RequestRow {
 function resolveOutcome(
   entry: PromptCacheHistoryEntry,
   cacheWindowMs: number,
+  switched: GatewayAccountChange | undefined,
 ): { outcome: string; tone: RequestTone } {
   if (entry.gapMs === null) return { outcome: "first write", tone: "neutral" };
   if (entry.afterCompaction) return { outcome: "after compaction", tone: "neutral" };
   if (isPromptCacheHit(entry)) return { outcome: "hit", tone: "hit" };
   if (isAvoidablePromptCacheMiss(entry)) {
-    return {
-      outcome: entry.gapMs > cacheWindowMs ? "miss · expired" : "miss · dropped while warm",
-      tone: "miss",
-    };
+    // An expired cache was gone whichever account served the request, so expiry is the cause.
+    if (entry.gapMs > cacheWindowMs) return { outcome: "miss · expired", tone: "miss" };
+    if (switched) return { outcome: "miss · account switched", tone: "miss" };
+    return { outcome: "miss · dropped while warm", tone: "miss" };
   }
   return { outcome: "partial", tone: "neutral" };
+}
+
+/** "switched A → B (quota, 429)": the CLIProxyAPI move that cost the cache. */
+export function describeAccountSwitch(change: GatewayAccountChange): string {
+  const cause = [change.reason, change.statusCode].filter(Boolean).join(", ");
+  const accounts = change.from ? `${change.from} → ${change.account}` : change.account;
+  return cause ? `switched ${accounts} (${cause})` : `switched ${accounts}`;
+}
+
+/** The account change each missed request was charged to, keyed by the request's `at`. */
+export function indexSwitchMisses(
+  accounts: readonly GatewayAccountChange[],
+): ReadonlyMap<string, GatewayAccountChange> {
+  return new Map(
+    accounts.flatMap((change) => (change.missAt ? [[change.missAt, change] as const] : [])),
+  );
 }
 
 /** One request as the list shows it: what it was, how it met the cache, and what it cost. */
@@ -101,9 +119,11 @@ export function describeRequest(input: {
   entry: PromptCacheHistoryEntry;
   price: RequestPricer;
   cacheWindowMs: number;
+  /** The CLIProxyAPI account switch charged with this request's miss, if any. */
+  switchedAccount?: GatewayAccountChange;
 }): RequestRow {
   const { entry } = input;
-  const { outcome, tone } = resolveOutcome(entry, input.cacheWindowMs);
+  const { outcome, tone } = resolveOutcome(entry, input.cacheWindowMs, input.switchedAccount);
   const parts = [
     `${formatTokenCount(promptCacheInputTokens(entry))} context`,
     `read ${formatTokenCount(entry.readTokens)}`,
@@ -115,6 +135,9 @@ export function describeRequest(input: {
   const usd = input.price(entry);
   if (usd !== null) parts.push(`≈ ${formatUsdEstimate(usd)}`);
   if (entry.model) parts.push(entry.model.replace(/^claude-/, ""));
+  if (outcome === "miss · account switched" && input.switchedAccount) {
+    parts.unshift(describeAccountSwitch(input.switchedAccount));
+  }
   return { at: entry.at, kind: KIND_LABELS[entry.kind], outcome, tone, detail: parts.join(" · ") };
 }
 

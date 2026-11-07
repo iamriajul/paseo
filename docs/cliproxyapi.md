@@ -89,7 +89,9 @@ The route was `/v1/last-request-tps` through CLIProxyAPI v8.0.901 and became `/v
 
 ## Serving account
 
-The context-meter details show "Served by" with the CLIProxyAPI account serving the agent's session, and the newest account switch, through `cliproxyapi.session_route.get` (gated on `server_info.features.cliproxyapiSessionRoute`). When the Gateway moves the session, the agent's timeline gets a notice such as "Switched account: A → B (cooldown)".
+The context-meter details show "Served by" with the CLIProxyAPI account serving the agent's session, and the newest account switch, through `cliproxyapi.session_route.get` (gated on `server_info.features.cliproxyapiSessionRoute`).
+
+The timeline names the account above the prompts it answered: above the first prompt, and above every prompt answered by a different account than the turn before ("Served by B · switched from A (quota, 429)"). When that switch made a request write the whole context again inside the cache window, the line ends in "cache lost", and the cache insights list that request as "miss · account switched" instead of "dropped while warm". A miss after the cache window is the expiry's on both surfaces: the line names the switch without "cache lost", and insights say "expired", because the cache was gone whichever account answered.
 
 The lookup key is the session id CLIProxyAPI derives from each harness's own headers, so Paseo injects nothing:
 
@@ -102,9 +104,9 @@ The lookup key is the session id CLIProxyAPI derives from each harness's own hea
 
 A Claude native fork sends its root session's id, not its own, so the Gateway keeps it on the account whose cache holds the context the two share; its "Served by" is that session's route. See [claude-native-fork](fork-decisions.md#claude-native-fork).
 
-The Gateway records each request on its usage bus asynchronously, so the daemon checks two seconds after a turn ends, once per turn. It never polls. Switches that happened before the daemon started are not announced, because the daemon cannot tell which of them a previous process already wrote. The account label is the masked name `/v1/quota` shows; config API keys show as `config:<provider>[<hash>]`.
+The Gateway records each request on its usage bus asynchronously, so the daemon checks two seconds after a turn ends, once per turn. It never polls. Each change is saved on the agent (`gatewayAccounts`, the newest 12 on the snapshot) and in the prompt-cache journal (all of them, for insights), so a restart neither loses nor repeats one. The daemon charges a switch with the first request it recorded at or after the switch, when that request missed (`findGatewaySwitchMiss`, with two seconds of slack for clock drift). The app places a change above the latest prompt sent before it, with five seconds of slack; a change during a turn the user did not write (a warm-up ping, a restart's resume) goes above the user's next prompt, the first the new account answers for them. A native fork looks up its root's route, so its first record starts at the fork's creation rather than when the root's account began. The account label is the masked name `/v1/quota` shows; config API keys show as `config:<provider>[<hash>]`.
 
-`/v1/session-route` shipped in CLIProxyAPI v8.0.941. Older Gateways answer 404, and the section and notices stay hidden, the same as quota.
+`/v1/session-route` shipped in CLIProxyAPI v8.0.941. Older Gateways answer 404, and the section and account lines stay hidden, the same as quota.
 
 ## Terminal tabs
 

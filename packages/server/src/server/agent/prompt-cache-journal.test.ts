@@ -37,6 +37,39 @@ describe("PromptCacheJournal", () => {
     );
   });
 
+  it("keeps CLIProxyAPI account changes apart from requests and compactions", async () => {
+    void journal.appendRequest({
+      agentId: "a",
+      entry: entry("2026-11-01T10:00:00.000Z", 5),
+      before: undefined,
+    });
+    void journal.appendAccount({
+      agentId: "a",
+      account: {
+        at: "2026-11-01T10:00:02.000Z",
+        account: "B",
+        from: "A",
+        reason: "quota",
+        missAt: "2026-11-01T10:00:03.000Z",
+      },
+      before: undefined,
+    });
+
+    const history = await journal.read("a");
+
+    expect(history?.requests).toHaveLength(1);
+    expect(history?.compactions).toEqual([]);
+    expect(history?.accounts).toEqual([
+      {
+        at: "2026-11-01T10:00:02.000Z",
+        account: "B",
+        from: "A",
+        reason: "quota",
+        missAt: "2026-11-01T10:00:03.000Z",
+      },
+    ]);
+  });
+
   it("starts an existing agent's journal from its snapshot history", async () => {
     const before: AgentPromptCacheState = {
       lastRequest: {

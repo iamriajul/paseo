@@ -64,6 +64,12 @@ import type {
 } from "@getpaseo/protocol/agent-types";
 import type { AgentScreenAgent } from "@/hooks/use-agent-screen-state-machine";
 import { useSessionStore } from "@/stores/session-store";
+import {
+  placeServedByLines,
+  sameServedByLines,
+  type ServedByLine,
+} from "@/gateway-session-route/served-by";
+import { ServedByAccountLine } from "@/gateway-session-route/served-by-line";
 import { useRevealedText } from "@/hooks/use-revealed-text";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useLoadOlderAgentHistory } from "@/hooks/use-load-older-agent-history";
@@ -555,6 +561,15 @@ function resolveSupportsNativeFork(input: {
   );
 }
 
+/** Keeps the previous lines while they are unchanged, so streaming never revises a prompt row. */
+function useStableServedByLines(
+  next: ReadonlyMap<string, ServedByLine>,
+): ReadonlyMap<string, ServedByLine> {
+  const previous = useRef(next);
+  if (!sameServedByLines(previous.current, next)) previous.current = next;
+  return previous.current;
+}
+
 /** Keeps the previous fold while it is unchanged, so rows revise only when a count moves. */
 function useStableWarmUpStretches(next: WarmUpStretches): WarmUpStretches {
   const previous = useRef(next);
@@ -884,6 +899,23 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         [presentation.tail, presentation.head, historyWindowStart, warmUpTimes, isTimelineDetached],
       ),
     );
+    const gatewayAccounts = useSessionStore((state) => {
+      const session = state.sessions[resolvedServerId];
+      return (session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId))
+        ?.gatewayAccounts;
+    });
+    const servedByLines = useStableServedByLines(
+      useMemo(
+        () =>
+          placeServedByLines(
+            [...presentation.tail.slice(historyWindowStart), ...presentation.head],
+            gatewayAccounts,
+          ),
+        [presentation.tail, presentation.head, historyWindowStart, gatewayAccounts],
+      ),
+    );
+    // Stable, like getWarmUpStretch: a prompt row redraws through the row revisions below.
+    const getServedByLine = useStableEvent((itemId: string) => servedByLines.get(itemId));
     // The latest finished turn's footer sits outside the rows, so its warm-ups go below it there.
     const footerWarmUpHostId = isTurnActive ? undefined : streamLayout.auxiliaryTurnFooter?.itemId;
     const footerWarmUps = footerWarmUpHostId ? warmUpStretches.get(footerWarmUpHostId) : undefined;
@@ -1013,7 +1045,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const renderUserMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
         const collapsedTurn = getCollapsedTurn(item.id);
-        const message = (
+        const servedBy = getServedByLine(item.id);
+        const bubble = (
           <UserMessage
             serverId={resolvedServerId}
             agentId={agentId}
@@ -1033,6 +1066,14 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             }
           />
         );
+        const message = servedBy ? (
+          <>
+            <ServedByAccountLine line={servedBy} />
+            {bubble}
+          </>
+        ) : (
+          bubble
+        );
         if (!collapsedTurn) {
           return message;
         }
@@ -1050,6 +1091,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         getCollapsedTurn,
         pendingClientMessageIds,
         resolvedServerId,
+        getServedByLine,
         setTurnExpanded,
       ],
     );
@@ -1546,7 +1588,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             (expandedToolCallGroups.has(id) && getToolCallGroup(id) !== undefined) ||
             expandedTurnHostIds.has(id) ||
             nestedItemIds.has(id) ||
-            (warmUpStretches.has(id) && id !== footerWarmUpHostId),
+            (warmUpStretches.has(id) && id !== footerWarmUpHostId) ||
+            servedByLines.has(id),
         },
         globalDisplayState: isMobile,
       }),
@@ -1559,11 +1602,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         presentation.historyGroupUpdatesByHostId,
         warmUpStretches,
         footerWarmUpHostId,
+        servedByLines,
       ],
     );
     const liveHeadRowRevision = useMemo(
-      () => ({ expandedToolCallGroups, warmUpStretches, footerWarmUpHostId }),
-      [expandedToolCallGroups, warmUpStretches, footerWarmUpHostId],
+      () => ({ expandedToolCallGroups, warmUpStretches, footerWarmUpHostId, servedByLines }),
+      [expandedToolCallGroups, warmUpStretches, footerWarmUpHostId, servedByLines],
     );
 
     const findItems = useMemo(

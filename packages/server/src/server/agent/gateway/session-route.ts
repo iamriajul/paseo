@@ -116,7 +116,8 @@ export function gatewayRoutedSessionId(agent: {
  * Provider options a new session may take over from the agent that made it (`create_agent`
  * children, schedule targets). The affinity stays behind: a fresh session shares no cached prefix
  * with the root, so pinning it would only stack the family on one account and repeat every
- * account-switch notice. Only `nativeForkAgent`, whose session does share the prefix, carries it.
+ * account switch in each agent's timeline. Only `nativeForkAgent`, whose session does share the
+ * prefix, carries it.
  */
 export function inheritableProviderOptions(
   options: Record<string, unknown> | undefined,
@@ -209,10 +210,4 @@ function buildSessionRouteUrl(baseUrl: string, session: string): string | null {
   } catch {
     return null;
   }
-}
-
-/** Timeline copy for one switch: "Switched account: A → B (cooldown)". */
-export function describeGatewaySwitch(entry: GatewayRouteSwitch): string {
-  const cause = entry.statusCode ? `${entry.reason}, ${entry.statusCode}` : entry.reason;
-  return `Switched account: ${entry.from.label} → ${entry.to.label} (${cause})`;
 }

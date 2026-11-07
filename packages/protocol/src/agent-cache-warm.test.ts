@@ -20,6 +20,8 @@ import {
   type AgentPromptCacheState,
   type PromptCacheHistoryEntry,
   type PromptCacheRequestSample,
+  findGatewaySwitchMiss,
+  type PromptCacheHistoryEntry as GatewaySwitchEntry,
 } from "./agent-cache-warm.js";
 
 function entryKind(entry: { kind: string }): string {
@@ -408,5 +410,62 @@ describe("agent-cache-warm protocol utilities", () => {
         isWarmUpPausedAtIdleCap(stateWith({ at, atIdleCap: true }, "2026-11-06T10:02:00.000Z")),
       ).toBe(false);
     });
+  });
+});
+
+describe("findGatewaySwitchMiss", () => {
+  const FIVE_MINUTES_MS = 5 * 60 * 1000;
+  function entry(at: string, hit: boolean): GatewaySwitchEntry {
+    return {
+      at,
+      kind: "request",
+      readTokens: hit ? 9_000 : 0,
+      writeTokens: hit ? 100 : 9_000,
+      uncachedTokens: 5,
+      gapMs: 3_000,
+      previousInputTokens: 9_000,
+    };
+  }
+
+  it("charges the first request at or after the switch when it missed", () => {
+    const requests = [entry("2026-11-07T01:00:00Z", true), entry("2026-11-07T01:05:01Z", false)];
+    expect(findGatewaySwitchMiss(requests, "2026-11-07T01:05:00Z", FIVE_MINUTES_MS)).toBe(
+      "2026-11-07T01:05:01Z",
+    );
+  });
+
+  it("allows the daemon's record to read slightly before the Gateway's switch time", () => {
+    const requests = [entry("2026-11-07T01:00:00Z", true), entry("2026-11-07T01:04:59Z", false)];
+    expect(findGatewaySwitchMiss(requests, "2026-11-07T01:05:00Z", FIVE_MINUTES_MS)).toBe(
+      "2026-11-07T01:04:59Z",
+    );
+  });
+
+  it("charges nothing when the request after the switch still read the cache", () => {
+    const requests = [entry("2026-11-07T01:05:01Z", true), entry("2026-11-07T01:06:00Z", false)];
+    expect(
+      findGatewaySwitchMiss(requests, "2026-11-07T01:05:00Z", FIVE_MINUTES_MS),
+    ).toBeUndefined();
+  });
+
+  it("charges nothing before a request after the switch is recorded", () => {
+    expect(
+      findGatewaySwitchMiss(
+        [entry("2026-11-07T01:00:00Z", false)],
+        "2026-11-07T01:05:00Z",
+        FIVE_MINUTES_MS,
+      ),
+    ).toBeUndefined();
+    expect(findGatewaySwitchMiss([], "not a time", FIVE_MINUTES_MS)).toBeUndefined();
+  });
+
+  it("leaves a miss after the cache window to the expiry, as the insights do", () => {
+    const expired = { ...entry("2026-11-07T01:05:01Z", false), gapMs: FIVE_MINUTES_MS + 1 };
+    expect(
+      findGatewaySwitchMiss([expired], "2026-11-07T01:05:00Z", FIVE_MINUTES_MS),
+    ).toBeUndefined();
+    expect(findGatewaySwitchMiss([expired], "2026-11-07T01:05:00Z", 60 * FIVE_MINUTES_MS)).toBe(
+      "2026-11-07T01:05:01Z",
+    );
   });
 });

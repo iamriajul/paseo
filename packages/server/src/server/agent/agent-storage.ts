@@ -4,7 +4,12 @@ import { z } from "zod";
 import type { Logger } from "pino";
 
 import { writeJsonFileAtomic } from "../atomic-file.js";
-import { AgentFeatureSchema, AgentPromptCacheStateSchema, AgentStatusSchema } from "../messages.js";
+import {
+  AgentFeatureSchema,
+  AgentPromptCacheStateSchema,
+  AgentStatusSchema,
+  GatewayAccountChangeSchema,
+} from "../messages.js";
 import { toStoredAgentRecord } from "./agent-projections.js";
 import type { ManagedAgent } from "./agent-manager.js";
 import type { AgentSessionConfig } from "./agent-sdk-types.js";
@@ -82,6 +87,7 @@ const STORED_AGENT_SCHEMA = z.object({
   totalWarmPings: z.number().optional(),
   warmUpCostUsd: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
+  gatewayAccounts: z.array(GatewayAccountChangeSchema).optional(),
   /**
    * Last usage the provider reported, so a stopped agent still shows its context size and the
    * price of waking it. Only the numeric fields; the per-request cache sample lives in promptCache.

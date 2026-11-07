@@ -345,6 +345,56 @@ export function isAvoidablePromptCacheMiss(entry: PromptCacheHistoryEntry): bool
   return entry.gapMs !== null && !entry.afterCompaction && !isPromptCacheHit(entry);
 }
 
+/**
+ * The CLIProxyAPI account that started serving an agent's session. The first record names the
+ * account the session began on; each later one is a switch, with the account it left and why.
+ */
+export interface GatewayAccountChange {
+  /** When the account served its first request for the session, by the Gateway's clock. */
+  at: string;
+  /** Masked account label, as `/v1/quota` shows it. */
+  account: string;
+  plan?: string;
+  /** The account the session left; absent on the session's first account. */
+  from?: string;
+  /** "quota" | "cooldown" | "error" | "rebind", or a newer value the Gateway added. */
+  reason?: string;
+  statusCode?: number;
+  /** `at` of the request that missed the cache because of this switch, when one did. */
+  missAt?: string;
+}
+
+/** Account changes kept on the agent snapshot; the journal keeps them all for insights. */
+export const GATEWAY_ACCOUNT_CHANGE_LIMIT = 12;
+
+/**
+ * How far the Gateway's request start may sit after the daemon's record of the same request.
+ * The daemon records a request when its first response event arrives, so it normally reads
+ * later than the Gateway; the slack covers clock drift between the two hosts.
+ */
+export const GATEWAY_SWITCH_MATCH_SLACK_MS = 2_000;
+
+/**
+ * The request a switch cost the cache: the first one recorded at or after the switch, when it
+ * missed inside the cache window. The new account holds none of the old one's cache, so that
+ * request writes the whole context again. A miss after the window is the expiry's, whichever
+ * account answered, the same precedence the cache insights give it. Returns the request's `at`,
+ * or undefined when it read the cache, came after the window, or none was recorded yet.
+ */
+export function findGatewaySwitchMiss(
+  requests: readonly PromptCacheHistoryEntry[],
+  switchAt: string,
+  cacheWindowMs: number,
+): string | undefined {
+  const switchMs = Date.parse(switchAt);
+  if (!Number.isFinite(switchMs)) return undefined;
+  const first = requests.find(
+    (entry) => Date.parse(entry.at) >= switchMs - GATEWAY_SWITCH_MATCH_SLACK_MS,
+  );
+  if (!first || !isAvoidablePromptCacheMiss(first)) return undefined;
+  return first.gapMs !== null && first.gapMs > cacheWindowMs ? undefined : first.at;
+}
+
 function addToTotals(totals: PromptCacheTotals, entry: PromptCacheHistoryEntry): PromptCacheTotals {
   // Neither the agent's first request nor the first after a compaction had a cache to hit.
   if (isUncountedPromptCacheRequest(entry) || entry.gapMs === null) return totals;

@@ -1,31 +1,107 @@
 import pino from "pino";
 import { describe, expect, test, vi } from "vitest";
 
+import type {
+  GatewayAccountChange,
+  PromptCacheHistoryEntry,
+} from "@getpaseo/protocol/agent-cache-warm";
 import type { AgentManagerEvent } from "../agent-manager.js";
-import type { AgentTimelineItem } from "../agent-sdk-types.js";
-import type { GatewaySessionRouteResult, GatewayRouteSwitch } from "./session-route.js";
+import type {
+  GatewayRouteAccount,
+  GatewayRouteSwitch,
+  GatewaySessionRoute,
+  GatewaySessionRouteResult,
+} from "./session-route.js";
 import {
   attachGatewaySessionRouteWatcher,
+  nextGatewayAccountChanges,
   type GatewaySessionRouteWatcherDeps,
 } from "./session-route-watcher.js";
 
-const START = Date.parse("2026-11-06T11:00:00Z");
-const a = { label: "A", provider: "Claude", inCooldown: true };
-const b = { label: "B", provider: "Claude", inCooldown: false };
+const a: GatewayRouteAccount = { label: "A", provider: "Claude", inCooldown: true };
+const b: GatewayRouteAccount = { label: "B", provider: "Claude", plan: "Max", inCooldown: false };
 
-function switchAt(at: string, reason = "cooldown"): GatewayRouteSwitch {
-  return { at, from: a, to: b, reason };
+function switchAt(at: string, reason = "quota", statusCode?: number): GatewayRouteSwitch {
+  return { at, from: a, to: b, reason, ...(statusCode ? { statusCode } : {}) };
 }
 
-function harness(options: { provider?: string; routed?: boolean; sessionId?: string | null } = {}) {
+function route(account: GatewayRouteAccount, since: string, switches: GatewayRouteSwitch[] = []) {
+  return { account, since, switches } satisfies GatewaySessionRoute;
+}
+
+function request(at: string, hit: boolean): PromptCacheHistoryEntry {
+  return {
+    at,
+    kind: "request",
+    readTokens: hit ? 50_000 : 0,
+    writeTokens: hit ? 200 : 50_000,
+    uncachedTokens: 10,
+    gapMs: 4_000,
+    previousInputTokens: 50_000,
+  };
+}
+
+describe("nextGatewayAccountChanges", () => {
+  test("names the serving account on the first observation", () => {
+    expect(nextGatewayAccountChanges(route(a, "2026-11-07T01:00:00Z"), undefined)).toEqual([
+      { at: "2026-11-07T01:00:00Z", account: "A" },
+    ]);
+  });
+
+  test("keeps the switch that brought the session to its first observed account", () => {
+    const at = "2026-11-07T01:00:05Z";
+    expect(
+      nextGatewayAccountChanges(route(b, at, [switchAt(at, "quota", 429)]), undefined),
+    ).toEqual([{ at, account: "B", plan: "Max", from: "A", reason: "quota", statusCode: 429 }]);
+  });
+
+  test("records only switches newer than the last recorded change", () => {
+    const last: GatewayAccountChange = { at: "2026-11-07T01:00:05Z", account: "B", from: "A" };
+    const next = switchAt("2026-11-07T01:10:00Z", "cooldown");
+    expect(nextGatewayAccountChanges(route(b, next.at, [switchAt(last.at), next]), last)).toEqual([
+      { at: next.at, account: "B", plan: "Max", from: "A", reason: "cooldown" },
+    ]);
+  });
+
+  test("records an account change the Gateway no longer has a switch for, without a reason", () => {
+    const last: GatewayAccountChange = { at: "2026-11-07T01:00:00Z", account: "A" };
+    expect(nextGatewayAccountChanges(route(b, "2026-11-07T02:30:00Z"), last)).toEqual([
+      { at: "2026-11-07T02:30:00Z", account: "B", plan: "Max", from: "A" },
+    ]);
+  });
+
+  test("starts a native fork's first record at the fork, not at its root's older route", () => {
+    const rootSwitch = switchAt("2026-11-07T00:30:00Z", "quota", 429);
+    expect(
+      nextGatewayAccountChanges(
+        route(b, rootSwitch.at, [rootSwitch]),
+        undefined,
+        "2026-11-07T01:00:00.000Z",
+      ),
+    ).toEqual([{ at: "2026-11-07T01:00:00.000Z", account: "B", plan: "Max" }]);
+  });
+
+  test("records nothing while the same account keeps serving", () => {
+    const last: GatewayAccountChange = { at: "2026-11-07T01:00:00Z", account: "A" };
+    expect(nextGatewayAccountChanges(route(a, "2026-11-07T01:00:00Z"), last)).toEqual([]);
+  });
+});
+
+function harness(options: { routed?: boolean } = {}) {
   let listener: ((event: AgentManagerEvent) => void) | null = null;
-  const appended: AgentTimelineItem[] = [];
-  let switches: GatewayRouteSwitch[] = [];
+  const agent = {
+    provider: "claude",
+    internal: false,
+    createdAt: new Date("2026-11-07T00:00:00Z"),
+    config: {},
+    persistence: { provider: "claude", sessionId: "7f0c" },
+    gatewayAccounts: undefined as GatewayAccountChange[] | undefined,
+    promptCache: undefined as { history: PromptCacheHistoryEntry[] } | undefined,
+  };
+  let journal: PromptCacheHistoryEntry[] = [];
+  let current: GatewaySessionRoute = route(a, "2026-11-07T01:00:00Z");
   const fetchRoute = vi.fn(
-    async (): Promise<GatewaySessionRouteResult> => ({
-      supported: true,
-      route: { account: b, since: "", switches },
-    }),
+    async (): Promise<GatewaySessionRouteResult> => ({ supported: true, route: current }),
   );
   const agentManager = {
     subscribe: (callback: (event: AgentManagerEvent) => void) => {
@@ -34,19 +110,11 @@ function harness(options: { provider?: string; routed?: boolean; sessionId?: str
         listener = null;
       };
     },
-    getAgent: () => ({
-      provider: options.provider ?? "claude",
-      internal: false,
-      config: {},
-      persistence:
-        options.sessionId === null
-          ? null
-          : { provider: "claude", sessionId: options.sessionId ?? "7f0c" },
-    }),
-    appendTimelineItem: async (_agentId: string, item: AgentTimelineItem) => {
-      appended.push(item);
-      return { seq: appended.length, epoch: "e" };
+    getAgent: () => agent,
+    recordGatewayAccountChange: (_agentId: string, change: GatewayAccountChange) => {
+      agent.gatewayAccounts = [...(agent.gatewayAccounts ?? []), change];
     },
+    readPromptCacheHistory: async () => ({ requests: journal, compactions: [], accounts: [] }),
   } as unknown as GatewaySessionRouteWatcherDeps["agentManager"];
   const detach = attachGatewaySessionRouteWatcher({
     logger: pino({ level: "silent" }),
@@ -54,88 +122,128 @@ function harness(options: { provider?: string; routed?: boolean; sessionId?: str
     gateway: () => ({ baseUrl: "http://gateway:8317", apiKey: "sk-test" }),
     isGatewayRouted: () => options.routed ?? true,
     fetchRoute,
-    now: () => START,
     settleMs: 0,
   });
   async function finishTurn(type: "turn_completed" | "turn_failed" = "turn_completed") {
+    const calls = fetchRoute.mock.calls.length;
     listener?.({
       type: "agent_stream",
       agentId: "agent-1",
       event: { type, provider: "claude" } as never,
     });
-    const calls = fetchRoute.mock.calls.length;
     await vi.waitFor(() => expect(fetchRoute.mock.calls.length).toBe(calls + 1), { timeout: 300 });
     await new Promise((resolve) => setImmediate(resolve));
   }
   return {
-    appended,
+    agent,
     fetchRoute,
     detach,
     finishTurn,
-    setSwitches: (next: GatewayRouteSwitch[]) => {
-      switches = next;
+    setRoute: (next: GatewaySessionRoute) => {
+      current = next;
+    },
+    setWindow: (history: PromptCacheHistoryEntry[]) => {
+      agent.promptCache = { history };
+    },
+    setJournal: (requests: PromptCacheHistoryEntry[]) => {
+      journal = requests;
     },
   };
 }
 
 describe("attachGatewaySessionRouteWatcher", () => {
-  test("announces a switch once, after the turn that saw it", async () => {
+  test("records the first account once, then each switch once", async () => {
     const h = harness();
-    h.setSwitches([switchAt("2026-11-06T11:00:05Z")]);
-
     await h.finishTurn();
     await h.finishTurn();
+    const at = "2026-11-07T01:05:00Z";
+    h.setRoute(route(b, at, [switchAt(at, "cooldown")]));
+    await h.finishTurn("turn_failed");
+    await h.finishTurn();
 
-    expect(h.appended).toEqual([
-      { type: "notification", level: "info", message: "Switched account: A → B (cooldown)" },
+    expect(h.agent.gatewayAccounts).toEqual([
+      { at: "2026-11-07T01:00:00Z", account: "A" },
+      { at, account: "B", plan: "Max", from: "A", reason: "cooldown" },
     ]);
-    expect(h.fetchRoute).toHaveBeenCalledWith({
+    expect(h.fetchRoute).toHaveBeenLastCalledWith({
       baseUrl: "http://gateway:8317",
       token: "sk-test",
       session: "claude:7f0c",
     });
   });
 
-  test("announces only the switches newer than the last announcement", async () => {
+  test("marks the request a switch cost the cache", async () => {
     const h = harness();
-    h.setSwitches([switchAt("2026-11-06T11:00:05Z")]);
     await h.finishTurn();
-    h.setSwitches([switchAt("2026-11-06T11:00:05Z"), switchAt("2026-11-06T11:02:00Z", "quota")]);
+    const at = "2026-11-07T01:05:00Z";
+    // The daemon records the request a little after the Gateway started it.
+    h.setWindow([request("2026-11-07T01:04:00Z", true), request("2026-11-07T01:05:01Z", false)]);
+    h.setRoute(route(b, at, [switchAt(at, "quota", 429)]));
 
-    await h.finishTurn("turn_failed");
+    await h.finishTurn();
 
-    expect(h.appended.map((item) => item.type === "notification" && item.message)).toEqual([
-      "Switched account: A → B (cooldown)",
-      "Switched account: A → B (quota)",
-    ]);
+    expect(h.agent.gatewayAccounts?.at(-1)).toMatchObject({
+      account: "B",
+      reason: "quota",
+      missAt: "2026-11-07T01:05:01Z",
+    });
   });
 
-  test("does not re-announce switches from before the daemon started", async () => {
+  test("leaves a switch unmarked when the next request still read the cache", async () => {
     const h = harness();
-    h.setSwitches([switchAt("2026-11-06T10:59:00Z")]);
+    await h.finishTurn();
+    const at = "2026-11-07T01:05:00Z";
+    h.setWindow([request("2026-11-07T01:04:00Z", true), request("2026-11-07T01:05:01Z", true)]);
+    h.setRoute(route(b, at, [switchAt(at)]));
 
     await h.finishTurn();
 
-    expect(h.appended).toEqual([]);
+    expect(h.agent.gatewayAccounts?.at(-1)).not.toHaveProperty("missAt");
+  });
+
+  test("leaves a miss after the cache window to the expiry", async () => {
+    const h = harness();
+    await h.finishTurn();
+    const at = "2026-11-07T01:05:00Z";
+    h.setWindow([
+      request("2026-11-07T00:50:00Z", true),
+      { ...request("2026-11-07T01:05:01Z", false), gapMs: 15 * 60_000 },
+    ]);
+    h.setRoute(route(b, at, [switchAt(at)]));
+
+    await h.finishTurn();
+
+    expect(h.agent.gatewayAccounts?.at(-1)).toMatchObject({ account: "B", from: "A" });
+    expect(h.agent.gatewayAccounts?.at(-1)).not.toHaveProperty("missAt");
+  });
+
+  test("reads the journal when the snapshot window starts after the switch", async () => {
+    const h = harness();
+    await h.finishTurn();
+    const at = "2026-11-07T01:05:00Z";
+    h.setWindow([request("2026-11-07T01:30:00Z", true)]);
+    h.setJournal([request("2026-11-07T01:04:00Z", true), request("2026-11-07T01:05:02Z", false)]);
+    h.setRoute(route(b, at, [switchAt(at)]));
+
+    await h.finishTurn();
+
+    expect(h.agent.gatewayAccounts?.at(-1)?.missAt).toBe("2026-11-07T01:05:02Z");
   });
 
   test("leaves agents that are not Gateway-routed alone", async () => {
     const h = harness({ routed: false });
-    h.setSwitches([switchAt("2026-11-06T11:00:05Z")]);
-    h.fetchRoute.mockClear();
 
     await expect(h.finishTurn()).rejects.toThrow();
 
-    expect(h.appended).toEqual([]);
+    expect(h.agent.gatewayAccounts).toBeUndefined();
   });
 
   test("stops listening when detached", async () => {
     const h = harness();
-    h.setSwitches([switchAt("2026-11-06T11:00:05Z")]);
     h.detach();
 
     await expect(h.finishTurn()).rejects.toThrow();
 
-    expect(h.appended).toEqual([]);
+    expect(h.agent.gatewayAccounts).toBeUndefined();
   });
 });

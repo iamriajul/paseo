@@ -3,6 +3,7 @@ import type { PromptCacheHistoryEntry } from "@getpaseo/protocol/agent-cache-war
 import {
   describeReportedCost,
   describeRequest,
+  indexSwitchMisses,
   matchesRequestFilter,
   sliceInsightsRange,
 } from "./prompt-cache-explorer";
@@ -86,6 +87,43 @@ describe("describeRequest", () => {
     // The gap to the warm-up before it was 4 minutes, but the cache missed: dropped while warm.
     expect(row.outcome).toBe("miss · dropped while warm");
     expect(row.detail).toBe("451k context · read 0 · wrote 451k · after 35m · ≈ $2.25 · opus-5-5");
+  });
+
+  it("charges a miss inside the cache window to the account switch that caused it", () => {
+    const entry = request(40, { readTokens: 0, writeTokens: 120_000, gapMs: 2 * MINUTE });
+    const switches = indexSwitchMisses([
+      { at: at(39), account: "u***a@example.com" },
+      {
+        at: at(40),
+        account: "u***b@example.com",
+        from: "u***a@example.com",
+        reason: "quota",
+        statusCode: 429,
+        missAt: entry.at,
+      },
+    ]);
+    const row = describeRequest({
+      entry,
+      price,
+      cacheWindowMs: FIVE_MINUTES,
+      switchedAccount: switches.get(entry.at),
+    });
+    expect(row).toMatchObject({ outcome: "miss · account switched", tone: "miss" });
+    expect(row.detail).toMatch(
+      /^switched u\*\*\*a@example\.com → u\*\*\*b@example\.com \(quota, 429\) · 120k context/,
+    );
+  });
+
+  it("keeps an expired cache as the cause even when the account also switched", () => {
+    const entry = request(40, { readTokens: 0, writeTokens: 120_000, gapMs: 20 * MINUTE });
+    const row = describeRequest({
+      entry,
+      price,
+      cacheWindowMs: FIVE_MINUTES,
+      switchedAccount: { at: entry.at, account: "B", from: "A", missAt: entry.at },
+    });
+    expect(row.outcome).toBe("miss · expired");
+    expect(row.detail).not.toContain("switched");
   });
 
   it("marks a hit and prices it as a read", () => {

@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { settingsStyles } from "@/styles/settings";
+import { ServerBrowserSettingsRow } from "@/server-browser/settings-row";
 import {
   createBrowserToolsPatch,
   getBrowserToolsCardState,
@@ -65,6 +66,7 @@ export function BrowserToolsOptInCard({ serverId }: { serverId: string }) {
           testID="host-page-browser-tools-switch"
         />
       </View>
+      <ServerBrowserSettingsRow serverId={serverId} />
     </View>
   );
 }

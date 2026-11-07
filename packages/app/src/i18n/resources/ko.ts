@@ -742,6 +742,14 @@ export const ko: TranslationResources = {
       },
       menu: {
         openFor: "{{label}}의 메뉴 열기",
+        bringToFront: {
+          label: "앞으로 가져오기",
+          default: "기본값",
+          defaultOn: "기본값 (켜짐)",
+          defaultOff: "기본값 (꺼짐)",
+          always: "항상",
+          never: "안 함",
+        },
         copyResumeCommand: "재개 명령 복사",
         copyAgentId: "에이전트 ID 복사",
         copyTerminalId: "터미널 ID 복사",
@@ -1280,6 +1288,10 @@ export const ko: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "앞으로 가져오기: 켜짐 · 클릭하여 끄기",
+      offTooltip: "앞으로 가져오기: 꺼짐 · 클릭하여 켜기",
+    },
     statusGroupAccessibility: "{{label}} 그룹",
     statusBucket: {
       needsInput: "입력 필요",

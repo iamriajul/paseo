@@ -126,6 +126,8 @@ export function MobileTabTrailingAccessory({
           if (entry.kind === "file-panel-open-with") {
             return <Fragment key={entry.key}>{openWith?.trigger}</Fragment>;
           }
+          // Desktop-only row; the mobile menu never receives it.
+          if (entry.kind === "agent-bring-to-front") return null;
           return <MobileTabDropdownMenuItem key={entry.key} entry={entry} />;
         })}
       </DropdownMenuContent>

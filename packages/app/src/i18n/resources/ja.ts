@@ -748,6 +748,14 @@ export const ja: TranslationResources = {
       },
       menu: {
         openFor: "{{label}}のメニューを開く",
+        bringToFront: {
+          label: "前面に表示",
+          default: "デフォルト",
+          defaultOn: "デフォルト（オン）",
+          defaultOff: "デフォルト（オフ）",
+          always: "常に",
+          never: "しない",
+        },
         copyResumeCommand: "再開コマンドをコピー",
         copyAgentId: "エージェントIDをコピー",
         copyTerminalId: "ターミナルIDをコピー",
@@ -1287,6 +1295,10 @@ export const ja: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "前面に表示: オン · クリックでオフ",
+      offTooltip: "前面に表示: オフ · クリックでオン",
+    },
     statusGroupAccessibility: "{{label}} グループ",
     statusBucket: {
       needsInput: "入力待ち",

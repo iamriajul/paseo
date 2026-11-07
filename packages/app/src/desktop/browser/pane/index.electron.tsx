@@ -36,7 +36,7 @@ import * as Clipboard from "expo-clipboard";
 import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { BrowserServicesMenu, useBrowserTabService } from "./services-menu";
+import { BrowserServiceChip, BrowserServicesMenu } from "./services-menu";
 import { BrowserPortForwardMenu } from "./port-forward-menu";
 import {
   autoRetryDelaySeconds,
@@ -696,7 +696,6 @@ export function BrowserPane({
   const guestCrashedRef = useRef(false);
   const autoRetryAttemptRef = useRef(0);
   const isHostConnected = useHostRuntimeIsConnected(serverId);
-  const tabService = useBrowserTabService({ serverId, workspaceId, url: browser?.url ?? "" });
   const webviewRef = useRef<ElectronWebview | null>(null);
   const webviewHostRef = useRef<HTMLDivElement | null>(null);
   const webviewClipRef = useRef<HTMLElement | null>(null);
@@ -1655,13 +1654,11 @@ export function BrowserPane({
           </ToolbarButton>
         </View>
         <View style={styles.urlBarWrap}>
-          {tabService ? (
-            <View style={styles.serviceChip} testID="browser-service-chip">
-              <Text style={styles.serviceChipText} numberOfLines={1}>
-                {tabService.scriptName}
-              </Text>
-            </View>
-          ) : null}
+          <BrowserServiceChip
+            serverId={serverId}
+            workspaceId={workspaceId}
+            url={browser?.url ?? ""}
+          />
           <TextInput
             accessibilityLabel={t("workspace.browser.controls.browserUrl")}
             autoCapitalize="none"
@@ -1951,17 +1948,6 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface1,
     borderWidth: 1,
     borderColor: theme.colors.border,
-  },
-  serviceChip: {
-    maxWidth: 140,
-    marginRight: theme.spacing[2],
-    paddingHorizontal: theme.spacing[1],
-    borderRadius: theme.borderRadius.sm,
-    backgroundColor: theme.colors.surface2,
-  },
-  serviceChipText: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
   },
   urlInput: {
     flex: 1,

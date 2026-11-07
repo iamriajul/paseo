@@ -167,6 +167,20 @@ config/*.local.json
 
 省略 `port` 可以让 Paseo 自动分配端口。让你的进程绑定 `$PASEO_PORT`，而不是写死端口；每个 worktree 获得不同的端口，因此同一服务的多个副本可以共存。
 
+### 主预览 {#main-preview}
+
+在作为应用预览的服务上设置 `"preview": true`：
+
+```json
+{
+  "scripts": {
+    "web": { "type": "service", "command": "npm run dev -- --port $PASEO_PORT", "preview": true }
+  }
+}
+```
+
+这样工作区顶栏会出现 **打开预览** 按钮，Browser 的服务菜单也会把 **打开预览** 放在最前面。两者都会打开该服务；服务停止时会先启动它。只有 `"type": "service"` 条目上的字面量 `true` 才生效。如果多个服务都设置了它，文件中的第一个服务就是预览。
+
 ### 动态端口分配 {#dynamic-port-allocation}
 
 默认情况下，Paseo 向操作系统请求一个可用的临时端口。可以在 `~/.paseo/config.json` 中全局配置端口范围，也可以在 `paseo.json` 中按项目配置：

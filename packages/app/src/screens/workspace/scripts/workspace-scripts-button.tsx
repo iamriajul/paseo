@@ -1,8 +1,8 @@
 import { useCallback, useMemo, type ReactElement } from "react";
-import { resolveServiceBrowserUrl } from "@/utils/workspace-script-links";
 import type { GestureResponderEvent } from "react-native";
 import { Pressable, Text, View } from "react-native";
 import {
+  AppWindow,
   ChevronDown,
   Copy,
   Eye,
@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MENU_ITEM_HEIGHT } from "@/components/ui/menu/menu-geometry";
-import { openServiceUrl } from "@/utils/open-service-url";
 import type {
   WorkspaceScriptLinkKind,
   WorkspaceScriptLinkTarget,
@@ -31,6 +30,8 @@ import type {
 import type { Theme } from "@/styles/theme";
 import { CONTROL_HEIGHTS, HEADER_CONTROL_HEIGHT } from "@/components/ui/control-geometry";
 import { extraMutedIconColorMapping } from "@/components/ui/icon-color";
+import { useWorkspaceServiceOpener } from "@/workspace-services/use-workspace-services";
+import { findMainPreviewService } from "@/workspace-services/workspace-services";
 import { ExitCodeBadge, routeLabelKey, ScriptIcon } from "./script-marks";
 import { scriptToneColorMapping } from "./script-status";
 import {
@@ -52,6 +53,7 @@ interface WorkspaceScriptsButtonProps {
 }
 
 const ThemedPlay = withUnistyles(Play);
+const ThemedAppWindow = withUnistyles(AppWindow);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedEye = withUnistyles(Eye);
@@ -327,14 +329,11 @@ function ScriptRow({
   const { start, stop, restart } = actions;
   const closeMenu = useDropdownMenuClose();
 
+  const { openService } = actions;
   const handleOpenService = useCallback(() => {
-    if (!selectedLink) return;
     closeMenu();
-    void openServiceUrl(selectedLink.url, {
-      openInApp: onOpenUrlInBrowserTab,
-      inAppUrl: resolveServiceBrowserUrl({ script, selected: selectedLink }),
-    });
-  }, [selectedLink, closeMenu, onOpenUrlInBrowserTab, script]);
+    openService(script, onOpenUrlInBrowserTab);
+  }, [closeMenu, onOpenUrlInBrowserTab, openService, script]);
 
   const handleView = useCallback(() => {
     if (liveTerminalId) onViewTerminal?.(liveTerminalId);
@@ -451,6 +450,62 @@ function ScriptRow({
   );
 }
 
+/**
+ * The split button's primary half when paseo.json marks a service `"preview": true`:
+ * one press opens the preview, starting the service first when it is stopped.
+ */
+function PreviewSegment({
+  scriptName,
+  starting,
+  showLabel,
+  onOpen,
+}: {
+  scriptName: string;
+  starting: boolean;
+  showLabel: boolean;
+  onOpen: (scriptName: string) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const handlePress = useCallback(() => onOpen(scriptName), [onOpen, scriptName]);
+  const label = t("workspace.scripts.accessibility.openPreview", { scriptName });
+  const accessibilityState = useMemo(() => ({ busy: starting }), [starting]);
+  const style = useCallback(
+    ({ hovered, pressed }: { hovered?: boolean; pressed?: boolean }) => [
+      styles.splitButtonPrimary,
+      styles.previewSegment,
+      (hovered || pressed) && styles.splitButtonPrimaryHovered,
+      starting && styles.previewSegmentStarting,
+    ],
+    [starting],
+  );
+  return (
+    <Tooltip delayDuration={250} enabledOnDesktop enabledOnMobile={false}>
+      <TooltipTrigger asChild triggerRefProp="ref">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityState={accessibilityState}
+          testID="workspace-scripts-open-preview"
+          onPress={handlePress}
+          style={style}
+        >
+          <View style={styles.splitButtonContent}>
+            <ThemedAppWindow size={14} uniProps={foregroundColorMapping} />
+            {showLabel ? (
+              <Text style={styles.splitButtonText}>
+                {t("workspace.scripts.actions.openPreview")}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="center" offset={8}>
+        <Text style={styles.tooltipText}>{label}</Text>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function WorkspaceScriptsButton({
   serverId,
   workspaceId,
@@ -469,6 +524,18 @@ export function WorkspaceScriptsButton({
     onScriptTerminalStarted,
   });
   const liveTerminalIdSet = useMemo(() => new Set(liveTerminalIds), [liveTerminalIds]);
+  const previewService = useMemo(() => findMainPreviewService(scripts), [scripts]);
+  const { openService } = actions;
+  const handleOpenPreview = useCallback(
+    (service: WorkspaceDescriptor["scripts"][number]) =>
+      openService(service, onOpenUrlInBrowserTab),
+    [onOpenUrlInBrowserTab, openService],
+  );
+  const previewOpener = useWorkspaceServiceOpener({
+    scripts,
+    start: actions.start,
+    onOpen: handleOpenPreview,
+  });
 
   const triggerStyle = useCallback(
     ({ hovered, pressed, open }: { hovered: boolean; pressed: boolean; open: boolean }) => [
@@ -489,6 +556,14 @@ export function WorkspaceScriptsButton({
   return (
     <View style={styles.row}>
       <View style={styles.splitButton}>
+        {previewService ? (
+          <PreviewSegment
+            scriptName={previewService.scriptName}
+            starting={previewOpener.pendingScriptName === previewService.scriptName}
+            showLabel={!hideLabels}
+            onOpen={previewOpener.open}
+          />
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger
             testID="workspace-scripts-button"
@@ -552,6 +627,13 @@ const styles = StyleSheet.create((theme) => ({
       md: theme.spacing[2],
     },
     justifyContent: "center",
+  },
+  previewSegment: {
+    borderRightWidth: theme.borderWidth[1],
+    borderRightColor: theme.colors.borderAccent,
+  },
+  previewSegmentStarting: {
+    opacity: 0.6,
   },
   splitButtonPrimaryHovered: {
     backgroundColor: theme.colors.surface2,

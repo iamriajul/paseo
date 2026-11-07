@@ -169,6 +169,20 @@ Run them from the app, or manage them from automation with [`paseo script`](/doc
 
 Omit `port` to let Paseo auto-assign one. Bind your process to `$PASEO_PORT` rather than hard-coding, each worktree gets a distinct port so multiple copies of the same service coexist.
 
+### Main preview
+
+Set `"preview": true` on the service that is your app's preview:
+
+```json
+{
+  "scripts": {
+    "web": { "type": "service", "command": "npm run dev -- --port $PASEO_PORT", "preview": true }
+  }
+}
+```
+
+The workspace header then has an **Open preview** button, and the Browser's services menu leads with **Open preview**. Either one opens the service, starting it first if it is stopped. Only a literal `true` on a `"type": "service"` entry counts. If several services set it, the first one in the file is the preview.
+
 ### Dynamic port allocation
 
 By default, Paseo asks the OS for an available ephemeral port. Configure a range globally in

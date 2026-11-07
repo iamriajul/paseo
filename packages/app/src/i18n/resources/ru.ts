@@ -885,6 +885,7 @@ export const ru: TranslationResources = {
         chooseUrl: "Выбрать URL",
         copyUrl: "Скопировать URL",
         openService: "Открыть сервис",
+        openPreview: "Открыть превью",
         restart: "Перезапустить",
         run: "Запустить",
         stop: "Остановить",
@@ -893,6 +894,7 @@ export const ru: TranslationResources = {
       accessibility: {
         trigger: "Скрипты рабочего пространства",
         openService: "Открыть сервис {{scriptName}}",
+        openPreview: "Открыть превью {{scriptName}}",
         viewTerminal: "Открыть терминал скрипта {{scriptName}}",
         runScript: "Запустить скрипт {{scriptName}}",
         stopScript: "Остановить скрипт {{scriptName}}",

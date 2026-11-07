@@ -160,6 +160,7 @@ function buildConfiguredScriptPayload(
     health: toWireHealth(ctx.resolveHealth?.(hostname) ?? null),
     exitCode: runtimeEntry?.exitCode ?? null,
     terminalId: runtimeEntry?.terminalId ?? null,
+    ...(config.preview ? { preview: true } : {}),
   };
 }
 

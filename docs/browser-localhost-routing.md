@@ -89,7 +89,9 @@ Mobile does not get this. The user's own browser on a phone is a different app, 
 
 `paseo.json` services are part of the Browser, not a separate origin:
 
-- The Browser toolbar lists the workspace's services. A running one opens at `http://localhost:<port>/`; a stopped one starts and opens once the daemon reports it running. The URL bar shows the service name when the tab's port belongs to a running service.
+- The Browser toolbar lists the workspace's services on Electron, Android and the web build (`services-menu.tsx`, mounted by each pane). A running one opens at `http://localhost:<port>/`; a stopped one starts and opens once the daemon reports it running. The URL bar shows the service name when the tab's port belongs to a running service.
+- The service paseo.json marks `"preview": true` (see [Main preview](../public-docs/worktrees.md#main-preview)) leads that menu as Open preview, and gets an Open preview half on the header scripts button and an Open preview row in the compact header menu. Those two open it through the scripts menu's route choice, so the Browser gets the localhost route and an external open keeps the selected one.
+- Listing services, finding the main preview and start-then-open live in `packages/app/src/workspace-services/`, with no UI, so any other viewer reuses them instead of copying the menu.
 - Opening a service in the Browser from the scripts menu or the ports panel uses the same `http://localhost:<port>/` route (`resolveServiceBrowserUrl` in `packages/app/src/utils/workspace-script-links.ts`). External opens keep the selected route, and a selected public URL stays public in the Browser too.
 
 So a service, a hand-typed `localhost:<port>` tab and an agent's `browser_new_tab` share one origin and one cookie jar. The generated `*.localhost` service hostname is still what external browsers and public aliases use.

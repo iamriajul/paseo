@@ -277,6 +277,14 @@ export const PersistedConfigSchema = z
           })
           .passthrough()
           .optional(),
+        // Fork: docs/server-browser.md
+        serverBrowser: z
+          .object({
+            enabled: z.boolean().optional(),
+            executablePath: z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
         git: z
           .object({
             maxProcessesPerSecond: z.number().int().positive().optional(),

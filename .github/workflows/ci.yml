@@ -179,6 +179,11 @@ jobs:
       - name: Run website tests
         run: npx vitest run packages/website/src --bail=1
 
+      # Fork: the desktop release's manifest scripts need js-yaml, which the `changes`
+      # job's contract tests run without. See docs/fork-decisions.md#release-targets.
+      - name: Verify desktop release manifest scripts
+        run: npx vitest run scripts/merge-mac-manifest.test.mjs scripts/validate-desktop-manifests.test.mjs --bail=1
+
       - name: Install website test browsers
         run: npx playwright install --with-deps chromium webkit
 

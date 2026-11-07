@@ -137,6 +137,10 @@ import {
 } from "./browser-automation/rpc-schemas.js";
 import { BrowserAutomationHostCapabilitySchema } from "./browser-automation/capabilities.js";
 import {
+  SERVER_BROWSER_INBOUND_SCHEMAS,
+  SERVER_BROWSER_OUTBOUND_SCHEMAS,
+} from "./server-browser/rpc-schemas.js";
+import {
   PaseoConfigRawSchema,
   PaseoLifecycleCommandRawSchema,
   PaseoMetadataGenerationEntrySchema,
@@ -237,6 +241,14 @@ const MutableBrowserToolsConfigSchema = z
   })
   .passthrough();
 
+// Fork: the daemon-run headless browser (docs/server-browser.md).
+const MutableServerBrowserConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    executablePath: z.string().optional(),
+  })
+  .passthrough();
+
 const CliproxyapiConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -282,6 +294,7 @@ export const MutableDaemonConfigSchema = z
     // COMPAT(usageSetting): added in v0.14, remove after 2027-05-01.
     usage: z.object({ enabled: z.boolean() }).optional(),
     browserTools: MutableBrowserToolsConfigSchema.default({ enabled: false }),
+    serverBrowser: MutableServerBrowserConfigSchema.optional(),
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
     cliproxyapi: CliproxyapiConfigSchema.optional(),
     metadataGeneration: MutableMetadataGenerationConfigSchema.default({
@@ -346,6 +359,7 @@ export const MutableDaemonConfigPatchSchema = z
     mcp: z.object({ injectIntoAgents: z.boolean().optional() }).passthrough().optional(),
     usage: z.object({ enabled: z.boolean() }).optional(),
     browserTools: MutableBrowserToolsConfigSchema.partial().optional(),
+    serverBrowser: MutableServerBrowserConfigSchema.partial().optional(),
     providers: z
       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
       .optional(),
@@ -3826,6 +3840,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   SetDaemonConfigRequestMessageSchema,
   MetadataCustomEndpointListModelsRequestSchema,
   ModelsDevLookupModelRequestSchema,
+  ...SERVER_BROWSER_INBOUND_SCHEMAS,
   ReadProjectConfigRequestMessageSchema,
   WriteProjectConfigRequestMessageSchema,
   DictationStreamStartMessageSchema,
@@ -4364,6 +4379,8 @@ export const ServerInfoStatusPayloadSchema = z
         cacheWarmFork: z.boolean().optional(),
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
         tcpTunnel: z.boolean().optional(),
+        // COMPAT(serverBrowser): added in v0.15.x (fork), drop the gate after 2027-05-01.
+        serverBrowser: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
@@ -8142,6 +8159,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   VoiceReadAloudRewriteResponseSchema,
   VoiceDictationPolishResponseSchema,
   ModelsDevLookupModelResponseSchema,
+  ...SERVER_BROWSER_OUTBOUND_SCHEMAS,
   ReadProjectConfigResponseMessageSchema,
   WriteProjectConfigResponseMessageSchema,
   SetAgentModeResponseMessageSchema,

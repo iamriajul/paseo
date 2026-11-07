@@ -23,13 +23,16 @@ const HEADER =
   "// Do not edit; change the desktop original and rerun the script.\n";
 
 export function transformEngineSource(source) {
-  // The only Electron dependency is a type; the server provides a structural copy.
+  // The only Electron dependency is a type; the server provides a structural copy. The copy is
+  // always LF, whatever line endings the checkout gave the desktop original.
   return (
     HEADER +
-    source.replace(
-      'import type { KeyboardInputEvent } from "electron";',
-      'import type { KeyboardInputEvent } from "../electron-keyboard-event.js";',
-    )
+    source
+      .replace(/\r\n/g, "\n")
+      .replace(
+        'import type { KeyboardInputEvent } from "electron";',
+        'import type { KeyboardInputEvent } from "../electron-keyboard-event.js";',
+      )
   );
 }
 
@@ -40,7 +43,7 @@ export function expectedEngineFiles() {
   }));
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const { name, content } of expectedEngineFiles()) {
     writeFileSync(join(ENGINE_TARGET_DIR, name), content);
     console.log(`synced ${name}`);

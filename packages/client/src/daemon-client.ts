@@ -178,6 +178,12 @@ import {
   type TcpTunnelFrame,
 } from "@getpaseo/protocol/binary-frames/index";
 import {
+  decodeServerBrowserFrame,
+  encodeServerBrowserFrameAck,
+  ServerBrowserOpcode,
+} from "@getpaseo/protocol/binary-frames/server-browser";
+import type { ServerBrowserInputEvent } from "@getpaseo/protocol/server-browser/rpc-schemas";
+import {
   createRelayE2eeTransportFactory,
   createRelayUpgradeTransportFactory,
   createWebSocketTransportFactory,
@@ -1513,6 +1519,14 @@ function buildFetchAgentsRequest(
   });
 }
 
+export interface ServerBrowserFrame {
+  /** CSS-pixel size of the page the frame shows. */
+  width: number;
+  height: number;
+  jpeg: Uint8Array;
+  ack(): void;
+}
+
 export class DaemonClient {
   private readonly providerSnapshotUpdates = new ProviderSnapshotUpdates({
     active: (message) => this.owned.owns(message),
@@ -1581,6 +1595,7 @@ export class DaemonClient {
   private pluginClientBundlesWrite: PluginClientBundle[] | undefined;
   private pluginClientBundlesWriting = false;
   private tcpTunnelStreams = new Map<number, TcpTunnelClientStreamState>();
+  private serverBrowserFrameListeners = new Map<number, (frame: ServerBrowserFrame) => void>();
   private nextTcpTunnelStreamId = 1;
   private logger: Logger;
   private pendingSendQueue: PendingSend[] = [];
@@ -2922,6 +2937,121 @@ export class DaemonClient {
       { type: "browser.host.register.request", ...registration },
       options,
     );
+  }
+
+  // Fork: server browser (docs/server-browser.md). Gate on features.serverBrowser.
+  observeServerBrowserTabs(options?: {
+    signal?: AbortSignal;
+  }): OwnedSubscription<CorrelatedResponsePayload<"browser.server.tabs.subscribe.response">> {
+    return this.observe(
+      "browser.server.tabs.subscribe.response",
+      { type: "browser.server.tabs.subscribe.request" },
+      options,
+    );
+  }
+
+  /**
+   * Streams one server browser tab. Call frame.ack() once the frame is on screen: the daemon
+   * sends at most two unacknowledged frames, so a viewer that stops acking stops receiving.
+   */
+  observeServerBrowserScreencast(
+    params: { browserId: string; maxWidth: number; maxHeight: number },
+    onFrame: (frame: ServerBrowserFrame) => void,
+    options?: { signal?: AbortSignal },
+  ): OwnedSubscription<CorrelatedResponsePayload<"browser.server.screencast.start.response">> {
+    const subscription = this.observe(
+      "browser.server.screencast.start.response",
+      { type: "browser.server.screencast.start.request", ...params },
+      options,
+    );
+    let streamId: number | null = null;
+    const unsubscribe = subscription.subscribe({
+      snapshot: (snapshot) => {
+        if (streamId !== null) this.serverBrowserFrameListeners.delete(streamId);
+        streamId = snapshot.streamId ?? null;
+        if (streamId !== null) this.serverBrowserFrameListeners.set(streamId, onFrame);
+      },
+      update: () => {},
+    });
+    return {
+      get subscriptionId() {
+        return subscription.subscriptionId;
+      },
+      ready: subscription.ready,
+      subscribe: (observer) => subscription.subscribe(observer),
+      release: async () => {
+        unsubscribe();
+        if (streamId !== null) this.serverBrowserFrameListeners.delete(streamId);
+        await subscription.release();
+      },
+    };
+  }
+
+  async serverBrowserOpenTab(workspaceId: string, url: string): Promise<string> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      message: { type: "browser.server.tab.open.request", workspaceId, url },
+      responseType: "browser.server.tab.open.response",
+      timeout: 30_000,
+    });
+    if (payload.error || !payload.browserId) throw new Error(payload.error ?? "No tab opened");
+    return payload.browserId;
+  }
+
+  async serverBrowserCloseTab(browserId: string): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.tab.close.request", browserId },
+      "browser.server.tab.close.response",
+    );
+  }
+
+  async serverBrowserNavigate(
+    browserId: string,
+    action: "url" | "back" | "forward" | "reload",
+    url?: string,
+  ): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.tab.navigate.request", browserId, action, ...(url ? { url } : {}) },
+      "browser.server.tab.navigate.response",
+    );
+  }
+
+  async serverBrowserSetViewport(
+    browserId: string,
+    viewport: { width: number; height: number; mobile: boolean },
+  ): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.tab.set_viewport.request", browserId, ...viewport },
+      "browser.server.tab.set_viewport.response",
+    );
+  }
+
+  async serverBrowserClearWorkspaceData(workspaceId: string): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.workspace.clear_data.request", workspaceId },
+      "browser.server.workspace.clear_data.response",
+      60_000,
+    );
+  }
+
+  async serverBrowserInput(browserId: string, events: ServerBrowserInputEvent[]): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.input.request", browserId, events },
+      "browser.server.input.response",
+    );
+  }
+
+  private async serverBrowserCommand(
+    message: { type: SessionInboundMessage["type"] } & Record<string, unknown>,
+    responseType:
+      | "browser.server.tab.close.response"
+      | "browser.server.tab.navigate.response"
+      | "browser.server.tab.set_viewport.response"
+      | "browser.server.workspace.clear_data.response"
+      | "browser.server.input.response",
+    timeout = 20_000,
+  ): Promise<void> {
+    const payload = await this.sendCorrelatedSessionRequest({ message, responseType, timeout });
+    if (payload.error) throw new Error(payload.error);
   }
 
   observeEvents(
@@ -7964,6 +8094,22 @@ export class DaemonClient {
       });
       this.consecutiveLivenessFailures = 0;
       this.handleFileTransferFrame(fileFrame);
+      this.runtimeMetrics?.recordBinaryFrame("other", rawBytes.byteLength, 0);
+      return true;
+    }
+
+    const serverBrowserFrame = decodeServerBrowserFrame(rawBytes);
+    if (serverBrowserFrame?.opcode === ServerBrowserOpcode.Frame) {
+      this.consecutiveLivenessFailures = 0;
+      const { streamId, seq } = serverBrowserFrame;
+      this.serverBrowserFrameListeners.get(streamId)?.({
+        width: serverBrowserFrame.width,
+        height: serverBrowserFrame.height,
+        jpeg: serverBrowserFrame.jpeg,
+        ack: () => {
+          void this.sendBinaryFrame(encodeServerBrowserFrameAck({ streamId, seq })).catch(() => {});
+        },
+      });
       this.runtimeMetrics?.recordBinaryFrame("other", rawBytes.byteLength, 0);
       return true;
     }

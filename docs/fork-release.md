@@ -17,7 +17,41 @@ Rules:
 - If you already pushed a tag too early, delete the tag and any half-built GitHub Release, merge the PR, then recreate the tag on the `main` merge commit and push it again.
 - Version bumps for fork releases live in the tag / workflow inputs. Do not land package-version churn on the feature PR just to cut a release.
 
-After the tag is on `main`, the usual tag-triggered workflows publish desktop, npm global-install, Docker, and Android artifacts. You can also dispatch those workflows manually with the same tag and `checkout_ref=main`.
+After the tag is on `main`, the tag-triggered workflows build the [release targets](#release-targets) the repository enables, macOS Apple silicon and the Android APK unless you change it. You can also dispatch those workflows manually with the same tag and `checkout_ref=main`.
+
+## Release targets
+
+The `RELEASE_TARGETS` repository variable lists what a `vX.Y.Z` tag builds, comma-separated. When it is unset, a tag builds `desktop-macos-arm64,android-apk`.
+
+| Target                   | Builds                                                         | Workflow                         |
+| ------------------------ | -------------------------------------------------------------- | -------------------------------- |
+| `desktop-macos-arm64`    | macOS Apple silicon `.dmg`/`.zip`                              | `desktop-release.yml`            |
+| `desktop-macos-x64`      | macOS Intel `.dmg`/`.zip`, about 25 minutes on a scarce runner | `desktop-release.yml`            |
+| `desktop-windows`        | Windows x64 and arm64 installers                               | `desktop-release.yml`            |
+| `desktop-linux`          | Linux AppImage, `.deb`, `.rpm`, tarball                        | `desktop-release.yml`            |
+| `android-apk`            | `paseo-vX.Y.Z-android.apk`                                     | `android-apk-release.yml`        |
+| `android-browser-native` | The Browser proxy's Kotlin tests and debug build (no artifact) | `android-browser-native.yml`     |
+| `docker`                 | `ghcr.io/<fork-owner>/paseo:<version>`                         | `docker.yml`                     |
+| `npm`                    | npm global-install tarballs                                    | `npm-global-install-release.yml` |
+
+`all` enables every target. To turn targets on, set the whole list:
+
+```bash
+gh variable set RELEASE_TARGETS --repo iamriajul/paseo --body "desktop-macos-arm64,desktop-macos-x64,android-apk,docker"
+gh variable delete RELEASE_TARGETS --repo iamriajul/paseo   # back to the default
+```
+
+`scripts/release-targets.mjs` owns the names, the default, and the validation. An unknown name fails the run's `release-targets` job instead of silently dropping a build. A disabled target's jobs are skipped before a runner starts.
+
+Explicit requests build what they name, whatever the variable says:
+
+- Dispatching `docker.yml`, `npm-global-install-release.yml`, `android-apk-release.yml`, or `android-browser-native.yml` builds that target.
+- Dispatching `desktop-release.yml` with `platform` set to `macos`, `linux`, or `windows` builds that platform, both arches for `macos`. Its `targets` input overrides the variable for one run, for example `desktop-macos-x64` to add an Intel build to an existing release.
+- `desktop-v*`, `desktop-<os>-v*`, and `android-v*` tags build their platform.
+
+Release notes sync, `create-release`, and `finalize-rollout` always run. `finalize-rollout` publishes the draft release once every enabled desktop platform has built and uploaded its updater manifest, and ignores disabled ones. With only `desktop-macos-arm64`, `latest-mac.yml` lists the arm64 zip alone, so Intel Macs installed from an older release get an update error until `desktop-macos-x64` is enabled again. With no desktop target, it publishes the release without manifests.
+
+Main pushes and pull requests still run the Docker build check and the path-filtered Android Browser native check; the variable only governs release tags.
 
 ## What The Fork Publishes
 
@@ -46,13 +80,14 @@ This fork ships stable releases only. Tag every release `vX.Y.Z`, with no `-beta
 
 Run `.github/workflows/desktop-release.yml` with:
 
-| Input           | Value                                    |
-| --------------- | ---------------------------------------- |
-| `tag`           | Your chosen version tag, e.g. `v0.1.900` |
-| `platform`      | `all`, `macos`, `linux`, or `windows`    |
-| `checkout_ref`  | The branch, tag, or SHA to build         |
-| `publish`       | `true`                                   |
-| `rollout_hours` | `0` for immediate personal rollout       |
+| Input           | Value                                                                                                           |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| `tag`           | Your chosen version tag, e.g. `v0.1.900`                                                                        |
+| `platform`      | `all`, `macos`, `linux`, or `windows`                                                                           |
+| `targets`       | Empty to use `RELEASE_TARGETS`, or a list such as `desktop-macos-x64` (see [Release targets](#release-targets)) |
+| `checkout_ref`  | The branch, tag, or SHA to build                                                                                |
+| `publish`       | `true`                                                                                                          |
+| `rollout_hours` | `0` for immediate personal rollout                                                                              |
 
 The workflow creates or updates the GitHub Release in the fork and uploads installers plus Electron updater manifests.
 
@@ -167,7 +202,7 @@ Fallback-signed releases make the warning visible in two places:
 
 If only some Android signing secrets are configured, the workflow fails instead of falling back. Partial signing configuration usually means a fork owner intended to use secure signing but missed a secret.
 
-Generic `vX.Y.Z` fork tags now publish the Android APK whether secure signing secrets are present or the fallback path is used. You can also dispatch `.github/workflows/android-apk-release.yml` with `tag` plus optional `checkout_ref` to rebuild a release from a branch without moving the tag.
+While `android-apk` is a [release target](#release-targets) (the default), `vX.Y.Z` tags publish the APK whether secure signing secrets are present or the fallback path is used. You can also dispatch `.github/workflows/android-apk-release.yml` with `tag` plus optional `checkout_ref` to rebuild a release from a branch without moving the tag.
 
 ## Web App Deploys
 

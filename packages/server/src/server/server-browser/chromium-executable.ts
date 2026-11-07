@@ -1,14 +1,18 @@
 import { constants } from "node:fs";
 import { access, readdir } from "node:fs/promises";
-import { homedir, platform } from "node:os";
-import { delimiter, join } from "node:path";
+import { homedir } from "node:os";
+import path from "node:path";
 
 export const SERVER_BROWSER_INSTALL_COMMAND = "npx playwright install chromium-headless-shell";
+
+export type ChromiumPlatform = "linux" | "darwin" | "win32";
 
 export interface ChromiumExecutableSearch {
   configuredPath?: string | null;
   env?: NodeJS.ProcessEnv;
   home?: string;
+  /** The host whose layout to search; paths, PATH delimiter and file names follow it. */
+  platform?: ChromiumPlatform;
   isExecutable?: (path: string) => Promise<boolean>;
   listDirectory?: (path: string) => Promise<string[]>;
 }
@@ -16,13 +20,6 @@ export interface ChromiumExecutableSearch {
 export type ChromiumExecutableResolution =
   | { ok: true; path: string; source: "config" | "env" | "playwright" | "system" }
   | { ok: false; message: string };
-
-export class ServerBrowserUnavailableError extends Error {
-  public constructor(message: string) {
-    super(message);
-    this.name = "ServerBrowserUnavailableError";
-  }
-}
 
 /**
  * Finds a Chromium the daemon may launch as its own instance. Never an existing browser to attach
@@ -32,36 +29,28 @@ export async function resolveChromiumExecutable(
   search: ChromiumExecutableSearch = {},
 ): Promise<ChromiumExecutableResolution> {
   const env = search.env ?? process.env;
+  const host = search.platform ?? currentPlatform();
+  const paths = host === "win32" ? path.win32 : path.posix;
   const isExecutable = search.isExecutable ?? defaultIsExecutable;
   const listDirectory = search.listDirectory ?? defaultListDirectory;
 
-  const configured = search.configuredPath?.trim();
-  if (configured) {
-    return (await isExecutable(configured))
-      ? { ok: true, path: configured, source: "config" }
-      : {
-          ok: false,
-          message: `The configured server browser executable ${configured} does not exist or is not executable.`,
-        };
-  }
-  const fromEnv = env.PASEO_SERVER_BROWSER_EXECUTABLE?.trim();
-  if (fromEnv) {
-    return (await isExecutable(fromEnv))
-      ? { ok: true, path: fromEnv, source: "env" }
-      : {
-          ok: false,
-          message: `PASEO_SERVER_BROWSER_EXECUTABLE=${fromEnv} does not exist or is not executable.`,
-        };
-  }
+  const explicit = await resolveExplicitExecutable({
+    configured: search.configuredPath?.trim(),
+    fromEnv: env.PASEO_SERVER_BROWSER_EXECUTABLE?.trim(),
+    isExecutable,
+  });
+  if (explicit) return explicit;
 
-  const cacheDir = playwrightCacheDir(env, search.home ?? homedir());
-  for (const candidate of playwrightCandidates(cacheDir, await listDirectory(cacheDir))) {
+  const cacheDir = playwrightCacheDir({ env, home: search.home ?? homedir(), host, paths });
+  const entries = await listDirectory(cacheDir);
+  for (const candidate of playwrightCandidates({ cacheDir, entries, host, paths })) {
     if (await isExecutable(candidate)) return { ok: true, path: candidate, source: "playwright" };
   }
 
-  for (const name of SYSTEM_BROWSER_NAMES) {
-    for (const dir of (env.PATH ?? "").split(delimiter).filter(Boolean)) {
-      const candidate = join(dir, name);
+  const pathDirs = (env.PATH ?? env.Path ?? "").split(paths.delimiter).filter(Boolean);
+  for (const name of systemBrowserNames(host)) {
+    for (const dir of pathDirs) {
+      const candidate = paths.join(dir, name);
       if (await isExecutable(candidate)) return { ok: true, path: candidate, source: "system" };
     }
   }
@@ -72,55 +61,144 @@ export async function resolveChromiumExecutable(
   };
 }
 
-const SYSTEM_BROWSER_NAMES = [
-  "chromium",
-  "chromium-browser",
-  "google-chrome",
-  "google-chrome-stable",
-];
-
-function playwrightCacheDir(env: NodeJS.ProcessEnv, home: string): string {
-  const configured = env.PLAYWRIGHT_BROWSERS_PATH?.trim();
-  if (configured && configured !== "0") return configured;
-  if (platform() === "darwin") return join(home, "Library", "Caches", "ms-playwright");
-  return join(env.XDG_CACHE_HOME?.trim() || join(home, ".cache"), "ms-playwright");
+/** A path the user named wins, and a wrong one is reported rather than silently replaced. */
+async function resolveExplicitExecutable(params: {
+  configured: string | undefined;
+  fromEnv: string | undefined;
+  isExecutable: (path: string) => Promise<boolean>;
+}): Promise<ChromiumExecutableResolution | null> {
+  const { configured, fromEnv, isExecutable } = params;
+  if (configured) {
+    return (await isExecutable(configured))
+      ? { ok: true, path: configured, source: "config" }
+      : {
+          ok: false,
+          message: `The configured server browser executable ${configured} does not exist or is not executable.`,
+        };
+  }
+  if (fromEnv) {
+    return (await isExecutable(fromEnv))
+      ? { ok: true, path: fromEnv, source: "env" }
+      : {
+          ok: false,
+          message: `PASEO_SERVER_BROWSER_EXECUTABLE=${fromEnv} does not exist or is not executable.`,
+        };
+  }
+  return null;
 }
 
+function currentPlatform(): ChromiumPlatform {
+  if (process.platform === "win32" || process.platform === "darwin") return process.platform;
+  return "linux";
+}
+
+function systemBrowserNames(host: ChromiumPlatform): string[] {
+  const names = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"];
+  return host === "win32" ? ["chrome.exe", "chromium.exe", "msedge.exe"] : names;
+}
+
+/** Playwright's own resolution: PLAYWRIGHT_BROWSERS_PATH, else the per-OS cache. */
+function playwrightCacheDir(params: {
+  env: NodeJS.ProcessEnv;
+  home: string;
+  host: ChromiumPlatform;
+  paths: path.PlatformPath;
+}): string {
+  const { env, home, host, paths } = params;
+  const configured = env.PLAYWRIGHT_BROWSERS_PATH?.trim();
+  if (configured && configured !== "0") return configured;
+  if (host === "darwin") return paths.join(home, "Library", "Caches", "ms-playwright");
+  if (host === "win32") {
+    return paths.join(
+      env.LOCALAPPDATA?.trim() || paths.join(home, "AppData", "Local"),
+      "ms-playwright",
+    );
+  }
+  return paths.join(env.XDG_CACHE_HOME?.trim() || paths.join(home, ".cache"), "ms-playwright");
+}
+
+/** Executable layouts inside a revision directory, per OS: headless shell first, then Chromium. */
+const LAYOUTS: Record<ChromiumPlatform, { shell: string[][]; full: string[][] }> = {
+  linux: {
+    shell: [
+      ["chrome-headless-shell-linux64", "chrome-headless-shell"],
+      ["chrome-linux", "headless_shell"],
+    ],
+    full: [
+      ["chrome-linux64", "chrome"],
+      ["chrome-linux", "chrome"],
+    ],
+  },
+  darwin: {
+    shell: [
+      ["chrome-headless-shell-mac-arm64", "chrome-headless-shell"],
+      ["chrome-headless-shell-mac-x64", "chrome-headless-shell"],
+    ],
+    full: [
+      [
+        "chrome-mac-arm64",
+        "Google Chrome for Testing.app",
+        "Contents",
+        "MacOS",
+        "Google Chrome for Testing",
+      ],
+      [
+        "chrome-mac-x64",
+        "Google Chrome for Testing.app",
+        "Contents",
+        "MacOS",
+        "Google Chrome for Testing",
+      ],
+      ["chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"],
+    ],
+  },
+  win32: {
+    shell: [["chrome-headless-shell-win64", "chrome-headless-shell.exe"]],
+    full: [
+      ["chrome-win64", "chrome.exe"],
+      ["chrome-win", "chrome.exe"],
+    ],
+  },
+};
+
 /** Newest headless shell first, then newest full Chromium. */
-function playwrightCandidates(cacheDir: string, entries: string[]): string[] {
+function playwrightCandidates(params: {
+  cacheDir: string;
+  entries: string[];
+  host: ChromiumPlatform;
+  paths: path.PlatformPath;
+}): string[] {
+  const { cacheDir, entries, host, paths } = params;
   const byRevision = (prefix: string) =>
     entries
       .filter((entry) => entry.startsWith(prefix) && /-\d+$/.test(entry))
       .sort((a, b) => revision(b) - revision(a));
-  const shells = byRevision("chromium_headless_shell-").flatMap((dir) => [
-    join(cacheDir, dir, "chrome-headless-shell-linux64", "chrome-headless-shell"),
-    join(cacheDir, dir, "chrome-linux", "headless_shell"),
-    join(cacheDir, dir, "chrome-headless-shell-mac-arm64", "chrome-headless-shell"),
-    join(cacheDir, dir, "chrome-headless-shell-mac-x64", "chrome-headless-shell"),
-  ]);
-  const full = byRevision("chromium-").flatMap((dir) => [
-    join(cacheDir, dir, "chrome-linux64", "chrome"),
-    join(cacheDir, dir, "chrome-linux", "chrome"),
-  ]);
-  return [...shells, ...full];
+  const layout = LAYOUTS[host];
+  const expand = (dirs: string[], layouts: string[][]) =>
+    dirs.flatMap((dir) => layouts.map((parts) => paths.join(cacheDir, dir, ...parts)));
+  return [
+    ...expand(byRevision("chromium_headless_shell-"), layout.shell),
+    ...expand(byRevision("chromium-"), layout.full),
+  ];
 }
 
 function revision(entry: string): number {
   return Number(entry.slice(entry.lastIndexOf("-") + 1));
 }
 
-async function defaultIsExecutable(path: string): Promise<boolean> {
+async function defaultIsExecutable(candidate: string): Promise<boolean> {
   try {
-    await access(path, constants.X_OK);
+    // Windows has no execute bit; existence is the check there.
+    await access(candidate, process.platform === "win32" ? constants.F_OK : constants.X_OK);
     return true;
   } catch {
     return false;
   }
 }
 
-async function defaultListDirectory(path: string): Promise<string[]> {
+async function defaultListDirectory(directory: string): Promise<string[]> {
   try {
-    return await readdir(path);
+    return await readdir(directory);
   } catch {
     return [];
   }

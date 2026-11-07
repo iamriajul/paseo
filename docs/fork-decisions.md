@@ -1200,3 +1200,18 @@ On 2026-11-07, 56% of 557,138 git commands showed as `unattributed`, so the runt
 ```bash
 cd packages/server && npx vitest run src/server/workspace-git-service.primitive.test.ts src/server/workspace-git-service.observation.test.ts --bail=1 -t "attributes Git commands submitted by a checkout read|outside the remote-poll set backs off to ten minutes"
 ```
+
+## profile-feature-values-survive-apply
+
+**an agent profile's feature values reach the agent it creates**
+
+Official v0.15.0 can drop a profile's feature values (for example `fast_mode`) when the profile switches the draft's provider, so the agent starts without them. Three defects did it, each seen in the `cross-provider profile features survive immediate workspace creation` e2e, which failed 5 of 5 runs on `main` before this change:
+
+- `use-draft-agent-features.ts` cleared the draft's chosen values in an effect whenever the provider changed. A profile switches provider and sets its values in one handler, so the effect ran after both and erased them. The values now carry the provider they were chosen for, and another provider ignores them.
+- The values sent with a new agent were filtered against the provider's feature list. After a provider switch that list is still loading, and an unknown list counted as empty, so a submit in that window sent none. `resolveFeatureValues` now takes `null` for an unknown list and sends the draft's own values as they are; values remembered from earlier sessions still wait for the list, because they can be stale.
+- The draft's profile picker offers the profiles of every enabled provider, but `applyProfileFromUser` applies only to a `ready` one, so a profile picked while its provider was still loading did nothing. A profile row whose provider is not in `selectableProviders` (the set the apply accepts) is now disabled: with a spinner while the provider loads, and without one when it is in an error or unavailable state, which loading will not end. `applyProfileFromUser` reports whether it applied. Hiding those rows instead was tried and rejected: the picker chooses its opening view from whether it has profiles, so it opened inside a provider's models and never showed the profile.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/hooks/use-draft-agent-features.test.tsx --bail=1
+grep -q "notReadyProviders: notReadyProfileProviders" packages/app/src/composer/agent-controls/index.tsx
+```

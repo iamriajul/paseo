@@ -67,6 +67,8 @@ export interface UseAgentFormStateResult {
   availableModels: AgentModelDefinition[];
   allProviderModels: Map<string, AgentModelDefinition[]>;
   modelSelectorProviders: ProviderSelectorProvider[];
+  /** Providers a user action can switch the draft to now; a profile applies only to these. */
+  selectableProviders: AgentProvider[];
   isAllModelsLoading: boolean;
   isProviderModelsRefreshing: boolean;
   availableThinkingOptions: NonNullable<AgentModelDefinition["thinkingOptions"]>;
@@ -75,7 +77,8 @@ export interface UseAgentFormStateResult {
   refreshProviderModels: (provider?: AgentProvider) => void;
   refetchProviderModelsIfStale: () => void;
   setProviderAndModelFromUser: (provider: AgentProvider, modelId: string) => void;
-  applyProfileFromUser: (profile: MaterializedAgentProfile) => void;
+  /** Returns false, changing nothing, when the profile's provider is not selectable. */
+  applyProfileFromUser: (profile: MaterializedAgentProfile) => boolean;
   clearProviderSelectionFromUser: () => void;
   workingDirIsEmpty: boolean;
   persistFormPreferences: () => Promise<void>;
@@ -246,6 +249,10 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
   const providerDefinitionMap = snapshotProviderDefinitionMap;
   const selectableProviderDefinitionMap = snapshotSelectableProviderDefinitionMap;
   const allProviderModels = snapshotAllProviderModels;
+  const selectableProviders = useMemo(
+    () => Array.from(selectableProviderDefinitionMap.keys()),
+    [selectableProviderDefinitionMap],
+  );
   const modelSelectorProviders = snapshotModelSelectorProviders;
   const availableModels = snapshotSelectedProviderModels;
   const modeOptions = snapshotSelectedProviderModes;
@@ -319,7 +326,7 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
     (profile: MaterializedAgentProfile) => {
       const provider = profile.provider as AgentProvider;
       if (!selectableProviderDefinitionMap.has(provider)) {
-        return;
+        return false;
       }
 
       const previousProvider = formState.provider;
@@ -357,6 +364,7 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
       }).catch((error) => {
         console.warn("[useAgentFormState] persist profile preference failed", error);
       });
+      return true;
     },
     [
       allProviderModels,
@@ -494,6 +502,7 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
       availableModels: availableModels ?? [],
       allProviderModels,
       modelSelectorProviders,
+      selectableProviders,
       isAllModelsLoading,
       isProviderModelsRefreshing: snapshotIsRefreshing,
       availableThinkingOptions,
@@ -525,6 +534,7 @@ export function useAgentFormState(options: UseAgentFormStateOptions): UseAgentFo
       availableModels,
       allProviderModels,
       modelSelectorProviders,
+      selectableProviders,
       isAllModelsLoading,
       snapshotIsRefreshing,
       availableThinkingOptions,

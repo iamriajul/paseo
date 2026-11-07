@@ -170,6 +170,8 @@ export interface DraftAgentControlsProps {
   onSelectModel: (modelId: string) => void;
   isModelLoading: boolean;
   modelSelectorProviders: ProviderSelectorProvider[];
+  /** Providers the draft can switch to now; a profile for any other provider is disabled. */
+  selectableProviders: AgentProvider[];
   isAllModelsLoading: boolean;
   onSelectProviderAndModel: (provider: AgentProvider, modelId: string) => void;
   thinkingOptions: NonNullable<AgentModelDefinition["thinkingOptions"]>;
@@ -2005,6 +2007,7 @@ export function DraftAgentControls({
   onSelectModel,
   isModelLoading: _isModelLoading,
   modelSelectorProviders,
+  selectableProviders,
   isAllModelsLoading,
   onSelectProviderAndModel,
   thinkingOptions,
@@ -2038,11 +2041,25 @@ export function DraftAgentControls({
   );
 
   // The draft form is the one surface that can switch provider, so every profile
-  // the host can actually run is offered here.
+  // the host can actually run is offered here. A provider that is not ready cannot take
+  // one, so its profiles are shown disabled: loading until it is ready, or unavailable
+  // when its model section shows an error.
   const profileProviders = useMemo(
     () => modelSelectorProviders.map((entry) => entry.id),
     [modelSelectorProviders],
   );
+  const notReadyProfileProviders = useMemo(() => {
+    const selectable = new Set<string>(selectableProviders);
+    const notReady = new Map<string, "loading" | "unavailable">();
+    for (const provider of modelSelectorProviders) {
+      if (selectable.has(provider.id)) continue;
+      notReady.set(
+        provider.id,
+        provider.modelSelection.kind === "error" ? "unavailable" : "loading",
+      );
+    }
+    return notReady;
+  }, [modelSelectorProviders, selectableProviders]);
   const profileTarget = useMemo<AgentProfileApplyTarget>(
     () => ({
       kind: "draft",
@@ -2055,6 +2072,7 @@ export function DraftAgentControls({
   const agentProfiles = useAgentProfilePicker({
     serverId: modelSelectorServerId,
     availableProviders: profileProviders,
+    notReadyProviders: notReadyProfileProviders,
     target: profileTarget,
   });
   const handleEditAgentProfiles = useEditAgentProfilesNavigation(

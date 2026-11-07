@@ -487,6 +487,8 @@ interface ModelBrowserPressableProps {
   accessibilityLabel?: string;
   /** Only rows that can express selection pass this; the rest stay unannotated. */
   accessibilitySelected?: boolean;
+  /** Announced as disabled, and a press does nothing. */
+  disabled?: boolean;
   testID?: string;
 }
 
@@ -497,6 +499,7 @@ function ModelBrowserPressable({
   hitSlop,
   accessibilityLabel,
   accessibilitySelected,
+  disabled = false,
   testID,
 }: ModelBrowserPressableProps) {
   const independentScrollGesture = useContext(IndependentScrollGestureContext);
@@ -511,7 +514,7 @@ function ModelBrowserPressable({
       .runOnJS(true)
       .onBegin(() => setPressed(true))
       .onEnd((_event, success) => {
-        if (success) onPress();
+        if (success && !disabled) onPress();
       })
       .onFinalize(() => setPressed(false));
     if (hitSlop !== undefined) gesture.hitSlop(hitSlop);
@@ -519,7 +522,7 @@ function ModelBrowserPressable({
       gesture.simultaneousWithExternalGesture(independentScrollGesture);
     }
     return gesture;
-  }, [hitSlop, independentScrollGesture, onPress]);
+  }, [disabled, hitSlop, independentScrollGesture, onPress]);
   const handlePress = useCallback(
     (event: GestureResponderEvent) => {
       event.stopPropagation();
@@ -529,19 +532,23 @@ function ModelBrowserPressable({
   );
   const handleAccessibilityAction = useCallback(
     (event: AccessibilityActionEvent) => {
-      if (event.nativeEvent.actionName === "activate") onPress();
+      if (event.nativeEvent.actionName === "activate" && !disabled) onPress();
     },
-    [onPress],
+    [disabled, onPress],
   );
-  const accessibilityState = useMemo(
-    () => (accessibilitySelected === undefined ? undefined : { selected: accessibilitySelected }),
-    [accessibilitySelected],
-  );
+  const accessibilityState = useMemo(() => {
+    if (accessibilitySelected === undefined && !disabled) return undefined;
+    return {
+      ...(accessibilitySelected === undefined ? {} : { selected: accessibilitySelected }),
+      ...(disabled ? { disabled: true } : {}),
+    };
+  }, [accessibilitySelected, disabled]);
 
   if (!independentScrollGesture) {
     return (
       <Pressable
         onPress={handlePress}
+        disabled={disabled}
         hitSlop={hitSlop}
         style={style}
         accessibilityRole="button"
@@ -588,6 +595,7 @@ function ModelBrowserRow({
   selectionIndicator = false,
   tone = "default",
   labelMuted = false,
+  disabled = false,
   spacing = "model",
   onPress,
   testID,
@@ -601,6 +609,7 @@ function ModelBrowserRow({
   tone?: ModelBrowserRowTone;
   /** For rows that offer an action rather than name a thing you can pick. */
   labelMuted?: boolean;
+  disabled?: boolean;
   spacing?: "model" | "provider";
   onPress: () => void;
   testID?: string;
@@ -609,11 +618,14 @@ function ModelBrowserRow({
     ({ hovered, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.browserRow,
       spacing === "model" && styles.browserModelRow,
-      Boolean(hovered) &&
+      !disabled &&
+        Boolean(hovered) &&
         (tone === "elevated" ? styles.browserRowHoveredElevated : styles.browserRowHovered),
-      pressed && (tone === "default" ? styles.browserRowPressed : styles.browserRowPressedElevated),
+      !disabled &&
+        pressed &&
+        (tone === "default" ? styles.browserRowPressed : styles.browserRowPressedElevated),
     ],
-    [spacing, tone],
+    [disabled, spacing, tone],
   );
   const contentStyle = useMemo(
     () => [styles.browserRowText, description && styles.browserRowTextInline],
@@ -628,6 +640,7 @@ function ModelBrowserRow({
       // A profile row is an action, not a selection, so it carries no selection
       // state at all — only rows that draw the checkmark claim one.
       accessibilitySelected={selectionIndicator ? selected : undefined}
+      disabled={disabled}
       testID={testID}
     >
       <View style={styles.browserRowContent}>
@@ -635,7 +648,7 @@ function ModelBrowserRow({
         <View style={contentStyle}>
           <Text
             numberOfLines={1}
-            style={labelMuted ? styles.browserRowLabelMuted : styles.browserRowLabel}
+            style={labelMuted || disabled ? styles.browserRowLabelMuted : styles.browserRowLabel}
           >
             {label}
           </Text>
@@ -937,13 +950,22 @@ function AgentProfilePickerRowView({
     () => <AgentProfileGlyph icon={row.icon} color={row.color} size={ICON_SIZE.sm} />,
     [row.color, row.icon],
   );
+  const trailingSlot = useMemo(
+    () =>
+      row.availability === "loading" ? (
+        <ThemedLoadingSpinner size={ICON_SIZE.sm} uniProps={foregroundMutedMapping} />
+      ) : undefined,
+    [row.availability],
+  );
   return (
     <ModelBrowserRow
       label={row.name}
       description={row.summary}
       tone="elevated"
+      disabled={row.availability !== "ready"}
       onPress={handlePress}
       leadingSlot={leadingSlot}
+      trailingSlot={trailingSlot}
       testID={`model-profile-row-${row.id}`}
     />
   );

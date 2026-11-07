@@ -92,4 +92,72 @@ describe("useDraftAgentFeatures", () => {
       expect(result.current.featureValues).toEqual({ prompt_cache_ttl: "5m", cache_warm: false }),
     );
   });
+
+  it("sends a profile's feature values when it switches provider, before and after the list loads", async () => {
+    let releaseCodexFeatures: () => void = () => {};
+    const codexFeaturesLoaded = new Promise<void>((resolve) => {
+      releaseCodexFeatures = resolve;
+    });
+    listProviderFeatures.mockImplementation(async (config: AgentSessionConfig) => {
+      if (config.provider !== "codex") {
+        return { features: claudeFeatures(config) };
+      }
+      await codexFeaturesLoaded;
+      const features: AgentFeature[] = [
+        { type: "toggle", id: "fast_mode", label: "Fast", value: false },
+      ];
+      return { features };
+    });
+    const { result, rerender } = renderHook(
+      ({ provider }: { provider: string }) =>
+        useDraftAgentFeatures({
+          serverId: "server-1",
+          provider,
+          cwd: "/repo",
+          modeId: null,
+          modelId: null,
+          thinkingOptionId: null,
+        }),
+      { wrapper, initialProps: { provider: "claude" } },
+    );
+    await waitFor(() => expect(featureIds(result.current.features)).toEqual(["prompt_cache_ttl"]));
+
+    // Applying a profile switches provider and sets its values in one handler.
+    act(() => {
+      rerender({ provider: "codex" });
+      result.current.applyProfileFeatureValues("codex", { fast_mode: true });
+    });
+
+    // Submitting now, while codex's list is still loading, must carry the profile's values.
+    expect(result.current.features).toEqual([]);
+    expect(result.current.featureValues).toEqual({ fast_mode: true });
+
+    releaseCodexFeatures();
+    await waitFor(() => expect(featureIds(result.current.features)).toEqual(["fast_mode"]));
+    expect(result.current.featureValues).toEqual({ fast_mode: true });
+  });
+
+  it("drops values chosen for another provider when the draft switches away", async () => {
+    listProviderFeatures.mockImplementation(async (config: AgentSessionConfig) => ({
+      features: claudeFeatures(config),
+    }));
+    const { result, rerender } = renderHook(
+      ({ provider }: { provider: string }) =>
+        useDraftAgentFeatures({
+          serverId: "server-1",
+          provider,
+          cwd: "/repo",
+          modeId: null,
+          modelId: null,
+          thinkingOptionId: null,
+        }),
+      { wrapper, initialProps: { provider: "claude" } },
+    );
+    await waitFor(() => expect(featureIds(result.current.features)).toEqual(["prompt_cache_ttl"]));
+    act(() => result.current.setFeatureValue("prompt_cache_ttl", "5m"));
+
+    rerender({ provider: "opencode" });
+
+    expect(result.current.featureValues).toBeUndefined();
+  });
 });

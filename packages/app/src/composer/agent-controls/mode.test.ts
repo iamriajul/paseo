@@ -28,6 +28,7 @@ describe("resolveAgentControlsMode", () => {
         onSelectModel: () => undefined,
         isModelLoading: false,
         modelSelectorProviders: [],
+        selectableProviders: [],
         isAllModelsLoading: false,
         onSelectProviderAndModel: () => undefined,
         thinkingOptions: [],

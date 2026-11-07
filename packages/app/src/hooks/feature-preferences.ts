@@ -39,11 +39,20 @@ export function applyFeatureValues(
   });
 }
 
+/**
+ * The values a draft sends. `features: null` means the provider's list is not known yet (it is
+ * fetched after every provider or model switch). Local values were chosen for this provider in
+ * this draft, from its listed features or an applied profile, so they go out as they are;
+ * persisted values can be stale and wait for the list.
+ */
 export function resolveFeatureValues(args: {
-  features: AgentFeature[];
+  features: AgentFeature[] | null;
   persistedFeatureValues: Record<string, unknown>;
   localFeatureValues: Record<string, unknown>;
 }): Record<string, unknown> {
+  if (args.features === null) {
+    return { ...args.localFeatureValues };
+  }
   const next: Record<string, unknown> = {};
 
   for (const feature of args.features) {

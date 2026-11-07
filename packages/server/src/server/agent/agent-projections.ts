@@ -183,6 +183,10 @@ export function toAgentPayload(
     payload.rateLimitCooldown = agent.rateLimitCooldown;
   }
 
+  if (agent.cacheWarmPause) {
+    payload.cacheWarmPause = agent.cacheWarmPause;
+  }
+
   // Handle attention state
   payload.requiresAttention = agent.attention.requiresAttention;
   if (agent.attention.requiresAttention) {

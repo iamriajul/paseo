@@ -26,6 +26,7 @@ import type { AgentPermissionRequest } from "./agent-sdk-types.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
 import { sendPromptToAgent } from "./agent-prompt.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
+import type { WarmUpAccountBlock } from "./gateway/warm-up-account.js";
 import {
   CLAUDE_CACHE_WARM_FEATURE_ID,
   CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
@@ -61,6 +62,8 @@ interface CacheWarmView {
   warmPastCap: boolean;
   /** Warm-up compacted at the idle cap; it resumes when the agent makes a request of its own. */
   pausedAtIdleCap: boolean;
+  /** The serving account could not take a warm-up; it resumes on the agent's next request. */
+  pausedForAccount: boolean;
 }
 
 type CacheWarmDecision =
@@ -78,6 +81,7 @@ type CacheWarmDecision =
 
 interface ViewInput {
   consecutivePings: number;
+  pausedForAccount: boolean;
   /** The manager compacted this agent at the cap and nothing of its own ran since. */
   compactedAtCap: boolean;
   autoCompactByDefault: boolean;
@@ -120,6 +124,7 @@ function viewLiveAgent(
     forkWarm: input.forkWarm,
     warmPastCap: input.warmPastCap,
     pausedAtIdleCap: input.compactedAtCap || isWarmUpPausedAtIdleCap(agent.promptCache),
+    pausedForAccount: input.pausedForAccount,
   };
 }
 
@@ -146,6 +151,7 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
     forkWarm: input.forkWarm && !wasRunning,
     warmPastCap: input.warmPastCap,
     pausedAtIdleCap: input.compactedAtCap || isWarmUpPausedAtIdleCap(record.promptCache),
+    pausedForAccount: input.pausedForAccount,
   };
 }
 
@@ -205,6 +211,9 @@ function resolveWarmable(view: CacheWarmView): Warmable {
   }
   if (view.pausedAtIdleCap) {
     return { kind: "skip", reason: "paused after the idle-cap compaction until the next message" };
+  }
+  if (view.pausedForAccount) {
+    return { kind: "skip", reason: "paused while the serving account is blocked" };
   }
   return { kind: "warmable", windows };
 }
@@ -329,6 +338,26 @@ export interface AgentCacheWarmManagerDependencies {
   warmsPastCap?: (agentId: string) => boolean;
   /** Host setting `cacheWarmMode` is fork (v2); read on every decision so a change applies at once. */
   warmsThroughFork?: () => boolean;
+  /**
+   * Whether the CLIProxyAPI account serving the agent can take a warm-up, read right before one is
+   * sent. Null when it can, or when the Gateway cannot say (an unrouted agent, an older Gateway).
+   */
+  readAccountBlock?: (agentId: string) => Promise<WarmUpAccountBlock | null>;
+}
+
+type SendingDecision = Extract<
+  CacheWarmDecision,
+  { kind: "ping" | "fork-warm" | "compact" | "interrupt-questions" }
+>;
+
+/** Every decision that sends a request through the agent's session, so through its account. */
+function sendsRequest(decision: CacheWarmDecision): decision is SendingDecision {
+  return (
+    decision.kind === "ping" ||
+    decision.kind === "fork-warm" ||
+    decision.kind === "compact" ||
+    decision.kind === "interrupt-questions"
+  );
 }
 
 export class AgentCacheWarmManager {
@@ -342,6 +371,7 @@ export class AgentCacheWarmManager {
   private readonly isCacheAutoCompactByDefault: () => boolean;
   private readonly warmsPastCap: (agentId: string) => boolean;
   private readonly warmsThroughFork: () => boolean;
+  private readonly readAccountBlock: (agentId: string) => Promise<WarmUpAccountBlock | null>;
   private idleCapCompactionHandler: ((agentId: string) => Promise<void>) | null;
 
   private readonly activeTimers = new Map<string, ActiveCacheWarmTimerEntry>();
@@ -357,6 +387,8 @@ export class AgentCacheWarmManager {
   private readonly compactedAtCap = new Set<string>();
   /** Agents known only from storage after a daemon restart, until something loads them. */
   private readonly dormantRecords = new Map<string, StoredAgentRecord>();
+  /** Paused because the serving account was blocked, until the agent's next request of its own. */
+  private readonly accountPauses = new Map<string, WarmUpAccountBlock>();
 
   constructor(dependencies: AgentCacheWarmManagerDependencies) {
     this.agentManager = dependencies.agentManager;
@@ -376,6 +408,7 @@ export class AgentCacheWarmManager {
     this.isCacheAutoCompactByDefault = dependencies.isCacheAutoCompactByDefault ?? (() => false);
     this.warmsPastCap = dependencies.warmsPastCap ?? (() => false);
     this.warmsThroughFork = dependencies.warmsThroughFork ?? (() => true);
+    this.readAccountBlock = dependencies.readAccountBlock ?? (async () => null);
     this.idleCapCompactionHandler = dependencies.onIdleCapCompaction ?? null;
   }
 
@@ -413,7 +446,18 @@ export class AgentCacheWarmManager {
   resetConsecutivePings(agentId: string): void {
     this.lastAttemptAt.delete(agentId);
     this.compactedAtCap.delete(agentId);
+    this.clearAccountPause(agentId);
     this.setConsecutivePings(agentId, 0);
+  }
+
+  private pauseForAccount(agentId: string, block: WarmUpAccountBlock): void {
+    this.logger.info({ agentId, ...block }, "Cache warm paused: the serving account is blocked");
+    this.accountPauses.set(agentId, block);
+    this.agentManager.setCacheWarmPause(agentId, block);
+  }
+
+  private clearAccountPause(agentId: string): void {
+    if (this.accountPauses.delete(agentId)) this.agentManager.setCacheWarmPause(agentId, null);
   }
 
   getPending(agentId: string): { scheduledFor: Date } | null {
@@ -444,6 +488,7 @@ export class AgentCacheWarmManager {
     const agent = this.agentManager.getAgent(agentId);
     const input: ViewInput = {
       consecutivePings: this.getConsecutivePings(agentId),
+      pausedForAccount: this.accountPauses.has(agentId),
       compactedAtCap: this.compactedAtCap.has(agentId),
       autoCompactByDefault: this.isCacheAutoCompactByDefault(),
       warmPastCap: this.warmsPastCap(agentId),
@@ -505,7 +550,18 @@ export class AgentCacheWarmManager {
     }
     this.activeTimers.delete(agentId);
 
-    const decision = this.decide(agentId);
+    let decision = this.decide(agentId);
+    if (sendsRequest(decision)) {
+      const block = await this.checkAccount(agentId);
+      // The read is a network call; anything that rescheduled meanwhile owns the agent now.
+      if (this.agentEpochs.get(agentId) !== expectedEpoch) return false;
+      if (block) {
+        this.pauseForAccount(agentId, block);
+        return false;
+      }
+      // A turn may have started during the read; decide again on the agent as it is now.
+      decision = this.decide(agentId);
+    }
     switch (decision.kind) {
       case "skip":
         this.logger.debug({ agentId, reason: decision.reason }, "Cache warm ping skipped");
@@ -540,6 +596,16 @@ export class AgentCacheWarmManager {
       }
       case "compact":
         return this.compactAtCap(agentId, decision.contextTokens);
+    }
+  }
+
+  /** No answer is no block: a failed read leaves warm-up as it was before the check existed. */
+  private async checkAccount(agentId: string): Promise<WarmUpAccountBlock | null> {
+    try {
+      return await this.readAccountBlock(agentId);
+    } catch (error) {
+      this.logger.debug({ err: error, agentId }, "Warm-up account check failed; warming anyway");
+      return null;
     }
   }
 
@@ -639,6 +705,7 @@ export class AgentCacheWarmManager {
     else {
       this.lastAttemptAt.delete(agentId);
       this.compactedAtCap.delete(agentId);
+      this.clearAccountPause(agentId);
     }
     this.schedule(agentId);
   }
@@ -695,6 +762,7 @@ export class AgentCacheWarmManager {
     this.consecutivePings.clear();
     this.lastAttemptAt.clear();
     this.compactedAtCap.clear();
+    for (const agentId of Array.from(this.accountPauses.keys())) this.clearAccountPause(agentId);
     this.dormantRecords.clear();
   }
 
@@ -714,6 +782,7 @@ export class AgentCacheWarmManager {
       }
       const view = viewDormantRecord(record, {
         consecutivePings: 0,
+        pausedForAccount: false,
         compactedAtCap: false,
         autoCompactByDefault: false,
         forkWarm: false,

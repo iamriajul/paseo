@@ -4,7 +4,7 @@ import React from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import type { AgentPromptCacheState } from "@getpaseo/protocol/agent-cache-warm";
-import { PromptCachePill } from "./prompt-cache-pill";
+import { PromptCachePill, describeAccountPause } from "./prompt-cache-pill";
 import { useSessionStore, type SessionState, type Agent } from "@/stores/session-store";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 
@@ -660,5 +660,39 @@ describe("PromptCachePill", () => {
     expect(queryByTestId("insights-dialog")).toBeNull();
     fireEvent.click(getByTestId("prompt-cache-open-insights"));
     expect(getByTestId("insights-dialog").textContent).toBe("300");
+  });
+});
+
+describe("describeAccountPause", () => {
+  const now = new Date("2026-11-07T15:00:00Z").getTime();
+
+  it("names the cooldown and when it ends", () => {
+    const text = describeAccountPause(
+      { reason: "cooldown", account: "u***a@example.com", until: "2026-11-07T15:43:00Z" },
+      now,
+    );
+    expect(text).toMatch(
+      /^Paused · account in cooldown until \S.* · resumes on your next message$/,
+    );
+  });
+
+  it("names the used-up window", () => {
+    expect(
+      describeAccountPause(
+        {
+          reason: "quota",
+          account: "u***a@example.com",
+          window: "5h",
+          until: "2026-11-07T17:00:00Z",
+        },
+        now,
+      ),
+    ).toMatch(/^Paused · account's 5h quota used up until \S/);
+  });
+
+  it("leaves the time out when the Gateway does not say", () => {
+    expect(describeAccountPause({ reason: "cooldown", account: "u***a@example.com" }, now)).toBe(
+      "Paused · account in cooldown · resumes on your next message",
+    );
   });
 });

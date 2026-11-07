@@ -23,6 +23,27 @@ function readWindowChromeMode(): DesktopWindowChromeMode {
   return process.platform === "linux" ? "custom-linux" : "custom-windows";
 }
 
+// OS window focus, cached here because the renderer reads it synchronously. document.hasFocus()
+// is false while an embedded <webview>/<iframe> (Code Server, Browser) holds focus even though the
+// Paseo BrowserWindow is focused. One cache for the window: getCurrentWindow() is called on every
+// visibility check, and a cache created per call read its `true` seed before main ever answered, so
+// a blurred window always counted as focused and attention never brought Paseo forward.
+let osWindowFocused = true;
+ipcRenderer.on("paseo:window:focus-state", (_ipcEvent, payload: { focused?: unknown }) => {
+  if (payload && typeof payload.focused === "boolean") {
+    osWindowFocused = payload.focused;
+  }
+});
+void ipcRenderer
+  .invoke("paseo:window:isFocused")
+  .then((focused: unknown) => {
+    if (typeof focused === "boolean") {
+      osWindowFocused = focused;
+    }
+    return undefined;
+  })
+  .catch(() => undefined);
+
 interface AttachedBrowserRegistration {
   browserId: string;
   workspaceId: string;
@@ -58,29 +79,6 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
     openNew: (options?: { pendingOpenProjectPath?: string | null }) =>
       ipcRenderer.invoke("paseo:window:openNew", options),
     getCurrentWindow: () => {
-      // Cache OS window focus from main. document.hasFocus() is false when an
-      // embedded <webview>/<iframe> (Code Server, Browser) holds focus even though
-      // the Paseo BrowserWindow is still focused.
-      let osWindowFocused = true;
-      const focusListener = (
-        _ipcEvent: Electron.IpcRendererEvent,
-        payload: { focused?: unknown },
-      ) => {
-        if (payload && typeof payload.focused === "boolean") {
-          osWindowFocused = payload.focused;
-        }
-      };
-      ipcRenderer.on("paseo:window:focus-state", focusListener);
-      void ipcRenderer
-        .invoke("paseo:window:isFocused")
-        .then((focused: unknown) => {
-          if (typeof focused === "boolean") {
-            osWindowFocused = focused;
-          }
-          return undefined;
-        })
-        .catch(() => undefined);
-
       return {
         minimize: () => ipcRenderer.invoke("paseo:window:minimize"),
         close: () => ipcRenderer.invoke("paseo:window:close"),

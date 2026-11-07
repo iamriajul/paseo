@@ -77,6 +77,16 @@ client heartbeats report getIsAppActivelyVisible() so fullscreen Space swipes (d
 npx vitest run packages/app/src/utils/app-visibility.test.ts --bail=1 -t "fullscreen Space swipe"
 ```
 
+## preload-window-focus-cache
+
+**the preload keeps one OS-focus cache for the window**
+
+`getIsAppActivelyVisible` falls back to `getCurrentWindow().isFocused()` when `document.hasFocus()` is false, so a webview guest holding focus still counts as in use. The fork's first version created the cache inside `getCurrentWindow()`, seeded `true`, and the renderer calls `getCurrentWindow()` on every check, so it always read the seed: a blurred window counted as focused, "Bring Paseo to the front" fired only when the document was hidden, and every call leaked a listener. The cache and its single listener now live at module scope in `packages/desktop/src/preload.ts`.
+
+```bash
+npm test --workspace=@getpaseo/desktop -- src/preload-window-focus.test.ts --bail=1
+```
+
 ## bring-to-front-quick-toggle
 
 **"Bring Paseo to the front" has a sidebar toggle and a per-agent override**

@@ -106,6 +106,14 @@ const manifests = {
     compactSheet: null,
     resourceKey: (target) => target.browserId,
   },
+  server_browser: {
+    kind: "server_browser",
+    supportedHosts: ["main"],
+    showCloseButton: true,
+    singleton: false,
+    compactSheet: null,
+    resourceKey: (target) => target.browserId,
+  },
   codeServer: {
     kind: "codeServer",
     supportedHosts: ["main"],

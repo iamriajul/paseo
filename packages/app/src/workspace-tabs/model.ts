@@ -41,6 +41,8 @@ export type WorkspaceTabTarget =
   | { kind: "loop"; loopId: string }
   | { kind: "terminal"; terminalId: string }
   | { kind: "browser"; browserId: string }
+  // Fork: a tab of the daemon-run browser (docs/server-browser.md).
+  | { kind: "server_browser"; browserId: string }
   | { kind: "codeServer"; codeServerId: string }
   | { kind: "changes_tree" }
   | { kind: "todo" }

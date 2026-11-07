@@ -65,6 +65,10 @@ function normalizeSimpleWorkspaceTabTarget(value: WorkspaceTabTarget): Workspace
       const browserId = trimNonEmpty(value.browserId);
       return browserId ? { kind: "browser", browserId } : null;
     }
+    case "server_browser": {
+      const browserId = trimNonEmpty(value.browserId);
+      return browserId ? { kind: "server_browser", browserId } : null;
+    }
     case "codeServer": {
       const codeServerId = trimNonEmpty(value.codeServerId);
       return codeServerId ? { kind: "codeServer", codeServerId } : null;
@@ -154,6 +158,9 @@ function secondaryWorkspaceTabTargetsEqual(
     return left.loopId === right.loopId;
   }
   if (left.kind === "browser" && right.kind === "browser") {
+    return left.browserId === right.browserId;
+  }
+  if (left.kind === "server_browser" && right.kind === "server_browser") {
     return left.browserId === right.browserId;
   }
   if (left.kind === "codeServer" && right.kind === "codeServer") {
@@ -251,8 +258,9 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   if (target.kind === "terminal") {
     return `terminal_${target.terminalId}`;
   }
-  if (target.kind === "browser") {
-    return `browser_${target.browserId}`;
+  // "browser" and "server_browser" are the targets that carry a browserId.
+  if ("browserId" in target) {
+    return `${target.kind}_${target.browserId}`;
   }
   if (target.kind === "codeServer") {
     return `code-server_${target.codeServerId}`;

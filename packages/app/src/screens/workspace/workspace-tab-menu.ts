@@ -152,6 +152,9 @@ function getCloseButtonTestId(tab: WorkspaceTabDescriptor): string {
   if (tab.target.kind === "codeServer") {
     return `workspace-code-server-close-${tab.target.codeServerId}`;
   }
+  if (tab.target.kind === "server_browser") {
+    return `workspace-server-browser-close-${tab.target.browserId}`;
+  }
   if (tab.target.kind === "setup") {
     return `workspace-setup-close-${encodeWorkspaceIdForPathSegment(tab.target.workspaceId)}`;
   }

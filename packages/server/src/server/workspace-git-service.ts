@@ -77,6 +77,11 @@ const WORKSPACE_GIT_WATCH_DEBOUNCE_MS = 1_000;
 const BACKGROUND_GIT_FETCH_INTERVAL_MS = 180_000;
 const FETCH_METADATA_ECHO_TTL_MS = 5_000;
 export const WORKSPACE_GIT_OBSERVATION_REENSURE_INTERVAL_MS = 60_000;
+// App sockets drop and come back every few minutes (median gap 36 s, 71% within
+// 2 min on one host). Closing a target on its last unsubscribe threw away the snapshot,
+// the watcher attempt and the polling backoff, so every reconnect re-ran an initial
+// refresh and a watcher setup for every listed workspace.
+export const WORKSPACE_GIT_TARGET_LINGER_MS = 120_000;
 const FORGE_PR_STATUS_POLL_FAST_INTERVAL_MS = 20_000;
 const FORGE_PR_STATUS_POLL_SLOW_INTERVAL_MS = 120_000;
 const FORGE_PR_STATUS_POLL_ERROR_BACKOFF_CAP_MS = 300_000;
@@ -398,6 +403,8 @@ interface WorkspaceGitServiceOptions {
   worktreesRoot?: string;
   fileObserver?: FileObserver;
   deps?: Partial<WorkspaceGitServiceDependencies>;
+  /** How long a target outlives its last listener. 0 closes it on the last unsubscribe. */
+  targetLingerMs?: number;
 }
 
 class WorkspaceGitServiceDisposedError extends Error {
@@ -424,6 +431,7 @@ interface WorkspaceGitTarget {
   debounceTimer: NodeJS.Timeout | null;
   pendingDebounceRequest: WorkspaceGitRefreshRequest | null;
   observationReensureTimer: NodeJS.Timeout | null;
+  lingerTimer: NodeJS.Timeout | null;
   forgePrStatusPollSubscription: { unsubscribe: () => void } | null;
   forgePrStatusPollKey: string | null;
   refreshState: WorkspaceGitRefreshState;
@@ -595,6 +603,7 @@ function resolveWorkspaceGitServiceDeps(
 export class WorkspaceGitServiceImpl implements WorkspaceGitService {
   private readonly logger: pino.Logger;
   private readonly paseoHome: string;
+  private readonly targetLingerMs: number;
   private readonly worktreesRoot: string | undefined;
   private readonly fileObserver: FileObserver;
   private readonly deps: WorkspaceGitServiceDependencies;
@@ -653,6 +662,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     this.paseoHome = options.paseoHome;
     this.worktreesRoot = options.worktreesRoot;
     this.fileObserver = options.fileObserver ?? createFileObserver();
+    this.targetLingerMs = options.targetLingerMs ?? WORKSPACE_GIT_TARGET_LINGER_MS;
     this.deps = resolveWorkspaceGitServiceDeps(
       this.fileObserver.subscribe.bind(this.fileObserver),
       options.deps,
@@ -674,6 +684,10 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     this.assertNotDisposed();
     const cwd = resolve(params.cwd);
     const target = this.ensureWorkspaceTarget(cwd);
+    if (target.lingerTimer) {
+      clearTimeout(target.lingerTimer);
+      target.lingerTimer = null;
+    }
     target.listeners.add(listener);
     if (target.listeners.size === 1) {
       this.startWorkspaceSubscriptionTimers(target);
@@ -1266,6 +1280,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       repoGitRoot: null,
       observationSetupPromise: null,
       observationSetupComplete: false,
+      lingerTimer: null,
       closed: false,
     };
 
@@ -3765,11 +3780,20 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     }
 
     target.listeners.delete(listener);
-    if (target.listeners.size > 0) {
+    if (target.listeners.size > 0 || target.lingerTimer) {
+      return;
+    }
+    if (this.targetLingerMs === 0) {
+      this.removeWorkspaceTarget(target);
       return;
     }
 
-    this.removeWorkspaceTarget(target);
+    target.lingerTimer = setTimeout(() => {
+      target.lingerTimer = null;
+      if (target.listeners.size === 0 && this.workspaceTargets.get(cwd) === target) {
+        this.removeWorkspaceTarget(target);
+      }
+    }, this.targetLingerMs);
   }
 
   private removeWorkspaceTarget(target: WorkspaceGitTarget): void {
@@ -3832,6 +3856,10 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
 
   private closeWorkspaceTarget(target: WorkspaceGitTarget): void {
     target.closed = true;
+    if (target.lingerTimer) {
+      clearTimeout(target.lingerTimer);
+      target.lingerTimer = null;
+    }
     if (target.workingTreeWatchTarget) {
       this.removeWorkspaceWorkingTreeLink(target.workingTreeWatchTarget, target.cwd);
       target.workingTreeWatchTarget = null;

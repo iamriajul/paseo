@@ -306,7 +306,10 @@ function buildDefaultTestServiceDeps() {
   };
 }
 
-function createService(options?: CreateServiceTestOptions) {
+function createService(
+  options?: CreateServiceTestOptions,
+  serviceOptions?: { targetLingerMs?: number },
+) {
   const deps = { ...buildDefaultTestServiceDeps(), ...options };
   deps.getCheckoutWorktreeState =
     options?.getCheckoutWorktreeState ??
@@ -324,6 +327,7 @@ function createService(options?: CreateServiceTestOptions) {
     logger: createLogger() as unknown as pino.Logger,
     paseoHome: "/tmp/paseo-test",
     deps,
+    ...serviceOptions,
   });
   return service;
 }
@@ -357,7 +361,7 @@ describe("WorkspaceGitServiceImpl", () => {
   test("shared watches publish to the runtime store before listeners and retain data after teardown", async () => {
     const subscribe = vi.fn(async () => createAsyncSubscription());
     const getPullRequestStatus = vi.fn(async () => createPullRequestStatusResult());
-    const service = createService({ subscribe, getPullRequestStatus });
+    const service = createService({ subscribe, getPullRequestStatus }, { targetLingerMs: 0 });
     const store = createWorkspaceRuntimeStore();
     service.onSnapshotUpdated((snapshot) => store.set(snapshot));
     const observed: WorkspaceGitRuntimeSnapshot[] = [];
@@ -424,6 +428,7 @@ describe("WorkspaceGitServiceImpl", () => {
     const service = new WorkspaceGitServiceImpl({
       logger: createLogger() as unknown as pino.Logger,
       paseoHome: "/tmp/paseo-test",
+      targetLingerMs: 0,
       deps: {
         ...buildDefaultTestServiceDeps(),
         getPullRequestStatus: async () => {

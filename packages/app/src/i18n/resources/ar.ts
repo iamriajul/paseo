@@ -143,6 +143,8 @@ export const ar: TranslationResources = {
       sendMessage: "أرسل رسالة",
       longPressToQueue: "اضغط مطولًا لإضافتها إلى الطابور",
       longPressToSendNow: "اضغط مطولًا للإرسال الآن",
+      queueAfterTurn: "أضف إلى قائمة الانتظار بعد هذا الدور",
+      sendNow: "أرسل الآن",
       queue: "طابور",
       send: "يرسل",
     },

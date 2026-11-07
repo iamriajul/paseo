@@ -139,6 +139,8 @@ export const en = {
       sendMessage: "Send message",
       longPressToQueue: "Long press to queue",
       longPressToSendNow: "Long press to send now",
+      queueAfterTurn: "Queue for after this turn",
+      sendNow: "Send now",
       queue: "Queue",
       send: "Send",
     },

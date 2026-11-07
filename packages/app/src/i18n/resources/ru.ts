@@ -144,6 +144,8 @@ export const ru: TranslationResources = {
       sendMessage: "Отправить сообщение",
       longPressToQueue: "Удерживайте, чтобы поставить в очередь",
       longPressToSendNow: "Удерживайте, чтобы отправить сейчас",
+      queueAfterTurn: "В очередь после этого хода",
+      sendNow: "Отправить сейчас",
       queue: "Очередь",
       send: "Отправить",
     },

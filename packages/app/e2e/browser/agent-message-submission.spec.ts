@@ -1338,6 +1338,52 @@ test.describe("Agent message submission", () => {
     }
   });
 
+  test("queues a draft with the button beside Send and hides it with the draft", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120_000);
+    const agent = await startRunningMockAgent(page, {
+      prefix: `queue-button-${testInfo.workerIndex}-`,
+      model: "one-minute-stream",
+      prompt: "Keep this turn active while the user queues a follow-up.",
+    });
+    try {
+      await expectComposerVisible(page);
+      await expectAgentReadyToInterrupt(page);
+      const queueButton = page.getByRole("button", {
+        name: "Queue for after this turn",
+        exact: true,
+      });
+      const scheduleButton = page.getByTestId("composer-schedule-button");
+
+      await test.step("an empty composer offers neither Queue nor Schedule", async () => {
+        await expect(queueButton).toHaveCount(0);
+        await expect(scheduleButton).toHaveCount(0);
+      });
+
+      const queuedPrompt = "Queue this follow-up with the Queue button.";
+      await test.step("a typed draft shows Queue and Schedule beside Send", async () => {
+        await fillComposerDraft(page, queuedPrompt);
+        await expect(queueButton).toBeVisible();
+        await expect(scheduleButton).toBeVisible();
+      });
+
+      await test.step("Queue takes the draft without steering the turn", async () => {
+        await queueButton.click();
+        await expectQueuedMessageButton(page);
+        await expectComposerDraft(page, "");
+        await expectAgentReadyToInterrupt(page);
+        await expect(
+          page.getByTestId("user-message").filter({ hasText: queuedPrompt }),
+        ).toHaveCount(0);
+        await expect(queueButton).toHaveCount(0);
+        await expect(scheduleButton).toHaveCount(0);
+      });
+    } finally {
+      await agent.cleanup();
+    }
+  });
+
   test("replays Claude-shaped steering inside one active turn", async ({ page }, testInfo) => {
     test.setTimeout(120_000);
     await replaySteeredSleepTurnInBrowser(page, testInfo, "claude");

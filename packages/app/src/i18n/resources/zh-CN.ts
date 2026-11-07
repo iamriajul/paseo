@@ -143,6 +143,8 @@ export const zhCN: TranslationResources = {
       sendMessage: "发送消息",
       longPressToQueue: "长按加入队列",
       longPressToSendNow: "长按立即发送",
+      queueAfterTurn: "排队到本轮之后",
+      sendNow: "立即发送",
       queue: "排队",
       send: "发送",
     },

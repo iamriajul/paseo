@@ -74,3 +74,8 @@ export function resolveSendTooltipLabel(input: {
     ? input.t("composer.input.queue")
     : input.t("composer.input.send");
 }
+
+/** Names the button beside Send: its tooltip text and its accessibility label. */
+export function resolveAlternateSendLabel(action: AlternateSendAction, t: TFunction): string {
+  return action === "queue" ? t("composer.input.queueAfterTurn") : t("composer.input.sendNow");
+}

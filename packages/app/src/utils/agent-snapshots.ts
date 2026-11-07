@@ -6,6 +6,7 @@ import {
   type ActiveTurnIdentity,
   type TurnLiveness,
 } from "@/timeline/turn-liveness";
+import type { GatewayAccountChange } from "@getpaseo/protocol/agent-cache-warm";
 import type { Agent } from "@/stores/session-store";
 
 function normalizeActiveTurn(
@@ -69,6 +70,12 @@ function pickCacheAutoCompact(source: { cacheAutoCompact?: boolean; cacheWarmMax
   };
 }
 
+function pickGatewayAccounts(source: { gatewayAccounts?: GatewayAccountChange[] }): {
+  gatewayAccounts?: GatewayAccountChange[];
+} {
+  return source.gatewayAccounts?.length ? { gatewayAccounts: source.gatewayAccounts } : {};
+}
+
 function pickWarmUpCost(source: { warmUpCostUsd?: number }): { warmUpCostUsd?: number } {
   return source.warmUpCostUsd === undefined ? {} : { warmUpCostUsd: source.warmUpCostUsd };
 }
@@ -97,6 +104,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
     ...(agent.totalWarmPings !== undefined ? { totalWarmPings: agent.totalWarmPings } : {}),
     ...pickWarmUpCost(agent),
     ...(agent.promptCache ? { promptCache: agent.promptCache } : {}),
+    ...pickGatewayAccounts(agent),
     ...pickCacheAutoCompact(agent),
     ...pickRuntimeActive(agent),
     status: agent.status,
@@ -151,6 +159,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     totalWarmPings: snapshot.totalWarmPings ?? 0,
     ...pickWarmUpCost(snapshot),
     ...(snapshot.promptCache ? { promptCache: snapshot.promptCache } : {}),
+    ...pickGatewayAccounts(snapshot),
     ...pickCacheAutoCompact(snapshot),
     ...pickRuntimeActive(snapshot),
     lastActivityAt: updatedAt,

@@ -13694,7 +13694,45 @@ test("records a compaction, marks the request after it, and journals the whole h
         expect.objectContaining({ kind: "turn", readTokens: 1000, afterCompaction: true }),
       ],
       compactions: [expect.objectContaining({ trigger: "manual", preTokens: 1000 })],
+      accounts: [],
     });
+  } finally {
+    if (snapshotId) await manager.closeAgent(snapshotId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("records CLIProxyAPI account changes on the snapshot, in storage and in the journal", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-gateway-accounts-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const journal = new PromptCacheJournal({ directory: join(workdir, "prompt-cache"), logger });
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+  });
+  manager.setPromptCacheJournal(journal);
+
+  let snapshotId: string | undefined;
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    snapshotId = snapshot.id;
+    const changes = Array.from({ length: 14 }, (_, index) => ({
+      at: new Date(Date.UTC(2026, 10, 7, 1, index)).toISOString(),
+      account: `acct-${index}`,
+      ...(index > 0 ? { from: `acct-${index - 1}`, reason: "quota" } : {}),
+    }));
+    for (const change of changes) manager.recordGatewayAccountChange(snapshot.id, change);
+
+    // The snapshot rides on every update, so it keeps only the newest few.
+    const kept = changes.slice(-12);
+    expect(manager.getAgent(snapshot.id)?.gatewayAccounts).toEqual(kept);
+    await manager.flush();
+    expect((await storage.get(snapshot.id))?.gatewayAccounts).toEqual(kept);
+    // Insights read every change from the journal.
+    expect((await manager.readPromptCacheHistory(snapshot.id)).accounts).toEqual(changes);
   } finally {
     if (snapshotId) await manager.closeAgent(snapshotId);
     rmSync(workdir, { recursive: true, force: true });

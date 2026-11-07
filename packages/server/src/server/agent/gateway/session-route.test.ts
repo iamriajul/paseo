@@ -1,7 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
 import {
-  describeGatewaySwitch,
   fetchGatewaySessionRoute,
   gatewayRoutedSessionId,
   gatewaySessionIdFor,
@@ -115,20 +114,6 @@ describe("gatewaySessionIdFor", () => {
     expect(gatewaySessionIdFor("pi", "abc")).toBeNull();
     expect(gatewaySessionIdFor("claude", null)).toBeNull();
     expect(gatewaySessionIdFor("claude", "  ")).toBeNull();
-  });
-});
-
-describe("describeGatewaySwitch", () => {
-  const from = { label: "A", provider: "Claude", inCooldown: true };
-  const to = { label: "B", provider: "Claude", inCooldown: false };
-
-  test("names both accounts and the cause", () => {
-    expect(describeGatewaySwitch({ at: "", from, to, reason: "cooldown" })).toBe(
-      "Switched account: A → B (cooldown)",
-    );
-    expect(describeGatewaySwitch({ at: "", from, to, reason: "quota", statusCode: 429 })).toBe(
-      "Switched account: A → B (quota, 429)",
-    );
   });
 });
 

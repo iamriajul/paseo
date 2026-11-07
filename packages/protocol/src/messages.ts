@@ -1005,6 +1005,16 @@ const PromptCacheHistoryEntrySchema = z.object({
   previousInputTokens: z.number().optional(),
 });
 
+export const GatewayAccountChangeSchema = z.object({
+  at: z.string(),
+  account: z.string(),
+  plan: z.string().optional(),
+  from: z.string().optional(),
+  reason: z.string().optional(),
+  statusCode: z.number().optional(),
+  missAt: z.string().optional(),
+});
+
 export const PromptCacheCompactionSchema = z.object({
   at: z.string(),
   trigger: z.enum(["manual", "auto"]),
@@ -1076,6 +1086,11 @@ export const AgentSnapshotPayloadSchema = z.object({
   /** What this agent's cache warm-ups cost, at API list prices; absent before any was priced. */
   warmUpCostUsd: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
+  /**
+   * CLIProxyAPI accounts that served the agent's session, oldest first: the first account, then
+   * each switch. Absent for agents the Gateway does not serve and on older daemons.
+   */
+  gatewayAccounts: z.array(GatewayAccountChangeSchema).optional(),
   /** Explicit per-agent idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact: z.boolean().optional(),
   /** Explicit per-agent warm-up cap per idle stretch; absent uses the window's maximum. */
@@ -7400,6 +7415,8 @@ export const AgentPromptCacheHistoryResponseMessageSchema = z.object({
     /** Every main-thread request the daemon journaled for the agent, oldest first. */
     requests: z.array(PromptCacheHistoryEntrySchema),
     compactions: z.array(PromptCacheCompactionSchema),
+    /** Every CLIProxyAPI account change the daemon journaled; absent on older daemons. */
+    accounts: z.array(GatewayAccountChangeSchema).optional(),
     error: z.string().nullable(),
   }),
 });

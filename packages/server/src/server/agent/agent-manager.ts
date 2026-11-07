@@ -24,6 +24,8 @@ import {
   isCacheWarmMaxPingsValue,
   type PromptCacheCompaction,
   type AgentPromptCacheState,
+  type GatewayAccountChange,
+  GATEWAY_ACCOUNT_CHANGE_LIMIT,
   type PromptCacheRequestSample,
   sumPromptCacheTotals,
 } from "@getpaseo/protocol/agent-cache-warm";
@@ -515,6 +517,8 @@ interface ManagedAgentBase {
   /** Cost of this agent's cache warm-ups at API list prices, over its whole life. */
   warmUpCostUsd?: number;
   promptCache?: AgentPromptCacheState;
+  /** CLIProxyAPI accounts that served the session, oldest first; see GatewayAccountChange. */
+  gatewayAccounts?: GatewayAccountChange[];
   lastUsage?: AgentUsage;
   lastError?: string;
   attention: AttentionState;
@@ -855,12 +859,20 @@ function pickCacheWarmRegistration(
   options:
     | Pick<
         ManagedAgent,
-        "promptCache" | "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd"
+        | "promptCache"
+        | "gatewayAccounts"
+        | "consecutiveWarmPings"
+        | "totalWarmPings"
+        | "warmUpCostUsd"
       >
     | undefined,
-): Pick<ManagedAgent, "promptCache" | "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd"> {
+): Pick<
+  ManagedAgent,
+  "promptCache" | "gatewayAccounts" | "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd"
+> {
   return {
     promptCache: options?.promptCache,
+    gatewayAccounts: options?.gatewayAccounts,
     consecutiveWarmPings: options?.consecutiveWarmPings,
     totalWarmPings: options?.totalWarmPings,
     warmUpCostUsd: options?.warmUpCostUsd,
@@ -989,11 +1001,11 @@ export class AgentManager {
   async readPromptCacheHistory(agentId: string): Promise<PromptCacheJournalHistory> {
     const journaled = await this.promptCacheJournal?.read(agentId);
     if (journaled) return journaled;
-    const promptCache =
-      this.agents.get(agentId)?.promptCache ?? (await this.registry?.get(agentId))?.promptCache;
+    const agent = this.agents.get(agentId) ?? (await this.registry?.get(agentId));
     return {
-      requests: promptCache?.history ?? [],
-      compactions: promptCache?.compactions ?? [],
+      requests: agent?.promptCache?.history ?? [],
+      compactions: agent?.promptCache?.compactions ?? [],
+      accounts: agent?.gatewayAccounts ?? [],
     };
   }
 
@@ -1871,6 +1883,7 @@ export class AgentManager {
       persistence: handle,
       restoring: true,
       promptCache: record?.promptCache,
+      gatewayAccounts: record?.gatewayAccounts,
       consecutiveWarmPings: record?.consecutiveWarmPings,
       totalWarmPings: record?.totalWarmPings,
       warmUpCostUsd: record?.warmUpCostUsd,
@@ -2574,6 +2587,7 @@ export class AgentManager {
         consecutiveWarmPings: record.consecutiveWarmPings ?? undefined,
         totalWarmPings: record.totalWarmPings ?? undefined,
         warmUpCostUsd: record.warmUpCostUsd ?? undefined,
+        gatewayAccounts: record.gatewayAccounts,
         lastUsage: record.lastUsage,
         lastError: record.lastError ?? undefined,
         attention,
@@ -4456,6 +4470,7 @@ export class AgentManager {
       lastError?: string;
       attention?: AttentionState;
       promptCache?: AgentPromptCacheState;
+      gatewayAccounts?: GatewayAccountChange[];
       consecutiveWarmPings?: number;
       totalWarmPings?: number;
       warmUpCostUsd?: number;
@@ -4665,6 +4680,7 @@ export class AgentManager {
           workspaceId?: string;
           owner?: AgentOwner;
           promptCache?: AgentPromptCacheState;
+          gatewayAccounts?: GatewayAccountChange[];
           consecutiveWarmPings?: number;
           totalWarmPings?: number;
           warmUpCostUsd?: number;
@@ -4709,6 +4725,7 @@ export class AgentManager {
           owner?: AgentOwner;
           launchEnv?: Record<string, string>;
           promptCache?: AgentPromptCacheState;
+          gatewayAccounts?: GatewayAccountChange[];
           consecutiveWarmPings?: number;
           totalWarmPings?: number;
           warmUpCostUsd?: number;
@@ -5689,6 +5706,24 @@ export class AgentManager {
     }
     // Each request restarts the cache's TTL, so the next warm-up is timed from it, mid-turn too.
     if (!sample.isWarmPing) this.cacheWarmManager?.onRequestRecorded(agent.id);
+  }
+
+  /**
+   * Records the CLIProxyAPI account that started serving the agent's session. The snapshot keeps
+   * the latest few for the timeline; the journal keeps them all for cache insights.
+   */
+  recordGatewayAccountChange(agentId: string, change: GatewayAccountChange): void {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+    agent.gatewayAccounts = [...(agent.gatewayAccounts ?? []), change].slice(
+      -GATEWAY_ACCOUNT_CHANGE_LIMIT,
+    );
+    void this.promptCacheJournal?.appendAccount({
+      agentId,
+      account: change,
+      before: agent.promptCache,
+    });
+    this.emitState(agent);
   }
 
   private recordPromptCacheCompaction(

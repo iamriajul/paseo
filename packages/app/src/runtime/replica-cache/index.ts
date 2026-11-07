@@ -5,6 +5,7 @@ import {
   AgentTimelineItemPayloadSchema,
   WorkspaceGitHubRuntimePayloadSchema,
   AgentPromptCacheStateSchema,
+  GatewayAccountChangeSchema,
 } from "@getpaseo/protocol/messages";
 import { AgentProviderSchema } from "@getpaseo/protocol/provider-manifest";
 import type { PluginTimelineData } from "@getpaseo/plugin";
@@ -238,6 +239,7 @@ const StoredAgentSnapshotSchema = z.strictObject({
   totalWarmPings: z.number().optional(),
   warmUpCostUsd: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
+  gatewayAccounts: z.array(GatewayAccountChangeSchema).optional(),
   cacheAutoCompact: z.boolean().optional(),
   status: AgentStatusSchema,
   activeTurn: z
@@ -648,7 +650,12 @@ function serializeCapabilities(capabilities: Agent["capabilities"]) {
 function serializeCacheWarmState(
   agent: Pick<
     Agent,
-    "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd" | "promptCache" | "cacheAutoCompact"
+    | "consecutiveWarmPings"
+    | "totalWarmPings"
+    | "warmUpCostUsd"
+    | "promptCache"
+    | "gatewayAccounts"
+    | "cacheAutoCompact"
   >,
 ) {
   return {
@@ -658,6 +665,7 @@ function serializeCacheWarmState(
     ...(agent.totalWarmPings !== undefined ? { totalWarmPings: agent.totalWarmPings } : {}),
     ...(agent.warmUpCostUsd !== undefined ? { warmUpCostUsd: agent.warmUpCostUsd } : {}),
     ...(agent.promptCache ? { promptCache: agent.promptCache } : {}),
+    ...(agent.gatewayAccounts?.length ? { gatewayAccounts: agent.gatewayAccounts } : {}),
     ...(agent.cacheAutoCompact !== undefined ? { cacheAutoCompact: agent.cacheAutoCompact } : {}),
   };
 }

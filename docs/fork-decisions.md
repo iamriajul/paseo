@@ -1273,3 +1273,13 @@ grep -q 'Traffic since the hold' packages/app/e2e/support/helpers/daemon-websock
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session.test.ts -t "never finishes listing commands" --bail=1
 ```
+
+## list-commands-client-deadline
+
+**the client gives up on a command list after 15 s**
+
+`DaemonClient.listCommands` used the 60 s session RPC default. With the daemon answering within 10 s (`list-commands-daemon-deadline`), a reply that has not arrived by 15 s is lost, so the client rejects then and the composer's query retries, instead of holding the popover for a minute. `composer-autocomplete.spec.ts` failed attempt 1 this way on `main` and branches from 2026-11-03: a command request with no reply inside the test's 30 s.
+
+```bash
+npx vitest run packages/client/src/daemon-client.test.ts --bail=1 -t "bounds the wait for a command list"
+```

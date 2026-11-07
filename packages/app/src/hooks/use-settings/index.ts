@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { queryClient as appQueryClient } from "@/data/query-client";
@@ -10,6 +10,8 @@ import {
   useDesktopSettings,
 } from "@/desktop/settings/desktop-settings";
 import { isElectronRuntime } from "@/desktop/host";
+import { isWeb } from "@/constants/platform";
+import { syncAppSettingsAcrossDocuments } from "./cross-document";
 import {
   APP_SETTINGS_KEY,
   APP_SETTINGS_QUERY_KEY,
@@ -156,6 +158,32 @@ export interface UseSettingsReturn {
 
 type SettingsSelector<TSelected> = (settings: Settings) => TSelected;
 
+const crossDocumentSubscriptions = new WeakMap<QueryClient, { count: number; stop: () => void }>();
+
+/** One window subscription per query client, however many components read the settings. */
+function useCrossDocumentAppSettings(queryClient: QueryClient): void {
+  useEffect(() => {
+    if (!isWeb) return;
+    const existing = crossDocumentSubscriptions.get(queryClient);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      crossDocumentSubscriptions.set(queryClient, {
+        count: 1,
+        stop: syncAppSettingsAcrossDocuments({ target: window, queryClient }),
+      });
+    }
+    return () => {
+      const subscription = crossDocumentSubscriptions.get(queryClient);
+      if (!subscription) return;
+      subscription.count -= 1;
+      if (subscription.count > 0) return;
+      subscription.stop();
+      crossDocumentSubscriptions.delete(queryClient);
+    };
+  }, [queryClient]);
+}
+
 export function useAppSettings(): UseAppSettingsReturn {
   const queryClient = useQueryClient();
   const { data, isPending, error } = useQuery({
@@ -164,6 +192,7 @@ export function useAppSettings(): UseAppSettingsReturn {
     staleTime: Infinity,
     gcTime: Infinity,
   });
+  useCrossDocumentAppSettings(queryClient);
 
   const updateSettings = useCallback(
     async (updates: AppSettingsUpdate) => {

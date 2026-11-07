@@ -1275,3 +1275,13 @@ node --test --test-name-pattern "RELEASE_TARGETS|release target|finalize|preserv
 npx vitest run scripts/merge-mac-manifest.test.mjs scripts/validate-desktop-manifests.test.mjs --bail=1
 grep -q 'npx vitest run scripts/merge-mac-manifest.test.mjs' .github/workflows/ci.yml
 ```
+
+## list-commands-daemon-deadline
+
+**the daemon answers a command list within 10 s**
+
+`list_commands_request` loads the agent (which can resume its provider) and asks the provider for its commands; Claude starts its CLI process for that, and a draft creates a whole provider session. None of it was bounded, so a stalled provider left the request unanswered and the composer's `/` popover silent until the client's 60 s RPC timeout. Loading and listing now run under one 10 s deadline (`LIST_COMMANDS_TIMEOUT_MS` in `session.ts`); past it the daemon replies with a "timed out" error the composer shows and retries.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session.test.ts -t "never finishes listing commands" --bail=1
+```

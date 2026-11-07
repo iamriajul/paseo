@@ -144,6 +144,8 @@ export const es: TranslationResources = {
       sendMessage: "enviar mensaje",
       longPressToQueue: "Mantén pulsado para poner en cola",
       longPressToSendNow: "Mantén pulsado para enviar ahora",
+      queueAfterTurn: "Poner en cola para después de este turno",
+      sendNow: "Enviar ahora",
       queue: "Cola",
       send: "Enviar",
     },

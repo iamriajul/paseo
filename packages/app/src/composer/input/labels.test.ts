@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveAlternateSendLabel,
   resolveSendTooltipLabel,
   resolveSubmitAccessibilityHint,
   resolveSubmitAccessibilityLabel,
@@ -15,6 +16,8 @@ const translations: Record<string, string> = {
   "composer.input.sendMessage": "Send message",
   "composer.input.longPressToQueue": "Long press to queue",
   "composer.input.longPressToSendNow": "Long press to send now",
+  "composer.input.queueAfterTurn": "Queue for after this turn",
+  "composer.input.sendNow": "Send now",
   "composer.input.queue": "Queue",
   "composer.input.send": "Send",
   "composer.voice.unmuteVoiceMode": "Unmute Voice mode",
@@ -183,5 +186,12 @@ describe("composer input labels", () => {
         t,
       }),
     ).toBe("Send");
+  });
+});
+
+describe("resolveAlternateSendLabel", () => {
+  it("names the queue and send-now alternates", () => {
+    expect(resolveAlternateSendLabel("queue", t)).toBe("Queue for after this turn");
+    expect(resolveAlternateSendLabel("send", t)).toBe("Send now");
   });
 });

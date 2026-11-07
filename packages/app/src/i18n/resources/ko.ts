@@ -143,6 +143,8 @@ export const ko: TranslationResources = {
       sendMessage: "메시지 보내기",
       longPressToQueue: "길게 눌러 대기열에 추가",
       longPressToSendNow: "길게 눌러 지금 보내기",
+      queueAfterTurn: "이번 턴 이후로 대기열에 추가",
+      sendNow: "지금 보내기",
       queue: "대기열",
       send: "보내기",
     },

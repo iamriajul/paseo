@@ -3,7 +3,6 @@ import { Text, View, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { CircleAlert, Folder, FolderGit2, Monitor, Terminal } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { ProjectStatusIndicator } from "@/components/sidebar/project-leading-visual";
 import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
@@ -29,12 +28,6 @@ import {
 } from "@/utils/status-indicator-geometry";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { StatusRing } from "@/components/status-ring";
-import {
-  StatusRingFrame,
-  rotatorStyles,
-  styles as statusRingStyles,
-} from "@/components/status-ring/frame";
-import { useStatusRingRotation } from "@/components/status-ring/clock";
 import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
 import { DensityIcon } from "@/components/ui/density-icon";
 import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
@@ -235,22 +228,15 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   );
 });
 
+// The running ring with a terminal glyph where the dot would be: work is happening, but in a
+// background task rather than the agent. `StatusRing` resolves per platform, so the rotation
+// comes from the shared UI-thread clock on native and from the Web Animations timeline on web.
 function BackgroundTaskRunningRing({ backdrop }: { backdrop: SidebarSurfaceBackdrop | null }) {
-  const rotation = useStatusRingRotation();
-  const rotatorStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value}deg` }],
-  }));
   const centerNode = useMemo(
     () => <ThemedTerminal size={10} uniProps={foregroundMutedColorMapping} />,
     [],
   );
-  return (
-    <StatusRingFrame backdrop={backdrop} center={centerNode}>
-      <Animated.View style={[rotatorStyles.rotator, rotatorStyle]}>
-        <View style={statusRingStyles.arc} />
-      </Animated.View>
-    </StatusRingFrame>
-  );
+  return <StatusRing backdrop={backdrop} center={centerNode} />;
 }
 
 function WorkspaceStatusIndicator({

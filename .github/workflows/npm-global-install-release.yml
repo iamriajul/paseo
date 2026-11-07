@@ -34,7 +34,28 @@ env:
   SHOULD_PUBLISH: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish != 'false' }}
 
 jobs:
+  # Fork: the RELEASE_TARGETS repository variable decides whether a release tag builds
+  # this target. Dispatching this workflow builds it regardless. See
+  # docs/fork-release.md#release-targets.
+  release-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      npm: ${{ steps.resolve.outputs.npm }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Resolve release targets
+        id: resolve
+        env:
+          RELEASE_TARGETS_VARIABLE: ${{ vars.RELEASE_TARGETS }}
+          RELEASE_TARGETS_SCOPE: ${{ github.event_name == 'workflow_dispatch' && 'npm' || 'all' }}
+        run: node scripts/release-targets.mjs >> "$GITHUB_OUTPUT"
+
   package-npm-global-install:
+    needs: [release-targets]
+    if: ${{ needs.release-targets.outputs.npm == 'true' }}
     permissions:
       contents: write
       packages: read

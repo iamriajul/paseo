@@ -273,7 +273,7 @@ Desktop release builds now publish in two phases:
 - The GitHub Release stays a draft while platform build jobs upload the installers/packages (`.dmg`, `.zip`, `.exe`, `.AppImage`, etc.).
 - The final job merges and stamps every channel manifest, uploads them with the final `releaseDate` and `rolloutHours`, then publishes the GitHub Release.
 
-Drafts do not appear in GitHub's releases feed. Updater clients continue to see the previous complete release until all three manifests are available. If a desktop build or manifest upload fails, the new release stays a draft.
+Drafts do not appear in GitHub's releases feed. Updater clients continue to see the previous complete release until every built platform's manifest is available; the fork builds only its [release targets](fork-release.md#release-targets). If an enabled desktop build or manifest upload fails, the new release stays a draft.
 
 ### Default behavior
 

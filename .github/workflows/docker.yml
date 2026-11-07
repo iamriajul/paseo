@@ -45,8 +45,19 @@ jobs:
       publish: ${{ steps.values.outputs.publish }}
       check_tag: ${{ steps.values.outputs.check_tag }}
       publish_tags: ${{ steps.values.outputs.publish_tags }}
+      enabled: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') || steps.targets.outputs.docker == 'true' }}
     steps:
       - uses: actions/checkout@v6
+
+      # Fork: the RELEASE_TARGETS repository variable decides whether a release tag builds
+      # the image. Main pushes and dispatches always run. See
+      # docs/fork-release.md#release-targets.
+      - name: Resolve release targets
+        id: targets
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          RELEASE_TARGETS_VARIABLE: ${{ vars.RELEASE_TARGETS }}
+        run: node scripts/release-targets.mjs >> "$GITHUB_OUTPUT"
 
       - id: values
         env:
@@ -112,7 +123,7 @@ jobs:
 
   build:
     needs: setup
-    if: needs.setup.outputs.publish != 'true'
+    if: needs.setup.outputs.enabled == 'true' && needs.setup.outputs.publish != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -137,7 +148,7 @@ jobs:
 
   publish:
     needs: setup
-    if: needs.setup.outputs.publish == 'true'
+    if: needs.setup.outputs.enabled == 'true' && needs.setup.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

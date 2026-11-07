@@ -3,7 +3,8 @@ name: Android Browser native
 # Fork-owned: compiles the Android in-app Browser proxy module (decision
 # browser-localhost-tunnel) and runs its Kotlin tests. It lives outside ci.yml so
 # official CI edits neither conflict with it nor trigger a native build.
-# GitHub does not evaluate path filters for tag pushes, so every release tag runs it.
+# GitHub does not evaluate path filters for tag pushes, so a release tag runs it only
+# when RELEASE_TARGETS enables android-browser-native.
 on:
   push:
     branches: [main]
@@ -31,7 +32,29 @@ permissions:
   contents: read
 
 jobs:
+  # Fork: the RELEASE_TARGETS repository variable decides whether a release tag runs
+  # this check. Branch pushes, pull requests and dispatches always run it. See
+  # docs/fork-release.md#release-targets.
+  release-targets:
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    outputs:
+      android-browser-native: ${{ steps.resolve.outputs.android-browser-native }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Resolve release targets
+        id: resolve
+        env:
+          RELEASE_TARGETS_VARIABLE: ${{ vars.RELEASE_TARGETS }}
+          RELEASE_TARGETS_SCOPE: all
+        run: node scripts/release-targets.mjs >> "$GITHUB_OUTPUT"
+
   android-browser-native:
+    needs: [release-targets]
+    if: ${{ !cancelled() && (!(github.event_name == 'push' && github.ref_type == 'tag') || needs.release-targets.outputs.android-browser-native == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:

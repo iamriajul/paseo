@@ -1,6 +1,6 @@
 import { seedSessionHosts } from "@/test/seed-session";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
-import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { DaemonConnectionError, type DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearWorkspaceArchivePending,
@@ -149,6 +149,78 @@ describe("archiveWorkspaceOptimistically", () => {
         workspaceId: archived.id,
       }),
     ).toBe(false);
+  });
+
+  it("keeps the workspace hidden when the archive request times out", async () => {
+    // The daemon archives the record within seconds but can take minutes to finish
+    // removing the worktree, so a timed-out request has usually already succeeded.
+    // The daemon's sequenced workspace updates decide the row from here; a local
+    // restore would put back a row no later sync removes.
+    const archived = workspace();
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [archived]);
+    const client = createClient(
+      vi.fn(async () => {
+        throw new DaemonConnectionError(
+          "Timeout waiting for message (60000ms)",
+          "DAEMON_REQUEST_TIMEOUT",
+        );
+      }),
+    );
+
+    await expect(
+      archiveWorkspaceOptimistically({
+        client,
+        workspace: target(),
+      }),
+    ).rejects.toThrow("Timeout waiting for message");
+
+    expect(storedWorkspace(archived.id)).toBeUndefined();
+    expect(
+      isWorkspaceArchivePending({
+        serverId: SERVER_ID,
+        workspaceId: archived.id,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the workspace hidden when the connection drops after the request was sent", async () => {
+    const archived = workspace();
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [archived]);
+    const client = createClient(
+      vi.fn(async () => {
+        throw new DaemonConnectionError("Connection lost", "DAEMON_CONNECTION_LOST", {
+          outcome: "unknown",
+        });
+      }),
+    );
+
+    await expect(
+      archiveWorkspaceOptimistically({
+        client,
+        workspace: target(),
+      }),
+    ).rejects.toThrow("Connection lost");
+
+    expect(storedWorkspace(archived.id)).toBeUndefined();
+  });
+
+  it("restores the workspace when the request never reached the daemon", async () => {
+    const archived = workspace();
+    getHostRuntimeStore().acceptWorkspaceSnapshots(SERVER_ID, [archived]);
+    const client = createClient(
+      vi.fn(async () => {
+        throw new DaemonConnectionError("Transport not connected", "DAEMON_CONNECTION_LOST");
+      }),
+    );
+
+    await expect(
+      archiveWorkspaceOptimistically({
+        client,
+        workspace: target(),
+      }),
+    ).rejects.toThrow("Transport not connected");
+
+    expect(storedWorkspace(archived.id)).toEqual(archived);
   });
 });
 

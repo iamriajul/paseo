@@ -878,6 +878,7 @@ export const en = {
         chooseUrl: "Choose URL",
         copyUrl: "Copy URL",
         openService: "View service",
+        openPreview: "Open preview",
         restart: "Restart",
         run: "Run",
         stop: "Stop",
@@ -886,6 +887,7 @@ export const en = {
       accessibility: {
         trigger: "Workspace scripts",
         openService: "View {{scriptName}} service",
+        openPreview: "Open {{scriptName}} preview",
         viewTerminal: "View {{scriptName}} terminal",
         runScript: "Run {{scriptName}} script",
         stopScript: "Stop {{scriptName}}",

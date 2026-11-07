@@ -877,6 +877,7 @@ export const ar: TranslationResources = {
         chooseUrl: "اختيار الرابط",
         copyUrl: "نسخ الرابط",
         openService: "عرض الخدمة",
+        openPreview: "فتح المعاينة",
         restart: "إعادة التشغيل",
         run: "يجري",
         stop: "إيقاف",
@@ -885,6 +886,7 @@ export const ar: TranslationResources = {
       accessibility: {
         trigger: "البرامج النصية Workspace",
         openService: "عرض خدمة {{scriptName}}",
+        openPreview: "فتح معاينة {{scriptName}}",
         viewTerminal: "عرض محطة{{scriptName}}",
         runScript: "قم بتشغيل البرنامج النصي{{scriptName}}",
         stopScript: "إيقاف{{scriptName}}",

@@ -872,6 +872,7 @@ export const zhCN: TranslationResources = {
         chooseUrl: "选择 URL",
         copyUrl: "复制 URL",
         openService: "查看服务",
+        openPreview: "打开预览",
         restart: "重启",
         run: "运行",
         stop: "停止",
@@ -880,6 +881,7 @@ export const zhCN: TranslationResources = {
       accessibility: {
         trigger: "Workspace scripts",
         openService: "查看 {{scriptName}} 服务",
+        openPreview: "打开 {{scriptName}} 预览",
         viewTerminal: "查看 {{scriptName}} Terminal",
         runScript: "运行 {{scriptName}} script",
         stopScript: "停止 {{scriptName}}",

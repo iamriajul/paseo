@@ -157,6 +157,38 @@ describe("script-status-projection", () => {
     }
   });
 
+  it("marks only the first service with preview: true as the main preview", async () => {
+    const workspaceId = "workspace-preview";
+    const workspace = createWorkspaceRepo({
+      paseoConfig: {
+        scripts: {
+          api: { type: "service", command: "npm run api", preview: "yes" },
+          docs: { type: "service", command: "npm run docs", preview: true },
+          lint: { command: "npm run lint", preview: true },
+          web: { type: "service", command: "npm run web", preview: true },
+        },
+      },
+    });
+    try {
+      const payloads = await buildPayloads({
+        workspaceId,
+        workspaceDirectory: workspace.repoDir,
+        runtimeStore: new WorkspaceScriptRuntimeStore(),
+        daemonPort: 6767,
+      });
+      expect(payloads.map((payload) => [payload.scriptName, payload.preview])).toEqual([
+        ["api", undefined],
+        ["docs", true],
+        ["lint", undefined],
+        ["web", undefined],
+      ]);
+      // The wire schema keeps the flag rather than stripping it as an unknown key.
+      expect(WorkspaceScriptPayloadSchema.parse(payloads[1]).preview).toBe(true);
+    } finally {
+      workspace.cleanup();
+    }
+  });
+
   it("builds service hostnames from service-provided git metadata", async () => {
     const workspaceId = "workspace-service-metadata";
     const workspace = createWorkspaceRepo({

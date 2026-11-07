@@ -65,6 +65,7 @@ At the start of non-trivial work, list `docs/` and skim anything relevant to the
 | [docs/explorer-sidebar.md](docs/explorer-sidebar.md)                 | Explorer sidebar, side-pane, and compact workspace sheet host contracts, lifecycle, placement, routing preferences             |
 | [docs/ad-hoc-daemon-testing.md](docs/ad-hoc-daemon-testing.md)       | Isolated in-process daemon test harness                                                                                        |
 | [docs/browser-capture-harness.md](docs/browser-capture-harness.md)   | Real-Electron browser screenshot harness and compositor-surface gotcha                                                         |
+| [docs/server-browser.md](docs/server-browser.md)                     | Daemon-run headless Chromium: the experimental switch, routing, screencast flow control, limits, cost                          |
 | [docs/android.md](docs/android.md)                                   | App variants, local/cloud builds, EAS workflows, version codes, F-Droid source builds and store metadata                       |
 | [docs/fork-release.md](docs/fork-release.md)                         | Fork-friendly desktop, Docker, npm global-install; official sync rebases onto release tags                                     |
 | [docs/fork-decisions.md](docs/fork-decisions.md)                     | Every behaviour this fork changes inside official files, and the command that proves each one                                  |

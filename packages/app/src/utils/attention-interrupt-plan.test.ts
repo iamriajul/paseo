@@ -145,4 +145,57 @@ describe("planAttentionInterrupt", () => {
       }).suppress,
     ).toBe(true);
   });
+
+  describe("per-agent bring-to-front override", () => {
+    const unfocused = {
+      isActivelyVisible: false,
+      focusedAgentId: null,
+      focusedTerminalId: null,
+      target: { kind: "agent" as const, id: "a1" },
+    };
+
+    it("brings an 'always' agent forward while the global setting is off", () => {
+      expect(
+        planAttentionInterrupt({
+          ...unfocused,
+          settings: { ...defaultSettings, attentionIntrusiveMode: false },
+          bringToFrontOverride: "always",
+        }),
+      ).toMatchObject({ intrusiveFocusAndNavigate: true, showOsBubble: true, playSound: true });
+    });
+
+    it("keeps a 'never' agent in the background while the global setting is on", () => {
+      expect(
+        planAttentionInterrupt({
+          ...unfocused,
+          settings: { ...defaultSettings, attentionIntrusiveMode: true },
+          bringToFrontOverride: "never",
+        }),
+      ).toMatchObject({ intrusiveFocusAndNavigate: false, showOsBubble: true, playSound: true });
+    });
+
+    it("follows the global setting without an override", () => {
+      for (const attentionIntrusiveMode of [true, false]) {
+        expect(
+          planAttentionInterrupt({
+            ...unfocused,
+            settings: { ...defaultSettings, attentionIntrusiveMode },
+            bringToFrontOverride: null,
+          }).intrusiveFocusAndNavigate,
+        ).toBe(attentionIntrusiveMode);
+      }
+    });
+
+    it("never pulls focus while Paseo is in use, even for an 'always' agent", () => {
+      expect(
+        planAttentionInterrupt({
+          ...unfocused,
+          isActivelyVisible: true,
+          focusedAgentId: "other",
+          settings: defaultSettings,
+          bringToFrontOverride: "always",
+        }),
+      ).toMatchObject({ intrusiveFocusAndNavigate: false, showBanner: true });
+    });
+  });
 });

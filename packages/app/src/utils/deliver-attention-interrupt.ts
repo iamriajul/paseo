@@ -10,6 +10,7 @@ import { useAttentionBannerStore } from "@/stores/attention-banner-store";
 import { getIsAppActivelyVisible } from "@/utils/app-visibility";
 import {
   planAttentionInterrupt,
+  type AgentBringToFrontOverride,
   type AttentionFocusTarget,
 } from "@/utils/attention-interrupt-plan";
 import { playAttentionSound, resolveAttentionSoundPreset } from "@/utils/attention-sound";
@@ -21,6 +22,7 @@ export interface DeliverAttentionInterruptInput {
   body?: string;
   data?: Record<string, unknown>;
   target: AttentionFocusTarget;
+  bringToFrontOverride?: AgentBringToFrontOverride | null;
   focusedAgentId: string | null;
   focusedTerminalId: string | null;
   isActivelyVisible?: boolean;
@@ -65,6 +67,7 @@ export async function deliverAttentionInterrupt(
       attentionSoundEnabled: settings.attentionSoundEnabled,
       attentionSoundPreset: resolveAttentionSoundPreset(settings.attentionSoundPreset),
     },
+    bringToFrontOverride: input.bringToFrontOverride,
     isActivelyVisible,
     focusedAgentId: input.focusedAgentId,
     focusedTerminalId: input.focusedTerminalId,

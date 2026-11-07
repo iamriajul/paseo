@@ -741,6 +741,14 @@ export const zhCN: TranslationResources = {
       },
       menu: {
         openFor: "打开 {{label}} 的菜单",
+        bringToFront: {
+          label: "置于前台",
+          default: "默认",
+          defaultOn: "默认（开）",
+          defaultOff: "默认（关）",
+          always: "始终",
+          never: "从不",
+        },
         copyResumeCommand: "复制恢复命令",
         copyAgentId: "复制 Agent ID",
         copyTerminalId: "复制 Terminal ID",
@@ -1265,6 +1273,10 @@ export const zhCN: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "置于前台：开 · 点击关闭",
+      offTooltip: "置于前台：关 · 点击开启",
+    },
     statusGroupAccessibility: "{{label}} 分组",
     statusBucket: {
       needsInput: "需要输入",

@@ -9,8 +9,26 @@ export interface AttentionInterruptSettings {
   attentionSoundPreset: AttentionSoundPreset;
 }
 
+/**
+ * One agent's answer to "Bring Paseo to the front", stored only when it differs from following
+ * the global `attentionIntrusiveMode`. Absent means follow the global setting.
+ */
+export type AgentBringToFrontOverride = "always" | "never";
+
+/** The agent's override wins; without one, the global setting decides. */
+export function resolveBringToFront(
+  globalEnabled: boolean,
+  override: AgentBringToFrontOverride | null,
+): boolean {
+  if (override === "always") return true;
+  if (override === "never") return false;
+  return globalEnabled;
+}
+
 export interface PlanAttentionInterruptInput {
   settings: AttentionInterruptSettings;
+  /** Only agent targets carry one; terminals always follow the global setting. */
+  bringToFrontOverride?: AgentBringToFrontOverride | null;
   isActivelyVisible: boolean;
   focusedAgentId: string | null;
   focusedTerminalId: string | null;
@@ -68,7 +86,7 @@ export function planAttentionInterrupt(input: PlanAttentionInterruptInput): Atte
   }
 
   // Unfocused / other app / other Space.
-  if (settings.attentionIntrusiveMode) {
+  if (resolveBringToFront(settings.attentionIntrusiveMode, input.bringToFrontOverride ?? null)) {
     return {
       suppress: false,
       showOsBubble: settings.attentionOsBubbleEnabled,

@@ -284,7 +284,6 @@ export function WorkspaceHeaderMenuMobile({
         sheetTitle={t("workspace.header.actions.workspaceActions")}
       >
         {scriptsMenu.trigger}
-        {chatDisplayMenu.trigger}
         {pluginMenu.rows}
         {pluginMenu.rows.length > 0 ? <DropdownMenuSeparator /> : null}
         {showCreateBrowserTab ? (
@@ -297,6 +296,8 @@ export function WorkspaceHeaderMenuMobile({
           </DropdownMenuItem>
         ) : null}
         <WorkspaceHeaderWorkspaceActionItems {...workspaceActions} />
+        {chatDisplayMenu.trigger ? <DropdownMenuSeparator /> : null}
+        {chatDisplayMenu.trigger}
         <DropdownMenuSeparator />
         <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
         {profiles.map((profile) => (

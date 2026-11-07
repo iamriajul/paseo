@@ -293,7 +293,11 @@ test("creates, renames, copies, and deletes entries through the file explorer", 
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("renamed.txt");
 
   await entry("renamed.txt").click({ button: "right" });
-  const deleteAction = page.getByTestId(/file-explorer-row-\d+-delete$/);
+  // The menu first renders a hidden copy to measure, then remounts it where it belongs. Read
+  // styles from the placed copy: the measuring one is detached on placement, and a detached
+  // element's computed style is empty.
+  const deleteAction = page.getByTestId(/file-explorer-row-\d+-delete$/).filter({ visible: true });
+  await expect(deleteAction).toBeVisible();
   const deleteLabelColor = await deleteAction
     .getByText("Delete", { exact: true })
     .evaluate((element) => getComputedStyle(element).color);

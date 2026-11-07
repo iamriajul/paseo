@@ -3142,6 +3142,59 @@ describe("create_agent MCP tool", () => {
     );
   });
 
+  it("does not pin a child of a native fork to the fork's gateway account", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const forkAgent = {
+      id: "parent-agent",
+      cwd: existingCwd,
+      workspaceId: "wks_parent",
+      provider: "claude",
+      currentModeId: null,
+      config: {
+        providerOptions: { sessionAffinityId: "root-session", disallowedTools: ["WebFetch"] },
+      },
+    } as ManagedAgent;
+    spies.agentManager.getAgent.mockReturnValue(forkAgent);
+    spies.agentManager.createAgent.mockResolvedValue({
+      id: "child-agent",
+      cwd: existingCwd,
+      lifecycle: "idle",
+      currentModeId: null,
+      availableModes: [],
+      config: { title: "Child" },
+    } as ManagedAgent);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: "parent-agent",
+      logger,
+    });
+    const create = (title: string) =>
+      registeredTool(server, "create_agent").handler({
+        ...subagentCurrentWorkspace(),
+        title,
+        provider: "claude/sonnet",
+        initialPrompt: "Do work",
+        settings: { modeId: "default" },
+      });
+
+    await create("Child with other options");
+    expect(spies.agentManager.createAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ providerOptions: { disallowedTools: ["WebFetch"] } }),
+      undefined,
+      expect.any(Object),
+    );
+
+    forkAgent.config.providerOptions = { sessionAffinityId: "root-session" };
+    await create("Child with only the affinity");
+    expect(spies.agentManager.createAgent).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ providerOptions: expect.anything() }),
+      undefined,
+      expect.any(Object),
+    );
+  });
+
   it("inherits the parent's workspaceId when an MCP child is created in the parent's working tree", async () => {
     const workdir = await mkdtemp(join(tmpdir(), "mcp-workspace-inherit-"));
     const storage = new AgentStorage(join(workdir, "agents"), logger);
@@ -5095,6 +5148,42 @@ describe("create_schedule MCP tool", () => {
         model: "openai/gpt-5.5",
         featureValues: { auto_accept: true },
       },
+    });
+  });
+
+  it("does not pin a schedule target of a native fork to the fork's gateway account", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    spies.agentManager.getAgent.mockReturnValue({
+      id: "parent-agent",
+      provider: "claude",
+      cwd: REPO_CWD,
+      lifecycle: "idle",
+      currentModeId: null,
+      availableModes: [],
+      config: {
+        title: "Fork",
+        providerOptions: { sessionAffinityId: "root-session", disallowedTools: ["WebFetch"] },
+      },
+    } as ManagedAgent);
+    const createOrReplace = vi.fn(async (input: CreateScheduleInput) =>
+      createStoredSchedule(input),
+    );
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      scheduleService: { createOrReplace } as unknown as ScheduleService,
+      callerAgentId: "parent-agent",
+      logger,
+    });
+
+    const response = await registeredTool(server, "create_schedule").handler({
+      prompt: "say hello",
+      cron: "*/5 * * * *",
+    });
+
+    expect(response.structuredContent.target.config.providerOptions).toEqual({
+      disallowedTools: ["WebFetch"],
     });
   });
 

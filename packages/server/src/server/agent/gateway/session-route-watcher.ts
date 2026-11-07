@@ -11,6 +11,7 @@ import type { AgentProvider } from "../agent-sdk-types.js";
 import {
   describeGatewaySwitch,
   fetchGatewaySessionRoute,
+  gatewayRoutedSessionId,
   gatewaySessionIdFor,
   type GatewaySessionRouteResult,
 } from "./session-route.js";
@@ -54,7 +55,7 @@ export function attachGatewaySessionRouteWatcher(deps: GatewaySessionRouteWatche
     if (!agent || agent.internal) return;
     const gateway = deps.gateway();
     if (!gateway || !deps.isGatewayRouted(agent.provider)) return;
-    const session = gatewaySessionIdFor(agent.provider, agent.persistence?.sessionId);
+    const session = gatewaySessionIdFor(agent.provider, gatewayRoutedSessionId(agent));
     if (!session) return;
 
     const { route } = await fetchRoute({

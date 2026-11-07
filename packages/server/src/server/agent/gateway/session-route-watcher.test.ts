@@ -37,6 +37,7 @@ function harness(options: { provider?: string; routed?: boolean; sessionId?: str
     getAgent: () => ({
       provider: options.provider ?? "claude",
       internal: false,
+      config: {},
       persistence:
         options.sessionId === null
           ? null

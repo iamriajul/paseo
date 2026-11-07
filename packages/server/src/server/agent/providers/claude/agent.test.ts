@@ -1034,6 +1034,30 @@ describe("ClaudeAgentSession features", () => {
     await fs.rm(settingsDir, { recursive: true, force: true });
   });
 
+  test("a native fork names its root session on every request so the gateway keeps its account", async () => {
+    const { queryFactory } = createQueryMock();
+    const session = await new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    }).createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "claude-opus-5-5",
+      providerOptions: { sessionAffinityId: "root-session" },
+    });
+
+    await session.startTurn("hello");
+
+    const options = queryFactory.mock.calls[0]?.[0].options;
+    expect(options?.settings?.env?.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      "X-Claude-Code-Session-Id: root-session",
+    );
+    // Paseo routing state, not a Claude Code launch option.
+    expect(options).not.toHaveProperty("sessionAffinityId");
+    await session.close();
+  });
+
   test("keeps inline extraArgs settings JSON for internal agents", async () => {
     const { queryFactory } = createQueryMock();
     const client = new ClaudeAgentClient({
@@ -1444,6 +1468,50 @@ describe("ClaudeAgentSession features", () => {
     } finally {
       if (previous === undefined) delete process.env.ANTHROPIC_CUSTOM_HEADERS;
       else process.env.ANTHROPIC_CUSTOM_HEADERS = previous;
+    }
+  });
+
+  test("routes a native fork's warm-up as its root session", async () => {
+    const queryFactory = vi.fn(() => {
+      const iterator = [
+        {
+          type: "stream_event",
+          parent_tool_use_id: null,
+          event: {
+            type: "message_start",
+            message: { usage: { input_tokens: 2, cache_read_input_tokens: 10 } },
+          },
+        },
+        { type: "result", subtype: "success" },
+      ][Symbol.iterator]();
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => ({ next: async () => iterator.next() }),
+      };
+    });
+    const session = await new ClaudeAgentClient({
+      logger,
+      queryFactory: queryFactory as unknown as ClaudeQueryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    }).createSession({
+      provider: "claude",
+      cwd: process.cwd(),
+      model: "claude-haiku-5-5",
+      featureValues: { prompt_cache_ttl: "5m" },
+      providerOptions: { sessionAffinityId: "root-session" },
+    });
+    (session as unknown as { claudeSessionId: string }).claudeSessionId = "fork-session";
+    try {
+      await session.warmPromptCache?.();
+      const { options } = queryFactory.mock.calls[0]![0] as {
+        options: { resume: string; settings: { env?: Record<string, string> } };
+      };
+      expect(options.resume).toBe("fork-session");
+      expect(options.settings.env?.ANTHROPIC_CUSTOM_HEADERS).toBe(
+        "X-Claude-Code-Session-Id: root-session",
+      );
+    } finally {
+      await session.close();
     }
   });
 

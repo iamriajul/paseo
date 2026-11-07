@@ -99,6 +99,33 @@ export function gatewaySessionIdFor(
   }
 }
 
+/**
+ * The provider session id the agent's requests carry to the gateway: a native fork names its root
+ * session (`sessionAffinityId`) so it shares that session's account and cache.
+ */
+export function gatewayRoutedSessionId(agent: {
+  config: { providerOptions?: Record<string, unknown> };
+  persistence?: { sessionId?: string | null } | null;
+}): string | null {
+  const affinity = agent.config.providerOptions?.sessionAffinityId;
+  if (typeof affinity === "string" && affinity.trim()) return affinity;
+  return agent.persistence?.sessionId ?? null;
+}
+
+/**
+ * Provider options a new session may take over from the agent that made it (`create_agent`
+ * children, schedule targets). The affinity stays behind: a fresh session shares no cached prefix
+ * with the root, so pinning it would only stack the family on one account and repeat every
+ * account-switch notice. Only `nativeForkAgent`, whose session does share the prefix, carries it.
+ */
+export function inheritableProviderOptions(
+  options: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!options) return undefined;
+  const { sessionAffinityId: _sessionAffinityId, ...rest } = options;
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
 export async function fetchGatewaySessionRoute(
   options: FetchGatewaySessionRouteOptions,
 ): Promise<GatewaySessionRouteResult> {

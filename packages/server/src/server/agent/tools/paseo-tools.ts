@@ -9,6 +9,7 @@ import {
   type ToolHosts,
 } from "../host-operations/index.js";
 import { AgentDirectory } from "../directory.js";
+import { inheritableProviderOptions } from "../gateway/session-route.js";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { ensureValidJson } from "../../json-utils.js";
@@ -873,10 +874,9 @@ function createToolCatalog(
     selectedProvider: string,
   ): Pick<AgentSessionConfig, "providerOptions"> | undefined => {
     const callerAgent = resolveCallerAgent();
-    if (callerAgent?.provider !== selectedProvider || !callerAgent.config?.providerOptions) {
-      return undefined;
-    }
-    return { providerOptions: callerAgent.config.providerOptions };
+    if (callerAgent?.provider !== selectedProvider) return undefined;
+    const providerOptions = inheritableProviderOptions(callerAgent.config?.providerOptions);
+    return providerOptions ? { providerOptions } : undefined;
   };
 
   const resolveScopedCwd = (requestedCwd?: string, opts?: { required?: boolean }): string => {
@@ -941,13 +941,15 @@ function createToolCatalog(
     callerAgent: NonNullable<ReturnType<typeof resolveCallerAgent>>,
     resolvedProvider: string,
   ): Record<string, unknown> => {
+    const providerOptions =
+      callerAgent.provider === resolvedProvider
+        ? inheritableProviderOptions(callerAgent.config.providerOptions)
+        : undefined;
     return {
       ...(callerAgent.config.thinkingOptionId
         ? { thinkingOptionId: callerAgent.config.thinkingOptionId }
         : {}),
-      ...(callerAgent.provider === resolvedProvider && callerAgent.config.providerOptions
-        ? { providerOptions: callerAgent.config.providerOptions }
-        : {}),
+      ...(providerOptions ? { providerOptions } : {}),
       ...(callerAgent.config.featureValues
         ? { featureValues: callerAgent.config.featureValues }
         : {}),

@@ -151,6 +151,7 @@ import {
   resolveNativeForkTarget,
 } from "./providers/claude/native-fork.js";
 import { realClaudeRewindSdk } from "./providers/claude/rewind.js";
+import { gatewayRoutedSessionId } from "./gateway/session-route.js";
 const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
 const INTERRUPT_SESSION_TIMEOUT_MS = 2_000;
 const IMPORTABLE_SESSION_LIST_TIMEOUT_MS = 90_000;
@@ -4153,6 +4154,12 @@ export class AgentManager {
       provider: "claude",
       cwd: source.cwd,
       ...(input.model ? { model: input.model } : {}),
+      // The fork's own session id would land it on another gateway account, away from the cache
+      // holding the context it shares with its source; a fork of a fork keeps the root's account.
+      providerOptions: {
+        ...source.config.providerOptions,
+        sessionAffinityId: gatewayRoutedSessionId(source) ?? sourceSessionId,
+      },
     };
     const forked = await this.resumeAgentFromPersistence(
       {

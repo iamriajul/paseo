@@ -139,6 +139,8 @@ export const en = {
       sendMessage: "Send message",
       longPressToQueue: "Long press to queue",
       longPressToSendNow: "Long press to send now",
+      queueAfterTurn: "Queue for after this turn",
+      sendNow: "Send now",
       queue: "Queue",
       send: "Send",
     },
@@ -254,6 +256,16 @@ export const en = {
       implement: "Implement",
       question: "How would you like to proceed?",
       proposedPlan: "Proposed plan",
+    },
+  },
+  agentChatDisplay: {
+    rowLabel: "Chat display",
+    followSettings: "Use Settings",
+    tooltipFollowingSettings: "Chat display: {{mode}} (from Settings)",
+    tooltipOverridden: "Chat display: {{mode}} (this agent)",
+    errors: {
+      disconnected: "Not connected to the host",
+      saveFailed: "Couldn't save the chat display",
     },
   },
   agentPanel: {
@@ -733,6 +745,14 @@ export const en = {
       },
       menu: {
         openFor: "Open menu for {{label}}",
+        bringToFront: {
+          label: "Bring to front",
+          default: "Default",
+          defaultOn: "Default (on)",
+          defaultOff: "Default (off)",
+          always: "Always",
+          never: "Never",
+        },
         copyResumeCommand: "Copy resume command",
         copyAgentId: "Copy agent id",
         copyTerminalId: "Copy terminal id",
@@ -858,6 +878,7 @@ export const en = {
         chooseUrl: "Choose URL",
         copyUrl: "Copy URL",
         openService: "View service",
+        openPreview: "Open preview",
         restart: "Restart",
         run: "Run",
         stop: "Stop",
@@ -866,6 +887,7 @@ export const en = {
       accessibility: {
         trigger: "Workspace scripts",
         openService: "View {{scriptName}} service",
+        openPreview: "Open {{scriptName}} preview",
         viewTerminal: "View {{scriptName}} terminal",
         runScript: "Run {{scriptName}} script",
         stopScript: "Stop {{scriptName}}",
@@ -1273,6 +1295,10 @@ export const en = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Bring to front: on · click to turn off",
+      offTooltip: "Bring to front: off · click to turn on",
+    },
     statusGroupAccessibility: "{{label}} group",
     statusBucket: {
       needsInput: "Needs input",

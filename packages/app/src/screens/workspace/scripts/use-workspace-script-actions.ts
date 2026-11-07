@@ -6,7 +6,9 @@ import type { WorkspaceDescriptor } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeSnapshot } from "@/runtime/host-runtime";
 import { useToast } from "@/contexts/toast-context";
+import { openServiceUrl } from "@/utils/open-service-url";
 import {
+  resolveServiceBrowserUrl,
   resolveWorkspaceScriptLink,
   type WorkspaceScriptLinkKind,
   type WorkspaceScriptLinkTarget,
@@ -22,13 +24,18 @@ export interface WorkspaceScriptLinks {
 }
 
 export interface WorkspaceScriptActions {
-  start: (scriptName: string) => void;
+  start: (scriptName: string, options?: { onError?: () => void }) => void;
   stop: (scriptName: string) => void;
   /** Stops the script, then starts it again once the daemon reports it stopped. */
   restart: (scriptName: string) => void;
   copyUrl: (target: WorkspaceScriptLinkTarget) => void;
   selectRoute: (kind: WorkspaceScriptLinkKind) => void;
   resolveLinks: (script: WorkspaceScript) => WorkspaceScriptLinks;
+  /**
+   * Opens a service at the route this host prefers. `openInApp` gets its localhost
+   * route instead, so the workspace Browser shares one origin per service.
+   */
+  openService: (script: WorkspaceScript, openInApp?: (url: string) => boolean | void) => void;
   isStartPending: boolean;
   isStopPending: boolean;
 }
@@ -93,7 +100,12 @@ export function useWorkspaceScriptActions({
       }
     },
   });
-  const startScript = startScriptMutation.mutate;
+  const mutateStart = startScriptMutation.mutate;
+  const startScript = useCallback(
+    (scriptName: string, options?: { onError?: () => void }) =>
+      mutateStart(scriptName, options?.onError ? { onError: options.onError } : undefined),
+    [mutateStart],
+  );
 
   const stopScriptMutation = useMutation({
     mutationFn: async (scriptName: string) => {
@@ -166,6 +178,18 @@ export function useWorkspaceScriptActions({
     [activeConnection, preferredRouteKind],
   );
 
+  const openService = useCallback(
+    (script: WorkspaceScript, openInApp?: (url: string) => boolean | void) => {
+      const { selected } = resolveLinks(script);
+      if (!selected) return;
+      void openServiceUrl(selected.url, {
+        openInApp,
+        inAppUrl: resolveServiceBrowserUrl({ script, selected }),
+      });
+    },
+    [resolveLinks],
+  );
+
   return useMemo(
     () => ({
       start: startScript,
@@ -174,6 +198,7 @@ export function useWorkspaceScriptActions({
       copyUrl,
       selectRoute,
       resolveLinks,
+      openService,
       isStartPending: startScriptMutation.isPending,
       isStopPending: stopScriptMutation.isPending,
     }),
@@ -184,6 +209,7 @@ export function useWorkspaceScriptActions({
       copyUrl,
       selectRoute,
       resolveLinks,
+      openService,
       startScriptMutation.isPending,
       stopScriptMutation.isPending,
     ],

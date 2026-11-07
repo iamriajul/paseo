@@ -1182,7 +1182,9 @@ function applyAcceptedTimelinePage(input: {
     })),
     {
       source: "canonical",
-      reservedItemIds: new Set(currentTail.map((item) => item.id)),
+      // The head is rendered with the tail, so an older segment of the reply it is still
+      // streaming (one message id across tool calls) must not take the head's id.
+      reservedItemIds: new Set([...currentTail, ...currentHead].map((item) => item.id)),
     },
   );
   return {

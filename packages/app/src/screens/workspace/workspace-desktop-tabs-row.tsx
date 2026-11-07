@@ -11,6 +11,7 @@ import React, {
   type SetStateAction,
 } from "react";
 import { Pressable, Text, View, type LayoutChangeEvent, type ScrollView } from "react-native";
+import { useAgentBringToFrontMenu } from "@/components/agent-bring-to-front-menu";
 import { useFilePanelOpenWithMenu } from "@/file-panels";
 import {
   CopyX,
@@ -94,6 +95,7 @@ import {
 } from "@/components/ui/horizontal-scroll-boundary";
 import { useSessionStore } from "@/stores/session-store";
 import { WorkspacePinnedTargetsRow } from "@/workspace-pins/workspace-pinned-row";
+import { AgentChatDisplayToolbarButton } from "@/chat-display/toolbar-button";
 
 const DROPDOWN_WIDTH = 220;
 const DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH = 36;
@@ -105,6 +107,7 @@ const PANE_SPLIT_ACTIONS_RESERVED_WIDTH =
   PANE_SPLIT_ACTIONS_HORIZONTAL_PADDING * 2 +
   PANE_SPLIT_ACTIONS_OUTER_MARGIN;
 const PANE_MAXIMIZE_ACTION_RESERVED_WIDTH = smallIconButtonChromeFrameSize(false) + 1;
+const PANE_CHAT_DISPLAY_ACTION_RESERVED_WIDTH = smallIconButtonChromeFrameSize(false) + 1;
 // Chip geometry. `layoutMetrics` measures tabs from these same numbers, so a chip that changes
 // shape without changing them mis-measures and drops the row into the overflow-scroll fallback at
 // the wrong width. Keep them together.
@@ -284,6 +287,7 @@ function WorkspacePaneToolbarActions({
   paneMaximized,
   serverId,
   paneId,
+  chatDisplayAgentId,
   newTabShortcutKeys,
   onSplitRight,
   onSplitDown,
@@ -298,6 +302,8 @@ function WorkspacePaneToolbarActions({
   paneMaximized: boolean;
   serverId: string;
   paneId?: string;
+  /** The agent the pane is showing, whose chat display the toolbar offers. */
+  chatDisplayAgentId: string | null;
   newTabShortcutKeys: ShortcutKey[][] | null;
   onSplitRight?: () => void;
   onSplitDown?: () => void;
@@ -324,7 +330,14 @@ function WorkspacePaneToolbarActions({
     [splitDownKeys],
   );
   const maximizeActionVisible = showMaximizeAction && Boolean(onTogglePaneMaximized);
-  if (!showNewTabButton && !splitActionsVisible && !maximizeActionVisible) return null;
+  if (
+    !showNewTabButton &&
+    !splitActionsVisible &&
+    !maximizeActionVisible &&
+    chatDisplayAgentId === null
+  ) {
+    return null;
+  }
 
   return (
     <ToolbarControls style={styles.paneSplitActions}>
@@ -338,6 +351,9 @@ function WorkspacePaneToolbarActions({
           paneId={paneId}
           shortcutKeys={newTabShortcutKeys}
         />
+      ) : null}
+      {chatDisplayAgentId !== null ? (
+        <AgentChatDisplayToolbarButton serverId={serverId} agentId={chatDisplayAgentId} />
       ) : null}
       {maximizeActionVisible && onTogglePaneMaximized ? (
         <ToolbarButton
@@ -779,6 +795,14 @@ function TabChip({
     { serverId, workspaceId, tabId: tab.tabId },
     contextMenuTestId,
   );
+  const bringToFront = useAgentBringToFrontMenu(
+    tab.target.kind === "agent" ? { serverId, agentId: tab.target.agentId } : null,
+    contextMenuTestId,
+  );
+  const menuPages = useMemo(
+    () => [...openWith.pages, ...bringToFront.pages],
+    [openWith.pages, bringToFront.pages],
+  );
   const middleClickRef = useMiddleClickClose(
     useCallback(() => void onCloseTab(tab.tabId), [onCloseTab, tab.tabId]),
   );
@@ -959,13 +983,16 @@ function TabChip({
         <ContextMenuContent
           align="start"
           width={DROPDOWN_WIDTH}
-          pages={openWith.pages}
+          pages={menuPages}
           testID={contextMenuTestId}
         >
           {menuEntries.map((entry) => {
             if (entry.kind === "separator") return <ContextMenuSeparator key={entry.key} />;
             if (entry.kind === "file-panel-open-with") {
               return <Fragment key={entry.key}>{openWith.trigger}</Fragment>;
+            }
+            if (entry.kind === "agent-bring-to-front") {
+              return <Fragment key={entry.key}>{bringToFront.trigger}</Fragment>;
             }
             return <TabContextMenuItem key={entry.key} entry={entry} />;
           })}
@@ -1090,6 +1117,11 @@ function ResolvedWorkspaceDesktopTabsRow({
     updateMeasuredWidth(setExitFocusModeWidth, event);
   }, []);
 
+  const chatDisplayAgentId = useMemo(() => {
+    const target = tabs.find((item) => item.isActive)?.tab.target;
+    return target?.kind === "agent" ? target.agentId : null;
+  }, [tabs]);
+
   const layoutMetrics = useMemo(
     () => ({
       rowHorizontalInset: 0,
@@ -1098,7 +1130,8 @@ function ResolvedWorkspaceDesktopTabsRow({
         DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH +
           (focusModeEnabled ? exitFocusModeWidth : 0) +
           (showPaneSplitActions ? PANE_SPLIT_ACTIONS_RESERVED_WIDTH : 0) +
-          (showPaneMaximizeAction ? PANE_MAXIMIZE_ACTION_RESERVED_WIDTH : 0),
+          (showPaneMaximizeAction ? PANE_MAXIMIZE_ACTION_RESERVED_WIDTH : 0) +
+          (chatDisplayAgentId !== null ? PANE_CHAT_DISPLAY_ACTION_RESERVED_WIDTH : 0),
       ),
       rowPaddingHorizontal: TAB_ROW_PADDING_HORIZONTAL,
       tabGap: TAB_CHIP_GAP,
@@ -1109,7 +1142,13 @@ function ResolvedWorkspaceDesktopTabsRow({
       tabHorizontalPadding: TAB_CHIP_HORIZONTAL_PADDING,
       closeButtonWidth: TAB_CLOSE_BUTTON_RESERVED_WIDTH,
     }),
-    [exitFocusModeWidth, focusModeEnabled, showPaneMaximizeAction, showPaneSplitActions],
+    [
+      chatDisplayAgentId,
+      exitFocusModeWidth,
+      focusModeEnabled,
+      showPaneMaximizeAction,
+      showPaneSplitActions,
+    ],
   );
 
   const panePanelKinds = useMemo(() => tabs.map(({ tab }) => tab.kind), [tabs]);
@@ -1464,6 +1503,7 @@ function ResolvedWorkspaceDesktopTabsRow({
         paneMaximized={paneMaximized}
         serverId={normalizedServerId}
         paneId={paneId}
+        chatDisplayAgentId={chatDisplayAgentId}
         newTabShortcutKeys={newTabKeys}
         onSplitRight={onSplitRight}
         onSplitDown={onSplitDown}

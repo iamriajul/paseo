@@ -143,6 +143,8 @@ export const ar: TranslationResources = {
       sendMessage: "أرسل رسالة",
       longPressToQueue: "اضغط مطولًا لإضافتها إلى الطابور",
       longPressToSendNow: "اضغط مطولًا للإرسال الآن",
+      queueAfterTurn: "أضف إلى قائمة الانتظار بعد هذا الدور",
+      sendNow: "أرسل الآن",
       queue: "طابور",
       send: "يرسل",
     },
@@ -258,6 +260,16 @@ export const ar: TranslationResources = {
       implement: "ينفذ",
       question: "كيف تريد المتابعة؟",
       proposedPlan: "الخطة المقترحة",
+    },
+  },
+  agentChatDisplay: {
+    rowLabel: "عرض المحادثة",
+    followSettings: "استخدام الإعدادات",
+    tooltipFollowingSettings: "عرض المحادثة: {{mode}} (من الإعدادات)",
+    tooltipOverridden: "عرض المحادثة: {{mode}} (لهذا الوكيل)",
+    errors: {
+      disconnected: "غير متصل بالمضيف",
+      saveFailed: "تعذّر حفظ عرض المحادثة",
     },
   },
   agentPanel: {
@@ -730,6 +742,14 @@ export const ar: TranslationResources = {
       },
       menu: {
         openFor: "فتح القائمة لـ{{label}}",
+        bringToFront: {
+          label: "إحضار إلى الأمام",
+          default: "افتراضي",
+          defaultOn: "افتراضي (مفعّل)",
+          defaultOff: "افتراضي (متوقف)",
+          always: "دائمًا",
+          never: "أبدًا",
+        },
         copyResumeCommand: "نسخ أمر السيرة الذاتية",
         copyAgentId: "نسخ معرف الوكيل",
         copyTerminalId: "نسخ معرف المحطة",
@@ -857,6 +877,7 @@ export const ar: TranslationResources = {
         chooseUrl: "اختيار الرابط",
         copyUrl: "نسخ الرابط",
         openService: "عرض الخدمة",
+        openPreview: "فتح المعاينة",
         restart: "إعادة التشغيل",
         run: "يجري",
         stop: "إيقاف",
@@ -865,6 +886,7 @@ export const ar: TranslationResources = {
       accessibility: {
         trigger: "البرامج النصية Workspace",
         openService: "عرض خدمة {{scriptName}}",
+        openPreview: "فتح معاينة {{scriptName}}",
         viewTerminal: "عرض محطة{{scriptName}}",
         runScript: "قم بتشغيل البرنامج النصي{{scriptName}}",
         stopScript: "إيقاف{{scriptName}}",
@@ -1262,6 +1284,10 @@ export const ar: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "الإحضار إلى الأمام: مفعّل · انقر للإيقاف",
+      offTooltip: "الإحضار إلى الأمام: متوقف · انقر للتفعيل",
+    },
     statusGroupAccessibility: "مجموعة {{label}}",
     statusBucket: {
       needsInput: "تحتاج إدخالاً",

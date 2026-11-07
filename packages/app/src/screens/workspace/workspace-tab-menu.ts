@@ -68,6 +68,11 @@ export type WorkspaceTabMenuEntry =
       /** Where the file tab's "Open with…" row goes; it renders only for files with several panels. */
       kind: "file-panel-open-with";
       key: string;
+    }
+  | {
+      /** Where an agent tab's "Bring to front" row (its override of "Bring Paseo to the front") goes; desktop app only. */
+      kind: "agent-bring-to-front";
+      key: string;
     };
 
 interface BuildWorkspaceTabMenuEntriesInput {
@@ -151,6 +156,9 @@ function getCloseButtonTestId(tab: WorkspaceTabDescriptor): string {
   }
   if (tab.target.kind === "codeServer") {
     return `workspace-code-server-close-${tab.target.codeServerId}`;
+  }
+  if (tab.target.kind === "server_browser") {
+    return `workspace-server-browser-close-${tab.target.browserId}`;
   }
   if (tab.target.kind === "setup") {
     return `workspace-setup-close-${encodeWorkspaceIdForPathSegment(tab.target.workspaceId)}`;
@@ -295,6 +303,9 @@ export function buildWorkspaceTabMenuEntries(
           onOpenAgentSettings?.(tab);
         },
       });
+      if (surface === "desktop") {
+        entries.push({ kind: "agent-bring-to-front", key: "agent-bring-to-front" });
+      }
     }
     entries.push({
       kind: "separator",

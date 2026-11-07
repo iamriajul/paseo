@@ -144,6 +144,8 @@ export const ru: TranslationResources = {
       sendMessage: "Отправить сообщение",
       longPressToQueue: "Удерживайте, чтобы поставить в очередь",
       longPressToSendNow: "Удерживайте, чтобы отправить сейчас",
+      queueAfterTurn: "В очередь после этого хода",
+      sendNow: "Отправить сейчас",
       queue: "Очередь",
       send: "Отправить",
     },
@@ -260,6 +262,16 @@ export const ru: TranslationResources = {
       implement: "Реализовать",
       question: "Как бы вы хотели продолжить?",
       proposedPlan: "Предлагаемый план",
+    },
+  },
+  agentChatDisplay: {
+    rowLabel: "Отображение чата",
+    followSettings: "Как в настройках",
+    tooltipFollowingSettings: "Отображение чата: {{mode}} (из настроек)",
+    tooltipOverridden: "Отображение чата: {{mode}} (этот агент)",
+    errors: {
+      disconnected: "Нет подключения к хосту",
+      saveFailed: "Не удалось сохранить отображение чата",
     },
   },
   agentPanel: {
@@ -737,6 +749,14 @@ export const ru: TranslationResources = {
       },
       menu: {
         openFor: "Открыть меню для {{label}}",
+        bringToFront: {
+          label: "На передний план",
+          default: "По умолчанию",
+          defaultOn: "По умолчанию (вкл.)",
+          defaultOff: "По умолчанию (выкл.)",
+          always: "Всегда",
+          never: "Никогда",
+        },
         copyResumeCommand: "Копировать команду продолжения",
         copyAgentId: "Скопировать идентификатор агента",
         copyTerminalId: "Скопировать идентификатор терминала",
@@ -865,6 +885,7 @@ export const ru: TranslationResources = {
         chooseUrl: "Выбрать URL",
         copyUrl: "Скопировать URL",
         openService: "Открыть сервис",
+        openPreview: "Открыть превью",
         restart: "Перезапустить",
         run: "Запустить",
         stop: "Остановить",
@@ -873,6 +894,7 @@ export const ru: TranslationResources = {
       accessibility: {
         trigger: "Скрипты рабочего пространства",
         openService: "Открыть сервис {{scriptName}}",
+        openPreview: "Открыть превью {{scriptName}}",
         viewTerminal: "Открыть терминал скрипта {{scriptName}}",
         runScript: "Запустить скрипт {{scriptName}}",
         stopScript: "Остановить скрипт {{scriptName}}",
@@ -1279,6 +1301,10 @@ export const ru: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Выводить на передний план: вкл. · нажмите, чтобы выключить",
+      offTooltip: "Выводить на передний план: выкл. · нажмите, чтобы включить",
+    },
     statusGroupAccessibility: "Группа «{{label}}»",
     statusBucket: {
       needsInput: "Ожидает ввода",

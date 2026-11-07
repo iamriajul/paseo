@@ -143,6 +143,8 @@ export const ko: TranslationResources = {
       sendMessage: "메시지 보내기",
       longPressToQueue: "길게 눌러 대기열에 추가",
       longPressToSendNow: "길게 눌러 지금 보내기",
+      queueAfterTurn: "이번 턴 이후로 대기열에 추가",
+      sendNow: "지금 보내기",
       queue: "대기열",
       send: "보내기",
     },
@@ -258,6 +260,16 @@ export const ko: TranslationResources = {
       implement: "구현",
       question: "어떻게 진행할까요?",
       proposedPlan: "제안된 계획",
+    },
+  },
+  agentChatDisplay: {
+    rowLabel: "채팅 표시",
+    followSettings: "설정 따르기",
+    tooltipFollowingSettings: "채팅 표시: {{mode}} (설정)",
+    tooltipOverridden: "채팅 표시: {{mode}} (이 에이전트)",
+    errors: {
+      disconnected: "호스트에 연결되지 않음",
+      saveFailed: "채팅 표시를 저장하지 못했습니다",
     },
   },
   agentPanel: {
@@ -730,6 +742,14 @@ export const ko: TranslationResources = {
       },
       menu: {
         openFor: "{{label}}의 메뉴 열기",
+        bringToFront: {
+          label: "앞으로 가져오기",
+          default: "기본값",
+          defaultOn: "기본값 (켜짐)",
+          defaultOff: "기본값 (꺼짐)",
+          always: "항상",
+          never: "안 함",
+        },
         copyResumeCommand: "재개 명령 복사",
         copyAgentId: "에이전트 ID 복사",
         copyTerminalId: "터미널 ID 복사",
@@ -856,6 +876,7 @@ export const ko: TranslationResources = {
         chooseUrl: "URL를 선택하세요",
         copyUrl: "URL 복사",
         openService: "서비스 보기",
+        openPreview: "미리보기 열기",
         restart: "다시 시작",
         run: "실행",
         stop: "중지",
@@ -864,6 +885,7 @@ export const ko: TranslationResources = {
       accessibility: {
         trigger: "워크스페이스 스크립트",
         openService: "{{scriptName}} 서비스 보기",
+        openPreview: "{{scriptName}} 미리보기 열기",
         viewTerminal: "{{scriptName}} 터미널 보기",
         runScript: "{{scriptName}} 스크립트 실행",
         stopScript: "{{scriptName}} 중지",
@@ -1268,6 +1290,10 @@ export const ko: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "앞으로 가져오기: 켜짐 · 클릭하여 끄기",
+      offTooltip: "앞으로 가져오기: 꺼짐 · 클릭하여 켜기",
+    },
     statusGroupAccessibility: "{{label}} 그룹",
     statusBucket: {
       needsInput: "입력 필요",

@@ -1,5 +1,7 @@
 import { planTimelineTailFetch } from "@/timeline/timeline-sync-plan";
 import { useWorkspaceLoopbackOpener } from "@/hooks/use-workspace-loopback-opener";
+import { useServerBrowserUrlOpener } from "@/server-browser/use-server-browser-opener";
+import { useServerBrowserSync } from "@/server-browser/use-server-browser-sync";
 import { useHostFeature } from "@/runtime/host-features";
 import {
   AssistantFileLinkResolverProvider,
@@ -538,6 +540,11 @@ function WorkspaceHeaderTitleBar({
       </View>
     </View>
   );
+}
+
+/** The agent a tab shows, or null for every other kind of tab. */
+function agentIdOfTab(tab: WorkspaceTabDescriptor | null): string | null {
+  return tab?.target.kind === "agent" ? tab.target.agentId : null;
 }
 
 type PaneDirection = "left" | "right" | "up" | "down";
@@ -1922,8 +1929,25 @@ function WorkspaceScreenContent({
   // there, and open-service-url.ts reads anything that is not `false` as
   // success — so a handler that silently declined suppressed the vscodeProxyUri
   // and external fallbacks and left the link doing nothing at all.
+  // Fork: with the host's server browser on, workspace URLs open there (docs/server-browser.md).
+  useServerBrowserSync(normalizedServerId);
+  const openServerBrowserTarget = useCallback(
+    (target: WorkspaceTabTarget) => {
+      if (persistenceKey) openWorkspaceTabFocused(persistenceKey, target, FOCUSED_PANE_PLACEMENT);
+    },
+    [openWorkspaceTabFocused, persistenceKey],
+  );
+  const openInServerBrowser = useServerBrowserUrlOpener({
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
+    openFocused: openServerBrowserTarget,
+    onError: toast.error,
+  });
   const handleOpenUrlInBrowserTab = useCallback(
     (url: string): boolean => {
+      if (persistenceKey && openInServerBrowser(url)) {
+        return true;
+      }
       if (!persistenceKey || !showCreateBrowserTab) {
         return false;
       }
@@ -1935,7 +1959,7 @@ function WorkspaceScreenContent({
       );
       return true;
     },
-    [openWorkspaceTabFocused, persistenceKey, showCreateBrowserTab],
+    [openInServerBrowser, openWorkspaceTabFocused, persistenceKey, showCreateBrowserTab],
   );
 
   // Links rendered anywhere in the workspace outside a chat message (question
@@ -3449,6 +3473,7 @@ function WorkspaceScreenContent({
       handleOpenUrlInBrowserTab,
     ],
   );
+  const compactChatDisplayAgentId = agentIdOfTab(activeTabDescriptor);
   const compactWorkspaceHeader = useMemo(
     () =>
       isMobile ? (
@@ -3487,6 +3512,7 @@ function WorkspaceScreenContent({
             normalizedServerId={normalizedServerId}
             normalizedWorkspaceId={normalizedWorkspaceId}
             scripts={compactHeaderScripts}
+            chatDisplayAgentId={compactChatDisplayAgentId}
             currentBranchName={currentBranchName}
             showWorkspaceSetup={showWorkspaceSetup}
             showCreateBrowserTab={showCreateBrowserTab}
@@ -3505,6 +3531,7 @@ function WorkspaceScreenContent({
     [
       activeTabKey,
       canOpenImportSheet,
+      compactChatDisplayAgentId,
       compactHeaderScripts,
       createTerminalDisabled,
       currentBranchName,

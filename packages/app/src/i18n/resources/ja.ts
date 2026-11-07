@@ -144,6 +144,8 @@ export const ja: TranslationResources = {
       sendMessage: "メッセージを送信",
       longPressToQueue: "長押しでキューに追加",
       longPressToSendNow: "長押しで今すぐ送信",
+      queueAfterTurn: "このターンの後にキューに追加",
+      sendNow: "今すぐ送信",
       queue: "キュー",
       send: "送信",
     },
@@ -260,6 +262,16 @@ export const ja: TranslationResources = {
       implement: "実装",
       question: "どのように続けますか？",
       proposedPlan: "提案されたプラン",
+    },
+  },
+  agentChatDisplay: {
+    rowLabel: "チャットの表示",
+    followSettings: "設定に従う",
+    tooltipFollowingSettings: "チャットの表示: {{mode}}（設定）",
+    tooltipOverridden: "チャットの表示: {{mode}}（このエージェント）",
+    errors: {
+      disconnected: "ホストに接続されていません",
+      saveFailed: "チャットの表示を保存できませんでした",
     },
   },
   agentPanel: {
@@ -736,6 +748,14 @@ export const ja: TranslationResources = {
       },
       menu: {
         openFor: "{{label}}のメニューを開く",
+        bringToFront: {
+          label: "前面に表示",
+          default: "デフォルト",
+          defaultOn: "デフォルト（オン）",
+          defaultOff: "デフォルト（オフ）",
+          always: "常に",
+          never: "しない",
+        },
         copyResumeCommand: "再開コマンドをコピー",
         copyAgentId: "エージェントIDをコピー",
         copyTerminalId: "ターミナルIDをコピー",
@@ -861,6 +881,7 @@ export const ja: TranslationResources = {
         chooseUrl: "URLを選択",
         copyUrl: "URLをコピー",
         openService: "サービスを表示",
+        openPreview: "プレビューを開く",
         restart: "再起動",
         run: "実行",
         stop: "停止",
@@ -869,6 +890,7 @@ export const ja: TranslationResources = {
       accessibility: {
         trigger: "ワークスペーススクリプト",
         openService: "{{scriptName}}サービスを表示",
+        openPreview: "{{scriptName}}のプレビューを開く",
         viewTerminal: "{{scriptName}}ターミナルを表示",
         runScript: "{{scriptName}}スクリプトを実行",
         stopScript: "{{scriptName}}を停止",
@@ -1275,6 +1297,10 @@ export const ja: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "前面に表示: オン · クリックでオフ",
+      offTooltip: "前面に表示: オフ · クリックでオン",
+    },
     statusGroupAccessibility: "{{label}} グループ",
     statusBucket: {
       needsInput: "入力待ち",

@@ -2441,7 +2441,7 @@ function createToolCatalog(
     {
       title: "List workspace scripts",
       description:
-        "List configured workspace scripts and their lifecycle, service port, proxy URL, health, and terminal ID.",
+        "List configured workspace scripts and their lifecycle, service port, proxy URL, health, and terminal ID. `preview: true` marks the workspace's main preview service.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace ID whose configured scripts to list."),
       },

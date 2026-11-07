@@ -126,6 +126,8 @@ export interface ServiceScriptConfig {
   type: "service";
   command: string;
   port?: number; // explicit port override, otherwise auto-assigned
+  /** The workspace's main preview: set on at most one service per paseo.json. */
+  preview?: true;
 }
 
 export type ScriptConfig = PlainScriptConfig | ServiceScriptConfig;
@@ -323,6 +325,7 @@ export function getScriptConfigs(config: PaseoConfig | null): Map<string, Script
   }
 
   const result = new Map<string, ScriptConfig>();
+  let hasPreview = false;
   for (const [name, entry] of Object.entries(scripts)) {
     if (!entry || typeof entry !== "object") {
       continue;
@@ -351,6 +354,14 @@ export function getScriptConfigs(config: PaseoConfig | null): Map<string, Script
       Number.isFinite(entry.port)
     ) {
       scriptConfig.port = entry.port;
+    }
+
+    // `"preview": true` marks the main preview service. Only a literal `true` on a
+    // service counts, and the first one in file order wins, so the app never has
+    // to choose between two.
+    if (isServiceScript(scriptConfig) && entry.preview === true && !hasPreview) {
+      scriptConfig.preview = true;
+      hasPreview = true;
     }
 
     result.set(name, scriptConfig);

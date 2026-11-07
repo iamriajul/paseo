@@ -143,6 +143,8 @@ export const zhCN: TranslationResources = {
       sendMessage: "发送消息",
       longPressToQueue: "长按加入队列",
       longPressToSendNow: "长按立即发送",
+      queueAfterTurn: "排队到本轮之后",
+      sendNow: "立即发送",
       queue: "排队",
       send: "发送",
     },
@@ -258,6 +260,16 @@ export const zhCN: TranslationResources = {
       implement: "实施",
       question: "你想如何继续？",
       proposedPlan: "建议计划",
+    },
+  },
+  agentChatDisplay: {
+    rowLabel: "聊天显示",
+    followSettings: "使用设置",
+    tooltipFollowingSettings: "聊天显示：{{mode}}（来自设置）",
+    tooltipOverridden: "聊天显示：{{mode}}（此智能体）",
+    errors: {
+      disconnected: "未连接到主机",
+      saveFailed: "无法保存聊天显示",
     },
   },
   agentPanel: {
@@ -729,6 +741,14 @@ export const zhCN: TranslationResources = {
       },
       menu: {
         openFor: "打开 {{label}} 的菜单",
+        bringToFront: {
+          label: "置于前台",
+          default: "默认",
+          defaultOn: "默认（开）",
+          defaultOff: "默认（关）",
+          always: "始终",
+          never: "从不",
+        },
         copyResumeCommand: "复制恢复命令",
         copyAgentId: "复制 Agent ID",
         copyTerminalId: "复制 Terminal ID",
@@ -852,6 +872,7 @@ export const zhCN: TranslationResources = {
         chooseUrl: "选择 URL",
         copyUrl: "复制 URL",
         openService: "查看服务",
+        openPreview: "打开预览",
         restart: "重启",
         run: "运行",
         stop: "停止",
@@ -860,6 +881,7 @@ export const zhCN: TranslationResources = {
       accessibility: {
         trigger: "Workspace scripts",
         openService: "查看 {{scriptName}} 服务",
+        openPreview: "打开 {{scriptName}} 预览",
         viewTerminal: "查看 {{scriptName}} Terminal",
         runScript: "运行 {{scriptName}} script",
         stopScript: "停止 {{scriptName}}",
@@ -1253,6 +1275,10 @@ export const zhCN: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "置于前台：开 · 点击关闭",
+      offTooltip: "置于前台：关 · 点击开启",
+    },
     statusGroupAccessibility: "{{label}} 分组",
     statusBucket: {
       needsInput: "需要输入",

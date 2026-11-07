@@ -32,6 +32,7 @@ import {
   type UseWorkspaceScriptsMenuPagesInput,
 } from "@/screens/workspace/scripts";
 import { usePluginWorkspaceMenu } from "@/plugins";
+import { useAgentChatDisplayMenuPage } from "@/chat-display/menu-page";
 
 const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedCopy = withUnistyles(Copy);
@@ -209,6 +210,8 @@ export interface WorkspaceHeaderMenuMobileProps extends WorkspaceHeaderWorkspace
   normalizedServerId: string;
   normalizedWorkspaceId: string;
   scripts: UseWorkspaceScriptsMenuPagesInput;
+  /** The agent on screen, whose chat display the menu offers; null for any other tab. */
+  chatDisplayAgentId: string | null;
   showCreateBrowserTab: boolean;
   createTerminalDisabled: boolean;
   onCreateTerminalWithProfile: (profile: TerminalProfile) => void;
@@ -227,6 +230,7 @@ export function WorkspaceHeaderMenuMobile({
   normalizedServerId,
   normalizedWorkspaceId,
   scripts,
+  chatDisplayAgentId,
   showCreateBrowserTab,
   createTerminalDisabled,
   onCreateTerminalWithProfile,
@@ -247,9 +251,10 @@ export function WorkspaceHeaderMenuMobile({
   }, [normalizedServerId, router]);
   const scriptsMenu = useWorkspaceScriptsMenuPages(scripts);
   const pluginMenu = usePluginWorkspaceMenu(normalizedServerId, normalizedWorkspaceId);
+  const chatDisplayMenu = useAgentChatDisplayMenuPage(normalizedServerId, chatDisplayAgentId);
   const pages = useMemo(
-    () => [...scriptsMenu.pages, ...pluginMenu.pages],
-    [scriptsMenu.pages, pluginMenu.pages],
+    () => [...scriptsMenu.pages, ...pluginMenu.pages, ...chatDisplayMenu.pages],
+    [scriptsMenu.pages, pluginMenu.pages, chatDisplayMenu.pages],
   );
 
   return (
@@ -278,6 +283,7 @@ export function WorkspaceHeaderMenuMobile({
         pages={pages}
         sheetTitle={t("workspace.header.actions.workspaceActions")}
       >
+        {scriptsMenu.previewItem}
         {scriptsMenu.trigger}
         {pluginMenu.rows}
         {pluginMenu.rows.length > 0 ? <DropdownMenuSeparator /> : null}
@@ -291,6 +297,8 @@ export function WorkspaceHeaderMenuMobile({
           </DropdownMenuItem>
         ) : null}
         <WorkspaceHeaderWorkspaceActionItems {...workspaceActions} />
+        {chatDisplayMenu.trigger ? <DropdownMenuSeparator /> : null}
+        {chatDisplayMenu.trigger}
         <DropdownMenuSeparator />
         <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
         {profiles.map((profile) => (

@@ -36,6 +36,7 @@ import { SidebarNavRows } from "@/components/sidebar/sidebar-nav-rows";
 import { SidebarFooterIconHighlight } from "@/components/sidebar/sidebar-footer-icon-highlight";
 import { SidebarBacklogRow } from "@/components/sidebar/sidebar-backlog-row";
 import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
+import { SidebarBringToFrontToggle } from "@/components/sidebar/sidebar-bring-to-front-toggle";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
 import { DensityIcon } from "@/components/ui/density-icon";
 import { SidebarSectionHeader } from "@/components/sidebar/sidebar-section-header";
@@ -425,7 +426,8 @@ function SidebarFooter({
   const newAgentKeys = useShortcutKeys("new-agent");
   const settingsKeys = useShortcutKeys("toggle-settings");
 
-  // One line of icons: Add project, Usage, Hosts, then Help and Settings at the end.
+  // One line of icons: Add project, Usage, Hosts, then Bring to front (desktop app), Help and
+  // Settings at the end.
   return (
     <UsageSidebarRoot>
       <View style={styles.footerContainer} testID="sidebar-footer">
@@ -445,6 +447,7 @@ function SidebarFooter({
             onOpenHostSettings={handleOpenHostSettings}
           />
           <View style={styles.footerSpacer} />
+          <SidebarBringToFrontToggle />
           <SidebarHelpMenu />
           <FooterIconButton
             onPress={handleSettings}

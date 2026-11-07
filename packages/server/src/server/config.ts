@@ -584,6 +584,7 @@ function resolveStaticLoadConfigSettings(
       cli?.mcpInjectIntoAgents ?? persisted.daemon?.mcp?.injectIntoAgents ?? false,
     usageEnabled: resolveUsageEnabled(persisted),
     browserToolsEnabled: resolveBrowserToolsEnabled(persisted),
+    serverBrowser: persisted.daemon?.serverBrowser,
     autoArchiveAfterMerge: persisted.daemon?.autoArchiveAfterMerge ?? false,
     ...resolveCacheAndResumePolicies(persisted),
     appendSystemPrompt: resolveAppendSystemPrompt(persisted),
@@ -614,6 +615,7 @@ export type ResolvedDaemonSettings = Pick<
   | "mcpInjectIntoAgents"
   | "usageEnabled"
   | "browserToolsEnabled"
+  | "serverBrowser"
   | "git"
   | "autoArchiveAfterMerge"
   | "autoResumeOnRateLimit"

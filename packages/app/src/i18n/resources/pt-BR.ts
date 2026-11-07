@@ -144,6 +144,8 @@ export const ptBR: TranslationResources = {
       sendMessage: "Enviar mensagem",
       longPressToQueue: "Mantenha pressionado para enfileirar",
       longPressToSendNow: "Mantenha pressionado para enviar agora",
+      queueAfterTurn: "Enfileirar para depois deste turno",
+      sendNow: "Enviar agora",
       queue: "Fila",
       send: "Enviar",
     },
@@ -259,6 +261,16 @@ export const ptBR: TranslationResources = {
       implement: "Implementar",
       question: "Como você quer prosseguir?",
       proposedPlan: "Plano proposto",
+    },
+  },
+  agentChatDisplay: {
+    rowLabel: "Exibição do chat",
+    followSettings: "Usar Configurações",
+    tooltipFollowingSettings: "Exibição do chat: {{mode}} (das Configurações)",
+    tooltipOverridden: "Exibição do chat: {{mode}} (este agente)",
+    errors: {
+      disconnected: "Sem conexão com o host",
+      saveFailed: "Não foi possível salvar a exibição do chat",
     },
   },
   agentPanel: {
@@ -735,6 +747,14 @@ export const ptBR: TranslationResources = {
       },
       menu: {
         openFor: "Abrir menu de {{label}}",
+        bringToFront: {
+          label: "Trazer para a frente",
+          default: "Padrão",
+          defaultOn: "Padrão (ativado)",
+          defaultOff: "Padrão (desativado)",
+          always: "Sempre",
+          never: "Nunca",
+        },
         copyResumeCommand: "Copiar comando de retomada",
         copyAgentId: "Copiar ID do agente",
         copyTerminalId: "Copiar ID do terminal",
@@ -861,6 +881,7 @@ export const ptBR: TranslationResources = {
         chooseUrl: "Escolher URL",
         copyUrl: "Copiar URL",
         openService: "Ver serviço",
+        openPreview: "Abrir prévia",
         restart: "Reiniciar",
         run: "Executar",
         stop: "Parar",
@@ -869,6 +890,7 @@ export const ptBR: TranslationResources = {
       accessibility: {
         trigger: "Scripts do workspace",
         openService: "Ver serviço {{scriptName}}",
+        openPreview: "Abrir prévia de {{scriptName}}",
         viewTerminal: "Ver terminal de {{scriptName}}",
         runScript: "Executar script {{scriptName}}",
         stopScript: "Parar {{scriptName}}",
@@ -1285,6 +1307,10 @@ export const ptBR: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Trazer para a frente: ativado · clique para desativar",
+      offTooltip: "Trazer para a frente: desativado · clique para ativar",
+    },
     statusGroupAccessibility: "Grupo {{label}}",
     statusBucket: {
       needsInput: "Precisa de resposta",

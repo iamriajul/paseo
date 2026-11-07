@@ -35,7 +35,7 @@ import {
   FileTransferOpcode,
   type FileTransferFrame,
 } from "@getpaseo/protocol/binary-frames/index";
-import { Session } from "./session.js";
+import { LIST_COMMANDS_TIMEOUT_MS, Session } from "./session.js";
 import {
   terminalCleanupRecordPath,
   terminalWorkerDirectory,
@@ -1598,6 +1598,42 @@ describe("plugin timeline append RPC", () => {
         }),
       }),
     );
+  });
+});
+
+describe("list commands RPC", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("answers with an error when the provider never finishes listing commands", async () => {
+    vi.useFakeTimers();
+    const messages: unknown[] = [];
+    const agent = {
+      id: "slow-agent",
+      session: { listCommands: () => new Promise<never>(() => {}) },
+    };
+    const session = createSessionForTest({
+      messages,
+      agentManager: { getAgent: vi.fn(() => agent), waitForAgentClose: vi.fn(async () => {}) },
+    });
+
+    void session.handleMessage({
+      type: "list_commands_request",
+      agentId: "slow-agent",
+      requestId: "commands-1",
+    });
+    await vi.advanceTimersByTimeAsync(LIST_COMMANDS_TIMEOUT_MS);
+
+    expect(messages).toContainEqual({
+      type: "list_commands_response",
+      payload: {
+        agentId: "slow-agent",
+        commands: [],
+        error: expect.stringContaining("timed out"),
+        requestId: "commands-1",
+      },
+    });
   });
 });
 

@@ -88,6 +88,7 @@ import { useToast } from "@/contexts/toast-context";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { normalizeWorkspaceBrowserUrl, useBrowserStore } from "@/desktop/browser/store";
+import { BrowserServiceChip, BrowserServicesMenu } from "./services-menu";
 
 type WebViewRef = ComponentRef<typeof WebView>;
 type WebViewErrorEvent = Parameters<NonNullable<ComponentProps<typeof WebView>["onError"]>>[0];
@@ -189,6 +190,11 @@ function getDeviceIcon(kind: BrowserDeviceSizePreset["kind"]): typeof ThemedMaxi
   if (kind === "desktop") return ThemedMonitor;
   return ThemedMaximize;
 }
+
+const serviceTriggerStyle = ({ pressed }: { pressed?: boolean }) => [
+  styles.iconButton,
+  pressed && styles.iconButtonPressed,
+];
 
 function ToolbarButton({
   label,
@@ -848,19 +854,33 @@ export function BrowserPane({
           >
             <ThemedRotateCw size={16} uniProps={mutedColorMapping} />
           </ToolbarButton>
-          <ThemedTextInput
-            accessibilityLabel={t("workspace.browser.controls.browserUrl")}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            onChangeText={setDraftUrl}
-            onSubmitEditing={handleSubmitUrl}
-            placeholder={t("workspace.browser.controls.enterUrl")}
-            returnKeyType="go"
-            selectTextOnFocus
-            style={styles.urlInput}
-            uniProps={inputPlaceholderMapping}
-            value={draftUrl}
+          <View style={styles.urlBar}>
+            <BrowserServiceChip
+              serverId={serverId}
+              workspaceId={workspaceId}
+              url={browser?.url ?? ""}
+            />
+            <ThemedTextInput
+              accessibilityLabel={t("workspace.browser.controls.browserUrl")}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              onChangeText={setDraftUrl}
+              onSubmitEditing={handleSubmitUrl}
+              placeholder={t("workspace.browser.controls.enterUrl")}
+              returnKeyType="go"
+              selectTextOnFocus
+              style={styles.urlInput}
+              uniProps={inputPlaceholderMapping}
+              value={draftUrl}
+            />
+          </View>
+          <BrowserServicesMenu
+            serverId={serverId}
+            workspaceId={workspaceId}
+            currentUrl={browser?.url ?? ""}
+            onNavigate={navigate}
+            triggerStyle={serviceTriggerStyle}
           />
           <DeviceSizeMenu selectedId={deviceSizeId} onSelect={setDeviceSizeId} />
           <ToolbarButton
@@ -990,17 +1010,25 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
   },
-  urlInput: {
+  urlBar: {
     flex: 1,
     minWidth: 64,
     height: 30,
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: theme.spacing[2],
-    paddingVertical: 0,
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
-    color: theme.colors.foreground,
     backgroundColor: theme.colors.surface1,
+  },
+  urlInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 30,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
   },
   errorRow: {

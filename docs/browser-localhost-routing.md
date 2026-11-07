@@ -2,6 +2,8 @@
 
 The in-app Browser has workspace-aware localhost routing on Electron desktop, Android, and web builds. When a Browser tab belongs to a workspace on host `H`, loopback URLs loaded inside that Browser are resolved against host `H`, not against the machine running the client.
 
+With a host's experimental server browser on, workspace URLs open in a headless Chromium on the host instead, where loopback needs no routing; see [Server browser](server-browser.md).
+
 This is separate from the service proxy. The service proxy exposes `paseo.json` service scripts through generated hostnames and optional public URLs. Browser localhost routing is for loopback URLs such as `http://localhost:5173`, `http://127.0.0.1:3000`, or a WebSocket opened to `ws://localhost:3000`. Inside the Browser, `paseo.json` services ride this route too; see [Workspace services in the Browser](#workspace-services-in-the-browser).
 
 ## Routing scope
@@ -89,7 +91,9 @@ Mobile does not get this. The user's own browser on a phone is a different app, 
 
 `paseo.json` services are part of the Browser, not a separate origin:
 
-- The Browser toolbar lists the workspace's services. A running one opens at `http://localhost:<port>/`; a stopped one starts and opens once the daemon reports it running. The URL bar shows the service name when the tab's port belongs to a running service.
+- The Browser toolbar lists the workspace's services on Electron, Android and the web build (`services-menu.tsx`, mounted by each pane). A running one opens at `http://localhost:<port>/`; a stopped one starts and opens once the daemon reports it running. The URL bar shows the service name when the tab's port belongs to a running service.
+- The service paseo.json marks `"preview": true` (see [Main preview](../public-docs/worktrees.md#main-preview)) leads that menu as Open preview, and gets an Open preview half on the header scripts button and an Open preview row in the compact header menu. Those two open it through the scripts menu's route choice, so the Browser gets the localhost route and an external open keeps the selected one.
+- Listing services, finding the main preview and start-then-open live in `packages/app/src/workspace-services/`, with no UI, so any other viewer reuses them instead of copying the menu.
 - Opening a service in the Browser from the scripts menu or the ports panel uses the same `http://localhost:<port>/` route (`resolveServiceBrowserUrl` in `packages/app/src/utils/workspace-script-links.ts`). External opens keep the selected route, and a selected public URL stays public in the Browser too.
 
 So a service, a hand-typed `localhost:<port>` tab and an agent's `browser_new_tab` share one origin and one cookie jar. The generated `*.localhost` service hostname is still what external browsers and public aliases use.

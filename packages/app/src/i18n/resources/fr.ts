@@ -145,6 +145,8 @@ export const fr: TranslationResources = {
       sendMessage: "Envoyer le message",
       longPressToQueue: "Appui long pour mettre en file d’attente",
       longPressToSendNow: "Appui long pour envoyer maintenant",
+      queueAfterTurn: "Mettre en file pour après ce tour",
+      sendNow: "Envoyer maintenant",
       queue: "Mettre en file d’attente",
       send: "Envoyer",
     },
@@ -261,6 +263,16 @@ export const fr: TranslationResources = {
       implement: "Implémenter",
       question: "Comment souhaitez-vous procéder ?",
       proposedPlan: "Plan proposé",
+    },
+  },
+  agentChatDisplay: {
+    rowLabel: "Affichage du chat",
+    followSettings: "Utiliser les réglages",
+    tooltipFollowingSettings: "Affichage du chat : {{mode}} (réglages)",
+    tooltipOverridden: "Affichage du chat : {{mode}} (cet agent)",
+    errors: {
+      disconnected: "Non connecté à l’hôte",
+      saveFailed: "Impossible d’enregistrer l’affichage du chat",
     },
   },
   agentPanel: {
@@ -737,6 +749,14 @@ export const fr: TranslationResources = {
       },
       menu: {
         openFor: "Ouvrir le menu de {{label}}",
+        bringToFront: {
+          label: "Premier plan",
+          default: "Par défaut",
+          defaultOn: "Par défaut (activé)",
+          defaultOff: "Par défaut (désactivé)",
+          always: "Toujours",
+          never: "Jamais",
+        },
         copyResumeCommand: "Copier la commande de reprise",
         copyAgentId: "Copier l’ID de l’agent",
         copyTerminalId: "Copier l’ID du terminal",
@@ -867,6 +887,7 @@ export const fr: TranslationResources = {
         chooseUrl: "Choisir l’URL",
         copyUrl: "Copier l’URL",
         openService: "Voir le service",
+        openPreview: "Ouvrir l’aperçu",
         restart: "Redémarrer",
         run: "Lancer",
         stop: "Arrêter",
@@ -875,6 +896,7 @@ export const fr: TranslationResources = {
       accessibility: {
         trigger: "Scripts de l’espace de travail",
         openService: "Voir le service {{scriptName}}",
+        openPreview: "Ouvrir l’aperçu de {{scriptName}}",
         viewTerminal: "Voir le terminal de {{scriptName}}",
         runScript: "Lancer le script {{scriptName}}",
         stopScript: "Arrêter {{scriptName}}",
@@ -1289,6 +1311,10 @@ export const fr: TranslationResources = {
     },
   },
   sidebar: {
+    bringToFront: {
+      onTooltip: "Mettre au premier plan : activé · cliquer pour désactiver",
+      offTooltip: "Mettre au premier plan : désactivé · cliquer pour activer",
+    },
     statusGroupAccessibility: "Groupe {{label}}",
     statusBucket: {
       needsInput: "Attend une réponse",

@@ -77,6 +77,28 @@ client heartbeats report getIsAppActivelyVisible() so fullscreen Space swipes (d
 npx vitest run packages/app/src/utils/app-visibility.test.ts --bail=1 -t "fullscreen Space swipe"
 ```
 
+## preload-window-focus-cache
+
+**the preload keeps one OS-focus cache for the window**
+
+`getIsAppActivelyVisible` falls back to `getCurrentWindow().isFocused()` when `document.hasFocus()` is false, so a webview guest holding focus still counts as in use. The fork's first version created the cache inside `getCurrentWindow()`, seeded `true`, and the renderer calls `getCurrentWindow()` on every check, so it always read the seed: a blurred window counted as focused, "Bring Paseo to the front" fired only when the document was hidden, and every call leaked a listener. The cache and its single listener now live at module scope in `packages/desktop/src/preload.ts`.
+
+```bash
+npm test --workspace=@getpaseo/desktop -- src/preload-window-focus.test.ts --bail=1
+```
+
+## bring-to-front-quick-toggle
+
+**"Bring Paseo to the front" has a sidebar toggle and a per-agent override**
+
+The desktop sidebar footer (`left-sidebar.tsx`) renders `SidebarBringToFrontToggle` before Help; it flips `attentionIntrusiveMode`, the setting under Settings → Permissions → Attention. Desktop agent tab menus (`workspace-tab-menu.ts`, rendered by `workspace-desktop-tabs-row.tsx`) carry an `agent-bring-to-front` entry for the Default / Always / Never submenu from `useAgentBringToFrontMenu`; the mobile tab menu never receives it and skips the kind. The planner applies the agent's override before the global setting. Why the override is device-local, and the behaviour rules, are in the [attention design](superpowers/specs/2026-07-26-intrusive-desktop-attention-design.md#per-agent-override-and-sidebar-toggle).
+
+```bash
+npm test --workspace=@getpaseo/app -- src/utils/attention-interrupt-plan.test.ts src/screens/workspace/workspace-tab-menu.test.ts --bail=1 -t "bring"
+grep -q '<SidebarBringToFrontToggle />' packages/app/src/components/left-sidebar.tsx
+grep -q 'entry.kind === "agent-bring-to-front"' packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
+```
+
 ## macos-focus-steal
 
 **macOS attention focus steals from other Spaces**
@@ -159,12 +181,29 @@ grep -q "useWorkspaceLoopbackOpener" packages/app/src/agent-stream/view.tsx
 
 **paseo.json services open in the Browser at their localhost route**
 
-The scripts menu and ports panel open a service in the Browser at `http://localhost:<port>/` (`resolveServiceBrowserUrl`), not at its generated `*.localhost` hostname, so it shares one origin with hand-typed and agent-opened localhost tabs. A selected public route stays public. `openServiceUrl` takes the in-app URL separately so external opens keep the selected route. The Browser toolbar's services menu and URL-bar chip are fork modules.
+The scripts menu and ports panel open a service in the Browser at `http://localhost:<port>/` (`resolveServiceBrowserUrl`), not at its generated `*.localhost` hostname, so it shares one origin with hand-typed and agent-opened localhost tabs. A selected public route stays public. `openServiceUrl` takes the in-app URL separately so external opens keep the selected route; the scripts menus reach it through `openService` in `use-workspace-script-actions.ts`. The Browser toolbar's services menu and URL-bar chip are fork modules, mounted by the Electron, Android and web panes alike.
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/utils/workspace-script-links.test.ts --bail=1
-grep -q "inAppUrl: resolveServiceBrowserUrl" packages/app/src/screens/workspace/scripts/workspace-scripts-button.tsx
+grep -q "inAppUrl: resolveServiceBrowserUrl" packages/app/src/screens/workspace/scripts/use-workspace-script-actions.ts
 grep -q "inAppUrl" packages/app/src/utils/open-service-url.ts
+grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/index.electron.tsx
+grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/index.android.tsx
+grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/web-toolbar.tsx
+```
+
+## service-main-preview
+
+**paseo.json marks one service as the workspace's main preview**
+
+`"preview": true` on a `"type": "service"` script makes it the main preview. `getScriptConfigs` keeps only a literal `true` on a service, first in file order, and the projection sends `preview: true` on that one payload (an optional wire field: older daemons omit it, which reads as no preview, so the app needs no capability gate). The app opens it from the header scripts button's Open preview half, the compact header menu's Open preview row and the top of the Browser's services menu, starting it first when it is stopped. Start-then-open lives in `packages/app/src/workspace-services/` so other viewers reuse it.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/script-status-projection.test.ts -t "main preview" --bail=1
+npm test --workspace=@getpaseo/app -- src/workspace-services/workspace-services.test.ts --bail=1
+grep -q "preview: z.boolean().optional()" packages/protocol/src/messages.ts
+grep -q "<PreviewSegment" packages/app/src/screens/workspace/scripts/workspace-scripts-button.tsx
+grep -q "scriptsMenu.previewItem" packages/app/src/screens/workspace/workspace-header-menu.tsx
 ```
 
 ## browser-open-on-this-computer
@@ -191,6 +230,32 @@ The tab, and the web Browser tab, read `urlOpeners` and `browserPreview` from th
 ```bash
 npx vitest run packages/app/src/panels/panel-manifest.test.ts packages/app/src/workspace-tabs/launcher/internal/catalog.test.ts --bail=1
 npm test --workspace=@getpaseo/app -- src/stores/server-info.test.ts --bail=1
+```
+
+## server-browser
+
+**an experimental daemon-run headless Chromium that agents drive and every client watches**
+
+Fork modules hold the feature (`packages/server/src/server/server-browser/`, `packages/protocol/src/server-browser/`, `packages/app/src/server-browser/`); official files only wire it in. Protocol: `messages.ts` spreads the `browser.server.*` schemas into the session unions, adds `features.serverBrowser` and the `serverBrowser` daemon config, and `binary-frames/demux.ts` decodes the Frame/FrameAck opcodes. Server: `bootstrap.ts` builds the broker through `createServerBrowser` (a `BrowserToolsBroker` subclass that routes new tabs to the server browser while the switch is on) and stops it on shutdown; `session.ts` dispatches the RPCs and the ack frame; `websocket-server.ts` advertises the feature; `config.ts`, `persisted-config.ts` and `daemon-config-store.ts` carry the switch; `operation-permissions.ts` maps every RPC. Client: `daemon-client.ts` routes frames by stream id. App: the `server_browser` tab kind (`model.ts`, `identity.ts`, `panel-manifest.ts`, `register-panels.ts`, `workspace-tab-menu.ts`), `workspace-screen.tsx` sends workspace URL opens to it and keeps its tabs in sync, and the Browser tools card renders the switch. See [Server browser](server-browser.md).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/router.test.ts packages/server/src/server/server-browser/screencast-hub.test.ts packages/server/src/server/server-browser/engine-sync.test.ts packages/server/src/server/server-browser/chromium-executable.test.ts packages/server/src/server/server-browser/config.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/server-browser/input.test.ts --bail=1
+grep -q "SERVER_BROWSER_INBOUND_SCHEMAS" packages/protocol/src/messages.ts
+grep -q 'kind: "server_browser"' packages/protocol/src/binary-frames/demux.ts
+grep -q "createServerBrowser" packages/server/src/server/bootstrap.ts
+grep -q "await stopServerBrowser()" packages/server/src/server/bootstrap.ts
+grep -q "requireServerBrowserSession().handle" packages/server/src/server/session.ts
+grep -q 'binaryFrame.kind === "server_browser"' packages/server/src/server/session.ts
+grep -q "serverBrowser: serverBrowserOf" packages/server/src/server/websocket-server.ts
+grep -q '"browser.server.input.request"' packages/server/src/server/authorization/operation-permissions.ts
+grep -q "observeServerBrowserScreencast" packages/client/src/daemon-client.ts
+grep -q "serverBrowserPanelRegistration" packages/app/src/panels/register-panels.ts
+grep -q "server_browser: {" packages/app/src/panels/panel-manifest.ts
+grep -q 'case "server_browser"' packages/app/src/workspace-tabs/identity.ts
+grep -q "openInServerBrowser(url)" packages/app/src/screens/workspace/workspace-screen.tsx
+grep -q "useServerBrowserSync(normalizedServerId)" packages/app/src/screens/workspace/workspace-screen.tsx
+grep -q "<ServerBrowserSettingsRow" packages/app/src/screens/settings/browser-tools-card.tsx
 ```
 
 ## guest-webview-focus
@@ -389,6 +454,39 @@ npm run test:unit --workspace=@getpaseo/server -- src/server/agent/providers/omp
 ```
 
 The omp suite runs through the server workspace on purpose: root `npx vitest` applies the 5s default timeout, and the prompt-rejection tests wait out the 5s no-turn settle window. The server config gives them 30s.
+
+## composer-alternate-send-button
+
+**the composer shows the alternate send action as a button beside Send**
+
+While a turn runs and the draft has content, a ghost button sits between Schedule and Send for the action that is not the default: "Queue for after this turn" (ListEnd icon) when the default steers or interrupts, "Send now" (Zap icon) when the default queues. Official only offers the alternate through Mod+Enter and a long-press on Send, and the long-press is announced only as an accessibility hint, so users with steer as the default never found the queue. The button hides when the agent is idle (queue and send are the same then) and when the draft is empty (Stop owns the slot). Its desktop tooltip names the shortcut. With the "Mod+Enter sends" setting, official had no alternate shortcut at all; the fork maps Mod+Shift+Enter to it, while Mod+Shift+Enter stays a no-op on an idle agent. The long-press on Send is unchanged. Schedule and the alternate button share the voice button's 28px circle (`toolbarIconButton`); Schedule's style names were never defined, so it rendered as a 16px tap target beside Send.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/composer/input/state.test.ts src/composer/input/labels.test.ts --bail=1
+grep -q 'testID="composer-alternate-send-button"' packages/app/src/composer/input/input.tsx
+grep -q 'queues a draft with the button beside Send' packages/app/e2e/browser/agent-message-submission.spec.ts
+```
+
+## older-page-reserves-head-ids
+
+**an older timeline page never reuses an id the live head holds**
+
+A reply split by tool calls keeps one message id across its segments. When the loaded window starts after the first segment, the segment streaming in the head takes the bare id; official then hydrated the older page that brings in the first segment with only the tail's ids reserved, so both rows got the same id and React warned "Encountered two children with the same key" on every render of a long turn after a reload. `applyAcceptedTimelinePage` reserves the head's ids as well.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/timeline/session-stream-reducers.test.ts -t "names an older segment of the live reply" --bail=1
+```
+
+## app-settings-cross-document
+
+**app settings follow a change made in another document without a reload**
+
+App settings load from storage once and are then served from the query cache (`staleTime: Infinity`). A change made in a second tab, or on a full-load Settings page the user went Back past, stayed invisible until a reload, so the composer kept the old Default send. On web, `syncAppSettingsAcrossDocuments` re-reads the settings on a `storage` event for the settings key and on a `pageshow` restored from the back-forward cache.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/hooks/use-settings/cross-document.test.ts --bail=1
+grep -q "syncAppSettingsAcrossDocuments" packages/app/src/hooks/use-settings/index.ts
+```
 
 ## workspace-mark-unread
 
@@ -917,7 +1015,7 @@ grep -q 'observeEvents(\["schedules.changed"\])' packages/app/src/runtime/fork-s
 
 **schedule a prompt on any running agent with one-shot timers or calendar cadences**
 
-The composer toolbar gains a Schedule prompt action (CalendarClock icon) beside the Send button. The schedule sheet supports one-shot timer presets ("In 15 minutes", "In 30 minutes", "In 1 hour", "In 2 hours", "In 4 hours", "Tomorrow 9:00") and custom cron, prefilled with the composer draft. On schedule, the composer clears, a confirmation toast appears, and the scheduled prompt appears in the Heartbeats / Scheduled Prompts track above the composer with countdown labels ("in 30m"). Scheduled prompts target the agent with `asUserMessage: true` and `maxRuns: 1`. On fire, the daemon delivers the prompt directly to the agent as a real user message (waiting if an active turn is in-flight) rather than wrapping it in a system notification envelope, so the user's prompt appears in the conversation timeline and the agent runs autonomously. Gated on `server_info.features.scheduledPrompt`.
+The composer toolbar gains a Schedule prompt action (CalendarClock icon) beside the Send button, shown once the draft has text (a schedule fires a prompt, so an empty draft has nothing to schedule; `shouldShowScheduleButton`). The schedule sheet supports one-shot timer presets ("In 15 minutes", "In 30 minutes", "In 1 hour", "In 2 hours", "In 4 hours", "Tomorrow 9:00") and custom cron, prefilled with the composer draft. On schedule, the composer clears, a confirmation toast appears, and the scheduled prompt appears in the Heartbeats / Scheduled Prompts track above the composer with countdown labels ("in 30m"). Scheduled prompts target the agent with `asUserMessage: true` and `maxRuns: 1`. On fire, the daemon delivers the prompt directly to the agent as a real user message (waiting if an active turn is in-flight) rather than wrapping it in a system notification envelope, so the user's prompt appears in the conversation timeline and the agent runs autonomously. Gated on `server_info.features.scheduledPrompt`.
 
 ```bash
 npx vitest run packages/protocol/src/schedule/cadence.test.ts packages/protocol/src/schedule/types.test.ts --bail=1
@@ -1262,4 +1360,61 @@ grep -q 'Command Center rows kept rendering' packages/app/e2e/support/helpers/co
 
 ```bash
 grep -q 'Traffic since the hold' packages/app/e2e/support/helpers/daemon-websocket-gate.ts
+```
+
+## release-targets
+
+**release tags build only the targets `RELEASE_TARGETS` enables: macOS Apple silicon and the Android APK by default**
+
+Official tags build every desktop platform, Docker, and npm. The fork's user ships macOS arm64 and the APK, and the Intel macOS leg (20 to 28 minutes) lost its runner on a release and left the whole release a draft. `scripts/release-targets.mjs` resolves the variable, a dispatch's `targets` input, or the platform a tag or dispatch names, and every tag-triggered job checks its output before a runner starts. `finalize-rollout` expects manifests only for enabled desktop platforms, `merge-mac-manifest.mjs` takes one manifest per built arch, and a run with no desktop target publishes the release without manifests. The `changes` job runs the workflow contract tests without dependencies, so those tests stub the js-yaml scripts; the `typecheck` job runs the real manifest merge and validation tests. [fork-release.md](fork-release.md#release-targets) owns the target names and how to enable one. The proof runs the real finalize step against a stub `gh`.
+
+```bash
+node --test --test-name-pattern "RELEASE_TARGETS|release target|finalize|preserving release architectures" scripts/ci-workflow.test.mjs
+npx vitest run scripts/merge-mac-manifest.test.mjs scripts/validate-desktop-manifests.test.mjs --bail=1
+grep -q 'npx vitest run scripts/merge-mac-manifest.test.mjs' .github/workflows/ci.yml
+```
+
+## list-commands-daemon-deadline
+
+**the daemon answers a command list within 10 s**
+
+`list_commands_request` loads the agent (which can resume its provider) and asks the provider for its commands; Claude starts its CLI process for that, and a draft creates a whole provider session. None of it was bounded, so a stalled provider left the request unanswered and the composer's `/` popover silent until the client's 60 s RPC timeout. Loading and listing now run under one 10 s deadline (`LIST_COMMANDS_TIMEOUT_MS` in `session.ts`); past it the daemon replies with a "timed out" error the composer shows and retries.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session.test.ts -t "never finishes listing commands" --bail=1
+```
+
+## list-commands-client-deadline
+
+**the client gives up on a command list after 15 s**
+
+`DaemonClient.listCommands` used the 60 s session RPC default. With the daemon answering within 10 s (`list-commands-daemon-deadline`), a reply that has not arrived by 15 s is lost, so the client rejects then and the composer's query retries, instead of holding the popover for a minute. `composer-autocomplete.spec.ts` failed attempt 1 this way on `main` and branches from 2026-11-03: a command request with no reply inside the test's 30 s.
+
+```bash
+npx vitest run packages/client/src/daemon-client.test.ts --bail=1 -t "bounds the wait for a command list"
+```
+
+## composer-commands-loading-and-retry
+
+**the `/` popover opens while the agent's command list is slow, and retries a failed one on open**
+
+Upstream hides the popover while the command list loads, so a loading row does not flash before the list. A load that outlasts a moment then looked like no popover at all, for as long as the host took, even though the app's own commands (`/clear`, `/exit`) were ready. The popover now stays hidden only for the first 300 ms of a load (`COMMANDS_LOADING_GRACE_MS`), then opens with the commands it has, or "Loading commands..." when it has none. A list whose fetch failed (retries exhausted) stayed failed until the agent panel remounted; typing `/` now fetches it again (`useRefetchFailedCommandsOnOpen`). The "Composer command list availability" tests in `composer-autocomplete.spec.ts` hold and fail the daemon's reply to prove both; they fail without this change.
+
+```bash
+grep -q 'COMMANDS_LOADING_GRACE_MS' packages/app/src/hooks/use-agent-autocomplete.ts && grep -q 'useRefetchFailedCommandsOnOpen' packages/app/src/hooks/use-agent-autocomplete.ts
+```
+
+## agent-chat-display-override
+
+**an agent can override the Settings chat display, from the pane toolbar or the compact menu**
+
+Settings › Chat › Chat display (full, collapse tool calls, collapse turns) applies to every chat. Each agent can now pick its own mode, or follow Settings. On wide layouts the pane toolbar carries a menu button next to maximize while the pane shows an agent: its glyph is the mode the chat renders, its tooltip names the mode and whether it comes from Settings or from this agent, and it reads as pressed while the agent has its own choice. Compact layouts have no pane toolbar, so the workspace ⋯ menu carries a `Chat display  <mode> ›` row, dotted while the agent has its own choice, leading to a page with the same options. The row is its own group between the workspace actions and the terminal profiles: the plugin rows and workspace actions keep their order above it, which `e2e/browser/plugin-buttons.spec.ts` asserts row by row. Both surfaces render `AgentChatDisplayOptions` (`packages/app/src/chat-display/`), with `Use Settings` first and the Settings value under it, so the way back is the first row.
+
+The choice is the agent label `paseo.chat-display`, written with `update_agent`. A label lives in the daemon with the agent, reaches every device through the agent's own updates, and goes when the agent goes, and every daemon already accepts it, so the feature needs no protocol change and no `server_info.features` gate. The fork's `ui_state` store was the other candidate and was rejected: it would need a new namespace, and older apps fail validation on any `ui_state.updated` carrying a namespace they don't know, which breaks the protocol contract. Wire labels can't delete a key, so following Settings writes an empty value, and the app reads any value that isn't a mode as following Settings.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/chat-display/agent-override.test.ts --bail=1
+grep -q "useAgentChatDisplay(serverId, agentId).effective" packages/app/src/agent-stream/view.tsx
+grep -q "<AgentChatDisplayToolbarButton" packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
+grep -q "chatDisplayMenu.trigger" packages/app/src/screens/workspace/workspace-header-menu.tsx
 ```

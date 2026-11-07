@@ -184,4 +184,22 @@ describe("getCachedGatewayQuota", () => {
     await getCachedGatewayQuota(options, () => now);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  test("reads again past a caller's maxAgeMs, inside the shared TTL", async () => {
+    let now = 1_000_000;
+    const fetchImpl = vi.fn(async () => quotaResponse([]));
+    const options = { baseUrl: "http://gateway:8317", token: "sk-test", model: "m", fetchImpl };
+    await getCachedGatewayQuota(options, () => now);
+
+    now += 9_000;
+    await getCachedGatewayQuota({ ...options, maxAgeMs: 10_000 }, () => now);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    now += 2_000;
+    await getCachedGatewayQuota({ ...options, maxAgeMs: 10_000 }, () => now);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    // The fresh read refills the cache for everyone.
+    await getCachedGatewayQuota(options, () => now);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
 });

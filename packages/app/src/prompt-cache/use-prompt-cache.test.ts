@@ -246,6 +246,41 @@ describe("resolvePromptCacheView on a host that warms through a fork", () => {
   });
 });
 
+describe("resolvePromptCacheView while the serving account is blocked", () => {
+  it("says warm-up is paused for the account, on the ping and the fork path alike", () => {
+    const pause = {
+      reason: "cooldown",
+      account: "u***a@example.com",
+      until: "2026-10-27T10:30:00Z",
+    };
+    const agent = claudeAgent({
+      ttl: "5m",
+      promptCache: promptCacheAt(NOW - 40 * SECOND),
+      cacheWarmPause: pause,
+    });
+    expect(resolvePromptCacheView(agent, NOW).warmup?.plan).toEqual({
+      kind: "paused-account",
+      pause,
+    });
+    expect(resolvePromptCacheView(agent, NOW, { forkWarm: true }).warmup?.plan).toEqual({
+      kind: "paused-account",
+      pause,
+    });
+    // The cache itself still counts down; only warm-up stopped.
+    expect(resolvePromptCacheView(agent, NOW).status.kind).toBe("warm");
+  });
+
+  it("keeps the off switch above the pause", () => {
+    const agent = claudeAgent({
+      ttl: "5m",
+      cacheWarm: false,
+      promptCache: promptCacheAt(NOW - 40 * SECOND),
+      cacheWarmPause: { reason: "quota", account: "u***a@example.com" },
+    });
+    expect(resolvePromptCacheView(agent, NOW).warmup?.plan).toEqual({ kind: "off" });
+  });
+});
+
 describe("clearing the red miss count", () => {
   function withMisses(id: string, misses: number, clearedAt?: number) {
     const promptCache: AgentPromptCacheState = {

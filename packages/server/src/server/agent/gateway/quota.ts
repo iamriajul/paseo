@@ -25,6 +25,7 @@ const GatewayQuotaAccountPayloadSchema = z.object({
   type: z.enum(["oauth", "api"]),
   plan: z.string().optional(),
   in_cooldown: z.boolean(),
+  cooldown_until: z.string().optional(),
   windows_observed_at: z.string().optional(),
   windows: z.array(GatewayQuotaWindowPayloadSchema),
   reset_credits: z.array(GatewayQuotaResetCreditPayloadSchema).optional(),
@@ -54,6 +55,8 @@ export interface GatewayQuotaAccount {
   type: "oauth" | "api";
   plan?: string;
   inCooldown: boolean;
+  /** When the cooldown ends, on Gateways that report it. */
+  cooldownUntil?: string;
   windowsObservedAt?: string;
   windows: GatewayQuotaWindow[];
   resetCredits?: GatewayQuotaResetCredit[];
@@ -109,6 +112,7 @@ function mapQuotaAccount(
   account: z.infer<typeof GatewayQuotaAccountPayloadSchema>,
 ): GatewayQuotaAccount {
   const windowsObservedAt = readTimestamp(account.windows_observed_at);
+  const cooldownUntil = readTimestamp(account.cooldown_until);
   const resetCredits = (account.reset_credits ?? [])
     .map((credit) => readTimestamp(credit.expires_at))
     .filter((expiresAt): expiresAt is string => expiresAt !== undefined)
@@ -120,6 +124,7 @@ function mapQuotaAccount(
     type: account.type,
     ...(account.plan ? { plan: account.plan } : {}),
     inCooldown: account.in_cooldown,
+    ...(cooldownUntil === undefined ? {} : { cooldownUntil }),
     ...(windowsObservedAt === undefined ? {} : { windowsObservedAt }),
     windows: account.windows.map((window) => {
       const usedPct = readPercent(window.used_percent);
@@ -161,6 +166,7 @@ function buildGatewayQuotaUrl(baseUrl: string, model?: string): string | null {
 
 interface GatewayQuotaCacheEntry {
   result: GatewayQuotaResult;
+  fetchedAt: number;
   expiresAt: number;
 }
 
@@ -177,19 +183,27 @@ export function clearGatewayQuotaCache(): void {
  * unsupported outcomes cache briefly; concurrent callers share one flight.
  */
 export async function getCachedGatewayQuota(
-  options: FetchGatewayQuotaOptions,
+  options: FetchGatewayQuotaOptions & { maxAgeMs?: number },
   now: () => number = Date.now,
 ): Promise<GatewayQuotaResult> {
   const key = `${options.baseUrl.trim()} ${options.model.trim()}`;
   const cached = quotaCache.get(key);
-  if (cached && now() < cached.expiresAt) return cached.result;
+  // `maxAgeMs` tightens the cache for a caller that acts on the answer (the warm-up check).
+  if (
+    cached &&
+    now() < cached.expiresAt &&
+    (options.maxAgeMs === undefined || now() - cached.fetchedAt < options.maxAgeMs)
+  ) {
+    return cached.result;
+  }
 
   const inflight = quotaInflight.get(key);
   if (inflight) return inflight;
 
   const pending = fetchGatewayQuota(options).then((result) => {
     quotaInflight.delete(key);
-    quotaCache.set(key, { result, expiresAt: now() + GATEWAY_QUOTA_CACHE_TTL_MS });
+    const fetchedAt = now();
+    quotaCache.set(key, { result, fetchedAt, expiresAt: fetchedAt + GATEWAY_QUOTA_CACHE_TTL_MS });
     return result;
   });
   quotaInflight.set(key, pending);

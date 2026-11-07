@@ -147,6 +147,7 @@ import {
   type AgentPermissionResponse,
   type AgentRunOptions,
   type AgentSessionConfig,
+  type AgentSlashCommand,
 } from "./agent/agent-sdk-types.js";
 import type { StoredAgentRecord } from "./agent/agent-storage.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
@@ -241,6 +242,7 @@ import {
   type AgentUpdatesService,
 } from "./session/agent-updates/agent-updates-service.js";
 import { expandTilde } from "../utils/path.js";
+import { withTimeout } from "../utils/promise-timeout.js";
 import {
   searchDirectoryEntries,
   WORKSPACE_SEARCH_HIDDEN_DIRECTORIES,
@@ -767,6 +769,11 @@ interface ClientActivity {
   appVisible: boolean;
   appVisibilityChangedAt: Date;
 }
+
+// Command discovery can start a provider process. Bound it so the composer always gets an
+// answer it can show, an error included, instead of waiting out the client's RPC timeout.
+export const LIST_COMMANDS_TIMEOUT_MS = 10_000;
+const LIST_COMMANDS_TIMEOUT_MESSAGE = `Listing commands timed out after ${LIST_COMMANDS_TIMEOUT_MS / 1000}s`;
 
 export class Session {
   private readonly connectedHostSession: ConnectedHostSession | null;
@@ -5828,77 +5835,58 @@ export class Session {
       `Handling list commands request for agent ${agentId}`,
     );
 
+    let result: { commands: AgentSlashCommand[]; error: string | null };
     try {
-      const existing = this.agentManager.getAgent(agentId);
-      const stored = existing ? null : await this.agentStorage.get(agentId);
-      const agent =
-        existing || (stored && !stored.archivedAt)
-          ? await ensureAgentLoaded(agentId, {
-              agentManager: this.agentManager,
-              agentStorage: this.agentStorage,
-              logger: this.sessionLogger,
-            })
-          : null;
-
-      if (agent?.session?.listCommands) {
-        const commands = await agent.session.listCommands();
-        this.emit({
-          type: "list_commands_response",
-          payload: {
-            agentId,
-            commands,
-            error: null,
-            requestId,
-          },
-        });
-        return;
-      }
-
-      if (!agent && draftConfig) {
-        const sessionConfig: AgentSessionConfig = {
-          provider: draftConfig.provider,
-          cwd: expandTilde(draftConfig.cwd),
-          ...(draftConfig.modeId ? { modeId: draftConfig.modeId } : {}),
-          ...(draftConfig.model ? { model: draftConfig.model } : {}),
-          ...(draftConfig.thinkingOptionId
-            ? { thinkingOptionId: draftConfig.thinkingOptionId }
-            : {}),
-        };
-
-        const commands = await this.agentManager.listDraftCommands(sessionConfig);
-        this.emit({
-          type: "list_commands_response",
-          payload: {
-            agentId,
-            commands,
-            error: null,
-            requestId,
-          },
-        });
-        return;
-      }
-
-      this.emit({
-        type: "list_commands_response",
-        payload: {
-          agentId,
-          commands: [],
-          error: agent ? `Agent does not support listing commands` : `Agent not found: ${agentId}`,
-          requestId,
-        },
-      });
+      result = await withTimeout(
+        this.listCommandsForRequest(msg),
+        LIST_COMMANDS_TIMEOUT_MS,
+        LIST_COMMANDS_TIMEOUT_MESSAGE,
+      );
     } catch (error) {
       this.sessionLogger.error({ err: error, agentId, draftConfig }, "Failed to list commands");
-      this.emit({
-        type: "list_commands_response",
-        payload: {
-          agentId,
-          commands: [],
-          error: getErrorMessage(error),
-          requestId,
-        },
-      });
+      result = { commands: [], error: getErrorMessage(error) };
     }
+    this.emit({
+      type: "list_commands_response",
+      payload: { agentId, commands: result.commands, error: result.error, requestId },
+    });
+  }
+
+  /** Loading the agent can resume its provider, so the caller bounds this as a whole. */
+  private async listCommandsForRequest(
+    msg: Extract<SessionInboundMessage, { type: "list_commands_request" }>,
+  ): Promise<{ commands: AgentSlashCommand[]; error: string | null }> {
+    const { agentId, draftConfig } = msg;
+    const existing = this.agentManager.getAgent(agentId);
+    const stored = existing ? null : await this.agentStorage.get(agentId);
+    const agent =
+      existing || (stored && !stored.archivedAt)
+        ? await ensureAgentLoaded(agentId, {
+            agentManager: this.agentManager,
+            agentStorage: this.agentStorage,
+            logger: this.sessionLogger,
+          })
+        : null;
+
+    if (agent?.session?.listCommands) {
+      return { commands: await agent.session.listCommands(), error: null };
+    }
+
+    if (!agent && draftConfig) {
+      const sessionConfig: AgentSessionConfig = {
+        provider: draftConfig.provider,
+        cwd: expandTilde(draftConfig.cwd),
+        ...(draftConfig.modeId ? { modeId: draftConfig.modeId } : {}),
+        ...(draftConfig.model ? { model: draftConfig.model } : {}),
+        ...(draftConfig.thinkingOptionId ? { thinkingOptionId: draftConfig.thinkingOptionId } : {}),
+      };
+      return { commands: await this.agentManager.listDraftCommands(sessionConfig), error: null };
+    }
+
+    return {
+      commands: [],
+      error: agent ? `Agent does not support listing commands` : `Agent not found: ${agentId}`,
+    };
   }
 
   /**

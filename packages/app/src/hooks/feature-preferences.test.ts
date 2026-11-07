@@ -33,6 +33,16 @@ describe("feature-preferences", () => {
     });
   });
 
+  it("sends only the draft's own values while the feature list is unknown", () => {
+    expect(
+      resolveFeatureValues({
+        features: null,
+        persistedFeatureValues: { plan_mode: true },
+        localFeatureValues: { fast_mode: true },
+      }),
+    ).toEqual({ fast_mode: true });
+  });
+
   it("prefers local values over persisted values", () => {
     expect(
       resolveFeatureValues({

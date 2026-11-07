@@ -435,8 +435,9 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
 
   const applyDraftAgentProfile = useCallback(
     (profile: Parameters<typeof formState.applyProfileFromUser>[0]) => {
-      formState.applyProfileFromUser(profile);
-      applyProfileFeatureValues(profile.featureValues);
+      if (formState.applyProfileFromUser(profile)) {
+        applyProfileFeatureValues(profile.provider, profile.featureValues);
+      }
     },
     [applyProfileFeatureValues, formState],
   );

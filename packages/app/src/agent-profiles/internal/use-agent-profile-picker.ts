@@ -37,7 +37,15 @@ export interface AgentProfilePickerRow {
   name: string;
   /** "Claude Code · Opus 5 · Plan · Think hard" */
   summary: string;
+  /** Whether the profile can apply now; any other state shows the row disabled. */
+  availability: ProfileProviderAvailability;
 }
+
+/**
+ * `loading` is a provider that will become ready; `unavailable` is one in an error or
+ * unavailable state, which needs the user to act before it can take a profile.
+ */
+export type ProfileProviderAvailability = "ready" | "loading" | "unavailable";
 
 export interface AgentProfilePicker {
   rows: AgentProfilePickerRow[];
@@ -53,6 +61,12 @@ export interface UseAgentProfilePickerInput {
    * the draft form ignores a provider the host does not offer.
    */
   availableProviders: readonly string[];
+  /**
+   * Offered providers that cannot take a profile now, keyed to why; a provider missing here is
+   * ready. Pass a stable reference. Their rows stay in the list, disabled, so the picker's
+   * layout does not change under the user and a press is never dropped silently.
+   */
+  notReadyProviders?: ReadonlyMap<string, Exclude<ProfileProviderAvailability, "ready">>;
   target: AgentProfileApplyTarget;
 }
 
@@ -65,7 +79,7 @@ export interface UseAgentProfilePickerInput {
 export function useAgentProfilePicker(
   input: UseAgentProfilePickerInput,
 ): AgentProfilePicker | null {
-  const { serverId, availableProviders, target } = input;
+  const { serverId, availableProviders, notReadyProviders, target } = input;
   const { t } = useTranslation();
   const { profiles, isSupported } = useAgentProfiles(serverId);
   // Profiles are host config, so their labels read from the host-wide catalog
@@ -104,8 +118,9 @@ export function useAgentProfilePicker(
         summary: buildAgentProfileTags({ profile, entries, formatFeatureCount })
           .map((tag) => tag.label)
           .join(" · "),
+        availability: notReadyProviders?.get(profile.provider) ?? "ready",
       })),
-    [applicableProfiles, entries, formatFeatureCount],
+    [applicableProfiles, entries, formatFeatureCount, notReadyProviders],
   );
 
   const persistSelection = useCallback(

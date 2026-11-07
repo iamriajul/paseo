@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { AgentProvider, AgentSessionConfig } from "@getpaseo/protocol/agent-types";
@@ -9,6 +9,17 @@ import {
   pruneFeatureValues,
   resolveFeatureValues,
 } from "./feature-preferences";
+
+// Values the user (or an applied profile) chose in this draft, tagged with the provider they
+// were chosen for. A provider switch makes them inapplicable instead of erasing them, so a
+// profile that switches provider and sets its values in one handler keeps them. `null` adopts
+// the first provider the draft resolves to (restored values arrive before the provider does).
+interface LocalFeatureValues {
+  provider: AgentProvider | null;
+  values: Record<string, unknown>;
+}
+
+const NO_FEATURE_VALUES: Record<string, unknown> = {};
 
 type DraftFeatureConfig = Pick<
   AgentSessionConfig,
@@ -27,15 +38,19 @@ export function useDraftAgentFeatures(input: {
   const { t } = useTranslation();
   const { serverId, provider, cwd, modeId, modelId, thinkingOptionId, initialFeatureValues } =
     input;
-  const [localFeatureValues, setLocalFeatureValues] = useState<Record<string, unknown>>(
-    () => initialFeatureValues ?? {},
-  );
+  const [localState, setLocalState] = useState<LocalFeatureValues>(() => ({
+    provider: null,
+    values: initialFeatureValues ?? {},
+  }));
   const client = useHostRuntimeClient(serverId ?? "");
   const isConnected = useHostRuntimeIsConnected(serverId ?? "");
   const { preferences, updatePreferences } = useFormPreferences();
   const normalizedCwd = cwd?.trim() || "";
   const normalizedProvider = provider ?? null;
-  const previousProviderRef = useRef<AgentProvider | null>(normalizedProvider);
+  const localFeatureValues =
+    localState.provider === null || localState.provider === normalizedProvider
+      ? localState.values
+      : NO_FEATURE_VALUES;
   const persistedFeatureValues = useMemo(
     () => (provider ? (preferences.providerPreferences?.[provider]?.featureValues ?? {}) : {}),
     [preferences.providerPreferences, provider],
@@ -105,11 +120,11 @@ export function useDraftAgentFeatures(input: {
   const featureValues = useMemo(
     () =>
       resolveFeatureValues({
-        features: availableFeatures,
+        features: availableFeaturesRaw ?? null,
         persistedFeatureValues,
         localFeatureValues,
       }),
-    [availableFeatures, localFeatureValues, persistedFeatureValues],
+    [availableFeaturesRaw, localFeatureValues, persistedFeatureValues],
   );
 
   const features = useMemo(() => {
@@ -117,14 +132,18 @@ export function useDraftAgentFeatures(input: {
   }, [availableFeatures, featureValues]);
 
   useEffect(() => {
-    const previousProvider = previousProviderRef.current;
-    previousProviderRef.current = normalizedProvider;
-    if (previousProvider === null) {
+    if (normalizedProvider === null) {
       return;
     }
-    if (previousProvider !== normalizedProvider) {
-      setLocalFeatureValues({});
-    }
+    setLocalState((current) => {
+      if (current.provider === normalizedProvider) {
+        return current;
+      }
+      return {
+        provider: normalizedProvider,
+        values: current.provider === null ? current.values : {},
+      };
+    });
   }, [normalizedProvider]);
 
   useEffect(() => {
@@ -135,28 +154,30 @@ export function useDraftAgentFeatures(input: {
     }
     const next = pruneFeatureValues(localFeatureValues, availableFeatures);
     if (next !== localFeatureValues) {
-      setLocalFeatureValues(next);
+      setLocalState({ provider: normalizedProvider, values: next });
     }
   }, [
     availableFeatures,
     availableFeaturesRaw,
     featuresQuery.isPlaceholderData,
     localFeatureValues,
+    normalizedProvider,
   ]);
 
   const effectiveFeatureValues = Object.keys(featureValues).length > 0 ? featureValues : undefined;
   const setFeatureValue = useCallback(
     (featureId: string, value: unknown) => {
-      setLocalFeatureValues((current) => {
-        if (Object.is(current[featureId], value)) {
-          return current;
-        }
-
-        return { ...current, [featureId]: value };
-      });
       if (!provider) {
         return;
       }
+      setLocalState((current) => {
+        const values = current.provider === provider ? current.values : {};
+        if (current.provider === provider && Object.is(values[featureId], value)) {
+          return current;
+        }
+
+        return { provider, values: { ...values, [featureId]: value } };
+      });
       void updatePreferences((current) =>
         mergeProviderPreferences({
           preferences: current,
@@ -174,9 +195,12 @@ export function useDraftAgentFeatures(input: {
     [provider, updatePreferences],
   );
 
-  const applyProfileFeatureValues = useCallback((values: Record<string, unknown>) => {
-    setLocalFeatureValues(values);
-  }, []);
+  const applyProfileFeatureValues = useCallback(
+    (profileProvider: AgentProvider, values: Record<string, unknown>) => {
+      setLocalState({ provider: profileProvider, values });
+    },
+    [],
+  );
 
   return {
     features,

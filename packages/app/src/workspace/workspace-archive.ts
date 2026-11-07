@@ -1,3 +1,4 @@
+import { DaemonConnectionError } from "@getpaseo/client/internal/daemon-client";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import {
   clearWorkspaceArchivePending,
@@ -69,6 +70,21 @@ function restoreOptimisticallyHiddenWorkspace(input: {
   }
 }
 
+/**
+ * Whether the daemon may have archived the workspace even though this call failed.
+ *
+ * The daemon writes the archived record within seconds, then keeps the request open
+ * while it removes the worktree, which can outlast the client's request timeout. The
+ * daemon already sent the workspace removal on its sequenced update stream, so the
+ * directory sync never removes a row put back locally: restoring here resurrects the
+ * workspace until the next full snapshot. Leave it to the daemon's updates instead; if
+ * the archive failed, the daemon re-sends the workspace when it clears the archiving state.
+ */
+function mayHaveReachedDaemon(error: unknown): boolean {
+  if (!(error instanceof DaemonConnectionError)) return false;
+  return error.code === "DAEMON_REQUEST_TIMEOUT" || error.outcome === "unknown";
+}
+
 async function archiveWorkspaceOrThrow(input: {
   client: WorkspaceArchiveClient;
   workspaceId: string;
@@ -91,11 +107,18 @@ export async function archiveWorkspaceOptimistically(input: {
       workspaceId: input.workspace.workspaceId,
     });
   } catch (error) {
-    restoreOptimisticallyHiddenWorkspace({
-      serverId: input.workspace.serverId,
-      workspaceId: input.workspace.workspaceId,
-      snapshot,
-    });
+    if (mayHaveReachedDaemon(error)) {
+      clearWorkspaceArchivePending({
+        serverId: input.workspace.serverId,
+        workspaceId: input.workspace.workspaceId,
+      });
+    } else {
+      restoreOptimisticallyHiddenWorkspace({
+        serverId: input.workspace.serverId,
+        workspaceId: input.workspace.workspaceId,
+        snapshot,
+      });
+    }
     throw error;
   }
 }

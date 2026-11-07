@@ -1136,3 +1136,13 @@ A worker's first test failed now and then with `SyntaxError: The requested modul
 ```bash
 grep -q 'external: \["\*\*/packages/\*/dist/\*\*"\]' packages/app/playwright.config.ts
 ```
+
+## workspace-archive-timeout-keeps-hidden
+
+**A timed-out workspace archive does not put the workspace back in the list**
+
+Archived workspaces came back in the sidebar and stayed there. The daemon writes the archived record within seconds, then keeps `archive_workspace_request` open while it refreshes git and removes the worktree; on a busy host that took 78 s to 6 min (daemon log, 2026-11-06), past the client's 60 s request timeout. Upstream then restored the row from its local snapshot. The daemon had already sent the removal on its sequenced update stream and does not send it again, so delta resyncs never removed the restored row, and the directory cache kept it across reloads. `archiveWorkspaceOptimistically` now restores only when the daemon answered with an error or the request never left the app. On a timeout or a connection lost after sending, it clears the pending mark and lets the daemon's updates decide: a failed archive re-sends the workspace when the daemon clears its archiving state.
+
+```bash
+npx vitest run --root packages/app src/workspace/workspace-archive.test.ts --bail=1 -t "keeps the workspace hidden"
+```

@@ -1254,6 +1254,9 @@ function toTimeoutError(error: unknown, label: string, timeoutMs: number): Error
 const DEFAULT_RECONNECT_BASE_DELAY_MS = 1500;
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 30000;
 const DEFAULT_SESSION_RPC_TIMEOUT_MS = 60_000;
+// The daemon answers a command list within 10 s, with an error if discovery stalls. Past that
+// the reply is lost, so give up early and let the caller retry rather than wait a minute.
+const LIST_COMMANDS_TIMEOUT_MS = 15_000;
 const PUSH_TOKEN_REVOCATION_TIMEOUT_MS = 2_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 const DEFAULT_LIVENESS_TIMEOUT_MS = 5000;
@@ -6807,6 +6810,7 @@ export class DaemonClient {
         ...(options.draftConfig ? { draftConfig: options.draftConfig } : {}),
       },
       responseType: "list_commands_response",
+      timeout: LIST_COMMANDS_TIMEOUT_MS,
     });
   }
 

@@ -191,6 +191,73 @@ export const ServerBrowserInputResponseSchema = z.object({
   payload: z.object({ requestId: z.string(), error: ErrorField }),
 });
 
+/**
+ * The element a user picked in annotate mode, field for field the selector script's
+ * selection (packages/server/src/server/browser-preview/inject/selector-script.ts), which is
+ * the app's BrowserElementSelection.
+ */
+export const ServerBrowserElementSelectionSchema = z.object({
+  tag: z.string(),
+  text: z.string(),
+  selector: z.string(),
+  url: z.string(),
+  outerHTML: z.string(),
+  computedStyles: z.record(z.string(), z.string()),
+  boundingRect: z.object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number(),
+    height: z.number(),
+  }),
+  reactSource: z
+    .object({
+      fileName: z.string().nullable(),
+      lineNumber: z.number().nullable(),
+      columnNumber: z.number().nullable(),
+      componentName: z.string().nullable(),
+    })
+    .nullable(),
+  parentChain: z.array(z.string()),
+  children: z.array(z.string()),
+});
+export type ServerBrowserElementSelection = z.infer<typeof ServerBrowserElementSelectionSchema>;
+
+// Annotate element. Gated on server_info.features.serverBrowserAnnotate.
+// start arms the picker in the page and answers when the user picks or cancels, so it stays
+// pending while the user points. Pointer moves and the click travel as ordinary input requests.
+export const ServerBrowserTabAnnotateStartRequestSchema = z.object({
+  type: z.literal("browser.server.tab.annotate.start.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+});
+export const ServerBrowserTabAnnotateStartResponseSchema = z.object({
+  type: z.literal("browser.server.tab.annotate.start.response"),
+  payload: z.object({
+    requestId: z.string(),
+    outcome: z.enum(["selected", "cancelled"]).optional(),
+    selection: ServerBrowserElementSelectionSchema.optional(),
+    /** The element's visible part, cropped by the daemon. Absent when it is off screen. */
+    screenshot: z
+      .object({
+        /** Base64 PNG. */
+        data: z.string(),
+        mimeType: z.literal("image/png"),
+      })
+      .optional(),
+    error: ErrorField,
+  }),
+});
+
+export const ServerBrowserTabAnnotateCancelRequestSchema = z.object({
+  type: z.literal("browser.server.tab.annotate.cancel.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+});
+export const ServerBrowserTabAnnotateCancelResponseSchema = z.object({
+  type: z.literal("browser.server.tab.annotate.cancel.response"),
+  payload: z.object({ requestId: z.string(), error: ErrorField }),
+});
+
 export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabsSubscribeRequestSchema,
   ServerBrowserTabOpenRequestSchema,
@@ -200,6 +267,8 @@ export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserWorkspaceClearDataRequestSchema,
   ServerBrowserScreencastStartRequestSchema,
   ServerBrowserInputRequestSchema,
+  ServerBrowserTabAnnotateStartRequestSchema,
+  ServerBrowserTabAnnotateCancelRequestSchema,
 ] as const;
 
 export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
@@ -212,4 +281,6 @@ export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
   ServerBrowserWorkspaceClearDataResponseSchema,
   ServerBrowserScreencastStartResponseSchema,
   ServerBrowserInputResponseSchema,
+  ServerBrowserTabAnnotateStartResponseSchema,
+  ServerBrowserTabAnnotateCancelResponseSchema,
 ] as const;

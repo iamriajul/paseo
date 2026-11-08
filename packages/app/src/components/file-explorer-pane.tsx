@@ -71,7 +71,7 @@ import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
 import { buildWorkspaceExplorerStateKey } from "@/hooks/use-file-explorer-actions";
 import { usePanelStore, type ExpandedPathsUpdate, type SortOption } from "@/stores/panel-store";
-import { buildAbsoluteExplorerPath } from "@/utils/explorer-paths";
+import { buildAbsoluteExplorerPath, parentExplorerPath } from "@/utils/explorer-paths";
 import { isHiddenExplorerPath } from "@/file-explorer/visibility";
 import {
   flattenExplorerTree,
@@ -79,6 +79,7 @@ import {
   restoreExpandedDirectories,
   setExpandedDirectoryPath,
   showHiddenFilesAndRestoreExpandedDirectories,
+  sortedExplorerDirectoryEntries,
   type ExplorerTreeRow,
 } from "@/file-explorer/tree";
 import { useWorkspaceFileDragSource } from "@/attachments/use-workspace-file-drag-source";
@@ -101,6 +102,14 @@ import {
 import { openDesktopTarget, useDesktopOpenTargets } from "@/workspace/desktop-open-targets";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { useOpenDirectoryInEditor } from "@/workspace/open-in-editor/directory";
+import { FilesGrid } from "@/file-explorer/folders/grid";
+import {
+  defaultFilesViewMode,
+  type FilesGridSize,
+  type FilesViewMode,
+} from "@/file-explorer/folders/model";
+import { FilesGridSizeMenu, FilesViewModeButton } from "@/file-explorer/folders/view-controls";
+import { filesFolderKey, useFilesViewStore } from "@/file-explorer/folders/view-store";
 
 const SORT_OPTIONS: { value: SortOption }[] = [
   { value: "name" },
@@ -426,6 +435,11 @@ interface FileExplorerPaneProps {
   onOpenFile?: (filePath: string) => void;
   onOpenFileToSide?: (filePath: string) => void;
   onAddToChat?: (path: string) => void;
+  /**
+   * A folder outside the workspace: browse and preview only. The daemon refuses changes there
+   * too; this just keeps the controls from being offered.
+   */
+  readOnly?: boolean;
 }
 
 export function FileExplorerPane({
@@ -435,6 +449,7 @@ export function FileExplorerPane({
   onOpenFile,
   onOpenFileToSide,
   onAddToChat,
+  readOnly = false,
 }: FileExplorerPaneProps) {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
@@ -485,17 +500,20 @@ export function FileExplorerPane({
     projectId,
   });
   // COMPAT(fsEntryOps): added in v0.3.0, remove gate after 2027-02-08.
-  const fsEntryOpsEnabled = useSessionStore(
-    (state) => state.sessions[serverId]?.serverInfo?.features?.fsEntryOps === true,
-  );
+  const fsEntryOpsEnabled =
+    useSessionStore(
+      (state) => state.sessions[serverId]?.serverInfo?.features?.fsEntryOps === true,
+    ) && !readOnly;
   // COMPAT(fsEntryDuplicate): added in v0.3.0, remove gate after 2027-02-09.
-  const fsEntryDuplicateEnabled = useSessionStore(
-    (state) => state.sessions[serverId]?.serverInfo?.features?.fsEntryDuplicate === true,
-  );
+  const fsEntryDuplicateEnabled =
+    useSessionStore(
+      (state) => state.sessions[serverId]?.serverInfo?.features?.fsEntryDuplicate === true,
+    ) && !readOnly;
   // COMPAT(fsEntryUpload): added in v0.11.901, remove gate after 2027-02-12.
-  const fsEntryUploadEnabled = useSessionStore(
-    (state) => state.sessions[serverId]?.serverInfo?.features?.fsEntryUpload === true,
-  );
+  const fsEntryUploadEnabled =
+    useSessionStore(
+      (state) => state.sessions[serverId]?.serverInfo?.features?.fsEntryUpload === true,
+    ) && !readOnly;
   const [pendingEdit, setPendingEdit] = useState<ExplorerPendingEdit | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const uploadLockRef = useRef(false);
@@ -523,6 +541,28 @@ export function FileExplorerPane({
   const explorerDerived = useMemo(() => deriveExplorerFields(explorerState), [explorerState]);
   const { directories, pendingRequest, isExplorerLoading, error, selectedEntryPath } =
     explorerDerived;
+
+  const folderKey = filesFolderKey(serverId, normalizedWorkspaceRoot);
+  const storedViewMode = useFilesViewStore((state) => state.viewModeByFolder[folderKey]);
+  const gridSize = useFilesViewStore((state) => state.gridSize);
+  const rootEntries = directories.get(".")?.entries;
+  // Until the user picks, an image-heavy folder opens as a grid. Their choice is what is stored.
+  const viewMode: FilesViewMode =
+    storedViewMode ?? (rootEntries ? defaultFilesViewMode(rootEntries) : "list");
+  const handleViewModeChange = useCallback(
+    (mode: FilesViewMode) => useFilesViewStore.getState().setViewMode(folderKey, mode),
+    [folderKey],
+  );
+  const handleGridSizeChange = useFilesViewStore((state) => state.setGridSize);
+  const [gridPath, setGridPath] = useState(".");
+  const gridDirectory = directories.get(gridPath);
+  const gridEntries = useMemo(
+    () =>
+      gridDirectory
+        ? sortedExplorerDirectoryEntries(gridDirectory, sortOption, showHiddenFiles)
+        : [],
+    [gridDirectory, showHiddenFiles, sortOption],
+  );
 
   const isDirectoryLoading = useCallback(
     (path: string) => isPendingListForPath({ isExplorerLoading, pendingRequest, path }),
@@ -1230,6 +1270,86 @@ export function FileExplorerPane({
     toast.show(t("workspace.fileExplorer.errors.foldersSkipped"), { variant: "warning" });
   }, [t, toast]);
 
+  useEffect(() => {
+    if (viewMode === "grid" && gridPath !== "." && !directories.has(gridPath)) {
+      void requestDirectoryListing(gridPath, { recordHistory: false, setCurrentPath: false });
+    }
+  }, [directories, gridPath, requestDirectoryListing, viewMode]);
+
+  const handleGridOpenEntry = useCallback(
+    (entry: ExplorerEntry) => {
+      handleSelectEntry(entry);
+      if (entry.kind === "directory") {
+        setGridPath(entry.path);
+        return;
+      }
+      handleOpenFile(entry);
+    },
+    [handleOpenFile, handleSelectEntry],
+  );
+  const handleGridNavigateUp = useCallback(() => {
+    setGridPath((current) => parentExplorerPath(current));
+  }, []);
+  const renderGridEntryMenu = useCallback(
+    (entry: ExplorerEntry) => (
+      <GridEntryMenu
+        entry={entry}
+        onCopyPath={handleCopyPath}
+        onCopyRelativePath={handleCopyRelativePath}
+        onReveal={fileManagerTarget ? handleRevealEntry : undefined}
+        revealTargetName={fileManagerTarget?.label}
+        onDownload={handleDownloadEntry}
+        onAddToChat={onAddToChat}
+        onOpenToSide={onOpenFileToSide}
+        onDuplicate={fsEntryDuplicateEnabled ? handleDuplicateEntry : undefined}
+        onDelete={fsEntryOpsEnabled ? handleDeleteEntry : undefined}
+      />
+    ),
+    [
+      fileManagerTarget,
+      fsEntryDuplicateEnabled,
+      fsEntryOpsEnabled,
+      handleCopyPath,
+      handleCopyRelativePath,
+      handleDeleteEntry,
+      handleDownloadEntry,
+      handleDuplicateEntry,
+      handleRevealEntry,
+      onAddToChat,
+      onOpenFileToSide,
+    ],
+  );
+  const grid = useMemo(
+    () =>
+      viewMode === "grid" ? (
+        <FilesGrid
+          serverId={serverId}
+          root={normalizedWorkspaceRoot}
+          path={gridPath}
+          entries={gridEntries}
+          size={gridSize}
+          selectedEntryPath={selectedEntryPath}
+          onOpenEntry={handleGridOpenEntry}
+          onSelectEntry={handleSelectEntry}
+          onNavigateUp={handleGridNavigateUp}
+          renderEntryMenu={renderGridEntryMenu}
+        />
+      ) : null,
+    [
+      gridEntries,
+      gridPath,
+      gridSize,
+      handleGridNavigateUp,
+      handleGridOpenEntry,
+      handleSelectEntry,
+      normalizedWorkspaceRoot,
+      renderGridEntryMenu,
+      selectedEntryPath,
+      serverId,
+      viewMode,
+    ],
+  );
+
   if (!hasWorkspaceScope) {
     return (
       <View style={styles.centerState}>
@@ -1269,9 +1389,67 @@ export function FileExplorerPane({
           handleBackFromError={handleBackFromError}
           handleRetry={handleRetry}
           sortTriggerStyle={sortTriggerStyle}
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+          gridSize={gridSize}
+          onGridSizeChange={handleGridSizeChange}
+          grid={grid}
         />
       </FileDropZone>
     </View>
+  );
+}
+
+/** The tree row's actions for a grid tile, minus the ones that need the tree (new, rename). */
+function GridEntryMenu({
+  entry,
+  onCopyPath,
+  onCopyRelativePath,
+  onReveal,
+  revealTargetName,
+  onDownload,
+  onAddToChat,
+  onOpenToSide,
+  onDuplicate,
+  onDelete,
+}: {
+  entry: ExplorerEntry;
+  onCopyPath: (path: string) => void | Promise<void>;
+  onCopyRelativePath: (path: string) => void | Promise<void>;
+  onReveal?: (entry: ExplorerEntry) => void | Promise<void>;
+  revealTargetName?: string;
+  onDownload: (entry: ExplorerEntry) => void;
+  onAddToChat?: (path: string) => void;
+  onOpenToSide?: (path: string) => void;
+  onDuplicate?: (entry: ExplorerEntry) => void | Promise<void>;
+  onDelete?: (entry: ExplorerEntry) => void | Promise<void>;
+}) {
+  const isFile = entry.kind === "file";
+  const copyPath = useCallback(() => void onCopyPath(entry.path), [entry.path, onCopyPath]);
+  const copyRelativePath = useCallback(
+    () => void onCopyRelativePath(entry.path),
+    [entry.path, onCopyRelativePath],
+  );
+  const reveal = useCallback(() => void onReveal?.(entry), [entry, onReveal]);
+  const download = useCallback(() => onDownload(entry), [entry, onDownload]);
+  const addToChat = useCallback(() => onAddToChat?.(entry.path), [entry.path, onAddToChat]);
+  const openToSide = useCallback(() => onOpenToSide?.(entry.path), [entry.path, onOpenToSide]);
+  const duplicate = useCallback(() => void onDuplicate?.(entry), [entry, onDuplicate]);
+  const remove = useCallback(() => void onDelete?.(entry), [entry, onDelete]);
+  return (
+    <FileActionsContextMenuContent
+      fileKind={entry.kind}
+      onCopyPath={copyPath}
+      onCopyRelativePath={copyRelativePath}
+      onReveal={onReveal ? reveal : undefined}
+      revealTargetName={revealTargetName}
+      onDownload={isFile ? download : undefined}
+      onAddToChat={onAddToChat ? addToChat : undefined}
+      onOpenToSide={isFile && onOpenToSide ? openToSide : undefined}
+      onDuplicate={onDuplicate ? duplicate : undefined}
+      onDelete={onDelete ? remove : undefined}
+      testIDPrefix="files-grid-entry"
+    />
   );
 }
 
@@ -1349,6 +1527,12 @@ interface FileExplorerPaneContentProps {
   handleBackFromError: () => void;
   handleRetry: () => void;
   sortTriggerStyle: (state: PressableStateCallbackType) => StyleProp<ViewStyle>;
+  viewMode: FilesViewMode;
+  onViewModeChange: (mode: FilesViewMode) => void;
+  gridSize: FilesGridSize;
+  onGridSizeChange: (size: FilesGridSize) => void;
+  /** Replaces the tree while the folder shows as a grid. */
+  grid: ReactNode;
 }
 
 function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
@@ -1377,6 +1561,11 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
     handleBackFromError,
     handleRetry,
     sortTriggerStyle: sortTriggerStyleProp,
+    viewMode,
+    onViewModeChange,
+    gridSize,
+    onGridSizeChange,
+    grid,
   } = props;
 
   const showHiddenFiles = usePanelStore((state) => state.explorerShowHiddenFiles);
@@ -1460,6 +1649,10 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
           <ChevronDown size={12} color={theme.colors.foregroundMuted} />
         </Pressable>
         <ToolbarControls style={styles.headerActions}>
+          {viewMode === "grid" ? (
+            <FilesGridSizeMenu size={gridSize} compact={isCompact} onChange={onGridSizeChange} />
+          ) : null}
+          <FilesViewModeButton mode={viewMode} compact={isCompact} onChange={onViewModeChange} />
           {onNewEntryAtRoot ? (
             <>
               <ToolbarButton
@@ -1562,42 +1755,44 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
           </ToolbarButton>
         </ToolbarControls>
       </PaneContentToolbar>
-      <ContextMenu>
-        <RootCreationContextTarget enabled={Boolean(onNewEntryAtRoot)}>
-          {listRows.length === 0 ? (
-            <View style={styles.centerState}>
-              <Text style={styles.emptyText}>{emptyLabel}</Text>
-            </View>
-          ) : (
-            <FlatList
-              ref={treeListRef}
-              style={styles.treeList}
-              data={listRows}
-              renderItem={renderTreeRow}
-              keyExtractor={listRowKeyExtractor}
-              testID="file-explorer-tree-scroll"
-              contentContainerStyle={styles.entriesContent}
-              onLayout={scrollbar.onLayout}
-              onScroll={scrollbar.onScroll}
-              onContentSizeChange={scrollbar.onContentSizeChange}
-              scrollEventThrottle={16}
-              showsVerticalScrollIndicator={!scrollbar.enabled}
-              initialNumToRender={24}
-              maxToRenderPerBatch={40}
-              windowSize={12}
+      {grid ?? (
+        <ContextMenu>
+          <RootCreationContextTarget enabled={Boolean(onNewEntryAtRoot)}>
+            {listRows.length === 0 ? (
+              <View style={styles.centerState}>
+                <Text style={styles.emptyText}>{emptyLabel}</Text>
+              </View>
+            ) : (
+              <FlatList
+                ref={treeListRef}
+                style={styles.treeList}
+                data={listRows}
+                renderItem={renderTreeRow}
+                keyExtractor={listRowKeyExtractor}
+                testID="file-explorer-tree-scroll"
+                contentContainerStyle={styles.entriesContent}
+                onLayout={scrollbar.onLayout}
+                onScroll={scrollbar.onScroll}
+                onContentSizeChange={scrollbar.onContentSizeChange}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={!scrollbar.enabled}
+                initialNumToRender={24}
+                maxToRenderPerBatch={40}
+                windowSize={12}
+              />
+            )}
+            {listRows.length > 0 ? scrollbar.overlay : null}
+          </RootCreationContextTarget>
+          {onNewEntryAtRoot ? (
+            <FileActionsContextMenuContent
+              fileKind="directory"
+              onNewFile={handleNewFileAtRoot}
+              onNewFolder={handleNewFolderAtRoot}
+              testIDPrefix="files-empty-area"
             />
-          )}
-          {listRows.length > 0 ? scrollbar.overlay : null}
-        </RootCreationContextTarget>
-        {onNewEntryAtRoot ? (
-          <FileActionsContextMenuContent
-            fileKind="directory"
-            onNewFile={handleNewFileAtRoot}
-            onNewFolder={handleNewFolderAtRoot}
-            testIDPrefix="files-empty-area"
-          />
-        ) : null}
-      </ContextMenu>
+          ) : null}
+        </ContextMenu>
+      )}
     </View>
   );
 }

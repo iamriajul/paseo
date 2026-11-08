@@ -372,6 +372,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     openAddProjectFlow({
       hosts: availableHosts,
       ...(request.preferredHostId ? { preferredHostId: request.preferredHostId } : {}),
+      ...(request.pickFolder ? { folderPickerHostId: request.pickFolder.serverId } : {}),
     }),
   );
   const page = currentAddProjectPage(state);
@@ -485,6 +486,11 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
   const openAddedProject = useCallback(
     async (path: string, sourceKind: "directory-search" | "method") => {
       if (!hostId || submissionInFlightRef.current) return;
+      if (request.pickFolder) {
+        onClose();
+        request.pickFolder.onPick(path);
+        return;
+      }
       submissionInFlightRef.current = true;
       setState((current) =>
         setPageStatus(current, sourceKind, { isSubmitting: true, error: null }),
@@ -512,7 +518,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         submissionInFlightRef.current = false;
       }
     },
-    [hostId, openNewWorkspaceForProject, openProject],
+    [hostId, onClose, openNewWorkspaceForProject, openProject, request.pickFolder],
   );
 
   const browse = useCallback(async () => {

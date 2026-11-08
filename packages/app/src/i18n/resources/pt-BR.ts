@@ -263,6 +263,18 @@ export const ptBR: TranslationResources = {
       proposedPlan: "Plano proposto",
     },
   },
+  agentMessages: {
+    sectionLabel: "Mensagens de agentes",
+    collapseAll: "Recolher tudo",
+    expandAll: "Expandir tudo",
+    collapseOne: "Recolher mensagem",
+    group: {
+      count_one: "{{count}} mensagem",
+      count_other: "{{count}} mensagens",
+      countMore_one: "mais {{count}} mensagem",
+      countMore_other: "mais {{count}} mensagens",
+    },
+  },
   agentChatDisplay: {
     rowLabel: "Exibição do chat",
     followSettings: "Usar Configurações",
@@ -2770,6 +2782,14 @@ export const ptBR: TranslationResources = {
         label: "Sempre expandir raciocínio",
         description:
           "Mostrar os blocos de pensamento e raciocínio do agente totalmente expandidos por padrão",
+      },
+      agentMessagesDisplay: {
+        label: "Mensagens de agentes",
+        description: "Recolhe cada mensagem de outros agentes em uma linha",
+        options: {
+          collapsed: "Recolhidas",
+          expanded: "Expandidas",
+        },
       },
       chatDisplay: {
         label: "Exibição do chat",

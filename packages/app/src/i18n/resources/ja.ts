@@ -264,6 +264,18 @@ export const ja: TranslationResources = {
       proposedPlan: "提案されたプラン",
     },
   },
+  agentMessages: {
+    sectionLabel: "エージェントからのメッセージ",
+    collapseAll: "すべて折りたたむ",
+    expandAll: "すべて展開",
+    collapseOne: "メッセージを折りたたむ",
+    group: {
+      count_one: "{{count}} 件のメッセージ",
+      count_other: "{{count}} 件のメッセージ",
+      countMore_one: "さらに {{count}} 件のメッセージ",
+      countMore_other: "さらに {{count}} 件のメッセージ",
+    },
+  },
   agentChatDisplay: {
     rowLabel: "チャットの表示",
     followSettings: "設定に従う",
@@ -2758,6 +2770,14 @@ export const ja: TranslationResources = {
       autoExpandReasoning: {
         label: "常に思考プロセスを展開",
         description: "デフォルトでAIのエージェント思考・推論ブロックを完全に展開して表示します",
+      },
+      agentMessagesDisplay: {
+        label: "エージェントのメッセージ",
+        description: "他のエージェントからのメッセージをそれぞれ 1 行に折りたたみます",
+        options: {
+          collapsed: "折りたたむ",
+          expanded: "展開",
+        },
       },
       chatDisplay: {
         label: "チャットの表示",

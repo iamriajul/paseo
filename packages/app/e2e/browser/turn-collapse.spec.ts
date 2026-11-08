@@ -26,9 +26,14 @@ test.use({
 
 type ChatDisplay = "full" | "collapseToolCalls" | "collapseTurns";
 
+// These specs check the full "Sent by" bubble, so they show agent messages Expanded: the default,
+// Collapsed, draws a received message as one line (fork decision agent-messages-collapse).
 async function useChatDisplay(page: Page, chatDisplay: ChatDisplay): Promise<void> {
   await page.addInitScript((value) => {
-    localStorage.setItem("@paseo:app-settings", JSON.stringify({ chatDisplay: value }));
+    localStorage.setItem(
+      "@paseo:app-settings",
+      JSON.stringify({ chatDisplay: value, agentMessagesDisplay: "expanded" }),
+    );
   }, chatDisplay);
 }
 
@@ -162,7 +167,10 @@ test.describe("Turn collapse", () => {
 
 test("received messages show their sender and open that agent", async ({ page }) => {
   await page.addInitScript(() =>
-    localStorage.setItem("@paseo:app-settings", JSON.stringify({ theme: "dark" })),
+    localStorage.setItem(
+      "@paseo:app-settings",
+      JSON.stringify({ theme: "dark", agentMessagesDisplay: "expanded" }),
+    ),
   );
   const recipient = await seedMockAgentWorkspace({
     repoPrefix: "sender-attribution-",
@@ -206,7 +214,10 @@ test("received messages show their sender and open that agent", async ({ page })
 test("long sender attribution stays on one line in compact chat", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() =>
-    localStorage.setItem("@paseo:app-settings", JSON.stringify({ theme: "dark" })),
+    localStorage.setItem(
+      "@paseo:app-settings",
+      JSON.stringify({ theme: "dark", agentMessagesDisplay: "expanded" }),
+    ),
   );
   const recipient = await seedMockAgentWorkspace({
     repoPrefix: "compact-attribution-",
@@ -373,11 +384,15 @@ async function expectSenderTruncatedWithinMessage(attribution: Locator, title: s
 
 async function expectSenderAlignedWithBubble(attribution: Locator) {
   const edges = await attribution.evaluate((button) => {
-    const bubble = button.nextElementSibling;
-    const label = button.querySelector('[dir="auto"]');
-    if (!bubble || !label) throw new Error("Sender label or message bubble missing");
+    // An agent message the reader can fold puts its collapse chevron after the sender, in one row
+    // (fork decision agent-messages-collapse); the row's last control then meets the bubble's edge.
+    const collapse = button.parentElement?.querySelector('[data-testid="agent-message-collapse"]');
+    const header = collapse ? button.parentElement : button;
+    const bubble = header?.nextElementSibling;
+    const edge = collapse ?? button.querySelector('[dir="auto"]');
+    if (!bubble || !edge) throw new Error("Sender label or message bubble missing");
     return {
-      labelRight: label.getBoundingClientRect().right,
+      labelRight: edge.getBoundingClientRect().right,
       bubbleRight: bubble.getBoundingClientRect().right,
     };
   });

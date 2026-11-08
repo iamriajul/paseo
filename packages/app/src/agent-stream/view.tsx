@@ -53,7 +53,12 @@ import {
 import { useWarmUpTimes } from "@/prompt-cache/use-warm-up-times";
 import { PromptCacheMoneyProvider } from "@/prompt-cache/money-stats-context";
 import { PlanCard } from "@/components/plan-card";
-import { getStreamItemMessageId, type StreamItem } from "@/types/stream";
+import {
+  getStreamItemMessageId,
+  type AgentMessageGroup,
+  type AgentRowFold,
+  type StreamItem,
+} from "@/types/stream";
 import type { PendingPermission } from "@/types/shared";
 import type { PendingMessageSubmission } from "@/composer/submission/model";
 import type { TurnPresentation } from "@/timeline/turn-liveness";
@@ -74,7 +79,16 @@ import { useRevealedText } from "@/hooks/use-revealed-text";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useLoadOlderAgentHistory } from "@/hooks/use-load-older-agent-history";
 import { resolveContentMaxWidth, useSettings } from "@/hooks/use-settings";
-import { useAgentChatDisplay } from "@/chat-display/use-agent-chat-display";
+import {
+  useAgentChatDisplay,
+  useAgentMessagesDisplay,
+} from "@/chat-display/use-agent-chat-display";
+import { AgentMessageGroupLine, AgentMessageLine } from "./agent-message-fold/rows";
+import {
+  toggleAgentMessage,
+  toggleAgentMessageGroup,
+  useAgentMessageFoldState,
+} from "./agent-message-fold/store";
 import type { ToastApi } from "@/components/toast-host";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { ToolCallDetailsContent } from "@/components/tool-call-details";
@@ -212,6 +226,10 @@ function renderPendingPermissionsNode(input: {
  * turn's last row. The rail runs through the gaps between them so the turn reads as one block.
  */
 type TurnIndent = "none" | "openedHost" | "nested" | "lastNested";
+
+function agentFoldOf(item: StreamItem | null | undefined): AgentRowFold | undefined {
+  return item?.kind === "user_message" || item?.kind === "tool_call" ? item.agentFold : undefined;
+}
 
 function renderStreamItemWithTurnFooter(input: {
   content: ReactNode;
@@ -607,6 +625,18 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const router = useRouter();
     const autoExpandReasoning = useSettings((settings) => settings.autoExpandReasoning);
     const chatDisplay = useAgentChatDisplay(serverId, agentId).effective;
+    const agentMessagesDisplay = useAgentMessagesDisplay(
+      serverId ?? context.serverId,
+      agentId,
+    ).effective;
+    const agentMessageFoldState = useAgentMessageFoldState(
+      serverId ?? context.serverId ?? "",
+      agentId,
+    );
+    const agentMessages = useMemo(
+      () => ({ display: agentMessagesDisplay, state: agentMessageFoldState }),
+      [agentMessagesDisplay, agentMessageFoldState],
+    );
     const chatOutlineEnabled = useSettings((settings) => settings.chatOutlineEnabled);
     const contentMaxWidth = useSettings(resolveContentMaxWidth);
     const viewportRef = useRef<StreamViewportHandle | null>(null);
@@ -831,8 +861,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           expandedTurnHostIds,
           isTurnActive,
           activeTurnId: effectiveTurnPresentation.turnId,
+          agentMessages,
         }),
       [
+        agentMessages,
         presentStream,
         effectiveStreamItems,
         effectiveStreamHead,
@@ -1027,6 +1059,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     }, []);
     // Chat find reveals a match inside a collapsed turn by opening the turn first.
     const revealLoadedMessage = useStableEvent((messageId: string): boolean => {
+      const groupHostId = presentation.agentMessages.hostIdByFoldedMessageId.get(messageId);
+      if (groupHostId) {
+        toggleAgentMessageGroup({
+          serverId: resolvedServerId,
+          agentId,
+          hostId: groupHostId,
+        });
+        return true;
+      }
       const hostId = presentation.turns.hostIdByFoldedMessageId.get(messageId);
       if (hostId && !expandedTurnHostIds.has(hostId)) {
         setTurnExpanded(hostId, true);
@@ -1040,6 +1081,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       presentation.turns.turnsByHostId.get(hostId),
     );
     const getTurnIndent = useStableEvent((layoutItem: StreamLayoutItem): TurnIndent => {
+      const agentFold = agentFoldOf(layoutItem.item);
+      if (agentFold?.nested) {
+        return agentFoldOf(layoutItem.belowItem)?.nested ? "nested" : "lastNested";
+      }
+      if (agentFold?.group?.expanded) return "openedHost";
       const { nestedItemIds } = presentation.turns;
       if (nestedItemIds.has(layoutItem.item.id)) {
         const below = layoutItem.belowItem;
@@ -1050,30 +1096,80 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     const setToolCallGroupExpanded = toolCallExpansion.setGroupExpanded;
 
-    const renderUserMessageItem = useCallback(
-      (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
-        const collapsedTurn = getCollapsedTurn(item.id);
-        const servedBy = getServedByLine(item.id);
-        const bubble = (
-          <UserMessage
+    const toggleAgentMessageRow = useCallback(
+      (id: string) => toggleAgentMessage({ serverId: resolvedServerId, agentId, id }),
+      [agentId, resolvedServerId],
+    );
+    const toggleAgentGroup = useCallback(
+      (hostId: string) => {
+        viewportRef.current?.holdReadingPosition();
+        toggleAgentMessageGroup({ serverId: resolvedServerId, agentId, hostId });
+      },
+      [agentId, resolvedServerId],
+    );
+    const renderAgentGroupLine = useCallback(
+      (group: AgentMessageGroup | undefined, ownRow: ReactNode) => {
+        if (!group) return ownRow;
+        const line = (
+          <AgentMessageGroupLine
+            group={group}
             serverId={resolvedServerId}
-            agentId={agentId}
-            messageId={item.messageId}
-            message={item.text}
-            sender={item.sender}
-            images={item.images}
-            attachments={item.attachments}
-            timestamp={item.timestamp.getTime()}
-            capabilities={context.capabilities}
-            client={client}
-            isFirstInGroup={layoutItem.isFirstInUserGroup}
-            isLastInGroup={layoutItem.isLastInUserGroup}
-            isPending={
-              item.clientMessageId !== undefined &&
-              pendingClientMessageIds.has(item.clientMessageId)
-            }
+            onToggle={toggleAgentGroup}
           />
         );
+        // An open group lists its host row inside the rail with the rest of its rows.
+        if (group.expanded) {
+          return (
+            <>
+              {line}
+              <IndentRail>{ownRow}</IndentRail>
+            </>
+          );
+        }
+        // Closed, the group stands in for its rows and the summaries of the turns they started.
+        return line;
+      },
+      [resolvedServerId, toggleAgentGroup],
+    );
+
+    const renderUserMessageItem = useCallback(
+      (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
+        const group = item.agentFold?.group;
+        if (group && !group.expanded) return renderAgentGroupLine(group, null);
+        const collapsedTurn = getCollapsedTurn(item.id);
+        const servedBy = getServedByLine(item.id);
+        const bubble =
+          item.sender && item.agentFold?.line ? (
+            <AgentMessageLine
+              id={item.id}
+              sender={item.sender}
+              text={item.text}
+              timestamp={item.timestamp.getTime()}
+              serverId={resolvedServerId}
+              onToggle={toggleAgentMessageRow}
+            />
+          ) : (
+            <UserMessage
+              onCollapse={item.sender ? toggleAgentMessageRow : undefined}
+              messageRowId={item.id}
+              serverId={resolvedServerId}
+              agentId={agentId}
+              messageId={item.messageId}
+              message={item.text}
+              sender={item.sender}
+              images={item.images}
+              attachments={item.attachments}
+              timestamp={item.timestamp.getTime()}
+              capabilities={context.capabilities}
+              client={client}
+              isFirstInGroup={layoutItem.isFirstInUserGroup}
+              isLastInGroup={layoutItem.isLastInUserGroup}
+              isPending={
+                item.clientMessageId !== undefined &&
+                pendingClientMessageIds.has(item.clientMessageId)
+              }
+            />
+          );
         const message = servedBy ? (
           <>
             <ServedByAccountLine line={servedBy} />
@@ -1082,15 +1178,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         ) : (
           bubble
         );
-        if (!collapsedTurn) {
-          return message;
-        }
-        return (
+        const row = collapsedTurn ? (
           <>
             {message}
             <TurnSummaryLine turn={collapsedTurn} onExpandedChange={setTurnExpanded} />
           </>
+        ) : (
+          message
         );
+        return renderAgentGroupLine(group, row);
       },
       [
         context.capabilities,
@@ -1101,6 +1197,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         resolvedServerId,
         getServedByLine,
         setTurnExpanded,
+        renderAgentGroupLine,
+        toggleAgentMessageRow,
       ],
     );
 
@@ -1302,8 +1400,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           case "thought":
             return renderToolCallItem(layoutItem, item);
 
-          case "tool_call":
-            return (
+          case "tool_call": {
+            const group = item.agentFold?.group;
+            if (group && !group.expanded) return renderAgentGroupLine(group, null);
+            const row = (
               <>
                 {renderToolCallItem(layoutItem, item)}
                 {getCollapsedTurn(item.id) ? (
@@ -1314,6 +1414,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 ) : null}
               </>
             );
+            return renderAgentGroupLine(group, row);
+          }
 
           case "notification":
             return <Notification level={item.level} message={item.message} />;
@@ -1347,6 +1449,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         getCollapsedTurn,
         setTurnExpanded,
         resolvedServerId,
+        renderAgentGroupLine,
       ],
     );
 

@@ -2,7 +2,12 @@ import { useMemo, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { DropdownMenuSubTrigger, type MenuPageDefinition } from "@/components/ui/dropdown-menu";
 import { AgentChatDisplayOptions, useChatDisplayName } from "./options";
-import { useAgentChatDisplay, useSetAgentChatDisplay } from "./use-agent-chat-display";
+import {
+  useAgentChatDisplay,
+  useAgentMessagesDisplay,
+  useChooseAgentMessagesDisplay,
+  useSetAgentChatDisplay,
+} from "./use-agent-chat-display";
 
 const PAGE_ID = "agent-chat-display";
 
@@ -26,6 +31,8 @@ export function useAgentChatDisplayMenuPage(
   const { t } = useTranslation();
   const display = useAgentChatDisplay(serverId, agentId);
   const setOverride = useSetAgentChatDisplay(serverId, agentId ?? "");
+  const agentMessages = useAgentMessagesDisplay(serverId, agentId);
+  const chooseAgentMessages = useChooseAgentMessagesDisplay(serverId, agentId ?? "");
   const displayName = useChatDisplayName();
   const value = displayName(display.effective);
   const hasOverride = display.override !== null;
@@ -53,10 +60,17 @@ export function useAgentChatDisplayMenuPage(
             {
               id: PAGE_ID,
               title: t("agentChatDisplay.rowLabel"),
-              content: <AgentChatDisplayOptions display={display} onSelect={setOverride} />,
+              content: (
+                <AgentChatDisplayOptions
+                  display={display}
+                  onSelect={setOverride}
+                  agentMessages={agentMessages}
+                  onChooseAgentMessages={chooseAgentMessages}
+                />
+              ),
             },
           ],
-    [agentId, display, setOverride, t],
+    [agentId, chooseAgentMessages, display, agentMessages, setOverride, t],
   );
 
   return { trigger, pages };

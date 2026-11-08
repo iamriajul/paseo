@@ -173,6 +173,15 @@ export function setExpandedDirectoryPath({
   return Array.from(nextPaths);
 }
 
+/** One directory's visible entries in the tree's order, for views that show a folder at a time. */
+export function sortedExplorerDirectoryEntries(
+  directory: ExplorerDirectory,
+  sortOption: SortOption,
+  showHiddenFiles: boolean,
+): ExplorerEntry[] {
+  return rowsForDirectory(directory, 0, sortOption, showHiddenFiles).map((row) => row.entry);
+}
+
 function rowsForDirectory(
   directory: ExplorerDirectory,
   depth: number,

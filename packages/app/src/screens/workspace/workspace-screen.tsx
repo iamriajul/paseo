@@ -68,6 +68,7 @@ import { ImportSessionSheet } from "@/components/import-session-sheet";
 import { useNavigateToImportedAgent } from "@/hooks/use-import-session";
 import { useToast } from "@/contexts/toast-context";
 import { useOpenOutsideWorkspaceFolder } from "@/workspace/open-in-file-manager/outside-folder";
+import { showWorkspaceInFiles } from "@/file-explorer/folders/view-store";
 import { getOrCreateClientId } from "@/utils/client-id";
 import { selectIsAgentListOpen, usePanelStore } from "@/stores/panel-store";
 import { toggleDesktopSidebarsWithCheckoutIntent } from "@/utils/desktop-sidebar-toggle";
@@ -3806,6 +3807,7 @@ function WorkspaceScreenContent({
     handleOpenPreferredAssistantFile({ location, parentTabId: activeTabId });
   });
   const openMarkdownDirectory = useStableEvent((directoryPath: string) => {
+    showWorkspaceInFiles(normalizedServerId, normalizedWorkspaceId);
     void revealDirectory(directoryPath);
     openExplorerSidebarView({
       isCompact: isMobile,
@@ -3813,7 +3815,10 @@ function WorkspaceScreenContent({
       view: "files",
     });
   });
-  const openMarkdownOutsideDirectory = useOpenOutsideWorkspaceFolder(normalizedServerId);
+  const openMarkdownOutsideDirectory = useOpenOutsideWorkspaceFolder(
+    normalizedServerId,
+    normalizedWorkspaceId,
+  );
   const markdownPathOpener = useMemo(
     () =>
       createInlinePathOpener({

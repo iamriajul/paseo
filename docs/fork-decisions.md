@@ -1394,6 +1394,17 @@ npx vitest run scripts/merge-mac-manifest.test.mjs scripts/validate-desktop-mani
 grep -q 'npx vitest run scripts/merge-mac-manifest.test.mjs' .github/workflows/ci.yml
 ```
 
+## lockfile-public-registry
+
+**every `package-lock.json` entry resolves from registry.npmjs.org, checked in the `changes` job**
+
+A machine whose npm registry is a private mirror (the fork's dev box uses a cluster-internal proxy) writes the mirror's URL into every lockfile entry it adds. CI cannot reach the mirror, and npm 10 then dies with "Exit handler never called!" in every job, three attempts each, without naming the host. The v0.15.906 batch lost a full CI run this way. `scripts/lockfile-registry.test.mjs` fails on any entry outside `https://registry.npmjs.org/` and lists them. It runs in the `changes` job, which installs nothing, so a bad lockfile fails there before any job installs. Fix a hit by rewriting the host; the integrity hashes are the same tarballs.
+
+```bash
+node --test scripts/lockfile-registry.test.mjs
+node --test --test-name-pattern "focused contracts" scripts/ci-workflow.test.mjs
+```
+
 ## list-commands-daemon-deadline
 
 **the daemon answers a command list within 10 s**

@@ -1,5 +1,6 @@
 import type { Logger } from "pino";
 import type { DaemonConfigStore } from "../daemon-config-store.js";
+import type { ServerBrowserEngineConfig } from "./engines.js";
 import { ServerBrowserRoutingBroker } from "./routing-broker.js";
 import { ServerBrowserHost } from "./server-browser-host.js";
 
@@ -15,15 +16,20 @@ export function createServerBrowser(params: {
     paseoHome: params.paseoHome,
     logger,
     isEnabled: () => read()?.enabled === true,
-    getConfiguredExecutable: () => read()?.executablePath ?? null,
+    getEngine: () => resolveServerBrowserEngine(read()),
   });
   let wasEnabled = host.isEnabled();
+  let engineKey = JSON.stringify(host.engineConfig());
   const unsubscribe = params.daemonConfigStore.onChange(() => {
     const enabled = host.isEnabled();
-    if (enabled === wasEnabled) return;
+    const nextEngineKey = JSON.stringify(host.engineConfig());
+    const engineChanged = nextEngineKey !== engineKey;
+    engineKey = nextEngineKey;
+    if (enabled === wasEnabled && !engineChanged) return;
     wasEnabled = enabled;
-    logger.info({ enabled }, "Server browser switch changed");
-    if (enabled) host.notifyStatusChanged();
+    logger.info({ enabled, engine: host.engineConfig().kind }, "Server browser setting changed");
+    // A different engine means a different browser: close this one's tabs; the next tab starts it.
+    if (enabled && !engineChanged) host.notifyStatusChanged();
     else void host.disable();
   });
   return {
@@ -35,11 +41,37 @@ export function createServerBrowser(params: {
   };
 }
 
+/** The config row; the index signature matches the protocol schema's passthrough. */
+interface ServerBrowserSetting {
+  [key: string]: unknown;
+  enabled?: boolean;
+  executablePath?: string;
+  engine?: string;
+  cdpUrl?: string;
+}
+
 export function resolveInitialServerBrowserConfig(
-  persisted: { enabled?: boolean; executablePath?: string } | undefined,
-): { enabled: boolean; executablePath?: string } {
+  persisted: ServerBrowserSetting | undefined,
+): ServerBrowserSetting & { enabled: boolean } {
   return {
     enabled: persisted?.enabled ?? false,
     ...(persisted?.executablePath ? { executablePath: persisted.executablePath } : {}),
+    ...(persisted?.engine ? { engine: persisted.engine } : {}),
+    ...(persisted?.cdpUrl ? { cdpUrl: persisted.cdpUrl } : {}),
+  };
+}
+
+/** A switch turned on before engines existed, or an engine this daemon does not know: Headless (light). */
+export function resolveServerBrowserEngine(
+  setting: ServerBrowserSetting | undefined,
+): ServerBrowserEngineConfig {
+  const kind = setting?.engine;
+  if (kind === "managed-chrome") return { kind };
+  if (kind === "existing") {
+    return { kind, ...(setting?.cdpUrl ? { cdpUrl: setting.cdpUrl } : {}) };
+  }
+  return {
+    kind: "headless",
+    ...(setting?.executablePath ? { executablePath: setting.executablePath } : {}),
   };
 }

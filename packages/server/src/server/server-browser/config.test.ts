@@ -54,4 +54,17 @@ describe("serverBrowser config", () => {
       executablePath: "/opt/chromium/chrome",
     });
   });
+
+  test("the engine and the Existing browser URL persist beside the switch", async () => {
+    const { store, paseoHome } = createStore();
+    await store.patch({ serverBrowser: { enabled: true, engine: "existing" } });
+    // What the Settings row sends when the URL is saved.
+    await store.patch({ serverBrowser: { enabled: true, cdpUrl: "http://127.0.0.1:9333" } });
+
+    expect(loadPersistedConfig(paseoHome).daemon?.serverBrowser).toEqual({
+      enabled: true,
+      engine: "existing",
+      cdpUrl: "http://127.0.0.1:9333",
+    });
+  });
 });

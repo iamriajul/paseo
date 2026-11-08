@@ -14,7 +14,7 @@ import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CdpConnection, type CdpParams } from "./cdp-connection.js";
+import { CdpConnection, pipeTransport, type CdpParams } from "./cdp-connection.js";
 import { ServerBrowserHost, type ServerBrowserLimits } from "./server-browser-host.js";
 import type { LaunchFn } from "./shared-chromium.js";
 
@@ -66,7 +66,7 @@ class FakeChromium {
     });
     return {
       process: child as unknown as ChildProcess,
-      connection: new CdpConnection(toBrowser, fromBrowser),
+      connection: new CdpConnection(pipeTransport(toBrowser, fromBrowser)),
       sandboxed: true,
     };
   };

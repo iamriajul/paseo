@@ -58,6 +58,8 @@ export interface AddProjectFlowState {
 export interface OpenAddProjectFlowInput {
   hosts: AddProjectHost[];
   preferredHostId?: string;
+  /** Start on this host's directory search, with no way back to a host or method choice. */
+  folderPickerHostId?: string;
 }
 
 type SearchPageKind = Extract<AddProjectPage, { query: string }>["kind"];
@@ -71,6 +73,20 @@ function methodPage(hostId: string): AddProjectPage {
 }
 
 export function openAddProjectFlow(input: OpenAddProjectFlowInput): AddProjectFlowState {
+  if (input.folderPickerHostId) {
+    return {
+      hosts: input.hosts,
+      pages: [
+        {
+          ...searchPage("directory-search"),
+          hostId: input.folderPickerHostId,
+          isSubmitting: false,
+        },
+      ],
+      newDirectoryNameDrafts: {},
+      githubLocationDrafts: {},
+    };
+  }
   const preferredHost = input.preferredHostId
     ? input.hosts.find((host) => host.serverId === input.preferredHostId)
     : null;

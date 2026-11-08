@@ -116,6 +116,7 @@ import { createAssistantImageOccurrenceKey } from "@/assistant-image/acquisition
 import { AssistantSelectionCopySurface } from "@/assistant-selection-copy/surface";
 import { AssistantFileLinkResolverProvider, createInlinePathOpener } from "@/assistant-file-links";
 import { useOpenOutsideWorkspaceFolder } from "@/workspace/open-in-file-manager/outside-folder";
+import { showWorkspaceInFiles } from "@/file-explorer/folders/view-store";
 import {
   createWorkspaceFileTabTarget,
   type WorkspaceFileLocation,
@@ -723,6 +724,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       },
     );
     const openInlineDirectory = useStableEvent((directoryPath: string) => {
+      showWorkspaceInFiles(resolvedServerId, context.workspaceId);
       void revealDirectory(directoryPath);
       openExplorerSidebarView({
         isCompact: isMobile,
@@ -733,7 +735,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         view: "files",
       });
     });
-    const openInlineOutsideDirectory = useOpenOutsideWorkspaceFolder(resolvedServerId);
+    const openInlineOutsideDirectory = useOpenOutsideWorkspaceFolder(
+      resolvedServerId,
+      context.workspaceId,
+    );
     const inlinePathOpener = useMemo(
       () =>
         createInlinePathOpener({

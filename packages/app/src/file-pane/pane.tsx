@@ -16,6 +16,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { buildAbsoluteExplorerPath } from "@/utils/explorer-paths";
 import { formatFileSize } from "@/utils/format-file-size";
 import type { WorkspaceFileLocation } from "@/workspace/file-open";
+import { OutsideFileBar } from "@/file-explorer/folders/outside-file-bar";
 
 /**
  * The file tab: stats the file, picks its panel and mounts it. The panel reads, saves and shows
@@ -34,6 +35,7 @@ export function FilePane({
   navigationRevision: number;
 }) {
   const { t } = useTranslation();
+  const { workspaceId } = usePaneContext();
   const connected = useSessionStore((state) => Boolean(state.sessions[serverId]?.client));
   const root = workspaceRoot.trim();
   const path = location.path.trim();
@@ -75,6 +77,15 @@ export function FilePane({
     [location.lineEnd, location.lineStart, path],
   );
 
+  const outsideBar = (
+    <OutsideFileBar
+      serverId={serverId}
+      workspaceId={workspaceId}
+      workspaceRoot={root}
+      filePath={path}
+    />
+  );
+
   let body;
   if (!connected && target) {
     body = <Text style={styles.errorText}>{t("workspace.terminal.hostDisconnected")}</Text>;
@@ -105,6 +116,7 @@ export function FilePane({
   } else {
     return (
       <View style={styles.container} testID="workspace-file-pane">
+        {outsideBar}
         <FilePanelPicker choice={choice} />
         <MountedFilePanel
           key={`${panel.id}:${targetKey}`}
@@ -119,6 +131,7 @@ export function FilePane({
   }
   return (
     <View style={styles.container} testID="workspace-file-pane">
+      {outsideBar}
       <View style={styles.centerState}>{body}</View>
     </View>
   );

@@ -33,6 +33,21 @@ const HOST: AddProjectHost = {
 };
 
 describe("Add Project navigation", () => {
+  it("opens a folder picker on its host's directory search with no way back to a host", () => {
+    const secondHost = { ...HOST, serverId: "host-2", label: "Remote" };
+    const state = openAddProjectFlow({ hosts: [HOST, secondHost], folderPickerHostId: "host-2" });
+
+    expect(currentAddProjectPage(state)).toEqual({
+      kind: "directory-search",
+      hostId: "host-2",
+      query: "",
+      activeIndex: 0,
+      error: null,
+      isSubmitting: false,
+    });
+    expect(backAddProjectPage(state)).toBeNull();
+  });
+
   it("skips a single connected host without adding it to history", () => {
     const state = openAddProjectFlow({ hosts: [HOST] });
 

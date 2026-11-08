@@ -3621,6 +3621,12 @@ export const ru: TranslationResources = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "Этот хост не подключён. Подключите его и снова откройте ссылку.",
+    workspaceMissing: "Рабочее пространство не найдено. Возможно, оно было архивировано.",
+    previewMissing:
+      'У этого рабочего пространства нет основного превью. Отметьте сервис в paseo.json как "preview": true.',
+  },
   interactionLock: {
     banner: "Только чтение · наблюдение",
     unlock: "Разблокировать",

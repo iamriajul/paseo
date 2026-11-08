@@ -69,11 +69,16 @@ Source coverage still includes interleaved tool updates.
 
 Canonical IDs define runs. With missing IDs, human prompts, heartbeats and typed received
 agent messages each start a fallback turn. This deterministic fallback is shared by paging
-and presentation; it cannot recover historical batching or steering. Older history loads when
-the user scrolls upward, or, on native, without a gesture when the rendered tail is too short to scroll. A
-tail of hidden or one-line rows, such as consecutive cache warm-ups, can leave the list
-unscrollable, and Android delivers no drag events to an unscrollable list, so waiting for scroll
-intent strands it. Web keeps waiting: a wheel over an unscrollable list still counts as intent.
+and presentation; it cannot recover historical batching or steering.
+
+Opening an agent mounts its newest 20 rendered rows, rounded out to whole turns. Rows that draw
+nothing, such as a v1 cache warm-up's ping and "ok", do not count, so a tail of ten warm-ups does
+not open an empty chat. When everything loaded draws fewer than 20 rows and the daemon has older
+history, the client fetches older pages without a gesture until the rows reach 20 or history ends,
+one request per oldest row. Past that, older history loads when the user scrolls upward, or, on
+native, without a gesture while the rendered tail is too short to scroll, because Android delivers
+no drag events to an unscrollable list. Web waits for the wheel there: a wheel over an unscrollable
+list still counts as intent.
 
 A failed catch-up or subscription reconcile retries on its own, doubling from 1s to a 30s ceiling.
 A fixed 1s retry turned a persistent daemon-side refusal — a Codex thread that already has an active

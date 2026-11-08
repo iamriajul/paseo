@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getStreamItemMessageId, type StreamItem } from "@/types/stream";
-import { findMountedWindowStart, getMountedRecentStreamItems } from "./history-window";
+import {
+  countRenderedStreamRows,
+  findMountedWindowStart,
+  getMountedRecentStreamItems,
+  rendersStreamRow,
+} from "./history-window";
 
 // Callers reveal a message, not a row: an assistant message is several block rows and
 // the window has to open at the first of them.
@@ -19,6 +24,7 @@ function findEarlierHistoryWindowStart(input: {
     return findMountedWindowStart({
       items: input.items.slice(0, targetStart),
       minMountedCount: getMountedRecentStreamItems(),
+      countsRow: rendersStreamRow,
     });
   }
   return findMountedWindowStart({
@@ -60,10 +66,18 @@ export function useStreamHistoryWindow(input: {
   agentId: string;
   items: StreamItem[];
   loadRemoteOlder: () => boolean | Promise<boolean>;
+  /** The daemon holds history older than `items`. */
+  remoteHasOlder?: boolean;
+  isLoadingRemoteOlder?: boolean;
 }) {
-  const { agentId, items, loadRemoteOlder } = input;
+  const { agentId, items, loadRemoteOlder, remoteHasOlder = false, isLoadingRemoteOlder } = input;
   const initialStart = useMemo(
-    () => findMountedWindowStart({ items, minMountedCount: getMountedRecentStreamItems() }),
+    () =>
+      findMountedWindowStart({
+        items,
+        minMountedCount: getMountedRecentStreamItems(),
+        countsRow: rendersStreamRow,
+      }),
     [items],
   );
   const initialBoundaryItemId = initialStart === 0 ? null : (items[initialStart]?.id ?? null);
@@ -114,6 +128,26 @@ export function useStreamHistoryWindow(input: {
   const loadOlder = useCallback(async (): Promise<boolean> => {
     return revealLoadedHistory() || (await loadRemoteOlder());
   }, [loadRemoteOlder, revealLoadedHistory]);
+
+  // Everything loaded is mounted and still draws fewer rows than a window holds, as when the
+  // daemon's tail page is mostly warm-ups. The chat looks empty and has nothing to scroll, so
+  // fetch older pages without waiting for a gesture until the rows fill a window or history ends.
+  // One request per oldest row bounds it: a page that adds nothing does not repeat.
+  const minRenderedRows = getMountedRecentStreamItems();
+  const oldestItemId = items[0]?.id ?? null;
+  const needsOlderRows =
+    start === 0 &&
+    oldestItemId !== null &&
+    remoteHasOlder &&
+    countRenderedStreamRows(items, minRenderedRows) < minRenderedRows;
+  const filledFromOldestRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!needsOlderRows || isLoadingRemoteOlder || filledFromOldestRef.current === oldestItemId) {
+      return;
+    }
+    filledFromOldestRef.current = oldestItemId;
+    void loadRemoteOlder();
+  }, [isLoadingRemoteOlder, loadRemoteOlder, needsOlderRows, oldestItemId]);
 
   return { start, hasLocalHistory: start > 0, revealLoadedHistory, loadOlder };
 }

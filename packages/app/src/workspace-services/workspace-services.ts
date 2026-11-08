@@ -1,4 +1,5 @@
 import type { WorkspaceScriptPayload } from "@getpaseo/protocol/messages";
+import { findMainPreviewScript } from "@getpaseo/protocol/workspace-link";
 
 /**
  * The URL a service opens at inside a workspace Browser: plain `localhost:<port>`.
@@ -18,12 +19,13 @@ export function listWorkspaceServices(
 
 /**
  * The service paseo.json marks `"preview": true`. The daemon sets the flag on at
- * most one service; an older daemon never sets it.
+ * most one service; an older daemon never sets it. The daemon's workspace links
+ * use the same rule to decide which workspaces get a preview link.
  */
 export function findMainPreviewService(
   scripts: readonly WorkspaceScriptPayload[],
 ): WorkspaceScriptPayload | null {
-  return scripts.find((script) => script.type === "service" && script.preview === true) ?? null;
+  return findMainPreviewScript(scripts);
 }
 
 export function isServiceOpenable(service: WorkspaceScriptPayload): boolean {

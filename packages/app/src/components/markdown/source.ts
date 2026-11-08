@@ -36,7 +36,8 @@ function createFilePattern(path: string): RegExp {
 // Quotes and unbalanced closing parentheses end the URL. Trailing sentence punctuation stays outside.
 const URL_CHARACTER = String.raw`[^\s<>()"'\x60]`;
 const URL_GROUP = String.raw`\(${URL_CHARACTER}*\)`;
-const BARE_URL = String.raw`https?://(?:${URL_CHARACTER}|${URL_GROUP})*(?:[^\s<>()"'\x60.,;:!?]|${URL_GROUP})`;
+// paseo:// workspace links from agent tools open inside the app.
+const BARE_URL = String.raw`(?:https?|paseo)://(?:${URL_CHARACTER}|${URL_GROUP})*(?:[^\s<>()"'\x60.,;:!?]|${URL_GROUP})`;
 
 const FILE_PATTERN = createFilePattern(PROSE_PATH);
 function linkMetadata(inlineCodePaths: ReadonlySet<string>) {
@@ -49,7 +50,7 @@ function linkMetadata(inlineCodePaths: ReadonlySet<string>) {
     linkRecognition: {
       text: FILE_PATTERN,
       inlineCode: new RegExp(
-        String.raw`^(?:https?://[^\s<>]+${alternatives.length ? `|${alternatives.join("|")}` : ""})$`,
+        String.raw`^(?:(?:https?|paseo)://[^\s<>]+${alternatives.length ? `|${alternatives.join("|")}` : ""})$`,
       ),
     },
     linkSource: markdownLinkSource,

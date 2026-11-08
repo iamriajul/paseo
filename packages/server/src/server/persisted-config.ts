@@ -284,6 +284,7 @@ export const PersistedConfigSchema = z
             executablePath: z.string().optional(),
             engine: z.string().optional(),
             cdpUrl: z.string().optional(),
+            chromeMode: z.string().optional(),
           })
           .passthrough()
           .optional(),

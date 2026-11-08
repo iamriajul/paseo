@@ -28,7 +28,7 @@ export const SERVER_BROWSER_MODES: ReadonlyArray<{
     mode: "managed-chrome",
     label: "Managed Chrome",
     description:
-      "Paseo runs real Google Chrome with its own profile, so Google sign-in and captchas behave and logins persist. Every workspace shares one cookie jar.",
+      "Paseo runs real Google Chrome with its own profiles, so Google sign-in and captchas behave and logins persist. Every workspace shares one cookie jar.",
   },
   {
     mode: "headless",
@@ -37,6 +37,38 @@ export const SERVER_BROWSER_MODES: ReadonlyArray<{
       "A light headless Chromium; each workspace keeps its own cookies and storage. Least memory, but some sites block it.",
   },
 ];
+
+/** Managed Chrome runs in a window or headless; each mode is its own Chrome with its own logins. */
+export type ManagedChromeMode = "window" | "headless";
+
+export const MANAGED_CHROME_MODES: ReadonlyArray<{
+  mode: ManagedChromeMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    mode: "window",
+    label: "Window (most compatible)",
+    description:
+      "Chrome runs in a window on a display, as a person's would. Each mode keeps its own logins.",
+  },
+  {
+    mode: "headless",
+    label: "Headless (less memory)",
+    description:
+      "Chrome runs without a window, using less memory; some sites may still spot it. Each mode keeps its own logins.",
+  },
+];
+
+export function resolveManagedChromeMode(setting: { chromeMode?: string } | undefined) {
+  return setting?.chromeMode === "headless" ? "headless" : "window";
+}
+
+export function createManagedChromeModePatch(
+  mode: ManagedChromeMode,
+): Partial<MutableDaemonConfig> {
+  return { serverBrowser: { enabled: true, engine: "managed-chrome", chromeMode: mode } };
+}
 
 interface ServerBrowserSetting {
   enabled?: boolean;

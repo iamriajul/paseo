@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { createServerBrowserModePatch, resolveServerBrowserMode } from "./engine-mode";
+import {
+  createManagedChromeModePatch,
+  createServerBrowserModePatch,
+  resolveManagedChromeMode,
+  resolveServerBrowserMode,
+} from "./engine-mode";
+
+describe("Managed Chrome mode", () => {
+  it("is a window unless headless was picked", () => {
+    expect(resolveManagedChromeMode(undefined)).toBe("window");
+    expect(resolveManagedChromeMode({ chromeMode: "headless" })).toBe("headless");
+  });
+
+  it("keeps Managed Chrome on while switching mode", () => {
+    expect(createManagedChromeModePatch("headless")).toEqual({
+      serverBrowser: { enabled: true, engine: "managed-chrome", chromeMode: "headless" },
+    });
+  });
+});
 
 describe("server browser mode", () => {
   it("keeps a switch turned on before engines existed on Headless (light)", () => {

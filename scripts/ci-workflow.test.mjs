@@ -162,6 +162,7 @@ test("focused contracts stay inside existing required checks", () => {
   const desktop = jobs.get("desktop-tests-ubuntu")?.join("\n") ?? "";
 
   assert.match(changes, /scripts\/daemon-launch-contract\.test\.mjs/);
+  assert.match(changes, /scripts\/lockfile-registry\.test\.mjs/);
   assert.doesNotMatch(changes, /Install dependencies|npm run build/);
 
   assert.match(server, /test:hub-cli-contract/);

@@ -284,6 +284,8 @@ describe("bare URL sentence punctuation", () => {
     ["http://[::1]:8059/?token=t-1", "'"],
     ["https://github.com/o/r/compare/main...user:repo:fix/branch", ""],
     ["https://example.com/a:b/c", ":"],
+    ["paseo://h/srv-1/workspace/wks_docs", "."],
+    ["paseo://h/srv-1/workspace/wks_docs/preview", ","],
   ])("links %s whole and leaves %j outside", async (url, punctuation) => {
     const prepared = prepareMarkdownSource(`See ${url}${punctuation} now`);
     const tree = recognizeTextLinks(
@@ -299,6 +301,22 @@ describe("bare URL sentence punctuation", () => {
         children: [{ type: "Text", content: url }],
       },
       { type: "Text", content: `${punctuation} now` },
+    ]);
+  });
+
+  it("keeps an authored workspace link in a table cell as a link", async () => {
+    const source =
+      "| Workspace | Preview |\n| --- | --- |\n| [Docs](paseo://h/srv-1/workspace/wks_docs) | [Docs preview](paseo://h/srv-1/workspace/wks_docs/preview) |";
+    const tree = await parseMarkdown(prepareMarkdownSource(source).render());
+    const urls: string[] = [];
+    function collect(node: ASTNode) {
+      if (node.type === "Link") urls.push(String(node.attributes?.url));
+      node.children?.forEach(collect);
+    }
+    collect(tree);
+    expect(urls).toEqual([
+      "paseo://h/srv-1/workspace/wks_docs",
+      "paseo://h/srv-1/workspace/wks_docs/preview",
     ]);
   });
 

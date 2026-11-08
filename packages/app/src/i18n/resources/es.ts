@@ -3627,6 +3627,12 @@ export const es: TranslationResources = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "Ese host no está conectado. Conéctalo y vuelve a probar el enlace.",
+    workspaceMissing: "No se encontró ese espacio de trabajo. Puede que se haya archivado.",
+    previewMissing:
+      'Este espacio de trabajo no tiene vista previa principal. Marca un servicio de paseo.json con "preview": true.',
+  },
   interactionLock: {
     banner: "Solo lectura · supervisión",
     unlock: "Desbloquear",

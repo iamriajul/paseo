@@ -64,6 +64,7 @@ import { RetainedPanel } from "@/components/retained-panel";
 import { WorkspaceActions } from "@/git/workspace-actions";
 import { WorkspaceOpenInEditorButton } from "@/workspace/open-in-editor/button";
 import { WorkspaceScriptsButton } from "@/screens/workspace/scripts";
+import { useWorkspacePreviewRequests } from "@/workspace-links/preview-requests";
 import { ImportSessionSheet } from "@/components/import-session-sheet";
 import { useNavigateToImportedAgent } from "@/hooks/use-import-session";
 import { useToast } from "@/contexts/toast-context";
@@ -1962,6 +1963,14 @@ function WorkspaceScreenContent({
     },
     [openInServerBrowser, openWorkspaceTabFocused, persistenceKey, showCreateBrowserTab],
   );
+
+  useWorkspacePreviewRequests({
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
+    focused: isRouteFocused,
+    workspace: workspaceDescriptor,
+    openUrlInBrowserTab: handleOpenUrlInBrowserTab,
+  });
 
   // Links rendered anywhere in the workspace outside a chat message (question
   // and plan cards, file previews, sheets) resolve through this provider config,

@@ -3528,6 +3528,11 @@ export const zhCN: TranslationResources = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "该主机未连接。请先连接，然后再试一次此链接。",
+    workspaceMissing: "未找到该工作区，它可能已被归档。",
+    previewMissing: '此工作区没有主预览。请在 paseo.json 中为某个服务设置 "preview": true。',
+  },
   interactionLock: {
     banner: "只读 · 监视中",
     unlock: "解锁",

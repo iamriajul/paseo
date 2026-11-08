@@ -3596,6 +3596,12 @@ export const ja: TranslationResources = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "このホストは接続されていません。接続してからもう一度リンクを開いてください。",
+    workspaceMissing: "そのワークスペースが見つかりません。アーカイブされた可能性があります。",
+    previewMissing:
+      'このワークスペースにはメインプレビューがありません。paseo.json のサービスに "preview": true を指定してください。',
+  },
   interactionLock: {
     banner: "読み取り専用 · 監視中",
     unlock: "ロック解除",

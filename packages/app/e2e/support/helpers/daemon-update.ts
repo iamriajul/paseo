@@ -1,6 +1,6 @@
-import { fork, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import path from "node:path";
-import { killProcessTree } from "./spawn-node";
+import { forkOwned, killProcessTree } from "./spawn-node";
 
 export interface OutdatedDaemon {
   endpoint: string;
@@ -32,9 +32,10 @@ export async function startOutdatedDaemon(options?: {
     throw new Error("E2E_METRO_PORT is not set - globalSetup must run first");
   }
 
-  const child = fork(
+  const child = forkOwned(
     path.resolve(__dirname, "../../../../server/src/server/test-utils/outdated-daemon-process.ts"),
     {
+      label: "outdated daemon",
       env: {
         ...process.env,
         E2E_METRO_PORT: metroPort,

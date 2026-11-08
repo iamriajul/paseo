@@ -1,11 +1,10 @@
-import { fork } from "node:child_process";
 import path from "node:path";
 import { expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { z } from "zod";
 import { test } from "../support/fixtures";
 import { expectVisibleAgentSurfacesIdle } from "../support/helpers/agent-stream";
 import { buildSeededHost } from "../support/helpers/daemon-registry";
-import { killProcessTree } from "../support/helpers/spawn-node";
+import { forkOwned, killProcessTree } from "../support/helpers/spawn-node";
 import {
   buildAgentRoute,
   openAgentRoute,
@@ -385,11 +384,15 @@ const retryTest = test.extend<{
 }>({
   questionClient: async ({ page }, provide, testInfo) => {
     const serverDir = path.resolve(__dirname, "../../../server");
-    const child = fork(path.join(serverDir, "src/server/test-utils/question-response-daemon.ts"), {
-      cwd: serverDir,
-      execArgv: ["--import", "tsx"],
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-    });
+    const child = forkOwned(
+      path.join(serverDir, "src/server/test-utils/question-response-daemon.ts"),
+      {
+        label: "question response daemon",
+        cwd: serverDir,
+        execArgv: ["--import", "tsx"],
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+      },
+    );
     const output: string[] = [];
     child.stdout?.on("data", (data: Buffer) => output.push(data.toString()));
     child.stderr?.on("data", (data: Buffer) => output.push(data.toString()));

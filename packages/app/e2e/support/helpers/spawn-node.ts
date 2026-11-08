@@ -1,5 +1,50 @@
-import { execFile, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import {
+  execFile,
+  fork,
+  spawn,
+  type ChildProcess,
+  type ForkOptions,
+  type SpawnOptions,
+} from "node:child_process";
 import { once } from "node:events";
+import {
+  isOwnedProcessGroup,
+  registerOwnedProcessGroup,
+  stopOwnedProcessGroup,
+} from "./owned-processes";
+
+const isWindows = process.platform === "win32";
+
+function own(child: ChildProcess, label: string, command: string): ChildProcess {
+  if (!isWindows && child.pid !== undefined) registerOwnedProcessGroup(child.pid, label, command);
+  return child;
+}
+
+/**
+ * Spawns a long-lived harness child (Metro, a daemon) as the leader of its own process
+ * group and records the group, so `killProcessTree` stops everything it forked and a run
+ * that dies before teardown is reaped by the next one. See `owned-processes.ts`.
+ * Windows keeps the child in the console's job and relies on `taskkill /T`.
+ */
+export function spawnOwned(
+  command: string,
+  args: string[],
+  options: SpawnOptions & { label: string },
+): ChildProcess {
+  const { label, ...spawnOptions } = options;
+  const child = spawn(command, args, { ...spawnOptions, detached: !isWindows });
+  return own(child, label, [command, ...args].join(" "));
+}
+
+/** `fork` counterpart of `spawnOwned`, for children that report readiness over IPC. */
+export function forkOwned(
+  modulePath: string,
+  options: ForkOptions & { label: string },
+): ChildProcess {
+  const { label, ...forkOptions } = options;
+  const child = fork(modulePath, { ...forkOptions, detached: !isWindows });
+  return own(child, label, `${process.execPath} ${modulePath}`);
+}
 
 /**
  * Runs a repo-local TypeScript entrypoint through Node's own tsx loader instead
@@ -13,11 +58,15 @@ import { once } from "node:events";
  * real child keeps the port. Spawning `process.execPath` has none of those
  * properties and is byte-identical on POSIX, so there is no platform branch.
  */
-export function spawnTsx(entrypoint: string, args: string[], options: SpawnOptions): ChildProcess {
+export function spawnTsx(
+  entrypoint: string,
+  args: string[],
+  options: SpawnOptions & { label: string },
+): ChildProcess {
   if (entrypoint.startsWith("-")) {
     throw new Error(`TypeScript entrypoint must be a path, received ${entrypoint}`);
   }
-  return spawn(process.execPath, ["--import", "tsx", "--", entrypoint, ...args], options);
+  return spawnOwned(process.execPath, ["--import", "tsx", "--", entrypoint, ...args], options);
 }
 
 /**
@@ -26,13 +75,20 @@ export function spawnTsx(entrypoint: string, args: string[], options: SpawnOptio
  * `child.kill()` on Windows maps to `TerminateProcess` against the direct child
  * only. Metro and the daemon supervisor both fork workers, so the signal leaves
  * grandchildren holding the listening port and the next run fails to bind.
- * `taskkill /T` walks the tree; POSIX keeps the SIGTERM-then-SIGKILL ladder.
+ * `taskkill /T` walks the tree. On POSIX a child from `spawnOwned` leads its own
+ * process group, and the SIGTERM-then-SIGKILL ladder goes to the whole group, which also
+ * runs after the leader has exited and left forked workers behind.
  */
 export async function killProcessTree(child: ChildProcess | null): Promise<void> {
-  if (!child || hasExited(child)) return;
+  if (!child) return;
+  if (!isWindows && isOwnedProcessGroup(child.pid)) {
+    await stopOwnedProcessGroup(child.pid as number);
+    return;
+  }
+  if (hasExited(child)) return;
   const exited = once(child, "exit").then(() => undefined);
 
-  if (process.platform === "win32") {
+  if (isWindows) {
     const pid = child.pid;
     if (pid === undefined) {
       throw new Error("Cannot terminate a Windows process tree without a PID");

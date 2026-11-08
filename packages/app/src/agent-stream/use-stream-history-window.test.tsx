@@ -3,6 +3,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_CACHE_WARM_PING_PROMPT } from "@getpaseo/protocol/agent-cache-warm";
 import type { StreamItem } from "@/types/stream";
 import { useStreamHistoryWindow } from "./use-stream-history-window";
 
@@ -21,6 +22,26 @@ function useHistoryWindowRevealingOn(input: { items: StreamItem[]; revealOn: Str
   const window = useStreamHistoryWindow({ agentId: "agent-1", items, loadRemoteOlder: vi.fn() });
   revealRef.current = window.revealLoadedHistory;
   return window;
+}
+
+function realTurns(count: number, prefix = ""): StreamItem[] {
+  return Array.from({ length: count }, (_, turn) => [
+    message(`${prefix}u${turn}`, "user_message"),
+    message(`${prefix}a${turn}`, "assistant_message"),
+  ]).flat();
+}
+
+// A v1 warm-up: the ping prompt and its "ok", which render nothing.
+function warmUpTurns(count: number): StreamItem[] {
+  return Array.from({ length: count }, (_, turn): StreamItem[] => [
+    {
+      id: `ping${turn}`,
+      kind: "user_message",
+      text: DEFAULT_CACHE_WARM_PING_PROMPT,
+      timestamp: new Date(),
+    },
+    { id: `ok${turn}`, kind: "assistant_message", text: "ok", timestamp: new Date() },
+  ]).flat();
 }
 
 function noReveal(): boolean {
@@ -43,6 +64,88 @@ describe("useStreamHistoryWindow", () => {
     );
 
     expect(result.current.start).toBe(2);
+  });
+
+  it("counts only rows that render, so a tail of warm-ups does not open an empty chat", () => {
+    // Ten 5m warm-ups are twenty rows: a window counted in items holds nothing but them.
+    const items = [...realTurns(15), ...warmUpTurns(10)];
+
+    const { result } = renderHook(() =>
+      useStreamHistoryWindow({ agentId: "agent-1", items, loadRemoteOlder: vi.fn() }),
+    );
+
+    expect(
+      items.slice(result.current.start).filter((item) => item.id.startsWith("a")),
+    ).toHaveLength(10);
+  });
+
+  it("opens on the work before an idle-cap compaction, not on the compaction alone", () => {
+    const items: StreamItem[] = [
+      ...realTurns(15),
+      ...warmUpTurns(9),
+      { id: "compact", kind: "user_message", text: "/compact", timestamp: new Date() },
+      {
+        id: "compacted",
+        kind: "compaction",
+        status: "completed",
+        trigger: "manual",
+        timestamp: new Date(),
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useStreamHistoryWindow({ agentId: "agent-1", items, loadRemoteOlder: vi.fn() }),
+    );
+
+    expect(
+      items.slice(result.current.start).filter((item) => item.id.startsWith("a")),
+    ).toHaveLength(9);
+  });
+
+  it("fetches older pages without scrolling while loaded rows are mostly warm-ups", async () => {
+    const loadRemoteOlder = vi.fn(async () => true);
+    const tail = [...realTurns(2), ...warmUpTurns(19)];
+    const { result, rerender } = renderHook(
+      (props: { items: StreamItem[]; remoteHasOlder: boolean; loading: boolean }) =>
+        useStreamHistoryWindow({
+          agentId: "agent-1",
+          items: props.items,
+          loadRemoteOlder,
+          remoteHasOlder: props.remoteHasOlder,
+          isLoadingRemoteOlder: props.loading,
+        }),
+      { initialProps: { items: tail, remoteHasOlder: true, loading: false } },
+    );
+
+    expect(result.current.start).toBe(0);
+    expect(loadRemoteOlder).toHaveBeenCalledTimes(1);
+
+    // While the page loads, and after it lands with enough rows, nothing more is requested.
+    rerender({ items: tail, remoteHasOlder: true, loading: true });
+    const filled = [...realTurns(10, "older-"), ...tail];
+    rerender({ items: filled, remoteHasOlder: true, loading: false });
+    expect(loadRemoteOlder).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops fetching when history ends or a page adds nothing", () => {
+    const loadRemoteOlder = vi.fn(async () => true);
+    const tail = warmUpTurns(5);
+    const { rerender } = renderHook(
+      (props: { remoteHasOlder: boolean; loading: boolean }) =>
+        useStreamHistoryWindow({
+          agentId: "agent-1",
+          items: tail,
+          loadRemoteOlder,
+          remoteHasOlder: props.remoteHasOlder,
+          isLoadingRemoteOlder: props.loading,
+        }),
+      { initialProps: { remoteHasOlder: true, loading: false } },
+    );
+    expect(loadRemoteOlder).toHaveBeenCalledTimes(1);
+    rerender({ remoteHasOlder: true, loading: true });
+    rerender({ remoteHasOlder: true, loading: false });
+    rerender({ remoteHasOlder: false, loading: false });
+    expect(loadRemoteOlder).toHaveBeenCalledTimes(1);
   });
 
   it("reveals loaded history before requesting an older daemon page", async () => {

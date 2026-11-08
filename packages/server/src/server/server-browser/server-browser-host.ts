@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Logger } from "pino";
 import type { BrowserAutomationExecuteRequest } from "@getpaseo/protocol/browser-automation/rpc-schemas";
@@ -8,10 +7,7 @@ import type {
   ServerBrowserTab as ServerBrowserTabInfo,
 } from "@getpaseo/protocol/server-browser/rpc-schemas";
 import { browserToolsFailure, type BrowserToolsResponsePayload } from "../browser-tools/errors.js";
-import {
-  resolveChromiumExecutable,
-  type ChromiumExecutableResolution,
-} from "./chromium-executable.js";
+import type { ChromiumExecutableResolution } from "./chromium-executable.js";
 import type { CdpEvent } from "./cdp-connection.js";
 import {
   executeAutomationCommand,
@@ -20,7 +16,14 @@ import {
 } from "./engine/service.js";
 import { BrowserSnapshotEngine } from "./engine/snapshot-engine.js";
 import { ServerBrowserTab, type ServerBrowserViewport } from "./server-browser-tab.js";
-import { SharedChromium, type ChromiumCookie, type LaunchFn } from "./shared-chromium.js";
+import {
+  SERVER_BROWSER_ENGINE_TRAITS,
+  startEngine,
+  type DisplayPreference,
+  type ServerBrowserEngineConfig,
+  type ServerBrowserEngineKind,
+} from "./engines.js";
+import type { ChromiumCookie, LaunchFn, SharedChromium } from "./shared-chromium.js";
 import {
   originOf,
   withOriginPages,
@@ -57,6 +60,10 @@ export interface ServerBrowserHostOptions {
   logger: Logger;
   isEnabled: () => boolean;
   getConfiguredExecutable?: () => string | null | undefined;
+  /** The engine the next browser start uses; Headless (light) when absent. */
+  getEngine?: () => ServerBrowserEngineConfig;
+  /** Managed Chrome's display; tests pass "xvfb" so no window opens on a real desktop. */
+  display?: DisplayPreference;
   resolveExecutable?: () => Promise<ChromiumExecutableResolution>;
   launch?: LaunchFn;
   limits?: Partial<ServerBrowserLimits>;
@@ -76,7 +83,8 @@ export class ServerBrowserLimitError extends Error {
 
 interface WorkspaceContext {
   workspaceId: string;
-  browserContextId: string;
+  /** Null when the engine shares the browser's default context across workspaces. */
+  browserContextId: string | null;
   chromium: SharedChromium;
   /** Last known localStorage per origin, including origins no tab has open now. */
   origins: Map<string, LocalStorageItems>;
@@ -89,6 +97,7 @@ interface WorkspaceContext {
 }
 
 const SHUTDOWN_SAVE_BUDGET_MS = 5_000;
+const MANAGED_CHROME_SESSION_KEY = "session-cookies";
 
 /**
  * The daemon's own browser: one headless Chromium for the whole host, one browser context per
@@ -100,6 +109,7 @@ export class ServerBrowserHost {
   private readonly tabs = new Map<string, ServerBrowserTab>();
   private chromium: Promise<SharedChromium> | null = null;
   private launchedChromium: SharedChromium | null = null;
+  private runningEngine: ServerBrowserEngineKind | null = null;
   private readonly contexts = new Map<string, Promise<WorkspaceContext>>();
   private readonly closingContexts = new Map<string, Promise<void>>();
   private readonly clearing = new Set<string>();
@@ -111,6 +121,7 @@ export class ServerBrowserHost {
   private readonly now: () => number;
   private readonly registry: BrowserRegistry;
   private readonly store: WorkspaceStorageStore;
+  private readonly managedChromeStore: WorkspaceStorageStore;
   private nextContentsId = 1;
   private noSandbox = false;
   private unavailableReason: string | undefined;
@@ -124,6 +135,7 @@ export class ServerBrowserHost {
     this.now = options.now ?? Date.now;
     this.registry = this.createRegistry();
     this.store = new WorkspaceStorageStore(join(this.rootDir(), "storage"));
+    this.managedChromeStore = new WorkspaceStorageStore(join(this.rootDir(), "chrome-session"));
   }
 
   public isEnabled(): boolean {
@@ -131,10 +143,26 @@ export class ServerBrowserHost {
   }
 
   public status(): ServerBrowserStatus {
+    const kind = this.engineConfig().kind;
     return {
       enabled: this.isEnabled(),
       ...(this.unavailableReason ? { unavailableReason: this.unavailableReason } : {}),
+      engine: {
+        kind,
+        sharedStorage: SERVER_BROWSER_ENGINE_TRAITS[kind].isolation === "shared",
+      },
     };
+  }
+
+  public engineConfig(): ServerBrowserEngineConfig {
+    return (
+      this.options.getEngine?.() ?? {
+        kind: "headless",
+        ...(this.options.getConfiguredExecutable?.()
+          ? { executablePath: this.options.getConfiguredExecutable()! }
+          : {}),
+      }
+    );
   }
 
   public listTabs(): ServerBrowserTabInfo[] {
@@ -258,7 +286,7 @@ export class ServerBrowserHost {
     assertNavigableUrl(params.url);
     this.cancelContextIdle(params.workspaceId);
     const context = await this.ensureContext(params.workspaceId);
-    const target = await context.chromium.createTarget(context.browserContextId);
+    const target = await context.chromium.createTarget(context.browserContextId ?? undefined);
     const tab = new ServerBrowserTab({
       browserId: params.browserId ?? randomUUID(),
       workspaceId: params.workspaceId,
@@ -290,12 +318,22 @@ export class ServerBrowserHost {
     if (!tab) return;
     this.tabs.delete(browserId);
     tab.dispose();
-    if (this.launchedChromium?.isAlive) await this.launchedChromium.closeTarget(tab.cdpTargetId);
+    const chromium = this.launchedChromium;
+    // Headed Chrome left without a window can quit on its own; keep its session cookies first.
+    if (chromium?.isAlive && this.runningEngine === "managed-chrome" && this.tabs.size === 0) {
+      await this.saveSessionCookies(chromium);
+    }
+    if (chromium?.isAlive) await chromium.closeTarget(tab.cdpTargetId);
     this.afterTabRemoved(tab.workspaceId);
   }
 
   /** Wipes a workspace's storage; open tabs come back at their URLs with the same browserIds. */
   public async clearWorkspaceData(workspaceId: string): Promise<void> {
+    if (this.isolationOfRunningEngine() === "shared") {
+      throw new Error(
+        "This engine keeps one browser profile for every workspace, so there is no workspace data to clear. Sign out in the page, or clear data in that browser.",
+      );
+    }
     const reopen = [...this.tabs.values()]
       .filter((tab) => tab.workspaceId === workspaceId)
       .map((tab) => ({ url: tab.currentUrl, tab }));
@@ -307,7 +345,7 @@ export class ServerBrowserHost {
       if (reopen.length === 0) return;
       const context = await this.ensureContext(workspaceId);
       for (const entry of reopen) {
-        const target = await context.chromium.createTarget(context.browserContextId);
+        const target = await context.chromium.createTarget(context.browserContextId ?? undefined);
         entry.tab.rebind(target);
         await entry.tab.initialize();
         if (/^https?:/.test(entry.url)) await entry.tab.navigate(entry.url).catch(() => {});
@@ -382,7 +420,8 @@ export class ServerBrowserHost {
     await this.closingContexts.get(workspaceId);
     const chromium = await this.ensureChromium();
     this.cancelBrowserIdle();
-    const browserContextId = await chromium.createContext();
+    const isolated = this.isolationOfRunningEngine() === "context";
+    const browserContextId = isolated ? await chromium.createContext() : null;
     const context: WorkspaceContext = {
       workspaceId,
       browserContextId,
@@ -394,16 +433,18 @@ export class ServerBrowserHost {
       saveTimer: null,
       disposed: false,
     };
+    if (!browserContextId) return context;
     const state = await this.store.load(workspaceId);
-    if (state) await this.restoreContext(context, state);
+    if (state) await this.restoreContext(context, browserContextId, state);
     return context;
   }
 
   private async restoreContext(
     context: WorkspaceContext,
+    browserContextId: string,
     state: WorkspaceStorageState,
   ): Promise<void> {
-    const { chromium, browserContextId, workspaceId } = context;
+    const { chromium, workspaceId } = context;
     await chromium.setCookies(browserContextId, state.cookies).catch((error) => {
       this.options.logger.warn({ err: error, workspaceId }, "Server browser: cookies not restored");
     });
@@ -445,8 +486,9 @@ export class ServerBrowserHost {
   }
 
   private async writeContext(context: WorkspaceContext): Promise<void> {
-    if (context.disposed || !context.chromium.isAlive) return;
     const { chromium, browserContextId } = context;
+    // A shared default context belongs to the browser's own profile, which persists itself.
+    if (context.disposed || !chromium.isAlive || !browserContextId) return;
     const cookies = await chromium.getCookies(browserContextId);
     const tabs = [...this.tabs.values()].filter(
       (tab) => tab.workspaceId === context.workspaceId && !tab.isClosed,
@@ -508,7 +550,9 @@ export class ServerBrowserHost {
       else await context.saving;
       context.disposed = true;
       if (context.saveTimer) clearTimeout(context.saveTimer);
-      await context.chromium.disposeContext(context.browserContextId);
+      if (context.browserContextId) {
+        await context.chromium.disposeContext(context.browserContextId);
+      }
     })().finally(() => {
       if (this.closingContexts.get(workspaceId) === closing) {
         this.closingContexts.delete(workspaceId);
@@ -535,54 +579,56 @@ export class ServerBrowserHost {
   }
 
   private async launchChromium(): Promise<SharedChromium> {
-    const resolution = this.options.resolveExecutable
-      ? await this.options.resolveExecutable()
-      : await resolveChromiumExecutable({
-          configuredPath: this.options.getConfiguredExecutable?.(),
-        });
-    if (!resolution.ok) {
-      this.unavailableReason = resolution.message;
-      this.scheduleNotify();
-      throw new Error(resolution.message);
-    }
+    const config = this.engineConfig();
     const startedAt = this.now();
-    // The profile only holds Chromium's own bookkeeping: workspace data lives in contexts and
-    // the storage files. Start it empty so nothing accumulates across launches.
-    const userDataDir = join(this.rootDir(), "chromium");
-    await rm(userDataDir, { recursive: true, force: true });
-    // COMPAT(server-browser-profiles): v0.15.904 kept a Chromium profile per workspace; remove after 2027-03-01.
-    await rm(join(this.rootDir(), "profiles"), { recursive: true, force: true });
+    let started: SharedChromium | null = null;
     try {
-      const chromium = await SharedChromium.launch({
-        executablePath: resolution.path,
-        userDataDir,
+      started = await startEngine({
+        config,
+        paseoHome: this.options.paseoHome,
         noSandbox: this.noSandbox,
         ...(this.options.launch ? { launch: this.options.launch } : {}),
+        ...(this.options.resolveExecutable
+          ? { resolveExecutable: this.options.resolveExecutable }
+          : {}),
+        ...(this.options.display ? { display: this.options.display } : {}),
+        onWarning: (message) => this.options.logger.warn(`Server browser: ${message}`),
         events: {
           onEvent: (event) => this.routeEvent(event),
           onTargetInfo: (info) => this.findTabByTarget(info.targetId)?.updateTargetInfo(info),
           onTargetDestroyed: (targetId) => this.onTargetDestroyed(targetId),
-          onExit: () => this.onChromiumExit(chromium),
+          onExit: () => this.onChromiumExit(started),
         },
       });
-      if (!chromium.sandboxed && !this.noSandbox) {
-        this.noSandbox = true;
-        this.options.logger.warn(
-          "Server browser: Chromium has no usable sandbox on this host; running it with --no-sandbox",
-        );
-      }
-      this.unavailableReason = undefined;
-      this.launchedChromium = chromium;
-      this.options.logger.info(
-        { pid: chromium.pid, executable: resolution.path, ms: this.now() - startedAt },
-        "Server browser started",
-      );
-      return chromium;
     } catch (error) {
-      this.unavailableReason = `Chromium failed to start: ${error instanceof Error ? error.message : String(error)}`;
+      const message = error instanceof Error ? error.message : String(error);
+      this.unavailableReason =
+        config.kind === "existing" ? message : `Chromium failed to start: ${message}`;
       this.scheduleNotify();
       throw error;
     }
+    const chromium = started;
+    if (config.kind === "managed-chrome") await this.restoreSessionCookies(chromium);
+    if (chromium.isOwned && !chromium.sandboxed && !this.noSandbox) {
+      this.noSandbox = true;
+      this.options.logger.warn(
+        "Server browser: Chromium has no usable sandbox on this host; running it with --no-sandbox",
+      );
+    }
+    this.unavailableReason = undefined;
+    this.launchedChromium = chromium;
+    this.runningEngine = config.kind;
+    this.options.logger.info(
+      { engine: config.kind, pid: chromium.pid, ms: this.now() - startedAt },
+      "Server browser started",
+    );
+    return chromium;
+  }
+
+  /** The isolation of the browser that runs now, or of the one the next start brings. */
+  private isolationOfRunningEngine(): "context" | "shared" {
+    const kind = this.launchedChromium?.isAlive ? this.runningEngine : this.engineConfig().kind;
+    return SERVER_BROWSER_ENGINE_TRAITS[kind ?? "headless"].isolation;
   }
 
   private async closeChromium(): Promise<void> {
@@ -590,7 +636,34 @@ export class ServerBrowserHost {
     const pending = this.chromium;
     this.chromium = null;
     const chromium = await pending?.catch(() => null);
+    if (chromium && this.runningEngine === "managed-chrome")
+      await this.saveSessionCookies(chromium);
     await chromium?.close();
+  }
+
+  /**
+   * Managed Chrome keeps its own profile, but a session cookie (no expiry) ends with the browser
+   * session, as in any Chrome. A person's Chrome runs for days; Paseo's exits when idle, which
+   * would sign dev apps with session-cookie logins out every few minutes. Session cookies are
+   * carried across Paseo's own restarts of it; everything else stays Chrome's.
+   */
+  private async saveSessionCookies(chromium: SharedChromium): Promise<void> {
+    if (!chromium.isAlive) return;
+    try {
+      const cookies = await chromium.getCookies(null, { sessionOnly: true });
+      const state: WorkspaceStorageState = { version: 1, cookies, origins: {} };
+      await this.managedChromeStore.save(MANAGED_CHROME_SESSION_KEY, JSON.stringify(state));
+    } catch (error) {
+      this.options.logger.warn({ err: error }, "Server browser: session cookies not saved");
+    }
+  }
+
+  private async restoreSessionCookies(chromium: SharedChromium): Promise<void> {
+    const state = await this.managedChromeStore.load(MANAGED_CHROME_SESSION_KEY);
+    if (!state) return;
+    await chromium.setCookies(null, state.cookies).catch((error) => {
+      this.options.logger.warn({ err: error }, "Server browser: session cookies not restored");
+    });
   }
 
   private routeEvent(event: CdpEvent): void {
@@ -624,8 +697,8 @@ export class ServerBrowserHost {
     this.afterTabRemoved(tab.workspaceId);
   }
 
-  private onChromiumExit(chromium: SharedChromium): void {
-    if (this.launchedChromium === chromium) this.launchedChromium = null;
+  private onChromiumExit(chromium: SharedChromium | null): void {
+    if (chromium && this.launchedChromium === chromium) this.launchedChromium = null;
     if (this.shuttingDown) return;
     // Every context died with the process; their storage is what the last save wrote. A pending
     // save timer finds its browser gone and writes nothing.
@@ -713,6 +786,10 @@ export class ServerBrowserHost {
   private saveWorkspacesWithTabs(): void {
     const workspaces = new Set([...this.tabs.values()].map((tab) => tab.workspaceId));
     for (const workspaceId of workspaces) void this.saveWorkspaceStorage(workspaceId);
+    const chromium = this.launchedChromium;
+    if (chromium && this.runningEngine === "managed-chrome" && this.tabs.size > 0) {
+      void this.saveSessionCookies(chromium);
+    }
   }
 
   private scheduleNotify(): void {

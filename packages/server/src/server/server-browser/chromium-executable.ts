@@ -262,3 +262,42 @@ async function defaultListDirectory(directory: string): Promise<string[]> {
     return [];
   }
 }
+
+/**
+ * Real Google Chrome for the Managed Chrome engine: Google sign-in and bot checks treat it as a
+ * normal browser, which Playwright's builds are not. Chromium is the fallback.
+ */
+export async function resolveChromeExecutable(
+  search: Pick<ChromiumExecutableSearch, "env" | "platform" | "isExecutable"> = {},
+): Promise<ChromiumExecutableResolution> {
+  const env = search.env ?? process.env;
+  const host = search.platform ?? currentPlatform();
+  const paths = host === "win32" ? path.win32 : path.posix;
+  const isExecutable = search.isExecutable ?? defaultIsExecutable;
+  const fromEnv = env.PASEO_SERVER_BROWSER_CHROME?.trim();
+  if (fromEnv) {
+    return (await isExecutable(fromEnv))
+      ? { ok: true, path: fromEnv, source: "env" }
+      : { ok: false, message: `PASEO_SERVER_BROWSER_CHROME is not an executable: ${fromEnv}` };
+  }
+  if (host === "darwin") {
+    const app = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    if (await isExecutable(app)) return { ok: true, path: app, source: "system" };
+  }
+  const pathDirs = (env.PATH ?? env.Path ?? "").split(paths.delimiter).filter(Boolean);
+  const names =
+    host === "win32"
+      ? ["chrome.exe"]
+      : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"];
+  for (const name of names) {
+    for (const dir of pathDirs) {
+      const candidate = paths.join(dir, name);
+      if (await isExecutable(candidate)) return { ok: true, path: candidate, source: "system" };
+    }
+  }
+  return {
+    ok: false,
+    message:
+      "Managed Chrome needs Google Chrome on this host (google-chrome on PATH, or PASEO_SERVER_BROWSER_CHROME).",
+  };
+}

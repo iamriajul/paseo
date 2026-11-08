@@ -34,30 +34,92 @@ interface PendingCall {
   reject: (error: Error) => void;
 }
 
+/** Moves CDP messages; a pipe to a Chromium the daemon launched, or a WebSocket to one it found. */
+export interface CdpTransport {
+  send(message: string): void;
+  onMessage(listener: (message: string) => void): void;
+  onClose(listener: () => void): void;
+  close(): void;
+}
+
 /**
  * CDP over --remote-debugging-pipe: fd 3 carries commands to Chromium, fd 4 carries replies and
  * events, each message NUL-terminated. No TCP debug port exists, and Chromium exits when the
  * daemon's end of the pipe closes, so a killed daemon cannot leave an orphan browser.
  */
+export function pipeTransport(writer: Writable, reader: Readable): CdpTransport {
+  let buffer = "";
+  const messageListeners: Array<(message: string) => void> = [];
+  const closeListeners: Array<() => void> = [];
+  const closed = () => {
+    for (const listener of closeListeners.splice(0)) listener();
+  };
+  reader.setEncoding("utf8");
+  reader.on("data", (chunk: string) => {
+    buffer += chunk;
+    let end = buffer.indexOf("\0");
+    while (end !== -1) {
+      const raw = buffer.slice(0, end);
+      buffer = buffer.slice(end + 1);
+      for (const listener of messageListeners) listener(raw);
+      end = buffer.indexOf("\0");
+    }
+  });
+  reader.on("close", closed);
+  reader.on("error", closed);
+  writer.on("error", closed);
+  return {
+    send: (message) => void writer.write(`${message}\0`),
+    onMessage: (listener) => void messageListeners.push(listener),
+    onClose: (listener) => void closeListeners.push(listener),
+    close: () => {
+      writer.end();
+      reader.destroy();
+    },
+  };
+}
+
+/** CDP over a browser's WebSocket debugger URL, for a browser the daemon did not start. */
+export async function webSocketTransport(url: string): Promise<CdpTransport> {
+  const socket = new WebSocket(url);
+  await new Promise<void>((resolve, reject) => {
+    socket.addEventListener("open", () => resolve(), { once: true });
+    socket.addEventListener("error", () => reject(new Error(`Could not connect to ${url}`)), {
+      once: true,
+    });
+  });
+  return {
+    send: (message) => socket.send(message),
+    onMessage: (listener) =>
+      socket.addEventListener("message", (event) => {
+        if (typeof event.data === "string") listener(event.data);
+      }),
+    onClose: (listener) => {
+      socket.addEventListener("close", () => listener());
+      socket.addEventListener("error", () => listener());
+    },
+    close: () => socket.close(),
+  };
+}
+
 export class CdpConnection extends EventEmitter<{
   event: [CdpEvent];
   close: [];
 }> {
   private nextId = 0;
   private readonly pending = new Map<number, PendingCall>();
-  private buffer = "";
   private closed = false;
 
-  public constructor(
-    private readonly writer: Writable,
-    reader: Readable,
-  ) {
+  public constructor(private readonly transport: CdpTransport) {
     super();
-    reader.setEncoding("utf8");
-    reader.on("data", (chunk: string) => this.receive(chunk));
-    reader.on("close", () => this.markClosed());
-    reader.on("error", () => this.markClosed());
-    writer.on("error", () => this.markClosed());
+    transport.onMessage((raw) => this.dispatch(raw));
+    transport.onClose(() => this.markClosed());
+  }
+
+  /** Ends the connection without asking the browser to do anything. */
+  public disconnect(): void {
+    this.transport.close();
+    this.markClosed();
   }
 
   public get isClosed(): boolean {
@@ -70,19 +132,8 @@ export class CdpConnection extends EventEmitter<{
     return new Promise<CdpParams>((resolve, reject) => {
       this.pending.set(id, { method, resolve, reject });
       const message = JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) });
-      this.writer.write(`${message}\0`);
+      this.transport.send(message);
     });
-  }
-
-  private receive(chunk: string): void {
-    this.buffer += chunk;
-    let end = this.buffer.indexOf("\0");
-    while (end !== -1) {
-      const raw = this.buffer.slice(0, end);
-      this.buffer = this.buffer.slice(end + 1);
-      this.dispatch(raw);
-      end = this.buffer.indexOf("\0");
-    }
   }
 
   private dispatch(raw: string): void {
@@ -136,7 +187,32 @@ export interface LaunchChromiumOptions {
   userDataDir: string;
   /** Skip the sandbox attempt; set after a launch already found no usable sandbox. */
   noSandbox?: boolean;
+  /** The engine's own flags; the pipe, profile and sandbox flags are added here. */
+  args?: string[];
+  env?: NodeJS.ProcessEnv;
 }
+
+/** Playwright's headless shell, tuned for memory: the Headless (light) engine. */
+export const HEADLESS_SHELL_ARGS = [
+  "--headless",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--disable-background-networking",
+  "--disable-component-update",
+  "--disable-sync",
+  "--disable-default-apps",
+  "--disable-features=Translate,MediaRouter,OptimizationHints",
+  "--password-store=basic",
+  "--use-mock-keychain",
+  "--hide-scrollbars",
+  "--mute-audio",
+  // Memory, measured with a heavy SPA (docs/server-browser.md#cost). Software compositing
+  // without a GPU process saves about 55 MB; V8 sizing its heaps for memory saves about 50 MB
+  // per page; same-site tabs of one workspace share a renderer (contexts never share one).
+  "--disable-gpu",
+  "--process-per-site",
+  "--js-flags=--optimize-for-size",
+];
 
 const NO_SANDBOX_PATTERN = /No usable sandbox|setuid sandbox|zygote_host_impl/i;
 const LAUNCH_TIMEOUT_MS = 15_000;
@@ -169,35 +245,19 @@ async function launchOnce(
 ): Promise<LaunchedChromium> {
   await mkdir(options.userDataDir, { recursive: true });
   const args = [
-    "--headless",
     "--remote-debugging-pipe",
     `--user-data-dir=${options.userDataDir}`,
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-background-networking",
-    "--disable-component-update",
-    "--disable-sync",
-    "--disable-default-apps",
-    "--disable-features=Translate,MediaRouter,OptimizationHints",
-    "--password-store=basic",
-    "--use-mock-keychain",
-    "--hide-scrollbars",
-    "--mute-audio",
-    // Memory, measured with a heavy SPA (docs/server-browser.md#cost). Software compositing
-    // without a GPU process saves about 55 MB; V8 sizing its heaps for memory saves about 50 MB
-    // per page; same-site tabs of one workspace share a renderer (contexts never share one).
-    "--disable-gpu",
-    "--process-per-site",
-    "--js-flags=--optimize-for-size",
+    ...(options.args ?? HEADLESS_SHELL_ARGS),
     ...(noSandbox ? ["--no-sandbox"] : []),
     "about:blank",
   ];
   const child = spawn(options.executablePath, args, {
+    ...(options.env ? { env: options.env } : {}),
     stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
   });
   const writer = child.stdio[3] as Writable;
   const reader = child.stdio[4] as Readable;
-  const connection = new CdpConnection(writer, reader);
+  const connection = new CdpConnection(pipeTransport(writer, reader));
 
   let stderr = "";
   child.stderr?.setEncoding("utf8");

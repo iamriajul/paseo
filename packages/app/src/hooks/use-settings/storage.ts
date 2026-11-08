@@ -49,6 +49,8 @@ export type PullRequestOpenLocation = "main" | "side" | "explorer";
 export type SidebarWorkspaceTrailing = "diff" | "timestamp" | "none";
 /** How much of an agent's work the chat shows between the user's message and the reply. */
 export type ChatDisplay = "full" | "collapseToolCalls" | "collapseTurns";
+/** Whether messages from other agents render as one line, folded into runs, or in full. */
+export type AgentMessagesDisplay = "collapsed" | "expanded";
 export type { VoiceInputMode };
 
 /** Curated attention chimes for agent/terminal interrupts. Default soft. */
@@ -137,6 +139,7 @@ export interface AppSettings {
   usage: UsagePreferences;
   autoExpandReasoning: boolean;
   chatDisplay: ChatDisplay;
+  agentMessagesDisplay: AgentMessagesDisplay;
   /**
    * When group-by is Status, what identity text sits under the workspace title.
    * Project grouping always uses host when host is enabled.
@@ -219,6 +222,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   usage: DEFAULT_USAGE_PREFERENCES,
   autoExpandReasoning: false,
   chatDisplay: "collapseTurns",
+  agentMessagesDisplay: "collapsed",
   sidebarStatusSubtitle: DEFAULT_SIDEBAR_STATUS_SUBTITLE,
   sidebarIdentityIcon: true,
   chatOutlineEnabled: true,
@@ -327,6 +331,7 @@ const StoredAppSettingsSchema = z
     usage: UsagePreferencesSchema,
     autoExpandReasoning: z.boolean().catch(false),
     chatDisplay: z.enum(["full", "collapseToolCalls", "collapseTurns"]).optional().catch("full"),
+    agentMessagesDisplay: z.enum(["collapsed", "expanded"]).catch("collapsed"),
     sidebarStatusSubtitle: z.enum(["host", "project"]).catch(DEFAULT_SIDEBAR_STATUS_SUBTITLE),
     sidebarIdentityIcon: z.boolean().catch(true),
     // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.

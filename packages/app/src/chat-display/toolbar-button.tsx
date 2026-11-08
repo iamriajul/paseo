@@ -3,7 +3,12 @@ import { useTranslation } from "react-i18next";
 import { DropdownMenu, DropdownMenuContent } from "@/components/ui/dropdown-menu";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { AgentChatDisplayOptions, ChatDisplayIcon, useChatDisplayName } from "./options";
-import { useAgentChatDisplay, useSetAgentChatDisplay } from "./use-agent-chat-display";
+import {
+  useAgentChatDisplay,
+  useAgentMessagesDisplay,
+  useChooseAgentMessagesDisplay,
+  useSetAgentChatDisplay,
+} from "./use-agent-chat-display";
 
 const TOOLBAR_ICON_SIZE = 14;
 
@@ -22,6 +27,8 @@ export function AgentChatDisplayToolbarButton({
   const { t } = useTranslation();
   const display = useAgentChatDisplay(serverId, agentId);
   const setOverride = useSetAgentChatDisplay(serverId, agentId);
+  const agentMessages = useAgentMessagesDisplay(serverId, agentId);
+  const chooseAgentMessages = useChooseAgentMessagesDisplay(serverId, agentId);
   const displayName = useChatDisplayName();
   const label = t(
     display.override === null
@@ -46,7 +53,12 @@ export function AgentChatDisplayToolbarButton({
         width={240}
         testID="agent-chat-display-menu"
       >
-        <AgentChatDisplayOptions display={display} onSelect={setOverride} />
+        <AgentChatDisplayOptions
+          display={display}
+          onSelect={setOverride}
+          agentMessages={agentMessages}
+          onChooseAgentMessages={chooseAgentMessages}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   );

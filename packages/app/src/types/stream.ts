@@ -90,9 +90,31 @@ export type StreamItem =
 
 export type UserMessageImageAttachment = AttachmentMetadata;
 
+/** Consecutive rows from one agent folded into one line, hosted by the first of them. */
+export interface AgentMessageGroup {
+  hostId: string;
+  /** The rows it folds, in time order, host first. */
+  memberIds: readonly string[];
+  sender: AgentMessage["sender"];
+  /** The agent already has a row earlier in the same run of agent rows. */
+  more: boolean;
+  expanded: boolean;
+}
+
+/** How the chat shows a row another agent sent. Set by presentation, never stored. */
+export interface AgentRowFold {
+  /** A received message drawn as one line. */
+  line: boolean;
+  /** A row of an open group after its host, drawn inside the group's indent rail. */
+  nested: boolean;
+  /** The run this row hosts. */
+  group?: AgentMessageGroup;
+}
+
 export interface UserMessageItem {
   /** Attribution added by presentation for received agent messages. */
   sender?: AgentMessage["sender"];
+  agentFold?: AgentRowFold;
   kind: "user_message";
   id: string;
   clientMessageId?: string;
@@ -767,6 +789,8 @@ export type ToolCallPayload =
 export interface ToolCallItem {
   kind: "tool_call";
   id: string;
+  /** Set by presentation on agent notifications. */
+  agentFold?: AgentRowFold;
   timelineCursor?: TimelinePosition;
   turnId?: string;
   timestamp: Date;

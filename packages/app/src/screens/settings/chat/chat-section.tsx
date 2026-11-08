@@ -8,7 +8,8 @@ import {
   SettingsSwitch,
 } from "@/components/settings";
 import { isNative } from "@/constants/platform";
-import { useAppSettings, type ChatDisplay } from "@/hooks/use-settings";
+import { useAppSettings, type AgentMessagesDisplay, type ChatDisplay } from "@/hooks/use-settings";
+import { AGENT_MESSAGES_DISPLAYS } from "@/chat-display/agent-messages-override";
 import { PromptCacheSection } from "./prompt-cache-section";
 
 const CHAT_DISPLAYS: readonly ChatDisplay[] = ["full", "collapseToolCalls", "collapseTurns"];
@@ -26,6 +27,19 @@ export function ChatSection() {
     [t],
   );
 
+  const agentMessagesOptions = useMemo(
+    () =>
+      AGENT_MESSAGES_DISPLAYS.map((value) => ({
+        value,
+        label: t(`settings.general.agentMessagesDisplay.options.${value}`),
+      })),
+    [t],
+  );
+
+  const changeAgentMessagesDisplay = useCallback(
+    (agentMessagesDisplay: AgentMessagesDisplay) => void updateSettings({ agentMessagesDisplay }),
+    [updateSettings],
+  );
   const changeChatDisplay = useCallback(
     (chatDisplay: ChatDisplay) => void updateSettings({ chatDisplay }),
     [updateSettings],
@@ -55,6 +69,14 @@ export function ChatSection() {
             value={settings.chatDisplay}
             options={chatDisplayOptions}
             onValueChange={changeChatDisplay}
+          />
+          <SettingsSelect
+            label={t("settings.general.agentMessagesDisplay.label")}
+            hint={t("settings.general.agentMessagesDisplay.description")}
+            value={settings.agentMessagesDisplay}
+            options={agentMessagesOptions}
+            onValueChange={changeAgentMessagesDisplay}
+            testID="settings-agent-messages-display"
           />
           {isNative ? null : (
             <SettingsSwitch

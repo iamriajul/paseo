@@ -262,6 +262,18 @@ export const ar: TranslationResources = {
       proposedPlan: "الخطة المقترحة",
     },
   },
+  agentMessages: {
+    sectionLabel: "رسائل من الوكلاء",
+    collapseAll: "طي الكل",
+    expandAll: "توسيع الكل",
+    collapseOne: "طي الرسالة",
+    group: {
+      count_one: "{{count}} رسالة",
+      count_other: "{{count}} رسائل",
+      countMore_one: "{{count}} رسالة أخرى",
+      countMore_other: "{{count}} رسائل أخرى",
+    },
+  },
   agentChatDisplay: {
     rowLabel: "عرض المحادثة",
     followSettings: "استخدام الإعدادات",
@@ -2708,6 +2720,14 @@ export const ar: TranslationResources = {
       autoExpandReasoning: {
         label: "عرض التفكير دائماً",
         description: "إظهار تفكير الوكيل وخطوات الاستدلال بشكل كامل بشكل افتراضي",
+      },
+      agentMessagesDisplay: {
+        label: "رسائل الوكلاء",
+        description: "اطوِ الرسائل الواردة من الوكلاء الآخرين إلى سطر واحد لكل منها",
+        options: {
+          collapsed: "مطوية",
+          expanded: "موسّعة",
+        },
       },
       chatDisplay: {
         label: "عرض المحادثة",

@@ -246,6 +246,13 @@ const MutableServerBrowserConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
     executablePath: z.string().optional(),
+    /**
+     * "headless" (Headless (light), and the engine when absent), "managed-chrome" or "existing".
+     * A string, not an enum, so a daemon reads an engine a newer app knows about.
+     */
+    engine: z.string().optional(),
+    /** Existing browser: its DevTools endpoint; http://127.0.0.1:9222 when absent. */
+    cdpUrl: z.string().optional(),
   })
   .passthrough();
 
@@ -4455,6 +4462,9 @@ export const ServerInfoStatusPayloadSchema = z
         // Recent folders per workspace, image thumbnails, and the daemon refusing Files-panel
         // entry changes outside a workspace.
         filesFolderSwitcher: z.boolean().optional(),
+        // COMPAT(serverBrowserEngines): added in v0.15.x (fork), drop the gate after 2027-05-01.
+        // True when serverBrowser.engine picks Headless (light), Managed Chrome or Existing browser.
+        serverBrowserEngines: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

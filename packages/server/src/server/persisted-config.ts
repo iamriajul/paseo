@@ -282,6 +282,8 @@ export const PersistedConfigSchema = z
           .object({
             enabled: z.boolean().optional(),
             executablePath: z.string().optional(),
+            engine: z.string().optional(),
+            cdpUrl: z.string().optional(),
           })
           .passthrough()
           .optional(),

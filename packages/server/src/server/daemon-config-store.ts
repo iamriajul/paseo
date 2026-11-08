@@ -24,7 +24,12 @@ interface SupportedMutableConfigPatch {
   mcp?: { injectIntoAgents?: boolean };
   usage?: { enabled: boolean };
   browserTools?: { enabled?: boolean };
-  serverBrowser?: { enabled?: boolean; executablePath?: string };
+  serverBrowser?: {
+    enabled?: boolean;
+    executablePath?: string;
+    engine?: string;
+    cdpUrl?: string;
+  };
   providers?: MutableDaemonConfig["providers"];
   removeProviders?: string[];
   metadataGeneration?: MutableDaemonConfigPatch["metadataGeneration"];

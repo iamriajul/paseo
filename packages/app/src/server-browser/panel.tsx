@@ -188,7 +188,10 @@ function ServerBrowserPanel(): ReactElement {
               <ThemedMore size={16} uniProps={muted} />
             </ToolbarButton>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={handleClearData}>Clear browser data</DropdownMenuItem>
+              {/* A shared-profile engine has no per-workspace data to clear. */}
+              {status?.engine?.sharedStorage ? null : (
+                <DropdownMenuItem onSelect={handleClearData}>Clear browser data</DropdownMenuItem>
+              )}
               <DropdownMenuItem onSelect={handleCloseTab}>Close tab</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

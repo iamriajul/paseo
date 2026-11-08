@@ -95,6 +95,15 @@
             },
             "executablePath": {
               "type": "string"
+            },
+            "engine": {
+              "type": "string"
+            },
+            "cdpUrl": {
+              "type": "string"
+            },
+            "chromeMode": {
+              "type": "string"
             }
           },
           "additionalProperties": {}

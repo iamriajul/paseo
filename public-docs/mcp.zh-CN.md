@@ -103,6 +103,8 @@ Paseo Agent 默认会收到完成、错误和权限通知；设置 `notifyOnFini
 | `rename_workspace`  | 修改当前或指定工作区在界面上显示的名称。                                                                                                                                                                                                         |
 | `archive_workspace` | 归档工作区及其拥有的会话。                                                                                                                                                                                                                       |
 
+`create_workspace` 和 `list_workspaces` 会为每个工作区返回 Markdown 格式的 `link` 和原始 `url`（`paseo://h/<serverId>/workspace/<workspaceId>`）。如果 `paseo.json` 将某个服务标记为 `"preview": true`，还会返回 `previewLink` 和 `previewUrl`，用于在工作区浏览器中打开该服务。在 Paseo 聊天中点按任一链接都会在应用内打开；MCP 服务器的 instructions 会要求代理在提到工作区时使用这些链接。
+
 对于 worktree 隔离，`create_workspace` 接受与应用中相同的常用选择：从某个基础分支分出、检出一个已有分支，或检出一个 Pull Request。worktree 仍然是工作区生命周期的实现细节。
 
 ### 工作区脚本 {#workspace-scripts}

@@ -111,6 +111,8 @@ Paseo agents receive finish, error, and permission notifications by default; set
 | `rename_workspace`  | Change the user-visible name of the current or specified workspace.                                                                                                                                                                                                                                             |
 | `archive_workspace` | Archive a workspace and the sessions it owns.                                                                                                                                                                                                                                                                   |
 
+`create_workspace` and `list_workspaces` return a Markdown `link` and raw `url` (`paseo://h/<serverId>/workspace/<workspaceId>`) for each workspace. When `paseo.json` marks a `"preview": true` service they also return `previewLink` and `previewUrl`, which open that service in the workspace Browser. Pressing either link in Paseo's chat opens it in the app, and the MCP server's instructions ask agents to use them when they mention a workspace.
+
 For worktree isolation, `create_workspace` accepts the same useful choices as the app: branch off from a base, check out an existing branch, or check out a pull request. The worktree remains an implementation detail of the workspace lifecycle.
 
 ### Workspace scripts

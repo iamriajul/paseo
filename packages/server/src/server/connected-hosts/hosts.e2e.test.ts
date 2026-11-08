@@ -1402,9 +1402,16 @@ test(
       path: b.staticDir,
       title: "Destination workspace",
     });
+    const destinationUrl = `paseo://h/${encodeURIComponent(serverId)}/workspace/${encodeURIComponent(String(destination.workspaceId))}`;
+    expect(destination.url).toBe(destinationUrl);
     expect(await call("list_workspaces", { serverId })).toMatchObject({
       serverId,
-      workspaces: [expect.objectContaining({ workspaceId: destination.workspaceId })],
+      workspaces: [
+        expect.objectContaining({
+          workspaceId: destination.workspaceId,
+          link: `[Destination workspace](${destinationUrl})`,
+        }),
+      ],
     });
     const self = await call("create_agent", {
       title: "Self child",

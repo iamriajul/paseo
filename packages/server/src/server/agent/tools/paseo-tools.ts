@@ -12,6 +12,13 @@ import { AgentDirectory } from "../directory.js";
 import { inheritableProviderOptions } from "../gateway/session-route.js";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
+import { basename } from "node:path";
+import {
+  buildWorkspaceLinkFields,
+  buildWorkspaceLinkUrl,
+  buildWorkspaceMarkdownLink,
+  findMainPreviewScript,
+} from "@getpaseo/protocol/workspace-link";
 import { ensureValidJson } from "../../json-utils.js";
 import type { Logger } from "pino";
 
@@ -202,6 +209,10 @@ const WorkspaceAutomationSummarySchema = z.object({
   kind: z.enum(["directory", "local_checkout", "worktree"]),
   title: z.string().nullable(),
   background: z.boolean().optional(),
+  link: z.string().optional(),
+  url: z.string().optional(),
+  previewLink: z.string().optional(),
+  previewUrl: z.string().optional(),
 });
 
 function toWorkspaceAutomationSummary(workspace: PersistedWorkspaceRecord) {
@@ -1411,6 +1422,25 @@ function createToolCatalog(
     }),
   );
 
+  // Agents paste these so the user opens a workspace, or its main preview, in one tap.
+  async function withWorkspaceLinks(workspace: PersistedWorkspaceRecord) {
+    const summary = toWorkspaceAutomationSummary(workspace);
+    if (!options.serverId) {
+      return summary;
+    }
+    // A workspace whose scripts cannot be read still gets its own link.
+    const scripts = await workspaceScripts?.list(workspace.workspaceId).catch(() => []);
+    return {
+      ...summary,
+      ...buildWorkspaceLinkFields({
+        serverId: options.serverId,
+        workspaceId: workspace.workspaceId,
+        label: workspace.title ?? basename(workspace.cwd),
+        hasPreview: findMainPreviewScript(scripts ?? []) !== null,
+      }),
+    };
+  }
+
   registerTool(
     "create_workspace",
     {
@@ -1547,7 +1577,7 @@ function createToolCatalog(
 
       return {
         content: [],
-        structuredContent: ensureValidJson(toWorkspaceAutomationSummary(workspace)),
+        structuredContent: ensureValidJson(await withWorkspaceLinks(workspace)),
       };
     },
   );
@@ -1564,11 +1594,13 @@ function createToolCatalog(
       if (!options.workspaceRegistry) {
         throw new Error("Workspace registry is not configured");
       }
-      const workspaces = (await options.workspaceRegistry.list())
-        .filter(
-          (workspace) => !workspace.archivedAt && (includeBackground || !workspace.background),
-        )
-        .map(toWorkspaceAutomationSummary);
+      const workspaces = await Promise.all(
+        (await options.workspaceRegistry.list())
+          .filter(
+            (workspace) => !workspace.archivedAt && (includeBackground || !workspace.background),
+          )
+          .map(withWorkspaceLinks),
+      );
       return {
         content: [],
         structuredContent: ensureValidJson({ workspaces }),
@@ -2441,21 +2473,40 @@ function createToolCatalog(
     {
       title: "List workspace scripts",
       description:
-        "List configured workspace scripts and their lifecycle, service port, proxy URL, health, and terminal ID. `preview: true` marks the workspace's main preview service.",
+        "List configured workspace scripts and their lifecycle, service port, proxy URL, health, and terminal ID. `preview: true` marks the workspace's main preview service; `previewLink` opens it in the Paseo app.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace ID whose configured scripts to list."),
       },
       outputSchema: {
         scripts: z.array(WorkspaceScriptPayloadSchema),
+        previewLink: z.string().optional(),
+        previewUrl: z.string().optional(),
       },
     },
     async ({ workspaceId }) => {
       if (!workspaceScripts) {
         throw new Error("Workspace script management is not configured");
       }
+      const scripts = await workspaceScripts.list(workspaceId);
+      const preview = findMainPreviewScript(scripts);
+      const previewUrl =
+        preview && options.serverId
+          ? buildWorkspaceLinkUrl({ serverId: options.serverId, workspaceId, view: "preview" })
+          : null;
       return {
         content: [],
-        structuredContent: ensureValidJson({ scripts: await workspaceScripts.list(workspaceId) }),
+        structuredContent: ensureValidJson({
+          scripts,
+          ...(preview && previewUrl
+            ? {
+                previewLink: buildWorkspaceMarkdownLink(
+                  `${preview.scriptName} preview`,
+                  previewUrl,
+                ),
+                previewUrl,
+              }
+            : {}),
+        }),
       };
     },
   );

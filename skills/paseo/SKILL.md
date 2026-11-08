@@ -42,13 +42,15 @@ For a local daemon, `project create` defaults to the current directory and resol
 
 ## Workspaces
 
-**`create_workspace`** — create a workspace independently of any agent. Required: `isolation` (`local` or `worktree`). Worktree isolation supports `mode: "branch-off" | "checkout-branch" | "checkout-pr"`: use `branchName`/`baseBranch` for a new branch, `branch` for an existing branch, or `prNumber` plus optional `forge` for a change request. Use `path` for a local directory or source checkout and `projectId` for the owning project; when no path is supplied, a worktree may resolve its source from `projectId`. `worktreeSlug` controls the managed path. Returns the workspace descriptor centered on `workspaceId`.
+**`create_workspace`** — create a workspace independently of any agent. Required: `isolation` (`local` or `worktree`). Worktree isolation supports `mode: "branch-off" | "checkout-branch" | "checkout-pr"`: use `branchName`/`baseBranch` for a new branch, `branch` for an existing branch, or `prNumber` plus optional `forge` for a change request. Use `path` for a local directory or source checkout and `projectId` for the owning project; when no path is supplied, a worktree may resolve its source from `projectId`. `worktreeSlug` controls the managed path. Returns the workspace descriptor centered on `workspaceId`, with its links (see below).
 
 `background: true` hides a workspace from default lists and the sidebar while its contents remain durable and accessible; omit `background` to inherit your current workspace’s value (false without a caller), and override it only when the user explicitly asks.
 
 Choose `baseBranch` explicitly: `origin/main` selects the remote-tracking branch; `refs/heads/main` selects local main. Bare `main` prefers local main when it exists, otherwise origin/main. Paseo retains the resolved ref for workspace comparisons, even after rebasing the branch or changing its PR target.
 
 **`list_workspaces`** — list active workspaces, excluding background workspaces unless `includeBackground: true`.
+
+Each workspace from `create_workspace` and `list_workspaces` carries `link`, a Markdown link that opens it in the Paseo app, and its raw `url` (`paseo://h/<serverId>/workspace/<workspaceId>`). A workspace whose `paseo.json` marks a `"preview": true` service also carries `previewLink` and `previewUrl` (the same URL plus `/preview`), which open that service in the workspace Browser, starting it first if it is stopped. When you tell the user about a workspace or preview, write its `link` or `previewLink` instead of the bare title.
 
 **`archive_workspace`** — `{ workspaceId }`. Archives the workspace, its agents, and its terminals. Local directories remain; Paseo removes an owned worktree only after its final active workspace reference is archived.
 
@@ -58,7 +60,7 @@ Choose `baseBranch` explicitly: `origin/main` selects the remote-tracking branch
 
 Configured `paseo.json` scripts use the same supervised lifecycle from tools and the CLI.
 
-**`list_workspace_scripts`** — `{ workspaceId }`. Lists configured scripts with lifecycle, service port, proxy URLs, health, exit code, and terminal ID.
+**`list_workspace_scripts`** — `{ workspaceId }`. Lists configured scripts with lifecycle, service port, proxy URLs, health, exit code, and terminal ID, plus `previewLink`/`previewUrl` when a service is the workspace's main preview.
 
 **`start_workspace_script`** — `{ workspaceId, scriptName }`. Starts one configured script through Paseo's managed workspace-script launcher and returns its status metadata.
 

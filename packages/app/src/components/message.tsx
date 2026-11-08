@@ -100,6 +100,10 @@ export type { AssistantForkTarget };
 
 interface UserMessageProps {
   sender?: AgentMessage["sender"];
+  /** Folds a received agent message back to one line; receives the row id. */
+  onCollapse?: (id: string) => void;
+  /** The timeline row id, which the agent-message fold keys on. */
+  messageRowId?: string;
   serverId?: string;
   agentId?: string;
   messageId?: string;
@@ -400,6 +404,8 @@ const MESSAGE_TEXT_DATASET = { messageText: "true" };
 
 export const UserMessage = memo(function UserMessage({
   sender,
+  onCollapse,
+  messageRowId,
   serverId,
   agentId,
   messageId,
@@ -436,6 +442,9 @@ export const UserMessage = memo(function UserMessage({
 
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
+  const collapse = useCallback(() => {
+    if (messageRowId) onCollapse?.(messageRowId);
+  }, [messageRowId, onCollapse]);
   const getMessageContent = useCallback(() => message, [message]);
   const handleRewind = useCallback(
     (input: { mode: RewindMode; rewoundText: string }) => {
@@ -486,7 +495,13 @@ export const UserMessage = memo(function UserMessage({
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
-        {sender ? <MessageSender sender={sender} serverId={serverId} /> : null}
+        {sender ? (
+          <MessageSender
+            sender={sender}
+            serverId={serverId}
+            onCollapse={onCollapse && messageRowId ? collapse : undefined}
+          />
+        ) : null}
         <View style={userMessageStylesheet.bubble}>
           <MessagePreview>
             {hasImages ? (

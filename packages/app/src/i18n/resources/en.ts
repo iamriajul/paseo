@@ -258,6 +258,18 @@ export const en = {
       proposedPlan: "Proposed plan",
     },
   },
+  agentMessages: {
+    sectionLabel: "Messages from agents",
+    collapseAll: "Collapse all",
+    expandAll: "Expand all",
+    collapseOne: "Collapse message",
+    group: {
+      count_one: "{{count}} message",
+      count_other: "{{count}} messages",
+      countMore_one: "{{count}} more message",
+      countMore_other: "{{count}} more messages",
+    },
+  },
   agentChatDisplay: {
     rowLabel: "Chat display",
     followSettings: "Use Settings",
@@ -2784,6 +2796,14 @@ export const en = {
           full: "Full",
           collapseToolCalls: "Collapse tool calls",
           collapseTurns: "Collapse turns",
+        },
+      },
+      agentMessagesDisplay: {
+        label: "Agent messages",
+        description: "Fold messages from other agents to one line each",
+        options: {
+          collapsed: "Collapsed",
+          expanded: "Expanded",
         },
       },
       language: {

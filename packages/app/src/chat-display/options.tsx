@@ -1,9 +1,21 @@
 import { useCallback, useMemo, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import { FoldVertical, ListCollapse, Settings2, TextAlignJustify } from "lucide-react-native";
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FoldVertical,
+  ListCollapse,
+  Settings2,
+  TextAlignJustify,
+} from "lucide-react-native";
 import { withUnistyles } from "react-native-unistyles";
-import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import type { ChatDisplay } from "@/hooks/use-settings";
+import {
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import type { AgentMessagesDisplay, ChatDisplay } from "@/hooks/use-settings";
+import type { AgentMessagesDisplayState } from "./agent-messages-override";
 import type { Theme } from "@/styles/theme";
 import { CHAT_DISPLAYS, type AgentChatDisplay } from "./agent-override";
 
@@ -11,6 +23,8 @@ const ThemedTextAlignJustify = withUnistyles(TextAlignJustify);
 const ThemedListCollapse = withUnistyles(ListCollapse);
 const ThemedFoldVertical = withUnistyles(FoldVertical);
 const ThemedSettings2 = withUnistyles(Settings2);
+const ThemedChevronsDownUp = withUnistyles(ChevronsDownUp);
+const ThemedChevronsUpDown = withUnistyles(ChevronsUpDown);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const extraMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
@@ -52,9 +66,13 @@ const FOLLOW_SETTINGS_ICON = <ThemedSettings2 size={ROW_ICON_SIZE} uniProps={mut
 export function AgentChatDisplayOptions({
   display,
   onSelect,
+  agentMessages,
+  onChooseAgentMessages,
 }: {
   display: AgentChatDisplay;
   onSelect: (override: ChatDisplay | null) => void;
+  agentMessages: AgentMessagesDisplayState;
+  onChooseAgentMessages: (choice: AgentMessagesDisplay) => void;
 }): ReactElement {
   const { t } = useTranslation();
   const displayName = useChatDisplayName();
@@ -80,6 +98,50 @@ export function AgentChatDisplayOptions({
           onSelect={onSelect}
         />
       ))}
+      <DropdownMenuSeparator />
+      <AgentMessagesOptions display={agentMessages} onChoose={onChooseAgentMessages} />
+    </>
+  );
+}
+
+const COLLAPSE_ALL_ICON = (
+  <ThemedChevronsDownUp size={ROW_ICON_SIZE} uniProps={mutedColorMapping} />
+);
+const EXPAND_ALL_ICON = <ThemedChevronsUpDown size={ROW_ICON_SIZE} uniProps={mutedColorMapping} />;
+
+/**
+ * Collapse all and Expand all for messages from other agents. Each saves the agent's display and
+ * resets the rows opened one by one, so the checked row is the display new messages arrive in.
+ */
+function AgentMessagesOptions({
+  display,
+  onChoose,
+}: {
+  display: AgentMessagesDisplayState;
+  onChoose: (choice: AgentMessagesDisplay) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const collapseAll = useCallback(() => onChoose("collapsed"), [onChoose]);
+  const expandAll = useCallback(() => onChoose("expanded"), [onChoose]);
+  return (
+    <>
+      <DropdownMenuLabel>{t("agentMessages.sectionLabel")}</DropdownMenuLabel>
+      <DropdownMenuItem
+        testID="agent-messages-collapse-all"
+        leading={COLLAPSE_ALL_ICON}
+        selected={display.effective === "collapsed"}
+        onSelect={collapseAll}
+      >
+        {t("agentMessages.collapseAll")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        testID="agent-messages-expand-all"
+        leading={EXPAND_ALL_ICON}
+        selected={display.effective === "expanded"}
+        onSelect={expandAll}
+      >
+        {t("agentMessages.expandAll")}
+      </DropdownMenuItem>
     </>
   );
 }

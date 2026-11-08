@@ -264,6 +264,18 @@ export const ru: TranslationResources = {
       proposedPlan: "Предлагаемый план",
     },
   },
+  agentMessages: {
+    sectionLabel: "Сообщения от агентов",
+    collapseAll: "Свернуть все",
+    expandAll: "Развернуть все",
+    collapseOne: "Свернуть сообщение",
+    group: {
+      count_one: "{{count}} сообщение",
+      count_other: "Сообщений: {{count}}",
+      countMore_one: "Ещё {{count}} сообщение",
+      countMore_other: "Ещё сообщений: {{count}}",
+    },
+  },
   agentChatDisplay: {
     rowLabel: "Отображение чата",
     followSettings: "Как в настройках",
@@ -2688,6 +2700,14 @@ export const ru: TranslationResources = {
         label: "Всегда разворачивать размышления",
         description:
           "По умолчанию полностью разворачивать блоки размышлений и хода рассуждений агента",
+      },
+      agentMessagesDisplay: {
+        label: "Сообщения агентов",
+        description: "Сворачивать каждое сообщение других агентов в одну строку",
+        options: {
+          collapsed: "Свёрнуты",
+          expanded: "Развёрнуты",
+        },
       },
       chatDisplay: {
         label: "Отображение чата",

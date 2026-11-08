@@ -262,6 +262,18 @@ export const ko: TranslationResources = {
       proposedPlan: "제안된 계획",
     },
   },
+  agentMessages: {
+    sectionLabel: "에이전트의 메시지",
+    collapseAll: "모두 접기",
+    expandAll: "모두 펼치기",
+    collapseOne: "메시지 접기",
+    group: {
+      count_one: "메시지 {{count}}개",
+      count_other: "메시지 {{count}}개",
+      countMore_one: "메시지 {{count}}개 더",
+      countMore_other: "메시지 {{count}}개 더",
+    },
+  },
   agentChatDisplay: {
     rowLabel: "채팅 표시",
     followSettings: "설정 따르기",
@@ -2660,6 +2672,14 @@ export const ko: TranslationResources = {
       autoExpandReasoning: {
         label: "추론 항상 펼치기",
         description: "에이전트의 사고 및 추론 블록을 기본적으로 모두 펼쳐 표시합니다.",
+      },
+      agentMessagesDisplay: {
+        label: "에이전트 메시지",
+        description: "다른 에이전트가 보낸 메시지를 각각 한 줄로 접습니다",
+        options: {
+          collapsed: "접기",
+          expanded: "펼치기",
+        },
       },
       chatDisplay: {
         label: "채팅 표시",

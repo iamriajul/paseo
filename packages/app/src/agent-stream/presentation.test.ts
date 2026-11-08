@@ -811,3 +811,38 @@ it.each([false, true])(
     expect(opened.groupsByHostId.size).toBe(0);
   },
 );
+
+it("folds consecutive messages from one agent and resolves a hidden one to its group", () => {
+  const sent = (callId: string, senderId: string) => {
+    const call = toolCall(callId, "agent_message");
+    if (call.payload.source !== "agent") throw new Error("Expected agent tool");
+    call.payload.data.agentMessage = {
+      event: "message",
+      sender: { id: senderId, title: senderId },
+      text: `Report ${callId}`,
+    };
+    return call;
+  };
+  const tail = [sent("a1", "a"), sent("a2", "a"), sent("b1", "b")];
+  const present = createStreamPresentation();
+  const input = { ...presentationOptions, transform: undefined, tail, head: [] };
+  const closed = present({
+    ...input,
+    agentMessages: {
+      display: "collapsed",
+      state: { toggledIds: new Set(), openGroupIds: new Set() },
+    },
+  });
+  expect(closed.tail.map((item) => item.id)).toEqual(["tool-a1", "tool-b1"]);
+  expect(closed.readingRowReplacements.get("tool-a2")).toBe("tool-a1");
+
+  const expanded = present({
+    ...input,
+    agentMessages: {
+      display: "expanded",
+      state: { toggledIds: new Set(), openGroupIds: new Set() },
+    },
+  });
+  expect(expanded.tail.map((item) => item.id)).toEqual(["tool-a1", "tool-a2", "tool-b1"]);
+  expect(expanded.readingRowReplacements.get("tool-a2")).toBeUndefined();
+});

@@ -265,6 +265,18 @@ export const fr: TranslationResources = {
       proposedPlan: "Plan proposé",
     },
   },
+  agentMessages: {
+    sectionLabel: "Messages des agents",
+    collapseAll: "Tout réduire",
+    expandAll: "Tout développer",
+    collapseOne: "Réduire le message",
+    group: {
+      count_one: "{{count}} message",
+      count_other: "{{count}} messages",
+      countMore_one: "{{count}} message de plus",
+      countMore_other: "{{count}} messages de plus",
+    },
+  },
   agentChatDisplay: {
     rowLabel: "Affichage du chat",
     followSettings: "Utiliser les réglages",
@@ -2698,6 +2710,14 @@ export const fr: TranslationResources = {
       autoExpandReasoning: {
         label: "Toujours afficher le raisonnement",
         description: "Afficher par défaut le raisonnement de l’agent entièrement déplié",
+      },
+      agentMessagesDisplay: {
+        label: "Messages des agents",
+        description: "Réduit chaque message d’un autre agent à une seule ligne",
+        options: {
+          collapsed: "Réduits",
+          expanded: "Développés",
+        },
       },
       chatDisplay: {
         label: "Affichage du chat",

@@ -262,6 +262,18 @@ export const zhCN: TranslationResources = {
       proposedPlan: "建议计划",
     },
   },
+  agentMessages: {
+    sectionLabel: "来自智能体的消息",
+    collapseAll: "全部折叠",
+    expandAll: "全部展开",
+    collapseOne: "折叠消息",
+    group: {
+      count_one: "{{count}} 条消息",
+      count_other: "{{count}} 条消息",
+      countMore_one: "另外 {{count}} 条消息",
+      countMore_other: "另外 {{count}} 条消息",
+    },
+  },
   agentChatDisplay: {
     rowLabel: "聊天显示",
     followSettings: "使用设置",
@@ -2620,6 +2632,14 @@ export const zhCN: TranslationResources = {
       autoExpandReasoning: {
         label: "始终展开推理过程",
         description: "默认情况下完全展开 AI 的思考和推理过程",
+      },
+      agentMessagesDisplay: {
+        label: "智能体消息",
+        description: "将其他智能体发来的每条消息折叠为一行",
+        options: {
+          collapsed: "折叠",
+          expanded: "展开",
+        },
       },
       chatDisplay: {
         label: "聊天显示",

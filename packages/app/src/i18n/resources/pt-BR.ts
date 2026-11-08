@@ -3584,6 +3584,12 @@ export const ptBR: TranslationResources = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "Esse host não está conectado. Conecte-o e tente o link novamente.",
+    workspaceMissing: "Esse espaço de trabalho não foi encontrado. Ele pode ter sido arquivado.",
+    previewMissing:
+      'Este espaço de trabalho não tem prévia principal. Marque um serviço do paseo.json com "preview": true.',
+  },
   interactionLock: {
     banner: "Somente leitura · monitoramento",
     unlock: "Desbloquear",

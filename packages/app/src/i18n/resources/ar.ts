@@ -3577,6 +3577,12 @@ export const ar: TranslationResources = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "هذا المضيف غير متصل. اتصل به ثم جرّب الرابط مرة أخرى.",
+    workspaceMissing: "لم يتم العثور على مساحة العمل هذه. ربما تمت أرشفتها.",
+    previewMissing:
+      'لا تحتوي مساحة العمل هذه على معاينة رئيسية. ضع "preview": true على خدمة في paseo.json.',
+  },
   interactionLock: {
     banner: "للقراءة فقط · مراقبة",
     unlock: "إلغاء القفل",

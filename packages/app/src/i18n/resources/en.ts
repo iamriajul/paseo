@@ -3672,6 +3672,12 @@ export const en = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "That host isn't connected. Connect it, then try the link again.",
+    workspaceMissing: "That workspace wasn't found. It may have been archived.",
+    previewMissing:
+      'This workspace has no main preview. Mark a paseo.json service with "preview": true.',
+  },
   interactionLock: {
     banner: "Read-only · monitoring",
     unlock: "Unlock",

@@ -3558,6 +3558,12 @@ export const ko: TranslationResources = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "이 호스트가 연결되어 있지 않습니다. 연결한 후 링크를 다시 시도하세요.",
+    workspaceMissing: "해당 워크스페이스를 찾을 수 없습니다. 보관되었을 수 있습니다.",
+    previewMissing:
+      '이 워크스페이스에는 기본 미리보기가 없습니다. paseo.json 서비스에 "preview": true를 지정하세요.',
+  },
   interactionLock: {
     banner: "Read-only · monitoring",
     unlock: "Unlock",

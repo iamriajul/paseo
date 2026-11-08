@@ -3610,6 +3610,12 @@ export const fr: TranslationResources = {
       },
     },
   },
+  workspaceLinks: {
+    hostUnavailable: "Cet hôte n'est pas connecté. Connectez-le, puis réessayez le lien.",
+    workspaceMissing: "Cet espace de travail est introuvable. Il a peut-être été archivé.",
+    previewMissing:
+      "Cet espace de travail n'a pas d'aperçu principal. Marquez un service de paseo.json avec \"preview\": true.",
+  },
   interactionLock: {
     banner: "Lecture seule · surveillance",
     unlock: "Déverrouiller",

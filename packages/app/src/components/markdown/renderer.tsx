@@ -6,6 +6,7 @@ import {
   useAssistantFileLinkEnvironment,
 } from "@/assistant-file-links";
 import { useStableEvent } from "@/hooks/use-stable-event";
+import { useWorkspaceLinkOpener } from "@/workspace-links/open";
 import { matchCommandLink, useAgentCommandHints, type CommandHints } from "@/agent-commands";
 import { AttachmentLightbox, type ImageLightboxSource } from "@/components/attachment-lightbox";
 import type { Theme } from "@/styles/theme";
@@ -105,7 +106,9 @@ const MarkdownPart = memo(function MarkdownPart({
     commandHints?.names,
   );
   const [image, setImage] = useState<ImageLightboxSource | null>(null);
+  const openWorkspaceLink = useWorkspaceLinkOpener();
   const pressLink = useStableEvent(({ url, sourceType }: LinkPressEvent) => {
+    if (openWorkspaceLink(url)) return;
     const command = commandHints && matchCommandLink(url, sourceType, commandHints.names);
     if (command) {
       commandHints.insert(command);

@@ -1,4 +1,5 @@
 import type { AgentStreamEvent } from "../agent-sdk-types.js";
+import { buildWorkspaceLinkFields, findMainPreviewScript } from "@getpaseo/protocol/workspace-link";
 import { parentAddressLabels } from "@getpaseo/protocol/agent-labels";
 import type { ActiveTurnBehavior, AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import { randomUUID } from "node:crypto";
@@ -335,7 +336,9 @@ export function createHostResolver(input: {
             const { entries } = await client.fetchWorkspaces({
               includeBackground: args.includeBackground === true,
             });
-            return result({ workspaces: entries.map(workspaceSummary) });
+            return result({
+              workspaces: entries.map((entry) => workspaceSummary(entry, destination)),
+            });
           },
           async createWorkspace(args) {
             const isolation = z.enum(["local", "worktree"]).parse(args.isolation);
@@ -363,14 +366,14 @@ export function createHostResolver(input: {
             });
             if (response.error || !response.workspace)
               throw new Error(response.error ?? "Workspace creation failed");
-            return result(workspaceSummary(response.workspace));
+            return result(workspaceSummary(response.workspace, destination));
           },
         }),
       );
     },
   };
 }
-function workspaceSummary(workspace: FetchWorkspacesEntry) {
+function workspaceSummary(workspace: FetchWorkspacesEntry, serverId: string) {
   return {
     workspaceId: workspace.id,
     projectId: workspace.projectId,
@@ -379,6 +382,12 @@ function workspaceSummary(workspace: FetchWorkspacesEntry) {
     kind: workspace.workspaceKind === "checkout" ? "local_checkout" : workspace.workspaceKind,
     title: workspace.title,
     background: workspace.background,
+    ...buildWorkspaceLinkFields({
+      serverId,
+      workspaceId: workspace.id,
+      label: workspace.name,
+      hasPreview: findMainPreviewScript(workspace.scripts) !== null,
+    }),
   };
 }
 

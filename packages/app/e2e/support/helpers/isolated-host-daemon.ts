@@ -1,17 +1,11 @@
 import { promisify } from "node:util";
-import {
-  spawn,
-  execFile,
-  execFileSync,
-  type ChildProcess,
-  type SpawnOptions,
-} from "node:child_process";
+import { execFile, execFileSync, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { withDisabledE2ESpeechEnv } from "./speech-env";
-import { killProcessTree, spawnTsx } from "./spawn-node";
+import { killProcessTree, spawnOwned, spawnTsx } from "./spawn-node";
 
 const execFileAsync = promisify(execFile);
 
@@ -193,7 +187,8 @@ export async function startIsolatedHostDaemon(
     await killProcessTree(child);
   };
   const spawnDaemon = async (): Promise<ChildProcess> => {
-    const spawnOptions: SpawnOptions = {
+    const spawnOptions: SpawnOptions & { label: string } = {
+      label: `isolated daemon ${serverId}`,
       cwd: serverDir,
       env: withDisabledE2ESpeechEnv({
         ...process.env,
@@ -207,10 +202,9 @@ export async function startIsolatedHostDaemon(
         NODE_ENV: "development",
       }),
       stdio: ["ignore", "ignore", "pipe"],
-      detached: false,
     };
     const spawned = publishedPackageRoot
-      ? spawn(process.execPath, ["dist/scripts/supervisor-entrypoint.js"], spawnOptions)
+      ? spawnOwned(process.execPath, ["dist/scripts/supervisor-entrypoint.js"], spawnOptions)
       : spawnTsx("scripts/supervisor-entrypoint.ts", ["--dev"], spawnOptions);
 
     child = spawned;

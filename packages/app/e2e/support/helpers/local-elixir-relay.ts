@@ -1,8 +1,8 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { killProcessTree } from "./spawn-node";
+import { killProcessTree, spawnOwned } from "./spawn-node";
 
 export interface LocalElixirRelay {
   endpoint: string;
@@ -80,7 +80,8 @@ export async function startLocalElixirRelay(): Promise<LocalElixirRelay> {
       throw new Error("Elixir relay is already running");
     }
     output = [];
-    child = spawn("asdf", ["exec", "mix", "run", "--no-halt"], {
+    child = spawnOwned("asdf", ["exec", "mix", "run", "--no-halt"], {
+      label: "Elixir relay",
       cwd: relayRoot,
       env: {
         ...process.env,

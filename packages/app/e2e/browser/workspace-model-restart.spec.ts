@@ -239,6 +239,7 @@ async function startRestartDaemon(input: {
 
   const serverDir = path.resolve(__dirname, "../../../server");
   const child = spawnTsx("scripts/supervisor-entrypoint.ts", ["--dev"], {
+    label: "restart daemon",
     cwd: serverDir,
     env: withDisabledE2ESpeechEnv({
       ...process.env,
@@ -251,7 +252,6 @@ async function startRestartDaemon(input: {
       NODE_ENV: "development",
     }),
     stdio: ["ignore", "ignore", "pipe"],
-    detached: false,
   });
   let stderr = "";
   child.stderr?.on("data", (chunk: Buffer) => {

@@ -1382,6 +1382,9 @@ test("archive and delete replies retain their historical names and reach only th
   }
 });
 
+// Creating an agent through the Hub outran expect.poll's 1 s default on a loaded Windows runner.
+const HUB_POLL = { timeout: 10_000 };
+
 test("Hub bootstrap sends its server ID before the producer's synchronous snapshot", async () => {
   const daemon = await createTestPaseoDaemon({ mcpEnabled: false });
   const admin = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
@@ -1432,7 +1435,7 @@ test("Hub bootstrap sends its server ID before the producer's synchronous snapsh
         capabilities: { owned_subscriptions: true },
       }),
     );
-    await expect.poll(() => frames.length).toBeGreaterThan(0);
+    await expect.poll(() => frames.length, HUB_POLL).toBeGreaterThan(0);
     socket.send(
       JSON.stringify({
         type: "session",
@@ -1447,13 +1450,15 @@ test("Hub bootstrap sends its server ID before the producer's synchronous snapsh
       }),
     );
     await expect
-      .poll(() =>
-        frames.some(
-          (frame) =>
-            frame.type === "session" &&
-            frame.message.type === "hub.execution.agent.create.response" &&
-            frame.message.payload.success,
-        ),
+      .poll(
+        () =>
+          frames.some(
+            (frame) =>
+              frame.type === "session" &&
+              frame.message.type === "hub.execution.agent.create.response" &&
+              frame.message.payload.success,
+          ),
+        HUB_POLL,
       )
       .toBe(true);
     frames.length = 0;
@@ -1468,11 +1473,13 @@ test("Hub bootstrap sends its server ID before the producer's synchronous snapsh
       }),
     );
     await expect
-      .poll(() =>
-        frames.some(
-          (frame) =>
-            frame.type === "session" && frame.message.type === "hub.execution.agent.update",
-        ),
+      .poll(
+        () =>
+          frames.some(
+            (frame) =>
+              frame.type === "session" && frame.message.type === "hub.execution.agent.update",
+          ),
+        HUB_POLL,
       )
       .toBe(true);
     expect(frames[0]).toMatchObject({

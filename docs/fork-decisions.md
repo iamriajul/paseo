@@ -1394,6 +1394,18 @@ npx vitest run scripts/merge-mac-manifest.test.mjs scripts/validate-desktop-mani
 grep -q 'npx vitest run scripts/merge-mac-manifest.test.mjs' .github/workflows/ci.yml
 ```
 
+## hub-bootstrap-poll-budget
+
+**the Hub bootstrap e2e waits up to 10 s for each frame it polls**
+
+`owned-subscriptions.e2e.test.ts` "Hub bootstrap sends its server ID before the producer's synchronous snapshot" creates an agent through the Hub and polls for the response with `expect.poll`'s 1 s default. On a loaded Windows `server-integration` runner that wait timed out (2026-11-08) while the same server code passed the run before. The test's three polls take `HUB_POLL` (10 s), as the file's other polls already pass 5 to 10 s.
+
+```bash
+test "$(grep -c ', HUB_POLL' packages/server/src/server/owned-subscriptions.e2e.test.ts)" -ge 1
+test "$(grep -c 'HUB_POLL,' packages/server/src/server/owned-subscriptions.e2e.test.ts)" -ge 2
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/owned-subscriptions.e2e.test.ts -t "Hub bootstrap sends its server ID" --bail=1
+```
+
 ## lockfile-public-registry
 
 **every `package-lock.json` entry resolves from registry.npmjs.org, checked in the `changes` job**

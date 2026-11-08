@@ -137,6 +137,9 @@ import type {
   WorkspaceCreateRequest,
   WorkspaceRecoveryState,
   WorkspaceTodoItem,
+  WorkspaceRecentFolder,
+  WorkspaceRecentFolderAction,
+  FileThumbnailResponse,
   PluginListItem,
   PluginLogEntry,
   PluginSourceStatusItem,
@@ -3928,6 +3931,28 @@ export class DaemonClient {
     return { todos: payload.todos };
   }
 
+  async getWorkspaceRecentFolders(workspaceId: string): Promise<WorkspaceRecentFolder[]> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.recent_folders.get.response">({
+        message: { type: "workspace.recent_folders.get.request", workspaceId },
+      });
+    if (payload.error) throw new Error(payload.error);
+    return payload.folders;
+  }
+
+  async updateWorkspaceRecentFolders(input: {
+    workspaceId: string;
+    action: WorkspaceRecentFolderAction;
+    path: string;
+  }): Promise<WorkspaceRecentFolder[]> {
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.recent_folders.update.response">(
+        { message: { type: "workspace.recent_folders.update.request", ...input } },
+      );
+    if (payload.error) throw new Error(payload.error);
+    return payload.folders;
+  }
+
   async setWorkspacePinned(
     workspaceId: string,
     pinned: boolean,
@@ -5843,6 +5868,21 @@ export class DaemonClient {
       responseType: "file_explorer_response",
       timeout,
     });
+  }
+
+  /** A small resized copy of an image, cached on the daemon host. */
+  async getFileThumbnail(input: {
+    cwd: string;
+    path: string;
+    maxEdge: number;
+  }): Promise<NonNullable<FileThumbnailResponse["payload"]["thumbnail"]>> {
+    const payload = await this.sendNamespacedCorrelatedSessionRequest<"fs.thumbnail.get.response">({
+      message: { type: "fs.thumbnail.get.request", ...input },
+    });
+    if (payload.error || !payload.thumbnail) {
+      throw new Error(payload.error ?? "Thumbnail unavailable.");
+    }
+    return payload.thumbnail;
   }
 
   async listDirectory(

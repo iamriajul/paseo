@@ -517,6 +517,23 @@ const nodeSessionFileSystem: SessionFileSystem = {
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
 import { WorkspaceTodoStore } from "./workspace-todos/store.js";
+import { WorkspaceRecentFoldersStore } from "./workspace-recent-folders/store.js";
+import { ExplorerThumbnailService } from "./file-explorer/thumbnails/service.js";
+import { ThumbnailRenderer } from "./file-explorer/thumbnails/renderer.js";
+
+function resolveExplorerThumbnails(
+  service: ExplorerThumbnailService | undefined,
+  paseoHome: string,
+): ExplorerThumbnailService {
+  return service ?? new ExplorerThumbnailService({ paseoHome, renderer: new ThumbnailRenderer() });
+}
+
+function resolveWorkspaceRecentFoldersStore(
+  store: WorkspaceRecentFoldersStore | undefined,
+  paseoHome: string,
+): WorkspaceRecentFoldersStore {
+  return store ?? new WorkspaceRecentFoldersStore(paseoHome);
+}
 
 function resolveWorkspaceTodoStore(
   store: WorkspaceTodoStore | undefined,
@@ -661,6 +678,10 @@ export interface SessionOptions {
   daemonRuntimeConfig?: DaemonRuntimeConfig;
   getWebSocketRuntimeMetrics?: () => DaemonWebSocketRuntimeDiagnosticSnapshot | null;
   workspaceTodoStore?: WorkspaceTodoStore;
+  /** Shared by every session so concurrent updates queue on one file. */
+  workspaceRecentFoldersStore?: WorkspaceRecentFoldersStore;
+  /** Shared by every session so one worker and one cache serve all clients. */
+  explorerThumbnails?: ExplorerThumbnailService;
   broadcastWorkspaceTodos?: (message: SessionOutboundMessage, exceptClientId: string) => void;
 }
 
@@ -916,6 +937,7 @@ export class Session {
   private readonly workspaceDirectory: WorkspaceDirectory;
   private readonly voiceSessions: VoiceSessions;
   private readonly workspaceTodoStore: WorkspaceTodoStore;
+  private readonly workspaceRecentFoldersStore: WorkspaceRecentFoldersStore;
   private readonly broadcastWorkspaceTodos?: (
     message: SessionOutboundMessage,
     exceptClientId: string,
@@ -1046,6 +1068,11 @@ export class Session {
       downloadTokenStore,
       paseoHome,
       logger: this.sessionLogger,
+      workspaceRoots: async () =>
+        (await this.workspaceRegistry.list())
+          .filter((workspace) => !workspace.archivedAt)
+          .map((workspace) => workspace.cwd),
+      thumbnails: resolveExplorerThumbnails(options.explorerThumbnails, paseoHome),
     });
     this.tcpTunnelForwarder = new TcpTunnelForwarder({
       emitBinary: (frame, source) => this.emitTunnelBinary(frame, source),
@@ -1396,6 +1423,10 @@ export class Session {
     });
 
     this.workspaceTodoStore = resolveWorkspaceTodoStore(options.workspaceTodoStore, this.paseoHome);
+    this.workspaceRecentFoldersStore = resolveWorkspaceRecentFoldersStore(
+      options.workspaceRecentFoldersStore,
+      this.paseoHome,
+    );
     this.broadcastWorkspaceTodos = options.broadcastWorkspaceTodos;
 
     this.voiceSessions = new VoiceSessions(
@@ -3642,6 +3673,10 @@ export class Session {
         return this.handleWorkspaceTodosGetRequest(msg);
       case "workspace.todos.set.request":
         return this.handleWorkspaceTodosSetRequest(msg);
+      case "workspace.recent_folders.get.request":
+        return this.handleWorkspaceRecentFoldersRequest(msg);
+      case "workspace.recent_folders.update.request":
+        return this.handleWorkspaceRecentFoldersRequest(msg);
       default:
         return undefined;
     }
@@ -3695,6 +3730,8 @@ export class Session {
         return this.workspaceFilesSession.handleFileEntryDuplicateRequest(msg);
       case "fs.entry.delete.request":
         return this.workspaceFilesSession.handleFileEntryDeleteRequest(msg);
+      case "fs.thumbnail.get.request":
+        return this.workspaceFilesSession.handleFileThumbnailRequest(msg);
       case "fs.entry.upload.request":
         this.workspaceFilesSession.handleFileEntryUploadRequest(msg, this.delivery);
         return undefined;
@@ -4627,6 +4664,41 @@ export class Session {
           accepted: false,
           title: null,
           error: getErrorMessageOr(error, "Failed to set workspace title"),
+        },
+      });
+    }
+  }
+
+  private async handleWorkspaceRecentFoldersRequest(
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "workspace.recent_folders.get.request" | "workspace.recent_folders.update.request" }
+    >,
+  ): Promise<void> {
+    const type =
+      msg.type === "workspace.recent_folders.get.request"
+        ? "workspace.recent_folders.get.response"
+        : "workspace.recent_folders.update.response";
+    try {
+      const folders =
+        msg.type === "workspace.recent_folders.get.request"
+          ? await this.workspaceRecentFoldersStore.get(msg.workspaceId)
+          : await this.workspaceRecentFoldersStore.update(msg.workspaceId, {
+              action: msg.action,
+              path: msg.path,
+            });
+      this.emit({
+        type,
+        payload: { requestId: msg.requestId, workspaceId: msg.workspaceId, folders, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type,
+        payload: {
+          requestId: msg.requestId,
+          workspaceId: msg.workspaceId,
+          folders: [],
+          error: getErrorMessage(error),
         },
       });
     }

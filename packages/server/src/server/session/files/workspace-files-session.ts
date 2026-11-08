@@ -1,6 +1,8 @@
 import type pino from "pino";
 import type { OwnedOperation, SessionDelivery } from "../owned-subscriptions/index.js";
 import type { FileVersion } from "@getpaseo/protocol/messages";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { getErrorMessage } from "@getpaseo/protocol/error-utils";
 import {
   encodeFileTransferFrame,
@@ -15,6 +17,7 @@ import type {
   FileEntryRenameRequest,
   FileEntryUploadRequest,
   FileExplorerRequest,
+  FileThumbnailRequest,
   FileUploadRequest,
   FileUploadResponse,
   FileSubscribeRequest,
@@ -38,6 +41,7 @@ import {
   writeExplorerFile,
 } from "../../file-explorer/service.js";
 import { workspaceFileObserver, type FileObserver } from "../../file-explorer/observer.js";
+import type { ExplorerThumbnailService } from "../../file-explorer/thumbnails/service.js";
 import { getProjectIcon } from "../../../utils/project-icon.js";
 
 /**
@@ -58,6 +62,28 @@ export interface WorkspaceFilesSessionOptions {
   paseoHome: string;
   logger: pino.Logger;
   fileObserver?: FileObserver;
+  /** Directories of the daemon's active workspaces. Entry changes must land inside one. */
+  workspaceRoots: () => Promise<readonly string[]>;
+  thumbnails: ExplorerThumbnailService;
+}
+
+/**
+ * The Files panel browses folders outside the workspace read-only. The client hides the
+ * controls; this refusal is the rule, for any client.
+ */
+export const OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE = "Folders outside the workspace are read-only";
+
+async function canonicalPath(target: string): Promise<string | null> {
+  try {
+    return await fs.realpath(target);
+  } catch {
+    return null;
+  }
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 /**
@@ -73,6 +99,8 @@ export class WorkspaceFilesSession {
   private readonly logger: pino.Logger;
   private readonly fileUploads: FileUploadStore;
   private readonly fileObserver: FileObserver;
+  private readonly workspaceRoots: () => Promise<readonly string[]>;
+  private readonly thumbnails: ExplorerThumbnailService;
 
   constructor(options: WorkspaceFilesSessionOptions) {
     this.host = options.host;
@@ -80,6 +108,45 @@ export class WorkspaceFilesSession {
     this.logger = options.logger;
     this.fileUploads = new FileUploadStore({ paseoHome: options.paseoHome });
     this.fileObserver = options.fileObserver ?? workspaceFileObserver;
+    this.workspaceRoots = options.workspaceRoots;
+    this.thumbnails = options.thumbnails;
+  }
+
+  /** Null when `root` lies inside an active workspace, otherwise the refusal to send back. */
+  private async refuseOutsideWorkspace(root: string): Promise<string | null> {
+    const candidate = await canonicalPath(root.trim());
+    if (!candidate) return OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE;
+    for (const workspaceRoot of await this.workspaceRoots()) {
+      const canonicalRoot = await canonicalPath(workspaceRoot);
+      if (canonicalRoot && isPathInside(canonicalRoot, candidate)) return null;
+    }
+    return OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE;
+  }
+
+  async handleFileThumbnailRequest(request: FileThumbnailRequest): Promise<void> {
+    const { cwd, path: relativePath, requestId } = request;
+    try {
+      const thumbnail = await this.thumbnails.get({
+        root: cwd,
+        relativePath,
+        maxEdge: request.maxEdge,
+      });
+      this.host.emit({
+        type: "fs.thumbnail.get.response",
+        payload: { cwd, path: relativePath, thumbnail, error: null, requestId },
+      });
+    } catch (error) {
+      this.host.emit({
+        type: "fs.thumbnail.get.response",
+        payload: {
+          cwd,
+          path: relativePath,
+          thumbnail: null,
+          error: getErrorMessage(error),
+          requestId,
+        },
+      });
+    }
   }
 
   async handleFileSubscribeRequest(
@@ -174,12 +241,15 @@ export class WorkspaceFilesSession {
   }
 
   async handleFileEntryCreateRequest(request: FileEntryCreateRequest): Promise<void> {
-    const result = await createExplorerEntry({
-      root: request.cwd,
-      parentPath: request.parentPath,
-      name: request.name,
-      kind: request.kind,
-    });
+    const refusal = await this.refuseOutsideWorkspace(request.cwd);
+    const result = refusal
+      ? ({ status: "error", error: refusal } as const)
+      : await createExplorerEntry({
+          root: request.cwd,
+          parentPath: request.parentPath,
+          name: request.name,
+          kind: request.kind,
+        });
     this.host.emit({
       type: "fs.entry.create.response",
       payload: {
@@ -194,11 +264,14 @@ export class WorkspaceFilesSession {
   }
 
   async handleFileEntryRenameRequest(request: FileEntryRenameRequest): Promise<void> {
-    const result = await renameExplorerEntry({
-      root: request.cwd,
-      relativePath: request.path,
-      name: request.name,
-    });
+    const refusal = await this.refuseOutsideWorkspace(request.cwd);
+    const result = refusal
+      ? ({ status: "error", error: refusal } as const)
+      : await renameExplorerEntry({
+          root: request.cwd,
+          relativePath: request.path,
+          name: request.name,
+        });
     this.host.emit({
       type: "fs.entry.rename.response",
       payload: {
@@ -213,10 +286,13 @@ export class WorkspaceFilesSession {
   }
 
   async handleFileEntryDuplicateRequest(request: FileEntryDuplicateRequest): Promise<void> {
-    const result = await duplicateExplorerEntry({
-      root: request.cwd,
-      relativePath: request.path,
-    });
+    const refusal = await this.refuseOutsideWorkspace(request.cwd);
+    const result = refusal
+      ? ({ status: "error", error: refusal } as const)
+      : await duplicateExplorerEntry({
+          root: request.cwd,
+          relativePath: request.path,
+        });
     this.host.emit({
       type: "fs.entry.duplicate.response",
       payload: {
@@ -231,10 +307,13 @@ export class WorkspaceFilesSession {
   }
 
   async handleFileEntryDeleteRequest(request: FileEntryDeleteRequest): Promise<void> {
-    const result = await deleteExplorerEntry({
-      root: request.cwd,
-      relativePath: request.path,
-    });
+    const refusal = await this.refuseOutsideWorkspace(request.cwd);
+    const result = refusal
+      ? ({ status: "error", error: refusal } as const)
+      : await deleteExplorerEntry({
+          root: request.cwd,
+          relativePath: request.path,
+        });
     this.host.emit({
       type: "fs.entry.delete.response",
       payload: {
@@ -445,6 +524,11 @@ export class WorkspaceFilesSession {
       const stagedFile = staged.payload.error ? null : staged.payload.file;
       if (!stagedFile) {
         emitError(staged.payload.error ?? "Upload failed.");
+        return;
+      }
+      const refusal = await this.refuseOutsideWorkspace(request.cwd);
+      if (refusal) {
+        emitError(refusal);
         return;
       }
       const result = await moveStagedUploadIntoWorkspace({

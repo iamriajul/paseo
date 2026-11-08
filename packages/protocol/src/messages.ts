@@ -1325,6 +1325,62 @@ export const WorkspaceTodosUpdateMessageSchema = z.object({
 });
 export type WorkspaceTodosUpdateMessage = z.infer<typeof WorkspaceTodosUpdateMessageSchema>;
 
+// Folders the Files panel's folder switcher remembers for one workspace: the Recent group,
+// newest first, pinned ones on top. The daemon owns order and the unpinned cap so every
+// device shows the same list.
+export const WorkspaceRecentFolderSchema = z.object({
+  path: z.string(),
+  pinned: z.boolean(),
+  visitedAt: z.string(),
+});
+export type WorkspaceRecentFolder = z.infer<typeof WorkspaceRecentFolderSchema>;
+
+export const WorkspaceRecentFoldersGetRequestSchema = z.object({
+  type: z.literal("workspace.recent_folders.get.request"),
+  workspaceId: z.string(),
+  requestId: z.string(),
+});
+export type WorkspaceRecentFoldersGetRequest = z.infer<
+  typeof WorkspaceRecentFoldersGetRequestSchema
+>;
+
+export const WorkspaceRecentFolderActionSchema = z.enum(["visit", "pin", "unpin", "remove"]);
+export type WorkspaceRecentFolderAction = z.infer<typeof WorkspaceRecentFolderActionSchema>;
+
+export const WorkspaceRecentFoldersUpdateRequestSchema = z.object({
+  type: z.literal("workspace.recent_folders.update.request"),
+  workspaceId: z.string(),
+  action: WorkspaceRecentFolderActionSchema,
+  path: z.string(),
+  requestId: z.string(),
+});
+export type WorkspaceRecentFoldersUpdateRequest = z.infer<
+  typeof WorkspaceRecentFoldersUpdateRequestSchema
+>;
+
+const WorkspaceRecentFoldersResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  workspaceId: z.string(),
+  folders: z.array(WorkspaceRecentFolderSchema),
+  error: z.string().nullable(),
+});
+
+export const WorkspaceRecentFoldersGetResponseSchema = z.object({
+  type: z.literal("workspace.recent_folders.get.response"),
+  payload: WorkspaceRecentFoldersResponsePayloadSchema,
+});
+export type WorkspaceRecentFoldersGetResponse = z.infer<
+  typeof WorkspaceRecentFoldersGetResponseSchema
+>;
+
+export const WorkspaceRecentFoldersUpdateResponseSchema = z.object({
+  type: z.literal("workspace.recent_folders.update.response"),
+  payload: WorkspaceRecentFoldersResponsePayloadSchema,
+});
+export type WorkspaceRecentFoldersUpdateResponse = z.infer<
+  typeof WorkspaceRecentFoldersUpdateResponseSchema
+>;
+
 export const WorkspaceTitleSetRequestSchema = z.object({
   type: z.literal("workspace.title.set.request"),
   workspaceId: z.string(),
@@ -3296,6 +3352,17 @@ export const FileExplorerRequestSchema = z.object({
   maxBytes: z.number().int().positive().optional(),
 });
 
+// A small resized copy of an image, generated and cached on the daemon host so a grid never
+// downloads the full file. `maxEdge` is a hint; the daemon rounds it to a cached bucket.
+export const FileThumbnailRequestSchema = z.object({
+  type: z.literal("fs.thumbnail.get.request"),
+  cwd: z.string(),
+  path: z.string(),
+  maxEdge: z.number().int().positive(),
+  requestId: z.string(),
+});
+export type FileThumbnailRequest = z.infer<typeof FileThumbnailRequestSchema>;
+
 export const FileVersionSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ready"),
@@ -3806,6 +3873,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceTitleSetRequestSchema,
   WorkspaceTodosGetRequestSchema,
   WorkspaceTodosSetRequestSchema,
+  WorkspaceRecentFoldersGetRequestSchema,
+  WorkspaceRecentFoldersUpdateRequestSchema,
   WorkspacePinSetRequestSchema,
   WorkspaceLabelListRequestSchema,
   WorkspaceLabelAssignmentSetRequestSchema,
@@ -3958,6 +4027,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceClearAttentionRequestSchema,
   WorkspaceMarkUnreadRequestSchema,
   FileExplorerRequestSchema,
+  FileThumbnailRequestSchema,
   FileSubscribeRequestSchema,
   FileUnsubscribeRequestSchema,
   FileWriteRequestSchema,
@@ -4391,6 +4461,10 @@ export const ServerInfoStatusPayloadSchema = z
         tcpTunnel: z.boolean().optional(),
         // COMPAT(serverBrowser): added in v0.15.x (fork), drop the gate after 2027-05-01.
         serverBrowser: z.boolean().optional(),
+        // COMPAT(filesFolderSwitcher): added in v0.15.906 (fork), drop the gate after 2027-05-01.
+        // Recent folders per workspace, image thumbnails, and the daemon refusing Files-panel
+        // entry changes outside a workspace.
+        filesFolderSwitcher: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
@@ -7042,6 +7116,25 @@ export const FileExplorerResponseSchema = z.object({
   }),
 });
 
+export const FileThumbnailResponseSchema = z.object({
+  type: z.literal("fs.thumbnail.get.response"),
+  payload: z.object({
+    cwd: z.string(),
+    path: z.string(),
+    thumbnail: z
+      .object({
+        mimeType: z.string(),
+        data: z.string(),
+        width: z.number().int().nonnegative(),
+        height: z.number().int().nonnegative(),
+      })
+      .nullable(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+export type FileThumbnailResponse = z.infer<typeof FileThumbnailResponseSchema>;
+
 export const FileSubscribeResponseSchema = z.object({
   type: z.literal("fs.file.subscribe.response"),
   payload: z.object({
@@ -8212,6 +8305,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceTitleSetResponseSchema,
   WorkspaceTodosGetResponseSchema,
   WorkspaceTodosSetResponseSchema,
+  WorkspaceRecentFoldersGetResponseSchema,
+  WorkspaceRecentFoldersUpdateResponseSchema,
   WorkspaceTodosUpdateMessageSchema,
   WorkspacePinSetResponseSchema,
   WorkspaceRecoveryInspectResponseSchema,
@@ -8258,6 +8353,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   PaseoWorktreeArchiveResponseSchema,
   CreatePaseoWorktreeResponseSchema,
   FileExplorerResponseSchema,
+  FileThumbnailResponseSchema,
   FileSubscribeResponseSchema,
   FileUnsubscribeResponseSchema,
   FileWriteResponseSchema,

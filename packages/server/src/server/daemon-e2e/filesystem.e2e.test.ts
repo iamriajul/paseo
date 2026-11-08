@@ -32,6 +32,16 @@ afterEach(async () => {
   await ctx.cleanup();
 }, 60000);
 
+/**
+ * Writes reach only registered workspaces; any other folder is read-only to clients (fork decision
+ * files-folder-switcher). Tests that write into a temp folder register it first. They delete it in
+ * `onTestFinished`, after afterEach has shut the daemon down, with retries for Windows (EBUSY).
+ */
+async function registerWorkspace(cwd: string): Promise<void> {
+  const created = await ctx.client.createWorkspace({ source: { kind: "directory", path: cwd } });
+  if (!created.workspace) throw new Error(created.error ?? "Workspace creation failed");
+}
+
 describe("checkout discard", () => {
   test.each([".", "apps/web"])(
     "discards selected Changes from the %s workspace without changing siblings",
@@ -199,6 +209,7 @@ describe("file explorer", () => {
     { description: "a long Unicode name", fileName: `${"文".repeat(76)}.txt` },
   ])("saves text files with $description", async ({ fileName }) => {
     const cwd = tmpCwd();
+    await registerWorkspace(cwd);
     try {
       const created = await ctx.client.createFileEntry({
         cwd,
@@ -254,7 +265,9 @@ describe("file explorer", () => {
       expect(new TextDecoder().decode(final.bytes)).toBe("second payload\n");
       expect(readdirSync(cwd)).toEqual([fileName]);
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
+      onTestFinished(() =>
+        rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
+      );
     }
   });
 
@@ -303,6 +316,7 @@ describe("file explorer", () => {
 
   test.each(["..", "..."])("supports file operations on names starting with %s", async (prefix) => {
     const cwd = tmpCwd();
+    await registerWorkspace(cwd);
     const fileName = `${prefix}notes.txt`;
     const directoryName = `${prefix}drafts`;
     try {
@@ -398,7 +412,9 @@ describe("file explorer", () => {
         [".notes.txt", "notes.txt", copiedDirectoryName].sort(),
       );
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
+      onTestFinished(() =>
+        rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
+      );
     }
   });
 
@@ -406,8 +422,9 @@ describe("file explorer", () => {
     const directory = tmpCwd();
     const cwd = path.join(directory, "workspace");
     const outside = path.join(directory, "workspace-sibling");
+    mkdirSync(cwd);
+    await registerWorkspace(cwd);
     try {
-      mkdirSync(cwd);
       mkdirSync(outside);
       writeFileSync(path.join(outside, "secret.txt"), "outside payload\n");
       for (const requestedPath of ["..", "../workspace-sibling", outside]) {
@@ -435,7 +452,9 @@ describe("file explorer", () => {
       }
       expect(readdirSync(outside)).toEqual(["secret.txt"]);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      onTestFinished(() =>
+        rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
+      );
     }
   });
 
@@ -478,6 +497,7 @@ describe("file explorer", () => {
     "duplicating a folder keeps relative symlinks inside the copy",
     async () => {
       const cwd = tmpCwd();
+      await registerWorkspace(cwd);
       try {
         mkdirSync(path.join(cwd, "template"));
         writeFileSync(path.join(cwd, "template", "data.txt"), "original payload\n");
@@ -523,7 +543,9 @@ describe("file explorer", () => {
           "edited through copied alias\n",
         );
       } finally {
-        rmSync(cwd, { recursive: true, force: true });
+        onTestFinished(() =>
+          rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
+        );
       }
     },
   );
@@ -532,6 +554,7 @@ describe("file explorer", () => {
     "duplicating a file symlink preserves an explicit absolute target",
     async () => {
       const cwd = tmpCwd();
+      await registerWorkspace(cwd);
       const targetPath = path.join(cwd, "data.txt");
       try {
         writeFileSync(targetPath, "absolute target payload\n");
@@ -547,7 +570,9 @@ describe("file explorer", () => {
         const copy = await ctx.client.readFile(cwd, "alias copy.txt");
         expect(new TextDecoder().decode(copy.bytes)).toBe("absolute target payload\n");
       } finally {
-        rmSync(cwd, { recursive: true, force: true });
+        onTestFinished(() =>
+          rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
+        );
       }
     },
   );

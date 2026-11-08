@@ -134,6 +134,34 @@ layouts discover while Explorer is active. The rail requests summary status; sel
 content also requests timeline data. Inactive consumers read cached data without request demand.
 Discovery uses ordinary PR tabs and their existing once-per-workspace close opt-out.
 
+## Files folders
+
+Files shows one root at a time, chosen from the folder switcher at its top
+(`packages/app/src/file-explorer/folders/`). Agents, and subagents above all, leave screenshots
+and logs outside the workspace, so Files can show those folders too.
+
+| Group     | What it lists                                                                                    | Stored                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| Workspace | The checkout the agent and terminal work in, always first                                        | —                                                                                   |
+| Recent    | Folders opened from a chat link or Browse folder…, pinned first, newest first, 10 unpinned       | Per workspace on the daemon (`workspace.recent_folders.*`), so every device matches |
+| Subagents | Working directories of this workspace's subagents at any depth, newest activity first, collapsed | Derived from the agents                                                             |
+
+Browse folder… reuses the Add project directory search, locked to the workspace's host. A folder
+link in chat outside the workspace opens in Files and joins Recent; one inside it switches Files
+back to the workspace first. A file preview outside the workspace has Show in folder.
+
+A root outside the workspace is read-only: the panel offers no create, rename, delete, upload or
+drop, and the daemon refuses them anyway. Its tree state is keyed by root, not workspace. See
+[permissions.md](permissions.md#reading-and-changing-files-outside-a-workspace).
+
+Any root can show as a list or a grid. The mode is remembered per root per device; until the user
+picks, a root whose entries are at least 70% images opens as a grid. The grid shows one folder at a
+time and uses daemon-made thumbnails (`fs.thumbnail.get.request`): decoded on a worker thread,
+sized to 128, 256 or 512, cached under `$PASEO_HOME/cache/thumbnails` by path and file revision,
+128 MB at most. A phone over the relay never downloads a full screenshot to draw a tile. The grid
+size (Small, Medium, Large) is one per-device setting. All of it is gated on
+`server_info.features.filesFolderSwitcher`; older hosts show only the workspace.
+
 ## Side pane
 
 `packages/app/src/workspace-tabs/open-beside.ts` owns content opened beside the user's work. The

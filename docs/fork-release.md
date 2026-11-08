@@ -17,11 +17,11 @@ Rules:
 - If you already pushed a tag too early, delete the tag and any half-built GitHub Release, merge the PR, then recreate the tag on the `main` merge commit and push it again.
 - Version bumps for fork releases live in the tag / workflow inputs. Do not land package-version churn on the feature PR just to cut a release.
 
-After the tag is on `main`, the tag-triggered workflows build the [release targets](#release-targets) the repository enables, macOS Apple silicon and the Android APK unless you change it. You can also dispatch those workflows manually with the same tag and `checkout_ref=main`.
+After the tag is on `main`, the tag-triggered workflows build the [release targets](#release-targets) the repository enables: macOS Apple silicon, the Android APK and the npm packages unless you change it. You can also dispatch those workflows manually with the same tag and `checkout_ref=main`.
 
 ## Release targets
 
-The `RELEASE_TARGETS` repository variable lists what a `vX.Y.Z` tag builds, comma-separated. When it is unset, a tag builds `desktop-macos-arm64,android-apk`.
+The `RELEASE_TARGETS` repository variable lists what a `vX.Y.Z` tag builds, comma-separated. When it is unset, a tag builds `desktop-macos-arm64,android-apk,npm`. Keep `npm` in any value you set: a daemon or CLI installed with npm (for example on a remote dev box) updates from those release tarballs, and v0.15.904 and v0.15.905 shipped without them because the default then left `npm` out.
 
 | Target                   | Builds                                                         | Workflow                         |
 | ------------------------ | -------------------------------------------------------------- | -------------------------------- |

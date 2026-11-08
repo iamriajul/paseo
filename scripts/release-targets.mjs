@@ -13,7 +13,9 @@ export const RELEASE_TARGETS = [
   "npm",
 ];
 
-export const DEFAULT_RELEASE_TARGETS = ["desktop-macos-arm64", "android-apk"];
+// npm is in the default: the daemon and CLI on a remote host install from these tarballs, so a
+// release without them leaves every npm-installed daemon unable to update (v0.15.904 and .905).
+export const DEFAULT_RELEASE_TARGETS = ["desktop-macos-arm64", "android-apk", "npm"];
 
 // A scope other than `all` is an explicit request: a platform tag (desktop-macos-v1.2.3),
 // the desktop workflow's `platform` input, or dispatching a single-target workflow. It

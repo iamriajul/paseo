@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Probe</title>
+    <style>
+      body {
+        margin: 0;
+        font: 16px sans-serif;
+      }
+      #btn {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 200px;
+        height: 60px;
+      }
+      #inp {
+        position: absolute;
+        left: 20px;
+        top: 100px;
+        width: 300px;
+        height: 30px;
+      }
+      #tall {
+        height: 3000px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="btn" onclick="this.dataset.n = (+this.dataset.n || 0) + 1">Click me</button>
+    <input
+      id="inp"
+      aria-label="Name"
+      onkeydown="window.__keys = (window.__keys || '') + event.key"
+    />
+    <input id="file" type="file" style="position: absolute; top: 150px; left: 20px" />
+    <a
+      id="lnk"
+      href="#"
+      style="position: absolute; top: 200px; left: 20px"
+      onclick="
+        history.pushState({}, '', '/probe.html?pushed=1');
+        return false;
+      "
+      >push</a
+    >
+    <div id="tall"></div>
+    <script>
+      window.addEventListener("mousemove", (e) => {
+        window.__move = [e.clientX, e.clientY];
+      });
+      window.addEventListener("wheel", (e) => {
+        window.__wheel = (window.__wheel || 0) + e.deltaY;
+      });
+    </script>
+  </body>
+</html>

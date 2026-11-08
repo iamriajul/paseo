@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Anim</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff;
+        font: 16px sans-serif;
+      }
+      .spin {
+        width: 100px;
+        height: 100px;
+        background: linear-gradient(45deg, #e33, #33e);
+        animation: s 1s linear infinite;
+        position: absolute;
+        left: 400px;
+        top: 40px;
+      }
+      @keyframes s {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c" width="320" height="240" style="border: 1px solid #000"></canvas>
+    <div class="spin"></div>
+    <p id="fps">frames: 0</p>
+    <script>
+      const c = document.getElementById("c").getContext("2d");
+      let n = 0;
+      function f(t) {
+        n++;
+        c.fillStyle = "#fff";
+        c.fillRect(0, 0, 320, 240);
+        c.fillStyle = "hsl(" + ((n * 4) % 360) + ",80%,50%)";
+        c.beginPath();
+        c.arc(160 + 100 * Math.cos(t / 300), 120 + 80 * Math.sin(t / 300), 30, 0, 7);
+        c.fill();
+        c.fillStyle = "#000";
+        c.fillText("frame " + n, 10, 20);
+        window.__frames = n;
+        document.getElementById("fps").textContent = "frames: " + n;
+        requestAnimationFrame(f);
+      }
+      requestAnimationFrame(f);
+    </script>
+  </body>
+</html>

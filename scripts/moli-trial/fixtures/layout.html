@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Layout fixture</title>
+    <style>
+      :root {
+        --accent: #6c4cf1;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        color: #222;
+        background: #f5f5f7;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 32px;
+        background: var(--accent);
+        color: #fff;
+      }
+      nav a {
+        color: #fff;
+        margin-left: 16px;
+        text-decoration: none;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        padding: 32px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        padding: 16px;
+        border: 1px solid #ddd;
+      }
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #f90, #f0c);
+        color: #fff;
+        font-size: 12px;
+      }
+      table {
+        border-collapse: collapse;
+        margin: 0 32px;
+        background: #fff;
+      }
+      td,
+      th {
+        border: 1px solid #bbb;
+        padding: 6px 12px;
+      }
+      .flexrow {
+        display: flex;
+        gap: 8px;
+        padding: 16px 32px;
+      }
+      .flexrow > div {
+        flex: 1;
+        height: 40px;
+        background: hsl(calc(var(--i) * 40), 70%, 60%);
+      }
+      pre {
+        margin: 16px 32px;
+        background: #222;
+        color: #0f0;
+        padding: 12px;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong style="font-size: 22px">Fixture Co.</strong>
+      <nav><a href="#">Docs</a><a href="#">Pricing</a><a href="#">Sign in</a></nav>
+    </header>
+    <div class="grid">
+      <div class="card">
+        <h3>Alpha</h3>
+        <span class="pill">new</span>
+        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer nec odio.</p>
+      </div>
+      <div class="card">
+        <h3>Beta</h3>
+        <svg width="120" height="60">
+          <circle cx="30" cy="30" r="25" fill="#e33" />
+          <rect x="60" y="5" width="50" height="50" fill="#3a3" transform="rotate(15 85 30)" />
+        </svg>
+      </div>
+      <div class="card">
+        <h3>Gamma</h3>
+        <input placeholder="Type here" style="width: 90%" /><br /><br /><button>Submit</button>
+        <label><input type="checkbox" checked /> keep</label>
+      </div>
+    </div>
+    <table>
+      <tr>
+        <th>Name</th>
+        <th>Qty</th>
+        <th>Price</th>
+      </tr>
+      <tr>
+        <td>Widget</td>
+        <td>3</td>
+        <td>$9.99</td>
+      </tr>
+      <tr>
+        <td>Gadget — 漢字 ✓ 😀</td>
+        <td>12</td>
+        <td>$1.50</td>
+      </tr>
+    </table>
+    <div class="flexrow">
+      <div style="--i: 1"></div>
+      <div style="--i: 2"></div>
+      <div style="--i: 3"></div>
+      <div style="--i: 4"></div>
+      <div style="--i: 5"></div>
+    </div>
+    <pre>const x = 42; // monospace</pre>
+  </body>
+</html>

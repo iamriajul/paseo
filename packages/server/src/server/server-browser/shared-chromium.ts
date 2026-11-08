@@ -3,16 +3,17 @@ import {
   launchChromium,
   type CdpConnection,
   type CdpEvent,
+  type CdpParams,
   type LaunchChromiumOptions,
 } from "./cdp-connection.js";
 
-export interface WorkspaceBrowserTarget {
+export interface ChromiumTarget {
   targetId: string;
   sessionId: string;
   connection: CdpConnection;
 }
 
-export interface WorkspaceBrowserEvents {
+export interface SharedChromiumEvents {
   onEvent(event: CdpEvent): void;
   onTargetInfo(info: { targetId: string; url: string; title: string }): void;
   onTargetDestroyed(targetId: string): void;
@@ -21,33 +22,46 @@ export interface WorkspaceBrowserEvents {
 
 export type LaunchFn = (options: LaunchChromiumOptions) => ReturnType<typeof launchChromium>;
 
+/** A cookie as `Storage.getCookies` returns it; only the fields `Storage.setCookies` takes are kept. */
+export type ChromiumCookie = CdpParams & { name: string; value: string; domain: string };
+
 const CLOSE_GRACE_MS = 3_000;
+const COOKIE_PARAM_FIELDS = [
+  "name",
+  "value",
+  "domain",
+  "path",
+  "secure",
+  "httpOnly",
+  "sameSite",
+  "expires",
+  "priority",
+  "sourceScheme",
+  "sourcePort",
+  "partitionKey",
+] as const;
 
 /**
- * One Chromium process per workspace, with a persistent profile directory. A real
- * user-data-dir keeps cookies, localStorage and IndexedDB across browser restarts without
- * serialising storage ourselves, and keeps workspaces apart.
+ * The daemon's one Chromium process. Each workspace gets its own browser context inside it:
+ * contexts share the browser, GPU, network and zygote processes but never cookies, storage or
+ * renderers. Contexts live in memory only; `workspace-storage-state.ts` persists what they hold.
  */
-export class WorkspaceBrowser {
+export class SharedChromium {
   private process: ChildProcess | null = null;
   private connection: CdpConnection | null = null;
   private exited = false;
   public sandboxed = true;
 
-  private constructor(
-    public readonly workspaceId: string,
-    private readonly events: WorkspaceBrowserEvents,
-  ) {}
+  private constructor(private readonly events: SharedChromiumEvents) {}
 
   public static async launch(params: {
-    workspaceId: string;
     executablePath: string;
     userDataDir: string;
     noSandbox: boolean;
-    events: WorkspaceBrowserEvents;
+    events: SharedChromiumEvents;
     launch?: LaunchFn;
-  }): Promise<WorkspaceBrowser> {
-    const browser = new WorkspaceBrowser(params.workspaceId, params.events);
+  }): Promise<SharedChromium> {
+    const browser = new SharedChromium(params.events);
     const launched = await (params.launch ?? launchChromium)({
       executablePath: params.executablePath,
       userDataDir: params.userDataDir,
@@ -71,10 +85,32 @@ export class WorkspaceBrowser {
     return this.process?.pid;
   }
 
-  public async createTarget(): Promise<WorkspaceBrowserTarget> {
+  public get cdp(): CdpConnection {
+    return this.requireConnection();
+  }
+
+  public async createContext(): Promise<string> {
+    const connection = this.requireConnection();
+    const { browserContextId } = (await connection.send("Target.createBrowserContext", {
+      disposeOnDetach: true,
+    })) as { browserContextId: string };
+    // Download behaviour is per context; one left at the default would save files on the host.
+    await connection.send("Browser.setDownloadBehavior", { behavior: "deny", browserContextId });
+    return browserContextId;
+  }
+
+  public async disposeContext(browserContextId: string): Promise<void> {
+    if (this.exited) return;
+    await this.requireConnection()
+      .send("Target.disposeBrowserContext", { browserContextId })
+      .catch(() => {});
+  }
+
+  public async createTarget(browserContextId: string): Promise<ChromiumTarget> {
     const connection = this.requireConnection();
     const { targetId } = (await connection.send("Target.createTarget", {
       url: "about:blank",
+      browserContextId,
     })) as { targetId: string };
     const { sessionId } = (await connection.send("Target.attachToTarget", {
       targetId,
@@ -88,6 +124,18 @@ export class WorkspaceBrowser {
     await this.requireConnection()
       .send("Target.closeTarget", { targetId })
       .catch(() => {});
+  }
+
+  public async getCookies(browserContextId: string): Promise<ChromiumCookie[]> {
+    const { cookies } = (await this.requireConnection().send("Storage.getCookies", {
+      browserContextId,
+    })) as { cookies: ChromiumCookie[] };
+    return cookies.map(toCookieParam);
+  }
+
+  public async setCookies(browserContextId: string, cookies: ChromiumCookie[]): Promise<void> {
+    if (cookies.length === 0) return;
+    await this.requireConnection().send("Storage.setCookies", { cookies, browserContextId });
   }
 
   public async close(): Promise<void> {
@@ -108,7 +156,7 @@ export class WorkspaceBrowser {
     const connection = this.requireConnection();
     await connection.send("Target.setDiscoverTargets", { discover: true });
     await connection.send("Browser.setDownloadBehavior", { behavior: "deny" }).catch(() => {});
-    // Chromium opens a default about:blank page; tabs are always created explicitly.
+    // Chromium opens a default about:blank page in its default context, which tabs never use.
     const { targetInfos } = (await connection.send("Target.getTargets")) as {
       targetInfos: Array<{ targetId: string; type: string }>;
     };
@@ -143,4 +191,16 @@ export class WorkspaceBrowser {
     this.exited = true;
     this.events.onExit();
   }
+}
+
+function toCookieParam(cookie: ChromiumCookie): ChromiumCookie {
+  const param: CdpParams = {};
+  for (const field of COOKIE_PARAM_FIELDS) {
+    if (cookie[field] !== undefined) param[field] = cookie[field];
+  }
+  // A session cookie reports expires -1; setCookies would read that as already expired.
+  if (cookie.session === true || (typeof param.expires === "number" && param.expires < 0)) {
+    delete param.expires;
+  }
+  return param as ChromiumCookie;
 }

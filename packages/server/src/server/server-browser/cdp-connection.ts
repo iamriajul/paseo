@@ -183,6 +183,12 @@ async function launchOnce(
     "--use-mock-keychain",
     "--hide-scrollbars",
     "--mute-audio",
+    // Memory, measured with a heavy SPA (docs/server-browser.md#cost). Software compositing
+    // without a GPU process saves about 55 MB; V8 sizing its heaps for memory saves about 50 MB
+    // per page; same-site tabs of one workspace share a renderer (contexts never share one).
+    "--disable-gpu",
+    "--process-per-site",
+    "--js-flags=--optimize-for-size",
     ...(noSandbox ? ["--no-sandbox"] : []),
     "about:blank",
   ];

@@ -20,20 +20,36 @@ import {
 } from "./engine/service.js";
 import { BrowserSnapshotEngine } from "./engine/snapshot-engine.js";
 import { ServerBrowserTab, type ServerBrowserViewport } from "./server-browser-tab.js";
-import { WorkspaceBrowser, type LaunchFn } from "./workspace-browser.js";
+import { SharedChromium, type ChromiumCookie, type LaunchFn } from "./shared-chromium.js";
+import {
+  originOf,
+  withOriginPages,
+  WorkspaceStorageStore,
+  type LocalStorageItems,
+  type WorkspaceStorageState,
+} from "./workspace-storage-state.js";
 
 export interface ServerBrowserLimits {
   maxTabs: number;
-  /** A workspace browser with no tabs exits after this long. */
+  /** A workspace with no tabs saves its storage and closes its browser context after this long. */
+  contextIdleMs: number;
+  /** The shared Chromium exits after this long with no workspace context open. */
   browserIdleMs: number;
   /** A tab no agent command or viewer touched for this long is closed. */
   tabIdleMs: number;
+  /** A workspace's storage is saved this long after one of its tabs navigates. */
+  saveDelayMs: number;
+  /** While a workspace has tabs, its storage is also saved this often (cookies set by fetch). */
+  saveIntervalMs: number;
 }
 
 export const DEFAULT_SERVER_BROWSER_LIMITS: ServerBrowserLimits = {
   maxTabs: 8,
-  browserIdleMs: 10 * 60_000,
-  tabIdleMs: 2 * 60 * 60_000,
+  contextIdleMs: 3 * 60_000,
+  browserIdleMs: 2 * 60_000,
+  tabIdleMs: 30 * 60_000,
+  saveDelayMs: 2_000,
+  saveIntervalMs: 30_000,
 };
 
 export interface ServerBrowserHostOptions {
@@ -58,32 +74,56 @@ export class ServerBrowserLimitError extends Error {
   }
 }
 
+interface WorkspaceContext {
+  workspaceId: string;
+  browserContextId: string;
+  chromium: SharedChromium;
+  /** Last known localStorage per origin, including origins no tab has open now. */
+  origins: Map<string, LocalStorageItems>;
+  /** Origins a tab has shown since the last save; their storage may have changed. */
+  touchedOrigins: Set<string>;
+  lastSaved: string | null;
+  saving: Promise<void>;
+  saveTimer: ReturnType<typeof setTimeout> | null;
+  disposed: boolean;
+}
+
+const SHUTDOWN_SAVE_BUDGET_MS = 5_000;
+
 /**
- * The daemon's own browser: headless Chromium per workspace, tabs addressed by browserId, and the
- * vendored desktop automation engine executing MCP browser commands against them.
+ * The daemon's own browser: one headless Chromium for the whole host, one browser context per
+ * workspace (cookies and storage apart, persisted per workspace by `workspace-storage-state.ts`),
+ * tabs addressed by browserId, and the vendored desktop automation engine executing MCP browser
+ * commands against them.
  */
 export class ServerBrowserHost {
   private readonly tabs = new Map<string, ServerBrowserTab>();
-  private readonly browsers = new Map<string, Promise<WorkspaceBrowser>>();
-  private readonly relaunching = new Set<string>();
-  private readonly launchedBrowsers = new Map<string, WorkspaceBrowser>();
-  private readonly browserIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private chromium: Promise<SharedChromium> | null = null;
+  private launchedChromium: SharedChromium | null = null;
+  private readonly contexts = new Map<string, Promise<WorkspaceContext>>();
+  private readonly closingContexts = new Map<string, Promise<void>>();
+  private readonly clearing = new Set<string>();
+  private readonly contextIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private browserIdleTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly listeners = new Set<TabsListener>();
   private readonly snapshotEngine = new BrowserSnapshotEngine();
   private readonly limits: ServerBrowserLimits;
   private readonly now: () => number;
   private readonly registry: BrowserRegistry;
+  private readonly store: WorkspaceStorageStore;
   private nextContentsId = 1;
   private noSandbox = false;
   private unavailableReason: string | undefined;
   private notifyScheduled = false;
   private tabSweep: ReturnType<typeof setInterval> | null = null;
+  private saveSweep: ReturnType<typeof setInterval> | null = null;
   private shuttingDown = false;
 
   public constructor(private readonly options: ServerBrowserHostOptions) {
     this.limits = { ...DEFAULT_SERVER_BROWSER_LIMITS, ...options.limits };
     this.now = options.now ?? Date.now;
     this.registry = this.createRegistry();
+    this.store = new WorkspaceStorageStore(join(this.rootDir(), "storage"));
   }
 
   public isEnabled(): boolean {
@@ -110,9 +150,14 @@ export class ServerBrowserHost {
     return tab && !tab.isClosed ? tab : null;
   }
 
-  /** The workspace's Chromium process id, while one runs. */
-  public browserPid(workspaceId: string): number | undefined {
-    return this.launchedBrowsers.get(workspaceId)?.pid;
+  /** The shared Chromium's process id, while it runs. */
+  public browserPid(): number | undefined {
+    return this.launchedChromium?.isAlive ? this.launchedChromium.pid : undefined;
+  }
+
+  /** Workspaces whose browser context is open. */
+  public openContextIds(): string[] {
+    return [...this.contexts.keys()];
   }
 
   public subscribe(listener: TabsListener): () => void {
@@ -211,8 +256,9 @@ export class ServerBrowserHost {
       throw new ServerBrowserLimitError(this.limits.maxTabs);
     }
     assertNavigableUrl(params.url);
-    const browser = await this.ensureBrowser(params.workspaceId);
-    const target = await browser.createTarget();
+    this.cancelContextIdle(params.workspaceId);
+    const context = await this.ensureContext(params.workspaceId);
+    const target = await context.chromium.createTarget(context.browserContextId);
     const tab = new ServerBrowserTab({
       browserId: params.browserId ?? randomUUID(),
       workspaceId: params.workspaceId,
@@ -223,11 +269,12 @@ export class ServerBrowserHost {
       openedBy: params.openedBy,
       ...(params.viewport ? { viewport: params.viewport } : {}),
       onChange: () => this.scheduleNotify(),
+      onNavigated: (url) => void this.onTabNavigated(params.workspaceId, url),
       now: this.now,
     });
     this.tabs.set(tab.browserId, tab);
-    this.cancelBrowserIdle(params.workspaceId);
-    this.ensureTabSweep();
+    this.cancelContextIdle(params.workspaceId);
+    this.ensureSweeps();
     try {
       await tab.initialize();
       if (params.url !== "about:blank") await tab.contents.loadURL(params.url);
@@ -243,55 +290,44 @@ export class ServerBrowserHost {
     if (!tab) return;
     this.tabs.delete(browserId);
     tab.dispose();
-    const browser = await this.browsers.get(tab.workspaceId)?.catch(() => null);
-    await browser?.closeTarget(tab.cdpTargetId);
+    if (this.launchedChromium?.isAlive) await this.launchedChromium.closeTarget(tab.cdpTargetId);
     this.afterTabRemoved(tab.workspaceId);
   }
 
-  /** Wipes a workspace's profile; open tabs come back at their URLs with the same browserIds. */
+  /** Wipes a workspace's storage; open tabs come back at their URLs with the same browserIds. */
   public async clearWorkspaceData(workspaceId: string): Promise<void> {
     const reopen = [...this.tabs.values()]
       .filter((tab) => tab.workspaceId === workspaceId)
       .map((tab) => ({ url: tab.currentUrl, tab }));
-    this.relaunching.add(workspaceId);
+    this.clearing.add(workspaceId);
     try {
-      await this.closeBrowser(workspaceId);
-      await rm(this.profileDir(workspaceId), { recursive: true, force: true });
+      for (const entry of reopen) entry.tab.markClosed();
+      await this.closeContext(workspaceId, { save: false });
+      await this.store.remove(workspaceId);
       if (reopen.length === 0) return;
-      const browser = await this.ensureBrowser(workspaceId);
+      const context = await this.ensureContext(workspaceId);
       for (const entry of reopen) {
-        const target = await browser.createTarget();
+        const target = await context.chromium.createTarget(context.browserContextId);
         entry.tab.rebind(target);
         await entry.tab.initialize();
         if (/^https?:/.test(entry.url)) await entry.tab.navigate(entry.url).catch(() => {});
       }
     } finally {
-      this.relaunching.delete(workspaceId);
+      this.clearing.delete(workspaceId);
       this.scheduleNotify();
     }
   }
 
   public async shutdown(): Promise<void> {
     this.shuttingDown = true;
-    if (this.tabSweep) clearInterval(this.tabSweep);
-    this.tabSweep = null;
-    for (const timer of this.browserIdleTimers.values()) clearTimeout(timer);
-    this.browserIdleTimers.clear();
-    for (const tab of this.tabs.values()) tab.dispose();
-    this.tabs.clear();
-    await Promise.all(
-      [...this.browsers.keys()].map((workspaceId) => this.closeBrowser(workspaceId)),
-    );
+    this.stopSweeps();
+    await this.closeEverything();
     this.listeners.clear();
   }
 
-  /** The switch went off: close everything, tell viewers. */
+  /** The switch went off: save storage, close everything, tell viewers. */
   public async disable(): Promise<void> {
-    for (const tab of this.tabs.values()) tab.dispose();
-    this.tabs.clear();
-    await Promise.all(
-      [...this.browsers.keys()].map((workspaceId) => this.closeBrowser(workspaceId)),
-    );
+    await this.closeEverything();
     this.scheduleNotify();
   }
 
@@ -299,22 +335,206 @@ export class ServerBrowserHost {
     this.scheduleNotify();
   }
 
-  private async ensureBrowser(workspaceId: string): Promise<WorkspaceBrowser> {
-    const existing = this.browsers.get(workspaceId);
+  /** Saves the workspace's cookies and localStorage now. Skips the write when nothing changed. */
+  public saveWorkspaceStorage(workspaceId: string): Promise<void> {
+    const pending = this.contexts.get(workspaceId);
+    if (!pending) return Promise.resolve();
+    return pending.then(
+      (context) => this.saveContext(context),
+      () => {},
+    );
+  }
+
+  private async closeEverything(): Promise<void> {
+    for (const tab of this.tabs.values()) tab.dispose();
+    this.tabs.clear();
+    for (const timer of this.contextIdleTimers.values()) clearTimeout(timer);
+    this.contextIdleTimers.clear();
+    // Saving needs the browser; give it a bounded time so a wedged page cannot stall shutdown.
+    await withTimeout(
+      Promise.all(
+        [...this.contexts.keys()].map((workspaceId) =>
+          this.closeContext(workspaceId, { save: true }),
+        ),
+      ),
+      SHUTDOWN_SAVE_BUDGET_MS,
+    );
+    await this.closeChromium();
+  }
+
+  private async ensureContext(workspaceId: string): Promise<WorkspaceContext> {
+    const existing = this.contexts.get(workspaceId);
     if (existing) {
-      const browser = await existing.catch(() => null);
-      if (browser?.isAlive) return browser;
-      if (this.browsers.get(workspaceId) === existing) this.browsers.delete(workspaceId);
+      const context = await existing.catch(() => null);
+      if (context && !context.disposed && context.chromium.isAlive) return context;
+      if (this.contexts.get(workspaceId) === existing) this.contexts.delete(workspaceId);
     }
-    const launching = this.launchBrowser(workspaceId);
-    this.browsers.set(workspaceId, launching);
+    const creating = this.createContext(workspaceId);
+    this.contexts.set(workspaceId, creating);
+    creating.catch(() => {
+      if (this.contexts.get(workspaceId) === creating) this.contexts.delete(workspaceId);
+    });
+    return creating;
+  }
+
+  private async createContext(workspaceId: string): Promise<WorkspaceContext> {
+    // A context still saving on its way out must finish before this one reads the file.
+    await this.closingContexts.get(workspaceId);
+    const chromium = await this.ensureChromium();
+    this.cancelBrowserIdle();
+    const browserContextId = await chromium.createContext();
+    const context: WorkspaceContext = {
+      workspaceId,
+      browserContextId,
+      chromium,
+      origins: new Map(),
+      touchedOrigins: new Set(),
+      lastSaved: null,
+      saving: Promise.resolve(),
+      saveTimer: null,
+      disposed: false,
+    };
+    const state = await this.store.load(workspaceId);
+    if (state) await this.restoreContext(context, state);
+    return context;
+  }
+
+  private async restoreContext(
+    context: WorkspaceContext,
+    state: WorkspaceStorageState,
+  ): Promise<void> {
+    const { chromium, browserContextId, workspaceId } = context;
+    await chromium.setCookies(browserContextId, state.cookies).catch((error) => {
+      this.options.logger.warn({ err: error, workspaceId }, "Server browser: cookies not restored");
+    });
+    const origins = Object.entries(state.origins).filter(([, items]) => items.length > 0);
+    for (const [origin, items] of origins) context.origins.set(origin, items);
+    if (origins.length > 0) {
+      await withOriginPages({
+        chromium,
+        browserContextId,
+        run: async (page) => {
+          for (const [origin, items] of origins) {
+            await page.open(origin);
+            await page.writeLocalStorage(items);
+          }
+        },
+      }).catch((error) => {
+        this.options.logger.warn(
+          { err: error, workspaceId },
+          "Server browser: localStorage not restored",
+        );
+      });
+    }
+    context.lastSaved = serializeState(context, state.cookies);
+  }
+
+  private saveContext(context: WorkspaceContext): Promise<void> {
+    if (context.saveTimer) clearTimeout(context.saveTimer);
+    context.saveTimer = null;
+    // One save at a time per workspace; a later one reads what the earlier one left.
+    context.saving = context.saving.then(() =>
+      this.writeContext(context).catch((error) => {
+        this.options.logger.warn(
+          { err: error, workspaceId: context.workspaceId },
+          "Server browser: storage not saved",
+        );
+      }),
+    );
+    return context.saving;
+  }
+
+  private async writeContext(context: WorkspaceContext): Promise<void> {
+    if (context.disposed || !context.chromium.isAlive) return;
+    const { chromium, browserContextId } = context;
+    const cookies = await chromium.getCookies(browserContextId);
+    const tabs = [...this.tabs.values()].filter(
+      (tab) => tab.workspaceId === context.workspaceId && !tab.isClosed,
+    );
+    const read = new Set<string>();
+    const stillOpen = new Set<string>();
+    for (const tab of tabs) {
+      const origin = originOf(tab.currentUrl);
+      if (origin) stillOpen.add(origin);
+      const storage = await tab.readLocalStorage();
+      if (!storage) continue;
+      read.add(storage.origin);
+      setOrigin(context, storage.origin, storage.items);
+    }
+    // An origin a tab left since the last save, or whose tab was too busy to answer: a hidden
+    // page reads it. One that fails keeps its last snapshot and is tried again next save.
+    const unread = new Set([...context.touchedOrigins, ...stillOpen].filter((o) => !read.has(o)));
+    if (unread.size > 0) {
+      await withOriginPages({
+        chromium,
+        browserContextId,
+        run: async (page) => {
+          for (const origin of unread) {
+            try {
+              await page.open(origin);
+              setOrigin(context, origin, await page.readLocalStorage());
+              unread.delete(origin);
+            } catch {}
+          }
+        },
+      }).catch(() => {});
+    }
+    context.touchedOrigins = new Set([...stillOpen, ...unread]);
+    const serialized = serializeState(context, cookies);
+    if (serialized === context.lastSaved) return;
+    await this.store.save(context.workspaceId, serialized);
+    context.lastSaved = serialized;
+  }
+
+  private scheduleSave(context: WorkspaceContext): void {
+    if (context.saveTimer) clearTimeout(context.saveTimer);
+    context.saveTimer = setTimeout(() => {
+      context.saveTimer = null;
+      void this.saveContext(context);
+    }, this.limits.saveDelayMs);
+    context.saveTimer.unref?.();
+  }
+
+  /** Saves (unless the data is being cleared) and disposes a workspace's context. */
+  private closeContext(workspaceId: string, options: { save: boolean }): Promise<void> {
+    this.cancelContextIdle(workspaceId);
+    const pending = this.contexts.get(workspaceId);
+    if (!pending) return this.closingContexts.get(workspaceId) ?? Promise.resolve();
+    this.contexts.delete(workspaceId);
+    const closing = (async () => {
+      const context = await pending.catch(() => null);
+      if (!context) return;
+      if (options.save) await this.saveContext(context);
+      else await context.saving;
+      context.disposed = true;
+      if (context.saveTimer) clearTimeout(context.saveTimer);
+      await context.chromium.disposeContext(context.browserContextId);
+    })().finally(() => {
+      if (this.closingContexts.get(workspaceId) === closing) {
+        this.closingContexts.delete(workspaceId);
+      }
+      if (this.contexts.size === 0 && !this.shuttingDown) this.scheduleBrowserIdle();
+    });
+    this.closingContexts.set(workspaceId, closing);
+    return closing;
+  }
+
+  private async ensureChromium(): Promise<SharedChromium> {
+    const existing = this.chromium;
+    if (existing) {
+      const chromium = await existing.catch(() => null);
+      if (chromium?.isAlive) return chromium;
+      if (this.chromium === existing) this.chromium = null;
+    }
+    const launching = this.launchChromium();
+    this.chromium = launching;
     launching.catch(() => {
-      if (this.browsers.get(workspaceId) === launching) this.browsers.delete(workspaceId);
+      if (this.chromium === launching) this.chromium = null;
     });
     return launching;
   }
 
-  private async launchBrowser(workspaceId: string): Promise<WorkspaceBrowser> {
+  private async launchChromium(): Promise<SharedChromium> {
     const resolution = this.options.resolveExecutable
       ? await this.options.resolveExecutable()
       : await resolveChromiumExecutable({
@@ -326,33 +546,38 @@ export class ServerBrowserHost {
       throw new Error(resolution.message);
     }
     const startedAt = this.now();
+    // The profile only holds Chromium's own bookkeeping: workspace data lives in contexts and
+    // the storage files. Start it empty so nothing accumulates across launches.
+    const userDataDir = join(this.rootDir(), "chromium");
+    await rm(userDataDir, { recursive: true, force: true });
+    // COMPAT(server-browser-profiles): v0.15.904 kept a Chromium profile per workspace; remove after 2027-03-01.
+    await rm(join(this.rootDir(), "profiles"), { recursive: true, force: true });
     try {
-      const browser = await WorkspaceBrowser.launch({
-        workspaceId,
+      const chromium = await SharedChromium.launch({
         executablePath: resolution.path,
-        userDataDir: this.profileDir(workspaceId),
+        userDataDir,
         noSandbox: this.noSandbox,
         ...(this.options.launch ? { launch: this.options.launch } : {}),
         events: {
           onEvent: (event) => this.routeEvent(event),
           onTargetInfo: (info) => this.findTabByTarget(info.targetId)?.updateTargetInfo(info),
           onTargetDestroyed: (targetId) => this.onTargetDestroyed(targetId),
-          onExit: () => this.onBrowserExit(workspaceId),
+          onExit: () => this.onChromiumExit(chromium),
         },
       });
-      if (!browser.sandboxed && !this.noSandbox) {
+      if (!chromium.sandboxed && !this.noSandbox) {
         this.noSandbox = true;
         this.options.logger.warn(
           "Server browser: Chromium has no usable sandbox on this host; running it with --no-sandbox",
         );
       }
       this.unavailableReason = undefined;
-      this.launchedBrowsers.set(workspaceId, browser);
+      this.launchedChromium = chromium;
       this.options.logger.info(
-        { workspaceId, pid: browser.pid, executable: resolution.path, ms: this.now() - startedAt },
+        { pid: chromium.pid, executable: resolution.path, ms: this.now() - startedAt },
         "Server browser started",
       );
-      return browser;
+      return chromium;
     } catch (error) {
       this.unavailableReason = `Chromium failed to start: ${error instanceof Error ? error.message : String(error)}`;
       this.scheduleNotify();
@@ -360,12 +585,12 @@ export class ServerBrowserHost {
     }
   }
 
-  private async closeBrowser(workspaceId: string): Promise<void> {
-    this.cancelBrowserIdle(workspaceId);
-    const pending = this.browsers.get(workspaceId);
-    this.browsers.delete(workspaceId);
-    const browser = await pending?.catch(() => null);
-    await browser?.close();
+  private async closeChromium(): Promise<void> {
+    this.cancelBrowserIdle();
+    const pending = this.chromium;
+    this.chromium = null;
+    const chromium = await pending?.catch(() => null);
+    await chromium?.close();
   }
 
   private routeEvent(event: CdpEvent): void {
@@ -382,33 +607,38 @@ export class ServerBrowserHost {
     return undefined;
   }
 
+  private async onTabNavigated(workspaceId: string, url: string): Promise<void> {
+    const origin = originOf(url);
+    const context = origin ? await this.contexts.get(workspaceId)?.catch(() => null) : null;
+    if (!origin || !context) return;
+    context.touchedOrigins.add(origin);
+    this.scheduleSave(context);
+  }
+
   private onTargetDestroyed(targetId: string): void {
     const tab = this.findTabByTarget(targetId);
-    // A relaunch for cleared data destroys every target; the tabs come back under the same ids.
-    if (!tab || this.relaunching.has(tab.workspaceId)) return;
+    // Clearing data disposes the context; the tabs come back under the same ids.
+    if (!tab || this.clearing.has(tab.workspaceId)) return;
     this.tabs.delete(tab.browserId);
     tab.dispose();
     this.afterTabRemoved(tab.workspaceId);
   }
 
-  private onBrowserExit(workspaceId: string): void {
-    if (this.launchedBrowsers.get(workspaceId)?.isAlive === false) {
-      this.launchedBrowsers.delete(workspaceId);
-    }
+  private onChromiumExit(chromium: SharedChromium): void {
+    if (this.launchedChromium === chromium) this.launchedChromium = null;
     if (this.shuttingDown) return;
-    const tabs = [...this.tabs.values()].filter((tab) => tab.workspaceId === workspaceId);
-    for (const tab of tabs) tab.markClosed();
-    // Clearing data relaunches the browser and rebinds these tabs; a crash or close ends them.
-    if (this.relaunching.has(workspaceId)) return;
+    // Every context died with the process; their storage is what the last save wrote. A pending
+    // save timer finds its browser gone and writes nothing.
+    this.contexts.clear();
+    const tabs = [...this.tabs.values()].filter((tab) => !this.clearing.has(tab.workspaceId));
     for (const tab of tabs) {
       this.tabs.delete(tab.browserId);
       tab.dispose();
     }
+    for (const timer of this.contextIdleTimers.values()) clearTimeout(timer);
+    this.contextIdleTimers.clear();
     if (tabs.length > 0) {
-      this.options.logger.warn(
-        { workspaceId, tabs: tabs.length },
-        "Server browser exited with open tabs",
-      );
+      this.options.logger.warn({ tabs: tabs.length }, "Server browser exited with open tabs");
       this.scheduleNotify();
     }
   }
@@ -416,33 +646,60 @@ export class ServerBrowserHost {
   private afterTabRemoved(workspaceId: string): void {
     this.scheduleNotify();
     const remaining = [...this.tabs.values()].some((tab) => tab.workspaceId === workspaceId);
-    if (!remaining) this.scheduleBrowserIdle(workspaceId);
+    if (!remaining && this.contexts.has(workspaceId)) this.scheduleContextIdle(workspaceId);
   }
 
-  private scheduleBrowserIdle(workspaceId: string): void {
-    this.cancelBrowserIdle(workspaceId);
+  private scheduleContextIdle(workspaceId: string): void {
+    this.cancelContextIdle(workspaceId);
     const timer = setTimeout(() => {
-      this.browserIdleTimers.delete(workspaceId);
+      this.contextIdleTimers.delete(workspaceId);
       if ([...this.tabs.values()].some((tab) => tab.workspaceId === workspaceId)) return;
-      void this.closeBrowser(workspaceId);
-    }, this.limits.browserIdleMs);
+      void this.closeContext(workspaceId, { save: true });
+    }, this.limits.contextIdleMs);
     timer.unref?.();
-    this.browserIdleTimers.set(workspaceId, timer);
+    this.contextIdleTimers.set(workspaceId, timer);
   }
 
-  private cancelBrowserIdle(workspaceId: string): void {
-    const timer = this.browserIdleTimers.get(workspaceId);
+  private cancelContextIdle(workspaceId: string): void {
+    const timer = this.contextIdleTimers.get(workspaceId);
     if (timer) clearTimeout(timer);
-    this.browserIdleTimers.delete(workspaceId);
+    this.contextIdleTimers.delete(workspaceId);
   }
 
-  private ensureTabSweep(): void {
-    if (this.tabSweep) return;
-    this.tabSweep = setInterval(
-      () => this.sweepIdleTabs(),
-      Math.min(60_000, this.limits.tabIdleMs),
-    );
-    this.tabSweep.unref?.();
+  private scheduleBrowserIdle(): void {
+    this.cancelBrowserIdle();
+    this.browserIdleTimer = setTimeout(() => {
+      this.browserIdleTimer = null;
+      if (this.contexts.size > 0 || this.closingContexts.size > 0) return;
+      void this.closeChromium();
+    }, this.limits.browserIdleMs);
+    this.browserIdleTimer.unref?.();
+  }
+
+  private cancelBrowserIdle(): void {
+    if (this.browserIdleTimer) clearTimeout(this.browserIdleTimer);
+    this.browserIdleTimer = null;
+  }
+
+  private ensureSweeps(): void {
+    if (!this.tabSweep) {
+      this.tabSweep = setInterval(
+        () => this.sweepIdleTabs(),
+        Math.min(60_000, this.limits.tabIdleMs),
+      );
+      this.tabSweep.unref?.();
+    }
+    if (!this.saveSweep) {
+      this.saveSweep = setInterval(() => this.saveWorkspacesWithTabs(), this.limits.saveIntervalMs);
+      this.saveSweep.unref?.();
+    }
+  }
+
+  private stopSweeps(): void {
+    if (this.tabSweep) clearInterval(this.tabSweep);
+    if (this.saveSweep) clearInterval(this.saveSweep);
+    this.tabSweep = null;
+    this.saveSweep = null;
   }
 
   public sweepIdleTabs(): void {
@@ -451,6 +708,11 @@ export class ServerBrowserHost {
       if (tab.screencast.viewerCount > 0) tab.touch();
       else if (tab.lastUsedAt < cutoff) void this.closeTab(tab.browserId);
     }
+  }
+
+  private saveWorkspacesWithTabs(): void {
+    const workspaces = new Set([...this.tabs.values()].map((tab) => tab.workspaceId));
+    for (const workspaceId of workspaces) void this.saveWorkspaceStorage(workspaceId);
   }
 
   private scheduleNotify(): void {
@@ -464,8 +726,8 @@ export class ServerBrowserHost {
     }, 50);
   }
 
-  private profileDir(workspaceId: string): string {
-    return join(this.options.paseoHome, "server-browser", "profiles", sanitize(workspaceId));
+  private rootDir(): string {
+    return join(this.options.paseoHome, "server-browser");
   }
 
   private createRegistry(): BrowserRegistry {
@@ -487,8 +749,29 @@ export class ServerBrowserHost {
   }
 }
 
-function sanitize(workspaceId: string): string {
-  return workspaceId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "default";
+function setOrigin(context: WorkspaceContext, origin: string, items: LocalStorageItems): void {
+  if (items.length > 0) context.origins.set(origin, items);
+  else context.origins.delete(origin);
+}
+
+function serializeState(context: WorkspaceContext, cookies: ChromiumCookie[]): string {
+  const state: WorkspaceStorageState = {
+    version: 1,
+    cookies,
+    origins: Object.fromEntries(context.origins),
+  };
+  return JSON.stringify(state);
+}
+
+async function withTimeout(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    work.catch(() => {}),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms);
+    }),
+  ]);
+  clearTimeout(timer);
 }
 
 export function assertNavigableUrl(url: string): void {

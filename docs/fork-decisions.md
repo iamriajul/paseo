@@ -1459,3 +1459,24 @@ grep -q "readOnly={isOutside}" packages/app/src/panels/files-panel.tsx
 grep -q "openInFiles(folderPath)" packages/app/src/workspace/open-in-file-manager/outside-folder.ts
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/daemon-e2e/filesystem.e2e.test.ts -t "file explorer" --bail=1
 ```
+
+## workspace-links
+
+**agents link workspaces and main previews; one tap opens them in the app**
+
+Agents used to report work by workspace title, and the user hunted for each one in the sidebar. A workspace link is `paseo://h/<serverId>/workspace/<workspaceId>`, and its main preview is the same URL plus `/preview` (`packages/protocol/src/workspace-link.ts`). It reuses the scheme and host shape of the existing agent deep link. The workspace ID is percent-encoded, not the app route's `b64_` segment, so the parser never runs the legacy base64 guess.
+
+- **Tool results.** `create_workspace` and `list_workspaces` add `link` (a Markdown link titled with the workspace) and `url` to each workspace, plus `previewLink` and `previewUrl` when `paseo.json` marks a `"preview": true` service. `list_workspace_scripts` adds the preview pair. Local results get the calling daemon's `serverId`. A destination host's results are built on the calling daemon in `host-operations` from the destination's `serverId` and the scripts in its `fetchWorkspaces` rows, so the destination daemon needs no update. A daemon with no `serverId` omits the links. The fields are additive, and nothing new runs on an older daemon or app, so there is no `server_info.features` gate.
+- **MCP instructions.** The agent MCP server sets `instructions` (`AGENT_MCP_INSTRUCTIONS` in `mcp-server.ts`), which clients put into every agent's system prompt. It is one sentence, because it costs tokens on every turn. Providers that take Paseo tools natively (OMP, OpenCode with the bridge) do not read MCP instructions; they still get the fields, and the bundled skill describes them.
+- **Opening.** `MarkdownRenderer` checks every link press against the parser before its file and URL handling (`workspace-links/open.ts`), so assistant text, tables, plans, previews and plugin Markdown all open workspace links in the app and never in an external browser. The text recognizer also linkifies bare `paseo://` URLs. A host that isn't online, or a workspace missing from a loaded workspace list, gets a toast and no navigation. Before the list loads, navigation goes ahead and the workspace screen owns the missing state. A preview link opens the workspace, then the workspace screen opens its preview through the same start-then-open path as the header's Open preview (`workspace-links/preview-requests.ts`), so it lands in the server browser when that switch is on. The screen owns this because only it knows which Browser its URLs go to. The link press only records the request in `workspace-links/preview-request-store.ts`, kept apart from the screen's hook: Markdown renders in every surface and test, and importing the hook from there pulled the toast host and script actions into each of them (two app test files failed to load on CI). A workspace without a preview opens with a toast.
+- **No chip.** Links stay plain coloured text: [markdown rendering](markdown-renderer.md#engine-constraints) keeps link variants colour-only, because native pills replace text runs.
+
+```bash
+npx vitest run packages/protocol/src/workspace-link.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/mcp-server.test.ts -t "workspace links" --bail=1
+npm test --workspace=@getpaseo/app -- src/workspace-links/resolve.test.ts src/components/markdown/renderer.test.ts --bail=1
+grep -q "if (openWorkspaceLink(url)) return;" packages/app/src/components/markdown/renderer.tsx
+grep -q "useWorkspacePreviewRequests({" packages/app/src/screens/workspace/workspace-screen.tsx
+grep -q "workspaceSummary(entry, destination)" packages/server/src/server/agent/host-operations/index.ts
+grep -q "previewLink" skills/paseo/SKILL.md
+```

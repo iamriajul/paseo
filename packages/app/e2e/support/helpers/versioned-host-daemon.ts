@@ -83,7 +83,7 @@ async function startVersionedHostDaemon(
   const child = spawnTsx(
     VERSIONED_DAEMON_ENTRYPOINT,
     [options.version, String(options.port), options.paseoHomeRoot],
-    { stdio: ["ignore", "pipe", "pipe", "ipc"] },
+    { label: `versioned daemon ${options.version}`, stdio: ["ignore", "pipe", "pipe", "ipc"] },
   );
   const ready = Promise.withResolvers<{ port: number; serverId: string }>();
   let output = "";

@@ -26,7 +26,7 @@ export const test = base.extend<{
     const daemon = spawnTsx(
       path.resolve(__dirname, "../../../../server/src/server/test-utils/versioned-daemon.ts"),
       ["99.0.0"],
-      { stdio: ["ignore", "pipe", "pipe", "ipc"] },
+      { label: "versioned daemon 99.0.0", stdio: ["ignore", "pipe", "pipe", "ipc"] },
     );
     const ready = Promise.withResolvers<{ port: number; serverId: string }>();
     const timeout = setTimeout(

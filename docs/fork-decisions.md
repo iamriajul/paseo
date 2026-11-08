@@ -1432,3 +1432,14 @@ grep -q "useAgentChatDisplay(serverId, agentId).effective" packages/app/src/agen
 grep -q "<AgentChatDisplayToolbarButton" packages/app/src/screens/workspace/workspace-desktop-tabs-row.tsx
 grep -q "chatDisplayMenu.trigger" packages/app/src/screens/workspace/workspace-header-menu.tsx
 ```
+
+## e2e-owned-process-groups
+
+**app e2e children lead their own process groups, and a run reaps the groups an earlier run left behind**
+
+Upstream starts Metro and the per-worker daemons as plain children and stops them only from teardown. Playwright's runner has no SIGTERM handler, so a runner ended with SIGTERM, SIGHUP or SIGKILL skipped teardown and left Metro and the worker daemon running under PID 1, and even Ctrl-C, which does run teardown, left the daemon; one worktree collected ten of them, 16–19 GB in swap, over 29–38 hours. `spawnOwned` / `forkOwned` / `spawnTsx` (`packages/app/e2e/support/helpers/spawn-node.ts`) now start each child as a process-group leader and record it per checkout (`owned-processes.ts`). `killProcessTree` sends SIGTERM then SIGKILL to the group and to any group a member started (the daemon's terminal worker runs `setsid`, so killing the daemon's group alone orphaned it); an `exit` hook kills live groups, and SIGTERM/SIGHUP are handled where Playwright leaves them unhandled (the runner, not its workers). Global setup and teardown reap groups whose recording process is dead, matching the leader's start time rather than a name pattern. [testing.md](testing.md) owns the rule; `packages/app/scripts/e2e-process-leak-check.mjs` is the full-harness proof.
+
+```bash
+npx vitest run packages/app/e2e/support/helpers/owned-processes.test.ts --bail=1
+grep -q 'reapAndReport("an earlier run")' packages/app/e2e/support/global-setup.ts
+```

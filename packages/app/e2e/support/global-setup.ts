@@ -1,7 +1,8 @@
 import { warmMetro } from "./metro-warmup.mjs";
 export { warmMetro } from "./metro-warmup.mjs";
-import { spawn, type ChildProcess } from "node:child_process";
-import { killProcessTree } from "./helpers/spawn-node";
+import type { ChildProcess } from "node:child_process";
+import { reapOrphanedProcessGroups } from "./helpers/owned-processes";
+import { killProcessTree, spawnOwned } from "./helpers/spawn-node";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import net from "node:net";
@@ -129,7 +130,8 @@ function startMetro(port: number, buffer: ReturnType<typeof createLineBuffer>): 
   const appDir = path.resolve(__dirname, "../..");
   const expoCli = require.resolve("expo/bin/cli");
   // Spawns Node directly to bypass Windows .cmd shim execution restrictions without shell: true.
-  const child = spawn(process.execPath, [expoCli, "start", "--web", "--port", String(port)], {
+  const child = spawnOwned(process.execPath, [expoCli, "start", "--web", "--port", String(port)], {
+    label: "Metro web server",
     cwd: appDir,
     env: {
       ...process.env,
@@ -139,7 +141,6 @@ function startMetro(port: number, buffer: ReturnType<typeof createLineBuffer>): 
       ...(process.env.E2E_DESKTOP_RUNTIME === "1" ? { PASEO_WEB_PLATFORM: "electron" } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
-    detached: false,
   });
   const log = (chunk: Buffer, stream: "stdout" | "stderr") => {
     for (const line of chunk.toString().split("\n").filter(Boolean)) {
@@ -150,6 +151,14 @@ function startMetro(port: number, buffer: ReturnType<typeof createLineBuffer>): 
   child.stdout?.on("data", (chunk: Buffer) => log(chunk, "stdout"));
   child.stderr?.on("data", (chunk: Buffer) => log(chunk, "stderr"));
   return child;
+}
+
+async function reapAndReport(source: string): Promise<void> {
+  for (const group of await reapOrphanedProcessGroups()) {
+    console.log(
+      `[e2e] Stopped ${group.label} left by ${source} (pgid ${group.pgid}): ${group.command}`,
+    );
+  }
 }
 
 async function loadHarnessEnvironment(repoRoot: string): Promise<void> {
@@ -166,6 +175,7 @@ export default async function globalSetup() {
   }
   const repoRoot = path.resolve(__dirname, "../../../..");
   await loadHarnessEnvironment(repoRoot);
+  await reapAndReport("an earlier run");
 
   const metroPort = await getAvailableE2EPort();
   const metroOutput = createLineBuffer();
@@ -186,6 +196,8 @@ export default async function globalSetup() {
     return async () => {
       await killProcessTree(metroProcess);
       console.log("[e2e] Metro stopped");
+      // A worker that crashed this run could not stop its daemon.
+      await reapAndReport("a crashed worker");
     };
   } catch (error) {
     await killProcessTree(metroProcess);

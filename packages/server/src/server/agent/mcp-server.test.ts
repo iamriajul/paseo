@@ -2713,6 +2713,107 @@ describe("create_agent MCP tool", () => {
     ]);
   });
 
+  describe("workspace links", () => {
+    const linkedWorkspace = createPersistedWorkspaceRecord({
+      workspaceId: "wks_docs",
+      projectId: "project-1",
+      cwd: "/tmp/paseo/worktrees/repo/docs-site",
+      kind: "worktree",
+      displayName: "docs-site",
+      createdAt: "2026-07-17T00:00:00.000Z",
+      updatedAt: "2026-07-17T00:00:00.000Z",
+    });
+    const plainWorkspace = createPersistedWorkspaceRecord({
+      workspaceId: "wks_plain",
+      projectId: "project-1",
+      cwd: "/tmp/paseo/worktrees/repo/plain",
+      kind: "worktree",
+      displayName: "plain",
+      createdAt: "2026-07-17T00:00:00.000Z",
+      updatedAt: "2026-07-17T00:00:00.000Z",
+    });
+    function previewScript(workspaceId: string) {
+      return workspaceId === "wks_docs"
+        ? [
+            { scriptName: "api", type: "service" as const, preview: false },
+            { scriptName: "web", type: "service" as const, preview: true },
+          ]
+        : [{ scriptName: "test", type: "script" as const }];
+    }
+    async function createLinkedServer(serverId?: string) {
+      const { agentManager, agentStorage } = createTestDeps();
+      return createAgentMcpServer({
+        agentManager,
+        agentStorage,
+        providerSnapshotManager: createOpenCodeManager().manager,
+        ...(serverId ? { serverId } : {}),
+        workspaceRegistry: {
+          get: vi.fn(async () => linkedWorkspace),
+          list: vi.fn(async () => [linkedWorkspace, plainWorkspace]),
+          upsert: vi.fn(async () => undefined),
+        },
+        workspaceScripts: {
+          list: vi.fn(async (workspaceId: string) => previewScript(workspaceId)),
+          launch: vi.fn(),
+          stop: vi.fn(),
+        } as never,
+        logger,
+      });
+    }
+
+    it("returns a workspace link, plus a preview link where a main preview exists", async () => {
+      const server = await createLinkedServer("srv-1");
+
+      const response = await registeredTool(server, "list_workspaces").handler({});
+
+      expect(response.structuredContent.workspaces).toEqual([
+        expect.objectContaining({
+          workspaceId: "wks_docs",
+          link: "[docs-site](paseo://h/srv-1/workspace/wks_docs)",
+          url: "paseo://h/srv-1/workspace/wks_docs",
+          previewLink: "[docs-site preview](paseo://h/srv-1/workspace/wks_docs/preview)",
+          previewUrl: "paseo://h/srv-1/workspace/wks_docs/preview",
+        }),
+        expect.objectContaining({
+          workspaceId: "wks_plain",
+          link: "[plain](paseo://h/srv-1/workspace/wks_plain)",
+        }),
+      ]);
+      expect(response.structuredContent.workspaces[1]).not.toHaveProperty("previewLink");
+    });
+
+    it("returns the preview link from list_workspace_scripts", async () => {
+      const server = await createLinkedServer("srv-1");
+
+      const docs = await registeredTool(server, "list_workspace_scripts").handler({
+        workspaceId: "wks_docs",
+      });
+      const plain = await registeredTool(server, "list_workspace_scripts").handler({
+        workspaceId: "wks_plain",
+      });
+
+      expect(docs.structuredContent).toMatchObject({
+        previewLink: "[web preview](paseo://h/srv-1/workspace/wks_docs/preview)",
+        previewUrl: "paseo://h/srv-1/workspace/wks_docs/preview",
+      });
+      expect(plain.structuredContent).not.toHaveProperty("previewLink");
+    });
+
+    it("omits links when the daemon has no server ID to address", async () => {
+      const server = await createLinkedServer();
+
+      const response = await registeredTool(server, "list_workspaces").handler({});
+
+      expect(response.structuredContent.workspaces[0]).not.toHaveProperty("link");
+    });
+
+    it("tells every connected agent to link workspaces it mentions", async () => {
+      const client = await connectInMemoryMcpClient(await createLinkedServer("srv-1"));
+
+      expect(client.getInstructions()).toContain("`link` or `previewLink`");
+    });
+  });
+
   it("creates an background local workspace and leaves it out of list_workspaces", async () => {
     const { agentManager, agentStorage } = createTestDeps();
     const createCalls: Array<{ cwd: string; context: { background?: boolean } | undefined }> = [];

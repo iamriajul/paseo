@@ -28,12 +28,19 @@ function toMcpToolResult(result: PaseoToolResult): CallToolResult {
   };
 }
 
+/**
+ * MCP clients put this into every agent's system prompt, so every word costs
+ * tokens on every turn. Keep it to the one habit no tool description can teach.
+ */
+export const AGENT_MCP_INSTRUCTIONS =
+  "When you mention a workspace or its preview to the user, write the `link` or `previewLink` from Paseo's workspace tools so one tap opens it in the Paseo app.";
+
 export async function createAgentMcpServer(options: AgentMcpServerOptions): Promise<McpServer> {
   const catalog = await createPaseoToolCatalog(options);
-  const server = new McpServer({
-    name: "agent-mcp",
-    version: "2.0.0",
-  });
+  const server = new McpServer(
+    { name: "agent-mcp", version: "2.0.0" },
+    { instructions: AGENT_MCP_INSTRUCTIONS },
+  );
 
   for (const tool of catalog.tools.values()) {
     server.registerTool(

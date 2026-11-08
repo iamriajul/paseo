@@ -818,6 +818,7 @@ export async function createTerminal(
   let disposed = false;
   let exitEmitted = false;
   let processExited = false;
+  let processExitEvent: { exitCode: number; signal?: number } | null = null;
   const processExitWaiters = new Set<() => void>();
   let exitInfo: TerminalExitInfo | null = null;
   // Recent output is retained as whole chunks plus a running char length so we
@@ -931,7 +932,7 @@ export async function createTerminal(
   // Respond to DA1 queries (CSI c or CSI 0 c) — apps like nvim query terminal capabilities
   terminal.parser.registerCsiHandler({ final: "c" }, (params) => {
     if (params.length === 0 || (params.length === 1 && params[0] === 0)) {
-      ptyProcess.write("\x1b[?62;4;22c");
+      writeInputToPty("\x1b[?62;4;22c");
       return true;
     }
     return false;
@@ -941,12 +942,12 @@ export async function createTerminal(
       return false;
     }
     if (params[0] === 5) {
-      ptyProcess.write("\x1b[0n");
+      writeInputToPty("\x1b[0n");
       return true;
     }
     if (params[0] === 6) {
       const buffer = terminal.buffer.active;
-      ptyProcess.write(`\x1b[${buffer.cursorY + 1};${buffer.cursorX + 1}R`);
+      writeInputToPty(`\x1b[${buffer.cursorY + 1};${buffer.cursorX + 1}R`);
       return true;
     }
     return false;
@@ -956,7 +957,7 @@ export async function createTerminal(
       return false;
     }
     const buffer = terminal.buffer.active;
-    ptyProcess.write(`\x1b[?${buffer.cursorY + 1};${buffer.cursorX + 1}R`);
+    writeInputToPty(`\x1b[?${buffer.cursorY + 1};${buffer.cursorX + 1}R`);
     return true;
   });
   for (const [code, response] of TERMINAL_OSC_COLOR_QUERY_RESPONSES) {
@@ -964,7 +965,7 @@ export async function createTerminal(
       if (data.trim() !== "?") {
         return false;
       }
-      ptyProcess.write(`\x1b]${code};${response}\x1b\\`);
+      writeInputToPty(`\x1b]${code};${response}\x1b\\`);
       return true;
     });
   }
@@ -1087,7 +1088,7 @@ export async function createTerminal(
       // Commit protocol modes with the parsed bytes, so a replay cut cannot
       // combine an older xterm buffer with modes from queued future output.
       const inputModeUpdate = inputModeTracker.feed(data);
-      for (const response of inputModeUpdate.responses) ptyProcess.write(response);
+      for (const response of inputModeUpdate.responses) writeInputToPty(response);
       stateRevision += 1;
       for (const listener of listeners) {
         listener({ type: "output", data, revision: stateRevision });
@@ -1120,8 +1121,8 @@ export async function createTerminal(
   });
 
   ptyProcess.onExit((event) => {
-    killed = true;
     processExited = true;
+    processExitEvent = event;
     for (const waiter of Array.from(processExitWaiters)) {
       try {
         waiter();
@@ -1130,13 +1131,24 @@ export async function createTerminal(
       }
     }
     processExitWaiters.clear();
-    emitExit(
-      buildExitInfo({
-        exitCode: event.exitCode,
-        signal: event.signal,
-      }),
-    );
-    disposeResources();
+    if (killed || disposed) {
+      return;
+    }
+    // xterm parses writes asynchronously, and node-pty reports exit as soon as
+    // the pty closes, often before the child's last output is parsed. An empty
+    // write's callback runs after every queued write, so subscribers get that
+    // output and the exit info reads it before the emulator is disposed.
+    terminal.write("", () => {
+      if (disposed) return;
+      killed = true;
+      emitExit(
+        buildExitInfo({
+          exitCode: event.exitCode,
+          signal: event.signal,
+        }),
+      );
+      disposeResources();
+    });
   });
 
   async function waitForPtyProcessStart(): Promise<void> {
@@ -1178,6 +1190,9 @@ export async function createTerminal(
   }
 
   function writeInputToPty(data: string): void {
+    // After exit the parser still drains queued output (see onExit), and its
+    // DA/DSR/OSC replies must not reach a pty that is gone.
+    if (processExited) return;
     ptyProcess.write(data);
   }
 
@@ -1205,7 +1220,7 @@ export async function createTerminal(
   }
 
   function send(msg: ClientMessage): void {
-    if (killed) return;
+    if (killed || processExited) return;
 
     switch (msg.type) {
       case "input": {
@@ -1346,7 +1361,7 @@ export async function createTerminal(
       if (!processExited) {
         killPtyProcess();
       }
-      emitExit(buildExitInfo());
+      emitExit(buildExitInfo(processExitEvent ?? undefined));
     }
     if (processExited) {
       disposeResources();

@@ -1406,6 +1406,17 @@ test "$(grep -c 'HUB_POLL,' packages/server/src/server/owned-subscriptions.e2e.t
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/owned-subscriptions.e2e.test.ts -t "Hub bootstrap sends its server ID" --bail=1
 ```
 
+## metro-warmup-compile-budget
+
+**the e2e Metro warmup gives the web bundle 300 s to compile**
+
+Playwright's global setup fetches the web bundle once so the first test does not pay for the compile. On CI that compile takes 60 to 100 s (main, 2026-11-08), and the fetch aborted at 120 s, so a slow runner failed its whole shard before a test ran (PR #173, shard 8 at 121 s). `metro-warmup.mjs` now waits 300 s for the bundle. The document fetch and `waitForMetro` keep 120 s: they answer in seconds.
+
+```bash
+grep -q "BUNDLE_COMPILE_TIMEOUT_MS = 300_000" packages/app/e2e/support/metro-warmup.mjs
+grep -q "AbortSignal.timeout(BUNDLE_COMPILE_TIMEOUT_MS)" packages/app/e2e/support/metro-warmup.mjs
+```
+
 ## lockfile-public-registry
 
 **every `package-lock.json` entry resolves from registry.npmjs.org, checked in the `changes` job**

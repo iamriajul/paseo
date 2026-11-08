@@ -33,6 +33,7 @@ import type {
 } from "../agent-sdk-types.js";
 import { importSessionFromPersistence } from "../provider-session-import.js";
 import { getAgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
+import { isCacheWarmPrompt } from "@getpaseo/protocol/agent-cache-warm";
 
 export const MOCK_LOAD_TEST_PROVIDER_ID = "mock";
 export const MOCK_LOAD_TEST_DEFAULT_MODEL_ID = "five-minute-stream";
@@ -912,6 +913,9 @@ export class MockLoadTestAgentSession implements AgentSession {
         this.scheduleFailedTurn(turn);
       } else if (steeringReplayShape) {
         this.scheduleSteeringReplayTurn(turn, steeringReplayShape);
+      } else if (isCacheWarmPrompt(promptToText(prompt))) {
+        // Fork: answers a v1 warm-up ping as Claude does, so tests can build warm-up turns.
+        this.scheduleSettledAssistantTurn(turn, "ok");
       } else if (this.streamingAssistantResponse !== null) {
         this.scheduleStreamingAssistantTurn(turn, this.streamingAssistantResponse);
       } else if (this.assistantResponses.length > 0 || this.assistantResponse !== null) {

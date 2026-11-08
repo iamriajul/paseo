@@ -848,6 +848,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       agentId,
       items: presentation.tail,
       loadRemoteOlder,
+      remoteHasOlder,
+      isLoadingRemoteOlder: remoteIsLoadingOlder,
     });
     const isLoadingOlder = remoteIsLoadingOlder;
     const hasOlder = hasLocalHistory || remoteHasOlder;

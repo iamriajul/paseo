@@ -26,6 +26,16 @@ export const ServerBrowserStatusSchema = z.object({
   enabled: z.boolean(),
   /** Why the browser cannot run on this host (no Chromium found, launch failure). */
   unavailableReason: z.string().optional(),
+  /**
+   * The engine this host runs tabs in. `sharedStorage`: every workspace shares one cookie jar
+   * (the browser's own profile), so there is no per-workspace data to clear.
+   */
+  engine: z
+    .object({
+      kind: z.string(),
+      sharedStorage: z.boolean(),
+    })
+    .optional(),
 });
 export type ServerBrowserStatus = z.infer<typeof ServerBrowserStatusSchema>;
 

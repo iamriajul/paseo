@@ -1143,9 +1143,11 @@ npx vitest run packages/server/src/server/agent/providers/claude/settings-argv.t
 
 ## short-history-autoload
 
-**load older history when the chat is too short to scroll**
+**open on rows that render, and load older history when the chat is too short to scroll**
 
-History-start pagination starts dormant and waits for scroll intent, so opening an agent does not walk its history. When the rendered tail fits the viewport there is nothing to scroll, and Android delivers no drag events to an unscrollable list, so the chat stayed stuck on its tail. Ten cache warm-ups in a row do this: each renders one `CacheWarmedMarker` row and hides its reply. `contentFitsViewport` lets a dormant list load without intent on native; the existing settle loop then keeps loading until the content overflows or history runs out. Web passes `false`: its wheel listener rearms pagination on an unscrollable list, and auto-loading there broke official's `turn-collapse` spec, where a collapsed long turn fits the viewport and history must wait for the user's scroll.
+The history window and pagination count rows, and a v1 cache warm-up is two rows that render nothing: the ping and its "ok" (`isWarmPingRow`). Upstream mounts the newest 20 items, so an agent left idle with warm-up on opened on its last ten warm-ups and showed an empty chat until the user scrolled up (8 November 2026, agents opened from Ready to review). `useStreamHistoryWindow` mounts the newest 20 rows that render (`findMountedWindowStart` with `countsRow: rendersStreamRow`), rounded out to whole turns as before. When everything loaded draws fewer than 20 rows and the daemon has older history, it fetches older pages without a gesture until the rows reach 20 or history ends. The daemon's tail page is 40 items, so two idle stretches of 12 warm-ups fill it. Each oldest row gets one request, so a page that adds nothing does not repeat. The replica cache and web virtualization keep counting items, because they bound storage and mounted DOM, not what the user sees. The mock provider answers the warm-up ping with "ok" so the real app can build these timelines. QA on the web app, mock agents with 10 warm-ups and with 12 + 1 turn + 12: before, both opened blank and unscrollable with no older-page request; after, they opened on 10 and 15 real turns, the second after one older page with no scroll.
+
+History-start pagination starts dormant and waits for scroll intent, so opening an agent does not walk its history. When the rendered tail fits the viewport there is nothing to scroll, and Android delivers no drag events to an unscrollable list, so the chat stayed stuck on its tail. `contentFitsViewport` lets a dormant list load without intent on native; the existing settle loop then keeps loading until the content overflows or history runs out. Web passes `false`: its wheel listener rearms pagination on an unscrollable list, and auto-loading there broke official's `turn-collapse` spec, where a collapsed long turn fits the viewport and history must wait for the user's scroll. The rendered-row fill above does not reach that spec, because its tool rows render.
 
 Two races stranded the same list after a cold start, reproduced on the Android emulator in 3 of 5 reopens after warm-ups ran with the app closed:
 
@@ -1155,6 +1157,8 @@ Two races stranded the same list after a cold start, reproduced on the Android e
 ```bash
 npm --prefix packages/app run test -- src/agent-stream/history-start-pagination.test.ts -t "too short to scroll|latch was set at an older position"
 npm --prefix packages/app run test -- src/agent-stream/use-stream-history-window.test.tsx -t "same commit"
+npm --prefix packages/app run test -- src/agent-stream/use-stream-history-window.test.tsx -t "warm-ups|idle-cap compaction|history ends"
+grep -q "isCacheWarmPrompt(promptToText(prompt))" packages/server/src/server/agent/providers/mock-load-test-agent.ts
 ```
 
 ## website-changelog-official-only

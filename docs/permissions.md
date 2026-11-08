@@ -52,7 +52,19 @@ type Grant = {
 
 A delegating principal can grant only authority it already possesses. A session may attenuate its principal's grants but cannot widen them.
 
-Workspace-scoped grants require every resource-bearing operation and outbound observation to enforce the same workspace boundary. File preview currently accepts any daemon-readable regular file, so it must gain resource enforcement before workspace-specific access ships.
+Workspace-scoped grants require every resource-bearing operation and outbound observation to enforce the same workspace boundary. File preview, folder listing and image thumbnails accept any daemon-readable path under `workspace.read`, so they must gain resource enforcement before workspace-specific access ships.
+
+## Reading and changing files outside a workspace
+
+File requests carry a client-chosen root (`cwd`), not a workspace id, so the root is not authority. The rule is:
+
+| Operation                                                                                                | Permission        | Where it may reach                                                          |
+| -------------------------------------------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------------- |
+| Preview a file, list a folder (`file_explorer_request`), thumbnail an image (`fs.thumbnail.get.request`) | `workspace.read`  | Any daemon-readable path, inside the root it names                          |
+| Create, rename, duplicate, delete or upload in the Files panel (`fs.entry.*`)                            | `workspace.write` | Only roots inside an active workspace's directory, after resolving symlinks |
+| Save a file from its editor tab (`fs.file.write.request`)                                                | `workspace.write` | The file the user opened, wherever it is                                    |
+
+Listing a folder outside the workspace is consistent with previewing a single file there, which `workspace.read` already allowed, so it adds no authority. The Files panel shows such folders read-only, and the daemon refuses its entry changes there with "Folders outside the workspace are read-only" (`OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE` in `packages/server/src/server/session/files/workspace-files-session.ts`) for any client, not just ours. This is a safety rule against changing the wrong tree, not an isolation boundary: an agent or terminal with `workspace.write` can already write anywhere the daemon can. Editor saves outside the workspace keep working because opening a file from a chat link and editing it predates the switcher.
 
 ## Hub
 

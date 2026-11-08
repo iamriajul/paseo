@@ -1540,3 +1540,13 @@ grep -q "settings-agent-messages-display" packages/app/src/screens/settings/chat
 test "$(grep -c 'agentMessagesDisplay: "expanded"' packages/app/e2e/browser/turn-collapse.spec.ts)" -ge 3
 grep -q 'data-testid="agent-message-collapse"' packages/app/e2e/browser/turn-collapse.spec.ts
 ```
+
+## terminal-exit-keeps-last-output
+
+**a terminal keeps the output its process printed just before exiting**
+
+xterm parses `terminal.write` asynchronously, and node-pty reports exit once the pty closes, which is often before the child's last chunk is parsed. Upstream's `onExit` disposed the headless terminal right away, so a command that prints and exits at once (`node -e "process.stdout.write(...)"`) sometimes showed an empty screen, its subscribers never got that output, and the exit info read an empty buffer. node-pty already holds `exit` until the pty socket closes, so no data arrives after exit; the loss is the queued parse. `createTerminal` now drains the parser (an empty write's callback) before it emits exit and disposes, and while it drains, replies to terminal queries (DA, DSR, OSC colour) and client input no longer go to the dead pty. `terminal.test.ts`'s "argv reaches the child" failed about 1 run in 8 from this. The proof fakes node-pty so the last output and the exit land in one tick.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/terminal/terminal-exit-output.test.ts --bail=1
+```

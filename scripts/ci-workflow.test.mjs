@@ -764,14 +764,15 @@ function releaseTargetOutputs(enabled) {
   );
 }
 
-test("release tags build only macOS arm64 and the Android APK unless RELEASE_TARGETS says otherwise", () => {
-  assert.deepEqual(DEFAULT_RELEASE_TARGETS, ["desktop-macos-arm64", "android-apk"]);
+test("release tags build only macOS arm64, the Android APK and the npm packages unless RELEASE_TARGETS says otherwise", () => {
+  assert.deepEqual(DEFAULT_RELEASE_TARGETS, ["desktop-macos-arm64", "android-apk", "npm"]);
   for (const variable of [undefined, "", "  "]) {
     assert.deepEqual(resolveReleaseTargets({ variable }), DEFAULT_RELEASE_TARGETS);
   }
   const outputs = releaseTargetOutputs(resolveReleaseTargets({}));
   assert.equal(outputs["desktop-macos-arm64"], "true");
   assert.equal(outputs["android-apk"], "true");
+  assert.equal(outputs.npm, "true");
   for (const target of RELEASE_TARGETS.filter((t) => !DEFAULT_RELEASE_TARGETS.includes(t))) {
     assert.equal(outputs[target], "false", target);
   }

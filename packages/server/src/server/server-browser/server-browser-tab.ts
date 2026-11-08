@@ -9,9 +9,11 @@ import type { TabContents, TabImage } from "./engine/service.js";
 import type { IsolatedKeyboardInputEvent } from "./engine/trusted-input.js";
 import { ScreencastHub, type ScreencastSize } from "./screencast-hub.js";
 import { cdpKeyEventsForElectronKey } from "./key-events.js";
+import type { LocalStorageItems } from "./workspace-storage-state.js";
 
 const MAX_CONSOLE_ENTRIES = 200;
 const LOAD_WAIT_MS = 15_000;
+const STORAGE_READ_TIMEOUT_MS = 2_000;
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800, mobile: false } as const;
 
 export interface ServerBrowserViewport {
@@ -30,11 +32,13 @@ export interface ServerBrowserTabOptions {
   openedBy: "agent" | "user";
   viewport?: ServerBrowserViewport;
   onChange: () => void;
+  /** The main frame committed a new document. */
+  onNavigated?: (url: string) => void;
   now?: () => number;
 }
 
 /**
- * One page target in a workspace's Chromium. Implements the desktop engine's TabContents so the
+ * One page target in a workspace's browser context. Implements the desktop engine's TabContents so the
  * vendored automation commands run unchanged, and owns the tab's screencast fan-out.
  */
 export class ServerBrowserTab {
@@ -51,6 +55,7 @@ export class ServerBrowserTab {
   private connection: CdpConnection;
   private readonly contentsId: number;
   private readonly onChange: () => void;
+  private readonly onNavigated: (url: string) => void;
   private readonly now: () => number;
   private readonly queue = new CdpSessionQueue();
   private readonly console: BrowserAutomationConsoleLogEntry[] = [];
@@ -73,6 +78,7 @@ export class ServerBrowserTab {
     this.sessionId = options.sessionId;
     this.connection = options.connection;
     this.onChange = options.onChange;
+    this.onNavigated = options.onNavigated ?? (() => {});
     this.now = options.now ?? Date.now;
     this.createdAt = this.now();
     this.lastUsedAt = this.createdAt;
@@ -126,7 +132,7 @@ export class ServerBrowserTab {
     await this.applyViewport();
   }
 
-  /** Rebinds this browserId to a fresh target after the workspace browser relaunched. */
+  /** Rebinds this browserId to a fresh target after the workspace's context was recreated. */
   public rebind(target: { targetId: string; sessionId: string; connection: CdpConnection }): void {
     this.targetId = target.targetId;
     this.sessionId = target.sessionId;
@@ -342,6 +348,32 @@ export class ServerBrowserTab {
     return result.result?.value;
   }
 
+  /**
+   * The page's origin and its localStorage, for saving the workspace's storage. Bypasses the
+   * command queue so a long agent command cannot hold up a save; null when the page is busy.
+   */
+  public async readLocalStorage(): Promise<{ origin: string; items: LocalStorageItems } | null> {
+    if (this.closed || !/^https?:/.test(this.url)) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), STORAGE_READ_TIMEOUT_MS);
+    });
+    const read = this.rawSend("Runtime.evaluate", {
+      expression: "JSON.stringify([location.origin, Object.entries(localStorage)])",
+      returnByValue: true,
+    }).then((result) => {
+      const value = (result.result as { value?: unknown } | undefined)?.value;
+      if (typeof value !== "string") return null;
+      const [origin, items] = JSON.parse(value) as [string, LocalStorageItems];
+      return origin.startsWith("http") ? { origin, items } : null;
+    });
+    try {
+      return await Promise.race([read.catch(() => null), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async loadUrl(url: string): Promise<void> {
     const loaded = this.waitForLoad();
     await this.navigate(url);
@@ -443,6 +475,7 @@ export class ServerBrowserTab {
     if (!frame || frame.parentId) return;
     this.url = `${frame.url ?? this.url}${frame.urlFragment ?? ""}`;
     this.onChange();
+    this.onNavigated(this.url);
     void this.refreshHistory();
   }
 

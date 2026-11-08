@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
@@ -11,12 +11,22 @@ import { ServerBrowserHost, type ServerBrowserLimits } from "./server-browser-ho
 let paseoHome: string;
 let site: http.Server;
 let siteUrl: string;
+let otherSite: http.Server;
+let otherUrl: string;
 const hosts: ServerBrowserHost[] = [];
 
 beforeEach(async () => {
   paseoHome = mkdtempSync(join(tmpdir(), "server-browser-host-"));
-  site = http.createServer((_req, res) => {
+  site = http.createServer((req, res) => {
     res.setHeader("content-type", "text/html");
+    // A dev app's login: an httpOnly session cookie with no expiry, which page script cannot see.
+    if (req.url === "/login") res.setHeader("set-cookie", "sid=s3cret; HttpOnly; Path=/");
+    if (req.url === "/whoami") {
+      res.end(
+        `<title>${/sid=s3cret/.test(req.headers.cookie ?? "") ? "signed in" : "anonymous"}</title>`,
+      );
+      return;
+    }
     res.end(
       "<title>Fixture</title><p>fixture page</p>" +
         "<button id=add style='position:fixed;left:0;top:0;width:400px;height:400px' " +
@@ -26,11 +36,19 @@ beforeEach(async () => {
   await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
   const address = site.address();
   siteUrl = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}/`;
+  otherSite = http.createServer((_req, res) => {
+    res.setHeader("content-type", "text/html");
+    res.end("<title>Other</title>");
+  });
+  await new Promise<void>((resolve) => otherSite.listen(0, "127.0.0.1", resolve));
+  const otherAddress = otherSite.address();
+  otherUrl = `http://127.0.0.1:${typeof otherAddress === "object" && otherAddress ? otherAddress.port : 0}/`;
 });
 
 afterEach(async () => {
   await Promise.all(hosts.splice(0).map((host) => host.shutdown()));
   await new Promise<void>((resolve) => site.close(() => resolve()));
+  await new Promise<void>((resolve) => otherSite.close(() => resolve()));
   rmSync(paseoHome, { recursive: true, force: true });
 });
 
@@ -67,44 +85,98 @@ async function evaluate(host: ServerBrowserHost, browserId: string, script: stri
 }
 
 describe("ServerBrowserHost with a real Chromium", () => {
-  it("starts Chromium on the first tab and stops it once the workspace has no tabs", async () => {
-    const host = createHost({ browserIdleMs: 300 });
-    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
-    expect(host.listTabs().map((info) => info.title)).toEqual(["Fixture"]);
-    const pid = host.browserPid("ws")!;
+  it("runs every workspace in one Chromium, closes an idle workspace's context, then exits", async () => {
+    const host = createHost({ contextIdleMs: 200, browserIdleMs: 200 });
+    const a = await host.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "user" });
+    const pid = host.browserPid()!;
+    const b = await host.openTab({ workspaceId: "ws-b", url: siteUrl, openedBy: "user" });
+    expect(host.browserPid()).toBe(pid);
+    expect(host.listTabs().map((info) => info.title)).toEqual(["Fixture", "Fixture"]);
+
+    await host.closeTab(a.browserId);
+    await waitFor(() => host.openContextIds().join() === "ws-b");
     expect(isRunning(pid)).toBe(true);
 
-    await host.closeTab(tab.browserId);
+    await host.closeTab(b.browserId);
+    await waitFor(() => host.openContextIds().length === 0);
     await waitFor(() => !isRunning(pid));
   });
 
-  it("drops a crashed browser's tabs and relaunches on the next tab", async () => {
+  it("keeps workspaces' cookies and localStorage apart inside the one browser", async () => {
     const host = createHost();
-    await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
-    process.kill(host.browserPid("ws")!, "SIGKILL");
-    await waitFor(() => host.listTabs().length === 0);
-
-    const reopened = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
-    expect(await evaluate(host, reopened.browserId, "document.title")).toBe("Fixture");
+    const a = await host.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "user" });
+    await evaluate(host, a.browserId, "document.cookie = 'x=1'; localStorage.setItem('k', 'a')");
+    const b = await host.openTab({ workspaceId: "ws-b", url: siteUrl, openedBy: "user" });
+    expect(await evaluate(host, b.browserId, "document.cookie")).toBe("");
+    expect(await evaluate(host, b.browserId, "localStorage.getItem('k')")).toBeNull();
   });
 
-  it("keeps a workspace's cookies and localStorage across browser restarts, apart from other workspaces", async () => {
-    const first = createHost();
-    const tab = await first.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "user" });
-    await evaluate(
-      first,
-      tab.browserId,
-      "document.cookie = 'session=abc; max-age=3600'; localStorage.setItem('token', 'xyz')",
-    );
+  it("keeps a login across the workspace's context closing and across a browser restart", async () => {
+    const first = createHost({ contextIdleMs: 100 });
+    const tab = await first.openTab({
+      workspaceId: "ws-a",
+      url: `${siteUrl}login`,
+      openedBy: "user",
+    });
+    await evaluate(first, tab.browserId, "localStorage.setItem('token', 'xyz')");
+    await first.closeTab(tab.browserId);
+    await waitFor(() => first.openContextIds().length === 0);
+
+    const reopened = await first.openTab({
+      workspaceId: "ws-a",
+      url: `${siteUrl}whoami`,
+      openedBy: "user",
+    });
+    expect(first.getTab(reopened.browserId)!.info().title).toBe("signed in");
+    expect(await evaluate(first, reopened.browserId, "localStorage.getItem('token')")).toBe("xyz");
     await first.shutdown();
 
     const second = createHost();
-    const again = await second.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "user" });
-    expect(await evaluate(second, again.browserId, "document.cookie")).toBe("session=abc");
+    const again = await second.openTab({
+      workspaceId: "ws-a",
+      url: `${siteUrl}whoami`,
+      openedBy: "user",
+    });
+    expect(second.getTab(again.browserId)!.info().title).toBe("signed in");
     expect(await evaluate(second, again.browserId, "localStorage.getItem('token')")).toBe("xyz");
+    const other = await second.openTab({
+      workspaceId: "ws-b",
+      url: `${siteUrl}whoami`,
+      openedBy: "user",
+    });
+    expect(second.getTab(other.browserId)!.info().title).toBe("anonymous");
+  });
 
-    const other = await second.openTab({ workspaceId: "ws-b", url: siteUrl, openedBy: "user" });
-    expect(await evaluate(second, other.browserId, "document.cookie")).toBe("");
+  it("saves localStorage an origin wrote before its tab navigated away", async () => {
+    const first = createHost({ saveDelayMs: 60_000, saveIntervalMs: 60_000 });
+    const tab = await first.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    await first.saveWorkspaceStorage("ws");
+    await evaluate(first, tab.browserId, "localStorage.setItem('late', 'write')");
+    await first.getTab(tab.browserId)!.contents.loadURL(otherUrl);
+    await first.shutdown();
+
+    const second = createHost();
+    const again = await second.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    expect(await evaluate(second, again.browserId, "localStorage.getItem('late')")).toBe("write");
+  });
+
+  it("saves a cookie set without a navigation on the periodic save", async () => {
+    const first = createHost({ saveIntervalMs: 100 });
+    const tab = await first.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    await evaluate(first, tab.browserId, "fetch('/login').then(() => true)");
+    const file = join(paseoHome, "server-browser", "storage", "ws.json");
+    await waitFor(() => existsSync(file) && readFileSync(file, "utf8").includes("s3cret"));
+  });
+
+  it("drops every tab when Chromium crashes and relaunches on the next tab", async () => {
+    const host = createHost();
+    await host.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "agent" });
+    await host.openTab({ workspaceId: "ws-b", url: siteUrl, openedBy: "agent" });
+    process.kill(host.browserPid()!, "SIGKILL");
+    await waitFor(() => host.listTabs().length === 0);
+
+    const reopened = await host.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "agent" });
+    expect(await evaluate(host, reopened.browserId, "document.title")).toBe("Fixture");
   });
 
   it("clears a workspace's data and brings its tabs back under the same ids", async () => {
@@ -172,7 +244,7 @@ describe("ServerBrowserHost with a real Chromium", () => {
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
-    const pid = host.browserPid("ws")!;
+    const pid = host.browserPid()!;
     await host.shutdown();
     expect(isRunning(pid)).toBe(false);
   });

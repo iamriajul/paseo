@@ -1,5 +1,5 @@
 import { isTurnBoundary } from "./turn-membership";
-import type { ChatDisplay } from "@/hooks/use-settings";
+import type { AgentMessagesDisplay, ChatDisplay } from "@/hooks/use-settings";
 import type { TimelineItemTransform } from "@/plugins/timeline/model";
 import { projectPluginTimelineItems } from "@/plugins/timeline/projection";
 import {
@@ -12,6 +12,11 @@ import {
 import type { StreamItem, UserMessageItem } from "@/types/stream";
 import { collapseTurns, type TurnCollapse } from "./turn-collapse/model";
 import type { ReadingRowReplacements } from "./reading-anchor";
+import {
+  foldAgentMessages,
+  type AgentMessageFold,
+  type AgentMessageFoldState,
+} from "./agent-message-fold/model";
 
 interface PresentationInput {
   tail: StreamItem[];
@@ -23,10 +28,13 @@ interface PresentationInput {
   expandedTurnHostIds: ReadonlySet<string>;
   isTurnActive: boolean;
   activeTurnId?: string | null;
+  /** How rows from other agents render; omitted, they render as sent. */
+  agentMessages?: { display: AgentMessagesDisplay; state: AgentMessageFoldState };
 }
 
 export interface StreamPresentation extends ToolCallDetailProjection {
   turns: Omit<TurnCollapse, "tail">;
+  agentMessages: Omit<AgentMessageFold, "rows">;
   readingRowReplacements: ReadingRowReplacements;
 }
 
@@ -83,6 +91,43 @@ export function createStreamPresentation() {
   let collapsedIsLatestTurnOpen = false;
   let collapsedExpandedHostIds: ReadonlySet<string> | undefined;
   let collapsed: TurnCollapse | undefined;
+  let foldedSource: StreamItem[] | undefined;
+  let foldedInput: PresentationInput["agentMessages"];
+  let folded: AgentMessageFold | undefined;
+
+  const NO_FOLD_STATE: AgentMessageFoldState = { toggledIds: new Set(), openGroupIds: new Set() };
+  function fold(rows: StreamItem[], input: PresentationInput["agentMessages"]): AgentMessageFold {
+    return foldAgentMessages({
+      rows,
+      display: input?.display ?? "expanded",
+      state: input?.state ?? NO_FOLD_STATE,
+    });
+  }
+
+  /** Folds retained and live rows apart, so a live update never refolds history. */
+  function foldAgentRows(
+    result: Omit<StreamPresentation, "readingRowReplacements" | "agentMessages">,
+    input: PresentationInput,
+  ): Omit<StreamPresentation, "readingRowReplacements"> {
+    if (!folded || foldedSource !== result.tail || foldedInput !== input.agentMessages) {
+      folded = fold(result.tail, input.agentMessages);
+      foldedSource = result.tail;
+      foldedInput = input.agentMessages;
+    }
+    const tail = folded;
+    const head = fold(result.head, input.agentMessages);
+    const merge = (a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>) =>
+      b.size === 0 ? a : new Map([...a, ...b]);
+    return {
+      ...result,
+      tail: tail.rows,
+      head: head.rows,
+      agentMessages: {
+        hostIdByHiddenRowId: merge(tail.hostIdByHiddenRowId, head.hostIdByHiddenRowId),
+        hostIdByFoldedMessageId: merge(tail.hostIdByFoldedMessageId, head.hostIdByFoldedMessageId),
+      },
+    };
+  }
 
   function presentRows(item: StreamItem): StreamItem[] {
     if (item.kind === "tool_call" && item.payload.source === "agent") {
@@ -107,7 +152,7 @@ export function createStreamPresentation() {
   function collapse(
     projection: ToolCallDetailProjection,
     input: PresentationInput,
-  ): Omit<StreamPresentation, "readingRowReplacements"> {
+  ): Omit<StreamPresentation, "readingRowReplacements" | "agentMessages"> {
     if (input.display !== "collapseTurns") {
       return { ...projection, turns: NO_COLLAPSED_TURNS };
     }
@@ -195,7 +240,7 @@ export function createStreamPresentation() {
       preparedHistory,
       isTurnActive: input.isTurnActive,
     });
-    const result = collapse(projection, input);
+    const result = foldAgentRows(collapse(projection, input), input);
     // Only the trailing retained group can absorb head rows. Reuse the retained
     // index across streaming updates rather than walking the full history again.
     const last = projection.tail.at(-1);
@@ -208,6 +253,8 @@ export function createStreamPresentation() {
       ...result,
       readingRowReplacements: {
         get(id) {
+          const agentGroupHost = result.agentMessages.hostIdByHiddenRowId.get(id);
+          if (agentGroupHost) return agentGroupHost;
           if (result.turns.nestedItemIds.has(id)) return undefined;
           const groupHost = liveGroupHosts.get(id) ?? retainedGroupHosts.get(id) ?? id;
           return (

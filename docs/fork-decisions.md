@@ -1443,3 +1443,19 @@ Upstream starts Metro and the per-worker daemons as plain children and stops the
 npx vitest run packages/app/e2e/support/helpers/owned-processes.test.ts --bail=1
 grep -q 'reapAndReport("an earlier run")' packages/app/e2e/support/global-setup.ts
 ```
+
+## files-folder-switcher
+
+**Files browses folders outside the workspace, read-only, with a list or thumbnail grid**
+
+Agents, and subagents above all, save screenshots and logs outside the workspace: in their own worktree or `/tmp`. Upstream Files lists only the workspace, and a chat link to such a folder went to the local file manager, which a remote daemon does not have, so the user got a toast and could not review the evidence. Files now has a folder switcher (Workspace, Recent, Subagents, Browse folder…), chat folder links outside the workspace open there, a preview of an outside file has Show in folder, and any root can show as a grid of daemon-made thumbnails. The full behaviour is in [explorer-sidebar.md](explorer-sidebar.md#files-folders), the permission rule in [permissions.md](permissions.md#reading-and-changing-files-outside-a-workspace).
+
+Official files changed: `workspace-files-session.ts` refuses `fs.entry.*` changes whose root is outside every active workspace (resolved through symlinks), so official `daemon-e2e/filesystem.e2e.test.ts`, which wrote into unregistered temp folders, registers each one with `registerWorkspace` first and deletes it in `onTestFinished` with retries, after the daemon shuts down, as the file's checkout tests already do (Windows refused the immediate `rmSync` with EBUSY); `file-explorer-pane.tsx` takes `readOnly` and the list/grid toolbar controls; `files-panel.tsx` picks the root; `outside-folder.ts` opens Files instead of the file manager when the host has `filesFolderSwitcher`; `add-project-flow.tsx` gains a folder-picker mode on one host; `file-pane/pane.tsx` mounts the Show in folder bar; `session.ts`, `websocket-server.ts`, `operation-permissions.ts` and `messages.ts` carry the two new RPC pairs and the feature flag. Recent folders live in their own daemon store (`$PASEO_HOME/projects/workspace-recent-folders.json`), not `ui_state`: a new `ui_state` namespace would break older apps that validate `ui_state.updated` (see `agent-chat-display-override`). There is no push; the switcher refetches when it opens. Thumbnails use pure-JS Jimp plus the jsquash WebP decoder on a worker thread rather than sharp, whose per-platform native binaries would ride into every desktop and Docker build.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session/files/workspace-files-session.test.ts packages/server/src/server/file-explorer/thumbnails/service.test.ts packages/server/src/server/workspace-recent-folders/store.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/file-explorer/folders/model.test.ts src/add-project-flow/model.test.ts --bail=1
+grep -q "readOnly={isOutside}" packages/app/src/panels/files-panel.tsx
+grep -q "openInFiles(folderPath)" packages/app/src/workspace/open-in-file-manager/outside-folder.ts
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/daemon-e2e/filesystem.e2e.test.ts -t "file explorer" --bail=1
+```

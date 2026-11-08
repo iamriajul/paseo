@@ -212,6 +212,63 @@ describe("Managed Chrome", { timeout: 120_000 }, () => {
   });
 });
 
+describe("Managed Chrome, headless", { timeout: 120_000 }, () => {
+  const checkPage = `JSON.stringify({
+    webdriver: navigator.webdriver,
+    userAgent: navigator.userAgent,
+    visibility: document.visibilityState,
+  })`;
+
+  it("passes the check page with the UA this Chrome reports in a window", async () => {
+    const windowed = createHost({ kind: "managed-chrome", chromeMode: "window" });
+    const a = await windowed.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    const inWindow = JSON.parse((await evaluate(windowed, a.browserId, checkPage)) as string);
+    await windowed.shutdown();
+
+    const headless = createHost({ kind: "managed-chrome", chromeMode: "headless" });
+    const b = await headless.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    const cmdline = readFileSync(`/proc/${headless.browserPid()!}/cmdline`, "utf8").split("\0");
+    expect(cmdline).toContain("--headless=new");
+    const inHeadless = JSON.parse((await evaluate(headless, b.browserId, checkPage)) as string);
+
+    expect(inHeadless).toEqual({
+      webdriver: false,
+      userAgent: inWindow.userAgent,
+      visibility: "visible",
+    });
+    expect(inWindow).toEqual({
+      webdriver: false,
+      userAgent: inWindow.userAgent,
+      visibility: "visible",
+    });
+    expect(inWindow.userAgent).not.toMatch(/Headless/);
+  });
+
+  it("keeps its own profile: a Window login is not there, and its own login persists", async () => {
+    const windowed = createHost({ kind: "managed-chrome", chromeMode: "window" });
+    await windowed.openTab({ workspaceId: "ws", url: `${siteUrl}login`, openedBy: "user" });
+    await windowed.shutdown();
+
+    const headless = createHost({ kind: "managed-chrome", chromeMode: "headless" });
+    const fresh = await headless.openTab({
+      workspaceId: "ws",
+      url: `${siteUrl}whoami`,
+      openedBy: "user",
+    });
+    expect(headless.getTab(fresh.browserId)!.info().title).toBe("anonymous");
+    await headless.getTab(fresh.browserId)!.contents.loadURL(`${siteUrl}login`);
+    await headless.shutdown();
+
+    const again = createHost({ kind: "managed-chrome", chromeMode: "headless" });
+    const tab = await again.openTab({
+      workspaceId: "ws",
+      url: `${siteUrl}whoami`,
+      openedBy: "user",
+    });
+    expect(again.getTab(tab.browserId)!.info().title).toBe("signed in");
+  });
+});
+
 function readProcState(pid: number): string {
   try {
     return /State:\s+(\w)/.exec(readFileSync(`/proc/${pid}/status`, "utf8"))?.[1] ?? "";

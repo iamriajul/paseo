@@ -253,6 +253,8 @@ const MutableServerBrowserConfigSchema = z
     engine: z.string().optional(),
     /** Existing browser: its DevTools endpoint; http://127.0.0.1:9222 when absent. */
     cdpUrl: z.string().optional(),
+    /** Managed Chrome: "window" (the default) or "headless". */
+    chromeMode: z.string().optional(),
   })
   .passthrough();
 

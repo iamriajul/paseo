@@ -8,6 +8,7 @@ import { CdpSessionQueue } from "./engine/cdp-session-queue.js";
 import type { TabContents, TabImage } from "./engine/service.js";
 import type { IsolatedKeyboardInputEvent } from "./engine/trusted-input.js";
 import { ScreencastHub, type ScreencastSize } from "./screencast-hub.js";
+import { cancelPick } from "./element-picker.js";
 import { cdpKeyEventsForElectronKey } from "./key-events.js";
 import type { LocalStorageItems } from "./workspace-storage-state.js";
 
@@ -198,6 +199,9 @@ export class ServerBrowserTab {
   }
 
   public dispose(): void {
+    // A pick only ends on an answer, a cancel or its client leaving; a tab that closes,
+    // loses its target or its browser while the client stays must end it here.
+    cancelPick(this.contents);
     this.markClosed();
     this.screencastSize = null;
     this.screencast.close();

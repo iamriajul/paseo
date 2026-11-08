@@ -3035,6 +3035,31 @@ export class DaemonClient {
     );
   }
 
+  /**
+   * Arms Annotate element on a server browser tab and resolves when the user picks an element
+   * (pointer moves and the click go through serverBrowserInput) or the pick is cancelled.
+   * Gate on features.serverBrowserAnnotate.
+   */
+  async serverBrowserAnnotate(
+    browserId: string,
+  ): Promise<CorrelatedResponsePayload<"browser.server.tab.annotate.start.response">> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      message: { type: "browser.server.tab.annotate.start.request", browserId },
+      responseType: "browser.server.tab.annotate.start.response",
+      // Stays pending while the user points; the daemon cancels it when this socket closes.
+      timeout: 60 * 60_000,
+    });
+    if (payload.error) throw new Error(payload.error);
+    return payload;
+  }
+
+  async serverBrowserCancelAnnotate(browserId: string): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.tab.annotate.cancel.request", browserId },
+      "browser.server.tab.annotate.cancel.response",
+    );
+  }
+
   private async serverBrowserCommand(
     message: { type: SessionInboundMessage["type"] } & Record<string, unknown>,
     responseType:
@@ -3042,7 +3067,8 @@ export class DaemonClient {
       | "browser.server.tab.navigate.response"
       | "browser.server.tab.set_viewport.response"
       | "browser.server.workspace.clear_data.response"
-      | "browser.server.input.response",
+      | "browser.server.input.response"
+      | "browser.server.tab.annotate.cancel.response",
     timeout = 20_000,
   ): Promise<void> {
     const payload = await this.sendCorrelatedSessionRequest({ message, responseType, timeout });

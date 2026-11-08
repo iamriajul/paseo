@@ -33,6 +33,9 @@ interface ServerBrowserSurfaceProps {
   browserId: string;
   pageWidth: number;
   pageHeight: number;
+  /** Annotate element is picking: a touch points, a drag moves the highlight, lifting picks. */
+  annotating?: boolean;
+  onCancelAnnotate?: () => void;
 }
 
 const TAP_SLOP = 8;
@@ -46,7 +49,10 @@ const LONG_PRESS_MS = 500;
 export const ServerBrowserSurface = forwardRef<
   ServerBrowserSurfaceHandle,
   ServerBrowserSurfaceProps
->(function ServerBrowserSurface({ client, browserId, pageWidth, pageHeight }, ref) {
+>(function ServerBrowserSurface(
+  { client, browserId, pageWidth, pageHeight, annotating = false },
+  ref,
+) {
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [viewport, setViewport] = useState<ScreencastViewport | null>(null);
   const [uris, setUris] = useState<[string | null, string | null]>([null, null]);
@@ -63,6 +69,8 @@ export const ServerBrowserSurface = forwardRef<
   sizeRef.current = size;
   const pageRef = useRef({ width: pageWidth, height: pageHeight });
   pageRef.current = { width: pageWidth, height: pageHeight };
+  const annotatingRef = useRef(annotating);
+  annotatingRef.current = annotating;
 
   const batcherRef = useRef<InputBatcher | null>(null);
   if (!batcherRef.current) {
@@ -156,6 +164,15 @@ export const ServerBrowserSurface = forwardRef<
     [send, toPage],
   );
 
+  const pointAt = useCallback(
+    (x: number, y: number) => {
+      const point = toPage(x, y);
+      if (point)
+        send({ kind: "mouse", action: "move", ...point, button: "none", clickCount: 0 }, true);
+    },
+    [send, toPage],
+  );
+
   const handleGrant = useCallback(
     (event: GestureResponderEvent) => {
       const { locationX, locationY } = event.nativeEvent;
@@ -165,18 +182,29 @@ export const ServerBrowserSurface = forwardRef<
       state.startedAt = Date.now();
       state.moved = false;
       state.longPressed = false;
+      state.longPress = null;
+      if (annotatingRef.current) {
+        pointAt(locationX, locationY);
+        return;
+      }
       state.longPress = setTimeout(() => {
         state.longPressed = true;
         click(state.startX, state.startY, "right");
       }, LONG_PRESS_MS);
     },
-    [click],
+    [click, pointAt],
   );
 
   const handleMove = useCallback(
     (event: GestureResponderEvent) => {
       const { locationX, locationY } = event.nativeEvent;
       const state = gesture.current;
+      if (annotatingRef.current) {
+        state.lastX = locationX;
+        state.lastY = locationY;
+        pointAt(locationX, locationY);
+        return;
+      }
       if (
         !state.moved &&
         Math.hypot(locationX - state.startX, locationY - state.startY) < TAP_SLOP
@@ -204,15 +232,29 @@ export const ServerBrowserSurface = forwardRef<
       state.lastX = locationX;
       state.lastY = locationY;
     },
-    [send, toPage],
+    [pointAt, send, toPage],
   );
 
   const handleRelease = useCallback(() => {
     const state = gesture.current;
     if (state.longPress) clearTimeout(state.longPress);
+    if (annotatingRef.current) {
+      click(state.lastX, state.lastY, "left");
+      return;
+    }
     if (!state.moved && !state.longPressed) click(state.startX, state.startY, "left");
     batcherRef.current?.flush();
   }, [click]);
+
+  // A gesture another responder took is not a pick.
+  const handleTerminate = useCallback(() => {
+    if (annotatingRef.current) {
+      const state = gesture.current;
+      if (state.longPress) clearTimeout(state.longPress);
+      return;
+    }
+    handleRelease();
+  }, [handleRelease]);
 
   // The hidden input keeps what was typed; the page gets only the difference, so IME
   // composition, autocorrect and deletes all arrive as insertions or Backspaces.
@@ -255,7 +297,7 @@ export const ServerBrowserSurface = forwardRef<
         onResponderGrant={handleGrant}
         onResponderMove={handleMove}
         onResponderRelease={handleRelease}
-        onResponderTerminate={handleRelease}
+        onResponderTerminate={handleTerminate}
         testID="server-browser-surface"
       >
         {/* Fixed slots: only the back slot's source changes, so the shown frame never reloads. */}

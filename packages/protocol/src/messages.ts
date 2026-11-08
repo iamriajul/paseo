@@ -4467,6 +4467,8 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(serverBrowserEngines): added in v0.15.x (fork), drop the gate after 2027-05-01.
         // True when serverBrowser.engine picks Headless (light), Managed Chrome or Existing browser.
         serverBrowserEngines: z.boolean().optional(),
+        // COMPAT(serverBrowserAnnotate): added in v0.15.x (fork), drop the gate after 2027-05-01.
+        serverBrowserAnnotate: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

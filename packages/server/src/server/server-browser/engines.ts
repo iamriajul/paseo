@@ -1,5 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -27,7 +27,11 @@ export interface ServerBrowserEngineConfig {
   cdpUrl?: string;
   /** Headless (light): an explicit headless shell or Chromium. */
   executablePath?: string;
+  /** Managed Chrome: a window on a display (most compatible), or new headless (less memory). */
+  chromeMode?: ManagedChromeMode;
 }
+
+export type ManagedChromeMode = "window" | "headless";
 
 export interface ServerBrowserEngineTraits {
   /**
@@ -121,8 +125,29 @@ const MANAGED_CHROME_ARGS = [
 async function startManagedChrome(params: StartEngineParams): Promise<SharedChromium> {
   const resolution = await resolveChromeExecutable();
   if (!resolution.ok) throw new Error(resolution.message);
-  const userDataDir = join(params.paseoHome, "server-browser", "chrome-profile");
+  const mode = params.config.chromeMode ?? "window";
+  // Each mode is its own Chrome with its own profile and logins, so a session a site flagged as
+  // headless never carries into the windowed profile.
+  const userDataDir = managedChromeProfileDir(params.paseoHome, mode);
+  if (mode === "window") await adoptLegacyChromeProfile(params.paseoHome, userDataDir);
   await prepareChromeProfile(userDataDir);
+  if (mode === "headless") {
+    return SharedChromium.launch({
+      executablePath: resolution.path,
+      userDataDir,
+      noSandbox: params.noSandbox,
+      args: [
+        ...MANAGED_CHROME_ARGS,
+        "--headless=new",
+        // New headless says HeadlessChrome in its UA by design; report what this same Chrome
+        // reports in a window. Nothing else is disguised.
+        `--user-agent=${await headedUserAgent(resolution.path)}`,
+      ],
+      newWindowPerTab: true,
+      events: params.events,
+      ...(params.launch ? { launch: params.launch } : {}),
+    });
+  }
   const display = await resolveDisplay(params.display ?? displayPreferenceFromEnv());
   if (!display.name) {
     params.onWarning?.("Managed Chrome found no X display and no Xvfb; running it headless");
@@ -149,6 +174,60 @@ async function startManagedChrome(params: StartEngineParams): Promise<SharedChro
     stopDisplay();
     throw error;
   }
+}
+
+export function managedChromeProfileDir(paseoHome: string, mode: ManagedChromeMode): string {
+  return join(paseoHome, "server-browser", `chrome-profile-${mode}`);
+}
+
+/** COMPAT(managed-chrome-profile): the first engines build kept one profile; it becomes Window's. Remove after 2027-03-01. */
+export async function adoptLegacyChromeProfile(
+  paseoHome: string,
+  windowDir: string,
+): Promise<void> {
+  const legacy = join(paseoHome, "server-browser", "chrome-profile");
+  if (!(await exists(legacy)) || (await exists(windowDir))) return;
+  await rename(legacy, windowDir);
+}
+
+async function exists(path: string): Promise<boolean> {
+  return stat(path).then(
+    () => true,
+    () => false,
+  );
+}
+
+const userAgents = new Map<string, Promise<string>>();
+
+/**
+ * The UA a windowed Chrome of this binary reports: Chrome's reduced UA, which carries only the
+ * major version and a fixed platform token per OS.
+ */
+export function headedUserAgent(executablePath: string): Promise<string> {
+  let pending = userAgents.get(executablePath);
+  if (!pending) {
+    pending = new Promise<string>((resolve, reject) => {
+      execFile(executablePath, ["--version"], { timeout: 10_000 }, (error, stdout) => {
+        const major = /(\d+)\.\d+\.\d+\.\d+/.exec(stdout)?.[1];
+        if (error || !major) reject(new Error(`Could not read the Chrome version: ${stdout}`));
+        else resolve(reducedUserAgent(major, process.platform));
+      });
+    });
+    pending.catch(() => userAgents.delete(executablePath));
+    userAgents.set(executablePath, pending);
+  }
+  return pending;
+}
+
+/** The fixed platform tokens of Chrome's reduced UA. */
+const REDUCED_UA_PLATFORMS: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: "Macintosh; Intel Mac OS X 10_15_7",
+  win32: "Windows NT 10.0; Win64; x64",
+};
+
+export function reducedUserAgent(major: string, platform: NodeJS.Platform): string {
+  const os = REDUCED_UA_PLATFORMS[platform] ?? "X11; Linux x86_64";
+  return `Mozilla/5.0 (${os}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
 }
 
 async function attachExisting(params: StartEngineParams): Promise<SharedChromium> {

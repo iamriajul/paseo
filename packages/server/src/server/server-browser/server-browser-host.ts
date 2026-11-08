@@ -97,7 +97,10 @@ interface WorkspaceContext {
 }
 
 const SHUTDOWN_SAVE_BUDGET_MS = 5_000;
-const MANAGED_CHROME_SESSION_KEY = "session-cookies";
+/** Window keeps the first engines build's file name, so its session cookies carry over. */
+function sessionCookiesKey(config: ServerBrowserEngineConfig | null): string {
+  return config?.chromeMode === "headless" ? "session-cookies-headless" : "session-cookies";
+}
 
 /**
  * The daemon's own browser: one headless Chromium for the whole host, one browser context per
@@ -110,6 +113,8 @@ export class ServerBrowserHost {
   private chromium: Promise<SharedChromium> | null = null;
   private launchedChromium: SharedChromium | null = null;
   private runningEngine: ServerBrowserEngineKind | null = null;
+  /** The running engine's whole config; the setting may already name the next one. */
+  private runningEngineConfig: ServerBrowserEngineConfig | null = null;
   private readonly contexts = new Map<string, Promise<WorkspaceContext>>();
   private readonly closingContexts = new Map<string, Promise<void>>();
   private readonly clearing = new Set<string>();
@@ -608,7 +613,7 @@ export class ServerBrowserHost {
       throw error;
     }
     const chromium = started;
-    if (config.kind === "managed-chrome") await this.restoreSessionCookies(chromium);
+    if (config.kind === "managed-chrome") await this.restoreSessionCookies(chromium, config);
     if (chromium.isOwned && !chromium.sandboxed && !this.noSandbox) {
       this.noSandbox = true;
       this.options.logger.warn(
@@ -618,6 +623,7 @@ export class ServerBrowserHost {
     this.unavailableReason = undefined;
     this.launchedChromium = chromium;
     this.runningEngine = config.kind;
+    this.runningEngineConfig = config;
     this.options.logger.info(
       { engine: config.kind, pid: chromium.pid, ms: this.now() - startedAt },
       "Server browser started",
@@ -652,14 +658,18 @@ export class ServerBrowserHost {
     try {
       const cookies = await chromium.getCookies(null, { sessionOnly: true });
       const state: WorkspaceStorageState = { version: 1, cookies, origins: {} };
-      await this.managedChromeStore.save(MANAGED_CHROME_SESSION_KEY, JSON.stringify(state));
+      const key = sessionCookiesKey(this.runningEngineConfig);
+      await this.managedChromeStore.save(key, JSON.stringify(state));
     } catch (error) {
       this.options.logger.warn({ err: error }, "Server browser: session cookies not saved");
     }
   }
 
-  private async restoreSessionCookies(chromium: SharedChromium): Promise<void> {
-    const state = await this.managedChromeStore.load(MANAGED_CHROME_SESSION_KEY);
+  private async restoreSessionCookies(
+    chromium: SharedChromium,
+    config: ServerBrowserEngineConfig,
+  ): Promise<void> {
+    const state = await this.managedChromeStore.load(sessionCookiesKey(config));
     if (!state) return;
     await chromium.setCookies(null, state.cookies).catch((error) => {
       this.options.logger.warn({ err: error }, "Server browser: session cookies not restored");

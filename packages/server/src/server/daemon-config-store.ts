@@ -29,6 +29,7 @@ interface SupportedMutableConfigPatch {
     executablePath?: string;
     engine?: string;
     cdpUrl?: string;
+    chromeMode?: string;
   };
   providers?: MutableDaemonConfig["providers"];
   removeProviders?: string[];

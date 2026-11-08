@@ -5,12 +5,17 @@ import { useMutation } from "@tanstack/react-query";
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { SelectField, type SelectFieldOption } from "@/components/ui/select-field";
 import { Switch } from "@/components/ui/switch";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useHostFeature } from "@/runtime/host-features";
 import { settingsStyles } from "@/styles/settings";
 import {
+  createManagedChromeModePatch,
+  MANAGED_CHROME_MODES,
+  resolveManagedChromeMode,
+  type ManagedChromeMode,
   createServerBrowserModePatch,
   resolveServerBrowserMode,
   SERVER_BROWSER_DEFAULT_CDP_URL,
@@ -39,6 +44,12 @@ export function ServerBrowserSettingsRow({ serverId }: { serverId: string }) {
   );
 }
 
+const CHROME_MODE_OPTIONS = MANAGED_CHROME_MODES.map((entry) => ({
+  value: entry.mode,
+  label: entry.label,
+  testID: `host-page-server-browser-chrome-mode-${entry.mode}`,
+}));
+
 const MODE_OPTIONS: SelectFieldOption<ServerBrowserMode>[] = SERVER_BROWSER_MODES.map((entry) => ({
   id: entry.mode,
   value: entry.mode,
@@ -65,6 +76,13 @@ function ServerBrowserEngineRow({ serverId }: { serverId: string }) {
     (next: ServerBrowserMode) => mutation.mutate(createServerBrowserModePatch(next)),
     [mutation],
   );
+  const chromeMode = resolveManagedChromeMode(config?.serverBrowser);
+  const handleChromeModeChange = useCallback(
+    (next: ManagedChromeMode) => mutation.mutate(createManagedChromeModePatch(next)),
+    [mutation],
+  );
+  const chromeModeDescription =
+    MANAGED_CHROME_MODES.find((entry) => entry.mode === chromeMode)?.description ?? "";
   const handleSaveCdpUrl = useCallback(
     () => mutation.mutate({ serverBrowser: { enabled: true, cdpUrl: cdpUrl.trim() } }),
     [cdpUrl, mutation],
@@ -105,6 +123,18 @@ function ServerBrowserEngineRow({ serverId }: { serverId: string }) {
           />
         </View>
       </View>
+      {mode === "managed-chrome" ? (
+        <View style={styles.fields}>
+          <SegmentedControl
+            options={CHROME_MODE_OPTIONS}
+            value={chromeMode}
+            onValueChange={handleChromeModeChange}
+            size="sm"
+            testID="host-page-server-browser-chrome-mode"
+          />
+          <Text style={settingsStyles.rowHint}>{chromeModeDescription}</Text>
+        </View>
+      ) : null}
       {mode === "existing" ? (
         <View style={styles.fields}>
           <Field

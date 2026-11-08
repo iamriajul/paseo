@@ -48,6 +48,7 @@ interface ServerBrowserSetting {
   executablePath?: string;
   engine?: string;
   cdpUrl?: string;
+  chromeMode?: string;
 }
 
 export function resolveInitialServerBrowserConfig(
@@ -58,6 +59,7 @@ export function resolveInitialServerBrowserConfig(
     ...(persisted?.executablePath ? { executablePath: persisted.executablePath } : {}),
     ...(persisted?.engine ? { engine: persisted.engine } : {}),
     ...(persisted?.cdpUrl ? { cdpUrl: persisted.cdpUrl } : {}),
+    ...(persisted?.chromeMode ? { chromeMode: persisted.chromeMode } : {}),
   };
 }
 
@@ -66,7 +68,9 @@ export function resolveServerBrowserEngine(
   setting: ServerBrowserSetting | undefined,
 ): ServerBrowserEngineConfig {
   const kind = setting?.engine;
-  if (kind === "managed-chrome") return { kind };
+  if (kind === "managed-chrome") {
+    return { kind, chromeMode: setting?.chromeMode === "headless" ? "headless" : "window" };
+  }
   if (kind === "existing") {
     return { kind, ...(setting?.cdpUrl ? { cdpUrl: setting.cdpUrl } : {}) };
   }

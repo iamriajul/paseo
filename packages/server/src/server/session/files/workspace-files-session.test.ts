@@ -19,9 +19,11 @@ import {
   type FileTransferFrame,
 } from "@getpaseo/protocol/binary-frames/index";
 import {
+  OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE,
   WorkspaceFilesSession,
   type WorkspaceFilesSessionHost,
 } from "./workspace-files-session.js";
+import { ExplorerThumbnailService } from "../../file-explorer/thumbnails/service.js";
 import { DownloadTokenStore } from "../../file-download/token-store.js";
 import type { SessionOutboundMessage } from "../../messages.js";
 
@@ -43,6 +45,8 @@ function makeSubsystem(
   options: {
     hasBinaryChannel?: boolean;
     emitBinary?: (frame: Uint8Array) => Promise<void> | void;
+    /** Active workspace directories; defaults to every temp dir the test made. */
+    workspaceRoots?: readonly string[];
   } = {},
 ) {
   const emitted: SessionOutboundMessage[] = [];
@@ -62,6 +66,15 @@ function makeSubsystem(
     downloadTokenStore: new DownloadTokenStore({ ttlMs: 60_000 }),
     paseoHome,
     logger: pino({ level: "silent" }),
+    workspaceRoots: async () => options.workspaceRoots ?? [...tempDirs],
+    thumbnails: new ExplorerThumbnailService({
+      paseoHome,
+      renderer: {
+        render: async () => {
+          throw new Error("no renders in this suite");
+        },
+      },
+    }),
   });
   return {
     subsystem,
@@ -90,6 +103,95 @@ function hasResponseOfType(
 }
 
 describe("WorkspaceFilesSession", () => {
+  test("lists a folder outside every workspace but refuses to change it", async () => {
+    const workspace = makeDir("workspace-files-ws-");
+    const evidence = makeDir("workspace-files-evidence-");
+    writeFileSync(join(evidence, "shot.png"), "png");
+    const { subsystem, emitted } = makeSubsystem({ workspaceRoots: [workspace] });
+
+    await subsystem.handleFileExplorerRequest({
+      type: "file_explorer_request",
+      cwd: evidence,
+      path: ".",
+      mode: "list",
+      requestId: "req-list",
+    });
+    await subsystem.handleFileEntryCreateRequest({
+      type: "fs.entry.create.request",
+      cwd: evidence,
+      parentPath: ".",
+      name: "new.txt",
+      kind: "file",
+      requestId: "req-create",
+    });
+    await subsystem.handleFileEntryRenameRequest({
+      type: "fs.entry.rename.request",
+      cwd: evidence,
+      path: "shot.png",
+      name: "renamed.png",
+      requestId: "req-rename",
+    });
+    await subsystem.handleFileEntryDuplicateRequest({
+      type: "fs.entry.duplicate.request",
+      cwd: evidence,
+      path: "shot.png",
+      requestId: "req-duplicate",
+    });
+    await subsystem.handleFileEntryDeleteRequest({
+      type: "fs.entry.delete.request",
+      cwd: evidence,
+      path: "shot.png",
+      requestId: "req-delete",
+    });
+
+    const listing = emitted.find((message) => message.type === "file_explorer_response");
+    expect(listing?.payload).toMatchObject({
+      error: null,
+      directory: { entries: [expect.objectContaining({ name: "shot.png" })] },
+    });
+    const refusals = emitted.filter((message) => message.type.startsWith("fs.entry."));
+    expect(refusals.map((message) => message.payload)).toEqual([
+      expect.objectContaining({ success: false, error: OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE }),
+      expect.objectContaining({ success: false, error: OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE }),
+      expect.objectContaining({ success: false, error: OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE }),
+      expect.objectContaining({ success: false, error: OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE }),
+    ]);
+    expect(readdirSync(evidence)).toEqual(["shot.png"]);
+  });
+
+  test("allows changes in a subfolder of a workspace but not through a symlink out of it", async () => {
+    const workspace = makeDir("workspace-files-ws-");
+    const evidence = makeDir("workspace-files-evidence-");
+    const { mkdirSync, symlinkSync } = await import("node:fs");
+    mkdirSync(join(workspace, "docs"));
+    symlinkSync(evidence, join(workspace, "linked"));
+    const { subsystem, emitted } = makeSubsystem({ workspaceRoots: [workspace] });
+
+    await subsystem.handleFileEntryCreateRequest({
+      type: "fs.entry.create.request",
+      cwd: join(workspace, "docs"),
+      parentPath: ".",
+      name: "inside.txt",
+      kind: "file",
+      requestId: "req-inside",
+    });
+    await subsystem.handleFileEntryCreateRequest({
+      type: "fs.entry.create.request",
+      cwd: join(workspace, "linked"),
+      parentPath: ".",
+      name: "escaped.txt",
+      kind: "file",
+      requestId: "req-linked",
+    });
+
+    expect(existsSync(join(workspace, "docs", "inside.txt"))).toBe(true);
+    expect(existsSync(join(evidence, "escaped.txt"))).toBe(false);
+    expect(emitted.map((message) => message.payload)).toEqual([
+      expect.objectContaining({ success: true }),
+      expect.objectContaining({ success: false, error: OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE }),
+    ]);
+  });
+
   test("creates an entry and emits the complete success response", async () => {
     const cwd = makeDir("workspace-files-create-");
     const { subsystem, emitted } = makeSubsystem();
@@ -685,6 +787,71 @@ describe("WorkspaceFilesSession", () => {
       requestId: "req-entry-upload",
     });
     expect(readFileSync(join(cwd, "notes.txt"), "utf8")).toBe("hello world");
+    await ownership.close();
+  });
+
+  test("refuses an entry upload into a folder outside every workspace", async () => {
+    const cwd = makeDir("workspace-files-entry-upload-");
+    const { subsystem, emitted, paseoHome } = makeSubsystem({ workspaceRoots: [] });
+
+    const source = {};
+    const ownership = new SessionDelivery((_source, message) => {
+      emitted.push(message);
+    });
+    ownership.attach(source, true);
+    const request = {
+      type: "fs.entry.upload.request",
+      cwd,
+      parentPath: ".",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 11,
+      requestId: "req-entry-upload",
+    } as const;
+    await ownership.request(source, request, async () =>
+      subsystem.handleFileEntryUploadRequest(request, ownership),
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileBegin,
+        requestId: "req-entry-upload",
+        metadata: {
+          mime: "text/plain",
+          size: 11,
+          encoding: "binary",
+          modifiedAt: "2026-05-02T00:00:00.000Z",
+          fileName: "notes.txt",
+        },
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({
+        opcode: FileTransferOpcode.FileChunk,
+        requestId: "req-entry-upload",
+        payload: new TextEncoder().encode("hello world"),
+      }),
+      source,
+    );
+    await subsystem.handleFileTransferFrame(
+      uploadFrame({ opcode: FileTransferOpcode.FileEnd, requestId: "req-entry-upload" }),
+      source,
+    );
+    await vi.waitFor(() => {
+      expect(hasResponseOfType(emitted, "fs.entry.upload.response")).toBe(true);
+      expect(readdirSync(join(paseoHome, "uploads"))).toEqual([]);
+    });
+
+    const message = emitted.find((entry) => entry.type === "fs.entry.upload.response");
+    if (message?.type !== "fs.entry.upload.response") {
+      throw new Error("expected a fs.entry.upload.response message");
+    }
+    expect(message.payload).toMatchObject({
+      path: null,
+      success: false,
+      error: OUTSIDE_WORKSPACE_READ_ONLY_MESSAGE,
+    });
+    expect(existsSync(join(cwd, "notes.txt"))).toBe(false);
     await ownership.close();
   });
 

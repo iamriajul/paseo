@@ -148,6 +148,9 @@ import { DirectorySyncService } from "./directory-sync/index.js";
 import { OWNER_PERMISSIONS, type DaemonPermission } from "./authorization/index.js";
 import type { WorkspaceLabelService } from "./workspace-labels/index.js";
 import { WorkspaceTodoStore } from "./workspace-todos/store.js";
+import { WorkspaceRecentFoldersStore } from "./workspace-recent-folders/store.js";
+import { ExplorerThumbnailService } from "./file-explorer/thumbnails/service.js";
+import { ThumbnailRenderer } from "./file-explorer/thumbnails/renderer.js";
 import {
   APPLICATION_SOCKET_LEASE_CHECK_INTERVAL_MS,
   ApplicationSocketLease,
@@ -664,6 +667,9 @@ export class VoiceAssistantWebSocketServer {
   private readonly hubRelationships: HubRelationshipManagement | null;
   private connectionLifecycle: "starting" | "accepting" | "stopping" = "accepting";
   private readonly workspaceTodoStore: WorkspaceTodoStore;
+  private readonly workspaceRecentFoldersStore: WorkspaceRecentFoldersStore;
+  private readonly thumbnailRenderer = new ThumbnailRenderer();
+  private readonly explorerThumbnails: ExplorerThumbnailService;
   private readonly advertiseDaemonStatusRpc: boolean;
   private readonly advertiseRelayConfig: boolean;
   private readonly directorySync = new DirectorySyncService();
@@ -819,6 +825,11 @@ export class VoiceAssistantWebSocketServer {
     this.daemonConfigStore = daemonConfigStore;
     this.mcpBaseUrl = mcpBaseUrl;
     this.workspaceTodoStore = new WorkspaceTodoStore(paseoHome);
+    this.workspaceRecentFoldersStore = new WorkspaceRecentFoldersStore(paseoHome);
+    this.explorerThumbnails = new ExplorerThumbnailService({
+      paseoHome,
+      renderer: this.thumbnailRenderer,
+    });
     this.assignOptionalServices({
       speech,
       terminalManager,
@@ -1226,6 +1237,7 @@ export class VoiceAssistantWebSocketServer {
     this.prepareForShutdown();
     await this.agentMessages.close();
     await this.connectedHosts.close();
+    await this.thumbnailRenderer.close();
     this.unsubscribeSpeechReadiness?.();
     this.unsubscribeSpeechReadiness = null;
     this.unsubscribeDaemonConfigChange?.();
@@ -1818,6 +1830,8 @@ export class VoiceAssistantWebSocketServer {
       daemonRuntimeConfig: this.daemonRuntimeConfig,
       getWebSocketRuntimeMetrics: () => this.lastRuntimeMetricsSnapshot,
       workspaceTodoStore: this.workspaceTodoStore,
+      workspaceRecentFoldersStore: this.workspaceRecentFoldersStore,
+      explorerThumbnails: this.explorerThumbnails,
       broadcastWorkspaceTodos: (message, exceptClientId) => {
         for (const session of this.listSessions()) {
           if (session.clientId === exceptClientId) {
@@ -2351,6 +2365,8 @@ export class VoiceAssistantWebSocketServer {
         fsEntryDuplicate: true,
         // COMPAT(fsEntryUpload): added in v0.11.901, remove gate after 2027-02-12.
         fsEntryUpload: true,
+        // COMPAT(filesFolderSwitcher): added in v0.15.906 (fork), drop the gate after 2027-05-01.
+        filesFolderSwitcher: true,
         // COMPAT(checkoutDiscardChanges): added in v0.3.0, remove gate after 2027-02-08.
         checkoutDiscardChanges: true,
         checkoutDiffAll: true,

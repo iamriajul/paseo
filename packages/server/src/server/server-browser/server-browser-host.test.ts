@@ -15,6 +15,7 @@ import type { ChildProcess } from "node:child_process";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CdpConnection, pipeTransport, type CdpParams } from "./cdp-connection.js";
+import { pickElement } from "./element-picker.js";
 import { ServerBrowserHost, type ServerBrowserLimits } from "./server-browser-host.js";
 import type { LaunchFn } from "./shared-chromium.js";
 
@@ -150,6 +151,29 @@ function contextIdOf(cookieValue: string): string | undefined {
   }
   return undefined;
 }
+
+describe("an element pick on a tab that goes away", () => {
+  // The client's socket stays open, so nothing but the tab's own teardown can end the pick.
+  it.each([
+    ["the tab closes", (host: ServerBrowserHost, browserId: string) => host.closeTab(browserId)],
+    ["the host shuts down", (host: ServerBrowserHost) => host.shutdown()],
+  ])("ends as cancelled when %s", async (_case, tearDown) => {
+    const host = createHost();
+    const { browserId } = await host.openTab({
+      workspaceId: "ws",
+      url: "about:blank",
+      openedBy: "user",
+    });
+    const pick = pickElement(host.getTab(browserId)!.contents);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await tearDown(host, browserId);
+    const outcome = await Promise.race([
+      pick,
+      new Promise((resolve) => setTimeout(() => resolve("still polling"), 2_000)),
+    ]);
+    expect(outcome).toEqual({ outcome: "cancelled" });
+  });
+});
 
 describe("ServerBrowserHost lifecycle", () => {
   it("opens every workspace in one browser, each in its own context", async () => {

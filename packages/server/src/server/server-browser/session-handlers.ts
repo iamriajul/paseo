@@ -6,6 +6,7 @@ import {
 } from "@getpaseo/protocol/binary-frames/server-browser";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../messages.js";
 import type { SessionDelivery } from "../session/owned-subscriptions/index.js";
+import { cancelPick, pickElement } from "./element-picker.js";
 import { SCREENCAST_MAX_WINDOW } from "./screencast-hub.js";
 import { assertNavigableUrl, type ServerBrowserHost } from "./server-browser-host.js";
 
@@ -18,6 +19,8 @@ export const SERVER_BROWSER_REQUEST_TYPES = [
   "browser.server.workspace.clear_data.request",
   "browser.server.screencast.start.request",
   "browser.server.input.request",
+  "browser.server.tab.annotate.start.request",
+  "browser.server.tab.annotate.cancel.request",
 ] as const;
 
 type ServerBrowserRequest = Extract<
@@ -60,6 +63,8 @@ export class ServerBrowserSessionHandlers {
         return this.subscribeTabs(msg);
       case "browser.server.screencast.start.request":
         return this.startScreencast(msg);
+      case "browser.server.tab.annotate.start.request":
+        return this.annotate(msg);
       default:
         return this.handleCommand(msg);
     }
@@ -150,10 +155,48 @@ export class ServerBrowserSessionHandlers {
     );
   }
 
+  private async annotate(
+    msg: Extract<ServerBrowserRequest, { type: "browser.server.tab.annotate.start.request" }>,
+  ): Promise<void> {
+    const { host, delivery, emit } = this.params;
+    // Aborts when the requesting socket goes away, so a closed client never leaves the page armed.
+    const signal = delivery.requestSignal;
+    const tab = host.getTab(msg.browserId);
+    if (!tab) {
+      emit({
+        type: "browser.server.tab.annotate.start.response",
+        payload: { requestId: msg.requestId, error: `No server browser tab ${msg.browserId}` },
+      });
+      return;
+    }
+    tab.touch();
+    try {
+      const result = await pickElement(tab.contents, signal);
+      emit({
+        type: "browser.server.tab.annotate.start.response",
+        payload: { requestId: msg.requestId, ...result },
+      });
+    } catch (caught) {
+      this.params.logger.debug({ err: caught }, "Server browser annotate failed");
+      emit({
+        type: "browser.server.tab.annotate.start.response",
+        payload: {
+          requestId: msg.requestId,
+          error: caught instanceof Error ? caught.message : String(caught),
+        },
+      });
+    }
+  }
+
   private async handleCommand(
     msg: Exclude<
       ServerBrowserRequest,
-      { type: "browser.server.tabs.subscribe.request" | "browser.server.screencast.start.request" }
+      {
+        type:
+          | "browser.server.tabs.subscribe.request"
+          | "browser.server.screencast.start.request"
+          | "browser.server.tab.annotate.start.request";
+      }
     >,
   ): Promise<void> {
     let error: string | undefined;
@@ -187,13 +230,21 @@ export class ServerBrowserSessionHandlers {
       case "browser.server.input.request":
         this.params.emit({ type: "browser.server.input.response", payload });
         return;
+      case "browser.server.tab.annotate.cancel.request":
+        this.params.emit({ type: "browser.server.tab.annotate.cancel.response", payload });
+        return;
     }
   }
 
   private async runCommand(
     msg: Exclude<
       ServerBrowserRequest,
-      { type: "browser.server.tabs.subscribe.request" | "browser.server.screencast.start.request" }
+      {
+        type:
+          | "browser.server.tabs.subscribe.request"
+          | "browser.server.screencast.start.request"
+          | "browser.server.tab.annotate.start.request";
+      }
     >,
   ): Promise<string | undefined> {
     const { host } = this.params;
@@ -227,6 +278,9 @@ export class ServerBrowserSessionHandlers {
         return undefined;
       case "browser.server.input.request":
         await tab.dispatchInput(msg.events);
+        return undefined;
+      case "browser.server.tab.annotate.cancel.request":
+        cancelPick(tab.contents);
         return undefined;
     }
   }

@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState, type ReactElement } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
@@ -7,6 +8,7 @@ import {
   Keyboard,
   Monitor,
   MoreHorizontal,
+  MousePointer2,
   RotateCw,
   Server,
   Smartphone,
@@ -20,8 +22,12 @@ import { usePaneContext } from "@/panels/pane-context";
 import { definePanel, type PanelDescriptor, type PanelIconProps } from "@/panels/panel-registry";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { normalizeBrowserUrl } from "@/desktop/browser/store/state";
+import { truncateBrowserText } from "@/desktop/browser/browser-element-attachment";
+import { WebAnnotationComposer } from "@/desktop/browser/pane/web-annotation-composer";
+import { useHostFeature } from "@/runtime/host-features";
 import { useServerBrowserStatus, useServerBrowserTab, type ServerBrowserTab } from "./store";
 import { ServerBrowserSurface, type ServerBrowserSurfaceHandle } from "./surface";
+import { useServerBrowserAnnotate } from "./use-server-browser-annotate";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
@@ -30,11 +36,15 @@ const ThemedMonitor = withUnistyles(Monitor);
 const ThemedSmartphone = withUnistyles(Smartphone);
 const ThemedMore = withUnistyles(MoreHorizontal);
 const ThemedKeyboard = withUnistyles(Keyboard);
+const ThemedMousePointer2 = withUnistyles(MousePointer2);
 const ThemedUrlInput = withUnistyles(EditingTextInput, (theme) => ({
   placeholderTextColor: theme.colors.foregroundMuted,
 }));
 const muted = (theme: { colors: { foregroundMuted: string } }) => ({
   color: theme.colors.foregroundMuted,
+});
+const accent = (theme: { colors: { accent: string } }) => ({
+  color: theme.colors.accent,
 });
 
 export const SERVER_BROWSER_VIEWPORTS = {
@@ -72,6 +82,25 @@ function useServerBrowserDescriptor(
   };
 }
 
+function ServerBrowserTabGone({
+  status,
+}: {
+  status: ReturnType<typeof useServerBrowserStatus>;
+}): ReactElement {
+  return (
+    <View style={styles.empty}>
+      <Text style={styles.emptyTitle}>
+        {status?.enabled === false
+          ? "The server browser is turned off on this host"
+          : "This server browser tab is closed"}
+      </Text>
+      {status?.unavailableReason ? (
+        <Text style={styles.emptyDetail}>{status.unavailableReason}</Text>
+      ) : null}
+    </View>
+  );
+}
+
 function ServerBrowserPanel(): ReactElement {
   const { serverId, workspaceId, target } = usePaneContext();
   invariant(
@@ -85,6 +114,23 @@ function ServerBrowserPanel(): ReactElement {
   const surfaceRef = useRef<ServerBrowserSurfaceHandle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const browserId = target.browserId;
+  const { t } = useTranslation();
+  const supportsAnnotate = useHostFeature(serverId, "serverBrowserAnnotate");
+  const annotate = useServerBrowserAnnotate({
+    client,
+    serverId,
+    workspaceId,
+    browserId,
+    onError: setError,
+  });
+  const isPicking = annotate.state.status === "picking";
+  const composing = annotate.state.status === "composing" ? annotate.state : null;
+  // Which element was picked, the line the web pane shows above its composer.
+  const selectionLabel = useMemo(() => {
+    if (!composing) return null;
+    const text = truncateBrowserText(composing.selection.text.trim().replace(/\s+/g, " "), 60);
+    return text ? `${composing.selection.tag} · ${text}` : composing.selection.tag;
+  }, [composing]);
 
   const run = useCallback((action: () => Promise<void> | undefined) => {
     setError(null);
@@ -125,20 +171,7 @@ function ServerBrowserPanel(): ReactElement {
   );
   const handleKeyboard = useCallback(() => surfaceRef.current?.focusKeyboard(), []);
 
-  if (!tab || !client) {
-    return (
-      <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>
-          {status?.enabled === false
-            ? "The server browser is turned off on this host"
-            : "This server browser tab is closed"}
-        </Text>
-        {status?.unavailableReason ? (
-          <Text style={styles.emptyDetail}>{status.unavailableReason}</Text>
-        ) : null}
-      </View>
-    );
-  }
+  if (!tab || !client) return <ServerBrowserTabGone status={status} />;
 
   return (
     <View style={styles.container}>
@@ -173,6 +206,20 @@ function ServerBrowserPanel(): ReactElement {
               <ThemedKeyboard size={16} uniProps={muted} />
             </ToolbarButton>
           ) : null}
+          {supportsAnnotate ? (
+            <ToolbarButton
+              label={
+                isPicking
+                  ? t("workspace.browser.controls.cancelSelector")
+                  : t("workspace.browser.controls.annotateElement")
+              }
+              selected={isPicking}
+              onPress={annotate.toggle}
+              testID="server-browser-annotate"
+            >
+              <ThemedMousePointer2 size={16} uniProps={isPicking ? accent : muted} />
+            </ToolbarButton>
+          ) : null}
           <ToolbarButton
             label={isPhone ? "Switch to desktop viewport" : "Switch to phone viewport"}
             onPress={handleToggleViewport}
@@ -198,13 +245,25 @@ function ServerBrowserPanel(): ReactElement {
         </View>
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
+      {selectionLabel ? (
+        <View style={styles.selectedElement}>
+          <Text numberOfLines={1} style={styles.selectedElementText}>
+            {selectionLabel}
+          </Text>
+        </View>
+      ) : null}
       <ServerBrowserSurface
         ref={surfaceRef}
         client={client}
         browserId={browserId}
         pageWidth={tab.viewport.width}
         pageHeight={tab.viewport.height}
+        annotating={isPicking}
+        onCancelAnnotate={annotate.cancel}
       />
+      {composing ? (
+        <WebAnnotationComposer onSubmit={annotate.submit} onCancel={annotate.dismiss} />
+      ) : null}
     </View>
   );
 }
@@ -254,6 +313,18 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     paddingVertical: 0,
     paddingHorizontal: 0,
+  },
+  selectedElement: {
+    width: "100%",
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
+    backgroundColor: theme.colors.muted,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.border,
+  },
+  selectedElementText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
   },
   error: {
     color: theme.colors.destructive,

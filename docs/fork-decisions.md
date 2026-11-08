@@ -1480,3 +1480,23 @@ grep -q "useWorkspacePreviewRequests({" packages/app/src/screens/workspace/works
 grep -q "workspaceSummary(entry, destination)" packages/server/src/server/agent/host-operations/index.ts
 grep -q "previewLink" skills/paseo/SKILL.md
 ```
+
+## agent-messages-collapse
+
+**messages from other agents fold to one line each, and consecutive ones from the same agent fold into one row**
+
+An orchestrator's chat fills with what its agents send it: full "Sent by X" bubbles, and their Agent finished, error and permission rows. While the agent-messages display is Collapsed, each received message draws as one row (sender, the first line of its own words with the `[agent … · role]` header and Markdown marks removed, and the time on wide layouts), and consecutive rows from the same agent fold into one row, "Mautic owner · 3 messages", which opens in place to list them. Nothing is reordered and nothing groups across agents: another agent's row ends the group, because it can change how the orchestrator handles the rows after it. A later group from an agent that already has a row in the same run of agent rows reads "3 more messages". A closed group hides the turn summaries of the turns its rows started. The user's own messages and the agent's own replies never fold. It is display only: nothing about storage or delivery changes. Official `turn-collapse.spec.ts` checks the full "Sent by" bubble, so its received-message specs seed `agentMessagesDisplay: "expanded"` (under the Collapsed default they found no bubble), and `expectSenderAlignedWithBubble` lines the collapse chevron that now ends the sender row up with the bubble: it used to take the sender button's next sibling as the bubble, which is now the chevron. The sender shrinks inside that row (`minWidth: 0`), so a long name truncates and the chevron stays on the bubble's edge; without it the name pushed the chevron 22 px past the bubble on a phone.
+
+The mode is part of the chat display control from [agent-chat-display-override](#agent-chat-display-override): the pane toolbar menu and the compact chat display page add a "Messages from agents" section with Collapse all and Expand all. Picking one saves it as this agent's mode and clears the reader's one-by-one choices, so one control does both jobs. It is the agent label `paseo.agent-messages`, for the same reasons as `paseo.chat-display`, and an empty value follows Settings. Settings › Chat › Agent messages is the global default, Collapsed: an orchestrator's agent traffic is what buries its own replies, and a reader who wants every message in full sets Expanded once instead of per agent. Opening a single row or group is session-only state (`agent-message-fold/store.ts`), so it does not write to the daemon on every press.
+
+The fold runs in `createStreamPresentation` after turn collapse and travels on each row as `agentFold`. The list redraws a row only when its identity changes, so a fold kept beside the rows left toggled rows stale until something else redrew them; `withFold` hands back a new row only when that row's fold changed.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/agent-stream/agent-message-fold src/chat-display/agent-messages-override.test.ts --bail=1
+grep -q "foldAgentRows(collapse(projection, input), input)" packages/app/src/agent-stream/presentation.ts
+grep -q "useAgentMessagesDisplay" packages/app/src/agent-stream/view.tsx
+grep -q "agent-messages-collapse-all" packages/app/src/chat-display/options.tsx
+grep -q "settings-agent-messages-display" packages/app/src/screens/settings/chat/chat-section.tsx
+test "$(grep -c 'agentMessagesDisplay: "expanded"' packages/app/e2e/browser/turn-collapse.spec.ts)" -ge 3
+grep -q 'data-testid="agent-message-collapse"' packages/app/e2e/browser/turn-collapse.spec.ts
+```

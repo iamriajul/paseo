@@ -71,9 +71,15 @@ Set `PASEO_DISABLE_GATEWAY_CACHE=1` to skip the cache entirely. Both vitest conf
 
 ## Quota
 
-The composer meter tooltip shows per-model CLIProxyAPI quota for the agent's selected model through the `cliproxyapi.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`). The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.
+The composer meter's details show the CLIProxyAPI account serving the agent, with its quota for the agent's model, through the `cliproxyapi.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`) and the session route below. The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.
 
 CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (observed live); current builds answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
+
+### Accounts in the meter and the All accounts window
+
+The meter details show one account: the one the session route names, matched to its quota row by masked label and provider name (the daemon's warm-up check matches the same way). Below it, one line counts the other accounts that can serve the model, and "All accounts…" opens the window. The details listed every account until a gateway with 12 accounts ran the desktop card off the screen; the card now also caps its height at the window height and scrolls. The native wide tooltip takes no presses, so it shows the count without the button.
+
+The window (`packages/app/src/gateway-quota/all-accounts-dialog.tsx`) is a dialog on desktop and a sheet on the phone, like Session insights. Its model picker defaults to the agent's model and lists every model the agent's provider catalog marks as served by the gateway: discovered rows carry `metadata.source: "cliproxyapi"`, and Claude manifest rows the gateway also advertises carry `metadata.cliproxyapiAdvertised`. Picking a model reads `cliproxyapi.quota.get` for it, so no agent is needed and no protocol change was. While the picker shows the agent's own model, the session's account sits on top with a "Serving this agent" badge, whatever its state; on any other model no account is pinned or badged. The rest follow: usable accounts (least used first), then blocked ones (soonest back first), each with its cooldown end or the reset of its used-up windows. The window does not say which account the next new agent gets: the gateway picks it, Paseo cannot know it, and any guess goes stale at once.
 
 ## Latest request
 

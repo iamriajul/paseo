@@ -835,7 +835,7 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/ser
 
 **first-party routing is `agents.cliproxyapi`, not `gateway`**
 
-The config key is `agents.cliproxyapi`. Env is `PASEO_CLIPROXYAPI_*`. The tooltip says CLIProxyAPI quota. The quota RPC is `cliproxyapi.quota.get`, gated on `server_info.features.cliproxyapiQuota`.
+The config key is `agents.cliproxyapi`. Env is `PASEO_CLIPROXYAPI_*`. The meter's account section is titled "CLIProxyAPI account" (it was "CLIProxyAPI quota" while it listed every account's quota). The quota RPC is `cliproxyapi.quota.get`, gated on `server_info.features.cliproxyapiQuota`.
 
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/config.test.ts packages/server/src/server/persisted-config.test.ts --bail=1
@@ -871,7 +871,7 @@ cd packages/app && npx vitest run --project unit src/prompt-cache/use-prompt-cac
 
 **the context meter and the timeline name the CLIProxyAPI account serving the agent, and cache insights charge misses to account switches**
 
-The `cliproxyapi.session_route.get` RPC (gated on `server_info.features.cliproxyapiSessionRoute`) maps the agent to the canonical session id CLIProxyAPI keys its routing by (`claude:`, `codex:`, or `header:` for OpenCode, plus the persisted provider session id) and reads `/v1/session-route`, cached 15 seconds. The meter details show "Served by" above the quota section, plus the newest switch. A daemon watcher reads the same route once per finished turn, two seconds after it ends because the Gateway records requests asynchronously, and saves each account change on the agent (`gatewayAccounts`, newest 12 on the snapshot) and in the prompt-cache journal. It reads per turn rather than on a timer so an idle agent costs nothing. A switch whose first request missed the cache inside the cache window carries that request's `missAt`; a miss after the window stays the expiry's, as cache insights already judge it. The app draws "Served by <account>" above the first prompt and above every prompt answered by a different account, with the switch, its cause and "cache lost"; cache insights list that request as "miss · account switched". The first version appended a `notification` item after the reply instead, and skipped switches from before the daemon started, since it kept no record of what it had announced. That was enough to notice a switch, but it never named the account an unswitched session ran on, and a notice after the reply could not explain the cache miss at the prompt that paid for it. Saving the changes on the agent fixes both and deduplicates across restarts. A Gateway without the route, an unrouted agent, and an unserved session all hide everything.
+The `cliproxyapi.session_route.get` RPC (gated on `server_info.features.cliproxyapiSessionRoute`) maps the agent to the canonical session id CLIProxyAPI keys its routing by (`claude:`, `codex:`, or `header:` for OpenCode, plus the persisted provider session id) and reads `/v1/session-route`, cached 15 seconds. The meter details show the serving account (its quota row, or "Served by" when the quota list has no row for it) and the newest switch; see [gateway-accounts-window](#gateway-accounts-window) for the rest of the account section. A daemon watcher reads the same route once per finished turn, two seconds after it ends because the Gateway records requests asynchronously, and saves each account change on the agent (`gatewayAccounts`, newest 12 on the snapshot) and in the prompt-cache journal. It reads per turn rather than on a timer so an idle agent costs nothing. A switch whose first request missed the cache inside the cache window carries that request's `missAt`; a miss after the window stays the expiry's, as cache insights already judge it. The app draws "Served by <account>" above the first prompt and above every prompt answered by a different account, with the switch, its cause and "cache lost"; cache insights list that request as "miss · account switched". The first version appended a `notification` item after the reply instead, and skipped switches from before the daemon started, since it kept no record of what it had announced. That was enough to notice a switch, but it never named the account an unswitched session ran on, and a notice after the reply could not explain the cache miss at the prompt that paid for it. Saving the changes on the agent fixes both and deduplicates across restarts. A Gateway without the route, an unrouted agent, and an unserved session all hide everything.
 
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/gateway/session-route.test.ts packages/server/src/server/agent/gateway/session-route-watcher.test.ts packages/server/src/server/session/provider/provider-catalog-session.test.ts --bail=1
@@ -879,6 +879,20 @@ grep -q 'attachGatewaySessionRouteWatcher' packages/server/src/server/bootstrap.
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/prompt-cache-journal.test.ts --bail=1
 npx vitest run packages/protocol/src/agent-cache-warm.test.ts -t findGatewaySwitchMiss --bail=1
 cd packages/app && npx vitest run --project unit src/gateway-session-route src/prompt-cache/prompt-cache-explorer.test.ts --bail=1
+```
+
+## gateway-accounts-window
+
+**the context meter shows only the serving CLIProxyAPI account; every account lives in an All accounts window**
+
+The meter details listed every CLIProxyAPI account that serves the model, collapsed past three. With 12 accounts the open list still ran the desktop hover card off the screen. The details now show the account serving the agent, one line counting the others and an "All accounts…" button, and the desktop hover card (official `context-window-meter.tsx`) caps its height at the window height minus a margin and scrolls its content. The button opens `GatewayAllAccountsDialog` beside the card, which closes the sheet on the phone and disables the hover card on desktop so the card does not float over the dialog. The window picks any gateway model from the provider catalog and reads quota for it with the existing RPC, so it needs no new RPC or `server_info` gate. On the agent's own model the serving account is pinned to the top of the list, above the usable-then-blocked order; the first QA run left it partway down, where it was hard to find. Claude manifest rows the gateway advertises are tagged `cliproxyapiAdvertised` in `cliproxy-models.ts`, since only discovered rows carried a gateway marker. The full behaviour is in [docs/cliproxyapi.md](cliproxyapi.md#accounts-in-the-meter-and-the-all-accounts-window).
+
+```bash
+grep -q "onOpenAllAccounts={openAllAccounts}" packages/app/src/components/context-window-meter.tsx
+grep -q "HoverCard disabled={isAllAccountsOpen}" packages/app/src/components/context-window-meter.tsx
+grep -q "maxHeight: Math.max(160, height - POPOVER_SCREEN_MARGIN)" packages/app/src/components/context-window-meter.tsx
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/cliproxy-models.test.ts -t "leaves first-party 200k and 1M variants alone" --bail=1
+cd packages/app && npx vitest run --project unit src/gateway-quota src/gateway-session-route --bail=1
 ```
 
 ## gateway-unmanifested-minor-release

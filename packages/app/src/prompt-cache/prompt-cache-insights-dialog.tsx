@@ -494,9 +494,10 @@ function InsightsExplorer({
         Written {formatTokenCount(insights.writeTokens)} · read{" "}
         {formatTokenCount(insights.readTokens)} · peak context{" "}
         {formatTokenCount(insights.peakContextTokens)}. A miss is a request that did not read at
-        least 90% of the context the previous request left in the cache. The first request of a
-        fresh session cannot hit; the first request of a native fork is measured against the context
-        it inherited. The first request after a compaction is left out of every count and chart; the
+        least 90% of the context the previous request left in the cache; after a warm-up fork, the
+        context the agent itself sent before it, without the fork ping. The first request of a fresh
+        session cannot hit; the first request of a native fork is measured against the context it
+        inherited. The first request after a compaction is left out of every count and chart; the
         compaction marks the chart instead. Costs are input at Anthropic API list prices, main
         thread only: output and subagents are not recorded per request.
       </Text>

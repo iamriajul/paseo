@@ -1255,6 +1255,11 @@ describe("ClaudeAgentSession features", () => {
       expect(
         (options.settings as { env?: Record<string, string> }).env?.ANTHROPIC_CUSTOM_HEADERS,
       ).toBe("X-Claude-Code-Session-Id: session-1");
+      // A resumed process would append every CLAUDE.md changed since the session's copy, which
+      // the agent's own requests never carry (agent.cache-warm-fork.local.e2e.test.ts).
+      expect(
+        (options.settings as { env?: Record<string, string> }).env?.CLAUDE_CODE_DISABLE_CLAUDE_MDS,
+      ).toBe("1");
       expect(close).toHaveBeenCalled();
     } finally {
       await session.close();

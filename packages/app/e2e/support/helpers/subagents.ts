@@ -162,8 +162,9 @@ export async function openSubagentFromCompactTrack(
 ): Promise<void> {
   await track.getByTestId("subagents-track-header").click();
   const row = page.getByTestId(`subagents-track-row-${childId}`);
-  // Tap the row once the sheet has brought it on screen, as a finger would. Clicking it while it is
-  // still below the fold makes Playwright scroll the sheet host, and every sheet then docks short.
+  // Tap the row once the sheet has brought it on screen, as a finger would. Before the sheet host
+  // clipped on web (fork-decisions.md#sheet-host-clips-on-web), clicking it below the fold made
+  // Playwright scroll the host, and every sheet then docked short.
   await expect(row).toBeInViewport();
   await row.click();
 }

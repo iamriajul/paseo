@@ -208,3 +208,45 @@ test("compact opens files and subagents in a sheet, leaving the tabs for agents"
     await workspace.cleanup();
   }
 });
+
+test("nothing inside a sheet can scroll it off its snap", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const workspace = await seedMockAgentWorkspace({
+    repoPrefix: "compact-sheet-scroll-",
+    title: "Scroll parent",
+  });
+  try {
+    await openAgentRoute(page, { workspaceId: workspace.workspaceId, agentId: workspace.agentId });
+    await page
+      .getByRole("button", { name: /Switch tabs/ })
+      .filter({ visible: true })
+      .click();
+    const handle = page.getByRole("slider", { name: "Bottom sheet handle" }).last();
+    const handleTop = async () => Math.round((await handle.boundingBox())?.y ?? -1);
+    let previous = -1;
+    await expect
+      .poll(async () => {
+        const top = await handleTop();
+        const settled = top > 0 && top === previous;
+        previous = top;
+        return settled;
+      })
+      .toBe(true);
+    const restingTop = previous;
+
+    // Focus, find in page, and scroll-into-view all scroll the nearest clipping ancestor of the
+    // element they reveal. A sheet's hosting container must not be one: once scrolled, nothing
+    // scrolls it back, and the sheet sits above its snap with its handle over the backdrop.
+    await handle.evaluate((element) => {
+      for (let node = element.parentElement; node; node = node.parentElement) {
+        node.scrollTop = 200;
+      }
+    });
+
+    expect(await handleTop()).toBe(restingTop);
+    await tapSheetBackdrop(page);
+    await expectNoSheetOpen(page);
+  } finally {
+    await workspace.cleanup();
+  }
+});

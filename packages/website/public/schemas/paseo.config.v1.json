@@ -104,6 +104,9 @@
             },
             "chromeMode": {
               "type": "string"
+            },
+            "newTabTarget": {
+              "type": "string"
             }
           },
           "additionalProperties": {}

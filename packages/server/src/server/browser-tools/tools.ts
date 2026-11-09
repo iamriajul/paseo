@@ -69,7 +69,7 @@ export function registerBrowserTools(options: RegisterBrowserToolsOptions): void
     {
       title: "List browser tabs",
       description:
-        "List open Paseo browser tabs for this agent's workspace across connected browser automation hosts. Use returned browserId values with tab-scoped tools.",
+        "List open Paseo browser tabs for this agent's workspace across connected browser automation hosts. Each tab says where it runs (location=server for the server browser, location=desktop for the desktop app's Browser). Use returned browserId values with tab-scoped tools.",
       inputSchema: {},
     },
     async () => {
@@ -96,12 +96,19 @@ export function registerBrowserTools(options: RegisterBrowserToolsOptions): void
     {
       title: "Create browser tab",
       description:
-        "Create a new Paseo browser tab in this agent's workspace on the most recently connected browser automation host, opened in the background without switching the user's view. Pass an http(s) URL or a scheme-less host URL, which is treated as http; the returned browserId is used by tab-scoped tools.",
+        "Create a new Paseo browser tab in this agent's workspace, opened in the background without switching the user's view. Pass an http(s) URL or a scheme-less host URL, which is treated as http; the returned browserId is used by tab-scoped tools. The tab stays where it opens. " +
+        'target picks where: "desktop" is the Browser in the user\'s Paseo desktop app, for when the user is at their computer and wants to see or use the tab, or it needs that computer\'s logins or its localhost. "server" is the server browser on the machine running the agent, which keeps working with every app closed or the laptop asleep and can be watched from the phone. Omit target to use the host\'s default (Automatic: the desktop app when one is connected, otherwise the server browser). If the target is not available the call fails and says which one is.',
       inputSchema: {
         url: BrowserHttpUrlInputSchema.optional(),
+        target: z
+          .enum(["desktop", "server"])
+          .optional()
+          .describe(
+            "Where to open the tab: desktop (the user's desktop app Browser) or server (the server browser). Omit for the host default.",
+          ),
       },
     },
-    async ({ url }) => {
+    async ({ url, target }) => {
       const context = resolveBrowserToolContext(options);
       const missingWorkspace = requireWorkspaceContext(context);
       if (missingWorkspace) {
@@ -111,6 +118,7 @@ export function registerBrowserTools(options: RegisterBrowserToolsOptions): void
         agentId: context.agentId,
         cwd: context.cwd,
         ...(context.workspaceId ? { workspaceId: context.workspaceId } : {}),
+        ...(target ? { target } : {}),
         command: {
           command: "new_tab",
           args: url ? { url } : {},
@@ -875,7 +883,8 @@ function summarizeBrowserSuccess(
     }
     const tabLines = payload.result.tabs.map((tab) => {
       const active = tab.isActive ? " active" : "";
-      return `- browserId=${tab.browserId}${active} title=${JSON.stringify(tab.title || "Untitled")} url=${tab.url}`;
+      const location = tab.location ? ` location=${tab.location}` : "";
+      return `- browserId=${tab.browserId}${active}${location} title=${JSON.stringify(tab.title || "Untitled")} url=${tab.url}`;
     });
     return withDialogs(
       [
@@ -887,7 +896,7 @@ function summarizeBrowserSuccess(
 
   if (payload.result.command === "new_tab") {
     return withDialogs(
-      `Created browser tab browserId=${payload.result.browserId} url=${payload.result.url}. Use this browserId for tab-scoped browser tools.`,
+      `Created browser tab browserId=${payload.result.browserId}${payload.result.location ? ` location=${payload.result.location}` : ""} url=${payload.result.url}. Use this browserId for tab-scoped browser tools.`,
     );
   }
 

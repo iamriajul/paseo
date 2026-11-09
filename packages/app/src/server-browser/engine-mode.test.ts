@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   createManagedChromeModePatch,
+  createNewTabTargetPatch,
   createServerBrowserModePatch,
+  describeNewTabTarget,
+  resolveNewTabTarget,
   resolveManagedChromeMode,
   resolveServerBrowserMode,
 } from "./engine-mode";
@@ -45,5 +48,34 @@ describe("server browser mode", () => {
       browserTools: { enabled: true },
     });
     expect(createServerBrowserModePatch("off")).toEqual({ serverBrowser: { enabled: false } });
+  });
+});
+
+describe("default for new tabs", () => {
+  it("is Automatic unless Server or Desktop was picked", () => {
+    expect(resolveNewTabTarget(undefined)).toBe("auto");
+    expect(resolveNewTabTarget({ newTabTarget: "some-future-target" })).toBe("auto");
+    expect(resolveNewTabTarget({ newTabTarget: "desktop" })).toBe("desktop");
+  });
+
+  it("leaves the server browser switch as it is while changing the default", () => {
+    expect(createNewTabTargetPatch({ target: "server", serverBrowserEnabled: true })).toEqual({
+      serverBrowser: { enabled: true, newTabTarget: "server" },
+    });
+    expect(createNewTabTargetPatch({ target: "desktop", serverBrowserEnabled: false })).toEqual({
+      serverBrowser: { enabled: false, newTabTarget: "desktop" },
+    });
+  });
+
+  it("says Automatic means desktop and Server is unavailable while the server browser is off", () => {
+    expect(describeNewTabTarget({ target: "auto", serverBrowserEnabled: false })).toContain(
+      "Automatic opens agents' new tabs in the desktop app's Browser",
+    );
+    expect(describeNewTabTarget({ target: "server", serverBrowserEnabled: false })).toContain(
+      "Server is unavailable",
+    );
+    expect(describeNewTabTarget({ target: "auto", serverBrowserEnabled: true })).toContain(
+      "otherwise the server browser",
+    );
   });
 });

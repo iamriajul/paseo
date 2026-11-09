@@ -255,6 +255,11 @@ const MutableServerBrowserConfigSchema = z
     cdpUrl: z.string().optional(),
     /** Managed Chrome: "window" (the default) or "headless". */
     chromeMode: z.string().optional(),
+    /**
+     * Where an agent's new tab opens when it does not pass `target`: "auto" (the default: a
+     * connected desktop app's Browser, else the server browser), "server" or "desktop".
+     */
+    newTabTarget: z.string().optional(),
   })
   .passthrough();
 
@@ -4488,6 +4493,9 @@ export const ServerInfoStatusPayloadSchema = z
         serverBrowserEngines: z.boolean().optional(),
         // COMPAT(serverBrowserAnnotate): added in v0.15.x (fork), drop the gate after 2027-05-01.
         serverBrowserAnnotate: z.boolean().optional(),
+        // COMPAT(serverBrowserTabTarget): added in v0.15.x (fork), drop the gate after 2027-05-01.
+        // True when browser_new_tab takes `target` and serverBrowser.newTabTarget is honoured.
+        serverBrowserTabTarget: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

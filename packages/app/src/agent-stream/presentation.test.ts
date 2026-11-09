@@ -846,3 +846,53 @@ it("folds consecutive messages from one agent and resolves a hidden one to its g
   expect(expanded.tail.map((item) => item.id)).toEqual(["tool-a1", "tool-a2", "tool-b1"]);
   expect(expanded.readingRowReplacements.get("tool-a2")).toBeUndefined();
 });
+
+it("folds a folded agent message's turn through the agent's wakes up to the next input", () => {
+  const timestamp = new Date("2026-01-01T00:00:00.000Z");
+  const received = toolCall("received", "agent_message");
+  if (received.payload.source !== "agent") throw new Error("Expected agent tool");
+  received.payload.data.agentMessage = {
+    event: "message",
+    sender: { id: "pa", title: "PA" },
+    text: "A CI change from the founder",
+  };
+  const turn = (turnId: string, items: StreamItem[]) =>
+    items.map((item) => Object.assign(item, { turnId }));
+  const reply = (id: string): StreamItem => ({
+    kind: "assistant_message",
+    id,
+    text: id,
+    timestamp,
+  });
+  const tail = [
+    ...turn("received", [received, toolCall("c1", "Bash"), reply("r1")]),
+    ...turn("wake", [toolCall("wake", "task_notification"), toolCall("c2", "Bash"), reply("r2")]),
+    ...turn("prompt", [
+      { kind: "user_message", id: "prompt", text: "Next", timestamp },
+      reply("r3"),
+    ]),
+  ];
+  const present = createStreamPresentation();
+  const input = {
+    ...presentationOptions,
+    display: "collapseTurns" as const,
+    isTurnActive: false,
+    transform: undefined,
+    tail,
+    head: [],
+  };
+  const state = { toggledIds: new Set<string>(), openGroupIds: new Set<string>() };
+  const folded = present({ ...input, agentMessages: { display: "collapsed", state } });
+  expect(folded.tail.map((item) => item.id)).toEqual(["tool-received", "r2", "prompt", "r3"]);
+  expect(folded.readingRowReplacements.get("tool-wake")).toBe("tool-received");
+
+  const full = present({ ...input, agentMessages: { display: "expanded", state } });
+  expect(full.tail.map((item) => item.id)).toEqual([
+    "tool-received",
+    "r1",
+    "tool-wake",
+    "r2",
+    "prompt",
+    "r3",
+  ]);
+});

@@ -222,7 +222,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   usage: DEFAULT_USAGE_PREFERENCES,
   autoExpandReasoning: false,
   chatDisplay: "collapseTurns",
-  agentMessagesDisplay: "collapsed",
+  agentMessagesDisplay: "expanded",
   sidebarStatusSubtitle: DEFAULT_SIDEBAR_STATUS_SUBTITLE,
   sidebarIdentityIcon: true,
   chatOutlineEnabled: true,
@@ -331,7 +331,7 @@ const StoredAppSettingsSchema = z
     usage: UsagePreferencesSchema,
     autoExpandReasoning: z.boolean().catch(false),
     chatDisplay: z.enum(["full", "collapseToolCalls", "collapseTurns"]).optional().catch("full"),
-    agentMessagesDisplay: z.enum(["collapsed", "expanded"]).catch("collapsed"),
+    agentMessagesDisplay: z.enum(["collapsed", "expanded"]).catch("expanded"),
     sidebarStatusSubtitle: z.enum(["host", "project"]).catch(DEFAULT_SIDEBAR_STATUS_SUBTITLE),
     sidebarIdentityIcon: z.boolean().catch(true),
     // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.

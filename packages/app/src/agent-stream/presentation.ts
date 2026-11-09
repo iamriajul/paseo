@@ -14,6 +14,7 @@ import { collapseTurns, type TurnCollapse } from "./turn-collapse/model";
 import type { ReadingRowReplacements } from "./reading-anchor";
 import {
   foldAgentMessages,
+  isFoldedAgentRow,
   type AgentMessageFold,
   type AgentMessageFoldState,
 } from "./agent-message-fold/model";
@@ -90,6 +91,7 @@ export function createStreamPresentation() {
   let collapsedSource: StreamItem[] | undefined;
   let collapsedIsLatestTurnOpen = false;
   let collapsedExpandedHostIds: ReadonlySet<string> | undefined;
+  let collapsedAgentMessages: PresentationInput["agentMessages"];
   let collapsed: TurnCollapse | undefined;
   let foldedSource: StreamItem[] | undefined;
   let foldedInput: PresentationInput["agentMessages"];
@@ -172,17 +174,21 @@ export function createStreamPresentation() {
       !collapsed ||
       collapsedSource !== projection.tail ||
       collapsedIsLatestTurnOpen !== isLatestTurnOpen ||
-      collapsedExpandedHostIds !== input.expandedTurnHostIds
+      collapsedExpandedHostIds !== input.expandedTurnHostIds ||
+      collapsedAgentMessages !== input.agentMessages
     ) {
+      const agentMessages = input.agentMessages;
       collapsed = collapseTurns({
         tail: projection.tail,
         isLatestTurnOpen,
         expandedHostIds: input.expandedTurnHostIds,
         getGroupedCalls: (itemId) => projection.groupsByHostId.get(itemId)?.run.calls,
+        spansWakes: agentMessages && ((host) => isFoldedAgentRow(host, agentMessages)),
       });
       collapsedSource = projection.tail;
       collapsedIsLatestTurnOpen = isLatestTurnOpen;
       collapsedExpandedHostIds = input.expandedTurnHostIds;
+      collapsedAgentMessages = input.agentMessages;
     }
     const { tail, ...turns } = collapsed;
     if (turns.nestedItemIds.size === 0) return { ...projection, tail, turns };

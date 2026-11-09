@@ -69,11 +69,12 @@ test.describe("New workspace live pin", () => {
       await gotoAppShell(page);
       await waitForSidebarHydration(page);
       await openNewWorkspaceComposer(page, seeded);
-      await submitNewWorkspacePrompt(page, "Pin me while I start");
+      // Each wait is bounded below the test budget, so a hang names its step and the traffic seen.
+      await submitNewWorkspacePrompt(page, "Pin me while I start", { timeoutMs: 20_000 });
 
-      await creation.waitForCreateRequest();
+      await creation.waitForCreateRequest({ timeoutMs: 15_000 });
       // The response is held here, carrying the descriptor from before the pin.
-      await creation.waitForDelayedCreatedStatus();
+      await creation.waitForDelayedCreatedStatus({ timeoutMs: 30_000 });
       const workspaceId = await findCreatedWorkspaceId(seeded);
       const rowTestId = pinnedRowTestId(workspaceId);
 

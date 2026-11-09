@@ -293,6 +293,7 @@ export async function selectNewWorkspaceHost(page: Page, hostLabel: string): Pro
 export async function submitNewWorkspacePrompt(
   page: Page,
   prompt = "Hello from e2e",
+  clickBound?: BoundedWait,
 ): Promise<void> {
   const composer = page.getByRole("textbox", { name: "Message agent..." });
   await expect(composer).toBeVisible({ timeout: 30_000 });
@@ -301,7 +302,29 @@ export async function submitNewWorkspacePrompt(
     .getByTestId("message-input-root")
     .getByRole("button", { name: "Create" });
   await expect(createButton).toBeVisible({ timeout: 30_000 });
-  await createButton.click();
+  if (!clickBound) {
+    await createButton.click();
+    return;
+  }
+  try {
+    await createButton.click({ timeout: clickBound.timeoutMs });
+  } catch (error) {
+    const state = await page
+      .evaluate(() => ({
+        url: location.href,
+        alerts: [...document.querySelectorAll('[role="alert"], [data-testid*="toast"]')]
+          .map((node) => node.textContent?.trim())
+          .filter(Boolean),
+      }))
+      .catch(() => null);
+    throw new Error(
+      `Clicking Create: not done within ${clickBound.timeoutMs} ms. ` +
+        `Button enabled: ${await createButton.isEnabled().catch(() => "unknown")}; ` +
+        `composer: ${JSON.stringify(await composer.inputValue().catch(() => null))}; ` +
+        `page: ${JSON.stringify(state)}. ${String(error)}`,
+      { cause: error },
+    );
+  }
 }
 
 export async function clickNewWorkspaceButton(
@@ -552,11 +575,51 @@ export async function loadSessionMessageReaders() {
   };
 }
 
+/** A bound on a wait. On expiry the wait throws with its step name and the session traffic seen. */
+export interface BoundedWait {
+  timeoutMs: number;
+}
+
 export interface AgentCreatedDelayControl {
   release(): void;
-  waitForCreateRequest(): Promise<void>;
-  waitForDelayedCreatedStatus(): Promise<void>;
+  waitForCreateRequest(bound?: BoundedWait): Promise<void>;
+  waitForDelayedCreatedStatus(bound?: BoundedWait): Promise<void>;
   expectSingleWorkspaceIntent(): void;
+}
+
+const CREATION_TRAFFIC_LIMIT = 60;
+
+function describeSessionMessage(
+  direction: "client" | "daemon",
+  message: { type: string; payload?: unknown; requestId?: unknown },
+): string {
+  const payload = (message.payload ?? {}) as { requestId?: unknown; status?: unknown };
+  const requestId = message.requestId ?? payload.requestId;
+  const status = typeof payload.status === "string" ? ` status=${payload.status}` : "";
+  return `${direction} ${message.type}${typeof requestId === "string" ? ` ${requestId}` : ""}${status}`;
+}
+
+async function boundWait(
+  step: string,
+  wait: Promise<void>,
+  bound: BoundedWait | undefined,
+  traffic: () => string[],
+): Promise<void> {
+  if (!bound) return wait;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<"timed-out">((resolve) => {
+    timer = setTimeout(() => resolve("timed-out"), bound.timeoutMs);
+  });
+  try {
+    if ((await Promise.race([wait.then(() => "done" as const), timedOut])) === "timed-out") {
+      throw new Error(
+        `${step}: nothing within ${bound.timeoutMs} ms. ` +
+          `Session traffic since the delay was installed:\n${traffic().join("\n") || "(none)"}`,
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function delayBrowserAgentCreatedStatus(
@@ -568,6 +631,11 @@ export async function delayBrowserAgentCreatedStatus(
   const creationRequests: SessionInboundMessage[] = [];
   const delayedForwards: Array<() => void> = [];
   let releaseRequested = false;
+  const traffic: string[] = [];
+  const record = (entry: string) => {
+    traffic.push(entry);
+    if (traffic.length > CREATION_TRAFFIC_LIMIT) traffic.shift();
+  };
   let resolveCreateRequest: (() => void) | null = null;
   let resolveDelayedCreatedStatus: (() => void) | null = null;
   const createRequestSeen = new Promise<void>((resolve) => {
@@ -582,6 +650,7 @@ export async function delayBrowserAgentCreatedStatus(
 
     ws.onMessage((message) => {
       const sessionMessage = frames.client(message);
+      if (sessionMessage) record(describeSessionMessage("client", sessionMessage));
       if (sessionMessage?.type === "send_agent_message_request")
         creationRequests.push(sessionMessage);
       if (
@@ -598,6 +667,9 @@ export async function delayBrowserAgentCreatedStatus(
 
     server.onMessage((message) => {
       const sessionMessage = frames.server(message);
+      if (sessionMessage && sessionMessage.type !== "agent_stream") {
+        record(describeSessionMessage("daemon", sessionMessage));
+      }
       const isCreated =
         (sessionMessage?.type === "status" && sessionMessage.payload.status === "agent_created") ||
         sessionMessage?.type === "agent.create.response" ||
@@ -635,8 +707,15 @@ export async function delayBrowserAgentCreatedStatus(
         agent: { initialPrompt: expect.any(String) },
       });
     },
-    waitForCreateRequest: () => createRequestSeen,
-    waitForDelayedCreatedStatus: () => delayedCreatedStatusSeen,
+    waitForCreateRequest: (bound) =>
+      boundWait("Waiting for the create request", createRequestSeen, bound, () => traffic),
+    waitForDelayedCreatedStatus: (bound) =>
+      boundWait(
+        "Waiting for the daemon's creation response",
+        delayedCreatedStatusSeen,
+        bound,
+        () => traffic,
+      ),
   };
 }
 

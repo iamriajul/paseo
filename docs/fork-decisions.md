@@ -1563,3 +1563,16 @@ grep -q 'nothing inside a sheet can scroll it off its snap' packages/app/e2e/bro
 grep -q '(await locator.isVisible()) ? await locator.boundingBox() : null' packages/app/e2e/browser/workspace-labels.spec.ts
 grep -q 'const { width, height } = await settled(locator);' packages/app/e2e/browser/workspace-labels.spec.ts
 ```
+
+## creation-and-command-list-bounded-waits
+
+**the live-pin and command-list e2e name the step that hung and report the traffic it saw**
+
+Two tests failed on their first CI attempt and passed on retry (PR #174, 2026-11-09), and CI keeps no artifacts for a retried pass. `new-workspace-live-pin.spec.ts` "keeps a pin made before the creation response arrives" died as a bare 120 s test timeout: it waits on the Create click and on `delayBrowserAgentCreatedStatus`'s create request and creation response, and none of the three had a timeout of its own. `submitNewWorkspacePrompt` and those two waits now take an optional bound, and the live-pin test sets one below its budget for each. On expiry they throw with the step name and what was seen: the button state, the composer text and any alert for the click, the session message types with request ids for the two waits. The first local failure with these bounds read "Waiting for the create request" with no `workspace.create.request` in the traffic. `composer-autocomplete.spec.ts` "lists commands again when / is typed after the list failed" found no `/help` after the second `/` and has not reproduced locally (29 runs). On failure it now reports whether the popover was open and what it showed, the input value, and every `list_commands` request and reply since the second `/`. Other callers of these helpers are unchanged. These change how the tests fail, not whether they pass.
+
+```bash
+grep -q 'Session traffic since the delay was installed' packages/app/e2e/support/helpers/new-workspace.ts
+grep -q 'Clicking Create: not done within' packages/app/e2e/support/helpers/new-workspace.ts
+grep -q 'waitForDelayedCreatedStatus({ timeoutMs: 30_000 })' packages/app/e2e/browser/new-workspace-live-pin.spec.ts
+grep -q 'command list traffic since then' packages/app/e2e/browser/composer-autocomplete.spec.ts
+```

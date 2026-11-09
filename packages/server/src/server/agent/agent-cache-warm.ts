@@ -10,6 +10,7 @@ import {
   resolveCacheAutoCompactEnabled,
   DEFAULT_CACHE_WARM_PING_PROMPT,
   CACHE_WARM_QUESTION_PAUSE_MESSAGE,
+  CACHE_WARM_PERMISSION_PAUSE_MESSAGE,
   resolveEffectivePromptCacheWindows,
   resolveCacheWarmEnabled,
   resolvePromptCacheAnchorMs,
@@ -35,6 +36,7 @@ import {
 export {
   DEFAULT_CACHE_WARM_PING_PROMPT,
   CACHE_WARM_QUESTION_PAUSE_MESSAGE,
+  CACHE_WARM_PERMISSION_PAUSE_MESSAGE,
   isCacheWarmPrompt,
   isCacheWarmReply,
   isQuestionPermission,
@@ -49,7 +51,8 @@ interface CacheWarmView {
   isDelegated: boolean;
   activity: "ready" | "busy" | "closed";
   pendingQuestions: AgentPermissionRequest[];
-  hasOtherPendingPermissions: boolean;
+  /** Pending requests that are not questions: tool permissions such as a flagged command. */
+  pendingPermissions: AgentPermissionRequest[];
   anchorMs: number | null;
   consecutivePings: number;
   /** Compact instead of expiring when the idle cap is reached. */
@@ -73,8 +76,9 @@ type CacheWarmDecision =
   | { kind: "fork-warm"; consecutivePings: number; maxPings: number }
   | { kind: "compact"; contextTokens: number }
   | {
-      kind: "interrupt-questions";
+      kind: "close-pending";
       questions: AgentPermissionRequest[];
+      permissions: AgentPermissionRequest[];
       consecutivePings: number;
       maxPings: number;
     };
@@ -113,7 +117,7 @@ function viewLiveAgent(
     isDelegated: getParentAgentIdFromLabels(agent.labels) !== null,
     activity,
     pendingQuestions,
-    hasOtherPendingPermissions: pending.length > pendingQuestions.length,
+    pendingPermissions: pending.filter((request) => !isQuestionPermission(request)),
     anchorMs: resolvePromptCacheAnchorMs(agent),
     consecutivePings: input.consecutivePings,
     autoCompact: resolveCacheAutoCompactEnabled({
@@ -139,7 +143,7 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
     isDelegated: getParentAgentIdFromLabels(record.labels) !== null,
     activity: wasRunning ? "busy" : "ready",
     pendingQuestions: [],
-    hasOtherPendingPermissions: false,
+    pendingPermissions: [],
     anchorMs: resolvePromptCacheAnchorMs(record),
     consecutivePings: input.consecutivePings,
     autoCompact: resolveCacheAutoCompactEnabled({
@@ -230,14 +234,13 @@ function decideCacheWarm(input: {
   if (view.forkWarm) {
     return decideForkWarm({ view, windows, nowMs, lastAttemptMs });
   }
-  if (view.hasOtherPendingPermissions) {
-    return { kind: "skip", reason: "agent is waiting on a tool permission" };
+  // A pending question or permission blocks the turn, so the ping could never go out. At the
+  // deadline the watchdog closes it for the user who is away, and the turn ends.
+  const hasPending = view.pendingQuestions.length + view.pendingPermissions.length > 0;
+  if (hasPending && view.isDelegated) {
+    return { kind: "skip", reason: "the parent agent answers this request" };
   }
-  const hasQuestions = view.pendingQuestions.length > 0;
-  if (hasQuestions && view.isDelegated) {
-    return { kind: "skip", reason: "the parent agent answers this question" };
-  }
-  if (!hasQuestions && view.activity !== "ready") {
+  if (!hasPending && view.activity !== "ready") {
     return { kind: "skip", reason: "agent is busy" };
   }
   if (view.anchorMs === null) {
@@ -248,7 +251,7 @@ function decideCacheWarm(input: {
     return { kind: "skip", reason: "cache has already expired" };
   }
   const capped = reachedCap(view, windows);
-  if (capped && (!compactsAtCap(view) || hasQuestions)) {
+  if (capped && (!compactsAtCap(view) || hasPending)) {
     return { kind: "skip", reason: "auto-cap reached for this idle stretch" };
   }
   if (lastAttemptMs !== null && lastAttemptMs > view.anchorMs) {
@@ -264,8 +267,13 @@ function decideCacheWarm(input: {
     consecutivePings: view.consecutivePings,
     maxPings: windows.maxConsecutivePings,
   };
-  return hasQuestions
-    ? { kind: "interrupt-questions", questions: view.pendingQuestions, ...counts }
+  return hasPending
+    ? {
+        kind: "close-pending",
+        questions: view.pendingQuestions,
+        permissions: view.pendingPermissions,
+        ...counts,
+      }
     : { kind: "ping", ...counts };
 }
 
@@ -293,7 +301,7 @@ function decideForkWarm(input: {
     compactsAtCap(view) &&
     view.activity === "ready" &&
     view.pendingQuestions.length === 0 &&
-    !view.hasOtherPendingPermissions;
+    view.pendingPermissions.length === 0;
   if (capped && !canCompact) {
     return { kind: "skip", reason: "auto-cap reached for this idle stretch" };
   }
@@ -311,6 +319,19 @@ function decideForkWarm(input: {
     consecutivePings: view.consecutivePings,
     maxPings: windows.maxConsecutivePings,
   };
+}
+
+/** What a closed permission asked for, in the words the app shows and "Run it now" repeats. */
+export function describeClosedPermission(request: AgentPermissionRequest): {
+  tool: string;
+  command?: string;
+} {
+  const input = request.input ?? {};
+  const candidates = [input.command, input.file_path, input.url, request.title];
+  const command = candidates.find(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  return command ? { tool: request.name, command } : { tool: request.name };
 }
 
 interface ActiveCacheWarmTimerEntry {
@@ -347,7 +368,7 @@ export interface AgentCacheWarmManagerDependencies {
 
 type SendingDecision = Extract<
   CacheWarmDecision,
-  { kind: "ping" | "fork-warm" | "compact" | "interrupt-questions" }
+  { kind: "ping" | "fork-warm" | "compact" | "close-pending" }
 >;
 
 /** Every decision that sends a request through the agent's session, so through its account. */
@@ -356,7 +377,7 @@ function sendsRequest(decision: CacheWarmDecision): decision is SendingDecision 
     decision.kind === "ping" ||
     decision.kind === "fork-warm" ||
     decision.kind === "compact" ||
-    decision.kind === "interrupt-questions"
+    decision.kind === "close-pending"
   );
 }
 
@@ -569,12 +590,12 @@ export class AgentCacheWarmManager {
       case "wait":
         this.schedule(agentId);
         return false;
-      case "interrupt-questions":
+      case "close-pending":
         return this.runAttempt({
           agentId,
           counts: decision,
-          logMessage: "Closing an unanswered question",
-          attempt: () => this.interruptPendingQuestions(agentId, decision.questions),
+          logMessage: "Closing an unanswered question or permission",
+          attempt: () => this.closePendingRequests(agentId, decision),
         });
       case "ping":
         return this.runAttempt({
@@ -680,17 +701,35 @@ export class AgentCacheWarmManager {
     return sent;
   }
 
-  private async interruptPendingQuestions(
+  /**
+   * Answers for the user who is away: denies each pending question and permission so the turn
+   * ends, and records what was closed so the app can show it and offer to run it.
+   */
+  private async closePendingRequests(
     agentId: string,
-    pendingQuestions: AgentPermissionRequest[],
+    pending: { questions: AgentPermissionRequest[]; permissions: AgentPermissionRequest[] },
   ): Promise<boolean> {
-    for (const question of pendingQuestions) {
+    for (const question of pending.questions) {
       await this.agentManager.respondToPermission(agentId, question.id, {
         behavior: "deny",
         message: CACHE_WARM_QUESTION_PAUSE_MESSAGE,
       });
     }
-    this.agentManager.markQuestionClosed(agentId);
+    for (const permission of pending.permissions) {
+      await this.agentManager.respondToPermission(agentId, permission.id, {
+        behavior: "deny",
+        message: CACHE_WARM_PERMISSION_PAUSE_MESSAGE,
+      });
+    }
+    if (pending.questions.length > 0) this.agentManager.markQuestionClosed(agentId);
+    // The banner names only the newest closed permission, on purpose. A turn waits on one
+    // permission at a time except for parallel tool calls, whose other denials stay in the
+    // transcript, and Run it now's go-ahead covers the whole step. A later close replaces an
+    // earlier record because only the newest still matches what the agent stopped on.
+    const closedPermission = pending.permissions.at(-1);
+    if (closedPermission) {
+      this.agentManager.markPermissionClosed(agentId, describeClosedPermission(closedPermission));
+    }
     return true;
   }
 

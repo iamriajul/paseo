@@ -47,8 +47,11 @@ export type PromptCacheWarmupPlan =
   /** The CLIProxyAPI account serving the agent is blocked; the next message resumes warm-up. */
   | { kind: "paused-account"; pause: AgentCacheWarmPause }
   | { kind: "parent-answers" }
+  /** A host that cannot close a pending permission: the cache expires while it waits. */
   | { kind: "waits-for-permission" }
   | { kind: "pauses-question"; remainingMs: number }
+  /** The host closes the pending permission at the deadline so the ping can go out. */
+  | { kind: "pauses-permission"; remainingMs: number }
   | { kind: "next-ping"; remainingMs: number };
 
 export interface PromptCacheWarmup {
@@ -179,6 +182,8 @@ function resolveWarmupPlan(input: {
   now: number;
   /** The host warms through a fork, which needs no idle agent. */
   forkWarm: boolean;
+  /** The host closes a pending permission at the deadline, like a question. */
+  closesPermissions: boolean;
 }): PromptCacheWarmupPlan {
   const { facts, windows, status, now } = input;
   if (!facts.warmupEnabled) return { kind: "off" };
@@ -194,7 +199,12 @@ function resolveWarmupPlan(input: {
       ? { kind: "parent-answers" }
       : { kind: "pauses-question", remainingMs };
   }
-  if (status.kind === "awaiting-permission") return { kind: "waits-for-permission" };
+  if (status.kind === "awaiting-permission") {
+    if (!input.closesPermissions) return { kind: "waits-for-permission" };
+    return facts.isDelegated
+      ? { kind: "parent-answers" }
+      : { kind: "pauses-permission", remainingMs };
+  }
   return { kind: "next-ping", remainingMs };
 }
 
@@ -276,11 +286,12 @@ function resolveWarmup(input: {
   status: PromptCacheStatus;
   now: number;
   forkWarm: boolean;
+  closesPermissions: boolean;
 }): PromptCacheWarmup | null {
-  const { facts, status, now, forkWarm } = input;
+  const { facts, status, now, forkWarm, closesPermissions } = input;
   const { windows } = facts;
   if (!windows || !facts.warmupAvailable) return null;
-  const plan = resolveWarmupPlan({ facts, windows, status, now, forkWarm });
+  const plan = resolveWarmupPlan({ facts, windows, status, now, forkWarm, closesPermissions });
   return {
     enabled: facts.warmupEnabled,
     plan,
@@ -296,7 +307,7 @@ function resolveWarmup(input: {
 export function resolvePromptCacheView(
   agent: Agent | undefined,
   now: number,
-  options?: { forkWarm?: boolean },
+  options?: { forkWarm?: boolean; closesPermissions?: boolean },
 ): PromptCacheView {
   const totals = resolveTotals(agent);
   const isClaude = Boolean(
@@ -305,7 +316,13 @@ export function resolvePromptCacheView(
   const facts = agent && isClaude ? readAgentCacheFacts(agent) : null;
   const status: PromptCacheStatus = facts ? resolveStatus(facts, now) : { kind: "automatic" };
   const warmup = facts
-    ? resolveWarmup({ facts, status, now, forkWarm: options?.forkWarm === true })
+    ? resolveWarmup({
+        facts,
+        status,
+        now,
+        forkWarm: options?.forkWarm === true,
+        closesPermissions: options?.closesPermissions === true,
+      })
     : null;
   return {
     isClaude,
@@ -359,9 +376,10 @@ export function usePromptCache(serverId: string, agentId: string): PromptCacheSt
   const client = useHostRuntimeClient(serverId);
   const agent = usePromptCacheAgent(serverId, agentId);
   const forkWarm = useHostFeature(serverId, "cacheWarmFork");
+  const closesPermissions = useHostFeature(serverId, "cacheWarmClosesPermissions");
   const ticking = hasLiveCountdown(resolvePromptCacheView(agent, Date.now()).status);
   const now = useSecondClock(ticking);
-  const view = resolvePromptCacheView(agent, now, { forkWarm });
+  const view = resolvePromptCacheView(agent, now, { forkWarm, closesPermissions });
   const { status, warmup } = view;
 
   const warmupEnabled = warmup?.enabled ?? false;

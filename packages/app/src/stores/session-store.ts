@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { ViewedTimelineOwner } from "@/timeline/viewed-timeline-sync";
-import type { AgentDirectoryEntry } from "@/types/agent-directory";
+import { readWarmUpClosings, type AgentDirectoryEntry } from "@/types/agent-directory";
 import {
   appendSubmittedUserMessage,
   handoffCreatedAgentUserMessageToStream,
@@ -1948,7 +1948,7 @@ export const useSessionStore = create<SessionStore>()(
             cwd: agent.cwd,
             provider: agent.provider,
             pendingPermissionCount: agent.pendingPermissions.length,
-            questionClosedAt: agent.promptCache?.questionClosedAt ?? null,
+            ...readWarmUpClosings(agent.promptCache),
             requiresAttention: agent.requiresAttention ?? false,
             attentionReason: agent.attentionReason ?? null,
             attentionTimestamp: agent.attentionTimestamp ?? null,

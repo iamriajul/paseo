@@ -24,6 +24,10 @@ import {
   type PromptCacheHistoryEntry as GatewaySwitchEntry,
 } from "./agent-cache-warm.js";
 
+function readPreviousInputTokens(entry: PromptCacheHistoryEntry): number | undefined {
+  return entry.previousInputTokens;
+}
+
 function entryKind(entry: { kind: string }): string {
   return entry.kind;
 }
@@ -160,6 +164,66 @@ describe("agent-cache-warm protocol utilities", () => {
     function timing(state: AgentPromptCacheState | undefined) {
       return state?.history?.map(({ kind, gapMs, awayMs }) => ({ kind, gapMs, awayMs }));
     }
+
+    it("measures the request after a fork warm-up against the agent's own context, not the fork's", () => {
+      // A real Opus 5.5 session (5m window): the fork read the agent's prefix and wrote a tail of
+      // its own; the agent's next request read the whole prefix and wrote only its new message.
+      const tokens = (read: number, write: number) => ({
+        readTokens: read,
+        writeTokens: write,
+        uncachedTokens: 2,
+      });
+      const at = (seconds: number) => new Date(Date.UTC(2026, 10, 9, 7, 28) + seconds * 1000);
+      const agent = { at: at(0).toISOString(), turnId: "t1", isWarmPing: false };
+      const state = replay([
+        { ...agent, ...tokens(622_000, 1_727) },
+        {
+          at: at(251).toISOString(),
+          turnId: null,
+          isWarmPing: true,
+          forkWarmUp: true,
+          ...tokens(623_727, 27_817),
+        },
+        { at: at(258).toISOString(), turnId: "t2", isWarmPing: false, ...tokens(623_727, 967) },
+      ]);
+      const [, fork, next] = state?.history ?? [];
+      expect(fork).toMatchObject({ kind: "warm-up", previousInputTokens: 623_729 });
+      expect(next).toMatchObject({ kind: "turn", previousInputTokens: 623_729 });
+      expect(isPromptCacheHit(next!)).toBe(true);
+      expect(state?.totals).toEqual({ requests: 2, hits: 2, misses: 0 });
+      expect(state?.contextInputTokens).toBe(624_696);
+    });
+
+    it("keeps measuring against the agent's context across a run of fork warm-ups", () => {
+      const fork = (minutes: number): PromptCacheRequestSample => ({
+        ...request(minutes, "ignored", { isWarmPing: true, readTokens: 1_000 }),
+        turnId: null,
+        forkWarmUp: true,
+        writeTokens: 300,
+      });
+      const state = replay([
+        request(0, "t1", { readTokens: 900 }),
+        fork(4),
+        fork(8),
+        request(9, "t2", { readTokens: 1_000 }),
+      ]);
+      expect(state?.history?.map(readPreviousInputTokens)).toEqual([
+        undefined,
+        1_000,
+        1_000,
+        1_000,
+      ]);
+      expect(state?.totals?.misses).toBe(0);
+    });
+
+    it("still measures the request after a ping warm-up against the ping, which joined the context", () => {
+      const state = replay([
+        request(0, "t1", { readTokens: 900 }),
+        request(4, "ping-turn", { isWarmPing: true, readTokens: 1_000 }),
+        request(5, "t2", { readTokens: 1_100 }),
+      ]);
+      expect(state?.history?.[2]?.previousInputTokens).toBe(1_100);
+    });
 
     it("keeps each request's model and write TTL so it can be priced on its own", () => {
       const state = replay([

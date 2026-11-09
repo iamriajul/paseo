@@ -6,15 +6,18 @@ import {
   ArrowLeft,
   ArrowRight,
   Keyboard,
-  Monitor,
   MoreHorizontal,
   MousePointer2,
   RotateCw,
   Server,
-  Smartphone,
 } from "lucide-react-native";
 import invariant from "tiny-invariant";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { isNative } from "@/constants/platform";
@@ -24,16 +27,18 @@ import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { normalizeBrowserUrl } from "@/desktop/browser/store/state";
 import { truncateBrowserText } from "@/desktop/browser/browser-element-attachment";
 import { WebAnnotationComposer } from "@/desktop/browser/pane/web-annotation-composer";
+import type { BrowserDeviceSizeId } from "@/desktop/browser/device-presets";
+import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser/device-size-menu";
 import { useHostFeature } from "@/runtime/host-features";
 import { useServerBrowserStatus, useServerBrowserTab, type ServerBrowserTab } from "./store";
 import { ServerBrowserSurface, type ServerBrowserSurfaceHandle } from "./surface";
 import { useServerBrowserAnnotate } from "./use-server-browser-annotate";
+import { deviceKindForViewport, SERVER_BROWSER_DEFAULT_VIEWPORT } from "./device-size";
+import { useServerBrowserDeviceSize } from "./use-server-browser-device-size";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
 const ThemedRotateCw = withUnistyles(RotateCw);
-const ThemedMonitor = withUnistyles(Monitor);
-const ThemedSmartphone = withUnistyles(Smartphone);
 const ThemedMore = withUnistyles(MoreHorizontal);
 const ThemedKeyboard = withUnistyles(Keyboard);
 const ThemedMousePointer2 = withUnistyles(MousePointer2);
@@ -46,11 +51,6 @@ const muted = (theme: { colors: { foregroundMuted: string } }) => ({
 const accent = (theme: { colors: { accent: string } }) => ({
   color: theme.colors.accent,
 });
-
-export const SERVER_BROWSER_VIEWPORTS = {
-  desktop: { width: 1280, height: 800, mobile: false },
-  phone: { width: 390, height: 844, mobile: true },
-} as const;
 
 function tabLabel(tab: ServerBrowserTab | null): string {
   if (!tab) return "Server browser";
@@ -156,11 +156,18 @@ function ServerBrowserPanel(): ReactElement {
     () => run(() => client?.serverBrowserNavigate(browserId, "reload")),
     [browserId, client, run],
   );
-  const isPhone = tab?.viewport.mobile === true;
-  const handleToggleViewport = useCallback(() => {
-    const next = isPhone ? SERVER_BROWSER_VIEWPORTS.desktop : SERVER_BROWSER_VIEWPORTS.phone;
-    run(() => client?.serverBrowserSetViewport(browserId, next));
-  }, [browserId, client, isPhone, run]);
+  const deviceSize = useServerBrowserDeviceSize({
+    client,
+    browserId,
+    viewport: tab?.viewport ?? SERVER_BROWSER_DEFAULT_VIEWPORT,
+    run,
+  });
+  const selectDevice = deviceSize.select;
+  const handleSelectPreset = useCallback(
+    (id: BrowserDeviceSizeId) => selectDevice(id),
+    [selectDevice],
+  );
+  const handleSelectDefault = useCallback(() => selectDevice("default"), [selectDevice]);
   const handleClearData = useCallback(
     () => run(() => client?.serverBrowserClearWorkspaceData(workspaceId)),
     [client, run, workspaceId],
@@ -172,6 +179,8 @@ function ServerBrowserPanel(): ReactElement {
   const handleKeyboard = useCallback(() => surfaceRef.current?.focusKeyboard(), []);
 
   if (!tab || !client) return <ServerBrowserTabGone status={status} />;
+
+  const deviceChoice = deviceSize.choice;
 
   return (
     <View style={styles.container}>
@@ -220,16 +229,30 @@ function ServerBrowserPanel(): ReactElement {
               <ThemedMousePointer2 size={16} uniProps={isPicking ? accent : muted} />
             </ToolbarButton>
           ) : null}
-          <ToolbarButton
-            label={isPhone ? "Switch to desktop viewport" : "Switch to phone viewport"}
-            onPress={handleToggleViewport}
-          >
-            {isPhone ? (
-              <ThemedSmartphone size={16} uniProps={muted} />
-            ) : (
-              <ThemedMonitor size={16} uniProps={muted} />
-            )}
-          </ToolbarButton>
+          <DropdownMenu>
+            <ToolbarButton
+              kind="menu"
+              label={t("workspace.browser.devices.label")}
+              testID="server-browser-device-size"
+            >
+              <BrowserDeviceIcon kind={deviceKindForViewport(tab.viewport, deviceChoice)} />
+            </ToolbarButton>
+            <DropdownMenuContent align="end" scrollable maxHeight={360}>
+              <DropdownMenuItem
+                onSelect={handleSelectDefault}
+                selected={deviceChoice === "default"}
+                showSelectedCheck
+                testID="browser-device-default"
+              >
+                {`${t("workspace.browser.devices.agentDefault")} · ${SERVER_BROWSER_DEFAULT_VIEWPORT.width}×${SERVER_BROWSER_DEFAULT_VIEWPORT.height}`}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <BrowserDeviceSizeMenuItems
+                selectedId={deviceChoice === "default" ? null : deviceChoice}
+                onSelect={handleSelectPreset}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu>
             <ToolbarButton kind="menu" label="Server browser actions">
               <ThemedMore size={16} uniProps={muted} />
@@ -260,6 +283,7 @@ function ServerBrowserPanel(): ReactElement {
         pageHeight={tab.viewport.height}
         annotating={isPicking}
         onCancelAnnotate={annotate.cancel}
+        onSize={deviceSize.onSurfaceSize}
       />
       {composing ? (
         <WebAnnotationComposer onSubmit={annotate.submit} onCancel={annotate.dismiss} />

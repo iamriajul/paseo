@@ -91,3 +91,15 @@ export function getBrowserDevicePreset(id: BrowserDeviceSizeId): BrowserDeviceSi
     BROWSER_DEVICE_SIZE_PRESETS[0]!
   );
 }
+
+/** The fixed-size preset with exactly this size, if any. */
+export function browserDevicePresetIdForSize(size: {
+  width: number;
+  height: number;
+}): BrowserDeviceSizeId | null {
+  return (
+    BROWSER_DEVICE_SIZE_PRESETS.find(
+      (preset) => preset.width === size.width && preset.height === size.height,
+    )?.id ?? null
+  );
+}

@@ -201,4 +201,74 @@ describe("collapseTurns", () => {
       tools: { commandCount: 3 },
     });
   });
+
+  describe("a host whose turn spans wakes", () => {
+    const inTurn = (turnId: string, items: StreamItem[]) =>
+      items.map((item) => Object.assign(item, { turnId }));
+    const wake = (id: string) => {
+      const call = shell(id);
+      if (call.payload.source !== "agent") throw new Error("Expected agent tool");
+      call.payload.data.name = "task_notification";
+      return call;
+    };
+    const spansWakes = (host: StreamItem) => host.id === "received";
+    const spanned = () => [
+      ...inTurn("first", [user("received"), shell("c1"), reply("r1")]),
+      ...inTurn("wake-1", [wake("w1"), shell("c2"), reply("r2")]),
+      ...inTurn("wake-2", [wake("w2"), thought("t3"), reply("r3")]),
+      ...inTurn("next", [user("prompt"), shell("c4"), reply("r4")]),
+    ];
+
+    it("folds every wake up to the next input and keeps only the last reply", () => {
+      const result = collapse(spanned(), { spansWakes });
+      expect(ids(result.tail)).toEqual(["received", "r3", "prompt", "r4"]);
+      expect(result.hostIdByHiddenRowId.get("w2")).toBe("received");
+      expect(result.hostIdByHiddenRowId.get("r1")).toBe("received");
+      expect(result.turnsByHostId.get("received")?.summary.tools.commandCount).toBe(4);
+    });
+
+    it("ends each run at its own turn for other hosts", () => {
+      const result = collapse(spanned());
+      expect(ids(result.tail)).toEqual([
+        "received",
+        "r1",
+        "w1",
+        "r2",
+        "w2",
+        "t3",
+        "r3",
+        "prompt",
+        "r4",
+      ]);
+    });
+
+    it("folds wakes that sent no message after the reply", () => {
+      const tail = [
+        ...inTurn("first", [user("received"), shell("c1"), reply("r1")]),
+        ...inTurn("wake-1", [wake("w1"), shell("c2")]),
+      ];
+      const result = collapse(tail, { spansWakes });
+      expect(ids(result.tail)).toEqual(["received", "r1"]);
+      const opened = collapse(tail, { spansWakes, expandedHostIds: new Set(["received"]) });
+      expect(ids(opened.tail)).toEqual(["received", "c1", "r1", "w1", "c2"]);
+      expect([...opened.nestedItemIds]).toEqual(["c1", "w1", "c2"]);
+    });
+
+    it("keeps the finished turns folded while a wake is still working", () => {
+      const tail = spanned().slice(0, 8);
+      const result = collapse(tail, { spansWakes, isLatestTurnOpen: true });
+      expect(ids(result.tail)).toEqual(["received", "r2", "w2", "t3"]);
+    });
+
+    it("stops at a heartbeat, which is an input of its own", () => {
+      const heartbeat = wake("hb");
+      if (heartbeat.payload.source !== "agent") throw new Error("Expected agent tool");
+      heartbeat.payload.data.name = "heartbeat";
+      const tail = [
+        ...inTurn("first", [user("received"), shell("c1"), reply("r1")]),
+        ...inTurn("beat", [heartbeat, shell("c2"), reply("r2")]),
+      ];
+      expect(ids(collapse(tail, { spansWakes }).tail)).toEqual(["received", "r1", "hb", "r2"]);
+    });
+  });
 });

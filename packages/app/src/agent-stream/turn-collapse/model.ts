@@ -36,6 +36,11 @@ export interface CollapseTurnsInput {
   expandedHostIds: ReadonlySet<string>;
   /** The calls a tool-call group row stands for; undefined for a single call. */
   getGroupedCalls: (itemId: string) => readonly (ToolCallItem | ThoughtItem)[] | undefined;
+  /**
+   * Whether a host's turn takes in the turns the agent then started on its own (a task
+   * notification, a background wake) up to the next input, rather than ending at its own run.
+   */
+  spansWakes?: (host: StreamItem) => boolean;
 }
 
 const EMPTY_TURNS: ReadonlyMap<string, CollapsedTurn> = new Map();
@@ -70,11 +75,28 @@ function findLastAssistantIndex(tail: StreamItem[], start: number, end: number):
   return -1;
 }
 
+/** The first row after `start` that opens another turn, or `end`. */
+function nextTurnStart(tail: StreamItem[], start: number, end: number): number {
+  for (let index = start + 1; index < end; index += 1) {
+    if (isTurnBoundary(tail[index - 1]!, tail[index]!)) return index;
+  }
+  return end;
+}
+
+/** The first row of the run's last turn, or `start` when the run is one turn. */
+function lastTurnStart(tail: StreamItem[], start: number, end: number): number {
+  for (let index = end - 1; index > start; index -= 1) {
+    if (isTurnBoundary(tail[index - 1]!, tail[index]!)) return index;
+  }
+  return start;
+}
+
 /**
  * Folds each answered turn into its user message: everything the agent did before its last
  * message collapses into one summary line, and that message stays in the chat. A turn folds
  * only once it is complete, its user message is loaded, and it sent messages or called tools
- * before its reply. Reasoning is revealed only when the turn opens.
+ * before its reply. Reasoning is revealed only when the turn opens. A host that spans wakes
+ * folds the turns the agent then started on its own as well, keeping only the last reply.
  */
 export function collapseTurns(input: CollapseTurnsInput): TurnCollapse {
   const { tail } = input;
@@ -87,18 +109,26 @@ export function collapseTurns(input: CollapseTurnsInput): TurnCollapse {
   let runStart = 0;
   const flushRun = (runEnd: number) => {
     const host = tail[runStart - 1];
-    const isClosed = runEnd < tail.length || !input.isLatestTurnOpen;
-    const replyIndex = findLastAssistantIndex(tail, runStart, runEnd);
-    if (
-      !host ||
-      (host.kind !== "user_message" && host.kind !== "tool_call") ||
-      !isClosed ||
-      replyIndex <= runStart
-    ) {
+    // A run that spans wakes and is still working folds the turns it finished; the live one
+    // stays open below them.
+    const foldEnd =
+      runEnd === tail.length && input.isLatestTurnOpen
+        ? lastTurnStart(tail, runStart, runEnd)
+        : runEnd;
+    const replyIndex = findLastAssistantIndex(tail, runStart, foldEnd);
+    if (!host || (host.kind !== "user_message" && host.kind !== "tool_call") || replyIndex < 0) {
       output.push(...tail.slice(runStart, runEnd));
       return;
     }
-    const folded = tail.slice(runStart, replyIndex);
+    // The reply keeps the rows after it in its own turn; later wakes that sent no message fold.
+    const replyEnd = nextTurnStart(tail, replyIndex, foldEnd);
+    const before = tail.slice(runStart, replyIndex);
+    const after = tail.slice(replyEnd, foldEnd);
+    const folded = after.length ? [...before, ...after] : before;
+    if (folded.length === 0) {
+      output.push(...tail.slice(runStart, runEnd));
+      return;
+    }
     const summary = summarizeTurn(folded, input.getGroupedCalls);
     if (!hasWork(summary) && !folded.some((item) => item.kind === "assistant_message")) {
       output.push(...tail.slice(runStart, runEnd));
@@ -106,33 +136,39 @@ export function collapseTurns(input: CollapseTurnsInput): TurnCollapse {
     }
     const expanded = input.expandedHostIds.has(host.id);
     turnsByHostId.set(host.id, { hostId: host.id, expanded, summary });
-    const revealed = expanded
-      ? folded.flatMap<StreamItem>((item) =>
-          item.kind === "tool_call" || item.kind === "thought"
-            ? [...(input.getGroupedCalls(item.id) ?? [item])]
-            : [item],
-        )
-      : folded;
-    for (const item of revealed) {
-      if (staysVisibleWhenCollapsed(item)) continue;
-      hostIdByFoldedMessageId.set(getStreamItemMessageId(item), host.id);
-      if (expanded) nestedItemIds.add(item.id);
-      else hostIdByHiddenRowId.set(item.id, host.id);
-    }
-    output.push(
-      ...(expanded ? revealed : folded.filter((item) => staysVisibleWhenCollapsed(item))),
-    );
-    output.push(...tail.slice(replyIndex, runEnd));
+    const reveal = (items: StreamItem[]) =>
+      expanded
+        ? items.flatMap<StreamItem>((item) =>
+            item.kind === "tool_call" || item.kind === "thought"
+              ? [...(input.getGroupedCalls(item.id) ?? [item])]
+              : [item],
+          )
+        : items;
+    const shown = (items: StreamItem[]) => {
+      const revealed = reveal(items);
+      for (const item of revealed) {
+        if (staysVisibleWhenCollapsed(item)) continue;
+        hostIdByFoldedMessageId.set(getStreamItemMessageId(item), host.id);
+        if (expanded) nestedItemIds.add(item.id);
+        else hostIdByHiddenRowId.set(item.id, host.id);
+      }
+      return expanded ? revealed : revealed.filter((item) => staysVisibleWhenCollapsed(item));
+    };
+    output.push(...shown(before));
+    output.push(...tail.slice(replyIndex, replyEnd));
+    output.push(...shown(after));
+    output.push(...tail.slice(foldEnd, runEnd));
   };
 
   for (let index = 0; index < tail.length; index += 1) {
-    if (
-      !(index === 0 && isTurnTrigger(tail[index]!)) &&
-      !isTurnBoundary(tail[index - 1] ?? null, tail[index] ?? null)
-    )
+    const item = tail[index]!;
+    if (!(index === 0 && isTurnTrigger(item)) && !isTurnBoundary(tail[index - 1] ?? null, item))
       continue;
+    // A turn the agent started on its own belongs to a host whose turn spans wakes.
+    const host = tail[runStart - 1];
+    if (!isTurnTrigger(item) && host && input.spansWakes?.(host)) continue;
     flushRun(index);
-    output.push(tail[index]!);
+    output.push(item);
     runStart = index + 1;
   }
   flushRun(tail.length);

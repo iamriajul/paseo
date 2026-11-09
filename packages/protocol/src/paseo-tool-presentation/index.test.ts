@@ -22,7 +22,7 @@ describe("Paseo tool display", () => {
       "send_agent_prompt",
       { agentId: "agt_1", prompt: "Fix the failing test" },
       "Send message",
-      "Fix the failing test",
+      "agt_1 · Fix the failing test",
     ],
     ["create_agent", { title: "Reviewer", initialPrompt: "Review it" }, "Create agent", "Reviewer"],
     ["create_agent", { initialPrompt: "Review it" }, "Create agent", "Review it"],
@@ -85,20 +85,32 @@ describe("Paseo tool display", () => {
     const prompt = `Line one\n\n   line two ${"x".repeat(1_000_000)}`;
     const summary = display("mcp__paseo__send_agent_prompt", { agentId: "a", prompt })?.summary;
     expect(summary).toHaveLength(MAX_SUMMARY_CHARS);
-    expect(summary?.startsWith("Line one line two xxx")).toBe(true);
+    expect(summary?.startsWith("a · Line one line two xxx")).toBe(true);
     expect(summary?.endsWith("…")).toBe(true);
   });
 
   it("bounds the scan even when the prompt opens with a wall of whitespace", () => {
     const prompt = `${" ".repeat(10_000)}hidden`;
     const summary = display("mcp__paseo__send_agent_prompt", { agentId: "a", prompt })?.summary;
-    expect(summary).toBeUndefined();
+    expect(summary).toBe("a");
   });
 
   it("keeps a short prompt intact", () => {
     expect(
       display("mcp__paseo__send_agent_prompt", { agentId: "a", prompt: " hi\nthere " })?.summary,
-    ).toBe("hi there");
+    ).toBe("a · hi there");
+  });
+
+  it("names the receiver of a sent message and drops the sender header from the preview", () => {
+    const prompt = "[agent 137b1363-e025-440e-ae3d · DeepCycle PA] The founder ruled (11-09).";
+    const input = { agentId: "srv::4f2a9c1e-77d0-4b55-9a1e-0c2d", prompt };
+    expect(display("mcp__paseo__send_agent_prompt", input, "Postiz hosted app")).toEqual({
+      displayName: "Send message",
+      summary: "Postiz hosted app · The founder ruled (11-09).",
+    });
+    expect(display("mcp__paseo__send_agent_prompt", input)?.summary).toBe(
+      "4f2a9c1e · The founder ruled (11-09).",
+    );
   });
 
   it("catalogs tool names as lowercase leaf names", () => {

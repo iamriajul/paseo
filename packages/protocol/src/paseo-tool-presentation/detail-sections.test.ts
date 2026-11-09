@@ -148,6 +148,20 @@ describe("Paseo tool-call detail presentation", () => {
     ]);
   });
 
+  it("names a known target agent beside its ID", () => {
+    const sections = buildPaseoToolDetailSections(
+      "mcp__paseo__send_agent_prompt",
+      { agentId: "agt_1", prompt: "Ship it" },
+      null,
+      "Postiz hosted app",
+    );
+    expect(sections?.[1]).toEqual({
+      kind: "fields",
+      title: "Details",
+      fields: [{ label: "Agent", value: "Postiz hosted app (agt_1)" }],
+    });
+  });
+
   it("leaves non-Paseo tools alone", () => {
     expect(buildPaseoToolDetailSections("mcp__github__create_issue", {}, {})).toBeNull();
   });

@@ -32,6 +32,8 @@ const ScrollView = isWeb ? RNScrollView : GHScrollView;
 
 interface ToolCallDetailsContentProps {
   toolName?: string;
+  /** Title of the agent a Paseo call acts on, shown beside its ID. */
+  targetAgentTitle?: string;
   detail?: ToolCallDetail;
   errorText?: string;
   maxHeight?: number;
@@ -438,9 +440,15 @@ function PaseoDetailSection({ section }: { section: PaseoToolDetailSection }) {
 function buildPaseoUnknownSections(
   toolName: string | undefined,
   detail: UnknownDetail,
+  targetAgentTitle: string | undefined,
 ): ReactNode[] | null {
   if (!toolName) return null;
-  const sections = buildPaseoToolDetailSections(toolName, detail.input, detail.output);
+  const sections = buildPaseoToolDetailSections(
+    toolName,
+    detail.input,
+    detail.output,
+    targetAgentTitle,
+  );
   if (!sections) return null;
   return sections.map((section) => <PaseoDetailSection key={section.title} section={section} />);
 }
@@ -451,6 +459,7 @@ function buildDetailSections(
   diffLines: DiffLine[] | undefined,
   ds: DetailStyles,
   t: TFunction,
+  targetAgentTitle?: string,
 ): ReactNode[] {
   if (!detail) return [];
   if (detail.type === "shell") {
@@ -499,7 +508,10 @@ function buildDetailSections(
     return [<ScrollablePlainTextSection key="plain-text" text={detail.text} ds={ds} />];
   }
   if (detail.type === "unknown") {
-    return buildPaseoUnknownSections(toolName, detail) ?? buildUnknownSections(detail, ds, t);
+    return (
+      buildPaseoUnknownSections(toolName, detail, targetAgentTitle) ??
+      buildUnknownSections(detail, ds, t)
+    );
   }
   return [];
 }
@@ -540,6 +552,7 @@ function LoadingSkeleton({ containerStyle }: { containerStyle: StyleProp<ViewSty
 
 export function ToolCallDetailsContent({
   toolName,
+  targetAgentTitle,
   detail,
   errorText,
   maxHeight,
@@ -551,7 +564,14 @@ export function ToolCallDetailsContent({
   const ds = useDetailStyles(detail, resolvedMaxHeight, fillAvailableHeight);
   const diffLines = useDiffLines(detail);
 
-  const sections: ReactNode[] = buildDetailSections(toolName, detail, diffLines, ds, t);
+  const sections: ReactNode[] = buildDetailSections(
+    toolName,
+    detail,
+    diffLines,
+    ds,
+    t,
+    targetAgentTitle,
+  );
 
   if (errorText) {
     sections.push(<ErrorSection key="error" errorText={errorText} ds={ds} />);

@@ -8,6 +8,13 @@ export interface AgentMessageDisplay {
   detail: ToolCallDetail;
 }
 
+const AGENT_HEADER = /^\s*\[agent [^\]\n]*\]\s*/;
+
+/** A message's own words: the `[agent <id> · <role>]` header an agent prompt opens with goes. */
+export function stripAgentMessageHeader(text: string): string {
+  return text.replace(AGENT_HEADER, "");
+}
+
 /** Events read noun-first ("Agent finished"); the sender goes in the summary. */
 const EVENT_LABELS: Record<AgentMessage["event"], string> = {
   message: "Message received",

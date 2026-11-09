@@ -289,6 +289,8 @@ test.describe("compact overview tool calls", () => {
       await expect.poll(() => badges.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(11);
       await expect(summary).not.toHaveText(initialSummary);
       await expect.poll(() => sheet.evaluate(hasScrolledToLatest)).toBe(true);
+      // At the lower snap, the list's end is the sheet's visible edge, so the latest call shows.
+      await expect(badges.last()).toBeInViewport({ ratio: 1 });
       const scrollMetrics = await sheet.evaluate(readScrollMetrics);
       await testInfo.attach("compact-overview-scroll-metrics", {
         body: JSON.stringify(scrollMetrics, null, 2),

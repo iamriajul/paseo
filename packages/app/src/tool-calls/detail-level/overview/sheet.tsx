@@ -6,6 +6,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import {
   type ContextBridge,
+  SheetVisibleFrame,
   useIsolatedBottomSheetVisibility,
 } from "@/components/ui/isolated-bottom-sheet-modal";
 import { ToolCallSheetModal, useToolCallSheetContextBridge } from "@/components/tool-call-sheet";
@@ -67,32 +68,37 @@ export function OverviewToolCallGroupSheet({
       backdropOpacity={0.5}
       enablePanDownToClose
     >
-      <View style={styles.container} testID="tool-call-group-sheet">
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <ThemedWrench size={20} uniProps={foregroundMapping} />
-            <Text
-              style={styles.headerTitle}
-              numberOfLines={2}
-              testID="tool-call-group-sheet-summary"
+      {/* The sheet is laid out at its highest snap and slid down to the lower one, so a list
+          sized to the sheet would end below the screen and scrollToEnd would leave the latest
+          calls there. The frame ends the list at the sheet's visible edge. */}
+      <SheetVisibleFrame>
+        <View style={styles.container} testID="tool-call-group-sheet">
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <ThemedWrench size={20} uniProps={foregroundMapping} />
+              <Text
+                style={styles.headerTitle}
+                numberOfLines={2}
+                testID="tool-call-group-sheet-summary"
+              >
+                {summary}
+              </Text>
+            </View>
+            <Pressable
+              onPress={onClose}
+              style={styles.closeButton}
+              accessibilityRole="button"
+              accessibilityLabel={t("common.actions.close")}
+              testID="tool-call-group-sheet-close"
             >
-              {summary}
-            </Text>
+              <ThemedX size={20} uniProps={foregroundMutedMapping} />
+            </Pressable>
           </View>
-          <Pressable
-            onPress={onClose}
-            style={styles.closeButton}
-            accessibilityRole="button"
-            accessibilityLabel={t("common.actions.close")}
-            testID="tool-call-group-sheet-close"
-          >
-            <ThemedX size={20} uniProps={foregroundMutedMapping} />
-          </Pressable>
+          <BottomSheetScrollView ref={scrollRef} style={styles.content}>
+            <View style={styles.contentContainer}>{children}</View>
+          </BottomSheetScrollView>
         </View>
-        <BottomSheetScrollView ref={scrollRef} style={styles.content}>
-          <View style={styles.contentContainer}>{children}</View>
-        </BottomSheetScrollView>
-      </View>
+      </SheetVisibleFrame>
     </ToolCallSheetModal>
   );
 }

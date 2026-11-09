@@ -773,15 +773,26 @@ interface ControlledListCommands {
   /** Answer every command list with an error until `succeed`. */
   fail(): void;
   succeed(): void;
+  /** Starts a fresh record of command list requests and replies, for a failure to report. */
+  startRecording(): void;
+  recorded(): string[];
 }
 
 async function installControlledListCommands(page: Page): Promise<ControlledListCommands> {
   let holding = false;
   let failing = false;
   const held: Array<() => void> = [];
+  let recording: string[] = [];
+  let recordingStartedAt = Date.now();
+  const note = (entry: string) => recording.push(`+${Date.now() - recordingStartedAt}ms ${entry}`);
   await page.routeWebSocket(daemonWsRoutePattern(), (ws) => {
     const server = ws.connectToServer();
-    ws.onMessage((message) => server.send(message));
+    ws.onMessage((message) => {
+      if (typeof message === "string" && message.includes('"list_commands_request"')) {
+        note("client list_commands_request");
+      }
+      server.send(message);
+    });
     server.onMessage((message) => {
       if (typeof message !== "string") {
         ws.send(message);
@@ -799,6 +810,11 @@ async function installControlledListCommands(page: Page): Promise<ControlledList
       payload.commands = failing ? [] : TEST_COMMANDS;
       payload.error = failing ? "Commands are unavailable right now" : null;
       const reply = JSON.stringify(parsed);
+      note(
+        failing
+          ? `daemon list_commands_response error${holding ? " (held)" : ""}`
+          : `daemon list_commands_response ${TEST_COMMANDS.length} commands${holding ? " (held)" : ""}`,
+      );
       if (holding) held.push(() => ws.send(reply));
       else ws.send(reply);
     });
@@ -817,6 +833,11 @@ async function installControlledListCommands(page: Page): Promise<ControlledList
     succeed: () => {
       failing = false;
     },
+    startRecording: () => {
+      recording = [];
+      recordingStartedAt = Date.now();
+    },
+    recorded: () => recording.slice(),
   };
 }
 
@@ -861,8 +882,22 @@ test.describe("Composer command list availability", () => {
 
       commands.succeed();
       await input.fill("");
+      commands.startRecording();
       await input.fill("/");
-      await expect(popover.getByText("/help", { exact: true }).first()).toBeVisible();
+      try {
+        await expect(popover.getByText("/help", { exact: true }).first()).toBeVisible();
+      } catch (error) {
+        // Say what the retyped `/` led to: whether the list was asked for again, and what came back.
+        const open = await popover.isVisible().catch(() => false);
+        throw new Error(
+          `After the second "/": popover ${open ? "open" : "not open"}` +
+            (open ? ` showing ${JSON.stringify(await popover.innerText().catch(() => ""))}` : "") +
+            `; input ${JSON.stringify(await input.inputValue().catch(() => null))}; ` +
+            `command list traffic since then:\n${commands.recorded().join("\n") || "(none)"}\n` +
+            String(error),
+          { cause: error },
+        );
+      }
     } finally {
       await agent.cleanup();
     }

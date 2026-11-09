@@ -1540,3 +1540,15 @@ grep -q "settings-agent-messages-display" packages/app/src/screens/settings/chat
 test "$(grep -c 'agentMessagesDisplay: "expanded"' packages/app/e2e/browser/turn-collapse.spec.ts)" -ge 3
 grep -q 'data-testid="agent-message-collapse"' packages/app/e2e/browser/turn-collapse.spec.ts
 ```
+
+## sheet-host-clips-on-web
+
+**a bottom sheet's hosting container clips on web, so nothing can scroll a sheet off its snap**
+
+Gorhom draws each sheet inside a full-screen hosting container with `overflow: hidden`. On web, `hidden` still scrolls when something inside is brought into view: `focus()` without `preventScroll`, find in page, or Playwright's scroll before a click. A sheet slides up from below the screen, so anything revealed while it slides scrolls the container, and nothing scrolls it back. The sheet then rests above its snap by that much, with its handle over the backdrop. Focusing the tab switcher's row menu while the switcher slid in scrolled its container 339 px and left the handle at y = −1; in CI the same thing made `compact-workspace-sheet.spec.ts` time out tapping the backdrop at (10, 10), which the switcher's handle covered. The `@gorhom/bottom-sheet` patch makes the container `overflow: clip` on web, which clips the same way and cannot be scrolled. Native keeps `hidden`. The e2e "nothing inside a sheet can scroll it off its snap" scrolls every ancestor of a settled sheet's handle and fails without the patch (the handle moved 338 → 138).
+
+```bash
+test "$(grep -c "Platform.OS === 'web'" patches/@gorhom+bottom-sheet+5.2.14.patch)" -ge 3
+grep -q "Platform.OS === 'web' ? 'clip' : 'hidden'" node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js
+grep -q 'nothing inside a sheet can scroll it off its snap' packages/app/e2e/browser/compact-workspace-sheet.spec.ts
+```

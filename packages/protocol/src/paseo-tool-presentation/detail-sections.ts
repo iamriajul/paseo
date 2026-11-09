@@ -172,6 +172,8 @@ export function buildPaseoToolDetailSections(
   toolName: string,
   input: unknown,
   output: unknown,
+  /** Title of the agent named by the call's `agentId`, when the caller knows it. */
+  targetAgentTitle?: string,
 ): PaseoToolDetailSection[] | null {
   const leafName = getPaseoToolLeafName(toolName);
   if (!leafName) return null;
@@ -186,6 +188,10 @@ export function buildPaseoToolDetailSections(
   }
 
   const inputFields = fieldsFromValue(input, spec.inputOrder, spec.promptField);
+  const agentField = inputFields.find((field) => field.label === FIELD_LABELS.agentId);
+  if (agentField && targetAgentTitle) {
+    agentField.value = `${targetAgentTitle} (${agentField.value})`;
+  }
   if (inputFields.length > 0) {
     sections.push({ kind: "fields", title: "Details", fields: inputFields });
   }

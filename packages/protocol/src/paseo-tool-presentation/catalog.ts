@@ -6,6 +6,8 @@
  * ("Send message"); the context goes in the summary.
  */
 
+import { stripAgentMessageHeader } from "./agent-message.js";
+
 type ToolInput = Readonly<Record<string, unknown>>;
 
 /** `targetAgent` is the target agent's title when known, else its ID. */
@@ -93,6 +95,23 @@ function field(...keys: string[]): PaseoToolContext {
   return (input) => keys.map((key) => input[key]).find(isPresent);
 }
 
+/** The receiver, then what it was sent; an unknown receiver reads as a short ID. */
+function sentMessage(): PaseoToolContext {
+  return (input, agent) => {
+    const receiver = agent === input.agentId ? shortAgentId(agent) : agent;
+    // The header opens the prompt, so a bounded head is enough; prompts can be megabytes.
+    const prompt =
+      typeof input.prompt === "string"
+        ? stripAgentMessageHeader(input.prompt.slice(0, 2_000)).trim()
+        : "";
+    return [receiver, prompt].filter((part) => part && part.length > 0).join(" · ") || undefined;
+  };
+}
+
+function shortAgentId(agentId: string | undefined): string | undefined {
+  return agentId?.split("::").at(-1)?.slice(0, 8);
+}
+
 function targetAgent(): PaseoToolContext {
   return (_input, agent) => agent;
 }
@@ -152,7 +171,7 @@ export const PASEO_TOOL_CATALOG = {
   send_agent_prompt: {
     label: "Send message",
     completedLabel: "Sent message",
-    context: field("prompt"),
+    context: sentMessage(),
     detail: {
       promptField: "prompt",
       inputOrder: AGENT_FIELDS,

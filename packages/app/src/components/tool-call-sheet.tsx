@@ -18,6 +18,7 @@ import { ToolCallDetailsContent } from "./tool-call-details";
 
 export interface ToolCallSheetData {
   toolName: string;
+  targetAgentTitle?: string;
   displayName: string;
   summary?: string;
   detail?: ToolCallDetail;
@@ -151,6 +152,7 @@ function ToolCallSheetContent({ data, onClose }: ToolCallSheetContentProps) {
   const { t } = useTranslation();
   const {
     toolName,
+    targetAgentTitle,
     displayName,
     detail,
     errorText,
@@ -183,6 +185,7 @@ function ToolCallSheetContent({ data, onClose }: ToolCallSheetContentProps) {
       <BottomSheetScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <ToolCallDetailsContent
           toolName={toolName}
+          targetAgentTitle={targetAgentTitle}
           detail={detail}
           errorText={errorText}
           fillAvailableHeight

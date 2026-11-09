@@ -499,6 +499,7 @@ export const ja: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "次のキャッシュウォームアップまで {{countdown}}",
+      expiresAccessibilityLabel: "プロンプトキャッシュの期限切れまで {{countdown}}",
       missesAccessibilityLabel: "このセッションのプロンプトキャッシュミス: {{count}}",
     },
     route: {

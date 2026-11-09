@@ -500,6 +500,7 @@ export const es: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "Próximo precalentamiento de caché en {{countdown}}",
+      expiresAccessibilityLabel: "La caché de prompts caduca en {{countdown}}",
       missesAccessibilityLabel: "Fallos de la caché de prompts en esta sesión: {{count}}",
     },
     route: {

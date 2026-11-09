@@ -499,6 +499,7 @@ export const ru: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "Следующий прогрев кэша через {{countdown}}",
+      expiresAccessibilityLabel: "Кэш промптов истечёт через {{countdown}}",
       missesAccessibilityLabel: "Промахи кэша промптов в этой сессии: {{count}}",
     },
     route: {

@@ -1568,11 +1568,23 @@ grep -q 'const { width, height } = await settled(locator);' packages/app/e2e/bro
 
 **the live-pin and command-list e2e name the step that hung and report the traffic it saw**
 
-Two tests failed on their first CI attempt and passed on retry (PR #174, 2026-11-09), and CI keeps no artifacts for a retried pass. `new-workspace-live-pin.spec.ts` "keeps a pin made before the creation response arrives" died as a bare 120 s test timeout: it waits on the Create click and on `delayBrowserAgentCreatedStatus`'s create request and creation response, and none of the three had a timeout of its own. `submitNewWorkspacePrompt` and those two waits now take an optional bound, and the live-pin test sets one below its budget for each. On expiry they throw with the step name and what was seen: the button state, the composer text and any alert for the click, the session message types with request ids for the two waits. The first local failure with these bounds read "Waiting for the create request" with no `workspace.create.request` in the traffic. `composer-autocomplete.spec.ts` "lists commands again when / is typed after the list failed" found no `/help` after the second `/` and has not reproduced locally (29 runs). On failure it now reports whether the popover was open and what it showed, the input value, and every `list_commands` request and reply since the second `/`. Other callers of these helpers are unchanged. These change how the tests fail, not whether they pass.
+Two tests failed on their first CI attempt and passed on retry (PR #174, 2026-11-09), and CI keeps no artifacts for a retried pass. `new-workspace-live-pin.spec.ts` "keeps a pin made before the creation response arrives" died as a bare 120 s test timeout: it waits on the Create click and on `delayBrowserAgentCreatedStatus`'s create request and creation response, and none of the three had a timeout of its own. `submitNewWorkspacePrompt` and those two waits now take an optional bound, and the live-pin test sets one below its budget for each. On expiry they throw with the step name and what was seen: the button state, the composer text and any alert for the click, the session message types with request ids for the two waits. The first local failure with these bounds read "Waiting for the create request" with no `workspace.create.request` in the traffic, which led to [new-workspace-create-waits-for-model](#new-workspace-create-waits-for-model). `composer-autocomplete.spec.ts` "lists commands again when / is typed after the list failed" found no `/help` after the second `/` and has not reproduced locally (29 runs). On failure it now reports whether the popover was open and what it showed, the input value, and every `list_commands` request and reply since the second `/`. Other callers of these helpers are unchanged. These change how the tests fail, not whether they pass.
 
 ```bash
 grep -q 'Session traffic since the delay was installed' packages/app/e2e/support/helpers/new-workspace.ts
 grep -q 'Clicking Create: not done within' packages/app/e2e/support/helpers/new-workspace.ts
 grep -q 'waitForDelayedCreatedStatus({ timeoutMs: 30_000 })' packages/app/e2e/browser/new-workspace-live-pin.spec.ts
 grep -q 'command list traffic since then' packages/app/e2e/browser/composer-autocomplete.spec.ts
+```
+
+## new-workspace-create-waits-for-model
+
+**New workspace's Create stays unavailable until the draft's model resolves**
+
+Create was enabled from the moment the screen opened. Until the providers snapshot and the form preferences resolve the draft's model, `composerState.selectedProvider` is null, so a press in that window threw "Select a model" and sent nothing, while the picker showed a model a moment later. Enter did the same. That is the cause of the live-pin flake: unthrottled on this box it failed 4 of 5 runs, with "Select a model" under the composer and no create request. The screen now passes `isSubmitBlocked` to `Composer` while `isModelLoading` is true and no provider is known yet. The new `Composer` prop disables the button and Enter without locking the input, which `isSubmitLoading` would do under `preserve-and-lock`. A host whose providers resolve to none still enables Create and shows "Select a model" on press. `new-workspace-create-waits-for-model.spec.ts` holds the providers snapshot and fails without the change (Create enabled).
+
+```bash
+grep -q 'isSubmitBlocked={isResolvingModel}' packages/app/src/screens/new-workspace-screen.tsx
+grep -q 'isSubmitBlocked ||' packages/app/src/composer/index.tsx
+test -f packages/app/e2e/browser/new-workspace-create-waits-for-model.spec.ts
 ```

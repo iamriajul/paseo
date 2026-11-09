@@ -670,6 +670,12 @@ describe("appendCliproxyModelsToClaudeCatalog", () => {
     expect(result.models.find((model) => model.id === "grok-4.5")?.contextWindowMaxTokens).toBe(
       500_000,
     );
+    // The accounts window lists every model the gateway serves, manifest rows included.
+    expect(
+      result.models
+        .filter((model) => model.metadata?.cliproxyapiAdvertised === true)
+        .map((model) => model.id),
+    ).toEqual(["claude-opus-4-8", "claude-opus-4-8[1m]", "claude-opus-5-5", "grok-4.5"]);
     expect(result.autoPersist).toEqual([
       {
         id: "grok-4.5",

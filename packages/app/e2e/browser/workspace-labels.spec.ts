@@ -73,35 +73,36 @@ function labelRow(page: import("@playwright/test").Page, name: string) {
   return page.getByTestId(`workspace-label-picker-row-${name}`);
 }
 
-async function box(locator: import("@playwright/test").Locator) {
-  const measured = await locator.boundingBox();
-  if (!measured) throw new Error("expected a visible element to measure");
-  return measured;
-}
+type Box = NonNullable<Awaited<ReturnType<import("@playwright/test").Locator["boundingBox"]>>>;
 
 async function size(locator: import("@playwright/test").Locator) {
-  await settled(locator);
-  const { width, height } = await box(locator);
+  const { width, height } = await settled(locator);
   return { width, height };
 }
 
 /**
- * Waits until an element stops moving.
+ * Waits until an element is shown and stops moving, and returns where it came to rest.
  *
- * The flyout scales in and the sidebar behind it re-lays out as the filter changes, so a rail
- * measured mid-animation is not a rail — and a measurement built from two `boundingBox()` calls
- * would take its two halves from two different frames.
+ * A flyout first renders a hidden copy to measure itself, then remounts in place and scales in,
+ * and the sidebar behind it re-lays out as the filter changes. So an element with no box yet is
+ * not settled either, and a rail measured mid-animation is not a rail. The box returned is the
+ * one that matched, so its halves come from the same frame.
  */
-async function settled(locator: import("@playwright/test").Locator) {
-  let previous = "";
+async function settled(locator: import("@playwright/test").Locator): Promise<Box> {
+  let previous: string | null = null;
+  let rested: Box | null = null;
   await expect
     .poll(async () => {
-      const current = JSON.stringify(await box(locator));
-      const stable = current === previous;
+      // The measuring copy is laid out but hidden, so it has a box; it is not the element.
+      const measured = (await locator.isVisible()) ? await locator.boundingBox() : null;
+      const current = measured ? JSON.stringify(measured) : null;
+      rested = current !== null && current === previous ? measured : null;
       previous = current;
-      return stable;
+      return rested !== null;
     })
     .toBe(true);
+  if (!rested) throw new Error("expected a settled element to measure");
+  return rested;
 }
 
 async function expectAssigned(

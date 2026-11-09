@@ -4,7 +4,7 @@ import {
   type BrowserToolsExecuteInput,
 } from "../browser-tools/broker.js";
 import type { BrowserToolsResponsePayload } from "../browser-tools/errors.js";
-import { ServerBrowserRouter } from "./router.js";
+import { ServerBrowserRouter, type NewTabTargetSetting } from "./router.js";
 import type { ServerBrowserHost } from "./server-browser-host.js";
 
 /**
@@ -18,11 +18,16 @@ export class ServerBrowserRoutingBroker extends BrowserToolsBroker {
   public constructor(
     options: BrowserToolsBrokerOptions,
     public readonly serverBrowser: ServerBrowserHost,
+    newTabTarget: () => NewTabTargetSetting = () => "auto",
   ) {
     super(options);
     this.router = new ServerBrowserRouter(
-      { execute: (input) => super.execute(input) },
+      {
+        execute: (input) => super.execute(input),
+        getRegisteredClientCount: () => this.getRegisteredClientCount(),
+      },
       serverBrowser,
+      newTabTarget,
     );
   }
 

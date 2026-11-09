@@ -606,6 +606,36 @@ describe("registerBrowserTools", () => {
     ]);
   });
 
+  // Fork: server-browser-tab-target in docs/fork-decisions.md.
+  test("new tab passes the agent's target and says where the tab opened", async () => {
+    const harness = new BrowserToolHarness();
+    harness.broker.setResponse({
+      ...newTabPayload(),
+      result: { ...newTabPayload().result, location: "server" },
+    } as BrowserToolsResponsePayload);
+
+    const response = await harness.execute("browser_new_tab", {
+      url: "https://example.com",
+      target: "server",
+    });
+
+    expect(harness.broker.calls[0]?.target).toBe("server");
+    expect(response.content).toEqual([
+      {
+        type: "text",
+        text: `Created browser tab browserId=${BROWSER_ID} location=server url=https://example.com. Use this browserId for tab-scoped browser tools.`,
+      },
+    ]);
+  });
+
+  test("new tab rejects a target that is neither desktop nor server", async () => {
+    const harness = new BrowserToolHarness();
+    await expect(
+      harness.execute("browser_new_tab", { url: "https://example.com", target: "phone" }),
+    ).rejects.toThrow();
+    expect(harness.broker.calls).toEqual([]);
+  });
+
   test.each([
     {
       name: "navigate accepts localhost without a scheme as http",

@@ -256,9 +256,17 @@ export const BrowserAutomationCommandSchema = z.discriminatedUnion("command", [
   BrowserAutomationCloseTabCommandSchema,
 ]);
 
+/**
+ * Where a tab runs: "server" (the daemon's server browser) or "desktop" (a connected desktop
+ * app's Browser). Results carry it as a plain string so an older parser accepts a newer value.
+ */
+export type BrowserAutomationTabLocation = "server" | "desktop";
+
 export const BrowserAutomationTabInfoSchema = z.object({
   browserId: BrowserAutomationBrowserIdSchema,
   workspaceId: z.string().min(1).optional(),
+  /** BrowserAutomationTabLocation; set by the daemon's router (fork), never by a browser host. */
+  location: z.string().optional(),
   url: z.string(),
   title: z.string(),
   isActive: z.boolean().default(false),
@@ -277,6 +285,8 @@ export const BrowserAutomationNewTabResultSchema = z.object({
   browserId: BrowserAutomationBrowserIdSchema,
   workspaceId: z.string().min(1),
   url: z.string().min(1),
+  /** BrowserAutomationTabLocation; set by the daemon's router (fork), never by a browser host. */
+  location: z.string().optional(),
 });
 
 export const BrowserAutomationSnapshotStatsSchema = z

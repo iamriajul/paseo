@@ -13,6 +13,12 @@ import { useHostFeature } from "@/runtime/host-features";
 import { settingsStyles } from "@/styles/settings";
 import {
   createManagedChromeModePatch,
+  createNewTabTargetPatch,
+  describeNewTabTarget,
+  NEW_TAB_TARGET_TITLE,
+  NEW_TAB_TARGETS,
+  resolveNewTabTarget,
+  type NewTabTarget,
   MANAGED_CHROME_MODES,
   resolveManagedChromeMode,
   type ManagedChromeMode,
@@ -37,10 +43,66 @@ export function createServerBrowserPatch(enabled: boolean): Partial<MutableDaemo
 
 export function ServerBrowserSettingsRow({ serverId }: { serverId: string }) {
   const engines = useHostFeature(serverId, "serverBrowserEngines");
-  return engines ? (
-    <ServerBrowserEngineRow serverId={serverId} />
-  ) : (
-    <ServerBrowserSwitchRow serverId={serverId} />
+  return (
+    <>
+      {engines ? (
+        <ServerBrowserEngineRow serverId={serverId} />
+      ) : (
+        <ServerBrowserSwitchRow serverId={serverId} />
+      )}
+      <NewTabTargetRow serverId={serverId} />
+    </>
+  );
+}
+
+/**
+ * Where an agent's tab opens when it does not choose. A setting of its own, next to the engine
+ * choice but independent of it; with the server browser off, Server is unavailable.
+ */
+function NewTabTargetRow({ serverId }: { serverId: string }) {
+  const supported = useHostFeature(serverId, "serverBrowserTabTarget");
+  const { config, patchConfig } = useDaemonConfig(serverId);
+  const target = resolveNewTabTarget(config?.serverBrowser);
+  const serverBrowserEnabled = config?.serverBrowser?.enabled === true;
+  const mutation = useMutation({
+    mutationFn: async (next: NewTabTarget) => {
+      const result = await patchConfig(
+        createNewTabTargetPatch({ target: next, serverBrowserEnabled }),
+      );
+      if (!result) throw new Error("The host is disconnected");
+      return result;
+    },
+  });
+  const handleChange = useCallback((next: NewTabTarget) => mutation.mutate(next), [mutation]);
+  const options = useMemo(
+    () =>
+      NEW_TAB_TARGETS.map((entry) => ({
+        value: entry.target,
+        label: entry.label,
+        disabled: mutation.isPending || (entry.target === "server" && !serverBrowserEnabled),
+        testID: `host-page-new-tab-target-${entry.target}`,
+      })),
+    [mutation.isPending, serverBrowserEnabled],
+  );
+  if (!supported) return null;
+  const hint = describeNewTabTarget({ target, serverBrowserEnabled });
+  const error = mutation.error instanceof Error ? mutation.error.message : null;
+
+  return (
+    <View style={[settingsStyles.row, settingsStyles.rowBorder]} testID="host-page-new-tab-target">
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>{NEW_TAB_TARGET_TITLE}</Text>
+        <Text style={settingsStyles.rowHint}>{hint}</Text>
+        {error ? <Text style={settingsStyles.rowError}>{error}</Text> : null}
+      </View>
+      <SegmentedControl
+        options={options}
+        value={target}
+        onValueChange={handleChange}
+        size="sm"
+        testID="host-page-new-tab-target-control"
+      />
+    </View>
   );
 }
 

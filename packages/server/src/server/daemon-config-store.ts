@@ -30,6 +30,7 @@ interface SupportedMutableConfigPatch {
     engine?: string;
     cdpUrl?: string;
     chromeMode?: string;
+    newTabTarget?: string;
   };
   providers?: MutableDaemonConfig["providers"];
   removeProviders?: string[];

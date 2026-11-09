@@ -181,7 +181,7 @@ grep -q "useWorkspaceLoopbackOpener" packages/app/src/agent-stream/view.tsx
 
 **paseo.json services open in the Browser at their localhost route**
 
-The scripts menu and ports panel open a service in the Browser at `http://localhost:<port>/` (`resolveServiceBrowserUrl`), not at its generated `*.localhost` hostname, so it shares one origin with hand-typed and agent-opened localhost tabs. A selected public route stays public. `openServiceUrl` takes the in-app URL separately so external opens keep the selected route; the scripts menus reach it through `openService` in `use-workspace-script-actions.ts`. The Browser toolbar's services menu and URL-bar chip are fork modules, mounted by the Electron, Android and web panes alike.
+The scripts menu and ports panel open a service in the Browser at `http://localhost:<port>/` (`resolveServiceBrowserUrl`), not at its generated `*.localhost` hostname, so it shares one origin with hand-typed and agent-opened localhost tabs. A selected public route stays public. `openServiceUrl` takes the in-app URL separately so external opens keep the selected route; the scripts menus reach it through `openService` in `use-workspace-script-actions.ts`. The Browser toolbar's services menu and URL-bar chip are fork modules, mounted by the Electron, Android and web panes and the server browser's viewer alike.
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/utils/workspace-script-links.test.ts --bail=1
@@ -190,6 +190,7 @@ grep -q "inAppUrl" packages/app/src/utils/open-service-url.ts
 grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/index.electron.tsx
 grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/index.android.tsx
 grep -q "<BrowserServicesMenu" packages/app/src/desktop/browser/pane/web-toolbar.tsx
+grep -q "<BrowserServicesMenu" packages/app/src/server-browser/panel.tsx
 ```
 
 ## service-main-preview
@@ -240,7 +241,7 @@ Fork modules hold the feature (`packages/server/src/server/server-browser/`: one
 
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/router.test.ts packages/server/src/server/server-browser/screencast-hub.test.ts packages/server/src/server/server-browser/engine-sync.test.ts packages/server/src/server/server-browser/chromium-executable.test.ts packages/server/src/server/server-browser/config.test.ts packages/server/src/server/server-browser/server-browser-host.test.ts packages/server/src/server/server-browser/engines.test.ts packages/server/src/server/server-browser/element-picker.test.ts --bail=1
-npm test --workspace=@getpaseo/app -- src/server-browser/input.test.ts src/server-browser/engine-mode.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/server-browser/input.test.ts src/server-browser/engine-mode.test.ts src/server-browser/device-size.test.ts --bail=1
 grep -q "SERVER_BROWSER_INBOUND_SCHEMAS" packages/protocol/src/messages.ts
 grep -q 'kind: "server_browser"' packages/protocol/src/binary-frames/demux.ts
 grep -q "createServerBrowser" packages/server/src/server/bootstrap.ts

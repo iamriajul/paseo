@@ -19,6 +19,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
+import { useIconButtonChromeStyle } from "@/components/ui/icon-button-chrome";
 import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { isNative } from "@/constants/platform";
 import { usePaneContext } from "@/panels/pane-context";
@@ -27,6 +28,7 @@ import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { normalizeBrowserUrl } from "@/desktop/browser/store/state";
 import { truncateBrowserText } from "@/desktop/browser/browser-element-attachment";
 import { WebAnnotationComposer } from "@/desktop/browser/pane/web-annotation-composer";
+import { BrowserServiceChip, BrowserServicesMenu } from "@/desktop/browser/pane/services-menu";
 import type { BrowserDeviceSizeId } from "@/desktop/browser/device-presets";
 import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser/device-size-menu";
 import { useHostFeature } from "@/runtime/host-features";
@@ -144,6 +146,12 @@ function ServerBrowserPanel(): ReactElement {
     const url = normalizeBrowserUrl(raw);
     run(() => client?.serverBrowserNavigate(browserId, "url", url));
   }, [browserId, client, run]);
+  // The server browser runs on the host, so a service's localhost route is the host's own port.
+  const handleNavigateService = useCallback(
+    (url: string) => run(() => client?.serverBrowserNavigate(browserId, "url", url)),
+    [browserId, client, run],
+  );
+  const menuTriggerStyle = useIconButtonChromeStyle({ size: "small" });
   const handleBack = useCallback(
     () => run(() => client?.serverBrowserNavigate(browserId, "back")),
     [browserId, client, run],
@@ -197,6 +205,7 @@ function ServerBrowserPanel(): ReactElement {
           </ToolbarButton>
         </View>
         <View style={styles.urlBarWrap}>
+          <BrowserServiceChip serverId={serverId} workspaceId={workspaceId} url={tab.url} />
           <ThemedUrlInput
             key={tab.url}
             ref={urlInputRef}
@@ -210,6 +219,13 @@ function ServerBrowserPanel(): ReactElement {
           />
         </View>
         <View style={styles.group}>
+          <BrowserServicesMenu
+            serverId={serverId}
+            workspaceId={workspaceId}
+            currentUrl={tab.url}
+            onNavigate={handleNavigateService}
+            triggerStyle={menuTriggerStyle}
+          />
           {isNative ? (
             <ToolbarButton label="Keyboard" onPress={handleKeyboard}>
               <ThemedKeyboard size={16} uniProps={muted} />

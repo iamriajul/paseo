@@ -26,8 +26,9 @@ test.use({
 
 type ChatDisplay = "full" | "collapseToolCalls" | "collapseTurns";
 
-// These specs check the full "Sent by" bubble, so they show agent messages Expanded: the default,
-// Collapsed, draws a received message as one line (fork decision agent-messages-collapse).
+// These specs check the full "Sent by" bubble, so they pin agent messages to Expanded, the default,
+// rather than depend on it: Collapsed draws a received message as one line (fork decision
+// agent-messages-collapse).
 async function useChatDisplay(page: Page, chatDisplay: ChatDisplay): Promise<void> {
   await page.addInitScript((value) => {
     localStorage.setItem(

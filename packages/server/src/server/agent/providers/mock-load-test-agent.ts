@@ -420,6 +420,15 @@ function parseUserMessageDelayMs(prompt: AgentPromptInput): number {
   return Number.isSafeInteger(delayMs) ? Math.min(delayMs, 2_000) : 0;
 }
 
+/**
+ * Fork: "wake 2 times after this turn" makes the agent start that many turns of its own once the
+ * turn ends, each opened by a task notification, as Claude does when a background task finishes.
+ */
+function parseAutonomousWakeCount(prompt: AgentPromptInput): number {
+  const match = /wake (\d+) times? after this turn/i.exec(promptToText(prompt));
+  return Math.min(Number(match?.[1] ?? 0), 5);
+}
+
 function shouldWithholdUserMessageUntilInterrupt(prompt: AgentPromptInput): boolean {
   return /withhold synthetic user message until interrupted/i.test(promptToText(prompt));
 }
@@ -1680,6 +1689,7 @@ export class MockLoadTestAgentSession implements AgentSession {
 
   private finishTurnWithText(turn: ActiveTurn, finalText: string): void {
     this.activeTurn = null;
+    this.scheduleAutonomousWakes(parseAutonomousWakeCount(turn.prompt));
     const usage = {
       inputTokens: turn.cycle * 32,
       outputTokens: turn.emittedTokens,
@@ -1699,6 +1709,39 @@ export class MockLoadTestAgentSession implements AgentSession {
       timeline: [],
       canceled: false,
     });
+  }
+
+  private scheduleAutonomousWakes(remaining: number): void {
+    if (remaining <= 0) return;
+    const timer = setTimeout(() => {
+      if (this.activeTurn) return;
+      const turnId = randomUUID();
+      this.emit({ type: "turn_started", provider: this.provider, turnId });
+      this.emitTimeline(turnId, {
+        type: "tool_call",
+        callId: `${turnId}:task-notification`,
+        name: "task_notification",
+        status: "completed",
+        error: null,
+        detail: { type: "plain_text", label: "Background shell command finished", text: "exit 0" },
+      });
+      this.emitTimeline(turnId, {
+        type: "tool_call",
+        callId: `${turnId}:bash`,
+        name: "Bash",
+        status: "completed",
+        error: null,
+        detail: { type: "shell", command: "cat build.log", output: "ok" },
+      });
+      this.emitTimeline(turnId, {
+        type: "assistant_message",
+        text: `Background task finished; ${remaining - 1} left.`,
+        messageId: randomUUID(),
+      });
+      this.emit({ type: "turn_completed", provider: this.provider, turnId });
+      this.scheduleAutonomousWakes(remaining - 1);
+    }, 200);
+    timer.unref?.();
   }
 
   private emitTimeline(turnId: string, item: AgentTimelineItem): void {

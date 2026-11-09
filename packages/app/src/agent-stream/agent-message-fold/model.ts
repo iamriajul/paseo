@@ -64,10 +64,23 @@ function withFold(row: StreamItem, fold: AgentRowFold): StreamItem {
   return next;
 }
 
-function isLine(row: StreamItem, input: FoldAgentMessagesInput): boolean {
+function isLine(row: StreamItem, input: Omit<FoldAgentMessagesInput, "rows">): boolean {
   if (row.kind !== "user_message" || !row.sender) return false;
   const toggled = input.state.toggledIds.has(row.id);
   return input.display === "collapsed" ? !toggled : toggled;
+}
+
+/**
+ * A row from another agent the reader sees folded: a message drawn as one line, or, Collapsed,
+ * any agent row. Its turn folds through the agent's wakes up to the next input, because the
+ * agent's work on it is as much traffic as the row itself.
+ */
+export function isFoldedAgentRow(
+  row: StreamItem,
+  input: Omit<FoldAgentMessagesInput, "rows">,
+): boolean {
+  if (!agentSenderOf(row)) return false;
+  return row.kind === "user_message" ? isLine(row, input) : input.display === "collapsed";
 }
 
 /**

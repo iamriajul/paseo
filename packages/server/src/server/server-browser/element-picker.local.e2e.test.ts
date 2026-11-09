@@ -163,6 +163,36 @@ describe("pickElement with a real Chromium", () => {
     expect(pixel).toEqual({ width: 200, height: 50, rgb: [255, 0, 0] });
   });
 
+  it("keeps the element crop out of what a viewer sees", async () => {
+    const tab = await openTab();
+    const frames: Array<{ width: number; height: number }> = [];
+    tab.screencast.addViewer(
+      "viewer",
+      {
+        send: (frame, seq) => {
+          frames.push({ width: frame.width, height: frame.height });
+          tab.screencast.ack("viewer", seq);
+        },
+        isCongested: () => false,
+      },
+      { maxWidth: 1280, maxHeight: 800 },
+    );
+    await waitFor(async () => frames.length > 0);
+    const picking = pickElement(tab.contents);
+    await waitForArmed(tab);
+    const point = fraction(tab, 150, 120);
+    await tab.dispatchInput([
+      { kind: "mouse", action: "move", ...point, button: "none", clickCount: 0 },
+      { kind: "mouse", action: "down", ...point, button: "left", clickCount: 1 },
+      { kind: "mouse", action: "up", ...point, button: "left", clickCount: 1 },
+    ]);
+    const result = (await picking) as Extract<PickOutcome, { outcome: "selected" }>;
+    expect(result.screenshot?.mimeType).toBe("image/png");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(frames.filter((frame) => frame.width !== 1280 || frame.height !== 800)).toEqual([]);
+  });
+
   it("maps the phone viewport's fractions onto the same element", async () => {
     const tab = await openTab();
     await tab.setViewport({ width: 390, height: 844, mobile: true });

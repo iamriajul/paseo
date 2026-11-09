@@ -158,9 +158,15 @@ vi.mock("./prompt-cache-insights-dialog", async () => {
   };
 });
 
-const { capWarningMinutes, moneyStats } = vi.hoisted(() => ({
+const { capWarningMinutes, moneyStats, reduceMotion } = vi.hoisted(() => ({
   capWarningMinutes: { current: 10 },
   moneyStats: { current: false },
+  reduceMotion: { current: false },
+}));
+
+vi.mock("react-native-reanimated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-native-reanimated")>()),
+  useReducedMotion: () => reduceMotion.current,
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
@@ -471,6 +477,19 @@ describe("PromptCachePill", () => {
       });
     }
     expect(flashes).toEqual(new Set(["true", "false"]));
+    cleanup();
+
+    // Reduced motion holds the warning colour instead of blinking.
+    reduceMotion.current = true;
+    const steady = renderPill(agent);
+    for (let tick = 0; tick < 2; tick += 1) {
+      expect(steady.getByText(/^warm · /).getAttribute("data-flash")).toBe("true");
+      act(() => {
+        vi.advanceTimersByTime(SECOND);
+      });
+    }
+    reduceMotion.current = false;
+    capWarningMinutes.current = 10;
   });
 
   it("prices warm-up against a rewrite only while money stats are on, for a priced model", () => {
@@ -645,6 +664,41 @@ describe("PromptCachePill", () => {
     );
     fireEvent.click(getByTestId("prompt-cache-auto-compact-make-default"));
     expect(makeDefaultMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the miss count from a button on the miss count's own row", () => {
+    const clearPromptCacheMisses = vi.fn().mockResolvedValue({ error: null });
+    vi.mocked(useHostRuntimeClient).mockReturnValue({
+      setAgentFeature: setAgentFeatureMock,
+      clearPromptCacheMisses,
+    } as unknown as ReturnType<typeof useHostRuntimeClient>);
+    const agent = claudeAgent({
+      ttl: "5m",
+      promptCache: {
+        ...promptCacheAt(NOW - 40 * SECOND),
+        totals: { requests: 300, hits: 290, misses: 4 },
+        history: [
+          {
+            at: new Date(NOW - MINUTE).toISOString(),
+            kind: "turn",
+            readTokens: 0,
+            writeTokens: 1_000,
+            uncachedTokens: 0,
+            gapMs: 10 * MINUTE,
+          },
+        ],
+      } as Agent["promptCache"],
+    });
+    expect(renderPill(agent).queryByTestId("prompt-cache-clear-misses-button")).toBeNull();
+    cleanup();
+
+    const { getByTestId } = renderPill(agent, { promptCacheClearMisses: true });
+    const button = getByTestId("prompt-cache-clear-misses-button");
+    expect(button.tagName).toBe("BUTTON");
+    expect(button.textContent).toBe("Clear count");
+    expect(button.parentElement?.contains(getByTestId("prompt-cache-history-misses"))).toBe(true);
+    fireEvent.click(button);
+    expect(clearPromptCacheMisses).toHaveBeenCalledWith({ agentIds: ["agent-1"] });
   });
 
   it("opens the session insights from the popover", () => {

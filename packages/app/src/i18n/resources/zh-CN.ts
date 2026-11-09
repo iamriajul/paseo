@@ -494,6 +494,7 @@ export const zhCN: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "下次缓存预热还有 {{countdown}}",
+      expiresAccessibilityLabel: "提示缓存还有 {{countdown}} 过期",
       missesAccessibilityLabel: "本会话的提示缓存未命中：{{count}}",
     },
     route: {

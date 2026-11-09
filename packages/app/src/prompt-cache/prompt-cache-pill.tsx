@@ -29,6 +29,7 @@ import {
 import type { PromptCacheHistoryBar, PromptCacheHistorySummary } from "./prompt-cache-history";
 import { PromptCacheInsightsDialog } from "./prompt-cache-insights-dialog";
 import { WarmUpCapSlider } from "./warm-up-cap-slider";
+import { useCountdownFlash } from "./countdown-urgency";
 import { useSettings } from "@/hooks/use-settings";
 import { formatUsdEstimate } from "./prompt-cache-cost";
 import { resolveMoneyStatsPrices } from "./money-stats";
@@ -208,6 +209,13 @@ function RequestHistory({
   cache: PromptCacheState;
 }): ReactElement {
   const { misses, clearMisses } = cache;
+  // The clear action sits on the miss count's own row, so it reads as acting on that number.
+  const clearable = misses > 0 && clearMisses !== null;
+  const missesText = (
+    <Text style={[styles.value, misses > 0 && styles.danger]} testID="prompt-cache-history-misses">
+      {resolveMissesText(cache)}
+    </Text>
+  );
   return (
     <View style={styles.historyBlock} testID="prompt-cache-history">
       <View
@@ -224,22 +232,21 @@ function RequestHistory({
         <Text style={styles.label} testID="prompt-cache-history-share">
           Last {history.bars.length} · {formatPercent(history.cachedShare)} cached
         </Text>
-        <Text
-          style={[styles.value, misses > 0 && styles.danger]}
-          testID="prompt-cache-history-misses"
-        >
-          {resolveMissesText(cache)}
-        </Text>
+        {clearable ? null : missesText}
       </View>
-      {misses > 0 && clearMisses ? (
-        <ComposerTrackRow
-          onPress={clearMisses}
-          closeOnSelect={false}
-          testID="prompt-cache-clear-misses-button"
-          accessibilityLabel="Clear the miss count"
-        >
-          <Text style={styles.linkText}>Clear miss count</Text>
-        </ComposerTrackRow>
+      {clearable ? (
+        <View style={styles.missesRow}>
+          {missesText}
+          <Button
+            size="sm"
+            variant="outline"
+            onPress={clearMisses}
+            accessibilityLabel="Clear the miss count"
+            testID="prompt-cache-clear-misses-button"
+          >
+            Clear count
+          </Button>
+        </View>
       ) : null}
     </View>
   );
@@ -329,12 +336,6 @@ function AutoCompactDefault({
   );
 }
 
-/** Warm-up stops covering the cache within the user's warning window. */
-function isNearCap(warmup: PromptCacheWarmup | null, warningMinutes: number): boolean {
-  const coverEndsInMs = warmup?.enabled ? warmup.coverEndsInMs : null;
-  return coverEndsInMs !== null && coverEndsInMs > 0 && coverEndsInMs <= warningMinutes * 60_000;
-}
-
 /**
  * What warm-up costs against what it saves: each warm-up reads the context, the rest of the cap
  * reads it that many times again, and letting it expire writes it all again.
@@ -394,8 +395,8 @@ export const PromptCachePill = memo(function PromptCachePill({
 }): ReactElement | null {
   const cache = usePromptCache(serverId, agentId);
   const autoCompact = usePromptCacheAutoCompact(serverId, agentId);
-  const capWarningMinutes = useSettings((settings) => settings.promptCacheCapWarningMinutes);
   const moneyStats = useSettings((settings) => settings.promptCacheMoneyStats);
+  const flash = useCountdownFlash(cache.warmup, cache.now);
   const agent = usePromptCacheAgent(serverId, agentId);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const openInsights = useCallback(() => setInsightsOpen(true), []);
@@ -406,7 +407,7 @@ export const PromptCachePill = memo(function PromptCachePill({
   }
 
   const { windows, warmup, lastPrompt, history } = cache;
-  const segments = buildSegments(cache, isNearCap(warmup, capWarningMinutes) && cache.blinkOn);
+  const segments = buildSegments(cache, flash);
   const canTurnOn = cache.status.kind !== "expired";
   const moneyCost = resolveMoneyCost({ enabled: moneyStats, agent, cache });
 
@@ -586,6 +587,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
   },
   switchGroupGap: {
     height: theme.spacing[2],
+  },
+  missesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
   },
   defaultRow: {
     flexDirection: "row",

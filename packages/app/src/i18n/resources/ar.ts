@@ -495,6 +495,7 @@ export const ar: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "تسخين ذاكرة التخزين المؤقت التالي بعد {{countdown}}",
+      expiresAccessibilityLabel: "تنتهي ذاكرة التخزين المؤقت للموجّه بعد {{countdown}}",
       missesAccessibilityLabel: "إخفاقات ذاكرة التخزين المؤقت للموجّه في هذه الجلسة: {{count}}",
     },
     route: {

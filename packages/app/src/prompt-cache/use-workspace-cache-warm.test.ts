@@ -5,6 +5,21 @@ import { renderHook, act } from "@testing-library/react";
 import { useSessionStore, type SessionState, type Agent } from "@/stores/session-store";
 import { useWorkspaceCacheWarm } from "./use-workspace-cache-warm";
 
+const { capWarningMinutes, reduceMotion } = vi.hoisted(() => ({
+  capWarningMinutes: { current: 10 },
+  reduceMotion: { current: false },
+}));
+
+vi.mock("@/hooks/use-settings", () => ({
+  useSettings: (select: (settings: { promptCacheCapWarningMinutes: number }) => unknown) =>
+    select({ promptCacheCapWarningMinutes: capWarningMinutes.current }),
+}));
+
+vi.mock("react-native-reanimated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-native-reanimated")>()),
+  useReducedMotion: () => reduceMotion.current,
+}));
+
 const NOW = new Date("2026-10-27T10:00:00.000Z").getTime();
 
 function agentWith(overrides: Partial<Agent>): Agent {
@@ -105,6 +120,65 @@ describe("useWorkspaceCacheWarm", () => {
       ...(missed.promptCache as NonNullable<Agent["promptCache"]>),
       totals: { requests: 12, hits: 9, misses: 3 },
     };
-    expect(setup(missed).result.current).toEqual({ text: null, misses: 3 });
+    expect(setup(missed).result.current).toEqual({
+      text: null,
+      capped: false,
+      flash: false,
+      misses: 3,
+    });
+  });
+
+  it("blinks by the pill's rule once warm-up stops covering the cache within the warning window", () => {
+    // 5m window, 8 of 10 warm-ups used, last request 40 s ago: two more at 4-minute steps, then a
+    // 5-minute window, so warm-up covers the cache for 12m20s more.
+    const agent = agentWith({ consecutiveWarmPings: 8 } as Partial<Agent>);
+    capWarningMinutes.current = 10;
+    const far = setup(agent);
+    expect(far.result.current.flash).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(far.result.current.flash).toBe(false);
+    far.unmount();
+
+    capWarningMinutes.current = 20;
+    const near = setup(agent);
+    const flashes = new Set<boolean>();
+    for (let tick = 0; tick < 2; tick += 1) {
+      flashes.add(near.result.current.flash);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+    }
+    expect(flashes).toEqual(new Set([true, false]));
+    near.unmount();
+
+    // Reduced motion holds the warning colour instead of blinking.
+    reduceMotion.current = true;
+    const steady = setup(agent);
+    for (let tick = 0; tick < 2; tick += 1) {
+      expect(steady.result.current.flash).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+    }
+    steady.unmount();
+    reduceMotion.current = false;
+    capWarningMinutes.current = 10;
+  });
+
+  it("counts down to the cache expiring once the cap is spent, blinking near the end", () => {
+    const agent = agentWith({ consecutiveWarmPings: 10 } as Partial<Agent>);
+    const { result } = setup(agent);
+    expect(result.current).toMatchObject({ text: "4:20", capped: true });
+    const flashes = new Set<boolean>();
+    for (let tick = 0; tick < 2; tick += 1) {
+      flashes.add(result.current.flash);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+    }
+    expect(flashes).toEqual(new Set([true, false]));
+    expect(result.current.text).toBe("4:18");
   });
 });

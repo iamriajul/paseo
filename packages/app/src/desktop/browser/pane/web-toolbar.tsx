@@ -6,30 +6,23 @@ import {
   ArrowLeft,
   ArrowRight,
   ChevronDown,
-  Maximize,
-  Monitor,
   MousePointer2,
   RotateCw,
-  Smartphone,
-  Tablet,
   Wrench,
 } from "lucide-react-native";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  BROWSER_DEVICE_SIZE_PRESETS,
-  formatBrowserDevicePresetLabel,
+  browserDevicePresetIdForSize,
   getBrowserDevicePreset,
-  RESPONSIVE_BROWSER_DEVICE_LABEL_KEY,
   type BrowserDeviceSizeId,
-  type BrowserDeviceSizePreset,
 } from "@/desktop/browser/device-presets";
+import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser/device-size-menu";
 import {
   createFixedBrowserViewport,
   RESPONSIVE_BROWSER_VIEWPORT,
@@ -41,12 +34,8 @@ import { BrowserServiceChip, BrowserServicesMenu } from "./services-menu";
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
 const ThemedChevronDown = withUnistyles(ChevronDown);
-const ThemedMaximize = withUnistyles(Maximize);
-const ThemedMonitor = withUnistyles(Monitor);
 const ThemedMousePointer2 = withUnistyles(MousePointer2);
 const ThemedRotateCw = withUnistyles(RotateCw);
-const ThemedSmartphone = withUnistyles(Smartphone);
-const ThemedTablet = withUnistyles(Tablet);
 const ThemedWrench = withUnistyles(Wrench);
 const ThemedUrlInput = withUnistyles(EditingTextInput, (theme) => ({
   placeholderTextColor: theme.colors.foregroundMuted,
@@ -68,13 +57,6 @@ const triggerStyle = ({ hovered, pressed }: PressableVisualState) => [
   styles.iconButton,
   (hovered || pressed) && styles.iconButtonHovered,
 ];
-
-function getDeviceIcon(kind: BrowserDeviceSizePreset["kind"]): typeof ThemedMaximize {
-  if (kind === "phone") return ThemedSmartphone;
-  if (kind === "tablet") return ThemedTablet;
-  if (kind === "desktop") return ThemedMonitor;
-  return ThemedMaximize;
-}
 
 function ToolbarButton({
   label,
@@ -123,32 +105,6 @@ function ToolbarButton({
   );
 }
 
-function DeviceSizeMenuItem({
-  preset,
-  selected,
-  responsiveLabel,
-  onSelect,
-}: {
-  preset: BrowserDeviceSizePreset;
-  selected: boolean;
-  responsiveLabel: string;
-  onSelect: (id: BrowserDeviceSizeId) => void;
-}) {
-  const Icon = getDeviceIcon(preset.kind);
-  const handleSelect = useCallback(() => onSelect(preset.id), [onSelect, preset.id]);
-  const leading = useMemo(() => <Icon size={16} uniProps={mutedIconMapping} />, [Icon]);
-  return (
-    <DropdownMenuItem
-      onSelect={handleSelect}
-      selected={selected}
-      showSelectedCheck
-      leading={leading}
-    >
-      {formatBrowserDevicePresetLabel(preset, responsiveLabel)}
-    </DropdownMenuItem>
-  );
-}
-
 function DeviceSizeMenu({
   selectedId,
   onSelect,
@@ -159,16 +115,15 @@ function DeviceSizeMenu({
   const { t } = useTranslation();
   // A fixed viewport that matches no preset has no icon of its own; fall back to
   // the responsive one so the trigger still renders, and tick nothing.
-  const SelectedIcon = getDeviceIcon(getBrowserDevicePreset(selectedId ?? "responsive").kind);
+  const selectedKind = getBrowserDevicePreset(selectedId ?? "responsive").kind;
   const label = t("workspace.browser.devices.label");
-  const responsiveLabel = t(RESPONSIVE_BROWSER_DEVICE_LABEL_KEY);
   return (
     <DropdownMenu>
       <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger accessibilityLabel={label} style={triggerStyle}>
             <View style={styles.deviceTrigger}>
-              <SelectedIcon size={16} uniProps={mutedIconMapping} />
+              <BrowserDeviceIcon kind={selectedKind} />
               <ThemedChevronDown size={12} uniProps={mutedIconMapping} />
             </View>
           </DropdownMenuTrigger>
@@ -178,15 +133,7 @@ function DeviceSizeMenu({
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" scrollable maxHeight={360}>
-        {BROWSER_DEVICE_SIZE_PRESETS.map((preset) => (
-          <DeviceSizeMenuItem
-            key={preset.id}
-            preset={preset}
-            selected={preset.id === selectedId}
-            responsiveLabel={responsiveLabel}
-            onSelect={onSelect}
-          />
-        ))}
+        <BrowserDeviceSizeMenuItems selectedId={selectedId} onSelect={onSelect} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -196,11 +143,7 @@ function deviceSizeIdForViewport(viewport: BrowserViewport): BrowserDeviceSizeId
   if (viewport.mode === "responsive") {
     return "responsive";
   }
-  return (
-    BROWSER_DEVICE_SIZE_PRESETS.find(
-      (preset) => preset.width === viewport.width && preset.height === viewport.height,
-    )?.id ?? null
-  );
+  return browserDevicePresetIdForSize(viewport);
 }
 
 interface WebBrowserToolbarProps {

@@ -704,6 +704,7 @@ export const en = {
       devices: {
         label: "Device size",
         responsive: "Responsive",
+        agentDefault: "Agent default",
       },
       services: {
         label: "Workspace services",

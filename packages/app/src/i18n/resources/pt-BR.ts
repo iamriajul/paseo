@@ -712,6 +712,7 @@ export const ptBR: TranslationResources = {
       devices: {
         label: "Tamanho do dispositivo",
         responsive: "Responsivo",
+        agentDefault: "Padrão do agente",
       },
       services: {
         label: "Serviços do workspace",

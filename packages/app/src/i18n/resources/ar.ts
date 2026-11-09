@@ -707,6 +707,7 @@ export const ar: TranslationResources = {
       devices: {
         label: "حجم الجهاز",
         responsive: "متجاوب",
+        agentDefault: "افتراضي الوكيل",
       },
       services: {
         label: "خدمات مساحة العمل",

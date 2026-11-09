@@ -713,6 +713,7 @@ export const ru: TranslationResources = {
       devices: {
         label: "Размер экрана устройства",
         responsive: "Адаптивный режим",
+        agentDefault: "По умолчанию для агента",
       },
       services: {
         label: "Сервисы рабочего пространства",

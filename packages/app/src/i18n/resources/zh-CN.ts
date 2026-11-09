@@ -706,6 +706,7 @@ export const zhCN: TranslationResources = {
       devices: {
         label: "设备尺寸",
         responsive: "自适应",
+        agentDefault: "代理默认",
       },
       services: {
         label: "工作区服务",

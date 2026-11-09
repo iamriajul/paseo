@@ -285,6 +285,7 @@ export const PersistedConfigSchema = z
             engine: z.string().optional(),
             cdpUrl: z.string().optional(),
             chromeMode: z.string().optional(),
+            newTabTarget: z.string().optional(),
           })
           .passthrough()
           .optional(),

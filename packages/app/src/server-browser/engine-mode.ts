@@ -90,3 +90,65 @@ export function createServerBrowserModePatch(
   if (mode === "off") return { serverBrowser: { enabled: false } };
   return { serverBrowser: { enabled: true, engine: mode }, browserTools: { enabled: true } };
 }
+
+/** Where an agent's new tab opens when it does not pass `target` (`serverBrowser.newTabTarget`). */
+export type NewTabTarget = "auto" | "server" | "desktop";
+
+export const NEW_TAB_TARGETS: ReadonlyArray<{
+  target: NewTabTarget;
+  label: string;
+  description: string;
+}> = [
+  {
+    target: "auto",
+    label: "Automatic",
+    description:
+      "The desktop app's Browser while a desktop app is connected, otherwise the server browser. An agent can still pick either.",
+  },
+  {
+    target: "server",
+    label: "Server",
+    description:
+      "Always the server browser, which keeps working with every app closed. An agent can still ask for the desktop app's Browser.",
+  },
+  {
+    target: "desktop",
+    label: "Desktop",
+    description:
+      "Always the desktop app's Browser; a new tab fails while no desktop app is connected. An agent can still ask for the server browser.",
+  },
+];
+
+export const NEW_TAB_TARGET_TITLE = "Default browser for agents' new tabs";
+
+/** The row's hint: what the choice does, and what the server browser switch changes about it. */
+export function describeNewTabTarget(params: {
+  target: NewTabTarget;
+  serverBrowserEnabled: boolean;
+}): string {
+  if (!params.serverBrowserEnabled && params.target === "server") {
+    return "Server is unavailable while the server-side browser is off, so agents' new tabs fail until you turn it on or pick Automatic or Desktop.";
+  }
+  if (!params.serverBrowserEnabled && params.target === "auto") {
+    return "The server-side browser is off, so Automatic opens agents' new tabs in the desktop app's Browser. Server is unavailable until you turn it on.";
+  }
+  return NEW_TAB_TARGETS.find((entry) => entry.target === params.target)?.description ?? "";
+}
+
+export function resolveNewTabTarget(setting: { newTabTarget?: string } | undefined): NewTabTarget {
+  const value = setting?.newTabTarget;
+  return value === "server" || value === "desktop" ? value : "auto";
+}
+
+/**
+ * Carries the switch's current value: the daemon parses a partial `serverBrowser` patch with
+ * `enabled` defaulting to false, so leaving it out would turn the server browser off.
+ */
+export function createNewTabTargetPatch(params: {
+  target: NewTabTarget;
+  serverBrowserEnabled: boolean;
+}): Partial<MutableDaemonConfig> {
+  return {
+    serverBrowser: { enabled: params.serverBrowserEnabled, newTabTarget: params.target },
+  };
+}

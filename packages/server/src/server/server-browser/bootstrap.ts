@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import type { DaemonConfigStore } from "../daemon-config-store.js";
 import type { ServerBrowserEngineConfig } from "./engines.js";
+import { resolveNewTabTargetSetting } from "./router.js";
 import { ServerBrowserRoutingBroker } from "./routing-broker.js";
 import { ServerBrowserHost } from "./server-browser-host.js";
 
@@ -33,7 +34,9 @@ export function createServerBrowser(params: {
     else void host.disable();
   });
   return {
-    browserToolsBroker: new ServerBrowserRoutingBroker({}, host),
+    browserToolsBroker: new ServerBrowserRoutingBroker({}, host, () =>
+      resolveNewTabTargetSetting(read()?.newTabTarget),
+    ),
     stopServerBrowser: async () => {
       unsubscribe();
       await host.shutdown();
@@ -49,6 +52,7 @@ interface ServerBrowserSetting {
   engine?: string;
   cdpUrl?: string;
   chromeMode?: string;
+  newTabTarget?: string;
 }
 
 export function resolveInitialServerBrowserConfig(
@@ -60,6 +64,7 @@ export function resolveInitialServerBrowserConfig(
     ...(persisted?.engine ? { engine: persisted.engine } : {}),
     ...(persisted?.cdpUrl ? { cdpUrl: persisted.cdpUrl } : {}),
     ...(persisted?.chromeMode ? { chromeMode: persisted.chromeMode } : {}),
+    ...(persisted?.newTabTarget ? { newTabTarget: persisted.newTabTarget } : {}),
   };
 }
 

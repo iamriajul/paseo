@@ -712,6 +712,7 @@ export const ja: TranslationResources = {
       devices: {
         label: "デバイスサイズ",
         responsive: "レスポンシブ",
+        agentDefault: "エージェントの既定",
       },
       services: {
         label: "ワークスペースのサービス",

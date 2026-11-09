@@ -707,6 +707,7 @@ export const ko: TranslationResources = {
       devices: {
         label: "장치 크기",
         responsive: "반응형",
+        agentDefault: "에이전트 기본값",
       },
       services: {
         label: "워크스페이스 서비스",

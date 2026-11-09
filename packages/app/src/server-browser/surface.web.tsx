@@ -21,6 +21,8 @@ interface ServerBrowserSurfaceProps {
   /** Annotate element is picking: pointing highlights, a click or tap picks, other input stops. */
   annotating?: boolean;
   onCancelAnnotate?: () => void;
+  /** The surface's size in CSS pixels, each time it changes; the Responsive device size follows it. */
+  onSize?: (size: { width: number; height: number }) => void;
 }
 
 // Web and Electron: the frame is an <img>, input is DOM events on a focusable wrapper.
@@ -28,7 +30,7 @@ export const ServerBrowserSurface = forwardRef<
   ServerBrowserSurfaceHandle,
   ServerBrowserSurfaceProps
 >(function ServerBrowserSurface(
-  { client, browserId, pageWidth, pageHeight, annotating = false, onCancelAnnotate },
+  { client, browserId, pageWidth, pageHeight, annotating = false, onCancelAnnotate, onSize },
   ref,
 ) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -42,6 +44,8 @@ export const ServerBrowserSurface = forwardRef<
   annotatingRef.current = annotating;
   const onCancelAnnotateRef = useRef(onCancelAnnotate);
   onCancelAnnotateRef.current = onCancelAnnotate;
+  const onSizeRef = useRef(onSize);
+  onSizeRef.current = onSize;
 
   // Escape must reach the surface without a click first, and a click there would pick.
   useEffect(() => {
@@ -67,6 +71,7 @@ export const ServerBrowserSurface = forwardRef<
     if (!wrapper) return;
     const observer = new ResizeObserver(() => {
       const rect = wrapper.getBoundingClientRect();
+      onSizeRef.current?.({ width: rect.width, height: rect.height });
       const ratio = window.devicePixelRatio || 1;
       setViewport((previous) =>
         quantizeScreencastViewport(previous, {

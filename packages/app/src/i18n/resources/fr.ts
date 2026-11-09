@@ -350,6 +350,7 @@ export const fr: TranslationResources = {
       pending: "{{count}} en attente",
       attention: "Attention",
       questionClosed: "Question fermée pendant votre absence",
+      permissionClosed: "Autorisation fermée pendant votre absence",
     },
     archiveSheet: {
       hostOffline: "Hôte hors ligne",

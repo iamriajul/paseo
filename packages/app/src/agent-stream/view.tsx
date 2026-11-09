@@ -159,17 +159,23 @@ import { useWorkspaceLoopbackOpener } from "@/hooks/use-workspace-loopback-opene
 import { useStreamHistoryWindow } from "./use-stream-history-window";
 import { PluginTimelineItemView, useInstalledTimelineTransform } from "@/plugins/timeline";
 import { RateLimitCooldownBanner } from "@/rate-limit-cooldown/rate-limit-cooldown-banner";
+import {
+  ClosedPermissionBanner,
+  useClosedPermission,
+} from "@/prompt-cache/closed-permission-banner";
 
 function renderLiveAuxiliaryNode(input: {
   pendingPermissions: ReactNode;
   turnFooter: ReactNode;
   rateLimitCooldown?: ReactNode;
+  closedPermission?: ReactNode;
   bottomOverlayInset: number;
 }): ReactNode {
   if (
     !input.pendingPermissions &&
     !input.turnFooter &&
     !input.rateLimitCooldown &&
+    !input.closedPermission &&
     input.bottomOverlayInset === 0
   ) {
     return null;
@@ -180,6 +186,11 @@ function renderLiveAuxiliaryNode(input: {
       {input.rateLimitCooldown ? (
         <View style={stylesheet.contentWrapper}>
           <View style={stylesheet.listHeaderContent}>{input.rateLimitCooldown}</View>
+        </View>
+      ) : null}
+      {input.closedPermission ? (
+        <View style={stylesheet.contentWrapper}>
+          <View style={stylesheet.listHeaderContent}>{input.closedPermission}</View>
         </View>
       ) : null}
       {input.pendingPermissions ? (
@@ -1564,6 +1575,20 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         ) : null,
       [context.rateLimitCooldown, resolvedServerId, agentId, toast],
     );
+    const closedPermission = useClosedPermission(resolvedServerId, agentId);
+    const closedPermissionNode = useMemo(
+      () =>
+        closedPermission ? (
+          <ClosedPermissionBanner
+            serverId={resolvedServerId}
+            agentId={agentId}
+            closed={closedPermission}
+            readOnly={readOnly}
+            onToastError={toast?.error}
+          />
+        ) : null,
+      [closedPermission, resolvedServerId, agentId, readOnly, toast],
+    );
 
     const renderModel = useMemo<AgentStreamRenderModel>(() => {
       return {
@@ -1573,9 +1598,16 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           pendingPermissions: pendingPermissionsNode,
           turnFooter: turnFooterNode,
           rateLimitCooldown: rateLimitCooldownNode,
+          closedPermission: closedPermissionNode,
         },
       };
-    }, [baseRenderModel, pendingPermissionsNode, turnFooterNode, rateLimitCooldownNode]);
+    }, [
+      baseRenderModel,
+      pendingPermissionsNode,
+      turnFooterNode,
+      rateLimitCooldownNode,
+      closedPermissionNode,
+    ]);
 
     const emptyStateStyle = useMemo(() => [stylesheet.emptyState, stylesheet.contentWrapper], []);
     const scrollToBottomContainerStyle = useMemo(
@@ -1661,12 +1693,14 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         pendingPermissions: auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
         rateLimitCooldown: auxiliary.rateLimitCooldown,
+        closedPermission: auxiliary.closedPermission,
         bottomOverlayInset,
       });
     }, [
       auxiliary.pendingPermissions,
       auxiliary.turnFooter,
       auxiliary.rateLimitCooldown,
+      auxiliary.closedPermission,
       bottomOverlayTailClearance,
     ]);
 

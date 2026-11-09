@@ -1012,6 +1012,7 @@ const PromptCacheRequestSampleSchema = z.object({
   uncachedTokens: z.number(),
   writeTtl: z.enum(["5m", "1h"]).optional(),
   model: z.string().optional(),
+  forkWarmUp: z.boolean().optional(),
 });
 
 const PromptCacheHistoryEntrySchema = z.object({
@@ -1055,7 +1056,11 @@ export const AgentPromptCacheStateSchema = z.object({
   lastRequest: PromptCacheRequestSampleSchema,
   turnFirstRequest: PromptCacheRequestSampleSchema,
   observedTtl: z.enum(["5m", "1h"]).optional(),
+  contextInputTokens: z.number().optional(),
   questionClosedAt: z.string().optional(),
+  permissionClosed: z
+    .object({ at: z.string(), tool: z.string(), command: z.string().optional() })
+    .optional(),
   lastActivityAt: z.string().optional(),
   history: z.array(PromptCacheHistoryEntrySchema).optional(),
   compactions: z.array(PromptCacheCompactionSchema).optional(),
@@ -4456,6 +4461,10 @@ export const ServerInfoStatusPayloadSchema = z
         // go through a throwaway fork (cacheWarmMode v2), so running and blocked agents are warmed
         // and questions stay open; false under v1, which pings the agent.
         cacheWarmFork: z.boolean().optional(),
+        // COMPAT(cacheWarmClosesPermissions): added in v0.15.908, drop gate after 2027-05-01. True
+        // when a ping warm-up closes a pending permission at the deadline, like a question, and
+        // records it as promptCache.permissionClosed; an older host lets the cache expire.
+        cacheWarmClosesPermissions: z.boolean().optional(),
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
         tcpTunnel: z.boolean().optional(),
         // COMPAT(serverBrowser): added in v0.15.x (fork), drop the gate after 2027-05-01.

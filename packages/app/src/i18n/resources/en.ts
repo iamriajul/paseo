@@ -342,6 +342,7 @@ export const en = {
       pending: "{{count}} pending",
       attention: "Attention",
       questionClosed: "Question closed while you were away",
+      permissionClosed: "Permission closed while you were away",
     },
     archiveSheet: {
       hostOffline: "Host offline",

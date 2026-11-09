@@ -9,6 +9,31 @@ export const DEFAULT_CACHE_WARM_PING_PROMPT =
 export const CACHE_WARM_QUESTION_PAUSE_MESSAGE =
   "I'm AFK and couldn't answer this question. Stop here. When I'm back and write again, use my answer if it gives one. Otherwise, ask the question again with the same options.";
 
+/**
+ * Tool result for a permission request warm-up closed. Like the question message, it names no
+ * cache or warm-up and speaks in the user's voice: they could not approve it, so the model stops
+ * instead of trying another way, and waits for the go-ahead.
+ */
+export const CACHE_WARM_PERMISSION_PAUSE_MESSAGE =
+  "I'm AFK and couldn't approve this. Stop here and don't try another way to do it. When I'm back I'll tell you whether to go ahead; if I don't say, ask again.";
+
+/** A permission request warm-up closed while the user was away: what it asked to run. */
+export interface PromptCacheClosedPermission {
+  at: string;
+  /** Tool name, e.g. Bash. */
+  tool: string;
+  /** The shell command, or the request's own summary for other tools. */
+  command?: string;
+}
+
+/** The message "Run it now" sends: the agent asked before, so this is the go-ahead. */
+export function buildClosedPermissionGoAheadPrompt(
+  closed: Pick<PromptCacheClosedPermission, "tool" | "command">,
+): string {
+  const what = closed.command ? `${closed.tool}: ${closed.command}` : closed.tool;
+  return `I'm back. Go ahead with the request I couldn't approve while I was away (${what}). Run it as you asked.`;
+}
+
 export const ONE_HOUR_CACHE_WINDOW_MS = 60 * 60 * 1000;
 export const FIVE_MINUTE_CACHE_WINDOW_MS = 5 * 60 * 1000;
 
@@ -188,6 +213,11 @@ export interface PromptCacheRequestSample extends PromptCacheRequestTokens {
   isWarmPing: boolean;
   /** Model the agent ran on when the request went out; absent on samples written before it. */
   model?: string;
+  /**
+   * A v2 warm-up through a throwaway fork. It reads the agent's context and adds a tail of its
+   * own (the ping, Claude Code's resume notices) that the agent never sends.
+   */
+  forkWarmUp?: boolean;
 }
 
 /**
@@ -218,8 +248,10 @@ export interface PromptCacheHistoryEntry {
   /** First request after a compaction: it has to write the new context, so it is no miss. */
   afterCompaction?: boolean;
   /**
-   * Input of the request this one is measured against: the previous request, or for a native
-   * fork's first request, the context it inherited. Absent on a fresh session's first request.
+   * The agent's own context this request is measured against: the previous request's input
+   * (after a fork warm-up, the agent's last request before it, since the fork's tail is not the
+   * agent's), or for a native fork's first request, the context it inherited. Absent on a fresh
+   * session's first request.
    */
   previousInputTokens?: number;
 }
@@ -241,7 +273,7 @@ export const PROMPT_CACHE_COMPACTION_LIMIT = 10;
 export const PROMPT_CACHE_HIT_RATIO = 0.5;
 
 /**
- * Share of the previous request's input that a later request must read to count as a hit. The
+ * Share of `previousInputTokens` that a later request must read to count as a hit. The
  * cache holds what the previous request sent, so a request that reads all of it is a hit even
  * when it appends a large tool result, which is written and not read. It is 90%, not 50%,
  * because a request after an expiry can still read the shared system prefix, which is most of a
@@ -281,8 +313,20 @@ export interface AgentPromptCacheState {
   turnFirstRequest: PromptCacheRequestSample;
   /** TTL of the latest request that wrote to the cache; it outlives requests that only read. */
   observedTtl?: PromptCacheTtl;
+  /**
+   * Input of the agent's latest request of its own context, which the next request is measured
+   * against. A fork warm-up leaves it: its tail never joins the agent's context, so measuring the
+   * next request against the fork's input called a full read of the agent's own prefix a miss.
+   * Absent on records written before it; they fall back to the latest request.
+   */
+  contextInputTokens?: number;
   /** When warm-up closed the user's unanswered question; cleared by the user's next message. */
   questionClosedAt?: string;
+  /**
+   * The permission request warm-up closed while the user was away (v1 ping); cleared by the
+   * user's next message.
+   */
+  permissionClosed?: PromptCacheClosedPermission;
   /** Latest request that was not a warm-up: where the next turn's time away starts. */
   lastActivityAt?: string;
   /** Oldest first, at most PROMPT_CACHE_HISTORY_LIMIT entries. */
@@ -444,6 +488,21 @@ export interface PromptCacheInheritance {
   inputTokens: number;
 }
 
+/** The agent's own context as of its latest request; a fork warm-up's tail is not part of it. */
+function agentContextInputTokens(state: AgentPromptCacheState): number {
+  return state.contextInputTokens ?? promptCacheInputTokens(state.lastRequest);
+}
+
+/** A fork warm-up leaves the agent's context as it was; any other request is the new context. */
+function nextContextInputTokens(
+  previous: AgentPromptCacheState | undefined,
+  sample: PromptCacheRequestSample,
+): number {
+  return sample.forkWarmUp && previous
+    ? agentContextInputTokens(previous)
+    : promptCacheInputTokens(sample);
+}
+
 function buildHistoryEntry(
   previous: AgentPromptCacheState | undefined,
   sample: PromptCacheRequestSample,
@@ -451,11 +510,12 @@ function buildHistoryEntry(
   inherited: PromptCacheInheritance | undefined,
 ): PromptCacheHistoryEntry {
   const kind: PromptCacheRequestKind = resolveRequestKind(sample, startsTurn);
-  // The request this one is measured against: the previous request, else what a fork inherited.
+  // The agent's context this one is measured against: as of the previous request, else what a
+  // native fork inherited.
   const basisAt = previous?.lastRequest.at ?? inherited?.at;
   const basisActivityAt = previous?.lastActivityAt ?? inherited?.at;
   const previousInputTokens = previous
-    ? promptCacheInputTokens(previous.lastRequest)
+    ? agentContextInputTokens(previous)
     : (inherited?.inputTokens ?? 0);
   const awayMs = kind === "turn" ? elapsedSinceMs(basisActivityAt, sample.at) : null;
   const afterCompaction = followsCompaction(previous);
@@ -490,7 +550,9 @@ export function recordPromptCacheRequest(
     lastRequest: sample,
     turnFirstRequest: previous && !startsTurn ? previous.turnFirstRequest : sample,
     observedTtl: sample.writeTtl ?? previous?.observedTtl,
+    contextInputTokens: nextContextInputTokens(previous, sample),
     questionClosedAt: previous?.questionClosedAt,
+    permissionClosed: previous?.permissionClosed,
     lastActivityAt: sample.isWarmPing ? previous?.lastActivityAt : sample.at,
     history: [...(previous?.history ?? []), entry].slice(-PROMPT_CACHE_HISTORY_LIMIT),
     compactions: previous?.compactions,

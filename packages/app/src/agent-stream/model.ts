@@ -22,6 +22,8 @@ export interface StreamRenderAuxiliary {
   pendingPermissions: ReactNode;
   turnFooter: ReactNode;
   rateLimitCooldown?: ReactNode;
+  /** Warm-up closed a pending permission while the user was away. */
+  closedPermission?: ReactNode;
 }
 
 export interface AgentStreamRenderModel {

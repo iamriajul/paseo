@@ -13566,6 +13566,67 @@ test("records a fork warm-up as a warm-up request without starting a turn", asyn
   }
 });
 
+test("does not count the agent's next request a miss for skipping a fork warm-up's own tail", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-fork-tail-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  // The agent's two requests: a first write, then a read of its whole 1,000-token context.
+  const requests = [
+    { readTokens: 0, writeTokens: 900, uncachedTokens: 100 },
+    { readTokens: 1000, writeTokens: 50, uncachedTokens: 2 },
+  ];
+
+  class ForkTailSession extends TestAgentSession {
+    private turns = 0;
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = `turn-fork-tail-${++this.turns}`;
+      const requestCache = requests[this.turns - 1]!;
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "usage_updated",
+          provider: this.provider,
+          usage: { contextWindowUsedTokens: 1000, requestCache },
+        });
+        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
+      }, 0);
+      return { turnId };
+    }
+    async warmPromptCache() {
+      // The fork reads the agent's context and writes a tail of its own the agent never sends.
+      return { readTokens: 1000, writeTokens: 300, uncachedTokens: 2 };
+    }
+  }
+  class ForkTailClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new ForkTailSession(config);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new ForkTailClient() },
+    registry: storage,
+    logger,
+  });
+
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    await manager.runAgent(agent.id, "first turn");
+    await expect(manager.warmPromptCache(agent.id)).resolves.toBe(true);
+    await manager.runAgent(agent.id, "second turn");
+
+    const promptCache = manager.getAgent(agent.id)?.promptCache;
+    expect(promptCache?.history?.map((entry) => entry.kind)).toEqual(["turn", "warm-up", "turn"]);
+    expect(promptCache?.history?.[2]?.previousInputTokens).toBe(1000);
+    expect(promptCache?.totals).toEqual({ requests: 2, hits: 2, misses: 0 });
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("adds each fork warm-up's own cost and keeps the session cost through a turn's usage updates", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-warm-cost-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
@@ -13805,7 +13866,7 @@ test("records CLIProxyAPI account changes on the snapshot, in storage and in the
   }
 });
 
-test("shows a closed question until the user's next message, and saves it", async () => {
+test("shows a closed question and a closed permission until the user's next message, and saves them", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-question-closed-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
 
@@ -13850,15 +13911,26 @@ test("shows a closed question until the user's next message, and saves it", asyn
     await manager.runAgent(snapshot.id, "ask me something");
 
     manager.markQuestionClosed(snapshot.id);
+    manager.markPermissionClosed(snapshot.id, { tool: "Bash", command: "npm publish" });
     const closedAt = manager.getAgent(snapshot.id)?.promptCache?.questionClosedAt;
     expect(closedAt).toEqual(expect.any(String));
+    const permissionClosed = manager.getAgent(snapshot.id)?.promptCache?.permissionClosed;
+    expect(permissionClosed).toEqual({
+      at: expect.any(String),
+      tool: "Bash",
+      command: "npm publish",
+    });
     await manager.flush();
-    expect((await storage.get(snapshot.id))?.promptCache?.questionClosedAt).toBe(closedAt);
+    const saved = (await storage.get(snapshot.id))?.promptCache;
+    expect(saved?.questionClosedAt).toBe(closedAt);
+    expect(saved?.permissionClosed).toEqual(permissionClosed);
 
     await manager.runAgent(snapshot.id, "I am back", { clientMessageId: "msg-back" });
     expect(manager.getAgent(snapshot.id)?.promptCache?.questionClosedAt).toBeUndefined();
+    expect(manager.getAgent(snapshot.id)?.promptCache?.permissionClosed).toBeUndefined();
     await manager.flush();
     expect((await storage.get(snapshot.id))?.promptCache?.questionClosedAt).toBeUndefined();
+    expect((await storage.get(snapshot.id))?.promptCache?.permissionClosed).toBeUndefined();
   } finally {
     if (snapshotId) await manager.closeAgent(snapshotId);
     rmSync(workdir, { recursive: true, force: true });

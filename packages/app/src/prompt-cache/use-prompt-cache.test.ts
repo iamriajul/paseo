@@ -246,6 +246,37 @@ describe("resolvePromptCacheView on a host that warms through a fork", () => {
   });
 });
 
+describe("resolvePromptCacheView with a pending permission under ping warm-up", () => {
+  const waiting = claudeAgent({
+    ttl: "5m",
+    status: "running",
+    promptCache: promptCacheAt(NOW - 40 * SECOND),
+    pendingPermissions: [{ id: "p-1", name: "Bash", kind: "tool" }],
+  } as unknown as Partial<Agent>);
+
+  it("counts down to the deadline that closes it on a host that closes permissions", () => {
+    const view = resolvePromptCacheView(waiting, NOW, { closesPermissions: true });
+    expect(view.status.kind).toBe("awaiting-permission");
+    expect(view.warmup?.plan).toEqual({
+      kind: "pauses-permission",
+      remainingMs: 3 * MINUTE + 20 * SECOND,
+    });
+  });
+
+  it("says warm-up waits on an older host, which lets the cache expire", () => {
+    expect(resolvePromptCacheView(waiting, NOW).warmup?.plan).toEqual({
+      kind: "waits-for-permission",
+    });
+  });
+
+  it("leaves a child agent's permission to its parent", () => {
+    const child = { ...waiting, labels: { [PARENT_AGENT_ID_LABEL]: "parent-1" } } as Agent;
+    expect(resolvePromptCacheView(child, NOW, { closesPermissions: true }).warmup?.plan).toEqual({
+      kind: "parent-answers",
+    });
+  });
+});
+
 describe("resolvePromptCacheView while the serving account is blocked", () => {
   it("says warm-up is paused for the account, on the ping and the fork path alike", () => {
     const pause = {

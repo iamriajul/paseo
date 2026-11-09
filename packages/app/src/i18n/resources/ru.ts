@@ -349,6 +349,7 @@ export const ru: TranslationResources = {
       pending: "На рассмотрении: {{count}}",
       attention: "Внимание",
       questionClosed: "Вопрос закрыт, пока вас не было",
+      permissionClosed: "Запрос разрешения закрыт, пока вас не было",
     },
     archiveSheet: {
       hostOffline: "Хост не в сети",

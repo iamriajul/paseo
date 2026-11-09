@@ -345,6 +345,7 @@ export const ar: TranslationResources = {
       pending: "{{count}}معلق",
       attention: "انتباه",
       questionClosed: "أُغلق السؤال أثناء غيابك",
+      permissionClosed: "أُغلق طلب الإذن أثناء غيابك",
     },
     archiveSheet: {
       hostOffline: "Host غير متصل",

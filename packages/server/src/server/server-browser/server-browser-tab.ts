@@ -15,6 +15,13 @@ import type { LocalStorageItems } from "./workspace-storage-state.js";
 const MAX_CONSOLE_ENTRIES = 200;
 const LOAD_WAIT_MS = 15_000;
 const STORAGE_READ_TIMEOUT_MS = 2_000;
+const HIDDEN_TAB_MESSAGE =
+  "This tab's page is hidden in the browser (its window is minimized or on another desktop), so it cannot take input. Show its window.";
+// A page answers a mouse event in milliseconds; this long means it is not handling input at all.
+const INPUT_ACK_TIMEOUT_MS = 5_000;
+// How long a page seen visible is trusted before input looks again; pointer moves come at 60 Hz.
+const VISIBILITY_TRUST_MS = 500;
+const RESTORE_WAIT_MS = 2_000;
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800, mobile: false } as const;
 
 export interface ServerBrowserViewport {
@@ -69,6 +76,8 @@ export class ServerBrowserTab {
   private viewport: ServerBrowserViewport;
   private closed = false;
   private screencastSize: ScreencastSize | null = null;
+  private pendingMove: PendingMove | null = null;
+  private visibleUntil = 0;
 
   public constructor(options: ServerBrowserTabOptions) {
     this.browserId = options.browserId;
@@ -253,6 +262,25 @@ export class ServerBrowserTab {
   /** Applies viewer input. Pointer coordinates are fractions of the frame. */
   public async dispatchInput(events: ServerBrowserInputEvent[]): Promise<void> {
     this.touch();
+    const last = events.at(-1);
+    if (last && events.every(isPointerMove)) {
+      // A pointer reports moves faster than a slow page acknowledges them. Queued moves would
+      // hold every later click, key and pick poll behind them, so a move still waiting for its
+      // slot takes the newest position instead of queueing another.
+      if (this.pendingMove) {
+        this.pendingMove.event = last;
+        return this.pendingMove.done;
+      }
+      const slot: PendingMove = { event: last, done: Promise.resolve() };
+      this.pendingMove = slot;
+      slot.done = this.queue.run(async () => {
+        if (this.pendingMove === slot) this.pendingMove = null;
+        await this.dispatchOne(slot.event);
+      });
+      return slot.done;
+    }
+    // A later move must not jump ahead of this batch into an earlier slot.
+    this.pendingMove = null;
     // One queue slot per batch, taken synchronously: a later request's mouse-up must not
     // overtake this request's mouse-down while it awaits the move before it.
     await this.queue.run(async () => {
@@ -266,7 +294,7 @@ export class ServerBrowserTab {
         const type = { move: "mouseMoved", down: "mousePressed", up: "mouseReleased" }[
           event.action
         ];
-        await this.rawSend("Input.dispatchMouseEvent", {
+        await this.inputSend("Input.dispatchMouseEvent", {
           type,
           ...this.toPagePoint(event.x, event.y),
           button: event.button,
@@ -277,7 +305,7 @@ export class ServerBrowserTab {
         return;
       }
       case "wheel":
-        await this.rawSend("Input.dispatchMouseEvent", {
+        await this.inputSend("Input.dispatchMouseEvent", {
           type: "mouseWheel",
           ...this.toPagePoint(event.x, event.y),
           deltaX: event.deltaX,
@@ -285,7 +313,7 @@ export class ServerBrowserTab {
         });
         return;
       case "key":
-        await this.rawSend("Input.dispatchKeyEvent", {
+        await this.inputSend("Input.dispatchKeyEvent", {
           type: cdpKeyEventType(event.action, event.text),
           key: event.key,
           code: event.code,
@@ -295,7 +323,7 @@ export class ServerBrowserTab {
         });
         return;
       case "text":
-        await this.rawSend("Input.insertText", { text: event.text });
+        await this.inputSend("Input.insertText", { text: event.text });
         return;
     }
   }
@@ -418,7 +446,71 @@ export class ServerBrowserTab {
   }
 
   private send(method: string, params: CdpParams = {}): Promise<CdpParams> {
+    if (method.startsWith("Input.")) return this.queue.run(() => this.inputSend(method, params));
     return this.queue.run(() => this.rawSend(method, params));
+  }
+
+  /**
+   * An input event, sent once the page can take it. Chromium answers an input command only after
+   * the page handled the event, and a hidden page (its window minimized, or on another desktop)
+   * never does: the command would hold the tab's queue, and every later command, forever.
+   */
+  private async inputSend(method: string, params: CdpParams): Promise<CdpParams> {
+    await this.ensureVisible();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stalled = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        // Look again on the next event: the page may have been hidden since the last look.
+        this.visibleUntil = 0;
+        reject(new Error(HIDDEN_TAB_MESSAGE));
+      }, INPUT_ACK_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([this.rawSend(method, params), stalled]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Restores the tab's window when it is minimized; throws when its page stays hidden. */
+  private async ensureVisible(): Promise<void> {
+    if (Date.now() < this.visibleUntil) return;
+    if ((await this.visibilityState()) === "hidden") {
+      await this.restoreWindow();
+      if ((await this.visibilityState()) === "hidden") throw new Error(HIDDEN_TAB_MESSAGE);
+    }
+    this.visibleUntil = Date.now() + VISIBILITY_TRUST_MS;
+  }
+
+  private async visibilityState(): Promise<unknown> {
+    const result = await this.rawSend("Runtime.evaluate", {
+      expression: "document.visibilityState",
+      returnByValue: true,
+    });
+    return (result.result as { value?: unknown } | undefined)?.value;
+  }
+
+  /**
+   * A headed browser hides the page of a minimized window, and its owner minimizes windows. Any
+   * use from a viewer or an agent brings it back; the window takes focus on its desktop as it does.
+   * A browser with no windows (headless) fails getWindowForTarget, and nothing changes.
+   */
+  private async restoreWindow(): Promise<void> {
+    const found = (await this.connection
+      .send("Browser.getWindowForTarget", { targetId: this.targetId })
+      .catch(() => null)) as { windowId?: number; bounds?: { windowState?: string } } | null;
+    if (typeof found?.windowId !== "number" || found.bounds?.windowState !== "minimized") return;
+    await this.connection
+      .send("Browser.setWindowBounds", {
+        windowId: found.windowId,
+        bounds: { windowState: "normal" },
+      })
+      .catch(() => {});
+    // Chromium shows the page a moment after the window manager maps the window.
+    const deadline = Date.now() + RESTORE_WAIT_MS;
+    while (Date.now() < deadline && (await this.visibilityState()) === "hidden") {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   private rawSend(method: string, params: CdpParams = {}): Promise<CdpParams> {
@@ -441,6 +533,8 @@ export class ServerBrowserTab {
 
   private startScreencast(size: ScreencastSize): void {
     this.screencastSize = size;
+    // A hidden page paints nothing, so a viewer of a minimized window would wait on a blank frame.
+    void this.ensureVisible().catch(() => {});
     void this.rawSend("Page.startScreencast", {
       format: "jpeg",
       quality: 60,
@@ -545,6 +639,15 @@ export class ServerBrowserTab {
     this.console.push({ level, message, timestamp: this.now(), ...extra });
     if (this.console.length > MAX_CONSOLE_ENTRIES) this.console.shift();
   }
+}
+
+interface PendingMove {
+  event: ServerBrowserInputEvent;
+  done: Promise<void>;
+}
+
+function isPointerMove(event: ServerBrowserInputEvent): boolean {
+  return event.kind === "mouse" && event.action === "move";
 }
 
 function cdpKeyEventType(action: "down" | "up", text: string | undefined): string {

@@ -36,6 +36,8 @@ interface ServerBrowserSurfaceProps {
   /** Annotate element is picking: a touch points, a drag moves the highlight, lifting picks. */
   annotating?: boolean;
   onCancelAnnotate?: () => void;
+  /** The surface's size in CSS pixels, each time it changes; the Responsive device size follows it. */
+  onSize?: (size: { width: number; height: number }) => void;
 }
 
 const TAP_SLOP = 8;
@@ -50,7 +52,7 @@ export const ServerBrowserSurface = forwardRef<
   ServerBrowserSurfaceHandle,
   ServerBrowserSurfaceProps
 >(function ServerBrowserSurface(
-  { client, browserId, pageWidth, pageHeight, annotating = false },
+  { client, browserId, pageWidth, pageHeight, annotating = false, onSize },
   ref,
 ) {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -71,6 +73,8 @@ export const ServerBrowserSurface = forwardRef<
   pageRef.current = { width: pageWidth, height: pageHeight };
   const annotatingRef = useRef(annotating);
   annotatingRef.current = annotating;
+  const onSizeRef = useRef(onSize);
+  onSizeRef.current = onSize;
 
   const batcherRef = useRef<InputBatcher | null>(null);
   if (!batcherRef.current) {
@@ -105,6 +109,7 @@ export const ServerBrowserSurface = forwardRef<
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     setSize({ width, height });
+    onSizeRef.current?.({ width, height });
     const ratio = PixelRatio.get();
     setViewport((previous) =>
       quantizeScreencastViewport(previous, { maxWidth: width * ratio, maxHeight: height * ratio }),

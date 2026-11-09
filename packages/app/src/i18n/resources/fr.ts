@@ -713,6 +713,7 @@ export const fr: TranslationResources = {
       devices: {
         label: "Taille de l’appareil",
         responsive: "Adaptatif",
+        agentDefault: "Par défaut de l’agent",
       },
       services: {
         label: "Services de l’espace de travail",

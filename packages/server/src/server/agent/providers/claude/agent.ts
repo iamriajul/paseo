@@ -3613,7 +3613,12 @@ class ClaudeAgentSession implements AgentSession {
       hooks: {},
       settings: mergeClaudeSettings(options.settings, {
         disableAllHooks: true,
-        env: routeAsSession(options, routedSessionId),
+        // A resumed process re-reads CLAUDE.md and auto-memory and appends, in full, every file
+        // that changed since the transcript's copy. The agent's own process never sends that, so
+        // the fork wrote it to the cache on every warm-up (27-33k tokens on a 620k session). The
+        // transcript keeps the session's copies, so the prefix is unchanged; the fork only says
+        // the files are no longer present. Checked against Claude Code 2.1.318.
+        env: { ...routeAsSession(options, routedSessionId), CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" },
       }),
       canUseTool: async () => ({ behavior: "deny", message: "A cache warm-up runs no tools." }),
       stderr: (data: string) =>

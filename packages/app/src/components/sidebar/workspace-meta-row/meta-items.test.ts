@@ -178,7 +178,7 @@ describe("selectMetaRowItems", () => {
       heartbeatText: "in 12m",
     });
     expect(items).toEqual([
-      { kind: "cacheWarm", text: "3:40", misses: 0 },
+      { kind: "cacheWarm", text: "3:40", capped: false, flash: false, misses: 0 },
       { kind: "heartbeat", text: "in 12m" },
     ]);
   });
@@ -186,10 +186,20 @@ describe("selectMetaRowItems", () => {
   it("leaves the cache warm-up out when nothing counts down and nothing missed", () => {
     expect(kinds(select({ cacheWarmText: null }))).not.toContain("cacheWarm");
     expect(kinds(select({ cacheWarmText: "  " }))).not.toContain("cacheWarm");
-    expect(select({ cacheWarmText: null, cacheMisses: 2 })).toContainEqual({
+    expect(
+      select({ cacheWarmText: null, cacheWarmFlash: true, cacheWarmCapped: true, cacheMisses: 2 }),
+    ).toContainEqual({ kind: "cacheWarm", text: null, capped: false, flash: false, misses: 2 });
+  });
+
+  it("carries the countdown's near-cap flash and whether it runs to the cache expiring", () => {
+    expect(
+      select({ cacheWarmText: "1:10", cacheWarmCapped: true, cacheWarmFlash: true }),
+    ).toContainEqual({
       kind: "cacheWarm",
-      text: null,
-      misses: 2,
+      text: "1:10",
+      capped: true,
+      flash: true,
+      misses: 0,
     });
   });
 });

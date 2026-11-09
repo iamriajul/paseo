@@ -87,6 +87,8 @@ export function WorkspaceMetaRow({
   labels = EMPTY_LABELS,
   heartbeatText = null,
   cacheWarmText = null,
+  cacheWarmCapped = false,
+  cacheWarmFlash = false,
   cacheMisses = 0,
 }: {
   currentBranch: string | null;
@@ -99,8 +101,14 @@ export function WorkspaceMetaRow({
   todoSummary?: WorkspaceTodoSummary | null;
   labels?: readonly WorkspaceLabelDefinition[];
   heartbeatText?: string | null;
-  /** Countdown to the active agent's next prompt-cache warm-up, when one is armed. */
+  /**
+   * Countdown to the active agent's next prompt-cache warm-up, or to the cache expiring once the
+   * warm-up cap is spent (`cacheWarmCapped`).
+   */
   cacheWarmText?: string | null;
+  cacheWarmCapped?: boolean;
+  /** Draw the countdown in the warning colour this second: the pill's near-cap blink. */
+  cacheWarmFlash?: boolean;
   /** The active agent's avoidable prompt-cache misses this session, drawn red. */
   cacheMisses?: number;
 }) {
@@ -118,6 +126,8 @@ export function WorkspaceMetaRow({
     checksDisplay,
     heartbeatText,
     cacheWarmText,
+    cacheWarmCapped,
+    cacheWarmFlash,
     cacheMisses,
   });
 
@@ -167,7 +177,14 @@ function MetaItemNode({
     return <LabelsItem labels={item.labels} leading={leading} />;
   }
   if (item.kind === "cacheWarm") {
-    return <CacheWarmItem text={item.text} misses={item.misses} />;
+    return (
+      <CacheWarmItem
+        text={item.text}
+        capped={item.capped}
+        flash={item.flash}
+        misses={item.misses}
+      />
+    );
   }
   if (item.kind === "heartbeat") {
     return <HeartbeatItem text={item.text} />;
@@ -350,10 +367,23 @@ const CHECK_STATE_ACCESSIBLE_KEYS = {
   running: "workspace.git.pr.checksSummary.runningAccessible",
 } as const;
 
-function CacheWarmItem({ text, misses }: { text: string | null; misses: number }) {
+function CacheWarmItem({
+  text,
+  capped,
+  flash,
+  misses,
+}: {
+  text: string | null;
+  capped: boolean;
+  flash: boolean;
+  misses: number;
+}) {
   const { t } = useTranslation();
+  const countdownLabelKey = capped
+    ? "workspace.cacheWarm.expiresAccessibilityLabel"
+    : "workspace.cacheWarm.accessibilityLabel";
   const labels = [
-    text ? t("workspace.cacheWarm.accessibilityLabel", { countdown: text }) : null,
+    text ? t(countdownLabelKey, { countdown: text }) : null,
     misses > 0 ? t("workspace.cacheWarm.missesAccessibilityLabel", { count: misses }) : null,
   ].filter(Boolean);
   return (
@@ -368,7 +398,11 @@ function CacheWarmItem({ text, misses }: { text: string | null; misses: number }
         <ThemedDatabase size={META_ICON_SIZE} uniProps={mutedMapping} />
       )}
       {text ? (
-        <Text style={styles.heartbeatText} numberOfLines={1}>
+        <Text
+          style={[styles.heartbeatText, flash && styles.cacheWarmFlashText]}
+          numberOfLines={1}
+          testID="sidebar-workspace-cache-countdown"
+        >
           {text}
         </Text>
       ) : null}
@@ -558,6 +592,9 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,
+  },
+  cacheWarmFlashText: {
+    color: theme.colors.statusWarning,
   },
   heartbeatText: {
     color: theme.colors.foregroundMuted,

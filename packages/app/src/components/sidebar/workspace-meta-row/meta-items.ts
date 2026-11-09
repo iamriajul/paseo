@@ -25,8 +25,11 @@ export type MetaRowItem =
   | { kind: "todos"; summary: WorkspaceTodoSummary }
   | { kind: "services"; summary: WorkspaceServiceSummary }
   | { kind: "labels"; labels: readonly WorkspaceLabelDefinition[] }
-  /** text: countdown to the next warm-up, null when none is armed; misses: the session's red count. */
-  | { kind: "cacheWarm"; text: string | null; misses: number }
+  /**
+   * text: countdown to the next warm-up, or to the cache expiring once the cap is spent (capped),
+   * null when neither runs; flash: drawn in the warning colour this second; misses: the red count.
+   */
+  | { kind: "cacheWarm"; text: string | null; capped: boolean; flash: boolean; misses: number }
   | { kind: "heartbeat"; text: string };
 
 /**
@@ -55,6 +58,8 @@ export function selectMetaRowItems(input: {
   checksDisplay: SidebarChecksDisplay;
   heartbeatText?: string | null;
   cacheWarmText?: string | null;
+  cacheWarmCapped?: boolean;
+  cacheWarmFlash?: boolean;
   /** Avoidable prompt-cache misses of the active agent's session. */
   cacheMisses?: number;
 }): MetaRowItem[] {
@@ -71,6 +76,8 @@ export function selectMetaRowItems(input: {
     checksDisplay,
     heartbeatText,
     cacheWarmText,
+    cacheWarmCapped = false,
+    cacheWarmFlash = false,
     cacheMisses = 0,
   } = input;
   const items: MetaRowItem[] = [];
@@ -119,9 +126,12 @@ export function selectMetaRowItems(input: {
   // show on their own when no warm-up is armed: a cache that missed is worth seeing either way.
   const trimmedCacheWarm = cacheWarmText?.trim() ?? "";
   if (trimmedCacheWarm.length > 0 || cacheMisses > 0) {
+    const counting = trimmedCacheWarm.length > 0;
     items.push({
       kind: "cacheWarm",
-      text: trimmedCacheWarm.length > 0 ? trimmedCacheWarm : null,
+      text: counting ? trimmedCacheWarm : null,
+      capped: counting && cacheWarmCapped,
+      flash: counting && cacheWarmFlash,
       misses: cacheMisses,
     });
   }

@@ -499,6 +499,7 @@ export const ptBR: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "Próximo aquecimento de cache em {{countdown}}",
+      expiresAccessibilityLabel: "O cache de prompts expira em {{countdown}}",
       missesAccessibilityLabel: "Falhas do cache de prompts nesta sessão: {{count}}",
     },
     route: {

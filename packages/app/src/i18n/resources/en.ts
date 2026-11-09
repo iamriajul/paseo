@@ -492,6 +492,7 @@ export const en = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "Next prompt cache warm-up in {{countdown}}",
+      expiresAccessibilityLabel: "Prompt cache expires in {{countdown}}",
       missesAccessibilityLabel: "Prompt cache misses this session: {{count}}",
     },
     route: {

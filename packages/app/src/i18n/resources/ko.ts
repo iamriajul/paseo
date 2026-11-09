@@ -495,6 +495,7 @@ export const ko: TranslationResources = {
   workspace: {
     cacheWarm: {
       accessibilityLabel: "다음 캐시 워밍업까지 {{countdown}}",
+      expiresAccessibilityLabel: "프롬프트 캐시 만료까지 {{countdown}}",
       missesAccessibilityLabel: "이 세션의 프롬프트 캐시 미스: {{count}}",
     },
     route: {

@@ -215,6 +215,8 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             labels={labels}
             heartbeatText={heartbeatText}
             cacheWarmText={cacheWarm.text}
+            cacheWarmCapped={cacheWarm.capped}
+            cacheWarmFlash={cacheWarm.flash}
             cacheMisses={cacheWarm.misses}
           />
         </View>

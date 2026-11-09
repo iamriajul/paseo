@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@getpaseo/protocol/agent-message";
+import { stripAgentMessageHeader } from "@getpaseo/protocol/paseo-tool-presentation/index";
 import type { AgentMessagesDisplay } from "@/hooks/use-settings";
 import {
   getStreamItemMessageId,
@@ -149,11 +150,9 @@ export function foldAgentMessages(input: FoldAgentMessagesInput): AgentMessageFo
   };
 }
 
-const AGENT_HEADER = /^\s*\[agent [^\]\n]*\]\s*/;
-
 /** The first line of a message's own words: the `[agent … · role]` header and Markdown marks go. */
 export function agentMessagePreview(text: string): string {
-  const body = text.replace(AGENT_HEADER, "");
+  const body = stripAgentMessageHeader(text);
   const line = body.split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
   return line
     .replace(/^\s*(?:#{1,6}|>|[-*+]|\d+\.)\s+/, "")

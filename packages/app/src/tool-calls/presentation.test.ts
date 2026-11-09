@@ -154,3 +154,23 @@ it("shows the target agent title as context for Paseo agent tools", () => {
   expect(presentation.displayName).toBe("Kill agent");
   expect(presentation.summary).toBe("Reviewer");
 });
+
+it("names the receiver of a sent message before its words", () => {
+  const presentation = buildToolCallPresentation({
+    toolName: "mcp__paseo__send_agent_prompt",
+    status: "completed",
+    error: null,
+    detail: {
+      type: "unknown",
+      input: {
+        agentId: "agt_1",
+        prompt: "[agent 137b1363 · DeepCycle PA] The founder ruled (11-09).",
+      },
+      output: null,
+    },
+    targetAgentTitle: "Postiz hosted app",
+    resolveIcon: fakeResolveIcon,
+  });
+  expect(presentation.displayName).toBe("Send message");
+  expect(presentation.summary).toBe("Postiz hosted app · The founder ruled (11-09).");
+});

@@ -429,6 +429,17 @@ function parseAutonomousWakeCount(prompt: AgentPromptInput): number {
   return Math.min(Number(match?.[1] ?? 0), 5);
 }
 
+/**
+ * Fork: "call send_agent_prompt to <agentId>: <prompt>" answers with that Paseo tool call, so
+ * tests can draw an orchestrator's Send message row without a real provider.
+ */
+function parseSendAgentPromptCall(
+  prompt: AgentPromptInput,
+): { agentId: string; prompt: string } | null {
+  const match = /^call send_agent_prompt to (\S+): ([\s\S]+)$/i.exec(promptToText(prompt));
+  return match ? { agentId: match[1]!, prompt: match[2]! } : null;
+}
+
 function shouldWithholdUserMessageUntilInterrupt(prompt: AgentPromptInput): boolean {
   return /withhold synthetic user message until interrupted/i.test(promptToText(prompt));
 }
@@ -917,9 +928,12 @@ export class MockLoadTestAgentSession implements AgentSession {
     const structuredBranchName = parseStructuredBranchNamePrompt(prompt);
     const settledAssistantImageMarkdown = parseSettledAssistantImageMarkdown(prompt);
     const steeringReplayShape = parseSteeringReplayShape(prompt);
+    const sendAgentPromptCall = parseSendAgentPromptCall(prompt);
     const scheduleTurn = () => {
       if (shouldEmitTurnFailure(prompt)) {
         this.scheduleFailedTurn(turn);
+      } else if (sendAgentPromptCall) {
+        this.scheduleSendAgentPromptTurn(turn, sendAgentPromptCall);
       } else if (steeringReplayShape) {
         this.scheduleSteeringReplayTurn(turn, steeringReplayShape);
       } else if (isCacheWarmPrompt(promptToText(prompt))) {
@@ -1709,6 +1723,35 @@ export class MockLoadTestAgentSession implements AgentSession {
       timeline: [],
       canceled: false,
     });
+  }
+
+  private scheduleSendAgentPromptTurn(
+    turn: ActiveTurn,
+    call: { agentId: string; prompt: string },
+  ): void {
+    turn.timer = setTimeout(() => {
+      if (this.activeTurn !== turn) return;
+      this.emitTurnStarted(turn);
+      this.emitTimeline(turn.turnId, {
+        type: "tool_call",
+        callId: `${turn.turnId}:send-agent-prompt`,
+        name: "mcp__paseo__send_agent_prompt",
+        status: "completed",
+        error: null,
+        detail: {
+          type: "unknown",
+          input: { agentId: call.agentId, prompt: call.prompt, background: true },
+          output: { status: "running" },
+        },
+      });
+      this.emitTimeline(turn.turnId, {
+        type: "assistant_message",
+        text: "Sent.",
+        messageId: turn.assistantMessageId,
+      });
+      this.finishTurnWithText(turn, "Sent.");
+    }, 0);
+    turn.timer.unref?.();
   }
 
   private scheduleAutonomousWakes(remaining: number): void {

@@ -1572,3 +1572,17 @@ xterm parses `terminal.write` asynchronously, and node-pty reports exit once the
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/terminal/terminal-exit-output.test.ts --bail=1
 ```
+
+## send-message-receiver
+
+**a Send message row names the agent it went to, then what it said**
+
+An orchestrator's `send_agent_prompt` row read "Send message [agent 137b1363-… · DeepCycle PA] The founder ruled…": the bracketed header names the sender, which is the orchestrator itself, so the user could not see who received the message. The row now reads "Send message Postiz hosted app · The founder ruled…", the way Respond to permission already names its agent. The receiver comes from the call's `agentId` through the same `useTargetAgentTitle` lookup that row uses; an agent this host does not know reads as the first 8 characters of its ID. The preview drops the `[agent … · role]` header with `stripAgentMessageHeader`, which the [agent message fold](#agent-messages-collapse) rows use as well. The expanded detail's Agent field reads "Postiz hosted app (<id>)", inline and in the phone sheet. Grouped summaries ("Sent message ×2") keep the catalog's completed label. The mock provider's `call send_agent_prompt to <agentId>: <prompt>` prompt draws the row for `agent-message-fold.spec.ts`.
+
+```bash
+npx vitest run packages/protocol/src/paseo-tool-presentation/index.test.ts --bail=1 -t "names the receiver"
+npm test --workspace=@getpaseo/app -- src/tool-calls/presentation.test.ts --bail=1
+grep -q "context: sentMessage()," packages/protocol/src/paseo-tool-presentation/catalog.ts
+grep -q "targetAgentTitle={targetAgentTitle}" packages/app/src/components/tool-call-sheet.tsx
+grep -q "parseSendAgentPromptCall(prompt)" packages/server/src/server/agent/providers/mock-load-test-agent.ts
+```

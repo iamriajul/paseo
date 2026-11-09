@@ -1,71 +1,39 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { ChevronDown, ChevronUp } from "lucide-react-native";
-import { ScrollView } from "@/components/ui/scroll-view";
-import type { Theme } from "@/styles/theme";
+import { useMemo } from "react";
+import { Text, View } from "react-native";
+import { StyleSheet } from "react-native-unistyles";
+import type { GatewaySessionRoute } from "@getpaseo/protocol/messages";
+import { Button } from "@/components/ui/button";
+import { buildSessionRouteRows } from "@/gateway-session-route/route-rows";
+import { buildGatewayAccountList } from "./accounts";
 import { GatewayQuotaAccountRow } from "./account-row";
-import { gatewayQuotaCopy } from "./copy";
-import { buildGatewayQuotaSections, summarizeGatewayQuota } from "./sections";
+import { describeOtherAccounts, gatewayQuotaCopy } from "./copy";
 import type { GatewayQuotaView } from "./types";
 
-const ThemedChevronDown = withUnistyles(ChevronDown);
-const ThemedChevronUp = withUnistyles(ChevronUp);
-const chevronColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
-
 /**
- * Collapsed account count. Three rows fit the collapsed tooltip beside the
- * context, quota, and latest-request sections; more than that pushes stats
- * off-screen, which is the bug this bound fixes.
+ * The CLIProxyAPI account inside the context-meter details: only the account serving this agent,
+ * then one line counting the others and, where the surface takes presses, the All accounts
+ * window. Listing every account here ran a 12-account tooltip off the screen; the window owns the
+ * full list. Renders nothing when the host has neither a route nor quota to show.
  */
-const COLLAPSED_ACCOUNT_COUNT = 3;
-/**
- * Expanded list height. Caps the open list so 10–20 accounts scroll inside
- * their own ScrollView instead of growing the tooltip past the viewport and
- * hiding the latest-request stats below it.
- */
-const EXPANDED_LIST_MAX_HEIGHT = 280;
-
-function SummaryLine({
-  ready,
-  coolingDown,
-  total,
-}: {
-  ready: number;
-  coolingDown: number;
-  total: number;
-}) {
-  const parts = [`${total} ${total === 1 ? "account" : "accounts"}`];
-  if (ready > 0) parts.push(`${ready} ${gatewayQuotaCopy.readyCount}`);
-  if (coolingDown > 0) parts.push(`${coolingDown} ${gatewayQuotaCopy.coolingDownCount}`);
-  return (
-    <Text style={styles.summary} numberOfLines={1}>
-      {parts.join(" · ")}
-    </Text>
-  );
-}
-
-// Renders the selected model's CLIProxyAPI quota inside the context-meter
-// tooltip. Returns nothing unless the daemon reports usable accounts, so old
-// CLIProxyAPI builds and transient failures hide the section instead of showing errors.
-export function GatewayQuotaSection({
+export function GatewayAccountSection({
   view,
+  route,
   serverId,
+  onOpenAllAccounts,
 }: {
   view: GatewayQuotaView;
+  route: GatewaySessionRoute | null;
   serverId: string | null;
+  /** Absent on surfaces that take no presses (the native wide tooltip). */
+  onOpenAllAccounts?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const handleToggle = useCallback(() => setExpanded((next) => !next), []);
-  const sections = useMemo(
-    () => (view.kind === "ready" ? buildGatewayQuotaSections(view.payload) : []),
-    [view],
+  const entries = useMemo(
+    () => (view.kind === "ready" ? buildGatewayAccountList(view.payload, route?.account) : []),
+    [route?.account, view],
   );
-  const payloadId = view.kind === "ready" ? view.payload.requestId : null;
-  useEffect(() => {
-    setExpanded(false);
-  }, [payloadId]);
-  if (view.kind === "loading") {
+  const quotaSupported = view.kind === "ready" && view.payload.supported;
+
+  if (view.kind === "loading" && !route) {
     return (
       <>
         <View style={styles.divider} />
@@ -73,69 +41,64 @@ export function GatewayQuotaSection({
       </>
     );
   }
+  if (!route && entries.length === 0) return null;
 
-  if (view.kind !== "ready") {
-    return null;
-  }
-
-  if (sections.length === 0) {
-    return null;
-  }
-
-  const summary = summarizeGatewayQuota(sections);
-  const collapsible = sections.length > COLLAPSED_ACCOUNT_COUNT;
-  const visible = !collapsible || expanded ? sections : sections.slice(0, COLLAPSED_ACCOUNT_COUNT);
-  const rows = visible.map((section, index) => (
-    <View key={section.key} style={index > 0 ? styles.accountSpacing : undefined}>
-      <GatewayQuotaAccountRow account={section.account} serverId={serverId} compact />
-    </View>
-  ));
+  const serving = entries.filter((entry) => entry.serving);
+  const routeRows = route ? buildSessionRouteRows(route) : [];
+  // With the account's own row on screen, only the switch line still adds anything.
+  const shownRouteRows = serving.length > 0 ? routeRows.slice(1) : routeRows;
+  const othersLine = describeOtherAccounts(entries.length - serving.length, serving.length > 0);
 
   return (
-    <>
+    <View testID="gateway-account-section">
       <View style={styles.divider} />
       <Text style={styles.title}>{gatewayQuotaCopy.title}</Text>
-      <SummaryLine ready={summary.ready} coolingDown={summary.coolingDown} total={summary.total} />
-      {expanded ? (
-        <ScrollView style={styles.expandedList} showsVerticalScrollIndicator>
-          {rows}
-        </ScrollView>
-      ) : (
-        rows
-      )}
-      {collapsible ? (
-        <Toggle expanded={expanded} total={sections.length} onToggle={handleToggle} />
+      {serving.map((entry) => (
+        <View key={entry.key} style={styles.account}>
+          <GatewayQuotaAccountRow account={entry.account} serverId={serverId} compact />
+        </View>
+      ))}
+      {shownRouteRows.length > 0 ? (
+        <View style={styles.rows}>
+          {shownRouteRows.map((row) => (
+            <View key={row.label} style={styles.row}>
+              <Text style={styles.label}>{row.label}</Text>
+              <Text style={styles.value} numberOfLines={1}>
+                {row.value}
+              </Text>
+            </View>
+          ))}
+        </View>
       ) : null}
-    </>
+      {othersLine || (quotaSupported && onOpenAllAccounts) ? (
+        <View style={styles.footer}>
+          {othersLine ? (
+            <Text style={styles.detail} testID="gateway-account-others">
+              {othersLine}
+            </Text>
+          ) : (
+            <View />
+          )}
+          {quotaSupported && onOpenAllAccounts ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={onOpenAllAccounts}
+              testID="gateway-open-all-accounts"
+            >
+              {gatewayQuotaCopy.allAccounts}
+            </Button>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
-function Toggle({
-  expanded,
-  total,
-  onToggle,
-}: {
-  expanded: boolean;
-  total: number;
-  onToggle: () => void;
-}) {
-  const Icon = expanded ? ThemedChevronUp : ThemedChevronDown;
-  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
-  return (
-    <Pressable
-      style={styles.toggle}
-      onPress={onToggle}
-      accessibilityRole="button"
-      accessibilityState={accessibilityState}
-    >
-      <Icon size={12} uniProps={chevronColor} />
-      <Text style={styles.toggleLabel}>{expanded ? "Show less" : `Show all ${total}`}</Text>
-    </Pressable>
-  );
-}
 const styles = StyleSheet.create((theme) => ({
   divider: {
     height: 1,
+    // Same rule the sibling CLIProxyAPI sections draw (see gateway-stats/section).
     backgroundColor: theme.colors.borderAccent,
     marginVertical: theme.spacing[2],
     marginHorizontal: -theme.spacing[2],
@@ -146,34 +109,41 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: "600",
     lineHeight: theme.fontSize.sm * 1.4,
   },
-  summary: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    lineHeight: theme.fontSize.sm * 1.4,
-    marginTop: theme.spacing[1],
-  },
-  accountSpacing: {
+  account: {
     marginTop: theme.spacing[2],
   },
-  expandedList: {
-    marginTop: theme.spacing[2],
-    maxHeight: EXPANDED_LIST_MAX_HEIGHT,
-  },
-  toggle: {
-    flexDirection: "row",
-    alignItems: "center",
+  rows: {
     gap: theme.spacing[1],
     marginTop: theme.spacing[2],
-    paddingVertical: theme.spacing[1],
   },
-  toggleLabel: {
+  row: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
+  },
+  label: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: theme.fontSize.sm * 1.4,
+  },
+  value: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    lineHeight: theme.fontSize.sm * 1.4,
+    flexShrink: 1,
+  },
+  footer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    marginTop: theme.spacing[2],
   },
   detail: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: theme.fontSize.sm * 1.4,
+    flexShrink: 1,
   },
 }));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSessionRouteRows } from "./section";
+import { buildSessionRouteRows } from "./route-rows";
 import { pickGatewaySessionRoute } from "./use-gateway-session-route";
 
 const a = { label: "u***a@example.com", provider: "Claude", plan: "Max", inCooldown: true };

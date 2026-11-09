@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
@@ -13,11 +13,11 @@ import { ContextWindowDetails } from "./context-window-details";
 import { ContextWindowSheet } from "./context-window-sheet";
 import { formatContextPercentage } from "./context-window-meter.utils";
 
-import { GatewayQuotaSection } from "@/gateway-quota/section";
+import { GatewayAllAccountsDialog } from "@/gateway-quota/all-accounts-dialog";
+import { GatewayAccountSection } from "@/gateway-quota/section";
 import { useGatewayQuota } from "@/gateway-quota/use-gateway-quota";
 import { GatewayStatsSection } from "@/gateway-stats/section";
 import { useGatewayStats } from "@/gateway-stats/use-gateway-stats";
-import { GatewaySessionRouteSection } from "@/gateway-session-route/section";
 import { useGatewaySessionRoute } from "@/gateway-session-route/use-gateway-session-route";
 interface ContextWindowMeterProps {
   serverId: string;
@@ -36,6 +36,8 @@ interface ContextWindowMeterProps {
 
 const SVG_SIZE = 14;
 const USAGE_POPOVER_WIDTH = 300;
+/** Room the desktop hover card leaves above and below itself, so it never runs off the screen. */
+const POPOVER_SCREEN_MARGIN = 96;
 const COMPACT_SVG_SIZE = 12;
 const COMPACT_RADIUS = 5;
 const STROKE_WIDTH = 2;
@@ -165,11 +167,13 @@ function GatewayMeterSections({
   agentId,
   provider,
   model,
+  onOpenAllAccounts,
 }: {
   serverId: string;
   agentId: string;
   provider: string | null | undefined;
   model: string | null | undefined;
+  onOpenAllAccounts?: () => void;
 }) {
   const gatewaySessionRoute = useGatewaySessionRoute(serverId, agentId);
   const { view: gatewayQuotaView } = useGatewayQuota(serverId, provider, model);
@@ -181,8 +185,12 @@ function GatewayMeterSections({
   });
   return (
     <>
-      <GatewaySessionRouteSection route={gatewaySessionRoute} />
-      <GatewayQuotaSection view={gatewayQuotaView} serverId={serverId} />
+      <GatewayAccountSection
+        view={gatewayQuotaView}
+        route={gatewaySessionRoute}
+        serverId={serverId}
+        onOpenAllAccounts={onOpenAllAccounts}
+      />
       <GatewayStatsSection sample={gatewayStatsSample} isLive={gatewayStatsIsLive} />
     </>
   );
@@ -200,7 +208,7 @@ export function ContextWindowMeter({
   glyphSize,
 }: ContextWindowMeterProps) {
   const { t, i18n } = useTranslation();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   // Usage cards need a wider popover; without them it keeps the plain tooltip shape.
   const showsUsage = useHostReportsUsage(serverId);
   const popoverWidth = Math.min(USAGE_POPOVER_WIDTH, width - 24);
@@ -209,6 +217,24 @@ export function ContextWindowMeter({
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const openSheet = useCallback(() => setIsSheetOpen(true), []);
   const closeSheet = useCallback(() => setIsSheetOpen(false), []);
+  const [isAllAccountsOpen, setIsAllAccountsOpen] = useState(false);
+  const closeAllAccounts = useCallback(() => setIsAllAccountsOpen(false), []);
+  // The sheet closes first: the window replaces it rather than stacking on it.
+  const openAllAccounts = useCallback(() => {
+    setIsSheetOpen(false);
+    setIsAllAccountsOpen(true);
+  }, []);
+  const allAccountsDialog =
+    isAllAccountsOpen && provider && model ? (
+      <GatewayAllAccountsDialog
+        serverId={serverId}
+        agentId={agentId}
+        provider={provider}
+        model={model}
+        visible
+        onClose={closeAllAccounts}
+      />
+    ) : null;
   const percentage =
     maxTokens !== null && usedTokens !== null ? getUsagePercentage(maxTokens, usedTokens) : null;
   const geometry = getMeterGeometry(showPercentage, glyphSize);
@@ -276,8 +302,10 @@ export function ContextWindowMeter({
             agentId={agentId}
             provider={provider}
             model={model}
+            onOpenAllAccounts={openAllAccounts}
           />
         </ContextWindowSheet>
+        {allAccountsDialog}
       </>
     );
   }
@@ -329,43 +357,62 @@ export function ContextWindowMeter({
     );
   }
 
+  const hoverCardStyle = [
+    popoverStyle,
+    styles.scrollingPopover,
+    { maxHeight: Math.max(160, height - POPOVER_SCREEN_MARGIN) },
+  ];
+  const hoverCardContentStyle = showsUsage ? styles.usageContent : styles.plainContent;
+
   return (
-    <HoverCard>
-      <HoverCardTrigger focusable accessibilityLabel={accessibilityLabel}>
-        <View
-          style={containerStyle}
-          testID="context-window-meter"
-          accessibilityRole="image"
-          accessibilityLabel={accessibilityLabel}
+    <>
+      {/* The window replaces the card; left open, the card would float over the dialog. */}
+      <HoverCard disabled={isAllAccountsOpen}>
+        <HoverCardTrigger focusable accessibilityLabel={accessibilityLabel}>
+          <View
+            style={containerStyle}
+            testID="context-window-meter"
+            accessibilityRole="image"
+            accessibilityLabel={accessibilityLabel}
+          >
+            {ring}
+            {percentageLabel}
+          </View>
+        </HoverCardTrigger>
+        <HoverCardContent
+          placement="top"
+          offset={8}
+          role="dialog"
+          accessibilityLabel={t("contextWindow.title")}
+          testID="context-window-details"
+          style={hoverCardStyle}
         >
-          {ring}
-          {percentageLabel}
-        </View>
-      </HoverCardTrigger>
-      <HoverCardContent
-        placement="top"
-        offset={8}
-        role="dialog"
-        accessibilityLabel={t("contextWindow.title")}
-        testID="context-window-details"
-        style={popoverStyle}
-      >
-        <ContextWindowDetails
-          serverId={serverId}
-          agentId={agentId}
-          context={context}
-          sessionCost={formattedSessionCost}
-          showTitle
-          refreshable
-        />
-        <GatewayMeterSections
-          serverId={serverId}
-          agentId={agentId}
-          provider={provider}
-          model={model}
-        />
-      </HoverCardContent>
-    </HoverCard>
+          {/* A tall card (many usage accounts) scrolls inside the screen instead of running off it. */}
+          <ScrollView
+            style={styles.popoverScroll}
+            contentContainerStyle={hoverCardContentStyle}
+            showsVerticalScrollIndicator
+          >
+            <ContextWindowDetails
+              serverId={serverId}
+              agentId={agentId}
+              context={context}
+              sessionCost={formattedSessionCost}
+              showTitle
+              refreshable
+            />
+            <GatewayMeterSections
+              serverId={serverId}
+              agentId={agentId}
+              provider={provider}
+              model={model}
+              onOpenAllAccounts={openAllAccounts}
+            />
+          </ScrollView>
+        </HoverCardContent>
+      </HoverCard>
+      {allAccountsDialog}
+    </>
   );
 }
 
@@ -393,4 +440,9 @@ const styles = StyleSheet.create((theme) => ({
   // Plain details use a small inset; account usage cards have their own content density.
   plainPopover: { paddingVertical: theme.spacing[1], paddingHorizontal: theme.spacing[2] },
   usagePopover: { padding: theme.spacing[3], gap: theme.spacing[3] },
+  // The hover card's padding moves into its scroll content, so the scrollbar sits at the edge.
+  scrollingPopover: { padding: 0, paddingVertical: 0, paddingHorizontal: 0 },
+  popoverScroll: { flexShrink: 1 },
+  plainContent: { paddingVertical: theme.spacing[1], paddingHorizontal: theme.spacing[2] },
+  usageContent: { padding: theme.spacing[3], gap: theme.spacing[3] },
 }));

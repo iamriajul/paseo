@@ -38,7 +38,7 @@ export function buildStatsTableRows(sample: GatewayStatsSample): StatsTableRow[]
 }
 
 // Renders the selected model's last-request stats inside the context-meter
-// tooltip, beside the CLIProxyAPI quota section. Returns nothing unless the
+// tooltip, beside the CLIProxyAPI account section. Returns nothing unless the
 // daemon reports a usable record, so an older Gateway build, a model that has
 // not run, and a provider that is not CLIProxyAPI-routed all hide the section
 // instead of showing an error.

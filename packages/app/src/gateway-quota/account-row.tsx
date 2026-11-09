@@ -1,13 +1,15 @@
 // Shared CLIProxyAPI account row. Single source for the identity block
 // (glyph + provider / name / plan + cooldown) and the window bars, so the
-// context-meter tooltip and the Usage settings tab cannot drift apart.
+// context-meter details, the All accounts window and the Usage settings tab cannot drift apart.
 // `compact` shrinks the icon well for the 320px tooltip; settings uses the roomy variant.
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { ModelProviderGlyph } from "@/components/model-browser";
-import { formatResetLabel } from "@/usage/format";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { formatResetLabel, formatResetTime } from "@/usage/format";
 import { UsageWindowBar } from "@/usage/window-bar";
 import { ICON_SIZE } from "@/styles/theme";
+import { gatewayAccountAvailability, type GatewayAccountAvailability } from "./accounts";
 import { gatewayQuotaCopy } from "./copy";
 import type { GatewayQuotaAccount } from "./types";
 
@@ -41,15 +43,61 @@ function gatewayAccountIconId(provider: string): string {
   return ACCOUNT_ICON_IDS[provider.toLowerCase()] ?? provider.toLowerCase();
 }
 
+/** "Usable now", "Cooling down until 3:00 PM", "Quota used up · back Fri 9:00 AM". */
+export function describeGatewayAccountAvailability(
+  availability: GatewayAccountAvailability,
+  now = Date.now(),
+): string {
+  if (availability.kind === "usable") return gatewayQuotaCopy.usable;
+  const until = formatResetTime(availability.until, now);
+  if (availability.reason === "cooldown") {
+    return until ? `${gatewayQuotaCopy.coolingDown} until ${until}` : gatewayQuotaCopy.coolingDown;
+  }
+  return until ? `${gatewayQuotaCopy.usedUp} · back ${until}` : gatewayQuotaCopy.usedUp;
+}
+
+function AccountStatus({
+  availability,
+  serving,
+  showUsable,
+}: {
+  availability: GatewayAccountAvailability;
+  serving: boolean;
+  showUsable: boolean;
+}) {
+  const showStatus = showUsable || availability.kind === "blocked";
+  if (!serving && !showStatus) return null;
+  return (
+    <View style={styles.trailing}>
+      {serving ? <StatusBadge label={gatewayQuotaCopy.servingBadge} size="xs" /> : null}
+      {showStatus ? (
+        <Text
+          style={availability.kind === "usable" ? styles.usable : styles.blocked}
+          testID="gateway-account-availability"
+        >
+          {describeGatewayAccountAvailability(availability)}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function GatewayQuotaAccountRow({
   account,
   serverId,
   compact = false,
+  showUsable = false,
+  serving = false,
 }: {
   account: GatewayQuotaAccount;
   serverId: string | null;
   compact?: boolean;
+  /** Say "Usable now" too; otherwise the row names only a block. */
+  showUsable?: boolean;
+  /** Badge the row as the account serving this agent. */
+  serving?: boolean;
 }) {
+  const availability = gatewayAccountAvailability(account);
   const title = account.providerName || account.provider;
   const soonestLabel = formatResetLabel(account.resetCredits?.[0]?.expiresAt);
   const windows = account.windows.map((window, windowIndex) => ({
@@ -84,9 +132,7 @@ export function GatewayQuotaAccountRow({
             </Text>
           ) : null}
         </View>
-        {account.inCooldown ? (
-          <Text style={styles.cooldown}>{gatewayQuotaCopy.coolingDown}</Text>
-        ) : null}
+        <AccountStatus availability={availability} serving={serving} showUsable={showUsable} />
       </View>
       {windows.length > 0 ? (
         <View style={[styles.windows, compact && styles.windowsCompact]}>
@@ -157,10 +203,21 @@ const styles = StyleSheet.create((theme) => ({
   planLabel: {
     fontWeight: "600",
   },
-  cooldown: {
+  trailing: {
+    alignItems: "flex-end",
+    gap: theme.spacing[1],
+    flexShrink: 1,
+    maxWidth: "50%",
+  },
+  blocked: {
     color: theme.colors.statusWarning,
     fontSize: theme.fontSize.sm,
-    flexShrink: 0,
+    textAlign: "right",
+  },
+  usable: {
+    color: theme.colors.statusSuccess,
+    fontSize: theme.fontSize.sm,
+    textAlign: "right",
   },
   windows: {
     gap: theme.spacing[2],

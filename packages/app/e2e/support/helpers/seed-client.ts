@@ -44,6 +44,24 @@ export interface SeedDaemonClient {
     error: string | null;
   }>;
   removeProject(projectId: string): Promise<{ removedWorkspaceIds: string[] }>;
+  upsertUiState(input: {
+    namespace: "composer" | "review";
+    key: string;
+    record: {
+      text?: string;
+      lifecycle?: "active";
+      comments?: [];
+      updatedAt: string;
+    };
+  }): Promise<unknown>;
+  listUiState(input: {
+    namespace: "composer" | "review";
+  }): Promise<{ entries: Array<{ key: string }>; error: string | null }>;
+  clearUiState(input: {
+    namespace: "composer" | "review";
+    key: string;
+    updatedAt: string;
+  }): Promise<unknown>;
   renameProject(projectId: string, customName: string | null): Promise<void>;
   fetchWorkspaces(options?: { filter?: { projectId?: string } }): Promise<{
     entries: SeedWorkspaceDescriptor[];

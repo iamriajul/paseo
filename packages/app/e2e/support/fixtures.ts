@@ -10,6 +10,7 @@ import {
   type ProjectPickerFixture,
 } from "./helpers/project-picker-fixture";
 import { connectSeedClient, type SeedDaemonClient } from "./helpers/seed-client";
+import { clearSavedHostDrafts } from "./helpers/host-drafts";
 import { createWithWorkspace, type WithWorkspace } from "./helpers/with-workspace";
 
 const EXTRA_HOSTS_KEY = "@paseo:e2e-extra-hosts";
@@ -34,7 +35,7 @@ const metroTest = base.extend({
 });
 
 const daemonTest = metroTest.extend<
-  { projectOwnership: void },
+  { projectOwnership: void; hostDraftIsolation: void },
   {
     e2eDaemonConfig: Record<string, unknown> | undefined;
     e2eDaemonEnvironment: Record<string, string>;
@@ -101,6 +102,13 @@ const daemonTest = metroTest.extend<
         if (testInfo.status === testInfo.expectedStatus) throw new Error(message);
         await testInfo.attach("project-leaks", { body: message, contentType: "text/plain" });
       }
+    },
+    { auto: true },
+  ],
+  hostDraftIsolation: [
+    async ({ e2eWorkerClient }, provide) => {
+      await clearSavedHostDrafts(e2eWorkerClient);
+      await provide();
     },
     { auto: true },
   ],

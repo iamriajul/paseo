@@ -153,13 +153,29 @@ export async function appendCliproxyModelsToClaudeCatalog(
   }
 
   return {
-    models: applyCliproxyCapacityOverlays(
-      mergeCliproxyModels(options.baseModels, additions),
-      overlays,
+    models: markGatewayAdvertisedModels(
+      applyCliproxyCapacityOverlays(mergeCliproxyModels(options.baseModels, additions), overlays),
+      new Set(advertisedIds),
     ),
     autoPersist,
     advertisedIds,
   };
+}
+
+/**
+ * Manifest ids the gateway also advertises keep their manifest row, so nothing else says the
+ * gateway serves them. `metadata.cliproxyapiAdvertised` does, for the app's CLIProxyAPI accounts
+ * window, which lists every model the gateway serves. `[1m]` is a harness flag on the same id.
+ */
+function markGatewayAdvertisedModels(
+  models: readonly CliproxyAgentModelDefinition[],
+  advertisedIds: ReadonlySet<string>,
+): CliproxyAgentModelDefinition[] {
+  return models.map((model) =>
+    advertisedIds.has(model.id.replace(/\[1m\]$/i, ""))
+      ? { ...model, metadata: { ...model.metadata, cliproxyapiAdvertised: true } }
+      : model,
+  );
 }
 
 /**

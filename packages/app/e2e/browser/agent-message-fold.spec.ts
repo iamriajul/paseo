@@ -14,7 +14,11 @@ type Theme = "dark" | "light";
 
 async function useSettings(
   page: Page,
-  settings: { theme: Theme; agentMessagesDisplay?: "collapsed" | "expanded" },
+  settings: {
+    theme: Theme;
+    agentMessagesDisplay?: "collapsed" | "expanded";
+    chatDisplay?: "full" | "collapseTurns";
+  },
 ): Promise<void> {
   await page.addInitScript((value) => {
     localStorage.setItem(
@@ -172,3 +176,49 @@ test("consecutive messages from one agent fold into one group row", async ({ pag
     await recipient.cleanup();
   }
 });
+
+for (const viewport of [
+  { name: "desktop", width: 1280, height: 720 },
+  { name: "phone", width: 390, height: 844 },
+] as const) {
+  test(`a Send message row names the agent it went to (${viewport.name})`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    // Full, so the orchestrator's finished turn does not fold its tool row into a summary.
+    await useSettings(page, { theme: "dark", chatDisplay: "full" });
+    const receiver = await seedMockAgentWorkspace({
+      repoPrefix: "agent-send-row-",
+      title: "Postiz hosted app",
+    });
+    try {
+      const orchestrator = await receiver.client.createAgent({
+        provider: "mock",
+        cwd: receiver.cwd,
+        workspaceId: receiver.workspaceId,
+        title: "Fork orchestrator",
+        modeId: "load-test",
+        model: "e2e-fast-stream",
+        initialPrompt:
+          `call send_agent_prompt to ${receiver.agentId}: ` +
+          "[agent 137b1363-e025-440e-ae3d-48ee8b98c7ef · DeepCycle PA] The founder ruled (11-09): ship the beta.",
+      });
+      await receiver.client.waitForFinish(orchestrator.id, 30_000);
+      await openAgentRoute(page, { workspaceId: receiver.workspaceId, agentId: orchestrator.id });
+      await expectComposerVisible(page);
+      const row = page.getByTestId("tool-call-badge").filter({ hasText: "Send message" });
+      await expect(row).toContainText(
+        "Postiz hosted app · The founder ruled (11-09): ship the beta.",
+      );
+      await expect(row).not.toContainText("[agent");
+      await page.screenshot({ path: testInfo.outputPath(`send-row-${viewport.name}-dark.png`) });
+      await row.click();
+      await expect(page.getByText(`Postiz hosted app (${receiver.agentId})`)).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath(`send-row-${viewport.name}-opened-dark.png`),
+      });
+    } finally {
+      await receiver.cleanup();
+    }
+  });
+}

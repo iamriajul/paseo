@@ -1601,3 +1601,14 @@ test "$(grep -c "Platform.OS === 'web'" patches/@gorhom+bottom-sheet+5.2.14.patc
 grep -q "Platform.OS === 'web' ? 'clip' : 'hidden'" node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js
 grep -q 'nothing inside a sheet can scroll it off its snap' packages/app/e2e/browser/compact-workspace-sheet.spec.ts
 ```
+
+## workspace-labels-settled-measure
+
+**the labels e2e measures a filter row only once it is shown and has stopped moving**
+
+`workspace-labels.spec.ts` measured the label filter's "Urgent" row right after opening the filter page. A flyout first renders a hidden copy off screen to measure itself (`menu-overlay.tsx`, `WEB_MEASURING_STYLE`), then remounts placed and scales in. Under 4× CPU throttling the hidden copy lived for about 100 ms, then the row reappeared at its place and grew from 27 to 28 px. `locator.boundingBox()` returns `null` for an element that is replaced between resolving it and measuring it, and `settled()` threw on that `null` at once instead of polling, so CI failed with "expected a visible element to measure". `settled()` now treats a missing or hidden box as not settled yet, and returns the box that matched, so `size()` reads both halves from one frame.
+
+```bash
+grep -q '(await locator.isVisible()) ? await locator.boundingBox() : null' packages/app/e2e/browser/workspace-labels.spec.ts
+grep -q 'const { width, height } = await settled(locator);' packages/app/e2e/browser/workspace-labels.spec.ts
+```

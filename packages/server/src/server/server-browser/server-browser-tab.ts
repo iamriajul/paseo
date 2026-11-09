@@ -554,15 +554,28 @@ export class ServerBrowserTab {
     const frameSessionId = params.sessionId;
     if (!data || typeof frameSessionId !== "number") return;
     const metadata = (params.metadata ?? {}) as { deviceWidth?: number; deviceHeight?: number };
+    const ack = () => {
+      void this.rawSend("Page.screencastFrameAck", { sessionId: frameSessionId }).catch(() => {});
+    };
+    // A screenshot with a clip (Annotate's crop, an agent's element shot) resizes the view for the
+    // capture, and Chromium screencasts that clip-sized frame too; a viewer would stretch it over
+    // the page and keep it until the next paint. The last page-sized frame stays on screen instead.
+    if (
+      metadata.deviceWidth !== undefined &&
+      metadata.deviceHeight !== undefined &&
+      (Math.abs(metadata.deviceWidth - this.viewport.width) > 1 ||
+        Math.abs(metadata.deviceHeight - this.viewport.height) > 1)
+    ) {
+      ack();
+      return;
+    }
     this.screencast.pushFrame(
       {
         jpeg: Buffer.from(data, "base64"),
         width: metadata.deviceWidth ?? this.viewport.width,
         height: metadata.deviceHeight ?? this.viewport.height,
       },
-      () => {
-        void this.rawSend("Page.screencastFrameAck", { sessionId: frameSessionId }).catch(() => {});
-      },
+      ack,
     );
   }
 

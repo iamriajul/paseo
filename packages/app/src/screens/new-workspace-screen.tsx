@@ -419,6 +419,16 @@ function buildComposerInitialValues(input: {
 }
 
 const pendingWorkspaceSubmissions = new Map<string, Promise<SubmitOutcome>>();
+/**
+ * Until the draft's model resolves there is no provider to create with, and pressing Create would
+ * fail with "Select a model" while the picker is about to show one.
+ */
+function isDraftModelResolving(
+  composerState: { isModelLoading: boolean; selectedProvider: string | null } | null | undefined,
+): boolean {
+  return Boolean(composerState?.isModelLoading && !composerState.selectedProvider);
+}
+
 function runCreateChatAgent(input: CreateChatAgentInput): Promise<SubmitOutcome> {
   const key = JSON.stringify([input.serverId, input.draftId]);
   const pending = pendingWorkspaceSubmissions.get(key);
@@ -1455,6 +1465,7 @@ export function NewWorkspaceScreen({
     withConnectedClient,
   ]);
 
+  const isResolvingModel = isDraftModelResolving(composerState);
   const agentControlsWithDisabled = useMemo(
     () =>
       composerState
@@ -1578,6 +1589,7 @@ export function NewWorkspaceScreen({
       submitButtonTestID="workspace-create-submit"
       submitIcon="return"
       isSubmitLoading={isPending}
+      isSubmitBlocked={isResolvingModel}
       waitForForgeAutoAttachOnSubmit
       submitBehavior="preserve-and-lock"
       blurOnSubmit={true}

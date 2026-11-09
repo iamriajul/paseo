@@ -55,6 +55,8 @@ const patchedPackages = [
   // modal stack (see packages/app/src/components/ui/isolated-bottom-sheet-modal/host-scope.tsx), and
   // keeps a dismissing modal's status through its final onChange(-1), so a modal with
   // enableDismissOnClose=false that unmounts while presented still leaves the portal.
+  // On web the hosting container clips instead of hiding overflow, so focus or scroll-into-view
+  // cannot scroll a sliding sheet off its snap (docs/fork-decisions.md#sheet-host-clips-on-web).
   // Dimensions subscription cleanup: https://github.com/gorhom/react-native-bottom-sheet/issues/2734
   // and https://github.com/gorhom/react-native-bottom-sheet/pull/2751. Remove the useAnimatedLayout
   // hunks once an installed release includes the cleanup; retain the other local hunks.

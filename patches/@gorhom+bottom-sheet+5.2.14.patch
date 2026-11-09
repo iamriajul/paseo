@@ -1,3 +1,17 @@
+diff --git a/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js b/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js
+--- a/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js
++++ b/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js
+@@ -28,7 +28,9 @@
+   const containerStyle = (0, _react.useMemo)(() => [style, _reactNative.StyleSheet.absoluteFill, _styles.styles.container, {
+     top: topInset,
+     bottom: bottomInset,
+-    overflow: detached ? 'visible' : 'hidden'
++    // `hidden` still scrolls when something inside is brought into view (focus, find in page),
++    // and nothing scrolls it back, so the sheet stays shifted off its snap. Web clips instead.
++    overflow: detached ? 'visible' : _reactNative.Platform.OS === 'web' ? 'clip' : 'hidden'
+   }], [style, detached, topInset, bottomInset]);
+   //#endregion
+ 
 diff --git a/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetModal/BottomSheetModal.js b/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetModal/BottomSheetModal.js
 index ee51e76..dc1bc17 100644
 --- a/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetModal/BottomSheetModal.js
@@ -60,6 +74,29 @@ index e44ad86..96555ef 100644
  var _useScrollEventsHandlersDefault = require("./hooks/useScrollEventsHandlersDefault");
  var _useGestureEventsHandlersDefault = require("./hooks/useGestureEventsHandlersDefault");
  var _useBottomSheetGestureHandlers = require("./hooks/useBottomSheetGestureHandlers");
+diff --git a/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js b/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js
+--- a/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js
++++ b/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetHostingContainer/BottomSheetHostingContainer.js
+@@ -1,7 +1,7 @@
+ "use strict";
+ 
+ import React, { memo, useCallback, useMemo, useRef } from 'react';
+-import { Dimensions, StatusBar, StyleSheet, View } from 'react-native';
++import { Dimensions, Platform, StatusBar, StyleSheet, View } from 'react-native';
+ import { print } from '../../utilities';
+ import { styles } from './styles';
+ import { jsx as _jsx } from "react/jsx-runtime";
+@@ -23,7 +23,9 @@
+   const containerStyle = useMemo(() => [style, StyleSheet.absoluteFill, styles.container, {
+     top: topInset,
+     bottom: bottomInset,
+-    overflow: detached ? 'visible' : 'hidden'
++    // `hidden` still scrolls when something inside is brought into view (focus, find in page),
++    // and nothing scrolls it back, so the sheet stays shifted off its snap. Web clips instead.
++    overflow: detached ? 'visible' : Platform.OS === 'web' ? 'clip' : 'hidden'
+   }], [style, detached, topInset, bottomInset]);
+   //#endregion
+ 
 diff --git a/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetModal/BottomSheetModal.js b/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetModal/BottomSheetModal.js
 index 94fabdb..60ca66a 100644
 --- a/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetModal/BottomSheetModal.js
@@ -121,6 +158,32 @@ index ffc6caa..550f1b3 100644
  export { useScrollEventsHandlersDefault } from './hooks/useScrollEventsHandlersDefault';
  export { useGestureEventsHandlersDefault } from './hooks/useGestureEventsHandlersDefault';
  export { useBottomSheetGestureHandlers } from './hooks/useBottomSheetGestureHandlers';
+diff --git a/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetHostingContainer/BottomSheetHostingContainer.tsx b/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetHostingContainer/BottomSheetHostingContainer.tsx
+--- a/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetHostingContainer/BottomSheetHostingContainer.tsx
++++ b/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetHostingContainer/BottomSheetHostingContainer.tsx
+@@ -2,6 +2,7 @@
+ import {
+   Dimensions,
+   type LayoutChangeEvent,
++  Platform,
+   StatusBar,
+   type StyleProp,
+   StyleSheet,
+@@ -35,7 +36,13 @@
+       {
+         top: topInset,
+         bottom: bottomInset,
+-        overflow: detached ? 'visible' : 'hidden',
++        // `hidden` still scrolls when something inside is brought into view (focus, find in page),
++        // and nothing scrolls it back, so the sheet stays shifted off its snap. Web clips instead.
++        overflow: detached
++          ? 'visible'
++          : Platform.OS === 'web'
++            ? ('clip' as ViewStyle['overflow'])
++            : 'hidden',
+       },
+     ],
+     [style, detached, topInset, bottomInset]
 diff --git a/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetModal/BottomSheetModal.tsx b/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetModal/BottomSheetModal.tsx
 index 2954b3f..7260656 100644
 --- a/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetModal/BottomSheetModal.tsx

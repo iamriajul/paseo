@@ -1607,6 +1607,17 @@ grep -q "Platform.OS === 'web' ? 'clip' : 'hidden'" node_modules/@gorhom/bottom-
 grep -q 'nothing inside a sheet can scroll it off its snap' packages/app/e2e/browser/compact-workspace-sheet.spec.ts
 ```
 
+## overview-group-sheet-visible-frame
+
+**the overview tool-call group sheet ends its list at the sheet's visible edge, so its latest call shows at the lower snap**
+
+Gorhom lays a sheet out at its highest snap (95% here) and slides it down to the lower one (60%), so a list sized to the sheet ends about a third of a screen below the bottom edge. The group sheet scrolls its list to the end as calls arrive, which left the newest calls there, out of reach of any scrolling because the list was already at its end. Only dragging the sheet up showed them. `compact overview tool calls` passed upstream because Playwright's scroll before clicking the last call scrolled the hosting container, which [sheet-host-clips-on-web](#sheet-host-clips-on-web) stops; the click then timed out with the call "outside of the viewport". The sheet now wraps its content in `SheetVisibleFrame`, which the combobox and `AdaptiveModalSheet` already use, and the spec asserts the latest call is fully in the viewport once the list has scrolled to it. Without the frame that assertion fails.
+
+```bash
+grep -q '<SheetVisibleFrame>' packages/app/src/tool-calls/detail-level/overview/sheet.tsx
+grep -q 'await expect(badges.last()).toBeInViewport({ ratio: 1 });' packages/app/e2e/browser/tool-call-overview-sheet.spec.ts
+```
+
 ## workspace-labels-settled-measure
 
 **the labels e2e measures a filter row only once it is shown and has stopped moving**

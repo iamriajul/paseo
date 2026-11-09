@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  type BrowserAutomationTabLocation,
   BrowserAutomationExecuteRequestSchema,
   BrowserAutomationExecuteResponseSchema,
   type BrowserAutomationCommand,
@@ -23,6 +24,8 @@ export interface BrowserToolsExecuteInput {
   workspaceId?: string;
   requestId?: string;
   timeoutMs?: number;
+  /** new_tab only: where the agent asked the tab to open. The server browser router reads it. */
+  target?: BrowserAutomationTabLocation;
 }
 
 interface PendingBrowserToolsRequest {

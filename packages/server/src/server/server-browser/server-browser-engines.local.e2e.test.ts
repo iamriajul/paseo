@@ -6,11 +6,13 @@ import { join } from "node:path";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CdpConnection, webSocketTransport } from "./cdp-connection.js";
-import type { ServerBrowserEngineConfig } from "./engines.js";
+import { pickElement, type PickOutcome } from "./element-picker.js";
+import type { DisplayPreference, ServerBrowserEngineConfig } from "./engines.js";
 import { ServerBrowserHost } from "./server-browser-host.js";
 
-// Local-only: needs google-chrome and Xvfb on this machine. Managed Chrome always runs on its own
+// Local-only: needs google-chrome, Xvfb and xfwm4 on this machine. Managed Chrome runs on its own
 // Xvfb here, and the stand-in for a user's browser is a Chrome this file starts on a random port.
+// A window only minimizes under a window manager, so the minimized-window cases start xfwm4.
 
 let paseoHome: string;
 let site: http.Server;
@@ -42,13 +44,16 @@ afterEach(async () => {
   rmSync(paseoHome, { recursive: true, force: true });
 });
 
-function createHost(engine: ServerBrowserEngineConfig): ServerBrowserHost {
+function createHost(
+  engine: ServerBrowserEngineConfig,
+  display: DisplayPreference = "xvfb",
+): ServerBrowserHost {
   const host = new ServerBrowserHost({
     paseoHome,
     logger: pino({ level: "silent" }),
     isEnabled: () => true,
     getEngine: () => engine,
-    display: "xvfb",
+    display,
   });
   hosts.push(host);
   return host;
@@ -124,6 +129,14 @@ describe("Managed Chrome", { timeout: 120_000 }, () => {
     expect(await evaluate(host, tab.browserId, "navigator.webdriver")).toBe(false);
     expect(await evaluate(host, tab.browserId, "navigator.userAgent")).not.toMatch(/Headless/);
     expect(await evaluate(host, tab.browserId, "document.visibilityState")).toBe("visible");
+  });
+
+  it("picks an element in a tab whose window was minimized on the desktop", async () => {
+    const host = createHost({ kind: "managed-chrome" }, await startDesktop());
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    await minimizeWindowOf(host, tab.browserId);
+
+    expect(await pickParagraph(host, tab.browserId)).toBe("p");
   });
 
   it("paints every tab, each in its own window", async () => {
@@ -302,6 +315,82 @@ function readProcState(pid: number): string {
   }
 }
 
+/** An X display with a window manager, like the desktop a user's browser runs on. */
+async function startDesktop(): Promise<`:${string}`> {
+  const xvfb = spawn(
+    "Xvfb",
+    ["-displayfd", "3", "-screen", "0", "1280x800x24", "-nolisten", "tcp"],
+    {
+      stdio: ["ignore", "ignore", "ignore", "pipe"],
+    },
+  );
+  children.push(xvfb);
+  const display = await new Promise<`:${string}`>((resolve) => {
+    (xvfb.stdio[3] as NodeJS.ReadableStream).setEncoding("utf8");
+    (xvfb.stdio[3] as NodeJS.ReadableStream).on("data", (chunk: string) =>
+      resolve(`:${chunk.trim()}`),
+    );
+  });
+  const windowManager = spawn("xfwm4", ["--compositor=off"], {
+    stdio: "ignore",
+    env: { ...process.env, DISPLAY: display },
+  });
+  children.push(windowManager);
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  return display;
+}
+
+/** Minimizes the window of the host's tab the way its owner would, through the browser itself. */
+async function minimizeWindowOf(host: ServerBrowserHost, browserId: string): Promise<void> {
+  const tab = host.getTab(browserId)!;
+  const window = (await tab.contents.sendDebugCommand!("Browser.getWindowForTarget", {})) as {
+    windowId: number;
+  };
+  await tab.contents.sendDebugCommand!("Browser.setWindowBounds", {
+    windowId: window.windowId,
+    bounds: { windowState: "minimized" },
+  });
+  await waitForAsync(
+    async () => (await evaluate(host, browserId, "document.visibilityState")) === "hidden",
+  );
+}
+
+async function waitForAsync(condition: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error("condition not met in time");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** Points at and clicks the fixture's paragraph through viewer input while a pick is armed. */
+async function pickParagraph(host: ServerBrowserHost, browserId: string): Promise<unknown> {
+  const tab = host.getTab(browserId)!;
+  const picking = pickElement(tab.contents);
+  const { width, height } = tab.currentViewport;
+  const point = { x: 20 / width, y: 24 / height };
+  const input = (async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // A burst of moves like a real pointer's, then the click.
+    for (let step = 0; step < 30; step++) {
+      void tab.dispatchInput([
+        { kind: "mouse", action: "move", ...point, button: "none", clickCount: 0 },
+      ]);
+    }
+    await tab.dispatchInput([
+      { kind: "mouse", action: "down", ...point, button: "left", clickCount: 1 },
+      { kind: "mouse", action: "up", ...point, button: "left", clickCount: 1 },
+    ]);
+  })();
+  const outcome = await Promise.race([
+    picking,
+    new Promise((resolve) => setTimeout(() => resolve("still picking"), 15_000)),
+  ]);
+  // Without a fix the input never settles; the outcome already says so.
+  await Promise.race([input.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 1_000))]);
+  return (outcome as Extract<PickOutcome, { outcome: "selected" }>).selection?.tag ?? outcome;
+}
+
 /** A browser that is not Paseo's: real Chrome on a random port with one tab of its own. */
 async function startUsersChrome(options: { display?: string } = {}): Promise<{
   pid: number;
@@ -436,6 +525,17 @@ describe("Existing browser", { timeout: 120_000 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(host.listTabs()).toHaveLength(1);
     expect(host.listTabs()[0]!.url).toBe(siteUrl);
+    users.cdp.disconnect();
+  });
+
+  it("picks an element in a tab whose window its owner minimized", async () => {
+    const users = await startUsersChrome({ display: await startDesktop() });
+    const host = createHost({ kind: "existing", cdpUrl: users.url });
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    await minimizeWindowOf(host, tab.browserId);
+
+    expect(await pickParagraph(host, tab.browserId)).toBe("p");
+    expect(await evaluate(host, tab.browserId, "document.visibilityState")).toBe("visible");
     users.cdp.disconnect();
   });
 

@@ -28,6 +28,10 @@ class FakeChromium {
   public readonly contexts = new Map<string, CdpParams[]>();
   public readonly disposed: string[] = [];
   public exited = 0;
+  /** Every page command, in the order the browser received it. */
+  public readonly pageCommands: Array<{ method: string; params: CdpParams }> = [];
+  /** How long a page takes to acknowledge a mouse event. */
+  public mouseAckMs = 0;
   private nextId = 0;
 
   public readonly launch: LaunchFn = async () => {
@@ -59,8 +63,14 @@ class FakeChromium {
           sessionId?: string;
         };
         buffer = buffer.slice(end + 1);
+        if (message.sessionId) this.pageCommands.push(message);
         const result = this.answer(message.method, message.params);
-        fromBrowser.write(`${JSON.stringify({ id: message.id, result })}\0`);
+        const reply = () => fromBrowser.write(`${JSON.stringify({ id: message.id, result })}\0`);
+        if (message.method === "Input.dispatchMouseEvent" && this.mouseAckMs > 0) {
+          setTimeout(reply, this.mouseAckMs);
+        } else {
+          reply();
+        }
         if (message.method === "Browser.close") setImmediate(exit);
         end = buffer.indexOf("\0");
       }
@@ -172,6 +182,39 @@ describe("an element pick on a tab that goes away", () => {
       new Promise((resolve) => setTimeout(() => resolve("still polling"), 2_000)),
     ]);
     expect(outcome).toEqual({ outcome: "cancelled" });
+  });
+});
+
+describe("viewer input on a page slow to acknowledge it", () => {
+  it("sends the newest of the moves still waiting, so a click is not stuck behind them", async () => {
+    const host = createHost();
+    const { browserId } = await host.openTab({
+      workspaceId: "ws",
+      url: "about:blank",
+      openedBy: "user",
+    });
+    chromium.mouseAckMs = 100;
+    const tab = host.getTab(browserId)!;
+    const move = (x: number) =>
+      tab.dispatchInput([
+        { kind: "mouse", action: "move", x, y: 0.5, button: "none", clickCount: 0 },
+      ]);
+    // A second of pointer moves at 60 Hz, then a click.
+    const moves = Array.from({ length: 60 }, (_, step) => move(step / 100));
+    const startedAt = Date.now();
+    await tab.dispatchInput([
+      { kind: "mouse", action: "down", x: 0.7, y: 0.5, button: "left", clickCount: 1 },
+      { kind: "mouse", action: "up", x: 0.7, y: 0.5, button: "left", clickCount: 1 },
+    ]);
+    await Promise.all(moves);
+
+    const mouse = chromium.pageCommands.filter((c) => c.method === "Input.dispatchMouseEvent");
+    expect(mouse.map((c) => [c.params.type, c.params.x])).toEqual([
+      ["mouseMoved", 0.59 * 1280],
+      ["mousePressed", 0.7 * 1280],
+      ["mouseReleased", 0.7 * 1280],
+    ]);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 });
 

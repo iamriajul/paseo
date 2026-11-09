@@ -99,8 +99,8 @@ export interface PromptCacheState {
   clearMisses: (() => Promise<void>) | null;
   /** Sets the agent's warm-up cap; null when the host does not enforce one. */
   setMaxPings: ((maxPings: number) => Promise<void>) | null;
-  /** Flips each second while a countdown ticks, so a near-cap countdown can blink. */
-  blinkOn: boolean;
+  /** The time this render judged the countdowns at; it moves each second while one ticks. */
+  now: number;
 }
 
 interface AgentCacheFacts {
@@ -246,7 +246,7 @@ function resolveTotals(agent: Agent | undefined): PromptCacheTotals {
 
 export type PromptCacheView = Omit<
   PromptCacheState,
-  "toggleWarmup" | "clearMisses" | "setMaxPings" | "blinkOn"
+  "toggleWarmup" | "clearMisses" | "setMaxPings" | "now"
 >;
 
 function resolveMissCounts(
@@ -417,6 +417,6 @@ export function usePromptCache(serverId: string, agentId: string): PromptCacheSt
     toggleWarmup,
     clearMisses: canClearMisses && client ? clearMisses : null,
     setMaxPings: canSetMaxPings && client ? setMaxPings : null,
-    blinkOn: Math.floor(now / 1000) % 2 === 0,
+    now,
   };
 }

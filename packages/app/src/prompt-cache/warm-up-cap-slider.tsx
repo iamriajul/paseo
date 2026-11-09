@@ -155,8 +155,10 @@ const styles = StyleSheet.create((theme: Theme) => ({
     height: 6,
     borderRadius: 2,
   },
+  // The control colour, as on the Warm-up switch above it. The warning colour belongs to the
+  // countdown and its cap bar, and a slider in it read as a second countdown.
   stepOn: {
-    backgroundColor: theme.colors.statusWarning,
+    backgroundColor: theme.colors.accent,
   },
   stepOff: {
     backgroundColor: theme.colors.surface3,

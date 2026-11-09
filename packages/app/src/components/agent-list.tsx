@@ -139,6 +139,9 @@ function SessionRowBadges({
       {agent.questionClosedAt ? (
         <SessionBadge label={t("agentList.badges.questionClosed")} tone="warning" />
       ) : null}
+      {agent.permissionClosedAt ? (
+        <SessionBadge label={t("agentList.badges.permissionClosed")} tone="warning" />
+      ) : null}
       {showDesktopAttention ? (
         <SessionBadge label={t("agentList.badges.attention")} tone="danger" />
       ) : null}

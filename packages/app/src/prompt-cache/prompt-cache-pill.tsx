@@ -139,6 +139,8 @@ function resolveWarmupText(warmup: PromptCacheWarmup): string {
       return "Paused while awaiting permission";
     case "pauses-question":
       return `Question closes in ${formatCountdownClock(plan.remainingMs)}`;
+    case "pauses-permission":
+      return `Permission closes in ${formatCountdownClock(plan.remainingMs)}`;
     case "next-ping":
       return `Next in ${formatCountdownClock(plan.remainingMs)}`;
   }

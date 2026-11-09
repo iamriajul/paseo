@@ -2,7 +2,7 @@ import { useMemo, useCallback, useEffect, useRef, useSyncExternalStore } from "r
 import equal from "fast-deep-equal";
 import { useShallow } from "zustand/shallow";
 import { useSessionStore } from "@/stores/session-store";
-import type { AgentDirectoryEntry } from "@/types/agent-directory";
+import { readWarmUpClosings, type AgentDirectoryEntry } from "@/types/agent-directory";
 import type { Agent } from "@/stores/session-store";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 
@@ -91,7 +91,7 @@ export function useAggregatedAgents(options?: {
           workspaceId: agent.workspaceId,
           provider: agent.provider,
           pendingPermissionCount: agent.pendingPermissions.length,
-          questionClosedAt: agent.promptCache?.questionClosedAt ?? null,
+          ...readWarmUpClosings(agent.promptCache),
           requiresAttention: agent.requiresAttention,
           attentionReason: agent.attentionReason,
           attentionTimestamp: agent.attentionTimestamp,

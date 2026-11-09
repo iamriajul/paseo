@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AgentPromptCacheState } from "@getpaseo/protocol/agent-cache-warm";
 import {
   AgentCacheWarmManager,
+  CACHE_WARM_PERMISSION_PAUSE_MESSAGE,
   CACHE_WARM_QUESTION_PAUSE_MESSAGE,
   DEFAULT_CACHE_WARM_PING_PROMPT,
 } from "./agent-cache-warm.js";
@@ -36,7 +37,13 @@ interface HarnessOptions {
   lifecycle?: ManagedAgent["lifecycle"];
   model?: string;
   delegated?: boolean;
-  pending?: Array<{ id: string; kind?: string; name?: string }>;
+  pending?: Array<{
+    id: string;
+    kind?: string;
+    name?: string;
+    title?: string;
+    input?: Record<string, unknown>;
+  }>;
   hasInFlightRun?: boolean;
   requestAtMs?: number | null;
   lastResponseAtMs?: number | null;
@@ -121,6 +128,14 @@ function createHarness(options: HarnessOptions = {}) {
       markQuestionClosed: () => {
         if (agent.promptCache) {
           agent.promptCache = { ...agent.promptCache, questionClosedAt: new Date().toISOString() };
+        }
+      },
+      markPermissionClosed: (_id: string, closed: { tool: string; command?: string }) => {
+        if (agent.promptCache) {
+          agent.promptCache = {
+            ...agent.promptCache,
+            permissionClosed: { at: new Date().toISOString(), ...closed },
+          };
         }
       },
       listAgents: () => [agent],
@@ -657,10 +672,69 @@ describe("AgentCacheWarmManager", () => {
     expect(respondToPermission).not.toHaveBeenCalled();
   });
 
-  it("waits on tool permissions, busy turns, expired caches and non-Claude models", () => {
-    expect(createHarness({ ttl: "5m", pending: [{ id: "p-1" }] }).manager.schedule("agent-1")).toBe(
-      false,
-    );
+  it("closes a main agent's pending permission at the warm-up deadline and records the command", async () => {
+    const { manager, agent, sendPrompt, respondToPermission } = createHarness({
+      ttl: "5m",
+      cacheWarm: true,
+      lifecycle: "running",
+      pending: [
+        {
+          id: "p-1",
+          kind: "tool",
+          name: "Bash",
+          title: "Run git push",
+          input: { command: "git push --force-with-lease", description: "Push the branch" },
+        },
+      ],
+    });
+    expect(manager.schedule("agent-1")).toBe(true);
+    await vi.advanceTimersByTimeAsync(4 * MINUTE);
+    expect(respondToPermission).toHaveBeenCalledWith("agent-1", "p-1", {
+      behavior: "deny",
+      message: CACHE_WARM_PERMISSION_PAUSE_MESSAGE,
+    });
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(agent.promptCache?.permissionClosed).toEqual({
+      at: new Date(START + 4 * MINUTE).toISOString(),
+      tool: "Bash",
+      command: "git push --force-with-lease",
+    });
+    expect(agent.promptCache?.questionClosedAt).toBeUndefined();
+  });
+
+  it("tells the model the user could not approve, without warm-up wording", () => {
+    expect(CACHE_WARM_PERMISSION_PAUSE_MESSAGE).not.toMatch(/cache|warm|ping|keep.{0,12}alive/i);
+    expect(CACHE_WARM_PERMISSION_PAUSE_MESSAGE).toContain("AFK");
+    expect(CACHE_WARM_PERMISSION_PAUSE_MESSAGE).toContain("don't try another way");
+  });
+
+  it("keeps a pending permission open when warm-up goes through a fork", async () => {
+    const { manager, respondToPermission, warmPromptCache } = createHarness({
+      ttl: "5m",
+      forkWarm: true,
+      lifecycle: "running",
+      hasInFlightRun: true,
+      pending: [{ id: "p-1", kind: "tool", name: "Bash", input: { command: "rm -rf build" } }],
+    });
+    expect(manager.schedule("agent-1")).toBe(true);
+    await vi.advanceTimersByTimeAsync(4 * MINUTE);
+    expect(warmPromptCache).toHaveBeenCalledTimes(1);
+    expect(respondToPermission).not.toHaveBeenCalled();
+  });
+
+  it("never closes a child agent's permission, because its parent answers it", async () => {
+    const { manager, respondToPermission } = createHarness({
+      ttl: "5m",
+      delegated: true,
+      lifecycle: "running",
+      pending: [{ id: "p-1", kind: "tool", name: "Bash", input: { command: "ls" } }],
+    });
+    expect(manager.schedule("agent-1")).toBe(false);
+    await vi.advanceTimersByTimeAsync(10 * MINUTE);
+    expect(respondToPermission).not.toHaveBeenCalled();
+  });
+
+  it("waits on busy turns, expired caches and non-Claude models", () => {
     expect(createHarness({ ttl: "5m", lifecycle: "running" }).manager.schedule("agent-1")).toBe(
       false,
     );

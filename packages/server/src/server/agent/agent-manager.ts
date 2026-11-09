@@ -2874,10 +2874,30 @@ export class AgentManager {
     this.emitState(agent);
   }
 
+  /**
+   * Warm-up closed a pending permission (v1 ping); the agent shows it with a "Run it now" button
+   * until the user writes.
+   */
+  markPermissionClosed(agentId: string, closed: { tool: string; command?: string }): void {
+    const agent = this.agents.get(agentId);
+    if (!agent?.promptCache) {
+      return;
+    }
+    agent.promptCache = {
+      ...agent.promptCache,
+      permissionClosed: { at: new Date().toISOString(), ...closed },
+    };
+    this.emitState(agent);
+  }
+
   private noteUserMessage(agent: ActiveManagedAgent): void {
     agent.lastUserMessageAt = new Date();
-    if (agent.promptCache?.questionClosedAt) {
-      const { questionClosedAt: _cleared, ...promptCache } = agent.promptCache;
+    if (agent.promptCache?.questionClosedAt || agent.promptCache?.permissionClosed) {
+      const {
+        questionClosedAt: _question,
+        permissionClosed: _permission,
+        ...promptCache
+      } = agent.promptCache;
       agent.promptCache = promptCache;
     }
   }
@@ -5682,7 +5702,7 @@ export class AgentManager {
     if (!result || promptCacheInputTokens(result) === 0) return false;
     const { costUsd, ...tokens } = result;
     if (costUsd !== undefined) agent.warmUpCostUsd = (agent.warmUpCostUsd ?? 0) + costUsd;
-    this.recordPromptCacheRequest(agent, tokens, { isWarmPing: true, turnId: null });
+    this.recordPromptCacheRequest(agent, tokens, { isWarmPing: true, turnId: null, fork: true });
     this.emitState(agent);
     return true;
   }
@@ -5694,7 +5714,7 @@ export class AgentManager {
   private recordPromptCacheRequest(
     agent: ActiveManagedAgent,
     tokens: NonNullable<AgentUsage["requestCache"]>,
-    warmUp?: { isWarmPing: true; turnId: null },
+    warmUp?: { isWarmPing: true; turnId: null; fork: true },
   ): void {
     // A translating gateway reports no input tokens on message_start, and the cache sample is
     // taken from that event alone. An all-zero sample carries no accounting, so it is not a request.
@@ -5705,6 +5725,7 @@ export class AgentManager {
       turnId: warmUp ? warmUp.turnId : promptCacheTurnKey(agent),
       isWarmPing: warmUp ? true : Boolean(agent.activeTurnIsWarmPing),
       ...resolveRequestModel(agent),
+      ...(warmUp?.fork ? { forkWarmUp: true } : {}),
     };
     const before = agent.promptCache;
     agent.promptCache = recordPromptCacheRequest(

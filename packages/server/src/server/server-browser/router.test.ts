@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserAutomationExecuteRequest } from "@getpaseo/protocol/browser-automation/rpc-schemas";
-import type { BrowserToolsExecuteInput } from "../browser-tools/broker.js";
+import { BrowserToolsBroker, type BrowserToolsExecuteInput } from "../browser-tools/broker.js";
 import { browserToolsFailure, type BrowserToolsResponsePayload } from "../browser-tools/errors.js";
 import { ServerBrowserRouter, type NewTabTargetSetting } from "./router.js";
 
@@ -232,5 +232,54 @@ describe("ServerBrowserRouter", () => {
     expect(result.ok).toBe(true);
     const ids = result.ok && result.result.command === "list_tabs" ? result.result.tabs : [];
     expect(ids.map((tab) => tab.browserId)).toEqual([SERVER_TAB]);
+  });
+
+  it("says the desktop tabs could not be listed instead of leaving them out", async () => {
+    // A desktop app that reconnected leaves its old connection registered, silent, for the
+    // reconnect grace: a new tab goes to the newest host, a list waits on every host.
+    const broker = new BrowserToolsBroker({ defaultTimeoutMs: 50 });
+    const answer = (request: BrowserAutomationExecuteRequest) => {
+      const payload: BrowserToolsResponsePayload =
+        request.command.command === "new_tab"
+          ? {
+              requestId: request.requestId,
+              ok: true,
+              result: {
+                command: "new_tab",
+                browserId: APP_TAB,
+                workspaceId: "ws",
+                url: "about:blank",
+              },
+            }
+          : {
+              requestId: request.requestId,
+              ok: true,
+              result: { command: "list_tabs", tabs: [tabInfo(APP_TAB)] },
+            };
+      setImmediate(() =>
+        broker.receiveResponse({ type: "browser.automation.execute.response", payload }),
+      );
+    };
+    broker.registerClient({
+      id: "desktop-before-reconnect",
+      hostKind: "desktop app",
+      supportedCommands: ["list_tabs", "new_tab"],
+      sendBrowserAutomationRequest: () => {},
+    });
+    broker.registerClient({
+      id: "desktop",
+      hostKind: "desktop app",
+      supportedCommands: ["list_tabs", "new_tab"],
+      sendBrowserAutomationRequest: answer,
+    });
+    const router = new ServerBrowserRouter(broker, createServerBrowser({ enabled: true }));
+
+    const opened = await router.execute({ ...newTab, target: "desktop" });
+    expect(opened).toMatchObject({ ok: true, result: { browserId: APP_TAB, location: "desktop" } });
+    const listed = await router.execute(listTabs);
+    expect(listed).toMatchObject({
+      ok: false,
+      error: { message: expect.stringMatching(/desktop app's tabs could not be listed/) },
+    });
   });
 });

@@ -714,6 +714,13 @@ export const ptBR: TranslationResources = {
         responsive: "Responsivo",
         agentDefault: "Padrão do agente",
       },
+      console: {
+        title: "Console",
+        show: "Mostrar console",
+        hide: "Ocultar console",
+        clear: "Limpar",
+        empty: "Ainda não há mensagens no console",
+      },
       services: {
         label: "Serviços do workspace",
         starting: "Iniciando…",

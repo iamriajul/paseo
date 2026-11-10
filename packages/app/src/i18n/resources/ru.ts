@@ -715,6 +715,13 @@ export const ru: TranslationResources = {
         responsive: "Адаптивный режим",
         agentDefault: "По умолчанию для агента",
       },
+      console: {
+        title: "Консоль",
+        show: "Показать консоль",
+        hide: "Скрыть консоль",
+        clear: "Очистить",
+        empty: "Сообщений в консоли пока нет",
+      },
       services: {
         label: "Сервисы рабочего пространства",
         starting: "Запуск…",

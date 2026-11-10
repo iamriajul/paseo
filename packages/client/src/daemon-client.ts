@@ -185,7 +185,10 @@ import {
   encodeServerBrowserFrameAck,
   ServerBrowserOpcode,
 } from "@getpaseo/protocol/binary-frames/server-browser";
-import type { ServerBrowserInputEvent } from "@getpaseo/protocol/server-browser/rpc-schemas";
+import type {
+  ServerBrowserConsoleEntry,
+  ServerBrowserInputEvent,
+} from "@getpaseo/protocol/server-browser/rpc-schemas";
 import {
   createRelayE2eeTransportFactory,
   createRelayUpgradeTransportFactory,
@@ -3060,6 +3063,21 @@ export class DaemonClient {
     });
     if (payload.error) throw new Error(payload.error);
     return payload;
+  }
+
+  /** The tab's console lines after `after` (a seq). Gate on features.serverBrowserViewerControls. */
+  async serverBrowserLogs(browserId: string, after?: number): Promise<ServerBrowserConsoleEntry[]> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      message: {
+        type: "browser.server.tab.logs.request",
+        browserId,
+        ...(after !== undefined ? { after } : {}),
+      },
+      responseType: "browser.server.tab.logs.response",
+      timeout: 20_000,
+    });
+    if (payload.error) throw new Error(payload.error);
+    return payload.entries ?? [];
   }
 
   async serverBrowserCancelAnnotate(browserId: string): Promise<void> {

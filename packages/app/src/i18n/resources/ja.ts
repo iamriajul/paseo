@@ -714,6 +714,13 @@ export const ja: TranslationResources = {
         responsive: "レスポンシブ",
         agentDefault: "エージェントの既定",
       },
+      console: {
+        title: "コンソール",
+        show: "コンソールを表示",
+        hide: "コンソールを非表示",
+        clear: "クリア",
+        empty: "コンソールメッセージはまだありません",
+      },
       services: {
         label: "ワークスペースのサービス",
         starting: "起動中…",

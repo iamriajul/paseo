@@ -315,6 +315,24 @@ describe("ServerBrowserHost with a real Chromium", () => {
     await waitFor(() => info().loadError?.url === refused && info().url === refused);
   });
 
+  it("gives the logs panel the console after a cursor, through the 200-line cap", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    await evaluate(host, tab.browserId, 'console.log("first"); console.warn("second")');
+    await waitFor(() => tab.consoleSince().length === 2);
+    const [first, second] = tab.consoleSince();
+    expect(first).toMatchObject({ seq: 1, level: "log", message: "first" });
+    expect(second).toMatchObject({ seq: 2, level: "warning", message: "second" });
+    expect(tab.consoleSince(1).map((entry) => entry.message)).toEqual(["second"]);
+
+    await evaluate(host, tab.browserId, 'for (let i = 0; i < 250; i++) console.log("line " + i)');
+    await waitFor(() => tab.consoleSince(2).at(-1)?.message === "line 249");
+    const kept = tab.consoleSince();
+    expect(kept).toHaveLength(200);
+    expect(kept[0]).toMatchObject({ seq: 53, message: "line 50" });
+    expect(tab.consoleSince(251).map((entry) => entry.message)).toEqual(["line 249"]);
+  });
+
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });

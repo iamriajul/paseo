@@ -11,8 +11,14 @@ test.use({ e2eInjectPaseoTools: true, e2eDaemonConfig: SERVER_BROWSER_DAEMON_CON
 
 let scenario: ServerBrowserScenario;
 
+// A page that shows every key it receives as its title.
+const KEY_LOG_PAGE =
+  "<title>keys:</title><p>keys</p><script>" +
+  "addEventListener('keydown', (e) => { document.title += e.key + ','; });" +
+  "</script>";
+
 test.beforeEach(async () => {
-  scenario = await startServerBrowserScenario();
+  scenario = await startServerBrowserScenario({ "/keys": KEY_LOG_PAGE });
 });
 
 test.afterEach(async () => {
@@ -73,3 +79,44 @@ test("Stop ends a load, and a failed load shows the card whose Retry loads the p
     await new Promise<void>((resolve) => refusedServer.close(() => resolve()));
   }
 });
+
+for (const platform of ["Linux", "MacIntel"] as const) {
+  test(`app shortcuts work while the viewer has focus, and only page keys reach the page (${platform})`, async ({
+    page,
+  }) => {
+    const mod = platform === "MacIntel" ? "Meta" : "Control";
+    await page.addInitScript((value) => {
+      Object.defineProperty(navigator, "platform", { get: () => value });
+    }, platform);
+    const browserId = await scenario.newTab("/keys");
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openAgentRoute(page, {
+      workspaceId: scenario.workspace.workspaceId,
+      agentId: scenario.agentId,
+    });
+    await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
+    const surface = page.getByTestId("server-browser-surface");
+    await surface.click();
+    const pageTitle = async () => String((await scenario.tabInfo(browserId))?.title ?? "");
+
+    // Typing, including a key an app shortcut takes outside a text field (?), goes to the page.
+    await page.keyboard.type("a");
+    await page.keyboard.press("Shift+Slash");
+    await expect.poll(pageTitle).toBe("keys:a,Shift,?,");
+    await expect(page.getByTestId("keyboard-shortcuts-dialog")).toHaveCount(0);
+
+    // The command palette opens over the page and the page never sees its key.
+    await page.keyboard.press(`${mod}+K`);
+    await expect(page.getByTestId("command-center-panel")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("command-center-panel")).toHaveCount(0);
+    await surface.click();
+    await page.keyboard.type("b");
+    await expect.poll(pageTitle).toBe(`keys:a,Shift,?,${mod},b,`);
+
+    // Closing the tab from the keyboard closes the server tab (Alt+Shift+W in a browser).
+    await page.keyboard.press("Alt+Shift+W");
+    await expect(page.getByTestId(`workspace-tab-server_browser_${browserId}`)).toHaveCount(0);
+    await expect.poll(() => scenario.listTabIds()).not.toContain(browserId);
+  });
+}

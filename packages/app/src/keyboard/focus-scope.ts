@@ -64,6 +64,14 @@ export function resolveKeyboardFocusScope(input: {
     return "message-input";
   }
 
+  // Fork: the server browser's page takes typing like a text field, which it may well have
+  // focused; shortcuts a text field keeps (?, plain letters) go to the page (docs/server-browser.md).
+  if (
+    candidates.some((element) => Boolean(element.closest("[data-testid='server-browser-surface']")))
+  ) {
+    return commandCenterOpen ? "command-center" : "editable";
+  }
+
   if (
     candidates.some((element) => {
       const editable = element as HTMLElement;

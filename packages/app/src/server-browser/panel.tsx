@@ -30,6 +30,7 @@ import { normalizeBrowserUrl } from "@/desktop/browser/store/state";
 import { truncateBrowserText } from "@/desktop/browser/browser-element-attachment";
 import { WebAnnotationComposer } from "@/desktop/browser/pane/web-annotation-composer";
 import { BrowserServiceChip, BrowserServicesMenu } from "@/desktop/browser/pane/services-menu";
+import { BrowserLoadFailure } from "@/desktop/browser/pane/load-failure";
 import type { BrowserDeviceSizeId } from "@/desktop/browser/device-presets";
 import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser/device-size-menu";
 import { useHostFeature } from "@/runtime/host-features";
@@ -102,6 +103,64 @@ function ServerBrowserTabGone({
         <Text style={styles.emptyDetail}>{status.unavailableReason}</Text>
       ) : null}
     </View>
+  );
+}
+
+function NavigationButtons(props: {
+  tab: ServerBrowserTab;
+  canStop: boolean;
+  onBack: () => void;
+  onForward: () => void;
+  onReload: () => void;
+  onStop: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const { tab } = props;
+  return (
+    <View style={styles.group}>
+      <ToolbarButton label="Back" disabled={!tab.canGoBack} onPress={props.onBack}>
+        <ThemedArrowLeft size={16} uniProps={muted} />
+      </ToolbarButton>
+      <ToolbarButton label="Forward" disabled={!tab.canGoForward} onPress={props.onForward}>
+        <ThemedArrowRight size={16} uniProps={muted} />
+      </ToolbarButton>
+      {/* While a page loads, Reload stops it, as in the other Browsers. */}
+      {tab.isLoading && props.canStop ? (
+        <ToolbarButton
+          label={t("workspace.browser.controls.stopLoading")}
+          onPress={props.onStop}
+          testID="server-browser-stop"
+        >
+          <ThemedStop size={16} uniProps={muted} />
+        </ToolbarButton>
+      ) : (
+        <ToolbarButton
+          label={t("workspace.browser.controls.refresh")}
+          onPress={props.onReload}
+          testID="server-browser-reload"
+        >
+          <ThemedRotateCw size={16} uniProps={muted} />
+        </ToolbarButton>
+      )}
+    </View>
+  );
+}
+
+/** The other Browsers' card for a failed load; Chromium's own error page is blank in the headless shell. */
+function LoadFailureOverlay(props: {
+  tab: ServerBrowserTab;
+  onRetry: () => void;
+}): ReactElement | null {
+  const { t } = useTranslation();
+  const { loadError, isLoading } = props.tab;
+  if (!loadError || isLoading) return null;
+  return (
+    <BrowserLoadFailure
+      title={t("workspace.browser.errors.loadFailedTitle")}
+      message={`${loadError.errorText ?? t("workspace.browser.errors.failedToLoad")}: ${loadError.url}`}
+      retryInSeconds={null}
+      onRetry={props.onRetry}
+    />
   );
 }
 
@@ -192,6 +251,10 @@ function ServerBrowserPanel(): ReactElement {
     [browserId, client, run],
   );
   const handleKeyboard = useCallback(() => surfaceRef.current?.focusKeyboard(), []);
+  const failedUrl = tab?.loadError?.url;
+  const handleRetry = useCallback(() => {
+    if (failedUrl) run(() => client?.serverBrowserNavigate(browserId, "url", failedUrl));
+  }, [browserId, client, failedUrl, run]);
 
   if (!tab || !client) return <ServerBrowserTabGone status={status} />;
 
@@ -200,32 +263,14 @@ function ServerBrowserPanel(): ReactElement {
   return (
     <View style={styles.container}>
       <View style={styles.toolbar}>
-        <View style={styles.group}>
-          <ToolbarButton label="Back" disabled={!tab.canGoBack} onPress={handleBack}>
-            <ThemedArrowLeft size={16} uniProps={muted} />
-          </ToolbarButton>
-          <ToolbarButton label="Forward" disabled={!tab.canGoForward} onPress={handleForward}>
-            <ThemedArrowRight size={16} uniProps={muted} />
-          </ToolbarButton>
-          {/* While a page loads, Reload stops it, as in the other Browsers. */}
-          {tab.isLoading && supportsViewerControls ? (
-            <ToolbarButton
-              label={t("workspace.browser.controls.stopLoading")}
-              onPress={handleStop}
-              testID="server-browser-stop"
-            >
-              <ThemedStop size={16} uniProps={muted} />
-            </ToolbarButton>
-          ) : (
-            <ToolbarButton
-              label={t("workspace.browser.controls.refresh")}
-              onPress={handleReload}
-              testID="server-browser-reload"
-            >
-              <ThemedRotateCw size={16} uniProps={muted} />
-            </ToolbarButton>
-          )}
-        </View>
+        <NavigationButtons
+          tab={tab}
+          canStop={supportsViewerControls}
+          onBack={handleBack}
+          onForward={handleForward}
+          onReload={handleReload}
+          onStop={handleStop}
+        />
         <View style={styles.urlBarWrap}>
           <BrowserServiceChip serverId={serverId} workspaceId={workspaceId} url={tab.url} />
           <ThemedUrlInput
@@ -313,16 +358,19 @@ function ServerBrowserPanel(): ReactElement {
           </Text>
         </View>
       ) : null}
-      <ServerBrowserSurface
-        ref={surfaceRef}
-        client={client}
-        browserId={browserId}
-        pageWidth={tab.viewport.width}
-        pageHeight={tab.viewport.height}
-        annotating={isPicking}
-        onCancelAnnotate={annotate.cancel}
-        onSize={deviceSize.onSurfaceSize}
-      />
+      <View style={styles.surfaceWrap}>
+        <ServerBrowserSurface
+          ref={surfaceRef}
+          client={client}
+          browserId={browserId}
+          pageWidth={tab.viewport.width}
+          pageHeight={tab.viewport.height}
+          annotating={isPicking}
+          onCancelAnnotate={annotate.cancel}
+          onSize={deviceSize.onSurfaceSize}
+        />
+        <LoadFailureOverlay tab={tab} onRetry={handleRetry} />
+      </View>
       {composing ? (
         <WebAnnotationComposer onSubmit={annotate.submit} onCancel={annotate.dismiss} />
       ) : null}
@@ -340,6 +388,10 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minHeight: 0,
     backgroundColor: theme.colors.surface0,
+  },
+  surfaceWrap: {
+    flex: 1,
+    minHeight: 0,
   },
   toolbar: {
     flexDirection: "row",

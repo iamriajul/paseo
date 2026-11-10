@@ -4,8 +4,10 @@
  * own. Everything Paseo reports strips it again. See docs/server-browser.md, "Existing browser".
  */
 const SEPARATOR = " · ";
-// The isolated world keeps the observer out of the page's globals; the title itself is shared DOM.
-export const WINDOW_TITLE_WORLD = "paseo-window-title";
+// The isolated world keeps the observer and its binding out of the page's globals; the title
+// itself is shared DOM.
+export const TITLE_WORLD = "paseo-title";
+export const TITLE_BINDING = "__paseoTitle";
 
 export interface WindowTitleMark {
   /** "Paseo · <workspace>", the whole title of a page that has none. */
@@ -39,18 +41,29 @@ export function stripSnapshotTitle(snapshot: string, mark: WindowTitleMark): str
 }
 
 /**
- * Keeps the mark on every document of a tab: on load, and each time the page sets its title
- * (a page that reads its marked title and sets it back gets one mark, not two).
+ * Reports the page's title to the daemon each time the page sets it, through `TITLE_BINDING`:
+ * Chromium sends no `Target.targetInfoChanged` for a title set after load. With a mark, it also
+ * keeps the mark on every document (a page that reads its marked title and sets it back gets one
+ * mark, not two), and reports the marked title once it is in place.
  */
-export function windowTitleScript(mark: WindowTitleMark): string {
+export function titleObserverScript(mark: WindowTitleMark | null): string {
   return `(() => {
-  const label = ${JSON.stringify(mark.label)};
-  const prefix = ${JSON.stringify(mark.prefix)};
+  const mark = ${JSON.stringify(mark)};
+  const report = globalThis[${JSON.stringify(TITLE_BINDING)}];
+  let reported = null;
   const apply = () => {
     const current = document.title;
-    const own = current.split(prefix).join("");
-    const marked = own && own !== label ? prefix + own : label;
-    if (current !== marked) document.title = marked;
+    if (mark) {
+      const own = current.split(mark.prefix).join("");
+      const marked = own && own !== mark.label ? mark.prefix + own : mark.label;
+      if (current !== marked) {
+        document.title = marked;
+        return;
+      }
+    }
+    if (current === reported || typeof report !== "function") return;
+    reported = current;
+    report(current);
   };
   let watched = null;
   const titleObserver = new MutationObserver(apply);

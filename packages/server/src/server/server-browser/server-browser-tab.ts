@@ -94,6 +94,8 @@ export class ServerBrowserTab {
   private screencastSize: ScreencastSize | null = null;
   private pendingMove: PendingMove | null = null;
   private loadError: { url: string; errorText?: string } | null = null;
+  private dialog: ServerBrowserDialog | null = null;
+  private nextDialogId = 1;
   private visibleUntil = 0;
 
   public constructor(options: ServerBrowserTabOptions) {
@@ -153,6 +155,7 @@ export class ServerBrowserTab {
       createdAt: this.createdAt,
       ...(this.loadError ? { loadError: { ...this.loadError } } : {}),
       ...(this.openerBrowserId ? { openerBrowserId: this.openerBrowserId } : {}),
+      ...(this.dialog ? { dialog: { ...this.dialog } } : {}),
     };
   }
 
@@ -213,15 +216,14 @@ export class ServerBrowserTab {
         this.onScreencastFrame(event.params);
         return;
       case "Page.javascriptDialogOpening":
-        // Headless has no one to answer; an open dialog would wedge every later command.
-        void this.send("Page.handleJavaScriptDialog", {
-          accept: true,
-          promptText: stringParam(event.params, "defaultPrompt") ?? "",
-        }).catch(() => {});
-        this.recordConsole(
-          "warning",
-          `Dialog auto-accepted: ${stringParam(event.params, "message") ?? ""}`,
-        );
+        this.onDialogOpening(event.params);
+        return;
+      case "Page.javascriptDialogClosed":
+        // Answered here, or in the window of an Existing browser by its owner.
+        if (this.dialog) {
+          this.dialog = null;
+          this.onChange();
+        }
         return;
       case "Runtime.consoleAPICalled":
         this.onConsole(event.params);
@@ -297,6 +299,19 @@ export class ServerBrowserTab {
     await this.send("Page.reload");
   }
 
+  /** A viewer's answer to the page's open dialog. */
+  public async answerDialog(answer: {
+    dialogId: string;
+    accept: boolean;
+    promptText?: string;
+  }): Promise<void> {
+    if (this.dialog?.id !== answer.dialogId) throw new Error("This dialog is already answered.");
+    this.touch();
+    this.dialog = null;
+    this.onChange();
+    await this.answerPage({ accept: answer.accept, promptText: answer.promptText ?? "" });
+  }
+
   /** A note in the tab's console, where agents (browser_logs) and the console panel see it. */
   public warn(message: string): void {
     this.recordConsole("warning", message);
@@ -327,6 +342,7 @@ export class ServerBrowserTab {
   /** Applies viewer input. Pointer coordinates are fractions of the frame. */
   public async dispatchInput(events: ServerBrowserInputEvent[]): Promise<void> {
     this.touch();
+    this.assertNoDialog();
     const last = events.at(-1);
     if (last && events.every(isPointerMove)) {
       // A pointer reports moves faster than a slow page acknowledges them. Queued moves would
@@ -521,8 +537,22 @@ export class ServerBrowserTab {
     }
   }
 
+  /**
+   * The page takes no input until its dialog closes, and the command that opened the dialog holds
+   * the queue meanwhile, so input fails here, before it would queue behind it.
+   */
+  private assertNoDialog(): void {
+    if (!this.dialog) return;
+    throw new Error(
+      `A ${this.dialog.type} dialog is open on this page ("${this.dialog.message}") and waits for the user's answer in the Paseo viewer.`,
+    );
+  }
+
   private send(method: string, params: CdpParams = {}): Promise<CdpParams> {
-    if (method.startsWith("Input.")) return this.queue.run(() => this.inputSend(method, params));
+    if (method.startsWith("Input.")) {
+      this.assertNoDialog();
+      return this.queue.run(() => this.inputSend(method, params));
+    }
     return this.queue.run(() => this.rawSend(method, params));
   }
 
@@ -532,6 +562,7 @@ export class ServerBrowserTab {
    * never does: the command would hold the tab's queue, and every later command, forever.
    */
   private async inputSend(method: string, params: CdpParams): Promise<CdpParams> {
+    this.assertNoDialog();
     await this.ensureVisible();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stalled = new Promise<never>((_, reject) => {
@@ -622,6 +653,13 @@ export class ServerBrowserTab {
 
   private stopScreencast(): void {
     this.screencastSize = null;
+    // The last viewer left; nobody is there to answer.
+    if (this.dialog) {
+      const dialog = this.dialog;
+      this.dialog = null;
+      this.autoAcceptDialog(dialog);
+      this.onChange();
+    }
     void this.rawSend("Page.stopScreencast").catch(() => {});
   }
 
@@ -671,6 +709,42 @@ export class ServerBrowserTab {
     this.onChange();
     this.onNavigated(this.url);
     void this.refreshHistory();
+  }
+
+  /**
+   * A dialog waits for the user while a viewer watches, as in the other Browsers. With no one
+   * watching (an agent alone, or the last viewer left) it is accepted, so it cannot hold the page.
+   */
+  private onDialogOpening(params: CdpParams): void {
+    const dialog: ServerBrowserDialog = {
+      id: String(this.nextDialogId++),
+      type: stringParam(params, "type") ?? "alert",
+      message: stringParam(params, "message") ?? "",
+      ...(stringParam(params, "defaultPrompt") !== undefined
+        ? { defaultPrompt: stringParam(params, "defaultPrompt") }
+        : {}),
+      url: stringParam(params, "url") ?? this.url,
+    };
+    if (this.screencast.viewerCount === 0) {
+      this.autoAcceptDialog(dialog);
+      return;
+    }
+    this.dialog = dialog;
+    this.recordConsole("warning", `Dialog waiting for the user: ${dialog.message}`);
+    this.onChange();
+  }
+
+  private autoAcceptDialog(dialog: ServerBrowserDialog): void {
+    void this.answerPage({ accept: true, promptText: dialog.defaultPrompt ?? "" }).catch(() => {});
+    this.recordConsole("warning", `Dialog auto-accepted: ${dialog.message}`);
+  }
+
+  /**
+   * Outside the tab's queue: the command that opened the dialog (a click, an evaluate) gets no
+   * answer until the dialog closes, and this answer would wait behind it forever.
+   */
+  private answerPage(answer: { accept: boolean; promptText: string }): Promise<CdpParams> {
+    return this.rawSend("Page.handleJavaScriptDialog", answer);
   }
 
   private setLoadError(error: { url: string; errorText?: string }): void {
@@ -766,6 +840,8 @@ export class ServerBrowserTab {
     }
   }
 }
+
+type ServerBrowserDialog = NonNullable<ServerBrowserTabInfo["dialog"]>;
 
 interface PendingMove {
   event: ServerBrowserInputEvent;

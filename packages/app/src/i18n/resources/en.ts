@@ -713,6 +713,15 @@ export const en = {
         clear: "Clear",
         empty: "No console messages yet",
       },
+      dialog: {
+        says: "{{host}} says",
+        ok: "OK",
+        cancel: "Cancel",
+        leave: "Leave",
+        stay: "Stay",
+        leaveTitle: "Leave this page?",
+        leaveMessage: "Changes you made may not be saved.",
+      },
       services: {
         label: "Workspace services",
         starting: "Starting…",

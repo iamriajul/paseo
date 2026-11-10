@@ -722,6 +722,15 @@ export const ru: TranslationResources = {
         clear: "Очистить",
         empty: "Сообщений в консоли пока нет",
       },
+      dialog: {
+        says: "Сообщение от {{host}}",
+        ok: "ОК",
+        cancel: "Отмена",
+        leave: "Уйти",
+        stay: "Остаться",
+        leaveTitle: "Уйти с этой страницы?",
+        leaveMessage: "Внесённые изменения могут не сохраниться.",
+      },
       services: {
         label: "Сервисы рабочего пространства",
         starting: "Запуск…",

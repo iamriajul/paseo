@@ -722,6 +722,15 @@ export const es: TranslationResources = {
         clear: "Borrar",
         empty: "Aún no hay mensajes en la consola",
       },
+      dialog: {
+        says: "{{host}} dice",
+        ok: "Aceptar",
+        cancel: "Cancelar",
+        leave: "Salir",
+        stay: "Quedarse",
+        leaveTitle: "¿Salir de esta página?",
+        leaveMessage: "Es posible que no se guarden los cambios que hiciste.",
+      },
       services: {
         label: "Servicios del espacio de trabajo",
         starting: "Iniciando…",

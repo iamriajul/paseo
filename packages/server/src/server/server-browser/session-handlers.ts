@@ -22,6 +22,7 @@ export const SERVER_BROWSER_REQUEST_TYPES = [
   "browser.server.tab.annotate.start.request",
   "browser.server.tab.annotate.cancel.request",
   "browser.server.tab.logs.request",
+  "browser.server.tab.dialog.answer.request",
 ] as const;
 
 type ServerBrowserRequest = Extract<
@@ -249,6 +250,9 @@ export class ServerBrowserSessionHandlers {
       case "browser.server.tab.annotate.cancel.request":
         this.params.emit({ type: "browser.server.tab.annotate.cancel.response", payload });
         return;
+      case "browser.server.tab.dialog.answer.request":
+        this.params.emit({ type: "browser.server.tab.dialog.answer.response", payload });
+        return;
     }
   }
 
@@ -299,6 +303,13 @@ export class ServerBrowserSessionHandlers {
         return undefined;
       case "browser.server.tab.annotate.cancel.request":
         cancelPick(tab.contents);
+        return undefined;
+      case "browser.server.tab.dialog.answer.request":
+        await tab.answerDialog({
+          dialogId: msg.dialogId,
+          accept: msg.accept,
+          ...(msg.promptText !== undefined ? { promptText: msg.promptText } : {}),
+        });
         return undefined;
     }
   }

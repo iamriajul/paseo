@@ -95,6 +95,7 @@ export class ServerBrowserTab {
   private pendingMove: PendingMove | null = null;
   private loadError: { url: string; errorText?: string } | null = null;
   private dialog: ServerBrowserDialog | null = null;
+  private fileChooser: { id: string; multiple: boolean; backendNodeId: number } | null = null;
   private nextDialogId = 1;
   private visibleUntil = 0;
 
@@ -156,6 +157,9 @@ export class ServerBrowserTab {
       ...(this.loadError ? { loadError: { ...this.loadError } } : {}),
       ...(this.openerBrowserId ? { openerBrowserId: this.openerBrowserId } : {}),
       ...(this.dialog ? { dialog: { ...this.dialog } } : {}),
+      ...(this.fileChooser
+        ? { fileChooser: { id: this.fileChooser.id, multiple: this.fileChooser.multiple } }
+        : {}),
     };
   }
 
@@ -190,6 +194,7 @@ export class ServerBrowserTab {
   }
 
   public handleEvent(event: CdpEvent): void {
+    if (this.handlePageRequest(event)) return;
     switch (event.method) {
       case "Page.frameNavigated":
         this.onFrameNavigated(event.params);
@@ -214,16 +219,6 @@ export class ServerBrowserTab {
         return;
       case "Page.screencastFrame":
         this.onScreencastFrame(event.params);
-        return;
-      case "Page.javascriptDialogOpening":
-        this.onDialogOpening(event.params);
-        return;
-      case "Page.javascriptDialogClosed":
-        // Answered here, or in the window of an Existing browser by its owner.
-        if (this.dialog) {
-          this.dialog = null;
-          this.onChange();
-        }
         return;
       case "Runtime.consoleAPICalled":
         this.onConsole(event.params);
@@ -310,6 +305,23 @@ export class ServerBrowserTab {
     this.dialog = null;
     this.onChange();
     await this.answerPage({ accept: answer.accept, promptText: answer.promptText ?? "" });
+  }
+
+  /**
+   * A viewer's answer to the page's file chooser: the paths of the files it uploaded to the host,
+   * or none to cancel.
+   */
+  public async answerFileChooser(chooserId: string, paths: readonly string[]): Promise<void> {
+    const chooser = this.fileChooser;
+    if (chooser?.id !== chooserId) throw new Error("This file chooser is already answered.");
+    this.touch();
+    this.fileChooser = null;
+    this.onChange();
+    if (paths.length === 0) return;
+    await this.send("DOM.setFileInputFiles", {
+      files: chooser.multiple ? [...paths] : paths.slice(0, 1),
+      backendNodeId: chooser.backendNodeId,
+    });
   }
 
   /** A note in the tab's console, where agents (browser_logs) and the console panel see it. */
@@ -642,6 +654,8 @@ export class ServerBrowserTab {
     this.screencastSize = size;
     // A hidden page paints nothing, so a viewer of a minimized window would wait on a blank frame.
     void this.ensureVisible().catch(() => {});
+    // A file input asks the viewer instead of opening Chromium's chooser, which no one sees.
+    void this.rawSend("Page.setInterceptFileChooserDialog", { enabled: true }).catch(() => {});
     void this.rawSend("Page.startScreencast", {
       format: "jpeg",
       quality: 60,
@@ -653,6 +667,12 @@ export class ServerBrowserTab {
 
   private stopScreencast(): void {
     this.screencastSize = null;
+    // With no viewer the page keeps Chromium's own chooser (an Existing browser's owner sees it).
+    void this.rawSend("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => {});
+    if (this.fileChooser) {
+      this.fileChooser = null;
+      this.onChange();
+    }
     // The last viewer left; nobody is there to answer.
     if (this.dialog) {
       const dialog = this.dialog;
@@ -711,6 +731,27 @@ export class ServerBrowserTab {
     void this.refreshHistory();
   }
 
+  /** What the page asks the user: a dialog to answer, files to pick. */
+  private handlePageRequest(event: CdpEvent): boolean {
+    switch (event.method) {
+      case "Page.fileChooserOpened":
+        this.onFileChooserOpened(event.params);
+        return true;
+      case "Page.javascriptDialogOpening":
+        this.onDialogOpening(event.params);
+        return true;
+      case "Page.javascriptDialogClosed":
+        // Answered here, or in the window of an Existing browser by its owner.
+        if (this.dialog) {
+          this.dialog = null;
+          this.onChange();
+        }
+        return true;
+      default:
+        return false;
+    }
+  }
+
   /**
    * A dialog waits for the user while a viewer watches, as in the other Browsers. With no one
    * watching (an agent alone, or the last viewer left) it is accepted, so it cannot hold the page.
@@ -731,6 +772,22 @@ export class ServerBrowserTab {
     }
     this.dialog = dialog;
     this.recordConsole("warning", `Dialog waiting for the user: ${dialog.message}`);
+    this.onChange();
+  }
+
+  /**
+   * The page's file input opened a chooser, which Chromium shows to nobody while it is
+   * intercepted (only while a viewer watches): the viewer picks files on its own device.
+   * showOpenFilePicker has no input to set, so only an <input type=file> gets one.
+   */
+  private onFileChooserOpened(params: CdpParams): void {
+    const backendNodeId = params.backendNodeId;
+    if (typeof backendNodeId !== "number" || this.screencast.viewerCount === 0) return;
+    this.fileChooser = {
+      id: String(this.nextDialogId++),
+      multiple: params.mode === "selectMultiple",
+      backendNodeId,
+    };
     this.onChange();
   }
 

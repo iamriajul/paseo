@@ -730,6 +730,15 @@ export const ja: TranslationResources = {
         leaveTitle: "このページから移動しますか？",
         leaveMessage: "行った変更は保存されない可能性があります。",
       },
+      fileChooser: {
+        titleOne: "ページがファイルを求めています",
+        titleMany: "ページが複数のファイルを求めています",
+        detail: "このデバイスのファイルを選んでページにアップロードします。",
+        chooseOne: "ファイルを選択…",
+        chooseMany: "ファイルを選択…",
+        cancel: "キャンセル",
+        uploading: "アップロード中…",
+      },
       services: {
         label: "ワークスペースのサービス",
         starting: "起動中…",

@@ -732,6 +732,15 @@ export const fr: TranslationResources = {
         leaveMessage:
           "Les modifications que vous avez apportées ne seront peut-être pas enregistrées.",
       },
+      fileChooser: {
+        titleOne: "La page demande un fichier",
+        titleMany: "La page demande des fichiers",
+        detail: "Choisissez un fichier de cet appareil à envoyer à la page.",
+        chooseOne: "Choisir un fichier…",
+        chooseMany: "Choisir des fichiers…",
+        cancel: "Annuler",
+        uploading: "Envoi…",
+      },
       services: {
         label: "Services de l’espace de travail",
         starting: "Démarrage…",

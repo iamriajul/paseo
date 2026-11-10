@@ -731,6 +731,15 @@ export const es: TranslationResources = {
         leaveTitle: "¿Salir de esta página?",
         leaveMessage: "Es posible que no se guarden los cambios que hiciste.",
       },
+      fileChooser: {
+        titleOne: "La página pide un archivo",
+        titleMany: "La página pide archivos",
+        detail: "Elige un archivo de este dispositivo para subirlo a la página.",
+        chooseOne: "Elegir archivo…",
+        chooseMany: "Elegir archivos…",
+        cancel: "Cancelar",
+        uploading: "Subiendo…",
+      },
       services: {
         label: "Servicios del espacio de trabajo",
         starting: "Iniciando…",

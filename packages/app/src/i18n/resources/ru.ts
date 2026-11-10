@@ -731,6 +731,15 @@ export const ru: TranslationResources = {
         leaveTitle: "Уйти с этой страницы?",
         leaveMessage: "Внесённые изменения могут не сохраниться.",
       },
+      fileChooser: {
+        titleOne: "Страница просит файл",
+        titleMany: "Страница просит файлы",
+        detail: "Выберите файл на этом устройстве, чтобы загрузить его на страницу.",
+        chooseOne: "Выбрать файл…",
+        chooseMany: "Выбрать файлы…",
+        cancel: "Отмена",
+        uploading: "Загрузка…",
+      },
       services: {
         label: "Сервисы рабочего пространства",
         starting: "Запуск…",

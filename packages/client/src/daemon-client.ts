@@ -3091,6 +3091,22 @@ export class DaemonClient {
     );
   }
 
+  /**
+   * Answers the tab's file chooser with the picked files' bytes (base64), or none to cancel.
+   * Gate on features.serverBrowserViewerControls.
+   */
+  async serverBrowserAnswerFileChooser(
+    browserId: string,
+    chooserId: string,
+    files: Array<{ name: string; dataBase64: string }>,
+  ): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.tab.file_chooser.answer.request", browserId, chooserId, files },
+      "browser.server.tab.file_chooser.answer.response",
+      120_000,
+    );
+  }
+
   async serverBrowserCancelAnnotate(browserId: string): Promise<void> {
     await this.serverBrowserCommand(
       { type: "browser.server.tab.annotate.cancel.request", browserId },
@@ -3107,7 +3123,8 @@ export class DaemonClient {
       | "browser.server.workspace.clear_data.response"
       | "browser.server.input.response"
       | "browser.server.tab.annotate.cancel.response"
-      | "browser.server.tab.dialog.answer.response",
+      | "browser.server.tab.dialog.answer.response"
+      | "browser.server.tab.file_chooser.answer.response",
     timeout = 20_000,
   ): Promise<void> {
     const payload = await this.sendCorrelatedSessionRequest({ message, responseType, timeout });

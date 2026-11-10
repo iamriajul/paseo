@@ -724,6 +724,15 @@ export const zhCN: TranslationResources = {
         leaveTitle: "要离开此页面吗？",
         leaveMessage: "你所做的更改可能不会保存。",
       },
+      fileChooser: {
+        titleOne: "页面请求一个文件",
+        titleMany: "页面请求多个文件",
+        detail: "在此设备上选择要上传到页面的文件。",
+        chooseOne: "选择文件…",
+        chooseMany: "选择文件…",
+        cancel: "取消",
+        uploading: "正在上传…",
+      },
       services: {
         label: "工作区服务",
         starting: "正在启动…",

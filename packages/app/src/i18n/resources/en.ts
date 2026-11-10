@@ -722,6 +722,15 @@ export const en = {
         leaveTitle: "Leave this page?",
         leaveMessage: "Changes you made may not be saved.",
       },
+      fileChooser: {
+        titleOne: "The page asks for a file",
+        titleMany: "The page asks for files",
+        detail: "Choose a file on this device to upload to the page.",
+        chooseOne: "Choose file…",
+        chooseMany: "Choose files…",
+        cancel: "Cancel",
+        uploading: "Uploading…",
+      },
       services: {
         label: "Workspace services",
         starting: "Starting…",

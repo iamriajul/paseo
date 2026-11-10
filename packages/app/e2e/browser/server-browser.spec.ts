@@ -33,6 +33,12 @@ const PROMPT_PAGE =
   "<title>prompt</title><style>body{margin:0}</style>" +
   "<button style='width:100vw;height:100vh' onclick=\"document.title = 'answer:' + prompt('Your name?', 'Ada')\">ask</button>";
 
+// A page that is one big file input, showing the names it got as its title.
+const UPLOAD_PAGE =
+  "<title>upload</title><style>body{margin:0}</style>" +
+  "<input type=file style='position:fixed;inset:0;width:100vw;height:100vh' " +
+  "onchange=\"document.title = 'files:' + Array.from(this.files, (f) => f.name + '=' + f.size).join(',')\">";
+
 // A page whose top-left quarter is one box to pick.
 const TARGET_PAGE =
   "<title>target</title><style>body{margin:0}</style>" +
@@ -45,6 +51,7 @@ test.beforeEach(async () => {
     "/console": CONSOLE_PAGE,
     "/links": POPUP_LINK_PAGE,
     "/prompt": PROMPT_PAGE,
+    "/upload": UPLOAD_PAGE,
   });
 });
 
@@ -245,4 +252,36 @@ test("a dialog the page opens waits for the viewer's answer", async ({ page }) =
 
   await expect(card).toHaveCount(0);
   await expect.poll(async () => (await scenario.tabInfo(browserId))?.title).toBe("answer:Grace");
+});
+
+test("a page's file input takes a file the viewer picks on its own device", async ({ page }) => {
+  const browserId = await scenario.newTab("/upload");
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openAgentRoute(page, {
+    workspaceId: scenario.workspace.workspaceId,
+    agentId: scenario.agentId,
+  });
+  await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
+  const surface = page.getByTestId("server-browser-surface");
+  await expect(surface.locator("img")).toBeVisible();
+  const box = (await surface.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+  const card = page.getByTestId("server-browser-file-chooser");
+  await expect(card).toContainText("The page asks for a file");
+  await page.screenshot({ path: test.info().outputPath("file-chooser.png") });
+  const picker = page.waitForEvent("filechooser");
+  await page.getByTestId("server-browser-file-chooser-choose").click();
+  await (
+    await picker
+  ).setFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("hello from the viewer"),
+  });
+
+  await expect(card).toHaveCount(0);
+  await expect
+    .poll(async () => (await scenario.tabInfo(browserId))?.title)
+    .toBe("files:notes.txt=21");
 });

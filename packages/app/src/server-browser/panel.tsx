@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react-native";
 import invariant from "tiny-invariant";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +47,7 @@ import { deviceKindForViewport, SERVER_BROWSER_DEFAULT_VIEWPORT } from "./device
 import { useServerBrowserDeviceSize } from "./use-server-browser-device-size";
 import { ServerBrowserLogsPanel, useServerBrowserLogs } from "./logs-panel";
 import { ServerBrowserDialogCard } from "./dialog-card";
+import { ServerBrowserFileChooserCard } from "./file-chooser-card";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
@@ -243,6 +245,39 @@ function ActionsMenu(props: {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/** What the page asks the user over the page: a dialog to answer, files to pick. */
+function PageRequests(props: {
+  client: DaemonClient;
+  browserId: string;
+  tab: ServerBrowserTab;
+  run: (action: () => Promise<void> | undefined) => void;
+}): ReactElement | null {
+  const { client, browserId, tab, run } = props;
+  if (tab.dialog) {
+    return (
+      <ServerBrowserDialogCard
+        key={tab.dialog.id}
+        client={client}
+        browserId={browserId}
+        dialog={tab.dialog}
+        run={run}
+      />
+    );
+  }
+  if (tab.fileChooser) {
+    return (
+      <ServerBrowserFileChooserCard
+        key={tab.fileChooser.id}
+        client={client}
+        browserId={browserId}
+        chooser={tab.fileChooser}
+        run={run}
+      />
+    );
+  }
+  return null;
 }
 
 function ServerBrowserPanel(): ReactElement {
@@ -460,15 +495,7 @@ function ServerBrowserPanel(): ReactElement {
           onSize={deviceSize.onSurfaceSize}
         />
         <LoadFailureOverlay tab={tab} onRetry={handleRetry} />
-        {tab.dialog ? (
-          <ServerBrowserDialogCard
-            key={tab.dialog.id}
-            client={client}
-            browserId={browserId}
-            dialog={tab.dialog}
-            run={run}
-          />
-        ) : null}
+        <PageRequests client={client} browserId={browserId} tab={tab} run={run} />
       </View>
       {showConsole ? <ServerBrowserLogsPanel entries={logs.entries} onClear={logs.clear} /> : null}
       {composing ? (

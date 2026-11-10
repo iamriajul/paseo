@@ -21,6 +21,8 @@ export const ServerBrowserTabSchema = z.object({
   createdAt: z.number(),
   /** The tab whose page opened this one (window.open, a target=_blank link). */
   openerBrowserId: z.string().optional(),
+  /** The page's <input type=file> asked for files; a viewer picks them on its own device. */
+  fileChooser: z.object({ id: z.string(), multiple: z.boolean() }).optional(),
   /** A dialog the page opened (alert, confirm, prompt, beforeunload) waiting for a viewer's answer. */
   dialog: z
     .object({
@@ -293,6 +295,19 @@ export const ServerBrowserTabDialogAnswerResponseSchema = z.object({
   payload: z.object({ requestId: z.string(), error: ErrorField }),
 });
 
+/** Answers the tab's file chooser with the files' bytes; no files cancels. Needs features.serverBrowserViewerControls. */
+export const ServerBrowserTabFileChooserAnswerRequestSchema = z.object({
+  type: z.literal("browser.server.tab.file_chooser.answer.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+  chooserId: z.string(),
+  files: z.array(z.object({ name: z.string(), dataBase64: z.string() })).optional(),
+});
+export const ServerBrowserTabFileChooserAnswerResponseSchema = z.object({
+  type: z.literal("browser.server.tab.file_chooser.answer.response"),
+  payload: z.object({ requestId: z.string(), error: ErrorField }),
+});
+
 /** One console line of a tab; `seq` orders them across reads. Needs features.serverBrowserViewerControls. */
 export const ServerBrowserConsoleEntrySchema = z.object({
   seq: z.number(),
@@ -333,6 +348,7 @@ export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabAnnotateCancelRequestSchema,
   ServerBrowserTabLogsRequestSchema,
   ServerBrowserTabDialogAnswerRequestSchema,
+  ServerBrowserTabFileChooserAnswerRequestSchema,
 ] as const;
 
 export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
@@ -349,4 +365,5 @@ export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
   ServerBrowserTabAnnotateCancelResponseSchema,
   ServerBrowserTabLogsResponseSchema,
   ServerBrowserTabDialogAnswerResponseSchema,
+  ServerBrowserTabFileChooserAnswerResponseSchema,
 ] as const;

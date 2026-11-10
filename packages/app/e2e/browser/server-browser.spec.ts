@@ -1,5 +1,5 @@
 import http from "node:http";
-import { expect, test } from "../support/fixtures";
+import { expect, test, type Page } from "../support/fixtures";
 import { openAgentRoute } from "../support/helpers/mock-agent";
 import {
   SERVER_BROWSER_DAEMON_CONFIG,
@@ -10,6 +10,21 @@ import {
 test.use({ e2eInjectPaseoTools: true, e2eDaemonConfig: SERVER_BROWSER_DAEMON_CONFIG });
 
 let scenario: ServerBrowserScenario;
+
+/**
+ * Opens the scenario's workspace and waits for it to render: a fresh worker's first test also
+ * waits out the app's cold connection, which takes a while on a loaded machine.
+ */
+async function openScenarioWorkspace(page: Page): Promise<void> {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openAgentRoute(page, {
+    workspaceId: scenario.workspace.workspaceId,
+    agentId: scenario.agentId,
+  });
+  await expect(page.getByTestId(`workspace-tab-agent_${scenario.agentId}`)).toBeVisible({
+    timeout: 60_000,
+  });
+}
 
 // A page that shows every key it receives as its title.
 const KEY_LOG_PAGE =
@@ -61,11 +76,7 @@ test.afterEach(async () => {
 
 test("closing a server tab's workspace tab closes it on the host", async ({ page }) => {
   const browserId = await scenario.newTab();
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await openAgentRoute(page, {
-    workspaceId: scenario.workspace.workspaceId,
-    agentId: scenario.agentId,
-  });
+  await openScenarioWorkspace(page);
   const tab = page.getByTestId(`workspace-tab-server_browser_${browserId}`);
   await expect(tab).toBeVisible();
 
@@ -86,11 +97,7 @@ test("Stop ends a load, and a failed load shows the card whose Retry loads the p
   const refused = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}/`;
   await new Promise<void>((resolve) => refusedServer.close(() => resolve()));
   const failed = await scenario.newTabAt(refused);
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await openAgentRoute(page, {
-    workspaceId: scenario.workspace.workspaceId,
-    agentId: scenario.agentId,
-  });
+  await openScenarioWorkspace(page);
 
   await page.getByTestId(`workspace-tab-server_browser_${slow}`).click();
   await page.getByTestId("server-browser-stop").click();
@@ -123,11 +130,7 @@ for (const platform of ["Linux", "MacIntel"] as const) {
       Object.defineProperty(navigator, "platform", { get: () => value });
     }, platform);
     const browserId = await scenario.newTab("/keys");
-    await page.setViewportSize({ width: 1400, height: 900 });
-    await openAgentRoute(page, {
-      workspaceId: scenario.workspace.workspaceId,
-      agentId: scenario.agentId,
-    });
+    await openScenarioWorkspace(page);
     await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
     const surface = page.getByTestId("server-browser-surface");
     await surface.click();
@@ -161,11 +164,7 @@ test("Screenshot element copies the picked element's crop to the clipboard", asy
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const browserId = await scenario.newTab("/target");
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await openAgentRoute(page, {
-    workspaceId: scenario.workspace.workspaceId,
-    agentId: scenario.agentId,
-  });
+  await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
   const surface = page.getByTestId("server-browser-surface");
   await expect(surface.locator("img")).toBeVisible();
@@ -186,11 +185,7 @@ test("Screenshot element copies the picked element's crop to the clipboard", asy
 
 test("the console panel shows the page's logs as agents read them", async ({ page }) => {
   const browserId = await scenario.newTab("/console");
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await openAgentRoute(page, {
-    workspaceId: scenario.workspace.workspaceId,
-    agentId: scenario.agentId,
-  });
+  await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
   await page.getByRole("button", { name: "Server browser actions" }).click();
   await page.getByTestId("server-browser-console-toggle").click();
@@ -208,11 +203,7 @@ test("a link the page opens in a new tab opens as a server tab, in front for the
   page,
 }) => {
   const opener = await scenario.newTab("/links");
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await openAgentRoute(page, {
-    workspaceId: scenario.workspace.workspaceId,
-    agentId: scenario.agentId,
-  });
+  await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${opener}`).click();
   const surface = page.getByTestId("server-browser-surface");
   await expect(surface.locator("img")).toBeVisible();
@@ -231,11 +222,7 @@ test("a link the page opens in a new tab opens as a server tab, in front for the
 
 test("a dialog the page opens waits for the viewer's answer", async ({ page }) => {
   const browserId = await scenario.newTab("/prompt");
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await openAgentRoute(page, {
-    workspaceId: scenario.workspace.workspaceId,
-    agentId: scenario.agentId,
-  });
+  await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
   const surface = page.getByTestId("server-browser-surface");
   await expect(surface.locator("img")).toBeVisible();
@@ -256,11 +243,7 @@ test("a dialog the page opens waits for the viewer's answer", async ({ page }) =
 
 test("a page's file input takes a file the viewer picks on its own device", async ({ page }) => {
   const browserId = await scenario.newTab("/upload");
-  await page.setViewportSize({ width: 1400, height: 900 });
-  await openAgentRoute(page, {
-    workspaceId: scenario.workspace.workspaceId,
-    agentId: scenario.agentId,
-  });
+  await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
   const surface = page.getByTestId("server-browser-surface");
   await expect(surface.locator("img")).toBeVisible();

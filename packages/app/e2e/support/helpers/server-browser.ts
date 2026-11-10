@@ -102,6 +102,12 @@ export async function startServerBrowserScenario(
         (tab) => tab.browserId,
       ),
     close: async () => {
+      // Tabs outlive a test on the worker's daemon and count against its tab limit.
+      const listed = await tool("browser_list_tabs").catch(() => null);
+      const tabs = (listed?.result as { tabs?: Array<{ browserId: string }> } | undefined)?.tabs;
+      for (const tab of tabs ?? []) {
+        await tool("browser_close_tab", { browserId: tab.browserId }).catch(() => undefined);
+      }
       await mcp.close().catch(() => undefined);
       await client.close().catch(() => undefined);
       await workspace.cleanup();

@@ -1,9 +1,18 @@
 import { resolve } from "node:path";
+import pLimit from "p-limit";
 import type { CreateObservationBackend, ObserverMetrics } from "./internal/contracts.js";
-import { createLinuxBackend } from "./internal/linux.js";
-import { createNativeRecursiveBackend } from "./internal/native-recursive.js";
+import { createLinuxBackend, MAX_WATCHED_DIRECTORIES } from "./internal/linux.js";
+import { createNativeRecursiveBackend, MAX_TRACKED_ENTRIES } from "./internal/native-recursive.js";
 import { createManagedObservation, type ManagedObservation } from "./internal/observation.js";
 import { createObserverPaths } from "./internal/paths.js";
+
+export { FileObserverLimitError, FileObserverStartTimeoutError } from "./internal/errors.js";
+
+// Initial scans run readdir (and on macOS/Windows stat) on the libuv threadpool, four threads
+// shared by the whole daemon. A daemon restart subscribes every workspace at once; unbounded,
+// those scans queue ahead of every other file read, such as an agent's transcript replay.
+// Two leaves half the pool free.
+export const FILE_OBSERVER_START_CONCURRENCY = 2;
 
 export type FileChangeType = "create" | "update" | "delete";
 
@@ -14,6 +23,13 @@ export interface FileChange {
 
 export interface FileObserverOptions {
   ignore?: string[];
+  /** Aborting before `subscribe()` settles stops the initial scan and rejects with the reason. */
+  signal?: AbortSignal;
+  /**
+   * Stops the initial scan and rejects with `FileObserverStartTimeoutError` once it has run this
+   * long. The clock starts when the scan is admitted, not while it waits for a start slot.
+   */
+  startTimeoutMs?: number;
 }
 
 export type FileObserverCallback = (error: Error | null, events: FileChange[]) => void;
@@ -48,6 +64,11 @@ export interface FileObserverDiagnostics {
 }
 
 export interface FileObserver {
+  /**
+   * More directories than this under one root always fail observation with
+   * `FileObserverLimitError`, so a caller that can count a tree cheaply can skip the scan.
+   */
+  readonly directoryLimit: number;
   subscribe(
     directory: string,
     callback: FileObserverCallback,
@@ -59,14 +80,19 @@ export interface FileObserver {
 
 export type SubscribeToFileChanges = FileObserver["subscribe"];
 
-export function createFileObserver(): FileObserver {
+export function createFileObserver(
+  options: { createBackend?: CreateObservationBackend } = {},
+): FileObserver {
   const platform = process.platform;
   const paths = createObserverPaths(platform);
+  const nativeRecursive = platform === "darwin" || platform === "win32";
   const createBackend: CreateObservationBackend =
-    platform === "darwin" || platform === "win32"
+    options.createBackend ??
+    (nativeRecursive
       ? (host) => createNativeRecursiveBackend(host, paths)
-      : (host) => createLinuxBackend(host, paths);
-  return new FileObserverService(createBackend, paths);
+      : (host) => createLinuxBackend(host, paths));
+  const directoryLimit = nativeRecursive ? MAX_TRACKED_ENTRIES : MAX_WATCHED_DIRECTORIES;
+  return new FileObserverService(createBackend, paths, directoryLimit);
 }
 
 class FileObserverService implements FileObserver {
@@ -82,10 +108,12 @@ class FileObserverService implements FileObserver {
     metrics: createObserverMetrics(),
   };
   private closePromise: Promise<void> | null = null;
+  private readonly startLimit = pLimit(FILE_OBSERVER_START_CONCURRENCY);
 
   constructor(
     private readonly createBackend: CreateObservationBackend,
     private readonly paths: ReturnType<typeof createObserverPaths>,
+    readonly directoryLimit: number,
   ) {}
 
   async subscribe(
@@ -105,7 +133,10 @@ class FileObserverService implements FileObserver {
       createBackend: this.createBackend,
       onClosed: () => state.observations.delete(observation),
     });
-    await observation.start();
+    await this.startLimit(() => {
+      if (this.closePromise) return Promise.resolve();
+      return observation.start({ signal: options.signal, timeoutMs: options.startTimeoutMs });
+    });
     if (this.closePromise) {
       await observation.close();
       throw new Error("File observer is closed");

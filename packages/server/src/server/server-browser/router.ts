@@ -126,7 +126,18 @@ export class ServerBrowserRouter {
     ]);
     if (!server.ok) return server;
     const serverTabs = tabsOf(withTabLocation(server, "server"));
-    // No app connected is normal once the browser lives on the server.
+    // No app connected is normal once the browser lives on the server. A connected app that
+    // fails to list is not: leaving its tabs out would tell the agent they are gone.
+    if (!app.ok && this.broker.getRegisteredClientCount() > 0) {
+      return {
+        ...app,
+        requestId: server.requestId,
+        error: {
+          ...app.error,
+          message: `The server browser has ${serverTabs.length} tab(s), but the desktop app's tabs could not be listed: ${app.error.message}`,
+        },
+      };
+    }
     const appTabs = tabsOf(withTabLocation(app, "desktop"));
     return {
       requestId: server.requestId,

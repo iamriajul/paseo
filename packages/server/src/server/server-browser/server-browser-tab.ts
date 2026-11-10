@@ -13,8 +13,9 @@ import { cdpKeyEventsForElectronKey } from "./key-events.js";
 import type { LocalStorageItems } from "./workspace-storage-state.js";
 import {
   stripWindowTitle,
-  WINDOW_TITLE_WORLD,
-  windowTitleScript,
+  TITLE_BINDING,
+  TITLE_WORLD,
+  titleObserverScript,
   type WindowTitleMark,
 } from "./window-title.js";
 
@@ -149,13 +150,15 @@ export class ServerBrowserTab {
     await this.send("Page.enable");
     await this.send("Runtime.enable");
     await this.send("Page.setLifecycleEventsEnabled", { enabled: true });
-    if (this.titleMark) {
-      await this.send("Page.addScriptToEvaluateOnNewDocument", {
-        source: windowTitleScript(this.titleMark),
-        worldName: WINDOW_TITLE_WORLD,
-        runImmediately: true,
-      });
-    }
+    await this.send("Runtime.addBinding", {
+      name: TITLE_BINDING,
+      executionContextName: TITLE_WORLD,
+    });
+    await this.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: titleObserverScript(this.titleMark),
+      worldName: TITLE_WORLD,
+      runImmediately: true,
+    });
     await this.applyViewport();
   }
 
@@ -211,6 +214,11 @@ export class ServerBrowserTab {
         return;
       case "Runtime.exceptionThrown":
         this.onException(event.params);
+        return;
+      case "Runtime.bindingCalled":
+        if (event.params.name === TITLE_BINDING && typeof event.params.payload === "string") {
+          this.updateTargetInfo({ title: event.params.payload });
+        }
         return;
       default:
         return;

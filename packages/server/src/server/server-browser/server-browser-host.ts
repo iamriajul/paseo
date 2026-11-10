@@ -338,7 +338,7 @@ export class ServerBrowserHost {
     this.ensureSweeps();
     try {
       await tab.initialize();
-      if (params.url !== "about:blank") await tab.contents.loadURL(params.url);
+      if (params.url !== "about:blank") await tab.loadFirstPage(params.url);
     } catch (error) {
       this.options.logger.warn({ err: error, url: params.url }, "Server browser tab load failed");
     }
@@ -381,7 +381,7 @@ export class ServerBrowserHost {
         const target = await context.chromium.createTarget(context.browserContextId ?? undefined);
         entry.tab.rebind(target);
         await entry.tab.initialize();
-        if (/^https?:/.test(entry.url)) await entry.tab.navigate(entry.url).catch(() => {});
+        if (/^https?:/.test(entry.url)) await entry.tab.loadFirstPage(entry.url).catch(() => {});
       }
     } finally {
       this.clearing.delete(workspaceId);

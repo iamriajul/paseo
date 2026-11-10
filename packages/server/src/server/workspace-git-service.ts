@@ -69,6 +69,7 @@ import {
   type FileObserverSubscription,
   type SubscribeToFileChanges,
   createFileObserver,
+  FileObserverLimitError,
 } from "./file-observer/index.js";
 import { checkoutLiteFromGitSnapshot } from "./workspace-registry-model.js";
 import { createWatcherLivenessCanary } from "./watcher-liveness-canary.js";
@@ -126,6 +127,12 @@ const WATCH_RECOVERY_BASE_DELAY_MS = 30_000;
 // restart, which kills running agents. Back off, but keep trying.
 const WATCH_RECOVERY_MAX_DELAY_MS = 300_000;
 const WATCH_RECOVERY_MAX_BACKOFF_STEPS = 4;
+
+function holdWatchRecoveryAtLongestDelay(recovery: WatchRecoveryState): void {
+  recovery.establishedAt = null;
+  recovery.attemptCount = Math.max(recovery.attemptCount, WATCH_RECOVERY_MAX_BACKOFF_STEPS);
+}
+
 // Auxiliary reads may reuse cached values within this window; snapshots do not expire on read.
 const WORKSPACE_GIT_AUXILIARY_READ_TTL_MS = 15_000;
 // Non-forced refresh triggers share this minimum gap to absorb watcher/self-heal bursts; force bypasses it.
@@ -420,15 +427,6 @@ class WorkspaceGitServiceDisposedError extends Error {
   constructor() {
     super("WorkspaceGitService is disposed");
     this.name = "WorkspaceGitServiceDisposedError";
-  }
-}
-
-class WorkspaceGitWatcherSubscriptionTimeoutError extends Error {
-  constructor(watchPath: string) {
-    super(
-      `Watcher subscription for ${watchPath} timed out after ${WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS}ms`,
-    );
-    this.name = "WorkspaceGitWatcherSubscriptionTimeoutError";
   }
 }
 
@@ -1497,7 +1495,12 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     return target;
   }
 
-  private async subscribeWithDeadline(
+  /**
+   * The observer owns the deadline: it starts the clock when the initial scan is admitted and
+   * stops the scan when it expires. The disposal race stays here so dispose never waits on a
+   * subscription that settles late.
+   */
+  private async subscribeUntilDisposed(
     watchPath: string,
     callback: FileObserverCallback,
     options: FileObserverOptions,
@@ -1506,13 +1509,16 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     this.assertNotDisposed();
     const signal = this.disposeController.signal;
     let outcome: "pending" | "accepted" | "expired" = "pending";
-    let timeout: NodeJS.Timeout | null = null;
     let removeAbortListener = () => {};
     let unsubscribePromise: Promise<void> | null = null;
     let subscriptionPromise: Promise<FileObserverSubscription>;
     try {
       subscriptionPromise = this.deps
-        .subscribe(watchPath, callback, options)
+        .subscribe(watchPath, callback, {
+          ...options,
+          signal,
+          startTimeoutMs: WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS,
+        })
         .finally(onSubscribeSettled);
     } catch (error) {
       onSubscribeSettled();
@@ -1528,12 +1534,6 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       },
       () => undefined,
     );
-    const timeoutPromise = new Promise<never>((_resolve, reject) => {
-      timeout = setTimeout(() => {
-        outcome = "expired";
-        reject(new WorkspaceGitWatcherSubscriptionTimeoutError(watchPath));
-      }, WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS);
-    });
     const disposalPromise = new Promise<never>((_resolve, reject) => {
       const rejectForDisposal = () => {
         outcome = "expired";
@@ -1548,11 +1548,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     });
 
     try {
-      const subscription = await Promise.race([
-        subscriptionPromise,
-        timeoutPromise,
-        disposalPromise,
-      ]);
+      const subscription = await Promise.race([subscriptionPromise, disposalPromise]);
       if (signal.aborted) {
         outcome = "expired";
         unsubscribePromise ??= this.unsubscribeWatcherSubscription(subscription, watchPath);
@@ -1564,9 +1560,6 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     } finally {
       if (outcome === "pending") {
         outcome = "expired";
-      }
-      if (timeout) {
-        clearTimeout(timeout);
       }
       removeAbortListener();
     }
@@ -1580,6 +1573,34 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       await subscription.unsubscribe();
     } catch (error) {
       this.logger.warn({ err: error, watchPath }, "Failed to stop watcher subscription");
+    }
+  }
+
+  /**
+   * Every tracked directory is watched, so a checkout with more of them than the observer's
+   * limit fails after scanning and watching that many directories. Reading the count from
+   * Git's tree objects costs one process and no readdir calls on the shared threadpool.
+   * A failed count (no HEAD yet) leaves the decision to the observer.
+   */
+  private async assertWithinDirectoryLimit(target: WorkingTreeWatchTarget): Promise<void> {
+    if (target.repoRoot === null) return;
+    const limit = this.fileObserver.directoryLimit;
+    let stdout: string;
+    try {
+      ({ stdout } = await this.deps.runGitCommand(
+        ["ls-tree", "-r", "-d", "-z", "--name-only", "HEAD"],
+        { cwd: target.watchPath, env: READ_ONLY_GIT_ENV },
+        "workspace-git:watch-directory-count",
+      ));
+    } catch {
+      return;
+    }
+    let directoryCount = 1;
+    for (let index = stdout.indexOf("\0"); index !== -1; index = stdout.indexOf("\0", index + 1)) {
+      directoryCount += 1;
+    }
+    if (directoryCount > limit) {
+      throw new FileObserverLimitError(target.watchPath, limit, "directories");
     }
   }
 
@@ -1604,7 +1625,8 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       }
     };
     try {
-      const subscription = await this.subscribeWithDeadline(
+      await this.assertWithinDirectoryLimit(target);
+      const subscription = await this.subscribeUntilDisposed(
         target.watchPath,
         (error, events) => {
           if (error) {
@@ -1681,6 +1703,13 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       if (!options?.replaceFallback) {
         this.startWorkingTreeWatchFallback(target, "watcher_setup_failed");
       }
+      // A setup failure retries like a runtime one: a scan that timed out behind a daemon
+      // restart's other scans usually succeeds later. A tree over the observer's limit stays
+      // over it until it shrinks, so it waits the longest interval.
+      if (error instanceof FileObserverLimitError) {
+        holdWatchRecoveryAtLongestDelay(target.recovery);
+      }
+      this.scheduleWorkingTreeWatchRecovery(target);
       return false;
     }
   }
@@ -2340,7 +2369,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       }
     };
     try {
-      const subscription = await this.subscribeWithDeadline(
+      const subscription = await this.subscribeUntilDisposed(
         target.repoGitRoot,
         (error, events) => {
           const liveEvents = canary.filterEvents(
@@ -2442,6 +2471,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       if (!options?.replaceFallback) {
         this.startRepoMetadataFallback(target);
       }
+      this.scheduleRepoMetadataWatchRecovery(target);
       return false;
     }
   }

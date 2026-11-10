@@ -1670,3 +1670,18 @@ grep -q 'isSubmitBlocked={isResolvingModel}' packages/app/src/screens/new-worksp
 grep -q 'isSubmitBlocked ||' packages/app/src/composer/index.tsx
 test -f packages/app/e2e/browser/new-workspace-create-waits-for-model.spec.ts
 ```
+
+## watcher-startup-storm
+
+**Working-tree watchers start two scans at a time, stop a scan at its deadline, and retry setup failures**
+
+After the 6767 daemon restarted on 0.15.908 it subscribed watchers for 122 workspaces at once. The initial Linux scans held the four libuv threadpool threads that Claude transcript replay also reads through, so an agent's resume took 649 s and its timeline fetches waited up to 653 s. 44 scans walked 5,000 directories of one vendored repository before failing at the Linux cap; 79 hit WorkspaceGit's 10 s subscribe deadline, which started while the scan was still queued and did not stop the scan, so abandoned scans piled up and the next ones timed out behind them. A setup failure fell back to polling and never retried. The file observer now admits two initial scans at a time and owns the start deadline (`startTimeoutMs`, from admission), closing the observation when it expires or its `signal` aborts. Both backends fail over their limit with `FileObserverLimitError`, and `FileObserver.directoryLimit` lets WorkspaceGit count tracked directories with `git ls-tree` and skip a scan that cannot fit. WorkspaceGit retries working-tree and repository-metadata setup failures on the watcher recovery backoff, the limit error only at the five-minute ceiling. The rules live in [file-observation.md](file-observation.md). Upstream candidate.
+
+`UV_THREADPOOL_SIZE` stays unset. With admission, watcher scans hold at most two of the four threads, and in the repro the transcript read stayed at its unloaded time without a larger pool; any fixed pool is smaller than the workspace count, so a larger one would only have delayed the storm.
+
+The threadpool storm test pins real libuv threads with FIFO reads and fails without admission (the concurrent read stalls); the deadline test fails without admission (it expires while queued) and without cancellation (the scan reads the next directory).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-observer/internal/linux.test.ts --bail=1 -t "startup storm|start deadline"
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/workspace-git-service.test.ts --bail=1 -t "initial scan timed out retries|metadata watcher that failed setup retries|more tracked directories than the observer allows"
+```

@@ -13,13 +13,19 @@ import type {
   ObservationHost,
   ObserverMetrics,
 } from "./contracts.js";
+import { FileObserverStartTimeoutError } from "./errors.js";
 import type { ObserverPaths } from "./paths.js";
 import { toError } from "./paths.js";
 
 const EVENT_BATCH_DELAY_MS = 10;
 
+export interface ObservationStartLimits {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
 export interface ManagedObservation {
-  start(): Promise<void>;
+  start(limits: ObservationStartLimits): Promise<void>;
   subscription(): FileObserverSubscription;
   close(): Promise<void>;
   getDiagnostics(): BackendDiagnostics & { pendingEventCount: number };
@@ -64,7 +70,44 @@ class Observation implements ManagedObservation, ObservationHost {
     this.backend = input.createBackend(this);
   }
 
-  async start(): Promise<void> {
+  /**
+   * The deadline and the signal stop the initial scan, not just the wait for it: an abandoned
+   * scan would keep its readdir calls on the libuv threadpool the whole daemon shares. Closing
+   * is not awaited, so a scan stuck on a hung filesystem cannot hold its caller's admission
+   * slot; the closed observation stops at its next filesystem call.
+   */
+  async start(limits: ObservationStartLimits): Promise<void> {
+    const { signal, timeoutMs } = limits;
+    signal?.throwIfAborted();
+    let timer: NodeJS.Timeout | null = null;
+    let removeAbortListener = () => {};
+    const stopped = new Promise<never>((_resolve, reject) => {
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(
+          () => reject(new FileObserverStartTimeoutError(this.root, timeoutMs)),
+          timeoutMs,
+        );
+      }
+      if (signal) {
+        const onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+        removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+      }
+    });
+    const started = this.startBackend();
+    try {
+      await Promise.race([started, stopped]);
+    } catch (error) {
+      started.catch(() => undefined);
+      this.close().catch(() => undefined);
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+      removeAbortListener();
+    }
+  }
+
+  private async startBackend(): Promise<void> {
     const rootStats = await stat(this.root);
     if (!rootStats.isDirectory()) {
       throw new Error(`File observation requires a directory: ${this.root}`);

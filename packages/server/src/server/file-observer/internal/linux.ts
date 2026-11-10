@@ -2,10 +2,11 @@ import { type Dirent, type FSWatcher, watch } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BackendDiagnostics, ObservationBackend, ObservationHost } from "./contracts.js";
+import { FileObserverLimitError } from "./errors.js";
 import type { ObserverPaths } from "./paths.js";
 import { isMissingPathError, toError } from "./paths.js";
 
-const MAX_WATCHED_DIRECTORIES = 5_000;
+export const MAX_WATCHED_DIRECTORIES = 5_000;
 const RECONCILIATION_DELAY_MS = 50;
 // fs.stat runs on the libuv threadpool, which is four threads and shared by the
 // whole daemon. One stat per native event pins it and unrelated filesystem work
@@ -33,14 +34,18 @@ type WatchDirectory = (
   listener: (eventType: string, filename: string | null) => void,
 ) => FSWatcher;
 
+export type ReadDirectory = (directory: string) => Promise<Dirent[]>;
+
 const watchDirectory: WatchDirectory = (directory, listener) => watch(directory, listener);
+const readDirectory: ReadDirectory = (directory) => readdir(directory, { withFileTypes: true });
 
 export function createLinuxBackend(
   host: ObservationHost,
   paths: ObserverPaths,
   observe: WatchDirectory = watchDirectory,
+  read: ReadDirectory = readDirectory,
 ): ObservationBackend {
-  return new LinuxBackend(host, paths, observe);
+  return new LinuxBackend(host, paths, observe, read);
 }
 
 class LinuxBackend implements ObservationBackend {
@@ -58,6 +63,7 @@ class LinuxBackend implements ObservationBackend {
     private readonly host: ObservationHost,
     private readonly paths: ObserverPaths,
     private readonly observe: WatchDirectory,
+    private readonly read: ReadDirectory,
   ) {}
 
   async start(): Promise<void> {
@@ -117,9 +123,7 @@ class LinuxBackend implements ObservationBackend {
     }
     if (this.watchers.size >= MAX_WATCHED_DIRECTORIES) {
       this.host.metrics.directoryLimitFailureCount += 1;
-      throw new Error(
-        `Recursive file observation exceeded ${MAX_WATCHED_DIRECTORIES} directories under ${this.host.root}`,
-      );
+      throw new FileObserverLimitError(this.host.root, MAX_WATCHED_DIRECTORIES, "directories");
     }
     const watcher = this.observe(directory, (eventType, filename) => {
       if (!this.host.isActive()) return;
@@ -251,7 +255,7 @@ class LinuxBackend implements ObservationBackend {
       if (!directory) continue;
       let entries: Dirent[];
       try {
-        entries = await readdir(directory, { withFileTypes: true });
+        entries = await this.read(directory);
       } catch (error) {
         if (!isMissingPathError(error)) throw error;
         if (directory === this.host.root && this.host.isActive()) throw error;
@@ -267,9 +271,7 @@ class LinuxBackend implements ObservationBackend {
         directories.add(child);
         if (directories.size > MAX_WATCHED_DIRECTORIES) {
           this.host.metrics.directoryLimitFailureCount += 1;
-          throw new Error(
-            `Recursive file observation exceeded ${MAX_WATCHED_DIRECTORIES} directories under ${this.host.root}`,
-          );
+          throw new FileObserverLimitError(this.host.root, MAX_WATCHED_DIRECTORIES, "directories");
         }
         pending.push(child);
       }

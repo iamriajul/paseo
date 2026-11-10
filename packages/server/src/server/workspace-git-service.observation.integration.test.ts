@@ -463,6 +463,7 @@ test("a late Git-ignored tree is pruned while tracked changes still notify consu
   let trackedBatchReachedConsumer = false;
   // Observe the real subscription without replacing Git, filesystem, or watcher behavior.
   const fileObserver: FileObserver = {
+    directoryLimit: observer.directoryLimit,
     subscribe: async (directory, callback, options) => {
       const realSubscription = await observer.subscribe(
         directory,

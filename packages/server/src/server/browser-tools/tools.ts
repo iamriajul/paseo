@@ -878,8 +878,10 @@ function summarizeBrowserSuccess(
 
   if (payload.result.command === "list_tabs") {
     const count = payload.result.tabs.length;
+    // Fork: a browser that could not list its tabs (docs/server-browser.md).
+    const incomplete = payload.result.incomplete ? `\n${payload.result.incomplete}` : "";
     if (count === 0) {
-      return "No Paseo browser tabs are open. Call browser_new_tab to create one.";
+      return `No Paseo browser tabs are open. Call browser_new_tab to create one.${incomplete}`;
     }
     const tabLines = payload.result.tabs.map((tab) => {
       const active = tab.isActive ? " active" : "";
@@ -890,7 +892,7 @@ function summarizeBrowserSuccess(
       [
         `Found ${count} Paseo browser tab${count === 1 ? "" : "s"}. Use these browserId values for tab-scoped browser tools.`,
         ...tabLines,
-      ].join("\n"),
+      ].join("\n") + incomplete,
     );
   }
 

@@ -532,6 +532,11 @@ describe("Existing browser", { timeout: 120_000 }, () => {
       targetId: users.ownTabId,
       flatten: true,
     })) as { sessionId: string };
+    await users.cdp.send(
+      "Runtime.evaluate",
+      { expression: `window.open(${JSON.stringify(siteUrl)}); 1`, userGesture: true },
+      sessionId,
+    );
     await users.cdp.send("Page.navigate", { url: `${siteUrl}whoami` }, sessionId);
     await users.cdp.send("Target.closeTarget", { targetId: users.ownTabId });
     await new Promise((resolve) => setTimeout(resolve, 300));

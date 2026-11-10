@@ -19,6 +19,8 @@ export const ServerBrowserTabSchema = z.object({
   /** "agent" when browser_new_tab created it, "user" when a client opened it. */
   openedBy: z.enum(["agent", "user"]),
   createdAt: z.number(),
+  /** The tab whose page opened this one (window.open, a target=_blank link). */
+  openerBrowserId: z.string().optional(),
   /** The main frame's last load failed: the URL it tried and Chromium's error (net::ERR_…). */
   loadError: z.object({ url: z.string(), errorText: z.string().optional() }).optional(),
 });

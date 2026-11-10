@@ -23,6 +23,11 @@ const CONSOLE_PAGE =
   "console.log('hello from the page'); console.warn('careful'); console.error('broken');" +
   "</script>";
 
+// A page that is one big target=_blank link to the fixture.
+const POPUP_LINK_PAGE =
+  "<title>links</title><style>body{margin:0}</style>" +
+  "<a href='/' target='_blank' style='display:block;width:100vw;height:100vh'>open</a>";
+
 // A page whose top-left quarter is one box to pick.
 const TARGET_PAGE =
   "<title>target</title><style>body{margin:0}</style>" +
@@ -33,6 +38,7 @@ test.beforeEach(async () => {
     "/keys": KEY_LOG_PAGE,
     "/target": TARGET_PAGE,
     "/console": CONSOLE_PAGE,
+    "/links": POPUP_LINK_PAGE,
   });
 });
 
@@ -183,4 +189,29 @@ test("the console panel shows the page's logs as agents read them", async ({ pag
   await page.screenshot({ path: test.info().outputPath("console.png") });
   await page.getByTestId("server-browser-console-clear").click();
   await expect(panel).toContainText("No console messages yet");
+});
+
+test("a link the page opens in a new tab opens as a server tab, in front for the viewer", async ({
+  page,
+}) => {
+  const opener = await scenario.newTab("/links");
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openAgentRoute(page, {
+    workspaceId: scenario.workspace.workspaceId,
+    agentId: scenario.agentId,
+  });
+  await page.getByTestId(`workspace-tab-server_browser_${opener}`).click();
+  const surface = page.getByTestId("server-browser-surface");
+  await expect(surface.locator("img")).toBeVisible();
+  const box = (await surface.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+  await expect.poll(async () => (await scenario.listTabIds()).length).toBe(2);
+  const popup = (await scenario.listTabIds()).find((id) => id !== opener)!;
+  await expect(page.getByTestId(`workspace-tab-server_browser_${popup}`)).toBeVisible();
+  await expect(page.getByLabel("Server browser URL").locator("visible=true")).toHaveValue(
+    `${scenario.siteUrl}/`,
+  );
+  expect(await scenario.tabInfo(popup)).toMatchObject({ openerBrowserId: opener });
+  await page.screenshot({ path: test.info().outputPath("popup.png") });
 });

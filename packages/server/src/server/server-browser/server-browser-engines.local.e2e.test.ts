@@ -610,6 +610,22 @@ describe("Existing browser", { timeout: 120_000 }, () => {
     users.cdp.disconnect();
   });
 
+  it("names the error of a load the page started, from Chrome's error page", async () => {
+    const users = await startUsersChrome();
+    const host = createHost({ kind: "existing", cdpUrl: users.url });
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    const probe = http.createServer();
+    await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+    const address = probe.address();
+    const refused = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}/`;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+    await evaluate(host, tab.browserId, `location.href = ${JSON.stringify(refused)}`);
+    await waitFor(() => host.listTabs()[0]?.loadError?.errorText === "net::ERR_CONNECTION_REFUSED");
+    expect(host.listTabs()[0]).toMatchObject({ url: refused, loadError: { url: refused } });
+    users.cdp.disconnect();
+  });
+
   it("says plainly when no browser answers at the URL", async () => {
     const host = createHost({ kind: "existing", cdpUrl: "http://127.0.0.1:9" });
     await expect(

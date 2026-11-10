@@ -295,6 +295,26 @@ describe("ServerBrowserHost with a real Chromium", () => {
     expect(await evaluate(host, tab.browserId, "document.body.innerText")).toBe("slow page");
   });
 
+  it("reports a page that failed to load, with Chromium's error, until a load succeeds", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    const info = () => host.listTabs().find((entry) => entry.browserId === tab.browserId)!;
+    const refused = await closedPortUrl();
+
+    await expect(tab.navigate(refused)).rejects.toThrow(/ERR_CONNECTION_REFUSED/);
+    // The error page commits after Page.navigate answers; the tab keeps the URL it tried.
+    await waitFor(() => info().url === refused);
+    expect(info().loadError).toEqual({ url: refused, errorText: "net::ERR_CONNECTION_REFUSED" });
+
+    await tab.contents.loadURL(siteUrl);
+    await waitFor(() => info().url === siteUrl && !info().loadError);
+
+    // A load the page starts has no navigate answer. Chrome's error page names the error; the
+    // headless shell's is empty, so the failure carries only its URL there.
+    await evaluate(host, tab.browserId, `location.href = ${JSON.stringify(refused)}`);
+    await waitFor(() => info().loadError?.url === refused && info().url === refused);
+  });
+
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
@@ -303,3 +323,13 @@ describe("ServerBrowserHost with a real Chromium", () => {
     expect(isRunning(pid)).toBe(false);
   });
 });
+
+/** A loopback URL nothing listens on (port 9 and friends are on Chromium's unsafe list). */
+async function closedPortUrl(): Promise<string> {
+  const probe = http.createServer();
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const address = probe.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return `http://127.0.0.1:${port}/`;
+}

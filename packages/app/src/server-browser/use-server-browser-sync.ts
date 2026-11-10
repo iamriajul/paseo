@@ -1,14 +1,14 @@
 import { useEffect } from "react";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
-import { collectAllTabs } from "@/stores/workspace-layout-actions";
+import { collectAllTabs, findPaneById } from "@/stores/workspace-layout-actions";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildDeterministicWorkspaceTabId } from "@/workspace-tabs/identity";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { useServerBrowserStore, type ServerBrowserTab } from "./store";
 
-// Agent tabs already placed in a workspace this app session. A tab the user closed is closed
-// on the daemon too, so it never comes back; this only stops repeated opens per push.
+// Agent tabs and popups already placed in a workspace this app session. A tab the user closed
+// is closed on the daemon too, so it never comes back; this only stops repeated opens per push.
 const placedAgentTabs = new Set<string>();
 // Tabs this app session has seen per host, so a tab the daemon closes (an agent's
 // browser_close_tab, idle close, a crash) leaves the workspace instead of lingering as "closed".
@@ -49,22 +49,53 @@ export function useServerBrowserSync(serverId: string): void {
   }, [client, serverId, supported]);
 }
 
+/**
+ * Opens agents' tabs and pages a tab opened (popups) in their workspace. A popup opens next to its
+ * opener, in front on the client whose focused tab is the opener (the one that clicked, as in a
+ * browser) and in the background elsewhere; an agent's tab opens in the background.
+ */
 function placeAgentTabs(serverId: string, tabs: ServerBrowserTab[]): void {
   for (const tab of tabs) {
     const key = `${serverId}:${tab.browserId}`;
-    if (tab.openedBy !== "agent" || placedAgentTabs.has(key)) continue;
+    if ((tab.openedBy !== "agent" && !tab.openerBrowserId) || placedAgentTabs.has(key)) continue;
     placedAgentTabs.add(key);
     const workspaceKey = buildWorkspaceTabPersistenceKey({
       serverId,
       workspaceId: tab.workspaceId,
     });
     if (!workspaceKey) continue;
-    useWorkspaceLayoutStore.getState().openTab({
+    const store = useWorkspaceLayoutStore.getState();
+    const opener = tab.openerBrowserId;
+    store.openTab({
       workspaceKey,
       target: { kind: "server_browser", browserId: tab.browserId },
-      intent: "background",
+      intent:
+        opener && isFocusedServerTab(store.layoutByWorkspace[workspaceKey], opener)
+          ? "new"
+          : "background",
+      ...(opener
+        ? {
+            parentTabId: buildDeterministicWorkspaceTabId({
+              kind: "server_browser",
+              browserId: opener,
+            }),
+          }
+        : {}),
     });
   }
+}
+
+function isFocusedServerTab(
+  layout:
+    | ReturnType<typeof useWorkspaceLayoutStore.getState>["layoutByWorkspace"][string]
+    | undefined,
+  browserId: string,
+): boolean {
+  if (!layout) return false;
+  const pane = findPaneById(layout.root, layout.focusedPaneId);
+  if (!pane?.focusedTabId || pane.hidden === true) return false;
+  const focused = collectAllTabs(layout.root).find((tab) => tab.tabId === pane.focusedTabId);
+  return focused?.target.kind === "server_browser" && focused.target.browserId === browserId;
 }
 
 function removeClosedTabs(serverId: string, tabs: ServerBrowserTab[]): void {

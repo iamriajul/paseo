@@ -15,6 +15,7 @@ import {
   type TabContents,
 } from "./engine/service.js";
 import { BrowserSnapshotEngine } from "./engine/snapshot-engine.js";
+import { stripSnapshotTitle, windowTitleMark } from "./window-title.js";
 import { ServerBrowserTab, type ServerBrowserViewport } from "./server-browser-tab.js";
 import {
   SERVER_BROWSER_ENGINE_TRAITS,
@@ -67,6 +68,8 @@ export interface ServerBrowserHostOptions {
   resolveExecutable?: () => Promise<ChromiumExecutableResolution>;
   launch?: LaunchFn;
   limits?: Partial<ServerBrowserLimits>;
+  /** The workspace's name, for the title mark on an Existing browser's windows. */
+  resolveWorkspaceName?: (workspaceId: string) => Promise<string | null>;
   now?: () => number;
 }
 
@@ -237,9 +240,24 @@ export class ServerBrowserHost {
     if (browserId) this.tabs.get(browserId)?.touch();
     const owned = await this.executeHostCommand(request);
     if (owned) return owned;
-    return executeAutomationCommand(request, this.registry, {
+    const response = await executeAutomationCommand(request, this.registry, {
       snapshotEngine: this.snapshotEngine,
     });
+    // The snapshot's root names the page by its document.title, which carries the window mark.
+    const mark = browserId ? this.tabs.get(browserId)?.titleMark : null;
+    if (mark && response.ok && response.result.command === "snapshot") {
+      response.result.snapshot = stripSnapshotTitle(response.result.snapshot, mark);
+    }
+    return response;
+  }
+
+  private async workspaceName(workspaceId: string): Promise<string | null> {
+    try {
+      return (await this.options.resolveWorkspaceName?.(workspaceId)) ?? null;
+    } catch (error) {
+      this.options.logger.warn({ err: error, workspaceId }, "Server browser: no workspace name");
+      return null;
+    }
   }
 
   /** The commands the desktop engine leaves to its app runtime; here the host owns the tab. */
@@ -291,6 +309,10 @@ export class ServerBrowserHost {
     assertNavigableUrl(params.url);
     this.cancelContextIdle(params.workspaceId);
     const context = await this.ensureContext(params.workspaceId);
+    const titleMark =
+      this.runningEngine === "existing"
+        ? windowTitleMark(await this.workspaceName(params.workspaceId))
+        : null;
     const target = await context.chromium.createTarget(context.browserContextId ?? undefined);
     const tab = new ServerBrowserTab({
       browserId: params.browserId ?? randomUUID(),
@@ -301,6 +323,7 @@ export class ServerBrowserHost {
       connection: target.connection,
       openedBy: params.openedBy,
       ...(params.viewport ? { viewport: params.viewport } : {}),
+      ...(titleMark ? { titleMark } : {}),
       onChange: () => this.scheduleNotify(),
       onNavigated: (url) => void this.onTabNavigated(params.workspaceId, url),
       now: this.now,

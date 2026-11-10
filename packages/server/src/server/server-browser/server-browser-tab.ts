@@ -87,6 +87,7 @@ export class ServerBrowserTab {
   private closed = false;
   private screencastSize: ScreencastSize | null = null;
   private pendingMove: PendingMove | null = null;
+  private loadError: { url: string; errorText?: string } | null = null;
   private visibleUntil = 0;
 
   public constructor(options: ServerBrowserTabOptions) {
@@ -143,6 +144,7 @@ export class ServerBrowserTab {
       viewport: { ...this.viewport },
       openedBy: this.openedBy,
       createdAt: this.createdAt,
+      ...(this.loadError ? { loadError: { ...this.loadError } } : {}),
     };
   }
 
@@ -196,6 +198,8 @@ export class ServerBrowserTab {
         void this.refreshTitle();
         // A history traversal can report its entry before the commit lands; read it again.
         void this.refreshHistory();
+        if (this.loadError && !this.loadError.errorText)
+          void this.readErrorPageCode(this.loadError.url);
         return;
       case "Page.screencastFrame":
         this.onScreencastFrame(event.params);
@@ -265,6 +269,7 @@ export class ServerBrowserTab {
     const result = await this.send("Page.navigate", { url });
     const errorText = stringParam(result, "errorText");
     if (errorText && errorText !== "net::ERR_ABORTED") {
+      this.setLoadError({ url, errorText });
       throw new Error(`Navigation to ${url} failed: ${errorText}`);
     }
   }
@@ -629,13 +634,47 @@ export class ServerBrowserTab {
 
   private onFrameNavigated(params: CdpParams): void {
     const frame = params.frame as
-      | { parentId?: string; url?: string; urlFragment?: string }
+      | { parentId?: string; url?: string; urlFragment?: string; unreachableUrl?: string }
       | undefined;
     if (!frame || frame.parentId) return;
-    this.url = `${frame.url ?? this.url}${frame.urlFragment ?? ""}`;
+    // A failed load commits Chromium's error page; the tab keeps the URL it tried.
+    const unreachableUrl = typeof frame.unreachableUrl === "string" ? frame.unreachableUrl : null;
+    this.url = unreachableUrl ?? `${frame.url ?? this.url}${frame.urlFragment ?? ""}`;
+    if (unreachableUrl) {
+      if (this.loadError?.url !== unreachableUrl) this.loadError = { url: unreachableUrl };
+    } else {
+      this.loadError = null;
+    }
     this.onChange();
     this.onNavigated(this.url);
     void this.refreshHistory();
+  }
+
+  private setLoadError(error: { url: string; errorText?: string }): void {
+    this.loadError = error;
+    this.onChange();
+  }
+
+  /**
+   * A load the page started (a link, a redirect) has no Page.navigate answer. Chrome's error page
+   * names the error; the headless shell's is empty, so there the failure keeps only its URL.
+   */
+  private async readErrorPageCode(url: string): Promise<void> {
+    try {
+      const code = await this.evaluate(
+        'document.querySelector(".error-code")?.textContent?.trim() ?? ""',
+      );
+      if (
+        typeof code === "string" &&
+        code &&
+        this.loadError?.url === url &&
+        !this.loadError.errorText
+      ) {
+        this.setLoadError({ url, errorText: code.startsWith("net::") ? code : `net::${code}` });
+      }
+    } catch {
+      // The page moved on.
+    }
   }
 
   private isMainFrame(params: CdpParams): boolean {

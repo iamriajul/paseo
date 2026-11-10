@@ -23,6 +23,10 @@ export interface ServerBrowserScenario {
   /** Calls a browser MCP tool as the scenario's agent; returns its structured result. */
   tool(name: string, args?: Record<string, unknown>): Promise<Record<string, unknown>>;
   newTab(path?: string): Promise<string>;
+  /** Opens a tab at any URL, on another server or none. */
+  newTabAt(url: string): Promise<string>;
+  /** The daemon's view of one tab, as viewers get it. */
+  tabInfo(browserId: string): Promise<Record<string, unknown> | undefined>;
   listTabIds(): Promise<string[]>;
   close(): Promise<void>;
 }
@@ -36,6 +40,11 @@ export async function startServerBrowserScenario(
     await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
   const site = http.createServer((req, res) => {
     res.setHeader("content-type", "text/html");
+    if (req.url === "/slow") {
+      // Starts and never finishes loading.
+      res.write("<title>Slow</title><p>slow</p>");
+      return;
+    }
     res.end(routes[req.url ?? "/"] ?? "<title>Fixture</title><p>fixture</p>");
   });
   await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
@@ -73,6 +82,21 @@ export async function startServerBrowserScenario(
     tool,
     newTab: async (path = "/") =>
       String(resultOf(await tool("browser_new_tab", { url: `${siteUrl}${path}` })).browserId),
+    newTabAt: async (url) => String(resultOf(await tool("browser_new_tab", { url })).browserId),
+    tabInfo: async (browserId) => {
+      const observation = client.observeServerBrowserTabs();
+      const tabs = await new Promise<Array<Record<string, unknown>>>((resolve) => {
+        const unsubscribe = observation.subscribe({
+          snapshot: (snapshot) => {
+            resolve(snapshot.tabs as unknown as Array<Record<string, unknown>>);
+            unsubscribe();
+          },
+          update: () => {},
+        });
+      });
+      await observation.release().catch(() => undefined);
+      return tabs.find((tab) => tab.browserId === browserId);
+    },
     listTabIds: async () =>
       ((resultOf(await tool("browser_list_tabs")).tabs as Array<{ browserId: string }>) ?? []).map(
         (tab) => tab.browserId,

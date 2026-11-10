@@ -17,13 +17,23 @@ const KEY_LOG_PAGE =
   "addEventListener('keydown', (e) => { document.title += e.key + ','; });" +
   "</script>";
 
+// A page that logs a line, a warning and an error once it loads.
+const CONSOLE_PAGE =
+  "<title>console</title><p>console</p><script>" +
+  "console.log('hello from the page'); console.warn('careful'); console.error('broken');" +
+  "</script>";
+
 // A page whose top-left quarter is one box to pick.
 const TARGET_PAGE =
   "<title>target</title><style>body{margin:0}</style>" +
   "<div id=target style='width:50vw;height:50vh;background:#3b82f6'>target</div>";
 
 test.beforeEach(async () => {
-  scenario = await startServerBrowserScenario({ "/keys": KEY_LOG_PAGE, "/target": TARGET_PAGE });
+  scenario = await startServerBrowserScenario({
+    "/keys": KEY_LOG_PAGE,
+    "/target": TARGET_PAGE,
+    "/console": CONSOLE_PAGE,
+  });
 });
 
 test.afterEach(async () => {
@@ -153,4 +163,24 @@ test("Screenshot element copies the picked element's crop to the clipboard", asy
     (await navigator.clipboard.read()).flatMap((item) => Array.from(item.types)),
   );
   expect(types).toContain("image/png");
+});
+
+test("the console panel shows the page's logs as agents read them", async ({ page }) => {
+  const browserId = await scenario.newTab("/console");
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openAgentRoute(page, {
+    workspaceId: scenario.workspace.workspaceId,
+    agentId: scenario.agentId,
+  });
+  await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
+  await page.getByRole("button", { name: "Server browser actions" }).click();
+  await page.getByTestId("server-browser-console-toggle").click();
+
+  const panel = page.getByTestId("server-browser-console");
+  await expect(panel).toContainText("hello from the page");
+  await expect(panel).toContainText("careful");
+  await expect(panel).toContainText("broken");
+  await page.screenshot({ path: test.info().outputPath("console.png") });
+  await page.getByTestId("server-browser-console-clear").click();
+  await expect(panel).toContainText("No console messages yet");
 });

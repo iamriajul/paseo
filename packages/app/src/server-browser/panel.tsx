@@ -44,6 +44,7 @@ import {
 } from "./use-server-browser-annotate";
 import { deviceKindForViewport, SERVER_BROWSER_DEFAULT_VIEWPORT } from "./device-size";
 import { useServerBrowserDeviceSize } from "./use-server-browser-device-size";
+import { ServerBrowserLogsPanel, useServerBrowserLogs } from "./logs-panel";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
@@ -211,6 +212,38 @@ function PickButtons(props: {
   );
 }
 
+function ActionsMenu(props: {
+  canClearData: boolean;
+  canShowConsole: boolean;
+  consoleShown: boolean;
+  onClearData: () => void;
+  onToggleConsole: () => void;
+  onCloseTab: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <DropdownMenu>
+      <ToolbarButton kind="menu" label="Server browser actions">
+        <ThemedMore size={16} uniProps={muted} />
+      </ToolbarButton>
+      <DropdownMenuContent align="end">
+        {/* A shared-profile engine has no per-workspace data to clear. */}
+        {props.canClearData ? (
+          <DropdownMenuItem onSelect={props.onClearData}>Clear browser data</DropdownMenuItem>
+        ) : null}
+        {props.canShowConsole ? (
+          <DropdownMenuItem onSelect={props.onToggleConsole} testID="server-browser-console-toggle">
+            {props.consoleShown
+              ? t("workspace.browser.console.hide")
+              : t("workspace.browser.console.show")}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem onSelect={props.onCloseTab}>Close tab</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ServerBrowserPanel(): ReactElement {
   const { serverId, workspaceId, target } = usePaneContext();
   invariant(
@@ -314,6 +347,9 @@ function ServerBrowserPanel(): ReactElement {
   const toggleAnnotate = annotate.toggle;
   const handleAnnotate = useCallback(() => toggleAnnotate("annotate"), [toggleAnnotate]);
   const handleScreenshot = useCallback(() => toggleAnnotate("screenshot"), [toggleAnnotate]);
+  const [showConsole, setShowConsole] = useState(false);
+  const logs = useServerBrowserLogs({ client, browserId, open: showConsole });
+  const handleToggleConsole = useCallback(() => setShowConsole((shown) => !shown), []);
   const failedUrl = tab?.loadError?.url;
   const handleRetry = useCallback(() => {
     if (failedUrl) run(() => client?.serverBrowserNavigate(browserId, "url", failedUrl));
@@ -393,18 +429,14 @@ function ServerBrowserPanel(): ReactElement {
               />
             </DropdownMenuContent>
           </DropdownMenu>
-          <DropdownMenu>
-            <ToolbarButton kind="menu" label="Server browser actions">
-              <ThemedMore size={16} uniProps={muted} />
-            </ToolbarButton>
-            <DropdownMenuContent align="end">
-              {/* A shared-profile engine has no per-workspace data to clear. */}
-              {status?.engine?.sharedStorage ? null : (
-                <DropdownMenuItem onSelect={handleClearData}>Clear browser data</DropdownMenuItem>
-              )}
-              <DropdownMenuItem onSelect={handleCloseTab}>Close tab</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ActionsMenu
+            canClearData={!status?.engine?.sharedStorage}
+            canShowConsole={supportsViewerControls}
+            consoleShown={showConsole}
+            onClearData={handleClearData}
+            onToggleConsole={handleToggleConsole}
+            onCloseTab={handleCloseTab}
+          />
         </View>
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -428,6 +460,7 @@ function ServerBrowserPanel(): ReactElement {
         />
         <LoadFailureOverlay tab={tab} onRetry={handleRetry} />
       </View>
+      {showConsole ? <ServerBrowserLogsPanel entries={logs.entries} onClear={logs.clear} /> : null}
       {composing ? (
         <WebAnnotationComposer onSubmit={annotate.submit} onCancel={annotate.dismiss} />
       ) : null}

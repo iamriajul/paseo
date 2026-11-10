@@ -47,6 +47,8 @@ export interface ServerBrowserTabOptions {
   connection: CdpConnection;
   openedBy: "agent" | "user";
   viewport?: ServerBrowserViewport;
+  /** The tab whose page opened this one (window.open, a target=_blank link). */
+  openerBrowserId?: string;
   /** Marks the page's title so its window reads as Paseo's (Existing browser only). */
   titleMark?: WindowTitleMark;
   onChange: () => void;
@@ -73,6 +75,7 @@ export class ServerBrowserTab {
   private connection: CdpConnection;
   private readonly contentsId: number;
   public readonly titleMark: WindowTitleMark | null;
+  public readonly openerBrowserId: string | null;
   private readonly onChange: () => void;
   private readonly onNavigated: (url: string) => void;
   private readonly now: () => number;
@@ -99,6 +102,7 @@ export class ServerBrowserTab {
     this.openedBy = options.openedBy;
     this.contentsId = options.contentsId;
     this.titleMark = options.titleMark ?? null;
+    this.openerBrowserId = options.openerBrowserId ?? null;
     this.targetId = options.targetId;
     this.sessionId = options.sessionId;
     this.connection = options.connection;
@@ -148,6 +152,7 @@ export class ServerBrowserTab {
       openedBy: this.openedBy,
       createdAt: this.createdAt,
       ...(this.loadError ? { loadError: { ...this.loadError } } : {}),
+      ...(this.openerBrowserId ? { openerBrowserId: this.openerBrowserId } : {}),
     };
   }
 
@@ -290,6 +295,11 @@ export class ServerBrowserTab {
   public async reload(): Promise<void> {
     this.touch();
     await this.send("Page.reload");
+  }
+
+  /** A note in the tab's console, where agents (browser_logs) and the console panel see it. */
+  public warn(message: string): void {
+    this.recordConsole("warning", message);
   }
 
   /** The viewer's logs panel: console lines after `after` (a seq), oldest first. */

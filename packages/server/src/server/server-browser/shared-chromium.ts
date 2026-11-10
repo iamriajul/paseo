@@ -18,6 +18,8 @@ export interface SharedChromiumEvents {
   onEvent(event: CdpEvent): void;
   onTargetInfo(info: { targetId: string; url: string; title: string }): void;
   onTargetDestroyed(targetId: string): void;
+  /** One of this daemon's pages opened a page (window.open, a target=_blank link); it is ours too. */
+  onPopup?(popup: { targetId: string; openerId: string }): void;
   onExit(): void;
 }
 
@@ -158,6 +160,12 @@ export class SharedChromium {
     for (const startup of this.startupPages.splice(0)) {
       await connection.send("Target.closeTarget", { targetId: startup }).catch(() => {});
     }
+    return this.attachTarget(targetId);
+  }
+
+  /** Attaches to one of this daemon's targets: one it created, or a popup one of them opened. */
+  public async attachTarget(targetId: string): Promise<ChromiumTarget> {
+    const connection = this.requireConnection();
     const { sessionId } = (await connection.send("Target.attachToTarget", {
       targetId,
       flatten: true,
@@ -248,6 +256,14 @@ export class SharedChromium {
   }
 
   private handleEvent(event: CdpEvent): void {
+    if (event.method === "Target.targetCreated") {
+      this.onTargetCreated(
+        event.params.targetInfo as
+          | { targetId: string; type: string; openerId?: string }
+          | undefined,
+      );
+      return;
+    }
     if (event.method === "Target.targetInfoChanged") {
       const info = event.params.targetInfo as
         | { targetId: string; url: string; title: string; type: string }
@@ -265,6 +281,15 @@ export class SharedChromium {
       return;
     }
     if (event.sessionId) this.events().onEvent(event);
+  }
+
+  private onTargetCreated(
+    info: { targetId: string; type: string; openerId?: string } | undefined,
+  ): void {
+    // An Existing browser's owner opens pages too; only a page one of ours opened is ours.
+    if (info?.type !== "page" || !info.openerId || !this.ownTargets.has(info.openerId)) return;
+    this.ownTargets.add(info.targetId);
+    this.events().onPopup?.({ targetId: info.targetId, openerId: info.openerId });
   }
 
   private events(): SharedChromiumEvents {

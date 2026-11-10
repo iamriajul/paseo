@@ -333,6 +333,43 @@ describe("ServerBrowserHost with a real Chromium", () => {
     expect(tab.consoleSince(251).map((entry) => entry.message)).toEqual(["line 249"]);
   });
 
+  it("adopts the pages a tab opens as tabs of its workspace, and drops them when they close", async () => {
+    const host = createHost();
+    const opener = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    await opener.setViewport({ width: 900, height: 700, mobile: false });
+
+    await evaluate(host, opener.browserId, `window.open(${JSON.stringify(otherUrl)}); 1`);
+    await evaluate(
+      host,
+      opener.browserId,
+      `Object.assign(document.createElement("a"), { href: ${JSON.stringify(`${otherUrl}?noopener`)}, target: "_blank", rel: "noopener" }).click(); 1`,
+    );
+    const loadedPopups = () => host.listTabs().filter(isOtherPage).length === 2;
+    await waitFor(loadedPopups);
+    const popups = host.listTabs().filter((tab) => tab.browserId !== opener.browserId);
+    for (const popup of popups) {
+      expect(popup).toMatchObject({
+        workspaceId: "ws",
+        openerBrowserId: opener.browserId,
+        openedBy: "user",
+        viewport: { width: 900, height: 700 },
+      });
+    }
+    expect(popups.map((popup) => popup.url).sort()).toEqual([otherUrl, `${otherUrl}?noopener`]);
+
+    await evaluate(host, popups[0]!.browserId, "window.close()").catch(() => undefined);
+    await waitFor(() => host.listTabs().length === 2);
+  });
+
+  it("closes a popup past the tab limit and says so in the opener's console", async () => {
+    const host = createHost({ maxTabs: 1 });
+    const opener = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    await evaluate(host, opener.browserId, `window.open(${JSON.stringify(otherUrl)}); 1`);
+    const saidClosed = () => opener.consoleSince().some(isPopupClosedNote);
+    await waitFor(saidClosed);
+    expect(host.listTabs()).toHaveLength(1);
+  });
+
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
@@ -350,4 +387,12 @@ async function closedPortUrl(): Promise<string> {
   const port = typeof address === "object" && address ? address.port : 0;
   await new Promise<void>((resolve) => probe.close(() => resolve()));
   return `http://127.0.0.1:${port}/`;
+}
+
+function isOtherPage(tab: { title: string }): boolean {
+  return tab.title === "Other";
+}
+
+function isPopupClosedNote(entry: { message: string }): boolean {
+  return /popup was closed/.test(entry.message);
 }

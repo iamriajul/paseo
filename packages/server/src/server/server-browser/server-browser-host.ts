@@ -15,7 +15,7 @@ import {
   type TabContents,
 } from "./engine/service.js";
 import { BrowserSnapshotEngine } from "./engine/snapshot-engine.js";
-import { stripSnapshotTitle, windowTitleMark } from "./window-title.js";
+import { stripSnapshotTitle, windowTitleMark, type WindowTitleMark } from "./window-title.js";
 import { ServerBrowserTab, type ServerBrowserViewport } from "./server-browser-tab.js";
 import {
   SERVER_BROWSER_ENGINE_TRAITS,
@@ -24,7 +24,12 @@ import {
   type ServerBrowserEngineConfig,
   type ServerBrowserEngineKind,
 } from "./engines.js";
-import type { ChromiumCookie, LaunchFn, SharedChromium } from "./shared-chromium.js";
+import type {
+  ChromiumCookie,
+  ChromiumTarget,
+  LaunchFn,
+  SharedChromium,
+} from "./shared-chromium.js";
 import {
   originOf,
   withOriginPages,
@@ -319,23 +324,14 @@ export class ServerBrowserHost {
         ? windowTitleMark(await this.workspaceName(params.workspaceId))
         : null;
     const target = await context.chromium.createTarget(context.browserContextId ?? undefined);
-    const tab = new ServerBrowserTab({
+    const tab = this.addTab({
       browserId: params.browserId ?? randomUUID(),
       workspaceId: params.workspaceId,
-      contentsId: this.nextContentsId++,
-      targetId: target.targetId,
-      sessionId: target.sessionId,
-      connection: target.connection,
+      target,
       openedBy: params.openedBy,
       ...(params.viewport ? { viewport: params.viewport } : {}),
       ...(titleMark ? { titleMark } : {}),
-      onChange: () => this.scheduleNotify(),
-      onNavigated: (url) => void this.onTabNavigated(params.workspaceId, url),
-      now: this.now,
     });
-    this.tabs.set(tab.browserId, tab);
-    this.cancelContextIdle(params.workspaceId);
-    this.ensureSweeps();
     try {
       await tab.initialize();
       if (params.url !== "about:blank") await tab.loadFirstPage(params.url);
@@ -344,6 +340,74 @@ export class ServerBrowserHost {
     }
     this.scheduleNotify();
     return tab;
+  }
+
+  private addTab(params: {
+    browserId: string;
+    workspaceId: string;
+    target: ChromiumTarget;
+    openedBy: "agent" | "user";
+    viewport?: ServerBrowserViewport;
+    titleMark?: WindowTitleMark;
+    openerBrowserId?: string;
+  }): ServerBrowserTab {
+    const { target, workspaceId } = params;
+    const tab = new ServerBrowserTab({
+      browserId: params.browserId,
+      workspaceId,
+      contentsId: this.nextContentsId++,
+      targetId: target.targetId,
+      sessionId: target.sessionId,
+      connection: target.connection,
+      openedBy: params.openedBy,
+      ...(params.viewport ? { viewport: params.viewport } : {}),
+      ...(params.titleMark ? { titleMark: params.titleMark } : {}),
+      ...(params.openerBrowserId ? { openerBrowserId: params.openerBrowserId } : {}),
+      onChange: () => this.scheduleNotify(),
+      onNavigated: (url) => void this.onTabNavigated(workspaceId, url),
+      now: this.now,
+    });
+    this.tabs.set(tab.browserId, tab);
+    this.cancelContextIdle(workspaceId);
+    this.ensureSweeps();
+    return tab;
+  }
+
+  /**
+   * A page one of our tabs opened (window.open, a target=_blank link) becomes a tab of the same
+   * workspace, at its opener's size, so clients can show it. Past the tab limit it is closed.
+   */
+  private async adoptPopup(popup: { targetId: string; openerId: string }): Promise<void> {
+    const opener = this.findTabByTarget(popup.openerId);
+    const chromium = this.launchedChromium;
+    if (!opener || !chromium?.isAlive) return;
+    if (this.listTabs().length >= this.limits.maxTabs) {
+      await chromium.closeTarget(popup.targetId);
+      opener.warn(
+        `A popup was closed: the server browser already has ${this.limits.maxTabs} open tabs.`,
+      );
+      return;
+    }
+    try {
+      const target = await chromium.attachTarget(popup.targetId);
+      const tab = this.addTab({
+        browserId: randomUUID(),
+        workspaceId: opener.workspaceId,
+        target,
+        openedBy: opener.openedBy,
+        viewport: opener.currentViewport,
+        ...(opener.titleMark ? { titleMark: opener.titleMark } : {}),
+        openerBrowserId: opener.browserId,
+      });
+      await tab.initialize();
+      const { targetInfo } = (await target.connection.send("Target.getTargetInfo", {
+        targetId: popup.targetId,
+      })) as { targetInfo: { url: string; title: string } };
+      tab.updateTargetInfo(targetInfo);
+    } catch (error) {
+      this.options.logger.warn({ err: error }, "Server browser: popup not adopted");
+    }
+    this.scheduleNotify();
   }
 
   public async closeTab(browserId: string): Promise<void> {
@@ -630,6 +694,7 @@ export class ServerBrowserHost {
           onEvent: (event) => this.routeEvent(event),
           onTargetInfo: (info) => this.findTabByTarget(info.targetId)?.updateTargetInfo(info),
           onTargetDestroyed: (targetId) => this.onTargetDestroyed(targetId),
+          onPopup: (popup) => void this.adoptPopup(popup),
           onExit: () => this.onChromiumExit(started),
         },
       });

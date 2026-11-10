@@ -4486,6 +4486,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(serverBrowserTabTarget): added in v0.15.x (fork), drop the gate after 2027-05-01.
         // True when browser_new_tab takes `target` and serverBrowser.newTabTarget is honoured.
         serverBrowserTabTarget: z.boolean().optional(),
+        // COMPAT(serverBrowserViewerControls): added in v0.15.x (fork), drop the gate after 2027-05-01.
+        // True when the viewer can stop a load (navigate action "stop").
+        serverBrowserViewerControls: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

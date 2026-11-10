@@ -284,6 +284,12 @@ export class ServerBrowserTab {
     await this.send("Page.reload");
   }
 
+  /** The toolbar's Stop: ends the load, keeping what the page has shown so far. */
+  public async stopLoading(): Promise<void> {
+    this.touch();
+    await this.send("Page.stopLoading");
+  }
+
   public async setViewport(viewport: ServerBrowserViewport): Promise<void> {
     this.viewport = { ...viewport };
     await this.applyViewport();

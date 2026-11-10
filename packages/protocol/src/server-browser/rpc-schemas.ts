@@ -88,7 +88,14 @@ export const ServerBrowserTabCloseResponseSchema = z.object({
   payload: z.object({ requestId: z.string(), error: ErrorField }),
 });
 
-export const ServerBrowserNavigateActionSchema = z.enum(["url", "back", "forward", "reload"]);
+// "stop" needs features.serverBrowserViewerControls.
+export const ServerBrowserNavigateActionSchema = z.enum([
+  "url",
+  "back",
+  "forward",
+  "reload",
+  "stop",
+]);
 export const ServerBrowserTabNavigateRequestSchema = z.object({
   type: z.literal("browser.server.tab.navigate.request"),
   requestId: z.string(),

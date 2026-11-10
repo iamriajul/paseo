@@ -271,6 +271,7 @@ export class ServerBrowserSessionHandlers {
         if (msg.action === "back") await tab.goHistory(-1);
         else if (msg.action === "forward") await tab.goHistory(1);
         else if (msg.action === "reload") await tab.reload();
+        else if (msg.action === "stop") await tab.stopLoading();
         else await navigateTo(tab, msg.url);
         return undefined;
       case "browser.server.tab.set_viewport.request":

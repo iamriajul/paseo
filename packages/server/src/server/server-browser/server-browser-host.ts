@@ -8,7 +8,7 @@ import type {
 } from "@getpaseo/protocol/server-browser/rpc-schemas";
 import { browserToolsFailure, type BrowserToolsResponsePayload } from "../browser-tools/errors.js";
 import type { ChromiumExecutableResolution } from "./chromium-executable.js";
-import type { CdpEvent } from "./cdp-connection.js";
+import { ServerBrowserUnavailableError, type CdpEvent } from "./cdp-connection.js";
 import {
   executeAutomationCommand,
   type BrowserRegistry,
@@ -205,6 +205,16 @@ export class ServerBrowserHost {
   public async execute(
     request: BrowserAutomationExecuteRequest,
   ): Promise<BrowserToolsResponsePayload> {
+    try {
+      return await this.executeCommand(request);
+    } catch (error) {
+      return commandFailure(request.requestId, error);
+    }
+  }
+
+  private async executeCommand(
+    request: BrowserAutomationExecuteRequest,
+  ): Promise<BrowserToolsResponsePayload> {
     if (request.command.command === "new_tab") {
       const workspaceId = request.workspaceId;
       if (!workspaceId) {
@@ -228,12 +238,7 @@ export class ServerBrowserHost {
           },
         };
       } catch (error) {
-        return browserToolsFailure({
-          requestId: request.requestId,
-          code:
-            error instanceof ServerBrowserLimitError ? "browser_denied" : "browser_unknown_error",
-          message: error instanceof Error ? error.message : String(error),
-        });
+        return commandFailure(request.requestId, error);
       }
     }
     const browserId = "browserId" in request.command.args ? request.command.args.browserId : null;
@@ -895,4 +900,20 @@ export function assertNavigableUrl(url: string): void {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("The server browser only opens http and https URLs.");
   }
+}
+
+/**
+ * A command's error as the agent sees it. A browser that is not there (closed, not running,
+ * nothing at the Existing browser's address) is retryable under the code the broker uses for an
+ * unreachable browser host: the next tab starts or reattaches it.
+ */
+function commandFailure(requestId: string, error: unknown): BrowserToolsResponsePayload {
+  const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof ServerBrowserLimitError) {
+    return browserToolsFailure({ requestId, code: "browser_denied", message });
+  }
+  if (error instanceof ServerBrowserUnavailableError) {
+    return browserToolsFailure({ requestId, code: "browser_no_host", message, retryable: true });
+  }
+  return browserToolsFailure({ requestId, code: "browser_unknown_error", message });
 }

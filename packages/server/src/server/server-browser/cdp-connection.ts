@@ -21,7 +21,18 @@ export class CdpError extends Error {
   }
 }
 
-export class CdpConnectionClosedError extends Error {
+/**
+ * The browser is not there to answer: it closed, is not running, or nothing listens at the
+ * Existing browser's address. Agents get it as retryable; the next tab starts or reattaches it.
+ */
+export class ServerBrowserUnavailableError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "ServerBrowserUnavailableError";
+  }
+}
+
+export class CdpConnectionClosedError extends ServerBrowserUnavailableError {
   public constructor() {
     super("The server browser closed");
     this.name = "CdpConnectionClosedError";
@@ -84,9 +95,13 @@ export async function webSocketTransport(url: string): Promise<CdpTransport> {
   const socket = new WebSocket(url);
   await new Promise<void>((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
-    socket.addEventListener("error", () => reject(new Error(`Could not connect to ${url}`)), {
-      once: true,
-    });
+    socket.addEventListener(
+      "error",
+      () => reject(new ServerBrowserUnavailableError(`Could not connect to ${url}`)),
+      {
+        once: true,
+      },
+    );
   });
   return {
     send: (message) => socket.send(message),

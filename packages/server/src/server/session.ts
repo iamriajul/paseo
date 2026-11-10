@@ -2864,6 +2864,8 @@ export class Session {
     try {
       unregister = this.browserToolsBroker.registerClient({
         id: owner.id,
+        // Fork: a reconnected app's connections answer a tab list as one (docs/server-browser.md).
+        appId: this.clientId,
         hostKind: request.hostKind,
         supportedCommands: request.supportedCommands,
         sendBrowserAutomationRequest: (message) => owner.emit(message),

@@ -278,6 +278,8 @@ export const BrowserAutomationTabInfoSchema = z.object({
 export const BrowserAutomationListTabsResultSchema = z.object({
   command: z.literal("list_tabs"),
   tabs: z.array(BrowserAutomationTabInfoSchema),
+  // Fork: why some tabs may be missing, when one browser could not list its tabs.
+  incomplete: z.string().optional(),
 });
 
 export const BrowserAutomationNewTabResultSchema = z.object({

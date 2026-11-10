@@ -12,6 +12,12 @@ import { browserToolsFailure, type BrowserToolsResponsePayload } from "./errors.
 
 export interface BrowserHostClient {
   id: string;
+  /**
+   * Fork: the app this connection belongs to (its client id). An app that reconnected registers
+   * again while its old connection lingers unanswered through the reconnect grace; a tab list
+   * takes the first of its connections that answers. See docs/server-browser.md.
+   */
+  appId?: string;
   hostKind: string;
   supportedCommands: readonly BrowserAutomationCommandName[];
   sendBrowserAutomationRequest(request: BrowserAutomationExecuteRequest): void | Promise<void>;
@@ -231,19 +237,13 @@ export class BrowserToolsBroker {
       });
     }
 
+    const apps = new Map<string, RegisteredBrowserHost[]>();
+    for (const host of hosts) {
+      const app = host.client.appId ?? host.client.id;
+      apps.set(app, [...(apps.get(app) ?? []), host]);
+    }
     const hostResponses = await Promise.all(
-      hosts.map(async (host) => ({
-        host,
-        payload: await this.sendRequest({
-          host,
-          request: {
-            ...params.request,
-            requestId: `${params.request.requestId}:${host.client.id}`,
-          },
-          rememberAffinity: false,
-          timeoutMs: params.timeoutMs,
-        }),
-      })),
+      [...apps.values()].map((appHosts) => this.listAppTabs(appHosts, params)),
     );
 
     const failed = hostResponses.find(({ payload }) => !payload.ok);
@@ -265,6 +265,42 @@ export class BrowserToolsBroker {
         ),
       },
     };
+  }
+
+  /**
+   * One app's tabs: the first of its connections to answer, so a connection it replaced does not
+   * fail or hold up the list. Fails only when every connection of the app fails.
+   */
+  private listAppTabs(
+    appHosts: RegisteredBrowserHost[],
+    params: { request: BrowserAutomationExecuteRequest; timeoutMs: number },
+  ): Promise<{ host: RegisteredBrowserHost; payload: BrowserToolsResponsePayload }> {
+    return new Promise((resolve) => {
+      let unanswered = appHosts.length;
+      let firstFailure: {
+        host: RegisteredBrowserHost;
+        payload: BrowserToolsResponsePayload;
+      } | null = null;
+      const answer = async (host: RegisteredBrowserHost) => {
+        const payload = await this.sendRequest({
+          host,
+          request: {
+            ...params.request,
+            requestId: `${params.request.requestId}:${host.client.id}`,
+          },
+          rememberAffinity: false,
+          timeoutMs: params.timeoutMs,
+        });
+        if (payload.ok) {
+          resolve({ host, payload });
+          return;
+        }
+        firstFailure ??= { host, payload };
+        unanswered -= 1;
+        if (unanswered === 0) resolve(firstFailure);
+      };
+      for (const host of appHosts) void answer(host);
+    });
   }
 
   private selectHostForCommand(

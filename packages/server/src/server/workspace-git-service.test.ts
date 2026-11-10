@@ -16,6 +16,7 @@ import {
   WorkspaceGitServiceImpl,
   type WorkspaceGitRuntimeSnapshot,
 } from "./workspace-git-service.js";
+import { createFileObserver, FileObserverStartTimeoutError } from "./file-observer/index.js";
 
 const REPO_CWD = path.resolve("/tmp/repo");
 
@@ -23,6 +24,7 @@ function createLogger() {
   const logger = {
     child: () => logger,
     debug: vi.fn(),
+    info: vi.fn(),
     warn: vi.fn(),
   };
   return logger;
@@ -732,49 +734,6 @@ describe("WorkspaceGitServiceImpl", () => {
     service.dispose();
   });
 
-  test("watcher subscription deadlines release observation admission slots", async () => {
-    const cwds = Array.from(
-      { length: WORKSPACE_GIT_OBSERVATION_SETUP_CONCURRENCY + 2 },
-      (_, index) => path.resolve(`/tmp/deadline-repo-${index}`),
-    );
-    const stalledSubscriptions = Array.from(
-      { length: WORKSPACE_GIT_OBSERVATION_SETUP_CONCURRENCY },
-      () => createDeferred<ReturnType<typeof createAsyncSubscription>>(),
-    );
-    const subscribedPaths: string[] = [];
-    const subscribe = vi.fn((watchPath: string) => {
-      subscribedPaths.push(watchPath);
-      const stalled = stalledSubscriptions.shift();
-      return stalled?.promise ?? Promise.resolve(createAsyncSubscription());
-    });
-    const runGitCommand = vi.fn(async (_args: string[], options: { cwd: string }) => ({
-      stdout: `${options.cwd}\n`,
-      stderr: "",
-      truncated: false,
-      exitCode: 0,
-      signal: null,
-    }));
-    const service = createService({ subscribe, runGitCommand });
-
-    await Promise.all(cwds.map((cwd) => service.getSnapshot(cwd, { includeForge: false })));
-    const subscriptions = cwds.map((cwd) => service.registerWorkspace({ cwd }, vi.fn()));
-
-    await vi.waitFor(() => {
-      expect(subscribe).toHaveBeenCalledTimes(WORKSPACE_GIT_OBSERVATION_SETUP_CONCURRENCY);
-    });
-
-    await vi.advanceTimersByTimeAsync(WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS);
-    await vi.waitFor(() => {
-      expect(subscribedPaths).toEqual(expect.arrayContaining(cwds));
-      expect(service.getMetrics().workspaceObservationSetupInFlightCount).toBe(0);
-    });
-
-    for (const subscription of subscriptions) {
-      subscription.unsubscribe();
-    }
-    service.dispose();
-  });
-
   test("dispose settles queued refresh and observation work and cleans late watchers", async () => {
     const cwds = Array.from({ length: WORKSPACE_GIT_REFRESH_CONCURRENCY + 1 }, (_, index) =>
       path.resolve(`/tmp/dispose-repo-${index}`),
@@ -848,35 +807,6 @@ describe("WorkspaceGitServiceImpl", () => {
       }
       expect(service.getMetrics().workspaceRefreshAdmissionActiveCount).toBe(0);
     });
-  });
-
-  test("cleans a watcher subscription that resolves after its deadline", async () => {
-    const lateWatcher = createDeferred<ReturnType<typeof createAsyncSubscription>>();
-    const lateSubscription = createAsyncSubscription();
-    const subscribe = vi
-      .fn()
-      .mockImplementationOnce(() => lateWatcher.promise)
-      .mockResolvedValue(createAsyncSubscription());
-    const service = createService({ subscribe });
-
-    await service.getSnapshot(REPO_CWD, { includeForge: false });
-    const workspaceSubscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
-    await vi.waitFor(() => {
-      expect(subscribe).toHaveBeenCalledTimes(1);
-    });
-
-    await vi.advanceTimersByTimeAsync(WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS);
-    await vi.waitFor(() => {
-      expect(service.getMetrics().workspaceObservationSetupInFlightCount).toBe(0);
-    });
-    lateWatcher.resolve(lateSubscription);
-
-    await vi.waitFor(() => {
-      expect(lateSubscription.unsubscribe).toHaveBeenCalledTimes(1);
-    });
-    workspaceSubscription.unsubscribe();
-    service.dispose();
-    expect(lateSubscription.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   test("rejects new work after disposal", async () => {
@@ -1395,6 +1325,8 @@ describe("WorkspaceGitServiceImpl", () => {
     expect(subscribe).toHaveBeenCalledTimes(1);
     expect(subscribe).toHaveBeenCalledWith(REPO_CWD, expect.any(Function), {
       ignore: [join(REPO_CWD, ".git")],
+      signal: expect.any(AbortSignal),
+      startTimeoutMs: WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS,
     });
 
     subscription.unsubscribe();
@@ -1436,7 +1368,84 @@ describe("WorkspaceGitServiceImpl", () => {
     const service = createService({ subscribe });
     const subscription = await service.requestWorkingTreeWatch(REPO_CWD, vi.fn());
 
-    expect(vi.getTimerCount()).toBe(1);
+    // The bounded poll and the setup retry.
+    expect(vi.getTimerCount()).toBe(2);
+
+    subscription.unsubscribe();
+    service.dispose();
+  });
+
+  test("a working tree watcher whose initial scan timed out retries and leaves polling", async () => {
+    const subscribe = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new FileObserverStartTimeoutError(REPO_CWD, WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS),
+      )
+      .mockResolvedValue(createAsyncSubscription());
+    const service = createService({ subscribe });
+    const subscription = await service.requestWorkingTreeWatch(REPO_CWD, vi.fn());
+    expect(service.getMetrics().degradedPollTargetCount).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(service.getMetrics().degradedPollTargetCount).toBe(0);
+    subscription.unsubscribe();
+    service.dispose();
+  });
+
+  test("a repository metadata watcher that failed setup retries", async () => {
+    let metadataFailures = 1;
+    const subscribe = vi.fn(async (watchPath: string) => {
+      if (watchPath !== REPO_CWD && metadataFailures > 0) {
+        metadataFailures -= 1;
+        throw new FileObserverStartTimeoutError(
+          watchPath,
+          WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS,
+        );
+      }
+      return createAsyncSubscription();
+    });
+    const service = createService({ subscribe });
+    const metadataSubscribes = () =>
+      subscribe.mock.calls.filter(([watchPath]) => watchPath !== REPO_CWD).length;
+    const subscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+    await vi.waitFor(() => {
+      expect(metadataSubscribes()).toBe(1);
+    });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(metadataSubscribes()).toBe(2);
+    subscription.unsubscribe();
+    service.dispose();
+  });
+
+  test("a checkout with more tracked directories than the observer allows polls without scanning", async () => {
+    const directoryLimit = createFileObserver().directoryLimit;
+    const runGitCommand = vi.fn(async (args: string[]) => ({
+      stdout: args[0] === "ls-tree" ? "dir\0".repeat(directoryLimit) : `${REPO_CWD}\n`,
+      stderr: "",
+      truncated: false,
+      exitCode: 0,
+      signal: null,
+    }));
+    const subscribe = vi.fn(async () => createAsyncSubscription());
+    const service = createService({ subscribe, runGitCommand });
+    const countRuns = () =>
+      runGitCommand.mock.calls.filter(([args]) => args[0] === "ls-tree").length;
+
+    const subscription = await service.requestWorkingTreeWatch(REPO_CWD, vi.fn());
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(service.getMetrics().degradedPollTargetCount).toBe(1);
+    expect(countRuns()).toBe(1);
+
+    // Over the limit stays over it until the tree shrinks: no quick retries.
+    await vi.advanceTimersByTimeAsync(299_000);
+    expect(countRuns()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(countRuns()).toBe(2);
+    expect(subscribe).not.toHaveBeenCalled();
 
     subscription.unsubscribe();
     service.dispose();
@@ -1460,6 +1469,8 @@ describe("WorkspaceGitServiceImpl", () => {
     expect(subscription.repoRoot).toBeNull();
     expect(subscribe).toHaveBeenCalledWith(plainCwd, expect.any(Function), {
       ignore: [join(plainCwd, ".git")],
+      signal: expect.any(AbortSignal),
+      startTimeoutMs: WORKSPACE_GIT_WATCHER_SUBSCRIBE_TIMEOUT_MS,
     });
     expect(vi.getTimerCount()).toBe(1);
 

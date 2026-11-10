@@ -300,6 +300,7 @@ describe("WorkspaceGitService checkout observation", () => {
     const closeFinished = createDeferred<void>();
     let closeCalls = 0;
     const fileObserver: FileObserver = {
+      directoryLimit: 5_000,
       subscribe: watcher.subscribe as FileObserver["subscribe"],
       getDiagnostics: () => {
         throw new Error("Diagnostics are not used by this lifecycle test");
@@ -346,7 +347,8 @@ describe("WorkspaceGitService checkout observation", () => {
     expect(first.repoRoot).toBe(REPO_CWD);
     expect(second.repoRoot).toBe(REPO_CWD);
     expect(watcher.subscribe).toHaveBeenCalledTimes(1);
-    expect(runGitCommand).toHaveBeenCalledTimes(2);
+    // The watch root, the ignored-directory scan, and the tracked-directory count.
+    expect(runGitCommand).toHaveBeenCalledTimes(3);
     expect(watcher.records[0]).toMatchObject({ directory: REPO_CWD });
     expect(watcher.records[0]?.ignore).toContain(GIT_DIR);
 
@@ -395,7 +397,8 @@ describe("WorkspaceGitService checkout observation", () => {
 
     expect(getCheckoutSnapshotFacts).toHaveBeenCalledTimes(1);
     expect(getCheckoutStatus).toHaveBeenCalledTimes(1);
-    expect(runGitCommand).toHaveBeenCalledTimes(2);
+    // The watch root, the ignored-directory scan, and the tracked-directory count.
+    expect(runGitCommand).toHaveBeenCalledTimes(3);
     expect(watcher.records.filter((record) => record.directory === REPO_CWD)).toHaveLength(1);
     expect(watcher.records.filter((record) => record.directory === GIT_DIR)).toHaveLength(1);
 
@@ -1721,7 +1724,7 @@ describe("WorkspaceGitService checkout observation", () => {
       isGit ? createCheckoutStatus(cwd) : ({ isGit: false } as const),
     );
     const runGitCommand = vi.fn(async (args: string[]) => {
-      if (args[0] === "rev-parse") {
+      if (args[0] === "rev-parse" || args[0] === "ls-tree") {
         if (!isGit) {
           throw new Error("not a git repository");
         }
@@ -1914,11 +1917,8 @@ describe("WorkspaceGitService checkout observation", () => {
     await vi.waitFor(() => {
       expect(watcher.subscribe).toHaveBeenCalledTimes(1);
     });
+    // No recovery while the errored subscribe is still pending.
     await vi.advanceTimersByTimeAsync(35_000);
-    await vi.waitFor(() => {
-      expect(service.getMetrics().workingTreeWatchSetupInFlightCount).toBe(0);
-      expect(service.getMetrics().workspaceObservationSetupAdmissionActiveCount).toBe(0);
-    });
     expect(getWatcherSubscribeCallCount(watcher, REPO_CWD)).toBe(1);
 
     openedSubscription.resolve({
@@ -2153,7 +2153,7 @@ describe("WorkspaceGitService checkout observation", () => {
     ignoredDirectories = "node_modules/\nbuild/\n";
     checkoutWatcher?.callback(null, [{ path: path.join(REPO_CWD, ".gitignore"), type: "update" }]);
     await vi.waitFor(() => {
-      expect(runGitCommand).toHaveBeenCalledTimes(3);
+      expect(runGitCommand).toHaveBeenCalledTimes(4);
       expect(checkoutWatcher?.updateIgnore).toHaveBeenCalledTimes(1);
     });
     await vi.advanceTimersByTimeAsync(1_000);
@@ -2289,7 +2289,7 @@ describe("WorkspaceGitService checkout observation", () => {
     let ignoredDirectories = "";
     let lsFilesCallCount = 0;
     const runGitCommand = vi.fn(async (args: string[]) => {
-      if (args[0] === "rev-parse") {
+      if (args[0] === "rev-parse" || args[0] === "ls-tree") {
         return { stdout: `${REPO_CWD}\n`, stderr: "", truncated: false, exitCode: 0, signal: null };
       }
       lsFilesCallCount += 1;
@@ -2707,7 +2707,7 @@ describe("WorkspaceGitService checkout observation", () => {
     }>();
     let lsFilesCallCount = 0;
     const runGitCommand = vi.fn(async (args: string[]) => {
-      if (args[0] === "rev-parse") {
+      if (args[0] === "rev-parse" || args[0] === "ls-tree") {
         return {
           stdout: `${REPO_CWD}\n`,
           stderr: "",

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Logger } from "pino";
 import type { BrowserAutomationExecuteRequest } from "@getpaseo/protocol/browser-automation/rpc-schemas";
@@ -15,6 +16,7 @@ import {
   type TabContents,
 } from "./engine/service.js";
 import { BrowserSnapshotEngine } from "./engine/snapshot-engine.js";
+import { removeUploads, writeUploads, type UploadedFile } from "./file-uploads.js";
 import { stripSnapshotTitle, windowTitleMark, type WindowTitleMark } from "./window-title.js";
 import { ServerBrowserTab, type ServerBrowserViewport } from "./server-browser-tab.js";
 import {
@@ -410,6 +412,22 @@ export class ServerBrowserHost {
     this.scheduleNotify();
   }
 
+  /** A viewer's files for a tab's file chooser: written on this host, then set on the input. */
+  public async answerFileChooser(
+    browserId: string,
+    chooserId: string,
+    files: readonly UploadedFile[],
+  ): Promise<void> {
+    const tab = this.getTab(browserId);
+    if (!tab) throw new Error(`No server browser tab ${browserId}`);
+    const paths = files.length > 0 ? await writeUploads(this.uploadsDir(), browserId, files) : [];
+    await tab.answerFileChooser(chooserId, paths);
+  }
+
+  private uploadsDir(): string {
+    return join(this.rootDir(), "uploads");
+  }
+
   public async closeTab(browserId: string): Promise<void> {
     const tab = this.tabs.get(browserId);
     if (!tab) return;
@@ -421,6 +439,7 @@ export class ServerBrowserHost {
       await this.saveSessionCookies(chromium);
     }
     if (chromium?.isAlive) await chromium.closeTarget(tab.cdpTargetId);
+    void removeUploads(this.uploadsDir(), browserId).catch(() => {});
     this.afterTabRemoved(tab.workspaceId);
   }
 
@@ -457,6 +476,7 @@ export class ServerBrowserHost {
     this.shuttingDown = true;
     this.stopSweeps();
     await this.closeEverything();
+    await rm(this.uploadsDir(), { recursive: true, force: true }).catch(() => {});
     this.listeners.clear();
   }
 
@@ -797,6 +817,7 @@ export class ServerBrowserHost {
     if (!tab || this.clearing.has(tab.workspaceId)) return;
     this.tabs.delete(tab.browserId);
     tab.dispose();
+    void removeUploads(this.uploadsDir(), tab.browserId).catch(() => {});
     this.afterTabRemoved(tab.workspaceId);
   }
 

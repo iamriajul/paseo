@@ -725,6 +725,15 @@ export const ar: TranslationResources = {
         leaveTitle: "هل تريد مغادرة هذه الصفحة؟",
         leaveMessage: "قد لا يتم حفظ التغييرات التي أجريتها.",
       },
+      fileChooser: {
+        titleOne: "تطلب الصفحة ملفًا",
+        titleMany: "تطلب الصفحة ملفات",
+        detail: "اختر ملفًا على هذا الجهاز لرفعه إلى الصفحة.",
+        chooseOne: "اختيار ملف…",
+        chooseMany: "اختيار ملفات…",
+        cancel: "إلغاء",
+        uploading: "جارٍ الرفع…",
+      },
       services: {
         label: "خدمات مساحة العمل",
         starting: "جارٍ البدء…",

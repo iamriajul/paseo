@@ -411,6 +411,55 @@ describe("ServerBrowserHost with a real Chromium", () => {
     expect(tab.consoleSince().map((entry) => entry.message)).toContain("Dialog auto-accepted: hi");
   });
 
+  it("asks a watching viewer for the files a page's file input wants, and sets them", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    const info = () => host.listTabs().find((entry) => entry.browserId === tab.browserId)!;
+    tab.screencast.addViewer(
+      "viewer",
+      { send: () => {}, isCongested: () => false },
+      {
+        maxWidth: 1280,
+        maxHeight: 800,
+      },
+    );
+    await evaluate(
+      host,
+      tab.browserId,
+      `document.body.innerHTML = "<input id=f type=file multiple style='position:fixed;inset:0;width:100vw;height:100vh'>"; 1`,
+    );
+    const click = async () => {
+      await tab.dispatchInput([
+        { kind: "mouse", action: "down", x: 0.5, y: 0.5, button: "left", clickCount: 1 },
+        { kind: "mouse", action: "up", x: 0.5, y: 0.5, button: "left", clickCount: 1 },
+      ]);
+    };
+
+    await click();
+    await waitFor(() => info().fileChooser?.multiple === true);
+    const hello = Buffer.from("hello from the phone").toString("base64");
+    await host.answerFileChooser(tab.browserId, info().fileChooser!.id, [
+      { name: "notes.txt", dataBase64: hello },
+      { name: "photo.png", dataBase64: hello },
+    ]);
+    expect(info().fileChooser).toBeUndefined();
+    expect(
+      await evaluate(
+        host,
+        tab.browserId,
+        "(async () => { const f = document.getElementById('f').files; return [f.length, f[0].name, await f[0].text()].join('|'); })()",
+      ),
+    ).toBe("2|notes.txt|hello from the phone");
+
+    // Cancelling leaves the input as it was.
+    await click();
+    await waitFor(() => info().fileChooser !== undefined);
+    await host.answerFileChooser(tab.browserId, info().fileChooser!.id, []);
+    expect(await evaluate(host, tab.browserId, "document.getElementById('f').files.length")).toBe(
+      2,
+    );
+  });
+
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });

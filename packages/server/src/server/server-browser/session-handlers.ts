@@ -23,6 +23,7 @@ export const SERVER_BROWSER_REQUEST_TYPES = [
   "browser.server.tab.annotate.cancel.request",
   "browser.server.tab.logs.request",
   "browser.server.tab.dialog.answer.request",
+  "browser.server.tab.file_chooser.answer.request",
 ] as const;
 
 type ServerBrowserRequest = Extract<
@@ -253,6 +254,9 @@ export class ServerBrowserSessionHandlers {
       case "browser.server.tab.dialog.answer.request":
         this.params.emit({ type: "browser.server.tab.dialog.answer.response", payload });
         return;
+      case "browser.server.tab.file_chooser.answer.request":
+        this.params.emit({ type: "browser.server.tab.file_chooser.answer.response", payload });
+        return;
     }
   }
 
@@ -283,6 +287,10 @@ export class ServerBrowserSessionHandlers {
     }
     if (msg.type === "browser.server.tab.close.request") {
       await host.closeTab(msg.browserId);
+      return undefined;
+    }
+    if (msg.type === "browser.server.tab.file_chooser.answer.request") {
+      await host.answerFileChooser(msg.browserId, msg.chooserId, msg.files ?? []);
       return undefined;
     }
     const tab = host.getTab(msg.browserId);

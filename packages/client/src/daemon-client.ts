@@ -3009,7 +3009,8 @@ export class DaemonClient {
 
   async serverBrowserNavigate(
     browserId: string,
-    action: "url" | "back" | "forward" | "reload",
+    /** "stop" needs features.serverBrowserViewerControls. */
+    action: "url" | "back" | "forward" | "reload" | "stop",
     url?: string,
   ): Promise<void> {
     await this.serverBrowserCommand(

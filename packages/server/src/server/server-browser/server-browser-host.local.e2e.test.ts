@@ -27,6 +27,11 @@ beforeEach(async () => {
       );
       return;
     }
+    if (req.url === "/slow") {
+      // A page that starts and never finishes loading.
+      res.write("<title>Slow</title><p>slow page</p>");
+      return;
+    }
     res.end(
       "<title>Fixture</title><p>fixture page</p>" +
         "<button id=add style='position:fixed;left:0;top:0;width:400px;height:400px' " +
@@ -276,6 +281,18 @@ describe("ServerBrowserHost with a real Chromium", () => {
     tab.contents.goBack();
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(info()).toMatchObject({ url: siteUrl, canGoBack: false });
+  });
+
+  it("stops a page that is still loading", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    const info = () => host.listTabs().find((entry) => entry.browserId === tab.browserId)!;
+    await tab.navigate(`${siteUrl}slow`);
+    await waitFor(() => info().isLoading && info().url === `${siteUrl}slow`);
+
+    await tab.stopLoading();
+    await waitFor(() => !info().isLoading);
+    expect(await evaluate(host, tab.browserId, "document.body.innerText")).toBe("slow page");
   });
 
   it("closes Chromium on shutdown", async () => {

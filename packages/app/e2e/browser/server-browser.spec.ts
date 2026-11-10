@@ -17,8 +17,13 @@ const KEY_LOG_PAGE =
   "addEventListener('keydown', (e) => { document.title += e.key + ','; });" +
   "</script>";
 
+// A page whose top-left quarter is one box to pick.
+const TARGET_PAGE =
+  "<title>target</title><style>body{margin:0}</style>" +
+  "<div id=target style='width:50vw;height:50vh;background:#3b82f6'>target</div>";
+
 test.beforeEach(async () => {
-  scenario = await startServerBrowserScenario({ "/keys": KEY_LOG_PAGE });
+  scenario = await startServerBrowserScenario({ "/keys": KEY_LOG_PAGE, "/target": TARGET_PAGE });
 });
 
 test.afterEach(async () => {
@@ -120,3 +125,32 @@ for (const platform of ["Linux", "MacIntel"] as const) {
     await expect.poll(() => scenario.listTabIds()).not.toContain(browserId);
   });
 }
+
+test("Screenshot element copies the picked element's crop to the clipboard", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const browserId = await scenario.newTab("/target");
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openAgentRoute(page, {
+    workspaceId: scenario.workspace.workspaceId,
+    agentId: scenario.agentId,
+  });
+  await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
+  const surface = page.getByTestId("server-browser-surface");
+  await expect(surface.locator("img")).toBeVisible();
+
+  await page.getByTestId("server-browser-screenshot").click();
+  // The target box fills the page's top-left quarter; point at its middle and click.
+  const box = (await surface.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+  await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.25);
+  await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.25);
+
+  await expect(page.getByText("Copied screenshot to clipboard")).toBeVisible();
+  const types = await page.evaluate(async () =>
+    (await navigator.clipboard.read()).flatMap((item) => Array.from(item.types)),
+  );
+  expect(types).toContain("image/png");
+});

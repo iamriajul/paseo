@@ -5,6 +5,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   ArrowLeft,
   ArrowRight,
+  Camera,
   Keyboard,
   MoreHorizontal,
   MousePointer2,
@@ -34,9 +35,13 @@ import { BrowserLoadFailure } from "@/desktop/browser/pane/load-failure";
 import type { BrowserDeviceSizeId } from "@/desktop/browser/device-presets";
 import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser/device-size-menu";
 import { useHostFeature } from "@/runtime/host-features";
+import { useToast } from "@/contexts/toast-api-context";
 import { useServerBrowserStatus, useServerBrowserTab, type ServerBrowserTab } from "./store";
 import { ServerBrowserSurface, type ServerBrowserSurfaceHandle } from "./surface";
-import { useServerBrowserAnnotate } from "./use-server-browser-annotate";
+import {
+  useServerBrowserAnnotate,
+  type ServerBrowserPickMode,
+} from "./use-server-browser-annotate";
 import { deviceKindForViewport, SERVER_BROWSER_DEFAULT_VIEWPORT } from "./device-size";
 import { useServerBrowserDeviceSize } from "./use-server-browser-device-size";
 
@@ -47,6 +52,7 @@ const ThemedStop = withUnistyles(X);
 const ThemedMore = withUnistyles(MoreHorizontal);
 const ThemedKeyboard = withUnistyles(Keyboard);
 const ThemedMousePointer2 = withUnistyles(MousePointer2);
+const ThemedCamera = withUnistyles(Camera);
 const ThemedUrlInput = withUnistyles(EditingTextInput, (theme) => ({
   placeholderTextColor: theme.colors.foregroundMuted,
 }));
@@ -164,6 +170,47 @@ function LoadFailureOverlay(props: {
   );
 }
 
+/** Annotate element and Screenshot element, the other Browsers' two pickers. */
+function PickButtons(props: {
+  pickMode: ServerBrowserPickMode | null;
+  canScreenshot: boolean;
+  onAnnotate: () => void;
+  onScreenshot: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const { pickMode } = props;
+  return (
+    <>
+      <ToolbarButton
+        label={
+          pickMode === "annotate"
+            ? t("workspace.browser.controls.cancelSelector")
+            : t("workspace.browser.controls.annotateElement")
+        }
+        selected={pickMode === "annotate"}
+        onPress={props.onAnnotate}
+        testID="server-browser-annotate"
+      >
+        <ThemedMousePointer2 size={16} uniProps={pickMode === "annotate" ? accent : muted} />
+      </ToolbarButton>
+      {props.canScreenshot ? (
+        <ToolbarButton
+          label={
+            pickMode === "screenshot"
+              ? t("workspace.browser.controls.cancelSelector")
+              : t("workspace.browser.controls.screenshotElement")
+          }
+          selected={pickMode === "screenshot"}
+          onPress={props.onScreenshot}
+          testID="server-browser-screenshot"
+        >
+          <ThemedCamera size={16} uniProps={pickMode === "screenshot" ? accent : muted} />
+        </ToolbarButton>
+      ) : null}
+    </>
+  );
+}
+
 function ServerBrowserPanel(): ReactElement {
   const { serverId, workspaceId, target } = usePaneContext();
   invariant(
@@ -180,14 +227,27 @@ function ServerBrowserPanel(): ReactElement {
   const { t } = useTranslation();
   const supportsAnnotate = useHostFeature(serverId, "serverBrowserAnnotate");
   const supportsViewerControls = useHostFeature(serverId, "serverBrowserViewerControls");
+  const toast = useToast();
+  const handleCopied = useCallback(
+    (copied: "image" | "text") =>
+      toast.show(
+        copied === "image"
+          ? t("workspace.browser.controls.screenshotCopied")
+          : t("workspace.browser.controls.elementCopied"),
+        { variant: "success" },
+      ),
+    [t, toast],
+  );
   const annotate = useServerBrowserAnnotate({
     client,
     serverId,
     workspaceId,
     browserId,
     onError: setError,
+    onCopied: handleCopied,
   });
-  const isPicking = annotate.state.status === "picking";
+  const pickMode = annotate.state.status === "picking" ? annotate.state.mode : null;
+  const isPicking = pickMode !== null;
   const composing = annotate.state.status === "composing" ? annotate.state : null;
   // Which element was picked, the line the web pane shows above its composer.
   const selectionLabel = useMemo(() => {
@@ -251,6 +311,9 @@ function ServerBrowserPanel(): ReactElement {
     [browserId, client, run],
   );
   const handleKeyboard = useCallback(() => surfaceRef.current?.focusKeyboard(), []);
+  const toggleAnnotate = annotate.toggle;
+  const handleAnnotate = useCallback(() => toggleAnnotate("annotate"), [toggleAnnotate]);
+  const handleScreenshot = useCallback(() => toggleAnnotate("screenshot"), [toggleAnnotate]);
   const failedUrl = tab?.loadError?.url;
   const handleRetry = useCallback(() => {
     if (failedUrl) run(() => client?.serverBrowserNavigate(browserId, "url", failedUrl));
@@ -299,18 +362,12 @@ function ServerBrowserPanel(): ReactElement {
             </ToolbarButton>
           ) : null}
           {supportsAnnotate ? (
-            <ToolbarButton
-              label={
-                isPicking
-                  ? t("workspace.browser.controls.cancelSelector")
-                  : t("workspace.browser.controls.annotateElement")
-              }
-              selected={isPicking}
-              onPress={annotate.toggle}
-              testID="server-browser-annotate"
-            >
-              <ThemedMousePointer2 size={16} uniProps={isPicking ? accent : muted} />
-            </ToolbarButton>
+            <PickButtons
+              pickMode={pickMode}
+              canScreenshot={supportsViewerControls}
+              onAnnotate={handleAnnotate}
+              onScreenshot={handleScreenshot}
+            />
           ) : null}
           <DropdownMenu>
             <ToolbarButton

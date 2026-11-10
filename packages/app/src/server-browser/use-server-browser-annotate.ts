@@ -7,18 +7,23 @@ import { useWorkspaceAttachmentsStore } from "@/attachments/workspace-attachment
 import {
   buildBrowserAttachmentScopeKey,
   buildBrowserElementAttachment,
+  formatBrowserElementAttachment,
   type BrowserElementAnnotation,
   type BrowserElementSelection,
 } from "@/desktop/browser/browser-element-attachment";
 import { useWorkspaceDirectory } from "@/stores/session-store-hooks";
+import { copyElementScreenshot } from "./copy-element-screenshot";
 
 // The daemon returns the selector script's payload unchanged, so it is a BrowserElementSelection.
 const asSelection = (selection: ServerBrowserElementSelection): BrowserElementSelection =>
   selection;
 
+/** Annotate opens the note card; Screenshot copies the element's crop, as the other Browsers do. */
+export type ServerBrowserPickMode = "annotate" | "screenshot";
+
 export type ServerBrowserAnnotateState =
   | { status: "idle" }
-  | { status: "picking" }
+  | { status: "picking"; mode: ServerBrowserPickMode }
   | {
       status: "composing";
       selection: BrowserElementSelection;
@@ -27,7 +32,7 @@ export type ServerBrowserAnnotateState =
 
 export interface ServerBrowserAnnotate {
   state: ServerBrowserAnnotateState;
-  toggle(): void;
+  toggle(mode?: ServerBrowserPickMode): void;
   cancel(): void;
   submit(annotation: BrowserElementAnnotation): void;
   dismiss(): void;
@@ -43,6 +48,8 @@ export function useServerBrowserAnnotate(input: {
   workspaceId: string;
   browserId: string;
   onError: (message: string) => void;
+  /** A Screenshot pick reached the clipboard: the crop, or the element's text without one. */
+  onCopied: (copied: "image" | "text") => void;
 }): ServerBrowserAnnotate {
   const { client, serverId, workspaceId, browserId, onError } = input;
   const [state, setState] = useState<ServerBrowserAnnotateState>({ status: "idle" });
@@ -54,46 +61,65 @@ export function useServerBrowserAnnotate(input: {
   const runRef = useRef(0);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const onCopiedRef = useRef(input.onCopied);
+  onCopiedRef.current = input.onCopied;
 
   const cancel = useCallback(() => {
     if (!client) return;
     void client.serverBrowserCancelAnnotate(browserId).catch(() => {});
   }, [browserId, client]);
 
-  const start = useCallback(() => {
-    if (!client) return;
-    const run = ++runRef.current;
-    setState({ status: "picking" });
-    void (async () => {
-      try {
-        const result = await client.serverBrowserAnnotate(browserId);
-        if (run !== runRef.current) return;
-        if (result.outcome !== "selected" || !result.selection) {
+  const start = useCallback(
+    (mode: ServerBrowserPickMode) => {
+      if (!client) return;
+      const run = ++runRef.current;
+      setState({ status: "picking", mode });
+      void (async () => {
+        try {
+          const result = await client.serverBrowserAnnotate(browserId);
+          if (run !== runRef.current) return;
+          if (result.outcome !== "selected" || !result.selection) {
+            setState({ status: "idle" });
+            return;
+          }
+          const selection = asSelection(result.selection);
+          if (mode === "screenshot") {
+            setState({ status: "idle" });
+            const copied = await copyElementScreenshot({
+              pngBase64: result.screenshot?.data,
+              text: formatBrowserElementAttachment(selection),
+            });
+            if (run === runRef.current) onCopiedRef.current(copied);
+            return;
+          }
+          const screenshot = result.screenshot
+            ? await persistAttachmentFromDataUrl({
+                dataUrl: `data:${result.screenshot.mimeType};base64,${result.screenshot.data}`,
+                mimeType: result.screenshot.mimeType,
+                fileName: `element-${selection.tag}.png`,
+              }).catch(() => undefined)
+            : undefined;
+          if (run !== runRef.current) return;
+          setState({ status: "composing", selection, screenshot });
+        } catch (caught) {
+          if (run !== runRef.current) return;
           setState({ status: "idle" });
-          return;
+          onErrorRef.current(caught instanceof Error ? caught.message : String(caught));
         }
-        const selection = asSelection(result.selection);
-        const screenshot = result.screenshot
-          ? await persistAttachmentFromDataUrl({
-              dataUrl: `data:${result.screenshot.mimeType};base64,${result.screenshot.data}`,
-              mimeType: result.screenshot.mimeType,
-              fileName: `element-${selection.tag}.png`,
-            }).catch(() => undefined)
-          : undefined;
-        if (run !== runRef.current) return;
-        setState({ status: "composing", selection, screenshot });
-      } catch (caught) {
-        if (run !== runRef.current) return;
-        setState({ status: "idle" });
-        onErrorRef.current(caught instanceof Error ? caught.message : String(caught));
-      }
-    })();
-  }, [browserId, client]);
+      })();
+    },
+    [browserId, client],
+  );
 
-  const toggle = useCallback(() => {
-    if (state.status === "picking") cancel();
-    else start();
-  }, [cancel, start, state.status]);
+  const pickingMode = state.status === "picking" ? state.mode : null;
+  const toggle = useCallback(
+    (mode: ServerBrowserPickMode = "annotate") => {
+      // The other button switches modes: a second start cancels the first pick on the daemon.
+      if (pickingMode === mode) cancel();
+      else start(mode);
+    },
+    [cancel, pickingMode, start],
+  );
 
   const dismiss = useCallback(() => {
     runRef.current += 1;

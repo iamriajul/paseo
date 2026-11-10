@@ -708,6 +708,13 @@ export const zhCN: TranslationResources = {
         responsive: "自适应",
         agentDefault: "代理默认",
       },
+      console: {
+        title: "控制台",
+        show: "显示控制台",
+        hide: "隐藏控制台",
+        clear: "清除",
+        empty: "暂无控制台消息",
+      },
       services: {
         label: "工作区服务",
         starting: "正在启动…",

@@ -715,6 +715,13 @@ export const es: TranslationResources = {
         responsive: "Adaptable",
         agentDefault: "Predeterminado del agente",
       },
+      console: {
+        title: "Consola",
+        show: "Mostrar consola",
+        hide: "Ocultar consola",
+        clear: "Borrar",
+        empty: "Aún no hay mensajes en la consola",
+      },
       services: {
         label: "Servicios del espacio de trabajo",
         starting: "Iniciando…",

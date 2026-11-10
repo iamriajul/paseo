@@ -715,6 +715,13 @@ export const fr: TranslationResources = {
         responsive: "Adaptatif",
         agentDefault: "Par défaut de l’agent",
       },
+      console: {
+        title: "Console",
+        show: "Afficher la console",
+        hide: "Masquer la console",
+        clear: "Effacer",
+        empty: "Aucun message dans la console pour l’instant",
+      },
       services: {
         label: "Services de l’espace de travail",
         starting: "Démarrage…",

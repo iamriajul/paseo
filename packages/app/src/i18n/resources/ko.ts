@@ -709,6 +709,13 @@ export const ko: TranslationResources = {
         responsive: "반응형",
         agentDefault: "에이전트 기본값",
       },
+      console: {
+        title: "콘솔",
+        show: "콘솔 표시",
+        hide: "콘솔 숨기기",
+        clear: "지우기",
+        empty: "아직 콘솔 메시지가 없습니다",
+      },
       services: {
         label: "워크스페이스 서비스",
         starting: "시작하는 중…",

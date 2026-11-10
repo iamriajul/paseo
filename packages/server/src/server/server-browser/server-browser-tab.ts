@@ -1,5 +1,6 @@
 import type { BrowserAutomationConsoleLogEntry } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import type {
+  ServerBrowserConsoleEntry,
   ServerBrowserInputEvent,
   ServerBrowserTab as ServerBrowserTabInfo,
 } from "@getpaseo/protocol/server-browser/rpc-schemas";
@@ -77,6 +78,8 @@ export class ServerBrowserTab {
   private readonly now: () => number;
   private readonly queue = new CdpSessionQueue();
   private readonly console: BrowserAutomationConsoleLogEntry[] = [];
+  /** The seq of console[0]; the buffer drops its oldest line past MAX_CONSOLE_ENTRIES. */
+  private consoleFirstSeq = 1;
   private loadWaiters: Array<() => void> = [];
   private url = "about:blank";
   private title = "";
@@ -287,6 +290,16 @@ export class ServerBrowserTab {
   public async reload(): Promise<void> {
     this.touch();
     await this.send("Page.reload");
+  }
+
+  /** The viewer's logs panel: console lines after `after` (a seq), oldest first. */
+  public consoleSince(after = 0): ServerBrowserConsoleEntry[] {
+    const start = Math.max(0, after + 1 - this.consoleFirstSeq);
+    const entries: ServerBrowserConsoleEntry[] = [];
+    for (let index = start; index < this.console.length; index++) {
+      entries.push(Object.assign({ seq: this.consoleFirstSeq + index }, this.console[index]));
+    }
+    return entries;
   }
 
   /** The toolbar's Stop: ends the load, keeping what the page has shown so far. */
@@ -737,7 +750,10 @@ export class ServerBrowserTab {
     extra: { source?: string; line?: number } = {},
   ): void {
     this.console.push({ level, message, timestamp: this.now(), ...extra });
-    if (this.console.length > MAX_CONSOLE_ENTRIES) this.console.shift();
+    if (this.console.length > MAX_CONSOLE_ENTRIES) {
+      this.console.shift();
+      this.consoleFirstSeq += 1;
+    }
   }
 }
 

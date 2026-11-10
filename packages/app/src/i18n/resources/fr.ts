@@ -722,6 +722,16 @@ export const fr: TranslationResources = {
         clear: "Effacer",
         empty: "Aucun message dans la console pour l’instant",
       },
+      dialog: {
+        says: "{{host}} indique",
+        ok: "OK",
+        cancel: "Annuler",
+        leave: "Quitter",
+        stay: "Rester",
+        leaveTitle: "Quitter cette page ?",
+        leaveMessage:
+          "Les modifications que vous avez apportées ne seront peut-être pas enregistrées.",
+      },
       services: {
         label: "Services de l’espace de travail",
         starting: "Démarrage…",

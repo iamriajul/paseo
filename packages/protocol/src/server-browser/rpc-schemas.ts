@@ -21,6 +21,16 @@ export const ServerBrowserTabSchema = z.object({
   createdAt: z.number(),
   /** The tab whose page opened this one (window.open, a target=_blank link). */
   openerBrowserId: z.string().optional(),
+  /** A dialog the page opened (alert, confirm, prompt, beforeunload) waiting for a viewer's answer. */
+  dialog: z
+    .object({
+      id: z.string(),
+      type: z.string(),
+      message: z.string(),
+      defaultPrompt: z.string().optional(),
+      url: z.string(),
+    })
+    .optional(),
   /** The main frame's last load failed: the URL it tried and Chromium's error (net::ERR_…). */
   loadError: z.object({ url: z.string(), errorText: z.string().optional() }).optional(),
 });
@@ -269,6 +279,20 @@ export const ServerBrowserTabAnnotateCancelResponseSchema = z.object({
   payload: z.object({ requestId: z.string(), error: ErrorField }),
 });
 
+/** Answers the tab's open dialog. Needs features.serverBrowserViewerControls. */
+export const ServerBrowserTabDialogAnswerRequestSchema = z.object({
+  type: z.literal("browser.server.tab.dialog.answer.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+  dialogId: z.string(),
+  accept: z.boolean(),
+  promptText: z.string().optional(),
+});
+export const ServerBrowserTabDialogAnswerResponseSchema = z.object({
+  type: z.literal("browser.server.tab.dialog.answer.response"),
+  payload: z.object({ requestId: z.string(), error: ErrorField }),
+});
+
 /** One console line of a tab; `seq` orders them across reads. Needs features.serverBrowserViewerControls. */
 export const ServerBrowserConsoleEntrySchema = z.object({
   seq: z.number(),
@@ -308,6 +332,7 @@ export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabAnnotateStartRequestSchema,
   ServerBrowserTabAnnotateCancelRequestSchema,
   ServerBrowserTabLogsRequestSchema,
+  ServerBrowserTabDialogAnswerRequestSchema,
 ] as const;
 
 export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
@@ -323,4 +348,5 @@ export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
   ServerBrowserTabAnnotateStartResponseSchema,
   ServerBrowserTabAnnotateCancelResponseSchema,
   ServerBrowserTabLogsResponseSchema,
+  ServerBrowserTabDialogAnswerResponseSchema,
 ] as const;

@@ -370,6 +370,47 @@ describe("ServerBrowserHost with a real Chromium", () => {
     expect(host.listTabs()).toHaveLength(1);
   });
 
+  it("holds a dialog for a watching viewer to answer, and accepts it when nobody watches", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    const info = () => host.listTabs().find((entry) => entry.browserId === tab.browserId)!;
+    tab.screencast.addViewer(
+      "viewer",
+      { send: () => {}, isCongested: () => false },
+      {
+        maxWidth: 1280,
+        maxHeight: 800,
+      },
+    );
+
+    // A prompt from a click: the click itself gets no answer until the dialog closes.
+    const answered = evaluate(host, tab.browserId, 'window.__answer = prompt("Name?", "Ada"); 1');
+    await waitFor(() => info().dialog?.type === "prompt");
+    expect(info().dialog).toMatchObject({ message: "Name?", defaultPrompt: "Ada" });
+    await expect(tab.dispatchInput([{ kind: "text", text: "x" }])).rejects.toThrow(
+      /prompt dialog is open on this page/,
+    );
+    await tab.answerDialog({ dialogId: info().dialog!.id, accept: true, promptText: "Grace" });
+    await answered;
+    expect(info().dialog).toBeUndefined();
+    expect(await evaluate(host, tab.browserId, "window.__answer")).toBe("Grace");
+    await expect(tab.answerDialog({ dialogId: "1", accept: true })).rejects.toThrow(
+      /already answered/,
+    );
+
+    // The last viewer leaving accepts what is still open.
+    const confirmed = evaluate(host, tab.browserId, 'window.__ok = confirm("Sure?"); 1');
+    await waitFor(() => info().dialog?.type === "confirm");
+    tab.screencast.removeViewer("viewer");
+    await confirmed;
+    expect(await evaluate(host, tab.browserId, "window.__ok")).toBe(true);
+
+    // With nobody watching, a dialog never waits.
+    await evaluate(host, tab.browserId, 'alert("hi"); 1');
+    expect(info().dialog).toBeUndefined();
+    expect(tab.consoleSince().map((entry) => entry.message)).toContain("Dialog auto-accepted: hi");
+  });
+
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });

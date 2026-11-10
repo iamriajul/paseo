@@ -716,6 +716,15 @@ export const ar: TranslationResources = {
         clear: "مسح",
         empty: "لا توجد رسائل في وحدة التحكم بعد",
       },
+      dialog: {
+        says: "رسالة من {{host}}",
+        ok: "حسنًا",
+        cancel: "إلغاء",
+        leave: "مغادرة",
+        stay: "البقاء",
+        leaveTitle: "هل تريد مغادرة هذه الصفحة؟",
+        leaveMessage: "قد لا يتم حفظ التغييرات التي أجريتها.",
+      },
       services: {
         label: "خدمات مساحة العمل",
         starting: "جارٍ البدء…",

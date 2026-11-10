@@ -721,6 +721,15 @@ export const ja: TranslationResources = {
         clear: "クリア",
         empty: "コンソールメッセージはまだありません",
       },
+      dialog: {
+        says: "{{host}} のメッセージ",
+        ok: "OK",
+        cancel: "キャンセル",
+        leave: "移動する",
+        stay: "留まる",
+        leaveTitle: "このページから移動しますか？",
+        leaveMessage: "行った変更は保存されない可能性があります。",
+      },
       services: {
         label: "ワークスペースのサービス",
         starting: "起動中…",

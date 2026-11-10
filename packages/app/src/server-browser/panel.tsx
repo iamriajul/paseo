@@ -45,6 +45,7 @@ import {
 import { deviceKindForViewport, SERVER_BROWSER_DEFAULT_VIEWPORT } from "./device-size";
 import { useServerBrowserDeviceSize } from "./use-server-browser-device-size";
 import { ServerBrowserLogsPanel, useServerBrowserLogs } from "./logs-panel";
+import { ServerBrowserDialogCard } from "./dialog-card";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
@@ -459,6 +460,15 @@ function ServerBrowserPanel(): ReactElement {
           onSize={deviceSize.onSurfaceSize}
         />
         <LoadFailureOverlay tab={tab} onRetry={handleRetry} />
+        {tab.dialog ? (
+          <ServerBrowserDialogCard
+            key={tab.dialog.id}
+            client={client}
+            browserId={browserId}
+            dialog={tab.dialog}
+            run={run}
+          />
+        ) : null}
       </View>
       {showConsole ? <ServerBrowserLogsPanel entries={logs.entries} onClear={logs.clear} /> : null}
       {composing ? (

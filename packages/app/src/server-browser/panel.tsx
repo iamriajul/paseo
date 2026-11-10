@@ -10,6 +10,7 @@ import {
   MousePointer2,
   RotateCw,
   Server,
+  X,
 } from "lucide-react-native";
 import invariant from "tiny-invariant";
 import {
@@ -41,6 +42,7 @@ import { useServerBrowserDeviceSize } from "./use-server-browser-device-size";
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
 const ThemedRotateCw = withUnistyles(RotateCw);
+const ThemedStop = withUnistyles(X);
 const ThemedMore = withUnistyles(MoreHorizontal);
 const ThemedKeyboard = withUnistyles(Keyboard);
 const ThemedMousePointer2 = withUnistyles(MousePointer2);
@@ -118,6 +120,7 @@ function ServerBrowserPanel(): ReactElement {
   const browserId = target.browserId;
   const { t } = useTranslation();
   const supportsAnnotate = useHostFeature(serverId, "serverBrowserAnnotate");
+  const supportsViewerControls = useHostFeature(serverId, "serverBrowserViewerControls");
   const annotate = useServerBrowserAnnotate({
     client,
     serverId,
@@ -164,6 +167,10 @@ function ServerBrowserPanel(): ReactElement {
     () => run(() => client?.serverBrowserNavigate(browserId, "reload")),
     [browserId, client, run],
   );
+  const handleStop = useCallback(
+    () => run(() => client?.serverBrowserNavigate(browserId, "stop")),
+    [browserId, client, run],
+  );
   const deviceSize = useServerBrowserDeviceSize({
     client,
     browserId,
@@ -200,9 +207,24 @@ function ServerBrowserPanel(): ReactElement {
           <ToolbarButton label="Forward" disabled={!tab.canGoForward} onPress={handleForward}>
             <ThemedArrowRight size={16} uniProps={muted} />
           </ToolbarButton>
-          <ToolbarButton label="Reload" onPress={handleReload}>
-            <ThemedRotateCw size={16} uniProps={muted} />
-          </ToolbarButton>
+          {/* While a page loads, Reload stops it, as in the other Browsers. */}
+          {tab.isLoading && supportsViewerControls ? (
+            <ToolbarButton
+              label={t("workspace.browser.controls.stopLoading")}
+              onPress={handleStop}
+              testID="server-browser-stop"
+            >
+              <ThemedStop size={16} uniProps={muted} />
+            </ToolbarButton>
+          ) : (
+            <ToolbarButton
+              label={t("workspace.browser.controls.refresh")}
+              onPress={handleReload}
+              testID="server-browser-reload"
+            >
+              <ThemedRotateCw size={16} uniProps={muted} />
+            </ToolbarButton>
+          )}
         </View>
         <View style={styles.urlBarWrap}>
           <BrowserServiceChip serverId={serverId} workspaceId={workspaceId} url={tab.url} />

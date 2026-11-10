@@ -2,10 +2,11 @@ import { type Dirent, watch } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { BackendDiagnostics, ObservationBackend, ObservationHost } from "./contracts.js";
+import { FileObserverLimitError } from "./errors.js";
 import type { ObserverPaths } from "./paths.js";
 import { isMissingPathError, toError } from "./paths.js";
 
-const MAX_TRACKED_ENTRIES = 250_000;
+export const MAX_TRACKED_ENTRIES = 250_000;
 // fs.stat runs on the libuv threadpool, which is four threads and shared by the
 // whole daemon. One stat per native event pins it and unrelated filesystem work
 // stalls. Beyond the queue bound, fall back to a directory scan, which finds the
@@ -730,9 +731,7 @@ class NativeRecursiveBackend implements ObservationBackend {
 
   private assertWithinLimit(entryCount: number): void {
     if (entryCount <= MAX_TRACKED_ENTRIES) return;
-    throw new Error(
-      `Recursive file observation exceeded ${MAX_TRACKED_ENTRIES} entries under ${this.host.root}`,
-    );
+    throw new FileObserverLimitError(this.host.root, MAX_TRACKED_ENTRIES, "entries");
   }
 
   private canCommit(generation: number): boolean {

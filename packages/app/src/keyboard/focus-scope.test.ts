@@ -68,6 +68,15 @@ describe("resolveKeyboardFocusScope", () => {
     expect(scope).toBe("terminal");
   });
 
+  it("treats the server browser's page as editable, so its typing stays with the page", () => {
+    const surface = new FakeElement({ selectors: ["[data-testid='server-browser-surface']"] });
+    const scope = resolveKeyboardFocusScope({
+      target: surface as unknown as EventTarget,
+      commandCenterOpen: false,
+    });
+    expect(scope).toBe("editable");
+  });
+
   it("detects editable scope from activeElement fallback", () => {
     const activeElement = new FakeElement({ tagName: "input" });
     globalRef.document = { activeElement };

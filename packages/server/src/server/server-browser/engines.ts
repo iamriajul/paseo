@@ -4,7 +4,12 @@ import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
-import { CdpConnection, HEADLESS_SHELL_ARGS, webSocketTransport } from "./cdp-connection.js";
+import {
+  CdpConnection,
+  HEADLESS_SHELL_ARGS,
+  ServerBrowserUnavailableError,
+  webSocketTransport,
+} from "./cdp-connection.js";
 import {
   resolveChromeExecutable,
   resolveChromiumExecutable,
@@ -246,7 +251,7 @@ async function resolveWebSocketUrl(url: string): Promise<string> {
     });
     version = (await response.json()) as { webSocketDebuggerUrl?: string };
   } catch {
-    throw new Error(
+    throw new ServerBrowserUnavailableError(
       `No browser answers at ${url}. Start Chrome with --remote-debugging-port, or pick another engine.`,
     );
   }

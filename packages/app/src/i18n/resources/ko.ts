@@ -725,6 +725,15 @@ export const ko: TranslationResources = {
         leaveTitle: "이 페이지에서 나가시겠습니까?",
         leaveMessage: "변경사항이 저장되지 않을 수 있습니다.",
       },
+      fileChooser: {
+        titleOne: "페이지에서 파일을 요청합니다",
+        titleMany: "페이지에서 파일들을 요청합니다",
+        detail: "이 기기의 파일을 선택해 페이지에 업로드하세요.",
+        chooseOne: "파일 선택…",
+        chooseMany: "파일 선택…",
+        cancel: "취소",
+        uploading: "업로드 중…",
+      },
       services: {
         label: "워크스페이스 서비스",
         starting: "시작하는 중…",

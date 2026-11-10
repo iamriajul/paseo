@@ -730,6 +730,15 @@ export const ptBR: TranslationResources = {
         leaveTitle: "Sair desta página?",
         leaveMessage: "As alterações que você fez talvez não sejam salvas.",
       },
+      fileChooser: {
+        titleOne: "A página pede um arquivo",
+        titleMany: "A página pede arquivos",
+        detail: "Escolha um arquivo deste dispositivo para enviar à página.",
+        chooseOne: "Escolher arquivo…",
+        chooseMany: "Escolher arquivos…",
+        cancel: "Cancelar",
+        uploading: "Enviando…",
+      },
       services: {
         label: "Serviços do workspace",
         starting: "Iniciando…",

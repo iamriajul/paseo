@@ -261,6 +261,23 @@ describe("ServerBrowserHost with a real Chromium", () => {
     expect(await evaluate(host, tab.browserId, "document.title")).toBe("Inbox");
   });
 
+  it("opens a tab with no blank page behind it, and keeps Back in step with the history", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    const info = () => host.listTabs().find((entry) => entry.browserId === tab.browserId)!;
+    expect(info()).toMatchObject({ url: siteUrl, canGoBack: false, canGoForward: false });
+    expect(await evaluate(host, tab.browserId, "history.length")).toBe(1);
+
+    await tab.contents.loadURL(otherUrl);
+    await waitFor(() => info().canGoBack && info().url === otherUrl);
+    tab.contents.goBack();
+    await waitFor(() => info().url === siteUrl);
+    await waitFor(() => !info().canGoBack && info().canGoForward);
+    tab.contents.goBack();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(info()).toMatchObject({ url: siteUrl, canGoBack: false });
+  });
+
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });

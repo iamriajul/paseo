@@ -709,6 +709,13 @@ export const ar: TranslationResources = {
         responsive: "متجاوب",
         agentDefault: "افتراضي الوكيل",
       },
+      console: {
+        title: "وحدة التحكم",
+        show: "إظهار وحدة التحكم",
+        hide: "إخفاء وحدة التحكم",
+        clear: "مسح",
+        empty: "لا توجد رسائل في وحدة التحكم بعد",
+      },
       services: {
         label: "خدمات مساحة العمل",
         starting: "جارٍ البدء…",

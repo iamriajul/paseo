@@ -706,6 +706,13 @@ export const en = {
         responsive: "Responsive",
         agentDefault: "Agent default",
       },
+      console: {
+        title: "Console",
+        show: "Show console",
+        hide: "Hide console",
+        clear: "Clear",
+        empty: "No console messages yet",
+      },
       services: {
         label: "Workspace services",
         starting: "Starting…",

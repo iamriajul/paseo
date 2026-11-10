@@ -267,6 +267,33 @@ export const ServerBrowserTabAnnotateCancelResponseSchema = z.object({
   payload: z.object({ requestId: z.string(), error: ErrorField }),
 });
 
+/** One console line of a tab; `seq` orders them across reads. Needs features.serverBrowserViewerControls. */
+export const ServerBrowserConsoleEntrySchema = z.object({
+  seq: z.number(),
+  level: z.string(),
+  message: z.string(),
+  source: z.string().optional(),
+  line: z.number().optional(),
+  timestamp: z.number(),
+});
+export type ServerBrowserConsoleEntry = z.infer<typeof ServerBrowserConsoleEntrySchema>;
+
+/** The tab's console since `after` (a seq), oldest first; the tab keeps its last 200 lines. */
+export const ServerBrowserTabLogsRequestSchema = z.object({
+  type: z.literal("browser.server.tab.logs.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+  after: z.number().optional(),
+});
+export const ServerBrowserTabLogsResponseSchema = z.object({
+  type: z.literal("browser.server.tab.logs.response"),
+  payload: z.object({
+    requestId: z.string(),
+    entries: z.array(ServerBrowserConsoleEntrySchema).optional(),
+    error: ErrorField,
+  }),
+});
+
 export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabsSubscribeRequestSchema,
   ServerBrowserTabOpenRequestSchema,
@@ -278,6 +305,7 @@ export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserInputRequestSchema,
   ServerBrowserTabAnnotateStartRequestSchema,
   ServerBrowserTabAnnotateCancelRequestSchema,
+  ServerBrowserTabLogsRequestSchema,
 ] as const;
 
 export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
@@ -292,4 +320,5 @@ export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
   ServerBrowserInputResponseSchema,
   ServerBrowserTabAnnotateStartResponseSchema,
   ServerBrowserTabAnnotateCancelResponseSchema,
+  ServerBrowserTabLogsResponseSchema,
 ] as const;

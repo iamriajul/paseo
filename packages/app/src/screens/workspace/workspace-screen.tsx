@@ -1,5 +1,6 @@
 import { planTimelineTailFetch } from "@/timeline/timeline-sync-plan";
 import { useWorkspaceLoopbackOpener } from "@/hooks/use-workspace-loopback-opener";
+import { closeServerBrowserTab } from "@/server-browser/close-tab";
 import { useServerBrowserUrlOpener } from "@/server-browser/use-server-browser-opener";
 import { useServerBrowserSync } from "@/server-browser/use-server-browser-sync";
 import { useHostFeature } from "@/runtime/host-features";
@@ -1400,9 +1401,19 @@ function WorkspaceScreenContent({
         removeResidentBrowserWebview(browserId);
         void getDesktopHost()?.browser?.unregisterWorkspaceBrowser?.(browserId);
       }
+      // Fork: a server tab closes on the host too (docs/server-browser.md).
+      if (input.target?.kind === "server_browser") {
+        closeServerBrowserTab(normalizedServerId, input.target.browserId);
+      }
       closeWorkspaceTab(persistenceKey, normalizedTabId);
     },
-    [closeWorkspaceTab, hideWorkspaceAgent, persistenceKey, unpinWorkspaceAgent],
+    [
+      closeWorkspaceTab,
+      hideWorkspaceAgent,
+      normalizedServerId,
+      persistenceKey,
+      unpinWorkspaceAgent,
+    ],
   );
 
   const focusedPaneTabState = useMemo(

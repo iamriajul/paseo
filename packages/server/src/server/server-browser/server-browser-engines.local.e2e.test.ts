@@ -471,6 +471,12 @@ describe("Existing browser", { timeout: 120_000 }, () => {
     await host.shutdown();
 
     expect(isRunning(users.pid)).toBe(true);
+    // Target.closeTarget answers before Chrome destroys the target; a loaded machine lists a
+    // closing tab for a moment.
+    const onlyOwnTab = async () =>
+      JSON.stringify((await pageTargets(users.cdp)).map((info) => info.targetId)) ===
+      JSON.stringify([users.ownTabId]);
+    await waitForAsync(onlyOwnTab).catch(() => undefined);
     const remaining = await pageTargets(users.cdp);
     expect(remaining.map((info) => info.targetId)).toEqual([users.ownTabId]);
     expect(remaining[0]!.url).toContain("users-own-tab");

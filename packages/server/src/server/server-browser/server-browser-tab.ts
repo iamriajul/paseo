@@ -194,6 +194,8 @@ export class ServerBrowserTab {
       case "Page.loadEventFired":
         this.setLoading(false);
         void this.refreshTitle();
+        // A history traversal can report its entry before the commit lands; read it again.
+        void this.refreshHistory();
         return;
       case "Page.screencastFrame":
         this.onScreencastFrame(event.params);
@@ -433,6 +435,17 @@ export class ServerBrowserTab {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Opens the tab's first page. The target starts at about:blank so the viewport and scripts are
+   * in place before any page runs; that blank entry then leaves the history, so Back never leads
+   * to an empty page.
+   */
+  public async loadFirstPage(url: string): Promise<void> {
+    await this.loadUrl(url);
+    await this.send("Page.resetNavigationHistory");
+    await this.refreshHistory();
   }
 
   private async loadUrl(url: string): Promise<void> {

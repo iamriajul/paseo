@@ -241,6 +241,26 @@ describe("ServerBrowserHost with a real Chromium", () => {
     );
   });
 
+  it("reports a title the page sets after it loads, unmarked, to tab lists and viewers", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    await waitFor(() => host.listTabs()[0]?.title === "Fixture");
+    const seen: string[] = [];
+    host.subscribe((tabs) => seen.push(tabs[0]?.title ?? ""));
+
+    await evaluate(host, tab.browserId, 'document.title = "3 unread"');
+    await waitFor(() => host.listTabs()[0]?.title === "3 unread");
+    await waitFor(() => seen.includes("3 unread"));
+    // A single-page app that replaces its <title> element.
+    await evaluate(
+      host,
+      tab.browserId,
+      'document.querySelector("title").remove(); document.head.append(Object.assign(document.createElement("title"), { textContent: "Inbox" }))',
+    );
+    await waitFor(() => host.listTabs()[0]?.title === "Inbox");
+    expect(await evaluate(host, tab.browserId, "document.title")).toBe("Inbox");
+  });
+
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });

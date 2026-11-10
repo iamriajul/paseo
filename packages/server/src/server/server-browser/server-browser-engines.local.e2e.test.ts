@@ -585,6 +585,7 @@ describe("Existing browser", { timeout: 120_000 }, () => {
     // A page that builds on its own title gets one mark, not two.
     await evaluate(host, tab.browserId, 'document.title = "(1) " + document.title');
     await titleIs(["Fixture - Google Chrome", "Paseo · Fork work · (1) Fixture - Google Chrome"]);
+    await waitFor(() => host.listTabs()[0]?.title === "(1) Fixture");
     const snapshot = await host.execute({
       type: "browser.automation.execute.request",
       requestId: "r",
@@ -592,6 +593,7 @@ describe("Existing browser", { timeout: 120_000 }, () => {
       command: { command: "snapshot", args: { browserId: tab.browserId } },
     });
     expect(snapshot.ok && snapshot.result.command === "snapshot" && snapshot.result).toMatchObject({
+      title: "(1) Fixture",
       snapshot: expect.stringMatching(/^- document "\(1\) Fixture"/),
     });
 

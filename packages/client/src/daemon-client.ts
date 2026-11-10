@@ -3080,6 +3080,17 @@ export class DaemonClient {
     return payload.entries ?? [];
   }
 
+  /** Answers the tab's open dialog. Gate on features.serverBrowserViewerControls. */
+  async serverBrowserAnswerDialog(
+    browserId: string,
+    answer: { dialogId: string; accept: boolean; promptText?: string },
+  ): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.tab.dialog.answer.request", browserId, ...answer },
+      "browser.server.tab.dialog.answer.response",
+    );
+  }
+
   async serverBrowserCancelAnnotate(browserId: string): Promise<void> {
     await this.serverBrowserCommand(
       { type: "browser.server.tab.annotate.cancel.request", browserId },
@@ -3095,7 +3106,8 @@ export class DaemonClient {
       | "browser.server.tab.set_viewport.response"
       | "browser.server.workspace.clear_data.response"
       | "browser.server.input.response"
-      | "browser.server.tab.annotate.cancel.response",
+      | "browser.server.tab.annotate.cancel.response"
+      | "browser.server.tab.dialog.answer.response",
     timeout = 20_000,
   ): Promise<void> {
     const payload = await this.sendCorrelatedSessionRequest({ message, responseType, timeout });

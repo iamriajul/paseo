@@ -715,6 +715,15 @@ export const zhCN: TranslationResources = {
         clear: "清除",
         empty: "暂无控制台消息",
       },
+      dialog: {
+        says: "{{host}} 显示",
+        ok: "确定",
+        cancel: "取消",
+        leave: "离开",
+        stay: "留下",
+        leaveTitle: "要离开此页面吗？",
+        leaveMessage: "你所做的更改可能不会保存。",
+      },
       services: {
         label: "工作区服务",
         starting: "正在启动…",

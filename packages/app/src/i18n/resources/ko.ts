@@ -716,6 +716,15 @@ export const ko: TranslationResources = {
         clear: "지우기",
         empty: "아직 콘솔 메시지가 없습니다",
       },
+      dialog: {
+        says: "{{host}} 메시지",
+        ok: "확인",
+        cancel: "취소",
+        leave: "나가기",
+        stay: "머무르기",
+        leaveTitle: "이 페이지에서 나가시겠습니까?",
+        leaveMessage: "변경사항이 저장되지 않을 수 있습니다.",
+      },
       services: {
         label: "워크스페이스 서비스",
         starting: "시작하는 중…",

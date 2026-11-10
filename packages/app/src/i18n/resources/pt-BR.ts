@@ -721,6 +721,15 @@ export const ptBR: TranslationResources = {
         clear: "Limpar",
         empty: "Ainda não há mensagens no console",
       },
+      dialog: {
+        says: "{{host}} diz",
+        ok: "OK",
+        cancel: "Cancelar",
+        leave: "Sair",
+        stay: "Ficar",
+        leaveTitle: "Sair desta página?",
+        leaveMessage: "As alterações que você fez talvez não sejam salvas.",
+      },
       services: {
         label: "Serviços do workspace",
         starting: "Iniciando…",

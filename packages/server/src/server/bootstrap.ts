@@ -767,6 +767,10 @@ export async function createPaseoDaemon(
     paseoHome: config.paseoHome,
     logger,
     daemonConfigStore,
+    resolveWorkspaceName: async (workspaceId) => {
+      const workspace = await workspaceRegistry?.get(workspaceId);
+      return workspace ? (workspace.title ?? workspace.displayName) : null;
+    },
   });
   const pluginRuntime: PluginService = new PluginService(logger, daemonConfigStore, daemonVersion, {
     usageAgents: {

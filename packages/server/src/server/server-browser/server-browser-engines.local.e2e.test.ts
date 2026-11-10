@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import http from "node:http";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +30,10 @@ beforeEach(async () => {
       res.end(`<title>${signedIn ? "signed in" : "anonymous"}</title>`);
       return;
     }
+    if (req.url === "/untitled") {
+      res.end("<p>untitled</p>");
+      return;
+    }
     res.end("<title>Fixture</title><p>fixture</p>");
   });
   await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
@@ -47,6 +51,7 @@ afterEach(async () => {
 function createHost(
   engine: ServerBrowserEngineConfig,
   display: DisplayPreference = "xvfb",
+  workspaceName?: string,
 ): ServerBrowserHost {
   const host = new ServerBrowserHost({
     paseoHome,
@@ -54,6 +59,7 @@ function createHost(
     isEnabled: () => true,
     getEngine: () => engine,
     display,
+    ...(workspaceName ? { resolveWorkspaceName: async () => workspaceName } : {}),
   });
   hosts.push(host);
   return host;
@@ -536,6 +542,63 @@ describe("Existing browser", { timeout: 120_000 }, () => {
 
     expect(await pickParagraph(host, tab.browserId)).toBe("p");
     expect(await evaluate(host, tab.browserId, "document.visibilityState")).toBe("visible");
+    users.cdp.disconnect();
+  });
+
+  it("marks its windows' titles with Paseo and the workspace, and reports the page's own", async () => {
+    const display = await startDesktop();
+    const users = await startUsersChrome({ display });
+    const host = createHost({ kind: "existing", cdpUrl: users.url }, "xvfb", "Fork  work");
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    const windowNames = () =>
+      execFileSync("xdotool", ["search", "--onlyvisible", "--name", "Google Chrome"], {
+        env: { ...process.env, DISPLAY: display },
+        encoding: "utf8",
+      })
+        .trim()
+        .split("\n")
+        .map((id) =>
+          execFileSync("xdotool", ["getwindowname", id], {
+            env: { ...process.env, DISPLAY: display },
+            encoding: "utf8",
+          }).trim(),
+        )
+        .sort();
+    const titleIs = async (expected: string[]) => {
+      let names: string[] = [];
+      await waitFor(() => {
+        try {
+          names = windowNames();
+        } catch {
+          names = [];
+        }
+        return JSON.stringify(names) === JSON.stringify([...expected].sort());
+      }).catch(() => expect(names).toEqual([...expected].sort()));
+      return names;
+    };
+
+    expect(
+      await titleIs(["Fixture - Google Chrome", "Paseo · Fork work · Fixture - Google Chrome"]),
+    ).toHaveLength(2);
+    await waitFor(() => host.listTabs()[0]?.title === "Fixture");
+
+    // A page that builds on its own title gets one mark, not two.
+    await evaluate(host, tab.browserId, 'document.title = "(1) " + document.title');
+    await titleIs(["Fixture - Google Chrome", "Paseo · Fork work · (1) Fixture - Google Chrome"]);
+    const snapshot = await host.execute({
+      type: "browser.automation.execute.request",
+      requestId: "r",
+      workspaceId: "ws",
+      command: { command: "snapshot", args: { browserId: tab.browserId } },
+    });
+    expect(snapshot.ok && snapshot.result.command === "snapshot" && snapshot.result).toMatchObject({
+      snapshot: expect.stringMatching(/^- document "\(1\) Fixture"/),
+    });
+
+    await tab.navigate(`${siteUrl}untitled`);
+    await titleIs(["Fixture - Google Chrome", "Paseo · Fork work - Google Chrome"]);
+    await waitFor(() => host.listTabs()[0]?.url === `${siteUrl}untitled`);
+    await waitFor(() => host.listTabs()[0]?.title === "");
     users.cdp.disconnect();
   });
 

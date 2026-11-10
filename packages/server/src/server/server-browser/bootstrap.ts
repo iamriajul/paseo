@@ -10,6 +10,7 @@ export function createServerBrowser(params: {
   paseoHome: string;
   logger: Logger;
   daemonConfigStore: Pick<DaemonConfigStore, "get" | "onChange">;
+  resolveWorkspaceName?: (workspaceId: string) => Promise<string | null>;
 }): { browserToolsBroker: ServerBrowserRoutingBroker; stopServerBrowser: () => Promise<void> } {
   const logger = params.logger.child({ module: "server-browser" });
   const read = () => params.daemonConfigStore.get().serverBrowser;
@@ -18,6 +19,7 @@ export function createServerBrowser(params: {
     logger,
     isEnabled: () => read()?.enabled === true,
     getEngine: () => resolveServerBrowserEngine(read()),
+    ...(params.resolveWorkspaceName ? { resolveWorkspaceName: params.resolveWorkspaceName } : {}),
   });
   let wasEnabled = host.isEnabled();
   let engineKey = JSON.stringify(host.engineConfig());

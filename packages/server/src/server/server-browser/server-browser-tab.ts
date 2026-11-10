@@ -11,6 +11,12 @@ import { ScreencastHub, type ScreencastSize } from "./screencast-hub.js";
 import { cancelPick } from "./element-picker.js";
 import { cdpKeyEventsForElectronKey } from "./key-events.js";
 import type { LocalStorageItems } from "./workspace-storage-state.js";
+import {
+  stripWindowTitle,
+  WINDOW_TITLE_WORLD,
+  windowTitleScript,
+  type WindowTitleMark,
+} from "./window-title.js";
 
 const MAX_CONSOLE_ENTRIES = 200;
 const LOAD_WAIT_MS = 15_000;
@@ -39,6 +45,8 @@ export interface ServerBrowserTabOptions {
   connection: CdpConnection;
   openedBy: "agent" | "user";
   viewport?: ServerBrowserViewport;
+  /** Marks the page's title so its window reads as Paseo's (Existing browser only). */
+  titleMark?: WindowTitleMark;
   onChange: () => void;
   /** The main frame committed a new document. */
   onNavigated?: (url: string) => void;
@@ -62,6 +70,7 @@ export class ServerBrowserTab {
   private sessionId: string;
   private connection: CdpConnection;
   private readonly contentsId: number;
+  public readonly titleMark: WindowTitleMark | null;
   private readonly onChange: () => void;
   private readonly onNavigated: (url: string) => void;
   private readonly now: () => number;
@@ -84,6 +93,7 @@ export class ServerBrowserTab {
     this.workspaceId = options.workspaceId;
     this.openedBy = options.openedBy;
     this.contentsId = options.contentsId;
+    this.titleMark = options.titleMark ?? null;
     this.targetId = options.targetId;
     this.sessionId = options.sessionId;
     this.connection = options.connection;
@@ -139,6 +149,13 @@ export class ServerBrowserTab {
     await this.send("Page.enable");
     await this.send("Runtime.enable");
     await this.send("Page.setLifecycleEventsEnabled", { enabled: true });
+    if (this.titleMark) {
+      await this.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: windowTitleScript(this.titleMark),
+        worldName: WINDOW_TITLE_WORLD,
+        runImmediately: true,
+      });
+    }
     await this.applyViewport();
   }
 
@@ -218,8 +235,12 @@ export class ServerBrowserTab {
 
   public updateTargetInfo(info: { url?: string; title?: string }): void {
     let changed = false;
-    if (info.title !== undefined && info.title !== this.title) {
-      this.title = info.title;
+    const title =
+      info.title !== undefined && this.titleMark
+        ? stripWindowTitle(info.title, this.titleMark)
+        : info.title;
+    if (title !== undefined && title !== this.title) {
+      this.title = title;
       changed = true;
     }
     if (info.url !== undefined && info.url !== this.url && info.url !== "") {

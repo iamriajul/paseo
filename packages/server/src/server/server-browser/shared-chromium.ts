@@ -5,6 +5,7 @@ import {
   type CdpEvent,
   type CdpParams,
   type LaunchChromiumOptions,
+  ServerBrowserUnavailableError,
 } from "./cdp-connection.js";
 
 export interface ChromiumTarget {
@@ -271,7 +272,7 @@ export class SharedChromium {
   }
 
   private requireConnection(): CdpConnection {
-    if (this.exited) throw new Error("The server browser is not running");
+    if (this.exited) throw new ServerBrowserUnavailableError("The server browser is not running");
     return this.params.connection;
   }
 

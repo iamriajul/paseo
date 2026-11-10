@@ -32,6 +32,10 @@ class FakeChromium {
   public readonly pageCommands: Array<{ method: string; params: CdpParams }> = [];
   /** How long a page takes to acknowledge a mouse event. */
   public mouseAckMs = 0;
+  /** Page commands this browser never answers. */
+  public readonly unanswered = new Set<string>();
+  /** Ends the running browser as a crash would. */
+  public crash: () => void = () => {};
   private nextId = 0;
 
   public readonly launch: LaunchFn = async () => {
@@ -50,6 +54,7 @@ class FakeChromium {
       child.emit("exit", 0, null);
     };
     Object.assign(child, { kill: exit });
+    this.crash = exit;
     let buffer = "";
     toBrowser.setEncoding("utf8");
     toBrowser.on("data", (chunk: string) => {
@@ -66,7 +71,9 @@ class FakeChromium {
         if (message.sessionId) this.pageCommands.push(message);
         const result = this.answer(message.method, message.params);
         const reply = () => fromBrowser.write(`${JSON.stringify({ id: message.id, result })}\0`);
-        if (message.method === "Input.dispatchMouseEvent" && this.mouseAckMs > 0) {
+        if (this.unanswered.has(message.method)) {
+          // Never answered.
+        } else if (message.method === "Input.dispatchMouseEvent" && this.mouseAckMs > 0) {
           setTimeout(reply, this.mouseAckMs);
         } else {
           reply();
@@ -341,4 +348,45 @@ describe("ServerBrowserHost lifecycle", () => {
     expect(host.getTab(stale.browserId)).toBeNull();
     expect(host.getTab(fresh.browserId)).not.toBeNull();
   });
+
+  it("tells an agent to retry when the browser is not there, not that something unknown failed", async () => {
+    const existing = new ServerBrowserHost({
+      paseoHome,
+      logger: pino({ level: "silent" }),
+      isEnabled: () => true,
+      getEngine: () => ({ kind: "existing", cdpUrl: "http://127.0.0.1:9" }),
+    });
+    hosts.push(existing);
+    const unreachable = await existing.execute({
+      type: "browser.automation.execute.request",
+      requestId: "r1",
+      workspaceId: "ws",
+      command: { command: "new_tab", args: { url: "https://example.com/" } },
+    });
+    expect(unreachable).toMatchObject({
+      ok: false,
+      error: { code: "browser_no_host", retryable: true, message: /No browser answers/ },
+    });
+
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: "about:blank", openedBy: "agent" });
+    chromium.unanswered.add("Runtime.evaluate");
+    const snapshot = host.execute({
+      type: "browser.automation.execute.request",
+      requestId: "r2",
+      workspaceId: "ws",
+      command: { command: "snapshot", args: { browserId: tab.browserId } },
+    });
+    const evaluating = () => chromium.pageCommands.some(isEvaluate);
+    await waitFor(evaluating);
+    chromium.crash();
+    expect(await snapshot).toMatchObject({
+      ok: false,
+      error: { code: "browser_no_host", retryable: true, message: "The server browser closed" },
+    });
+  });
 });
+
+function isEvaluate(command: { method: string }): boolean {
+  return command.method === "Runtime.evaluate";
+}

@@ -1790,3 +1790,19 @@ grep -q 'fileKind === "directory" || fileExists' packages/app/src/components/fil
 grep -q 'testID="files-download-folder"' packages/app/src/components/file-explorer-pane.tsx
 test -f packages/app/public/download-stream/sw.js
 ```
+
+## restart-status-without-reprobes
+
+**Daemon status reuses a recent provider probe, and a settings restart reconnects as soon as the replacement answers**
+
+`daemon-lifecycle.spec.ts` failed in CI on the v0.15.912 batch ("settings restart waits for a replacement worker", both attempts at its 60 s budget). No batch commit caused it. Locally the batch and main run the restart the same way: the old worker exits in 0.1 s and the new one listens in about 4 s. On main CI the test used 31–36 s of its 60 s, and the batch's shard 4 ran every test about 1.5× slower from its first minute. Two delays on the restart path took that margin:
+
+- `daemon.get_status` probed every provider's CLI on each call, 2–5 s with nine installed, and the test and the restart flow call it four times. `AgentManager.listProviderAvailability({ maxAgeMs })` now lets a caller share the latest probe, or the one in flight. Daemon status (`session.ts`) accepts an answer up to 30 s old. The provider list still probes fresh; its answer refills the shared one, and a changed provider registry clears it.
+- The settings restart polled status while the client reconnected on its own exponential backoff, which came back about 9 s after the replacement was ready. `observeReplacement` (`screens/settings/daemon-lifecycle.ts`) now calls `reconnect` on each failed poll, which `host-page.tsx` maps to `daemonClient.ensureConnected()`, for restart and update alike.
+
+On this box the target test went from a median of 44.5 s on main (56 s on the batch, one timeout in four) to 36–38 s, and the whole spec passes, including "shows the processes it could not close", which failed here on main.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-manager.test.ts --bail=1 -t "probes once for callers that accept a recent answer"
+npm test --workspace=@getpaseo/app -- src/screens/settings/daemon-lifecycle.test.ts --bail=1
+```

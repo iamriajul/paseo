@@ -159,3 +159,28 @@ test("RPC errors mentioning transport are not retried", async () => {
     }),
   ).rejects.toThrow("Connection policy denied by plugin");
 });
+
+test("while the replacement is not answering, the restart reconnects now instead of waiting out the backoff", async () => {
+  let pid = 10;
+  let connected = true;
+  let reconnects = 0;
+  const lost = () =>
+    Object.assign(new Error("Connection lost"), { code: "DAEMON_CONNECTION_LOST" });
+  await restartDaemonFromSettings("daemon", "settings", {
+    getStatus: async () => {
+      if (!connected) throw lost();
+      return { pid, version: "1.0.0", serverId: "daemon" };
+    },
+    restartServer: async () => {
+      connected = false;
+      pid = 11;
+    },
+    // The client would otherwise retry on its own backoff, seconds after the worker is ready.
+    reconnect: () => {
+      reconnects += 1;
+      if (reconnects === 2) connected = true;
+    },
+  });
+  expect(pid).toBe(11);
+  expect(reconnects).toBe(2);
+});

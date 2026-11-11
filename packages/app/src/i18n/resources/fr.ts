@@ -595,6 +595,12 @@ export const fr: TranslationResources = {
         medium: "Moyenne",
         large: "Grande",
       },
+      gallery: {
+        previous: "Image précédente",
+        next: "Image suivante",
+        position: "{{current}} / {{total}}",
+        positionLabel: "Image {{current}} sur {{total}}",
+      },
       sort: {
         name: "Nom",
         modified: "Date de modification",

@@ -595,6 +595,12 @@ export const ptBR: TranslationResources = {
         medium: "Médio",
         large: "Grande",
       },
+      gallery: {
+        previous: "Imagem anterior",
+        next: "Próxima imagem",
+        position: "{{current}} / {{total}}",
+        positionLabel: "Imagem {{current}} de {{total}}",
+      },
       sort: {
         name: "Nome",
         modified: "Modificado",

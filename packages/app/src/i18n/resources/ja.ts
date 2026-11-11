@@ -595,6 +595,12 @@ export const ja: TranslationResources = {
         medium: "中",
         large: "大",
       },
+      gallery: {
+        previous: "前の画像",
+        next: "次の画像",
+        position: "{{current}} / {{total}}",
+        positionLabel: "{{total}} 枚中 {{current}} 枚目",
+      },
       sort: {
         name: "名前",
         modified: "更新日時",

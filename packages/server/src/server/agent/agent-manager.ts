@@ -900,6 +900,8 @@ export class AgentManager {
     RetiredInternalAgent & { expiresAt: number }
   >();
   private readonly clients = new Map<AgentProvider, AgentClient>();
+  /** The latest probe of every provider, shared by callers that accept a recent answer. */
+  private availabilityProbe: { at: number; result: Promise<ProviderAvailability[]> } | null = null;
   private readonly providerEnabled = new Map<AgentProvider, boolean>();
   private readonly providerDefinitions = new Map<AgentProvider, ProviderEnabledFlag>();
   private readonly agents = new Map<string, LiveManagedAgent>();
@@ -1042,6 +1044,7 @@ export class AgentManager {
 
   registerClient(provider: AgentProvider, client: AgentClient): void {
     this.clients.set(provider, client);
+    this.availabilityProbe = null;
   }
 
   updateProviderRegistry(input: {
@@ -1059,6 +1062,7 @@ export class AgentManager {
     }
 
     this.clients.clear();
+    this.availabilityProbe = null;
     for (const [provider, client] of Object.entries(input.clients)) {
       if (client) {
         this.clients.set(provider, client);
@@ -1379,10 +1383,28 @@ export class AgentManager {
     return true;
   }
 
-  async listProviderAvailability(): Promise<ProviderAvailability[]> {
-    return Promise.all(
+  /**
+   * Every provider's availability. Each probe runs every provider's CLI, which takes seconds on
+   * a busy host, so a caller that can show an answer up to `maxAgeMs` old (daemon status) shares
+   * the latest probe, or the one in flight. Without it the providers are probed now, and that
+   * answer serves the next caller that accepts a recent one.
+   */
+  async listProviderAvailability(
+    options: { maxAgeMs?: number } = {},
+  ): Promise<ProviderAvailability[]> {
+    const latest = this.availabilityProbe;
+    if (latest && options.maxAgeMs !== undefined && Date.now() - latest.at < options.maxAgeMs) {
+      return latest.result;
+    }
+    const result = Promise.all(
       Array.from(this.clients.keys()).map((provider) => this.getProviderAvailability(provider)),
     );
+    const probe = { at: Date.now(), result };
+    this.availabilityProbe = probe;
+    result.catch(() => {
+      if (this.availabilityProbe === probe) this.availabilityProbe = null;
+    });
+    return result;
   }
 
   async getProviderAvailability(provider: AgentProvider): Promise<ProviderAvailability> {

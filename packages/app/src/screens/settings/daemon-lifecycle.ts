@@ -13,6 +13,11 @@ interface WorkerStatus {
 }
 interface StatusReader {
   getStatus: () => Promise<WorkerStatus>;
+  /**
+   * Connects again now. The replacement worker answers seconds before the client's own backoff
+   * would retry, so the wait polls for it instead.
+   */
+  reconnect?: () => void;
 }
 
 export interface SettingsDaemonRestartDeps extends StatusReader {
@@ -104,6 +109,7 @@ async function observeReplacement(
       if (current.pid !== previous.pid) return current;
     } catch (error) {
       if (!isReconnectFailure(error)) throw error;
+      deps.reconnect?.();
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }

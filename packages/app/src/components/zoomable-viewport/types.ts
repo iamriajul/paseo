@@ -18,6 +18,8 @@ export interface ZoomableViewportProps {
   maxScale?: number;
   minScale?: number;
   onPressOutsideContent?: () => void;
+  /** Called when the content goes from fitted to zoomed in, or back. */
+  onZoomChange?: (zoomed: boolean) => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
   wheelActivation?: "always" | "modifier";

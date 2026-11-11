@@ -67,6 +67,8 @@ export const ServerBrowserSurface = forwardRef<
   const playerRef = useRef<ServerBrowserVideoPlayer | null>(null);
   // Which element shows the page: the last stream to paint wins (video, or JPEG as fallback).
   const [shown, setShown] = useState<"jpeg" | "video">("jpeg");
+  // The decoder kept failing on this tab: watch it as JPEG instead.
+  const [videoFailedFor, setVideoFailedFor] = useState<string | null>(null);
   const shownRef = useRef(shown);
   shownRef.current = shown;
   const pageSizeRef = useRef({ width: pageWidth, height: pageHeight });
@@ -150,21 +152,28 @@ export const ServerBrowserSurface = forwardRef<
     [],
   );
 
-  const handleChunk = useCallback((chunk: ServerBrowserVideoChunk) => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      chunk.ack();
-      return;
-    }
-    if (!playerRef.current) {
-      playerRef.current = new ServerBrowserVideoPlayer(canvas, () => {
-        if (shownRef.current !== "video") setShown("video");
-        setHasFrame(true);
-        probe(canvas);
-      });
-    }
-    playerRef.current.push(chunk);
-  }, []);
+  const handleChunk = useCallback(
+    (chunk: ServerBrowserVideoChunk) => {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        chunk.ack();
+        return;
+      }
+      if (!playerRef.current) {
+        playerRef.current = new ServerBrowserVideoPlayer(
+          canvas,
+          () => {
+            if (shownRef.current !== "video") setShown("video");
+            setHasFrame(true);
+            probe(canvas);
+          },
+          () => setVideoFailedFor(browserId),
+        );
+      }
+      playerRef.current.push(chunk);
+    },
+    [browserId],
+  );
 
   useEffect(
     () => () => {
@@ -174,7 +183,12 @@ export const ServerBrowserSurface = forwardRef<
     [browserId],
   );
 
-  const videoEnabled = video && webVideoSupported();
+  const videoEnabled = video && webVideoSupported() && videoFailedFor !== browserId;
+  useEffect(() => {
+    if (videoEnabled) return;
+    playerRef.current?.dispose();
+    playerRef.current = null;
+  }, [videoEnabled]);
   useServerBrowserScreencast({
     client,
     browserId,

@@ -243,7 +243,7 @@ Video (`features.serverBrowserVideo`) touches official files too: `messages.ts` 
 
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/router.test.ts packages/server/src/server/server-browser/screencast-hub.test.ts packages/server/src/server/server-browser/engine-sync.test.ts packages/server/src/server/server-browser/chromium-executable.test.ts packages/server/src/server/server-browser/config.test.ts packages/server/src/server/server-browser/server-browser-host.test.ts packages/server/src/server/server-browser/engines.test.ts packages/server/src/server/server-browser/element-picker.test.ts packages/server/src/server/server-browser/window-title.test.ts packages/server/src/server/server-browser/file-uploads.test.ts packages/server/src/server/server-browser/video-hub.test.ts packages/server/src/server/server-browser/video-plan.test.ts packages/server/src/server/server-browser/tab-video-stream.test.ts --bail=1
-npm test --workspace=@getpaseo/app -- src/server-browser/input.test.ts src/server-browser/engine-mode.test.ts src/server-browser/device-size.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/server-browser/input.test.ts src/server-browser/engine-mode.test.ts src/server-browser/device-size.test.ts src/server-browser/h264-annexb.test.ts src/server-browser/video-session.test.ts --bail=1
 grep -q "SERVER_BROWSER_INBOUND_SCHEMAS" packages/protocol/src/messages.ts
 grep -q 'kind: "server_browser"' packages/protocol/src/binary-frames/demux.ts
 grep -q "createServerBrowser" packages/server/src/server/bootstrap.ts

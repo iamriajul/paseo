@@ -1714,3 +1714,18 @@ The threadpool storm test pins real libuv threads with FIFO reads and fails with
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-observer/internal/linux.test.ts --bail=1 -t "startup storm|start deadline"
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/workspace-git-service.test.ts --bail=1 -t "initial scan timed out retries|metadata watcher that failed setup retries|more tracked directories than the observer allows"
 ```
+
+## server-browser-title-mark-gives-way
+
+**An Existing browser's title mark gives way to a page that keeps its own title, and tabs lost with the browser say so**
+
+From v0.15.909, opening server tabs on the Existing engine crashed the user's Chrome (22 times on 2026-11-11). Every crashpad dump faulted at one offset in the browser process, PartitionAlloc's out-of-memory crash, with about 16 GiB committed. The workspace pages of the app under test run a title observer that puts `document.title` back whenever it changes. Paseo's observer re-marked it in reply, and the two traded writes in a microtask loop that never yielded: the page stopped answering Paseo's commands, and each write sent the browser process a title update until it filled its allocator pool. The mark now gives way past 10 re-marks a second per document (`window-title.ts`). Headless (light) and Managed Chrome carry no mark and were never affected. [Server browser](server-browser.md) has the mark's rules and how to read such a crash.
+
+A tab that closed with the browser keeps its id answered with `browser_tab_closed` and a message to open a new tab. Before, its id fell through to the broker's "not associated with a connected browser automation host". A new tab within a minute of an Existing browser going away waits up to 10 s (`reattachWaitMs`) for it to answer again, so the 3 s restart of a supervised Chrome does not fail it.
+
+The title test fails without the rate limit: the page and the observer trade 10,000 writes. The host tests fail without the lost-tab record and the wait.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/window-title.test.ts --bail=1 -t "stops marking a page that puts its own title back"
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "closed with the browser|went away to come back"
+```

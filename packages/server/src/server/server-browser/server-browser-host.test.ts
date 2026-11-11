@@ -39,6 +39,8 @@ class FakeChromium {
   public readonly unanswered = new Set<string>();
   /** Ends the running browser as a crash would. */
   public crash: () => void = () => {};
+  /** Sends a CDP event from the running browser, as a page would cause one. */
+  public emit: (event: { method: string; params: CdpParams; sessionId: string }) => void = () => {};
   private nextId = 0;
 
   public readonly launch: LaunchFn = async () => {
@@ -58,6 +60,7 @@ class FakeChromium {
     };
     Object.assign(child, { kill: exit });
     this.crash = exit;
+    this.emit = (event) => fromBrowser.write(`${JSON.stringify(event)}\0`);
     let buffer = "";
     toBrowser.setEncoding("utf8");
     toBrowser.on("data", (chunk: string) => {
@@ -492,6 +495,56 @@ class FakeExistingBrowser {
     http?.closeAllConnections();
     await new Promise<void>((resolve) => (http ? http.close(() => resolve()) : resolve()));
   }
+}
+
+describe("a page that logs in a tight loop", () => {
+  it("stops reading its console past the budget, then says how many messages it dropped", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: "about:blank", openedBy: "agent" });
+    const sessionId = (
+      chromium.pageCommands.find((command) => command.method === "Runtime.enable") as {
+        sessionId: string;
+      }
+    ).sessionId;
+    const log = (text: string) =>
+      chromium.emit({
+        method: "Runtime.consoleAPICalled",
+        params: { type: "log", args: [{ type: "string", value: text }] },
+        sessionId,
+      });
+    const runtimeCommands = () =>
+      chromium.pageCommands
+        .filter((command) => command.method.startsWith("Runtime.") && "sessionId" in command)
+        .filter((command) => (command as { sessionId: string }).sessionId === sessionId)
+        .map((command) => command.method)
+        .filter((method) => method !== "Runtime.evaluate" && method !== "Runtime.addBinding");
+    for (let index = 0; index < 3_000; index++) log(`flood ${index}`);
+    await waitFor(() => runtimeCommands().includes("Runtime.disable"));
+
+    const console = () => host.getTab(tab.browserId)!.consoleSince(0);
+    expect(console().length).toBeLessThanOrEqual(1_000);
+    const dropped = () => console().some(isDropMarker);
+    await waitFor(dropped, 4_000);
+    expect(runtimeCommands()).toEqual([
+      "Runtime.enable",
+      "Runtime.disable",
+      "Runtime.discardConsoleEntries",
+      "Runtime.enable",
+    ]);
+    expect(console().at(-1)).toMatchObject({
+      level: "warning",
+      message: expect.stringMatching(
+        /^2000 console messages dropped: the page logged more than 1000/,
+      ),
+    });
+
+    log("after the pause");
+    await waitFor(() => console().at(-1)?.message === "after the pause");
+  });
+});
+
+function isDropMarker(entry: { message: string }): boolean {
+  return /messages dropped/.test(entry.message);
 }
 
 function isEvaluate(command: { method: string }): boolean {

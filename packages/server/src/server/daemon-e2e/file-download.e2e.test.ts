@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import {
+  mkdirSync,
   mkdtempSync,
   writeFileSync,
   rmSync,
@@ -13,6 +14,7 @@ import { get } from "node:http";
 import { tmpdir } from "os";
 import path from "path";
 import { createDaemonTestContext, type DaemonTestContext } from "../test-utils/index.js";
+import { readZipEntries } from "../test-utils/read-zip.js";
 
 function tmpCwd(): string {
   return mkdtempSync(path.join(tmpdir(), "daemon-e2e-"));
@@ -231,5 +233,145 @@ describe("daemon E2E", () => {
 
       rmSync(cwd, { recursive: true, force: true });
     }, 60000);
+  });
+
+  describe("folder download", () => {
+    function makeFolderFixture(): { cwd: string; expected: Record<string, string | null> } {
+      const cwd = path.join(tmpCwd(), "fixture-project");
+      mkdirSync(path.join(cwd, "src", "deep"), { recursive: true });
+      mkdirSync(path.join(cwd, "empty"));
+      writeFileSync(path.join(cwd, "README.md"), "readme");
+      writeFileSync(path.join(cwd, ".env"), "hidden");
+      writeFileSync(path.join(cwd, "src", "deep", "x.ts"), "x".repeat(100_000));
+      return {
+        cwd,
+        expected: {
+          "fixture-project/README.md": "readme",
+          "fixture-project/empty/": null,
+          "fixture-project/src/deep/x.ts": "x".repeat(100_000),
+        },
+      };
+    }
+
+    function zipContents(bytes: Uint8Array): Record<string, string | null> {
+      return Object.fromEntries(
+        readZipEntries(Buffer.from(bytes)).map((entry) => [
+          entry.name,
+          entry.content?.toString("utf8") ?? null,
+        ]),
+      );
+    }
+
+    function consumeAbortingAfterFirstChunk(
+      chunks: AsyncIterable<Uint8Array>,
+      abort: AbortController,
+    ) {
+      let received = 0;
+      async function consume() {
+        for await (const chunk of chunks) {
+          received += chunk.byteLength;
+          abort.abort(new Error("cancelled by test"));
+        }
+      }
+      return { done: consume(), received: () => received };
+    }
+
+    async function readStream(
+      input: Parameters<typeof ctx.client.openDownloadStream>[0],
+      options?: Parameters<typeof ctx.client.openDownloadStream>[1],
+    ) {
+      const stream = await ctx.client.openDownloadStream(input, options);
+      const parts: Uint8Array[] = [];
+      for await (const chunk of stream.chunks) parts.push(chunk);
+      return { ...stream, bytes: new Uint8Array(Buffer.concat(parts)) };
+    }
+
+    test("advertises the downloadStream feature", () => {
+      expect(ctx.client.getLastServerInfoMessage()?.features?.downloadStream).toBe(true);
+    });
+
+    test("downloads a folder zip over HTTP with a token", async () => {
+      const { cwd, expected } = makeFolderFixture();
+      try {
+        const token = await ctx.client.requestFolderDownloadToken({
+          cwd,
+          path: ".",
+          includeHidden: false,
+        });
+        expect(token).toMatchObject({ error: null, fileName: "fixture-project.zip", path: "." });
+
+        const response = await fetch(
+          `http://127.0.0.1:${ctx.daemon.port}/api/files/download?token=${token.token}`,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe("application/zip");
+        expect(response.headers.get("content-disposition")).toBe(
+          'attachment; filename="fixture-project.zip"',
+        );
+        expect(zipContents(new Uint8Array(await response.arrayBuffer()))).toEqual(expected);
+      } finally {
+        rmSync(path.dirname(cwd), { recursive: true, force: true });
+      }
+    }, 30000);
+
+    test("answers with the real reason when the folder is gone before the fetch", async () => {
+      const { cwd } = makeFolderFixture();
+      try {
+        const token = await ctx.client.requestFolderDownloadToken({ cwd, path: "src" });
+        expect(token.error).toBeNull();
+        rmSync(path.join(cwd, "src"), { recursive: true, force: true });
+
+        const response = await fetch(
+          `http://127.0.0.1:${ctx.daemon.port}/api/files/download?token=${token.token}`,
+        );
+        expect(response.status).toBe(500);
+        expect(await response.json()).toEqual({
+          error: 'Could not read "src": it no longer exists',
+        });
+      } finally {
+        rmSync(path.dirname(cwd), { recursive: true, force: true });
+      }
+    }, 30000);
+
+    test("reads a subfolder zip over the session socket", async () => {
+      const { cwd } = makeFolderFixture();
+      try {
+        // Small slices force many pipelined reads for one zip.
+        const zip = await readStream(
+          { cwd, path: "src", kind: "folder" },
+          { sliceBytes: 4096, depth: 3 },
+        );
+        expect(zip).toMatchObject({ fileName: "src.zip", mimeType: "application/zip", size: null });
+        expect(zipContents(zip.bytes)).toEqual({ "src/deep/x.ts": "x".repeat(100_000) });
+
+        await expect(
+          ctx.client.openDownloadStream({ cwd, path: "..", kind: "folder" }),
+        ).rejects.toThrow("Access outside of workspace is not allowed");
+      } finally {
+        rmSync(path.dirname(cwd), { recursive: true, force: true });
+      }
+    }, 30000);
+
+    test("streams a file over the session socket and stops when aborted", async () => {
+      const { cwd } = makeFolderFixture();
+      try {
+        const content = Buffer.alloc(5 * 1024 * 1024 + 3, 7);
+        writeFileSync(path.join(cwd, "big.bin"), content);
+        const file = await readStream({ cwd, path: "big.bin", kind: "file" });
+        expect(file).toMatchObject({ fileName: "big.bin", size: content.byteLength });
+        expect(Buffer.from(file.bytes).equals(content)).toBe(true);
+
+        const abort = new AbortController();
+        const stream = await ctx.client.openDownloadStream(
+          { cwd, path: "big.bin", kind: "file" },
+          { signal: abort.signal, sliceBytes: 1024 * 1024, depth: 1 },
+        );
+        const consumed = consumeAbortingAfterFirstChunk(stream.chunks, abort);
+        await expect(consumed.done).rejects.toThrow("cancelled by test");
+        expect(consumed.received()).toBeLessThan(content.byteLength);
+      } finally {
+        rmSync(path.dirname(cwd), { recursive: true, force: true });
+      }
+    }, 30000);
   });
 });

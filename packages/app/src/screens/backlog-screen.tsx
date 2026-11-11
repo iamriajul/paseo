@@ -422,6 +422,8 @@ function ProjectBacklogScreen({
           path: attachment.id,
           daemonProfile,
           activeConnectionId: activeConnectionIdFor(serverId),
+          // Task attachments are not workspace paths; fs.download.* opens only those.
+          openStream: null,
           readFile: readAttachmentOverSession,
           requestFileDownloadToken: async () =>
             requestAttachmentToken(task.id, attachment).then((token) => ({
@@ -917,6 +919,8 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
           path: attachment.id,
           daemonProfile: hostProfileByServerId.get(task.serverId),
           activeConnectionId: activeConnectionIdFor(task.serverId),
+          // Task attachments are not workspace paths; fs.download.* opens only those.
+          openStream: null,
           readFile: readAttachmentOverSession,
           requestFileDownloadToken: async () =>
             requestAttachmentToken(task, attachment).then((token) => ({

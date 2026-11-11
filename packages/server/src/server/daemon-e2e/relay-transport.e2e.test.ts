@@ -23,12 +23,13 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { Buffer } from "node:buffer";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 
 import { generateLocalPairingOffer } from "../pairing-offer.js";
 import { createTestPaseoDaemon } from "../test-utils/paseo-daemon.js";
 import { FILE_EXPLORER_STREAM_CHUNK_BYTES } from "../file-explorer/service.js";
+import { readZipEntries } from "../test-utils/read-zip.js";
 import {
   createClientChannel,
   openClientSecureChannel,
@@ -1455,6 +1456,81 @@ async function waitForCapturedLog(
       expect(result.size).toBe(source.byteLength);
       expect(result.bytes.byteLength).toBe(source.byteLength);
       expect(sha256(result.bytes)).toBe(sha256(source));
+    } catch (err) {
+      const tail = lines.slice(-50).join("");
+      // eslint-disable-next-line no-console
+      console.error("daemon logs (tail):\n", tail);
+      throw err;
+    } finally {
+      await client?.close().catch(() => undefined);
+      await daemon?.close();
+      await stopRelay();
+      if (workspaceDir) {
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
+    }
+  }, 90000);
+
+  test("streams a folder zip over the E2EE relay session", async () => {
+    process.env.PASEO_PRIMARY_LAN_IP = "192.168.1.12";
+
+    const { logger, lines } = createCapturingLogger();
+    let daemon: Awaited<ReturnType<typeof createTestPaseoDaemon>> | null = null;
+    let workspaceDir: string | null = null;
+    const source = randomBytes(4 * FILE_EXPLORER_STREAM_CHUNK_BYTES + 123);
+    let client: DaemonClient | null = null;
+
+    try {
+      await startRelay({ useLocalRelay: true });
+      daemon = await createTestPaseoDaemon({
+        listen: "127.0.0.1",
+        logger,
+        relayEnabled: true,
+        relayEndpoint: `127.0.0.1:${relayPort}`,
+      });
+      workspaceDir = await mkdtemp(path.join(os.tmpdir(), "paseo-relay-folder-"));
+      await mkdir(path.join(workspaceDir, "assets", "deep"), { recursive: true });
+      await writeFile(path.join(workspaceDir, "assets", "deep", "blob.bin"), source);
+      await writeFile(path.join(workspaceDir, "assets", "notes.md"), "notes");
+      const offerUrl = await getPairingOfferUrl({
+        paseoHome: daemon.paseoHome,
+        relayEnabled: daemon.config.relayEnabled,
+        relayEndpoint: daemon.config.relayEndpoint,
+        relayPublicEndpoint: daemon.config.relayPublicEndpoint,
+        appBaseUrl: daemon.config.appBaseUrl,
+      });
+      const { serverId, daemonPublicKeyB64 } = decodeOfferFromFragmentUrl(offerUrl);
+
+      client = new DaemonClient({
+        url: buildRelayWebSocketUrl({
+          endpoint: `127.0.0.1:${relayPort}`,
+          useTls: false,
+          serverId,
+          role: "client",
+        }),
+        clientType: "cli",
+        connectTimeoutMs: 30_000,
+        e2ee: { enabled: true, daemonPublicKeyB64 },
+        reconnect: { enabled: false },
+      });
+      await client.connect();
+
+      const zip = await client.openDownloadStream({
+        cwd: workspaceDir,
+        path: "assets",
+        kind: "folder",
+      });
+      const parts: Uint8Array[] = [];
+      for await (const chunk of zip.chunks) parts.push(chunk);
+
+      expect(zip.fileName).toBe("assets.zip");
+      const entries = readZipEntries(Buffer.concat(parts));
+      expect(entries.map((entry) => entry.name).sort()).toEqual([
+        "assets/deep/blob.bin",
+        "assets/notes.md",
+      ]);
+      const blob = entries.find((entry) => entry.name === "assets/deep/blob.bin");
+      expect(blob?.content && sha256(blob.content)).toBe(sha256(source));
     } catch (err) {
       const tail = lines.slice(-50).join("");
       // eslint-disable-next-line no-console

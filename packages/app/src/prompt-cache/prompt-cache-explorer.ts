@@ -2,6 +2,7 @@ import {
   isAvoidablePromptCacheMiss,
   isPromptCacheHit,
   promptCacheInputTokens,
+  type CacheWarmStop,
   type GatewayAccountChange,
   type PromptCacheCompaction,
   type PromptCacheHistoryEntry,
@@ -10,6 +11,7 @@ import { formatTokenCount } from "@/components/context-window-meter.utils";
 import { formatPreciseDuration } from "@/usage/format";
 import { formatUsdEstimate } from "./prompt-cache-cost";
 import type { RequestPricer } from "./prompt-cache-insights";
+import { describeWarmUpStop } from "./warm-up-stop";
 
 /** A run of shown requests, by index: the whole session, or a column zoomed into. */
 export interface InsightsRange {
@@ -121,6 +123,8 @@ export function describeRequest(input: {
   cacheWindowMs: number;
   /** The CLIProxyAPI account switch charged with this request's miss, if any. */
   switchedAccount?: GatewayAccountChange;
+  /** Why the warm-up let the cache expire before this request, when the host journaled it. */
+  warmUpStop?: CacheWarmStop;
 }): RequestRow {
   const { entry } = input;
   const { outcome, tone } = resolveOutcome(entry, input.cacheWindowMs, input.switchedAccount);
@@ -137,6 +141,9 @@ export function describeRequest(input: {
   if (entry.model) parts.push(entry.model.replace(/^claude-/, ""));
   if (outcome === "miss · account switched" && input.switchedAccount) {
     parts.unshift(describeAccountSwitch(input.switchedAccount));
+  }
+  if (outcome === "miss · expired" && input.warmUpStop) {
+    parts.unshift(describeWarmUpStop(input.warmUpStop));
   }
   return { at: entry.at, kind: KIND_LABELS[entry.kind], outcome, tone, detail: parts.join(" · ") };
 }

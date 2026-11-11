@@ -113,15 +113,23 @@ describe("fetchGatewayQuota", () => {
     });
   });
 
-  test("treats error envelopes as supported with no accounts", async () => {
-    for (const status of [400, 401, 404, 503]) {
+  test("treats a 404 envelope as no account serving the model", async () => {
+    const fetchImpl = vi.fn(async () =>
+      quotaResponse({ error: "no credentials serve model" }, 404),
+    );
+    const result = await fetchGatewayQuota({ ...base, fetchImpl });
+    expect(result).toEqual({ supported: true, accounts: [] });
+  });
+
+  test("treats other error envelopes as supported with no accounts, and as a failed read", async () => {
+    for (const status of [400, 401, 503]) {
       const fetchImpl = vi.fn(async () => quotaResponse({ error: "nope" }, status));
       const result = await fetchGatewayQuota({ ...base, fetchImpl });
-      expect(result, `status ${status}`).toEqual({ supported: true, accounts: [] });
+      expect(result, `status ${status}`).toEqual({ supported: true, accounts: [], failed: true });
     }
   });
 
-  test("treats missing routes and transport failures as unsupported", async () => {
+  test("treats a plain 404 as a Gateway without the route", async () => {
     const empty404 = vi.fn(async () => new Response("", { status: 404 }));
     await expect(fetchGatewayQuota({ ...base, fetchImpl: empty404 })).resolves.toEqual({
       supported: false,
@@ -132,25 +140,37 @@ describe("fetchGatewayQuota", () => {
       supported: false,
       accounts: [],
     });
+  });
+
+  test("treats transport failures and other plain errors as unsupported failed reads", async () => {
     const failing = vi.fn(async () => {
       throw new Error("connect refused");
     });
     await expect(fetchGatewayQuota({ ...base, fetchImpl: failing })).resolves.toEqual({
       supported: false,
       accounts: [],
+      failed: true,
+    });
+    const badGateway = vi.fn(async () => new Response("bad gateway", { status: 502 }));
+    await expect(fetchGatewayQuota({ ...base, fetchImpl: badGateway })).resolves.toEqual({
+      supported: false,
+      accounts: [],
+      failed: true,
     });
   });
 
-  test("treats invalid 200 payloads as unsupported", async () => {
+  test("treats invalid 200 payloads as unsupported failed reads", async () => {
     const badShape = vi.fn(async () => quotaResponse({ accounts: [] }));
     await expect(fetchGatewayQuota({ ...base, fetchImpl: badShape })).resolves.toEqual({
       supported: false,
       accounts: [],
+      failed: true,
     });
     const badAccount = vi.fn(async () => quotaResponse([{ provider: "xai" }]));
     await expect(fetchGatewayQuota({ ...base, fetchImpl: badAccount })).resolves.toEqual({
       supported: false,
       accounts: [],
+      failed: true,
     });
   });
 });

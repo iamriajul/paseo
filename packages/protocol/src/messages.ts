@@ -1044,6 +1044,15 @@ export const GatewayAccountChangeSchema = z.object({
   missAt: z.string().optional(),
 });
 
+export const CacheWarmStopSchema = z.object({
+  at: z.string(),
+  /** A CacheWarmStopReason, or a newer value a later daemon adds. */
+  reason: z.string(),
+  account: z.string().optional(),
+  until: z.string().optional(),
+  window: z.string().optional(),
+});
+
 export const PromptCacheCompactionSchema = z.object({
   at: z.string(),
   trigger: z.enum(["manual", "auto"]),
@@ -1082,18 +1091,29 @@ export const AgentRateLimitCooldownPayloadSchema = z.object({
 export type AgentRateLimitCooldownPayload = z.infer<typeof AgentRateLimitCooldownPayloadSchema>;
 
 /**
- * Warm-up is paused because the CLIProxyAPI account serving the agent could not take it. It
- * resumes on the agent's next request of its own.
+ * Warm-up is paused because the account serving the agent could not take it, or Paseo could not
+ * confirm that it can. It resumes on the agent's next request of its own; an "unconfirmed" pause
+ * with `retryAt` reads the Gateway again then.
  */
 export const AgentCacheWarmPauseSchema = z.object({
-  /** "cooldown" | "quota", or a newer value a later daemon adds. */
+  /**
+   * "cooldown" | "quota" | "unlisted" | "moved" | "untracked" | "unsupported" | "unconfirmed"
+   * (see CacheWarmStopReason), or a newer value a later daemon adds.
+   */
   reason: z.string(),
-  /** Masked account label. */
+  /**
+   * Masked account label: the blocked account, or for "moved" the account the session moved to.
+   * Empty when no account is known.
+   */
+  // COMPAT(cacheWarmPauseAccount): added in v0.15.911, stays required because apps before
+  // v0.15.911 require it; make it optional after 2027-05-01.
   account: z.string(),
   /** When the account can serve again, when the Gateway says. */
   until: z.string().optional(),
   /** The used-up quota window's name, for a quota pause. */
   window: z.string().optional(),
+  /** For "unconfirmed": when the daemon checks the account again, while the cache is warm. */
+  retryAt: z.string().optional(),
 });
 
 export type AgentCacheWarmPause = z.infer<typeof AgentCacheWarmPauseSchema>;
@@ -4470,6 +4490,10 @@ export const ServerInfoStatusPayloadSchema = z
         // when a ping warm-up closes a pending permission at the deadline, like a question, and
         // records it as promptCache.permissionClosed; an older host lets the cache expire.
         cacheWarmClosesPermissions: z.boolean().optional(),
+        // COMPAT(cacheWarmStopReasons): added in v0.15.911, drop gate after 2027-05-01. True when
+        // the host checks the serving account before every warm-up and journals why each warm-up
+        // stopped (`warmUpStops` on the prompt cache history), so insights can say why it expired.
+        cacheWarmStopReasons: z.boolean().optional(),
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.
         tcpTunnel: z.boolean().optional(),
         // COMPAT(serverBrowser): added in v0.15.x (fork), drop the gate after 2027-05-01.
@@ -7585,6 +7609,8 @@ export const AgentPromptCacheHistoryResponseMessageSchema = z.object({
     compactions: z.array(PromptCacheCompactionSchema),
     /** Every CLIProxyAPI account change the daemon journaled; absent on older daemons. */
     accounts: z.array(GatewayAccountChangeSchema).optional(),
+    /** Every idle stretch whose warm-up stopped with the cache warm; absent on older daemons. */
+    warmUpStops: z.array(CacheWarmStopSchema).optional(),
     error: z.string().nullable(),
   }),
 });

@@ -2,7 +2,8 @@
 // (`GET /v1/session-route?session=<canonical id>`).
 // The route only exists on newer Gateways; anything other than a well-formed
 // 200 record (404 "never served", 404 on a build without the route, bad key,
-// transport failure) reports no route so callers render nothing.
+// transport failure) reports no route so callers render nothing. `failed` and
+// `supported` tell the warm-up account check, which must not guess, why.
 import { z } from "zod";
 import type { AgentProvider } from "../agent-sdk-types.js";
 
@@ -37,6 +38,8 @@ const SessionRoutePayloadSchema = z.object({
   ),
 });
 
+const ErrorPayloadSchema = z.object({ error: z.string() });
+
 export interface GatewayRouteAccount {
   /** Masked account name, or the provider name once the account was removed. */
   label: string;
@@ -63,8 +66,14 @@ export interface GatewaySessionRoute {
 }
 
 export interface GatewaySessionRouteResult {
+  /** The Gateway serves the route: a 200 record, or its 404 envelope for a session it does not track. */
   supported: boolean;
   route: GatewaySessionRoute | null;
+  /**
+   * The Gateway gave no usable answer: transport failure, timeout, an unparseable 200, or an
+   * error status other than a plain 404 (a build without the route).
+   */
+  failed?: true;
 }
 
 export interface FetchGatewaySessionRouteOptions {
@@ -133,9 +142,9 @@ export function inheritableProviderOptions(
 export async function fetchGatewaySessionRoute(
   options: FetchGatewaySessionRouteOptions,
 ): Promise<GatewaySessionRouteResult> {
-  const empty: GatewaySessionRouteResult = { supported: false, route: null };
+  const failed: GatewaySessionRouteResult = { supported: false, route: null, failed: true };
   const url = buildSessionRouteUrl(options.baseUrl, options.session);
-  if (!url) return empty;
+  if (!url) return failed;
 
   const fetchImpl = options.fetchImpl ?? fetch;
   let response: Response;
@@ -146,13 +155,19 @@ export async function fetchGatewaySessionRoute(
       signal: AbortSignal.timeout(GATEWAY_SESSION_ROUTE_TIMEOUT_MS),
     });
   } catch {
-    return empty;
+    return failed;
   }
-  if (response.status !== 200) return empty;
-
   const payload: unknown = await response.json().catch(() => undefined);
+  if (response.status === 404) {
+    // The route's own 404 carries `{"error"}` (never served, or idle past the Gateway's hour);
+    // a build without the route answers a plain 404.
+    return ErrorPayloadSchema.safeParse(payload).success
+      ? { supported: true, route: null }
+      : { supported: false, route: null };
+  }
+  if (response.status !== 200) return failed;
   const parsed = SessionRoutePayloadSchema.safeParse(payload);
-  if (!parsed.success) return empty;
+  if (!parsed.success) return failed;
   return {
     supported: true,
     route: {

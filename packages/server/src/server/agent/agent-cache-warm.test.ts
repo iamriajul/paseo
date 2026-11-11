@@ -3,9 +3,10 @@ import pino from "pino";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentPromptCacheState } from "@getpaseo/protocol/agent-cache-warm";
+import type { AgentPromptCacheState, CacheWarmStop } from "@getpaseo/protocol/agent-cache-warm";
 import {
   AgentCacheWarmManager,
+  WARM_UP_ACCOUNT_RETRY_MS,
   CACHE_WARM_PERMISSION_PAUSE_MESSAGE,
   CACHE_WARM_QUESTION_PAUSE_MESSAGE,
   DEFAULT_CACHE_WARM_PING_PROMPT,
@@ -114,6 +115,7 @@ function createHarness(options: HarnessOptions = {}) {
   const setCacheWarmPause = vi.fn((_id: string, pause: WarmUpAccountBlock | null) => {
     agent.cacheWarmPause = pause ?? undefined;
   });
+  const recordCacheWarmStop = vi.fn((_id: string, _stop: CacheWarmStop) => {});
   const respondToPermission = vi.fn(async () => {
     agent.pendingPermissions.clear();
     agent.promptCache = promptCacheAt(Date.now());
@@ -141,6 +143,7 @@ function createHarness(options: HarnessOptions = {}) {
       listAgents: () => [agent],
       setAgentFeature,
       setCacheWarmPause,
+      recordCacheWarmStop,
       setCacheWarmCounts: (
         _id: string,
         counts: { consecutiveWarmPings: number; totalWarmPings?: number },
@@ -166,7 +169,14 @@ function createHarness(options: HarnessOptions = {}) {
     setAgentFeature,
     warmPromptCache,
     setCacheWarmPause,
+    recordCacheWarmStop,
   };
+}
+
+/** The reasons of the stops the manager journaled, oldest first. */
+function stopReasons(recordCacheWarmStop: { mock: { calls: unknown[] } }): string[] {
+  const calls = recordCacheWarmStop.mock.calls as Array<[string, CacheWarmStop]>;
+  return calls.map(([, stop]) => stop.reason);
 }
 
 /** The account check's answer, as a stub the harness can inject. */
@@ -324,15 +334,87 @@ describe("AgentCacheWarmManager", () => {
       expect(setCacheWarmPause).not.toHaveBeenCalled();
     });
 
-    it("warms as before when the check cannot answer, rather than guessing", async () => {
-      const { manager, sendPrompt } = createHarness({
+    it("journals why a blocked account left the cache to expire, with the account", async () => {
+      const { manager, recordCacheWarmStop } = createHarness({
         ttl: "5m",
-        readAccountBlock: failsAccountCheck,
+        readAccountBlock: answersAccountBlock(usedUp),
       });
       manager.schedule("agent-1");
 
       await vi.advanceTimersByTimeAsync(4 * MINUTE);
-      expect(sendPrompt).toHaveBeenCalledTimes(1);
+      expect(recordCacheWarmStop).toHaveBeenCalledTimes(1);
+      expect(recordCacheWarmStop).toHaveBeenCalledWith("agent-1", {
+        at: new Date(START + 4 * MINUTE).toISOString(),
+        reason: "quota",
+        account: "u***a@example.com",
+        window: "5h",
+        until: "2026-10-27T14:00:00.000Z",
+      });
+    });
+
+    it("skips the warm-up when the Gateway already moved the session to another account", async () => {
+      const moved: WarmUpAccountBlock = { reason: "moved", account: "n***u@example.com" };
+      const { manager, sendPrompt, setCacheWarmPause, recordCacheWarmStop } = createHarness({
+        ttl: "5m",
+        readAccountBlock: answersAccountBlock(moved),
+      });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(10 * MINUTE);
+      expect(sendPrompt).not.toHaveBeenCalled();
+      expect(setCacheWarmPause).toHaveBeenLastCalledWith("agent-1", moved);
+      expect(stopReasons(recordCacheWarmStop)).toEqual(["moved"]);
+    });
+
+    it("sends nothing when the check throws, and reads again while the cache is still warm", async () => {
+      const readAccountBlock = vi.fn(failsAccountCheck);
+      const { manager, sendPrompt, setCacheWarmPause, recordCacheWarmStop } = createHarness({
+        ttl: "5m",
+        readAccountBlock,
+      });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(sendPrompt).not.toHaveBeenCalled();
+      expect(setCacheWarmPause).toHaveBeenLastCalledWith("agent-1", {
+        reason: "unconfirmed",
+        account: "",
+        retryAt: new Date(START + 4 * MINUTE + WARM_UP_ACCOUNT_RETRY_MS).toISOString(),
+      });
+      // Not given up yet, so nothing is journaled.
+      expect(recordCacheWarmStop).not.toHaveBeenCalled();
+
+      // The Gateway answers on the retry: the warm-up goes out and the pause clears.
+      readAccountBlock.mockImplementation(answersAccountBlock(null));
+      await vi.advanceTimersByTimeAsync(WARM_UP_ACCOUNT_RETRY_MS);
+      expect(readAccountBlock).toHaveBeenCalledTimes(2);
+      expect(sentPrompts(sendPrompt)).toEqual([DEFAULT_CACHE_WARM_PING_PROMPT]);
+      expect(setCacheWarmPause).toHaveBeenLastCalledWith("agent-1", null);
+    });
+
+    it("lets the cache expire when the Gateway never answers before it would", async () => {
+      const readAccountBlock = vi.fn(failsAccountCheck);
+      const { manager, sendPrompt, setCacheWarmPause, recordCacheWarmStop } = createHarness({
+        ttl: "5m",
+        readAccountBlock,
+      });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(10 * MINUTE);
+      // 4:00 and 4:20 leave time for another read; 4:40 does not.
+      expect(readAccountBlock).toHaveBeenCalledTimes(3);
+      expect(sendPrompt).not.toHaveBeenCalled();
+      expect(setCacheWarmPause).toHaveBeenLastCalledWith("agent-1", {
+        reason: "unconfirmed",
+        account: "",
+      });
+      expect(stopReasons(recordCacheWarmStop)).toEqual(["unconfirmed"]);
+    });
+
+    it("keeps a pause the agent record carried across a restart", () => {
+      const { manager, agent } = createHarness({ ttl: "5m" });
+      agent.cacheWarmPause = { reason: "cooldown", account: "u***a@example.com" };
+      expect(manager.schedule("agent-1")).toBe(false);
     });
 
     it("sends nothing when a turn starts while the check is in flight", async () => {
@@ -350,6 +432,38 @@ describe("AgentCacheWarmManager", () => {
 
       await vi.advanceTimersByTimeAsync(4 * MINUTE);
       expect(sendPrompt).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("why the warm-up left the cache to expire", () => {
+    it("journals the idle cap once for the stretch, while the cache is still warm", async () => {
+      const { manager, recordCacheWarmStop } = createHarness({ ttl: "5m", maxPings: 1 });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      // The warm-up's own request re-arms the manager, which now stands at the cap.
+      expect(manager.schedule("agent-1")).toBe(false);
+      manager.schedule("agent-1");
+      expect(stopReasons(recordCacheWarmStop)).toEqual(["capped"]);
+    });
+
+    it("journals a warm-up that did not reach Anthropic", async () => {
+      const { manager, sendPrompt, recordCacheWarmStop } = createHarness({ ttl: "5m" });
+      sendPrompt.mockResolvedValueOnce({ disposition: "skipped" as never });
+      manager.schedule("agent-1");
+
+      await vi.advanceTimersByTimeAsync(4 * MINUTE);
+      expect(stopReasons(recordCacheWarmStop)).toEqual(["failed"]);
+    });
+
+    it("journals warm-up switched off while the cache is warm, but not after it expired", () => {
+      const warm = createHarness({ ttl: "5m" });
+      warm.manager.onFeatureToggled("agent-1", false);
+      expect(stopReasons(warm.recordCacheWarmStop)).toEqual(["off"]);
+
+      const expired = createHarness({ ttl: "5m", requestAtMs: START - 6 * MINUTE });
+      expired.manager.onFeatureToggled("agent-1", false);
+      expect(expired.recordCacheWarmStop).not.toHaveBeenCalled();
     });
   });
 
@@ -833,6 +947,7 @@ describe("AgentCacheWarmManager after a daemon restart", () => {
         listAgents: () => [],
         hasInFlightRun: () => false,
         setCacheWarmCounts: () => undefined,
+        recordCacheWarmStop: () => undefined,
         warmPromptCache,
       } as unknown as AgentManager,
       agentStorage: { list: async () => records } as unknown as AgentStorage,

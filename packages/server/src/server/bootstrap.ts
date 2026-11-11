@@ -20,6 +20,7 @@ import {
   resolveChildReportExpiredCachePolicy,
   type CacheExpiryStopPolicy,
   type ChildReportExpiredCachePolicy,
+  resolvePromptCacheAnchorMs,
 } from "@getpaseo/protocol/agent-cache-warm";
 import { PromptCacheJournal } from "./agent/prompt-cache-journal.js";
 import { AgentCommandLog } from "./agent/agent-messages/index.js";
@@ -1202,6 +1203,7 @@ export async function createPaseoDaemon(
         },
         gateway: providerSnapshotManager.getGatewayConfig(),
         isGatewayRouted: (provider) => providerSnapshotManager.isGatewayRouted(provider),
+        lastRequestAtMs: resolvePromptCacheAnchorMs(agent),
       });
     },
   });

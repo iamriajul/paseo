@@ -29,10 +29,16 @@ function quotaAccount(overrides: Partial<GatewayQuotaAccount> = {}): GatewayQuot
   };
 }
 
-function routeResult(account: GatewayRouteAccount | null): GatewaySessionRouteResult {
+/** The agent's last request; the route's account has served since before it. */
+const LAST_REQUEST_AT_MS = Date.parse("2026-11-07T09:00:00Z");
+
+function routeResult(
+  account: GatewayRouteAccount | null,
+  since = "2026-11-07T08:00:00Z",
+): GatewaySessionRouteResult {
   return account
-    ? { supported: true, route: { account, since: "2026-11-07T08:00:00Z", switches: [] } }
-    : { supported: false, route: null };
+    ? { supported: true, route: { account, since, switches: [] } }
+    : { supported: true, route: null };
 }
 
 function check(input: {
@@ -40,6 +46,7 @@ function check(input: {
   quota?: GatewayQuotaResult;
   agent?: Partial<ReadWarmUpAccountBlockInput["agent"]>;
   routed?: boolean;
+  lastRequestAtMs?: number | null;
 }) {
   const readRoute = vi.fn(async () => input.route ?? routeResult(serving));
   const readQuota = vi.fn(
@@ -54,6 +61,8 @@ function check(input: {
     },
     gateway: { baseUrl: "http://gateway:8317", apiKey: "sk-test" },
     isGatewayRouted: () => input.routed ?? true,
+    lastRequestAtMs:
+      input.lastRequestAtMs === undefined ? LAST_REQUEST_AT_MS : input.lastRequestAtMs,
     readRoute,
     readQuota,
   });
@@ -157,16 +166,59 @@ describe("readWarmUpAccountBlock", () => {
     expect(readRoute).toHaveBeenCalledWith(expect.objectContaining({ session: "claude:root" }));
   });
 
-  test.each([
-    ["the agent is not Gateway-routed", { routed: false }],
-    ["the agent has no session yet", { agent: { persistence: null } }],
-    ["the Gateway has no session route", { route: routeResult(null) }],
-  ])("reports no block when %s", async (_label, input) => {
-    const { result } = check(input);
+  test("reports no block for an agent the Gateway does not route, which it cannot check", async () => {
+    const { result, readRoute } = check({ routed: false });
+    expect(await result).toBeNull();
+    expect(readRoute).not.toHaveBeenCalled();
+  });
+
+  test("blocks when the serving account is missing from the model's quota list", async () => {
+    const { result } = check({
+      quota: { supported: true, accounts: [quotaAccount({ name: "u***b@example.com" })] },
+    });
+    expect(await result).toEqual({ reason: "unlisted", account: "u***a@example.com" });
+  });
+
+  test("blocks when no account serves the model any more", async () => {
+    const { result } = check({ quota: { supported: true, accounts: [] } });
+    expect(await result).toEqual({ reason: "unlisted", account: "u***a@example.com" });
+  });
+
+  test("blocks when the route moved to another account after the agent's last request", async () => {
+    const moved = { ...serving, label: "n***u@example.com" };
+    const { result } = check({
+      route: routeResult(moved, "2026-11-07T09:02:00Z"),
+      quota: { supported: true, accounts: [quotaAccount({ name: "n***u@example.com" })] },
+    });
+    expect(await result).toEqual({ reason: "moved", account: "n***u@example.com" });
+  });
+
+  test("does not call it a move when the agent's own last request switched the account", async () => {
+    // The Gateway stamps the request's start, a moment before the daemon's message_start.
+    const { result } = check({ route: routeResult(serving, "2026-11-07T08:59:58Z") });
     expect(await result).toBeNull();
   });
 
-  test("reports no block when the Gateway has no quota route and the account is not cooling", async () => {
+  test("blocks when the Gateway no longer tracks the session", async () => {
+    const { result } = check({ route: routeResult(null) });
+    expect(await result).toEqual({ reason: "untracked", account: "" });
+  });
+
+  test("blocks when the Gateway has no session route at all", async () => {
+    const { result } = check({ route: { supported: false, route: null } });
+    expect(await result).toEqual({ reason: "unsupported", account: "" });
+  });
+
+  test.each([
+    ["the session route read failed", { route: { supported: false, route: null, failed: true } }],
+    ["the quota read failed", { quota: { supported: true, accounts: [], failed: true } }],
+    ["the agent has no session to look up", { agent: { persistence: null } }],
+  ] as const)("blocks as unconfirmed when %s", async (_label, input) => {
+    const { result } = check(input as Parameters<typeof check>[0]);
+    expect(await result).toEqual({ reason: "unconfirmed", account: "" });
+  });
+
+  test("checks the route's account and cooldown when the Gateway has no quota route", async () => {
     const { result } = check({ quota: { supported: false, accounts: [] } });
     expect(await result).toBeNull();
   });

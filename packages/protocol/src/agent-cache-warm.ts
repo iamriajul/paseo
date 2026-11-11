@@ -408,6 +408,49 @@ export interface GatewayAccountChange {
   missAt?: string;
 }
 
+/**
+ * Why Paseo's warm-up let a still-warm cache expire. Account reasons come from the check that
+ * runs before every warm-up:
+ * - "quota": a quota window of the serving account is used up.
+ * - "cooldown": the serving account is cooling down, unavailable or disabled for the model.
+ * - "unlisted": the quota list for the model no longer shows the serving account.
+ * - "moved": the Gateway had already moved the session to another account (`account`).
+ * - "untracked": the Gateway no longer tracks the session.
+ * - "unsupported": the Gateway cannot say which account serves the session.
+ * - "unconfirmed": the Gateway did not answer the check before the cache expired.
+ * The others come from the warm-up's own limits:
+ * - "capped": the idle cap was reached without a compaction.
+ * - "failed": the last warm-up did not reach Anthropic.
+ * - "parent-answers": a child's question waits on its parent agent.
+ * - "off": warm-up was switched off while the cache was warm.
+ * A later daemon may add values; show those generically.
+ */
+export type CacheWarmStopReason =
+  | "quota"
+  | "cooldown"
+  | "unlisted"
+  | "moved"
+  | "untracked"
+  | "unsupported"
+  | "unconfirmed"
+  | "capped"
+  | "failed"
+  | "parent-answers"
+  | "off";
+
+/** One idle stretch whose warm-up stopped and left the cache to expire, and why. */
+export interface CacheWarmStop {
+  at: string;
+  /** A CacheWarmStopReason, or a newer value a later daemon adds. */
+  reason: string;
+  /** Masked account label: the blocked serving account, or the one the session moved to. */
+  account?: string;
+  /** When the account can serve again, when the Gateway says. */
+  until?: string;
+  /** The used-up quota window's name, for "quota". */
+  window?: string;
+}
+
 /** Account changes kept on the agent snapshot; the journal keeps them all for insights. */
 export const GATEWAY_ACCOUNT_CHANGE_LIMIT = 12;
 

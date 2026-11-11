@@ -119,6 +119,7 @@ export function toStoredAgentRecord(
     warmUpCostUsd: agent.warmUpCostUsd ?? undefined,
     promptCache: agent.promptCache,
     gatewayAccounts: agent.gatewayAccounts,
+    ...(agent.cacheWarmPause ? { cacheWarmPause: agent.cacheWarmPause } : {}),
     lastUsage: sanitizeUsage(agent.lastUsage),
   } satisfies StoredAgentRecord;
 }
@@ -181,10 +182,6 @@ export function toAgentPayload(
 
   if (agent.rateLimitCooldown) {
     payload.rateLimitCooldown = agent.rateLimitCooldown;
-  }
-
-  if (agent.cacheWarmPause) {
-    payload.cacheWarmPause = agent.cacheWarmPause;
   }
 
   // Handle attention state
@@ -270,7 +267,12 @@ function resolveStoredAgentThinking(
 
 type CacheWarmState = Pick<
   AgentSnapshotPayload,
-  "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd" | "promptCache" | "gatewayAccounts"
+  | "consecutiveWarmPings"
+  | "totalWarmPings"
+  | "warmUpCostUsd"
+  | "promptCache"
+  | "gatewayAccounts"
+  | "cacheWarmPause"
 >;
 
 /** The agent's explicit idle-cap compaction choice; an unset one follows the host default. */
@@ -294,6 +296,7 @@ function projectCacheWarmState(source: CacheWarmState): CacheWarmState {
     ...(source.warmUpCostUsd !== undefined ? { warmUpCostUsd: source.warmUpCostUsd } : {}),
     ...(source.promptCache ? { promptCache: source.promptCache } : {}),
     ...(source.gatewayAccounts?.length ? { gatewayAccounts: source.gatewayAccounts } : {}),
+    ...(source.cacheWarmPause ? { cacheWarmPause: source.cacheWarmPause } : {}),
   };
 }
 

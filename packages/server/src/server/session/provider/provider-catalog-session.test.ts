@@ -626,10 +626,15 @@ describe("ProviderCatalogSession session route", () => {
   });
 
   it.each([
-    ["the gateway has no record (404)", () => jsonResponse({ error: "no request served" }, 404)],
-    ["the gateway predates the route (empty 404)", () => new Response("", { status: 404 })],
-    ["the read fails", () => Promise.reject(new TypeError("fetch failed"))],
-  ])("hides the route when %s", async (label, respond) => {
+    [
+      "the gateway has no record (404)",
+      () => jsonResponse({ error: "no request served" }, 404),
+      // The route exists; it only has no record of this session.
+      true,
+    ],
+    ["the gateway predates the route (empty 404)", () => new Response("", { status: 404 }), false],
+    ["the read fails", () => Promise.reject(new TypeError("fetch failed")), false],
+  ])("hides the route when %s", async (label, respond, supported) => {
     const fetchMock = stubFetch(respond);
     const { subsystem, emitted } = makeRouteSubsystem({
       agent: { provider: "claude", sessionId: `s-fail-${label}` },
@@ -641,7 +646,7 @@ describe("ProviderCatalogSession session route", () => {
     expect(findByType(emitted, "rpc_error")).toBeUndefined();
     expect(routeResponse(emitted, "r-fail").payload).toEqual({
       requestId: "r-fail",
-      supported: false,
+      supported,
       route: null,
     });
   });

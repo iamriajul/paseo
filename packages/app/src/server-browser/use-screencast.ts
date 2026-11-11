@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react";
-import type { DaemonClient, ServerBrowserFrame } from "@getpaseo/client/internal/daemon-client";
+import type {
+  DaemonClient,
+  ServerBrowserFrame,
+  ServerBrowserVideoChunk,
+} from "@getpaseo/client/internal/daemon-client";
 
 export interface ScreencastViewport {
   /** Device pixels the surface can show. */
@@ -33,9 +37,14 @@ export function useServerBrowserScreencast(params: {
   browserId: string;
   viewport: ScreencastViewport | null;
   onFrame: (frame: ServerBrowserFrame) => void;
+  /** Ask for video in these codecs; JPEG frames still arrive until (or instead of) video. */
+  video?: { codecs: string[]; onChunk: (chunk: ServerBrowserVideoChunk) => void } | null;
 }): void {
   const onFrameRef = useRef(params.onFrame);
   onFrameRef.current = params.onFrame;
+  const onChunkRef = useRef(params.video?.onChunk);
+  onChunkRef.current = params.video?.onChunk;
+  const videoCodecs = params.video?.codecs.join(",") ?? "";
   const { client, browserId, viewport } = params;
   const maxWidth = viewport?.maxWidth ?? 0;
   const maxHeight = viewport?.maxHeight ?? 0;
@@ -45,11 +54,22 @@ export function useServerBrowserScreencast(params: {
     const subscription = client.observeServerBrowserScreencast(
       { browserId, maxWidth, maxHeight },
       (frame) => onFrameRef.current(frame),
+      videoCodecs
+        ? {
+            video: {
+              codecs: videoCodecs.split(","),
+              onChunk: (chunk) => {
+                if (onChunkRef.current) onChunkRef.current(chunk);
+                else chunk.ack();
+              },
+            },
+          }
+        : undefined,
     );
     return () => {
       void subscription.release().catch(() => {});
     };
-  }, [browserId, client, maxHeight, maxWidth]);
+  }, [browserId, client, maxHeight, maxWidth, videoCodecs]);
 }
 
 /** Maps a point in the surface to page fractions, given the frame is letterboxed ("contain"). */

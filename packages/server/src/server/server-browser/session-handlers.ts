@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import {
   encodeServerBrowserFrame,
+  encodeServerBrowserVideoChunk,
   ServerBrowserOpcode,
   type ServerBrowserBinaryFrame,
 } from "@getpaseo/protocol/binary-frames/server-browser";
@@ -38,11 +39,14 @@ export function isServerBrowserRequest(msg: SessionInboundMessage): msg is Serve
 const SCREENCAST_FAMILY = "server-browser-screencast";
 // The window bounds frames in flight end to end; this only stops piling onto a stalled socket.
 const MAX_PENDING_SENDS = SCREENCAST_MAX_WINDOW;
+const VIDEO_MAX_PENDING_SENDS = 32;
 
 interface ScreencastStream {
   subscriptionId: string;
   browserId: string;
   viewerId: string;
+  /** Which hub the viewer's acks go to; a video viewer whose capture failed moves to jpeg. */
+  kind: "jpeg" | "video";
 }
 
 /** One client session's view of the server browser: RPCs, tab pushes, screencast streams. */
@@ -76,7 +80,12 @@ export class ServerBrowserSessionHandlers {
   }
 
   public handleBinary(frame: ServerBrowserBinaryFrame, source: object): void {
-    if (frame.opcode !== ServerBrowserOpcode.FrameAck) return;
+    if (
+      frame.opcode !== ServerBrowserOpcode.FrameAck &&
+      frame.opcode !== ServerBrowserOpcode.VideoKeyframeRequest
+    ) {
+      return;
+    }
     const stream = this.streams.get(frame.streamId);
     if (!stream) return;
     // Only the socket that owns the stream may spend its credit.
@@ -87,7 +96,13 @@ export class ServerBrowserSessionHandlers {
     ) {
       return;
     }
-    this.params.host.getTab(stream.browserId)?.screencast.ack(stream.viewerId, frame.seq);
+    const tab = this.params.host.getTab(stream.browserId);
+    if (frame.opcode === ServerBrowserOpcode.VideoKeyframeRequest) {
+      if (stream.kind === "video") tab?.video?.viewerKeyframe(stream.viewerId);
+      return;
+    }
+    if (stream.kind === "video") tab?.video?.hub.ack(stream.viewerId, frame.seq);
+    else tab?.screencast.ack(stream.viewerId, frame.seq);
   }
 
   private async subscribeTabs(
@@ -124,23 +139,37 @@ export class ServerBrowserSessionHandlers {
     }
     const streamId = this.nextStreamId++;
     const viewerId = `${this.params.sessionId}:${streamId}`;
+    const codec = msg.video ? ((await tab.video?.negotiate(msg.video.codecs)) ?? null) : null;
     const owner = delivery.begin(SCREENCAST_FAMILY, undefined, () => {
       this.streams.delete(streamId);
-      host.getTab(msg.browserId)?.screencast.removeViewer(viewerId);
+      const current = host.getTab(msg.browserId);
+      current?.screencast.removeViewer(viewerId);
+      current?.video?.removeViewer(viewerId);
     });
-    this.streams.set(streamId, { subscriptionId: owner.id, browserId: msg.browserId, viewerId });
-    let pendingSends = 0;
-    emit({
-      type: "browser.server.screencast.start.response",
-      payload: { requestId: msg.requestId, subscriptionId: owner.responseId, streamId },
-    });
-    tab.screencast.addViewer(
+    const stream: ScreencastStream = {
+      subscriptionId: owner.id,
+      browserId: msg.browserId,
       viewerId,
-      {
-        send: (frame, seq) => {
-          pendingSends += 1;
-          void owner
-            .emitBinaryAndWait(
+      kind: codec ? "video" : "jpeg",
+    };
+    this.streams.set(streamId, stream);
+    let pendingSends = 0;
+    const emitCounted = (bytes: Uint8Array) => {
+      pendingSends += 1;
+      void owner
+        .emitBinaryAndWait(bytes)
+        .catch(() => {})
+        .finally(() => {
+          pendingSends -= 1;
+        });
+    };
+    const size = { maxWidth: msg.maxWidth, maxHeight: msg.maxHeight };
+    const watchJpeg = () =>
+      tab.screencast.addViewer(
+        viewerId,
+        {
+          send: (frame, seq) =>
+            emitCounted(
               encodeServerBrowserFrame({
                 streamId,
                 seq,
@@ -148,15 +177,47 @@ export class ServerBrowserSessionHandlers {
                 height: frame.height,
                 jpeg: frame.jpeg,
               }),
-            )
-            .catch(() => {})
-            .finally(() => {
-              pendingSends -= 1;
-            });
+            ),
+          isCongested: () => pendingSends >= MAX_PENDING_SENDS,
         },
-        isCongested: () => pendingSends >= MAX_PENDING_SENDS,
+        size,
+      );
+    emit({
+      type: "browser.server.screencast.start.response",
+      payload: {
+        requestId: msg.requestId,
+        subscriptionId: owner.responseId,
+        streamId,
+        ...(codec ? { video: { codec } } : {}),
       },
-      { maxWidth: msg.maxWidth, maxHeight: msg.maxHeight },
+    });
+    if (!codec || !tab.video) {
+      watchJpeg();
+      return;
+    }
+    tab.video.addViewer(
+      viewerId,
+      {
+        send: (chunk, seq) =>
+          emitCounted(
+            encodeServerBrowserVideoChunk({
+              streamId,
+              seq,
+              width: chunk.width,
+              height: chunk.height,
+              key: chunk.key,
+              data: chunk.data,
+            }),
+          ),
+        // Chunks are small and the hub's window bounds them; only a stalled socket counts.
+        isCongested: () => pendingSends >= VIDEO_MAX_PENDING_SENDS,
+        fallback: () => {
+          if (!this.streams.has(streamId)) return;
+          stream.kind = "jpeg";
+          watchJpeg();
+        },
+      },
+      { ...size, codec },
     );
   }
 

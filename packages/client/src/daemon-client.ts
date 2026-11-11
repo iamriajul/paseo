@@ -182,6 +182,7 @@ import {
 } from "@getpaseo/protocol/binary-frames/index";
 import {
   decodeServerBrowserFrame,
+  encodeServerBrowserVideoKeyframeRequest,
   encodeServerBrowserFrameAck,
   ServerBrowserOpcode,
 } from "@getpaseo/protocol/binary-frames/server-browser";
@@ -1525,6 +1526,24 @@ export interface ServerBrowserFrame {
   ack(): void;
 }
 
+/** One encoded video chunk of a stream that negotiated video. Ack it once decoded. */
+export interface ServerBrowserVideoChunk {
+  /** CSS-pixel size of the page the chunk shows. */
+  width: number;
+  height: number;
+  key: boolean;
+  data: Uint8Array;
+  ack(): void;
+  /** The decoder lost its place: ask the daemon for the stream's next keyframe. */
+  requestKeyframe(): void;
+}
+
+export interface ServerBrowserVideoOptions {
+  /** Codecs the viewer decodes, best first. Needs features.serverBrowserVideo. */
+  codecs: string[];
+  onChunk: (chunk: ServerBrowserVideoChunk) => void;
+}
+
 export class DaemonClient {
   private readonly providerSnapshotUpdates = new ProviderSnapshotUpdates({
     active: (message) => this.owned.owns(message),
@@ -1594,6 +1613,7 @@ export class DaemonClient {
   private pluginClientBundlesWriting = false;
   private tcpTunnelStreams = new Map<number, TcpTunnelClientStreamState>();
   private serverBrowserFrameListeners = new Map<number, (frame: ServerBrowserFrame) => void>();
+  private serverBrowserVideoListeners = new Map<number, (chunk: ServerBrowserVideoChunk) => void>();
   private nextTcpTunnelStreamId = 1;
   private logger: Logger;
   private pendingSendQueue: PendingSend[] = [];
@@ -2955,19 +2975,31 @@ export class DaemonClient {
   observeServerBrowserScreencast(
     params: { browserId: string; maxWidth: number; maxHeight: number },
     onFrame: (frame: ServerBrowserFrame) => void,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; video?: ServerBrowserVideoOptions },
   ): OwnedSubscription<CorrelatedResponsePayload<"browser.server.screencast.start.response">> {
+    const video = options?.video;
     const subscription = this.observe(
       "browser.server.screencast.start.response",
-      { type: "browser.server.screencast.start.request", ...params },
-      options,
+      {
+        type: "browser.server.screencast.start.request",
+        ...params,
+        ...(video ? { video: { codecs: video.codecs } } : {}),
+      },
+      options?.signal ? { signal: options.signal } : undefined,
     );
     let streamId: number | null = null;
+    const forget = () => {
+      if (streamId === null) return;
+      this.serverBrowserFrameListeners.delete(streamId);
+      this.serverBrowserVideoListeners.delete(streamId);
+    };
     const unsubscribe = subscription.subscribe({
       snapshot: (snapshot) => {
-        if (streamId !== null) this.serverBrowserFrameListeners.delete(streamId);
+        forget();
         streamId = snapshot.streamId ?? null;
-        if (streamId !== null) this.serverBrowserFrameListeners.set(streamId, onFrame);
+        if (streamId === null) return;
+        this.serverBrowserFrameListeners.set(streamId, onFrame);
+        if (video) this.serverBrowserVideoListeners.set(streamId, video.onChunk);
       },
       update: () => {},
     });
@@ -2979,7 +3011,7 @@ export class DaemonClient {
       subscribe: (observer) => subscription.subscribe(observer),
       release: async () => {
         unsubscribe();
-        if (streamId !== null) this.serverBrowserFrameListeners.delete(streamId);
+        forget();
         await subscription.release();
       },
     };
@@ -8166,6 +8198,47 @@ export class DaemonClient {
     }
   }
 
+  /** Server browser screencast frames: JPEG (0x40) and video chunks (0x42). */
+  private tryHandleServerBrowserFrame(rawBytes: Uint8Array): boolean {
+    const serverBrowserFrame = decodeServerBrowserFrame(rawBytes);
+    if (serverBrowserFrame?.opcode === ServerBrowserOpcode.Frame) {
+      this.consecutiveLivenessFailures = 0;
+      const { streamId, seq } = serverBrowserFrame;
+      this.serverBrowserFrameListeners.get(streamId)?.({
+        width: serverBrowserFrame.width,
+        height: serverBrowserFrame.height,
+        jpeg: serverBrowserFrame.jpeg,
+        ack: () => {
+          void this.sendBinaryFrame(encodeServerBrowserFrameAck({ streamId, seq })).catch(() => {});
+        },
+      });
+      this.runtimeMetrics?.recordBinaryFrame("other", rawBytes.byteLength, 0);
+      return true;
+    }
+
+    if (serverBrowserFrame?.opcode === ServerBrowserOpcode.VideoChunk) {
+      this.consecutiveLivenessFailures = 0;
+      const { streamId, seq } = serverBrowserFrame;
+      this.serverBrowserVideoListeners.get(streamId)?.({
+        width: serverBrowserFrame.width,
+        height: serverBrowserFrame.height,
+        key: serverBrowserFrame.key,
+        data: serverBrowserFrame.data,
+        ack: () => {
+          void this.sendBinaryFrame(encodeServerBrowserFrameAck({ streamId, seq })).catch(() => {});
+        },
+        requestKeyframe: () => {
+          void this.sendBinaryFrame(encodeServerBrowserVideoKeyframeRequest({ streamId })).catch(
+            () => {},
+          );
+        },
+      });
+      this.runtimeMetrics?.recordBinaryFrame("other", rawBytes.byteLength, 0);
+      return true;
+    }
+    return false;
+  }
+
   private tryHandleBinaryFrame(rawBytes: Uint8Array): boolean {
     const hostFrame = decodeHostRouteFrame(rawBytes);
     if (rawBytes[0] === HOST_ROUTE_OPCODE && !hostFrame) {
@@ -8191,21 +8264,7 @@ export class DaemonClient {
       return true;
     }
 
-    const serverBrowserFrame = decodeServerBrowserFrame(rawBytes);
-    if (serverBrowserFrame?.opcode === ServerBrowserOpcode.Frame) {
-      this.consecutiveLivenessFailures = 0;
-      const { streamId, seq } = serverBrowserFrame;
-      this.serverBrowserFrameListeners.get(streamId)?.({
-        width: serverBrowserFrame.width,
-        height: serverBrowserFrame.height,
-        jpeg: serverBrowserFrame.jpeg,
-        ack: () => {
-          void this.sendBinaryFrame(encodeServerBrowserFrameAck({ streamId, seq })).catch(() => {});
-        },
-      });
-      this.runtimeMetrics?.recordBinaryFrame("other", rawBytes.byteLength, 0);
-      return true;
-    }
+    if (this.tryHandleServerBrowserFrame(rawBytes)) return true;
 
     const tunnelFrame = decodeTcpTunnelFrame(rawBytes);
     if (tunnelFrame) {

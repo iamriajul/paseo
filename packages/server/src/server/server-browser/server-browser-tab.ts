@@ -9,6 +9,8 @@ import { CdpSessionQueue } from "./engine/cdp-session-queue.js";
 import type { TabContents, TabImage } from "./engine/service.js";
 import type { IsolatedKeyboardInputEvent } from "./engine/trusted-input.js";
 import { ScreencastHub, type ScreencastSize } from "./screencast-hub.js";
+import type { TabVideoCapture } from "./tab-video.js";
+import { TabVideoStream } from "./tab-video-stream.js";
 import { cancelPick } from "./element-picker.js";
 import { cdpKeyEventsForElectronKey } from "./key-events.js";
 import type { LocalStorageItems } from "./workspace-storage-state.js";
@@ -54,6 +56,10 @@ export interface ServerBrowserTabOptions {
   onChange: () => void;
   /** The main frame committed a new document. */
   onNavigated?: (url: string) => void;
+  /** The browser's tab-capture extension, when the engine has one (Managed Chrome). */
+  videoCapture?: () => Promise<TabVideoCapture | null>;
+  onVideoError?: (message: string) => void;
+  onVideoPlan?: (encodes: string[]) => void;
   now?: () => number;
 }
 
@@ -68,6 +74,7 @@ export class ServerBrowserTab {
   public readonly createdAt: number;
   public readonly contents: TabContents;
   public readonly screencast: ScreencastHub;
+  public readonly video: TabVideoStream | null;
   public lastUsedAt: number;
 
   private targetId: string;
@@ -120,6 +127,26 @@ export class ServerBrowserTab {
       start: (size) => this.startScreencast(size),
       stop: () => this.stopScreencast(),
     });
+    const videoCapture = options.videoCapture;
+    this.video = videoCapture
+      ? new TabVideoStream({
+          capture: videoCapture,
+          targetId: () => this.targetId,
+          page: () => ({
+            width: this.viewport.width,
+            height: this.viewport.height,
+            scale: this.viewport.mobile ? 2 : 1,
+          }),
+          onWatched: (watched) => (watched ? this.beginWatching() : this.endWatching()),
+          onError: (message) => options.onVideoError?.(message),
+          onPlan: (encodes) => options.onVideoPlan?.(encodes),
+        })
+      : null;
+  }
+
+  /** Viewers of either stream: JPEG frames or video. */
+  public get viewerCount(): number {
+    return this.screencast.viewerCount + (this.video?.hub.viewerCount ?? 0);
   }
 
   public get isClosed(): boolean {
@@ -187,6 +214,7 @@ export class ServerBrowserTab {
     this.closed = false;
     this.screencast.resetLastFrame();
     if (this.screencastSize) void this.startScreencast(this.screencastSize);
+    this.video?.refresh();
   }
 
   public touch(): void {
@@ -250,6 +278,7 @@ export class ServerBrowserTab {
     this.markClosed();
     this.screencastSize = null;
     this.screencast.close();
+    this.video?.close();
   }
 
   public updateTargetInfo(info: { url?: string; title?: string }): void {
@@ -348,6 +377,7 @@ export class ServerBrowserTab {
   public async setViewport(viewport: ServerBrowserViewport): Promise<void> {
     this.viewport = { ...viewport };
     await this.applyViewport();
+    this.video?.refresh();
     this.onChange();
   }
 
@@ -565,6 +595,16 @@ export class ServerBrowserTab {
       this.assertNoDialog();
       return this.queue.run(() => this.inputSend(method, params));
     }
+    // A clipped or full-page screenshot resizes the view for the capture, and tab capture would
+    // show that frame; video pauses around it and viewers resume at a keyframe.
+    if (
+      this.video &&
+      method === "Page.captureScreenshot" &&
+      (params.clip || params.captureBeyondViewport)
+    ) {
+      const video = this.video;
+      return video.suspendDuring(() => this.queue.run(() => this.rawSend(method, params)));
+    }
     return this.queue.run(() => this.rawSend(method, params));
   }
 
@@ -652,10 +692,7 @@ export class ServerBrowserTab {
 
   private startScreencast(size: ScreencastSize): void {
     this.screencastSize = size;
-    // A hidden page paints nothing, so a viewer of a minimized window would wait on a blank frame.
-    void this.ensureVisible().catch(() => {});
-    // A file input asks the viewer instead of opening Chromium's chooser, which no one sees.
-    void this.rawSend("Page.setInterceptFileChooserDialog", { enabled: true }).catch(() => {});
+    this.beginWatching();
     void this.rawSend("Page.startScreencast", {
       format: "jpeg",
       quality: 60,
@@ -667,6 +704,21 @@ export class ServerBrowserTab {
 
   private stopScreencast(): void {
     this.screencastSize = null;
+    this.endWatching();
+    void this.rawSend("Page.stopScreencast").catch(() => {});
+  }
+
+  /** A viewer started watching, on either stream. */
+  private beginWatching(): void {
+    // A hidden page paints nothing, so a viewer of a minimized window would wait on a blank frame.
+    void this.ensureVisible().catch(() => {});
+    // A file input asks the viewer instead of opening Chromium's chooser, which no one sees.
+    void this.rawSend("Page.setInterceptFileChooserDialog", { enabled: true }).catch(() => {});
+  }
+
+  /** Called when a stream lost its last viewer; acts only once neither stream has one. */
+  private endWatching(): void {
+    if (this.viewerCount > 0) return;
     // With no viewer the page keeps Chromium's own chooser (an Existing browser's owner sees it).
     void this.rawSend("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => {});
     if (this.fileChooser) {
@@ -680,7 +732,6 @@ export class ServerBrowserTab {
       this.autoAcceptDialog(dialog);
       this.onChange();
     }
-    void this.rawSend("Page.stopScreencast").catch(() => {});
   }
 
   private onScreencastFrame(params: CdpParams): void {
@@ -766,7 +817,7 @@ export class ServerBrowserTab {
         : {}),
       url: stringParam(params, "url") ?? this.url,
     };
-    if (this.screencast.viewerCount === 0) {
+    if (this.viewerCount === 0) {
       this.autoAcceptDialog(dialog);
       return;
     }
@@ -782,7 +833,7 @@ export class ServerBrowserTab {
    */
   private onFileChooserOpened(params: CdpParams): void {
     const backendNodeId = params.backendNodeId;
-    if (typeof backendNodeId !== "number" || this.screencast.viewerCount === 0) return;
+    if (typeof backendNodeId !== "number" || this.viewerCount === 0) return;
     this.fileChooser = {
       id: String(this.nextDialogId++),
       multiple: params.mode === "selectMultiple",

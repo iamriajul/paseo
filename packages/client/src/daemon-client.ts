@@ -617,6 +617,43 @@ export interface FileReadResult {
   modifiedAt: string;
   revision?: string;
 }
+export interface FolderZipInput {
+  cwd: string;
+  path: string;
+  /** Absent means true, matching Files' default of showing hidden files. */
+  includeHidden?: boolean;
+}
+export interface DownloadStreamInput {
+  cwd: string;
+  path: string;
+  kind: "file" | "folder";
+  /** Folders only. Absent means true, matching Files' default of showing hidden files. */
+  includeHidden?: boolean;
+}
+export interface DownloadStreamOptions {
+  signal?: AbortSignal;
+  /** Bytes each read asks for. */
+  sliceBytes?: number;
+  /** Reads kept in flight, so the next slice is already on its way while one is written. */
+  depth?: number;
+}
+export interface DownloadStream {
+  fileName: string;
+  mimeType: string;
+  /** Exact for a file; `null` for a folder's zip. */
+  size: number | null;
+  /**
+   * The download's bytes. The next slice is requested only as these are consumed, so a slow
+   * consumer slows the daemon instead of buffering. Ending early closes the download.
+   */
+  chunks: AsyncIterable<Uint8Array>;
+}
+interface DownloadSlice {
+  chunks: Uint8Array[];
+  done: boolean;
+}
+const DEFAULT_DOWNLOAD_SLICE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_DOWNLOAD_DEPTH = 3;
 export interface FileUploadInput {
   fileName: string;
   mimeType: string;
@@ -1591,6 +1628,8 @@ export class DaemonClient {
   private pendingBinaryFileReads = new Map<string, PendingBinaryFileRead>();
   private activeBinaryFileTransfers = new Map<string, BinaryFileTransferState>();
   private completedBinaryFileReads = new Map<string, FileReadResult>();
+  // COMPAT(downloadStream): added in v0.15.911, drop gate after 2027-05-11.
+  private pendingDownloadReads = new Map<string, Uint8Array[]>();
   /** The last catalog's client bundles by plugin id, so later catalogs can leave them out. */
   private pluginClientBundles = new Map<
     string,
@@ -6256,6 +6295,110 @@ export class DaemonClient {
     return responsePromise;
   }
 
+  /** Requires `server_info.features.downloadStream`. Fetch the zip from /api/files/download. */
+  async requestFolderDownloadToken(
+    input: FolderZipInput,
+  ): Promise<CorrelatedResponsePayload<"fs.folder.get_download_token.response">> {
+    return this.sendNamespacedCorrelatedSessionRequest<"fs.folder.get_download_token.response">({
+      message: { type: "fs.folder.get_download_token.request", ...input },
+    });
+  }
+
+  /**
+   * Requires `server_info.features.downloadStream`. Downloads a file or a folder's zip over the
+   * session socket, for connections with no HTTP route. Throws if the daemon refuses to open it;
+   * `chunks` throws if the transfer fails, is aborted, or comes up short.
+   */
+  async openDownloadStream(
+    input: DownloadStreamInput,
+    options: DownloadStreamOptions = {},
+  ): Promise<DownloadStream> {
+    const opened = await this.sendNamespacedCorrelatedSessionRequest<"fs.download.open.response">({
+      message: { type: "fs.download.open.request", ...input },
+    });
+    if (opened.error || !opened.downloadId || !opened.fileName) {
+      throw new Error(opened.error ?? "Download unavailable.");
+    }
+    const downloadId = opened.downloadId;
+    return {
+      fileName: opened.fileName,
+      mimeType: opened.mimeType ?? "application/octet-stream",
+      size: opened.size,
+      chunks: this.readDownloadSlices({ downloadId, size: opened.size, options }),
+    };
+  }
+
+  private async *readDownloadSlices({
+    downloadId,
+    size,
+    options,
+  }: {
+    downloadId: string;
+    size: number | null;
+    options: DownloadStreamOptions;
+  }): AsyncGenerator<Uint8Array> {
+    const sliceBytes = options.sliceBytes ?? DEFAULT_DOWNLOAD_SLICE_BYTES;
+    const depth = options.depth ?? DEFAULT_DOWNLOAD_DEPTH;
+    const { signal } = options;
+    const inFlight: Promise<DownloadSlice>[] = [];
+    let received = 0;
+    let done = false;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      if (!signal) return;
+      const onAbort = () => reject(signal.reason ?? new Error("Download cancelled."));
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    });
+    aborted.catch(() => undefined);
+    try {
+      while (!done) {
+        // The daemon answers reads in order; reads past the end come back empty and done.
+        while (inFlight.length < depth)
+          inFlight.push(this.readDownloadSlice(downloadId, sliceBytes));
+        const slice = await Promise.race([inFlight.shift()!, aborted]);
+        done = slice.done;
+        for (const chunk of slice.chunks) {
+          received += chunk.byteLength;
+          yield chunk;
+        }
+        if (signal?.aborted) throw signal.reason ?? new Error("Download cancelled.");
+      }
+      if (size !== null && received !== size) {
+        throw new Error(`Download incomplete: expected ${size} bytes, received ${received}.`);
+      }
+    } finally {
+      for (const pending of inFlight) pending.catch(() => undefined);
+      void this.sendNamespacedCorrelatedSessionRequest<"fs.download.close.response">({
+        message: { type: "fs.download.close.request", downloadId },
+      }).catch(() => undefined);
+    }
+  }
+
+  private async readDownloadSlice(downloadId: string, maxBytes: number): Promise<DownloadSlice> {
+    const requestId = this.createRequestId();
+    const chunks: Uint8Array[] = [];
+    this.pendingDownloadReads.set(requestId, chunks);
+    try {
+      // No timeout: a slice takes as long as the link needs; a dead connection still rejects.
+      const payload =
+        await this.sendNamespacedCorrelatedSessionRequest<"fs.download.read.response">({
+          requestId,
+          message: { type: "fs.download.read.request", downloadId, maxBytes },
+          timeout: 0,
+        });
+      if (payload.error) throw new Error(payload.error);
+      const received = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+      if (received !== payload.bytes) {
+        throw new Error(
+          `Download incomplete: expected ${payload.bytes} bytes, received ${received}.`,
+        );
+      }
+      return { chunks, done: payload.done };
+    } finally {
+      this.pendingDownloadReads.delete(requestId);
+    }
+  }
+
   async requestDownloadToken(
     cwd: string,
     path: string,
@@ -8266,6 +8409,11 @@ export class DaemonClient {
   }
 
   private handleFileTransferFrame(frame: FileTransferFrame): void {
+    const downloadRead = this.pendingDownloadReads.get(frame.requestId);
+    if (downloadRead) {
+      if (frame.opcode === FileTransferOpcode.FileChunk) downloadRead.push(frame.payload);
+      return;
+    }
     if (frame.opcode === FileTransferOpcode.FileBegin) {
       const pending = this.pendingBinaryFileReads.get(frame.requestId);
       if (!pending) {

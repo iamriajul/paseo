@@ -1,7 +1,7 @@
 import type pino from "pino";
 import type { OwnedOperation, SessionDelivery } from "../owned-subscriptions/index.js";
 import type { FileVersion } from "@getpaseo/protocol/messages";
-import { promises as fs } from "node:fs";
+import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
 import { getErrorMessage } from "@getpaseo/protocol/error-utils";
 import {
@@ -11,6 +11,10 @@ import {
 } from "@getpaseo/protocol/binary-frames/index";
 import type {
   FileDownloadTokenRequest,
+  FolderDownloadTokenRequest,
+  DownloadCloseRequest,
+  DownloadOpenRequest,
+  DownloadReadRequest,
   FileEntryCreateRequest,
   FileEntryDeleteRequest,
   FileEntryDuplicateRequest,
@@ -28,6 +32,15 @@ import type {
 } from "../../messages.js";
 import { FileUploadStore } from "../../file-upload/index.js";
 import type { DownloadTokenStore } from "../../file-download/token-store.js";
+import {
+  createFolderZipStream,
+  FOLDER_ZIP_MIME_TYPE,
+  getDownloadableFolderInfo,
+} from "../../file-download/folder-zip.js";
+import {
+  SessionDownloads,
+  type SessionDownloadStream,
+} from "../../file-download/session-downloads.js";
 import {
   createExplorerEntry,
   deleteExplorerEntry,
@@ -101,6 +114,7 @@ export class WorkspaceFilesSession {
   private readonly fileObserver: FileObserver;
   private readonly workspaceRoots: () => Promise<readonly string[]>;
   private readonly thumbnails: ExplorerThumbnailService;
+  private readonly downloads = new SessionDownloads();
 
   constructor(options: WorkspaceFilesSessionOptions) {
     this.host = options.host;
@@ -110,6 +124,10 @@ export class WorkspaceFilesSession {
     this.fileObserver = options.fileObserver ?? workspaceFileObserver;
     this.workspaceRoots = options.workspaceRoots;
     this.thumbnails = options.thumbnails;
+  }
+
+  dispose(): void {
+    this.downloads.closeAll();
   }
 
   /** Null when `root` lies inside an active workspace, otherwise the refusal to send back. */
@@ -635,6 +653,7 @@ export class WorkspaceFilesSession {
       });
 
       const entry = this.downloadTokenStore.issueToken({
+        kind: "file",
         path: info.path,
         absolutePath: info.absolutePath,
         fileName: info.fileName,
@@ -675,4 +694,185 @@ export class WorkspaceFilesSession {
       });
     }
   }
+
+  async handleFolderDownloadTokenRequest(request: FolderDownloadTokenRequest): Promise<void> {
+    const cwd = request.cwd.trim();
+    try {
+      if (!cwd) throw new Error("cwd is required");
+      const folder = await getDownloadableFolderInfo({ root: cwd, relativePath: request.path });
+      const entry = this.downloadTokenStore.issueToken({
+        kind: "folder",
+        path: folder.path,
+        absolutePath: folder.absolutePath,
+        rootPath: folder.rootPath,
+        fileName: folder.fileName,
+        includeHidden: request.includeHidden ?? true,
+      });
+      this.host.emit({
+        type: "fs.folder.get_download_token.response",
+        payload: {
+          cwd,
+          path: folder.path,
+          token: entry.token,
+          fileName: entry.fileName,
+          error: null,
+          requestId: request.requestId,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        { err: error, cwd, path: request.path },
+        `Failed to issue folder download token for workspace ${cwd}`,
+      );
+      this.host.emit({
+        type: "fs.folder.get_download_token.response",
+        payload: {
+          cwd: request.cwd,
+          path: request.path,
+          token: null,
+          fileName: null,
+          error: getErrorMessage(error),
+          requestId: request.requestId,
+        },
+      });
+    }
+  }
+
+  /** Opens a file or a folder's zip for the client to pull with fs.download.read. */
+  async handleDownloadOpenRequest(request: DownloadOpenRequest): Promise<void> {
+    const { requestId } = request;
+    const cwd = request.cwd.trim();
+    try {
+      if (!cwd) throw new Error("cwd is required");
+      if (!this.host.hasBinaryChannel())
+        throw new Error("Update the app to download over this connection.");
+      const stream =
+        request.kind === "folder"
+          ? await openFolderDownload(cwd, request.path, request.includeHidden ?? true)
+          : await openFileDownload(cwd, request.path);
+      const downloadId = this.downloads.open(stream);
+      this.host.emit({
+        type: "fs.download.open.response",
+        payload: {
+          downloadId,
+          fileName: stream.fileName,
+          mimeType: stream.mimeType,
+          size: stream.size,
+          error: null,
+          requestId,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        { err: error, cwd, path: request.path, kind: request.kind },
+        `Failed to open download for workspace ${cwd}`,
+      );
+      this.host.emit({
+        type: "fs.download.open.response",
+        payload: {
+          downloadId: null,
+          fileName: null,
+          mimeType: null,
+          size: null,
+          error: getErrorMessage(error),
+          requestId,
+        },
+      });
+    }
+  }
+
+  async handleDownloadReadRequest(request: DownloadReadRequest, source?: object): Promise<void> {
+    const { downloadId, requestId } = request;
+    try {
+      const slice = await this.downloads.read(
+        downloadId,
+        Math.min(request.maxBytes, MAX_READ_BYTES),
+      );
+      for (const chunk of slice.chunks) {
+        await this.host.emitBinary(
+          encodeFileTransferFrame({
+            opcode: FileTransferOpcode.FileChunk,
+            requestId,
+            payload: chunk,
+          }),
+          source,
+        );
+      }
+      this.host.emit(
+        {
+          type: "fs.download.read.response",
+          payload: { downloadId, bytes: slice.bytes, done: slice.done, error: null, requestId },
+        },
+        source,
+      );
+    } catch (error) {
+      // A frame that failed to send leaves the client short; the stream cannot resume.
+      this.downloads.close(downloadId);
+      this.logger.warn({ err: error, downloadId }, "Failed to read download");
+      this.host.emit(
+        {
+          type: "fs.download.read.response",
+          payload: { downloadId, bytes: 0, done: false, error: getErrorMessage(error), requestId },
+        },
+        source,
+      );
+    }
+  }
+
+  async handleDownloadCloseRequest(request: DownloadCloseRequest): Promise<void> {
+    this.downloads.close(request.downloadId);
+    this.host.emit({
+      type: "fs.download.close.response",
+      payload: { downloadId: request.downloadId, error: null, requestId: request.requestId },
+    });
+  }
+}
+
+/** One read never sends more than this, whatever the client asks for. */
+const MAX_READ_BYTES = 8 * 1024 * 1024;
+const DOWNLOAD_CHUNK_BYTES = 256 * 1024;
+const FILE_OPEN_FLAGS =
+  process.platform === "win32"
+    ? fsConstants.O_RDONLY
+    : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+
+async function openFileDownload(cwd: string, relativePath: string): Promise<SessionDownloadStream> {
+  // Same path safety and canonical target as the HTTP token route.
+  const info = await getDownloadableFileInfo({ root: cwd, relativePath });
+  const handle = await fs.open(info.absolutePath, FILE_OPEN_FLAGS);
+  const stats = await handle.stat().catch(async (error: unknown) => {
+    await handle.close();
+    throw error;
+  });
+  if (!stats.isFile()) {
+    await handle.close();
+    throw new Error("Requested path is not a file");
+  }
+  return {
+    fileName: info.fileName,
+    mimeType: info.mimeType,
+    size: stats.size,
+    // Stop at the size sent in the open response, so a file that grows meanwhile still matches.
+    readable: handle.createReadStream({
+      highWaterMark: DOWNLOAD_CHUNK_BYTES,
+      ...(stats.size > 0 ? { end: stats.size - 1 } : {}),
+    }),
+    abort: new AbortController(),
+  };
+}
+
+async function openFolderDownload(
+  cwd: string,
+  relativePath: string,
+  includeHidden: boolean,
+): Promise<SessionDownloadStream> {
+  const folder = await getDownloadableFolderInfo({ root: cwd, relativePath });
+  const abort = new AbortController();
+  return {
+    fileName: folder.fileName,
+    mimeType: FOLDER_ZIP_MIME_TYPE,
+    size: null,
+    readable: createFolderZipStream({ ...folder, includeHidden }, { signal: abort.signal }),
+    abort,
+  };
 }

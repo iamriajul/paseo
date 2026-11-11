@@ -7,13 +7,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Check, X, XCircle } from "lucide-react-native";
 import { useDownloadStore, formatSpeed, formatEta, type Download } from "@/stores/download-store";
+import { formatFileSize } from "@/utils/format-file-size";
 
 const AUTO_DISMISS_DELAY = 3000;
 
 function getDownloadStatusText(download: Download, t: TFunction): string {
   if (download.status === "downloading") {
-    if (download.progress) {
-      return `${Math.round(download.progress.percent * 100)}% · ${formatSpeed(download.progress.speed)} · ${formatEta(download.progress.eta)}`;
+    const { progress } = download;
+    if (progress && progress.percent !== null && progress.eta !== null) {
+      return `${Math.round(progress.percent * 100)}% · ${formatSpeed(progress.speed)} · ${formatEta(progress.eta)}`;
+    }
+    // A folder's zip has no size until it ends: show what has arrived so far.
+    if (progress) {
+      return `${formatFileSize(progress.bytesWritten)} · ${formatSpeed(progress.speed)}`;
     }
     return t("common.states.starting");
   }
@@ -28,6 +34,7 @@ export function DownloadToast() {
   const downloads = useDownloadStore((state) => state.downloads);
   const activeDownloadId = useDownloadStore((state) => state.activeDownloadId);
   const dismissDownload = useDownloadStore((state) => state.dismissDownload);
+  const cancelDownload = useDownloadStore((state) => state.cancelDownload);
   const dismissTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeDownload = activeDownloadId ? downloads.get(activeDownloadId) : null;
@@ -62,6 +69,12 @@ export function DownloadToast() {
     }
   }, [activeDownload, dismissDownload]);
 
+  const handleCancel = useCallback(() => {
+    if (activeDownload) {
+      cancelDownload(activeDownload.id);
+    }
+  }, [activeDownload, cancelDownload]);
+
   if (!activeDownload) {
     return null;
   }
@@ -83,17 +96,30 @@ export function DownloadToast() {
             {activeDownload.fileName}
           </Text>
           <Text style={styles.status}>{getDownloadStatusText(activeDownload, t)}</Text>
-          {activeDownload.status === "downloading" && activeDownload.progress && (
-            <View style={styles.progressBar}>
-              <ProgressFill percent={activeDownload.progress.percent} />
-            </View>
-          )}
+          {activeDownload.status === "downloading" &&
+            typeof activeDownload.progress?.percent === "number" && (
+              <View style={styles.progressBar}>
+                <ProgressFill percent={activeDownload.progress.percent} />
+              </View>
+            )}
         </View>
         {activeDownload.status !== "downloading" && (
           <Pressable onPress={handleDismiss} hitSlop={8} style={styles.dismiss}>
             <X size={16} color={theme.colors.foregroundMuted} />
           </Pressable>
         )}
+        {activeDownload.status === "downloading" && activeDownload.cancellable ? (
+          <Pressable
+            onPress={handleCancel}
+            hitSlop={8}
+            style={styles.dismiss}
+            accessibilityRole="button"
+            accessibilityLabel={t("downloads.cancel")}
+            testID="download-toast-cancel"
+          >
+            <X size={16} color={theme.colors.foregroundMuted} />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

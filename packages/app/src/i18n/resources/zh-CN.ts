@@ -534,6 +534,7 @@ export const zhCN: TranslationResources = {
       copyRelativePath: "复制相对路径",
       revealIn: "在 {{target}} 中显示",
       download: "下载",
+      downloadFolder: "下载为 ZIP",
       addToChat: "添加到聊天",
       moreActions: "更多操作",
       newFile: "新建文件",
@@ -612,6 +613,7 @@ export const zhCN: TranslationResources = {
         hideHiddenFiles: "隐藏隐藏文件",
         showHiddenFiles: "显示隐藏文件",
         upload: "上传文件",
+        downloadFolder: "将文件夹下载为 ZIP",
         uploading: "正在上传文件",
       },
       empty: {
@@ -2174,6 +2176,9 @@ export const zhCN: TranslationResources = {
     failed: "下载文件失败。",
     shareFile: "共享文件",
     shareFileNamed: "共享 {{fileName}}",
+    cancel: "取消下载",
+    browserMemoryLimit:
+      "{{fileName}} 超过 {{size}}，这是此浏览器通过当前连接能保存的上限。请通过 HTTPS 打开 Paseo，或使用桌面应用。",
   },
   menu: {
     backdrop: "菜单背景",

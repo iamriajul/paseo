@@ -532,6 +532,7 @@ export const en = {
       copyRelativePath: "Copy relative path",
       revealIn: "Reveal in {{target}}",
       download: "Download",
+      downloadFolder: "Download as ZIP",
       addToChat: "Add to chat",
       moreActions: "More actions",
       newFile: "New file",
@@ -610,6 +611,7 @@ export const en = {
         hideHiddenFiles: "Hide hidden files",
         showHiddenFiles: "Show hidden files",
         upload: "Upload files",
+        downloadFolder: "Download folder as ZIP",
         uploading: "Uploading files",
       },
       empty: {
@@ -2226,6 +2228,9 @@ export const en = {
     failed: "Failed to download file.",
     shareFile: "Share file",
     shareFileNamed: "Share {{fileName}}",
+    cancel: "Cancel download",
+    browserMemoryLimit:
+      "{{fileName}} is larger than {{size}}, the most this browser can save over this connection. Open Paseo over HTTPS or use the desktop app.",
   },
   menu: {
     backdrop: "Menu backdrop",

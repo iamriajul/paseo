@@ -46,3 +46,19 @@ export async function downloadFileFromExplorer(page: Page, fileName: string): Pr
   await page.getByRole("menuitem", { name: "Download", exact: true }).click();
   return downloaded;
 }
+
+export async function downloadFolderFromExplorer(
+  page: Page,
+  folderName: string,
+): Promise<Download> {
+  await fileExplorerEntry(page, folderName).click({ button: "right" });
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("menuitem", { name: "Download as ZIP", exact: true }).click();
+  return downloaded;
+}
+
+export async function downloadOpenFolder(page: Page): Promise<Download> {
+  const downloaded = page.waitForEvent("download");
+  await page.getByTestId("files-download-folder").filter({ visible: true }).click();
+  return downloaded;
+}

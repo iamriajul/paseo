@@ -540,6 +540,7 @@ export const fr: TranslationResources = {
       copyRelativePath: "Copier le chemin relatif",
       revealIn: "Afficher dans {{target}}",
       download: "Télécharger",
+      downloadFolder: "Télécharger en ZIP",
       addToChat: "Ajouter à la conversation",
       moreActions: "Plus d’actions",
       newFile: "Nouveau fichier",
@@ -618,6 +619,7 @@ export const fr: TranslationResources = {
         hideHiddenFiles: "Masquer les fichiers cachés",
         showHiddenFiles: "Afficher les fichiers cachés",
         upload: "Téléverser des fichiers",
+        downloadFolder: "Télécharger le dossier en ZIP",
         uploading: "Téléversement des fichiers",
       },
       empty: {
@@ -2245,6 +2247,9 @@ export const fr: TranslationResources = {
     failed: "Impossible de télécharger le fichier.",
     shareFile: "Partager le fichier",
     shareFileNamed: "Partager {{fileName}}",
+    cancel: "Annuler le téléchargement",
+    browserMemoryLimit:
+      "{{fileName}} dépasse {{size}}, le maximum que ce navigateur peut enregistrer sur cette connexion. Ouvrez Paseo en HTTPS ou utilisez l’application de bureau.",
   },
   menu: {
     backdrop: "Arrière-plan du menu",

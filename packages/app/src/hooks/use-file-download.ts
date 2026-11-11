@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
+import { useSessionStore } from "@/stores/session-store";
 import { useDownloadStore } from "@/stores/download-store";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 
@@ -37,6 +38,11 @@ export function useFileDownload({
     workspaceRoot: normalizedWorkspaceRoot,
   });
   const startDownload = useDownloadStore((state) => state.startDownload);
+  // COMPAT(downloadStream): added in v0.15.911, drop gate after 2027-05-11.
+  const streams = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.downloadStream === true,
+  );
+  const client = useSessionStore((state) => state.sessions[serverId]?.client ?? null);
 
   return useCallback(
     ({ fileName, path }) => {
@@ -51,10 +57,21 @@ export function useFileDownload({
         daemonProfile,
         activeConnectionId: getHostRuntimeStore().getSnapshot(serverId)?.activeConnectionId ?? null,
         requestFileDownloadToken: (targetPath) => requestFileDownloadToken(targetPath),
+        openStream:
+          streams && client
+            ? (signal) =>
+                client.openDownloadStream(
+                  { cwd: normalizedWorkspaceRoot, path, kind: "file" },
+                  { signal },
+                )
+            : null,
         readFile: requestFileBytes,
       });
     },
     [
+      client,
+      normalizedWorkspaceRoot,
+      streams,
       daemonProfile,
       requestFileBytes,
       requestFileDownloadToken,

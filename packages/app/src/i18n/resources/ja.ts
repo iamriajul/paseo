@@ -540,6 +540,7 @@ export const ja: TranslationResources = {
       copyRelativePath: "相対パスをコピー",
       revealIn: "{{target}}で表示",
       download: "ダウンロード",
+      downloadFolder: "ZIPでダウンロード",
       addToChat: "チャットに追加",
       moreActions: "その他のアクション",
       newFile: "新規ファイル",
@@ -618,6 +619,7 @@ export const ja: TranslationResources = {
         hideHiddenFiles: "隠しファイルを非表示",
         showHiddenFiles: "隠しファイルを表示",
         upload: "ファイルをアップロード",
+        downloadFolder: "フォルダをZIPでダウンロード",
         uploading: "ファイルをアップロード中",
       },
       empty: {
@@ -2219,6 +2221,9 @@ export const ja: TranslationResources = {
     failed: "ファイルのダウンロードに失敗しました。",
     shareFile: "ファイルを共有",
     shareFileNamed: "{{fileName}}を共有",
+    cancel: "ダウンロードをキャンセル",
+    browserMemoryLimit:
+      "{{fileName}} は {{size}} を超えています。この接続でこのブラウザーが保存できる上限です。HTTPS で Paseo を開くか、デスクトップアプリを使ってください。",
   },
   menu: {
     backdrop: "メニューの背景",

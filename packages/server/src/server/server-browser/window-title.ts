@@ -40,25 +40,46 @@ export function stripSnapshotTitle(snapshot: string, mark: WindowTitleMark): str
   return end === -1 ? line : line + snapshot.slice(end);
 }
 
+/** Re-marks one document may take in a second; past that the page keeps its title unmarked. */
+const MAX_MARKS_PER_SECOND = 10;
+
 /**
  * Reports the page's title to the daemon each time the page sets it, through `TITLE_BINDING`:
  * Chromium sends no `Target.targetInfoChanged` for a title set after load. With a mark, it also
  * keeps the mark on every document (a page that reads its marked title and sets it back gets one
  * mark, not two), and reports the marked title once it is in place.
+ *
+ * A page whose own code puts its title back whenever it changes (an app's title observer) would
+ * answer every mark with a write of its own, and the two observers would trade writes in one
+ * microtask loop that never yields: the page stops responding, and each write sends Chrome's
+ * browser process a title update until it runs out of memory and crashes. The mark gives way
+ * instead: past MAX_MARKS_PER_SECOND re-marks, the document keeps its own title.
  */
 export function titleObserverScript(mark: WindowTitleMark | null): string {
   return `(() => {
   const mark = ${JSON.stringify(mark)};
   const report = globalThis[${JSON.stringify(TITLE_BINDING)}];
   let reported = null;
+  let marking = mark !== null;
+  let marks = 0;
+  let windowStart = 0;
   const apply = () => {
     const current = document.title;
-    if (mark) {
+    if (marking) {
       const own = current.split(mark.prefix).join("");
       const marked = own && own !== mark.label ? mark.prefix + own : mark.label;
       if (current !== marked) {
-        document.title = marked;
-        return;
+        const now = performance.now();
+        if (now - windowStart > 1000) {
+          windowStart = now;
+          marks = 0;
+        }
+        marks += 1;
+        if (marks <= ${MAX_MARKS_PER_SECOND}) {
+          document.title = marked;
+          return;
+        }
+        marking = false;
       }
     }
     if (current === reported || typeof report !== "function") return;

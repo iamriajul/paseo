@@ -19,8 +19,16 @@ import {
   titleObserverScript,
   type WindowTitleMark,
 } from "./window-title.js";
+import { CONSOLE_BUDGET, ConsoleBudget } from "./console-budget.js";
 
 const MAX_CONSOLE_ENTRIES = 200;
+/** How long a tab over its console budget first stops reading the console; doubles per repeat. */
+const CONSOLE_PAUSE_MS = 2_000;
+const MAX_CONSOLE_PAUSE_MS = 5 * 60_000;
+/** A pause ends only once no event has arrived for this long: Chrome's queue has drained. */
+const CONSOLE_QUIET_MS = 500;
+/** A page over budget again this soon after a pause ended gets a longer pause. */
+const CONSOLE_REPEAT_WINDOW_MS = 30_000;
 const LOAD_WAIT_MS = 15_000;
 const STORAGE_READ_TIMEOUT_MS = 2_000;
 const HIDDEN_TAB_MESSAGE =
@@ -98,6 +106,16 @@ export class ServerBrowserTab {
   private fileChooser: { id: string; multiple: boolean; backendNodeId: number } | null = null;
   private nextDialogId = 1;
   private visibleUntil = 0;
+  private readonly consoleBudget = new ConsoleBudget();
+  /** Set while the tab is over its console budget and the Runtime domain is off. */
+  private consolePause: {
+    dropped: number;
+    startedAt: number;
+    lastDropAt: number;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  private consolePauseMs = CONSOLE_PAUSE_MS;
+  private consoleResumedAt = Number.NEGATIVE_INFINITY;
 
   public constructor(options: ServerBrowserTabOptions) {
     this.browserId = options.browserId;
@@ -185,6 +203,8 @@ export class ServerBrowserTab {
     this.sessionId = target.sessionId;
     this.connection = target.connection;
     this.closed = false;
+    // The new target's initialize turns the Runtime domain on again.
+    this.endConsolePause();
     this.screencast.resetLastFrame();
     if (this.screencastSize) void this.startScreencast(this.screencastSize);
   }
@@ -239,6 +259,7 @@ export class ServerBrowserTab {
   public markClosed(): void {
     if (this.closed) return;
     this.closed = true;
+    this.endConsolePause();
     this.screencast.resetLastFrame();
     for (const resolve of this.loadWaiters.splice(0)) resolve();
   }
@@ -871,6 +892,7 @@ export class ServerBrowserTab {
     const message = args
       .map((arg) => (arg.value !== undefined ? String(arg.value) : (arg.description ?? "")))
       .join(" ");
+    if (!this.admitConsole(message)) return;
     const level = typeof params.type === "string" ? params.type : "log";
     this.recordConsole(level === "warning" ? "warning" : level, message);
   }
@@ -879,10 +901,76 @@ export class ServerBrowserTab {
     const details = params.exceptionDetails as
       | { text?: string; exception?: { description?: string }; url?: string; lineNumber?: number }
       | undefined;
-    this.recordConsole("error", details?.exception?.description ?? details?.text ?? "Uncaught", {
+    const message = details?.exception?.description ?? details?.text ?? "Uncaught";
+    if (!this.admitConsole(message)) return;
+    this.recordConsole("error", message, {
       ...(details?.url ? { source: details.url } : {}),
       ...(typeof details?.lineNumber === "number" ? { line: details.lineNumber } : {}),
     });
+  }
+
+  /**
+   * Whether a console message from the page is kept. Past the budget the tab turns the Runtime
+   * domain off, so the page stops sending events, and counts what still arrives as dropped. The
+   * page has usually queued many more before the off reaches it, so the tab turns the domain back
+   * on only after the pause and once those stopped arriving, and says how many it dropped. A page
+   * that is over budget again soon after gets twice the pause, up to MAX_CONSOLE_PAUSE_MS.
+   */
+  private admitConsole(message: string): boolean {
+    const now = Date.now();
+    if (this.consolePause) {
+      this.consolePause.dropped += 1;
+      this.consolePause.lastDropAt = now;
+      return false;
+    }
+    if (this.consoleBudget.admit(now, message.length)) return true;
+    this.consolePauseMs =
+      now - this.consoleResumedAt < CONSOLE_REPEAT_WINDOW_MS
+        ? Math.min(this.consolePauseMs * 2, MAX_CONSOLE_PAUSE_MS)
+        : CONSOLE_PAUSE_MS;
+    this.consolePause = {
+      dropped: 1,
+      startedAt: now,
+      lastDropAt: now,
+      timer: setTimeout(() => this.resumeConsoleWhenQuiet(), this.consolePauseMs),
+    };
+    // Straight to the browser: the tab's queue may be held by a command the busy page delays.
+    void this.rawSend("Runtime.disable").catch(() => {});
+    return false;
+  }
+
+  private resumeConsoleWhenQuiet(): void {
+    const pause = this.consolePause;
+    if (!pause) return;
+    const quietFor = Date.now() - pause.lastDropAt;
+    if (quietFor < CONSOLE_QUIET_MS) {
+      pause.timer = setTimeout(() => this.resumeConsoleWhenQuiet(), CONSOLE_QUIET_MS - quietFor);
+      return;
+    }
+    void this.resumeConsole();
+  }
+
+  private async resumeConsole(): Promise<void> {
+    const pause = this.consolePause;
+    if (!pause) return;
+    // Chromium keeps the page's console while the domain is off and replays all of it on enable.
+    await this.rawSend("Runtime.discardConsoleEntries").catch(() => {});
+    await this.rawSend("Runtime.enable").catch(() => {});
+    if (this.consolePause !== pause) return;
+    this.consolePause = null;
+    this.consoleBudget.reset();
+    this.consoleResumedAt = Date.now();
+    const seconds = Math.round((this.consoleResumedAt - pause.startedAt) / 1000);
+    this.recordConsole(
+      "warning",
+      `${pause.dropped} console messages dropped: the page logged more than ${CONSOLE_BUDGET.messages} a second, so Paseo stopped reading its console for ${seconds} s. Messages logged in that time are not counted.`,
+    );
+  }
+
+  private endConsolePause(): void {
+    if (this.consolePause) clearTimeout(this.consolePause.timer);
+    this.consolePause = null;
+    this.consoleBudget.reset();
   }
 
   private recordConsole(

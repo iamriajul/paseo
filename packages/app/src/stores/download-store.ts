@@ -1,23 +1,31 @@
 import { create } from "zustand";
-import { File as FSFile, Paths } from "expo-file-system";
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import type { HostProfile } from "@/types/host-connection";
 import { buildDaemonWebSocketUrl } from "@/utils/daemon-endpoints";
-import { openExternalUrl } from "@/utils/open-external-url";
+import {
+  prepareDownloadDestination,
+  type PrepareDownloadDestination,
+} from "@/downloads/download-destination";
+import { resolveDownloadTargetFile, triggerBrowserDownload } from "@/downloads/save-file";
+import { runSessionDownload, type SessionDownloadStream } from "@/downloads/session-download";
 import { isWeb } from "@/constants/platform";
 import { i18n } from "@/i18n/i18next";
 
+export { resolveDownloadTargetFile, triggerBrowserDownload } from "@/downloads/save-file";
+
 interface DownloadProgress {
-  percent: number;
+  /** `null` while the total is unknown (a folder's zip). */
+  percent: number | null;
   bytesWritten: number;
-  totalBytes: number;
+  totalBytes: number | null;
   speed: number;
-  eta: number;
+  eta: number | null;
 }
 
-// The session path holds the file in memory two to three times over (client chunks, the
-// concatenated result, then the Blob or native write). Lift once the client streams chunks to disk.
+// COMPAT(downloadStream): added in v0.15.911, drop after 2027-05-11 with readFile below.
+// Daemons without fs.download.* send a session download whole, and the client holds it in memory
+// two to three times over (chunks, the concatenated bytes, the Blob or native write).
 export const MAX_SESSION_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 
 export interface DownloadedBytes {
@@ -33,6 +41,8 @@ export interface Download {
   fileName: string;
   status: "downloading" | "complete" | "error";
   message?: string;
+  /** Session downloads stream to disk and can be stopped from the toast. */
+  cancellable?: boolean;
   progress?: DownloadProgress;
   startedAt: number;
 }
@@ -56,12 +66,20 @@ interface DownloadState {
       size: number | null;
       error: string | null;
     }>;
-    /** Reads the whole file over the session socket; used when no direct HTTP endpoint is active. */
+    /**
+     * Streams the file over the session socket when no direct HTTP endpoint is active. `null`
+     * for a daemon without `features.downloadStream`, which falls back to `readFile`.
+     */
+    openStream: ((signal: AbortSignal) => Promise<SessionDownloadStream>) | null;
+    /** Reads the whole file over the session socket; the fallback for older daemons. */
     readFile: (path: string, maxBytes: number) => Promise<{ bytes: Uint8Array; size: number }>;
     saveFile?: typeof saveDownloadedBytes;
+    prepareDestination?: PrepareDownloadDestination;
   }) => Promise<void>;
 
   updateProgress: (id: string, progress: DownloadProgress) => void;
+  /** Stops a cancellable download and removes it; its partial file is deleted. */
+  cancelDownload: (id: string) => void;
   completeDownload: (id: string) => void;
   failDownload: (id: string, message: string) => void;
   dismissDownload: (id: string) => void;
@@ -84,8 +102,10 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
     daemonProfile,
     activeConnectionId,
     requestFileDownloadToken,
+    openStream,
     readFile,
     saveFile = saveDownloadedBytes,
+    prepareDestination = prepareDownloadDestination,
   }) => {
     const id = generateDownloadId();
     const download: Download = {
@@ -102,6 +122,13 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
       activeDownloadId: id,
     }));
 
+    const downloadTarget = resolveDaemonDownloadTarget(daemonProfile, activeConnectionId);
+    if (!downloadTarget && openStream) {
+      // Relay, SSH, socket and pipe hosts have no HTTP endpoint (#543): stream over the session.
+      await streamSessionDownload({ id, fileName, open: openStream, prepareDestination });
+      return;
+    }
+
     try {
       const tokenResponse = await requestFileDownloadToken(path);
       if (tokenResponse.error || !tokenResponse.token) {
@@ -109,30 +136,15 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
       }
 
       const resolvedFileName = tokenResponse.fileName ?? fileName;
-      const downloadTarget = resolveDaemonDownloadTarget(daemonProfile, activeConnectionId);
       if (!downloadTarget) {
-        // Relay, SSH, socket and pipe hosts have no HTTP endpoint: read the file over the
-        // session socket that is already connected (#543).
-        if (
-          typeof tokenResponse.size === "number" &&
-          tokenResponse.size > MAX_SESSION_DOWNLOAD_BYTES
-        ) {
-          throw new Error(
-            i18n.t("composer.errors.fileTooLarge", { fileName: resolvedFileName, size: "64 MB" }),
-          );
-        }
-        const { bytes, size } = await readFile(path, MAX_SESSION_DOWNLOAD_BYTES);
-        // A daemon without a binary channel answers `encoding: "none"` for a binary file: no
-        // content, real size. Never save that as a complete download.
-        if (bytes.byteLength !== size) {
-          throw new Error(
-            `File transfer incomplete: expected ${size} bytes, received ${bytes.byteLength}.`,
-          );
-        }
-        const savedUri = await saveFile({
-          bytes,
+        // COMPAT(downloadStream): added in v0.15.911, drop after 2027-05-11.
+        const savedUri = await readWholeFileOverSession({
+          path,
           fileName: resolvedFileName,
           mimeType: tokenResponse.mimeType,
+          size: tokenResponse.size,
+          readFile,
+          saveFile,
         });
         get().completeDownload(id);
         if (savedUri !== null) {
@@ -207,6 +219,10 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
     }
   },
 
+  cancelDownload: (id) => {
+    downloadCancellers.get(id)?.abort();
+  },
+
   updateProgress: (id, progress) => {
     set((state) => {
       const download = state.downloads.get(id);
@@ -226,7 +242,7 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
         return state;
       }
       const updated = new Map(state.downloads);
-      updated.set(id, { ...download, status: "complete" });
+      updated.set(id, { ...download, status: "complete", cancellable: false });
       return { downloads: updated };
     });
   },
@@ -238,7 +254,7 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
         return state;
       }
       const updated = new Map(state.downloads);
-      updated.set(id, { ...download, status: "error", message });
+      updated.set(id, { ...download, status: "error", message, cancellable: false });
       return { downloads: updated };
     });
   },
@@ -269,6 +285,100 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
     });
   },
 }));
+
+/** How daemons without fs.download.* send a file over the session: whole, capped. */
+async function readWholeFileOverSession({
+  path,
+  fileName,
+  mimeType,
+  size: advertisedSize,
+  readFile,
+  saveFile,
+}: {
+  path: string;
+  fileName: string;
+  mimeType: string | null;
+  size: number | null;
+  readFile: (path: string, maxBytes: number) => Promise<{ bytes: Uint8Array; size: number }>;
+  saveFile: typeof saveDownloadedBytes;
+}): Promise<string | null> {
+  if (typeof advertisedSize === "number" && advertisedSize > MAX_SESSION_DOWNLOAD_BYTES) {
+    throw new Error(i18n.t("composer.errors.fileTooLarge", { fileName, size: "64 MB" }));
+  }
+  const { bytes, size } = await readFile(path, MAX_SESSION_DOWNLOAD_BYTES);
+  // A daemon without a binary channel answers `encoding: "none"` for a binary file: no
+  // content, real size. Never save that as a complete download.
+  if (bytes.byteLength !== size) {
+    throw new Error(
+      `File transfer incomplete: expected ${size} bytes, received ${bytes.byteLength}.`,
+    );
+  }
+  return saveFile({ bytes, fileName, mimeType });
+}
+
+/** Aborts a running session download; keyed by download id while one runs. */
+const downloadCancellers = new Map<string, AbortController>();
+
+function patchDownload(id: string, patch: Partial<Download>) {
+  useDownloadStore.setState((state) => {
+    const download = state.downloads.get(id);
+    if (!download) return state;
+    return { downloads: new Map(state.downloads).set(id, { ...download, ...patch }) };
+  });
+}
+
+/**
+ * Runs a download read over the session socket for an entry already in the store, then shares
+ * the file on native. Call it before any `await`: on web it opens the save prompt, which needs
+ * the tap's user activation.
+ */
+export async function streamSessionDownload({
+  id,
+  fileName,
+  open,
+  prepareDestination = prepareDownloadDestination,
+}: {
+  id: string;
+  fileName: string;
+  open: (signal: AbortSignal) => Promise<SessionDownloadStream>;
+  prepareDestination?: PrepareDownloadDestination;
+}): Promise<void> {
+  const destination = prepareDestination(fileName);
+  const abort = new AbortController();
+  downloadCancellers.set(id, abort);
+  patchDownload(id, { cancellable: true });
+  const store = useDownloadStore.getState();
+  try {
+    const result = await runSessionDownload({
+      destination,
+      open,
+      signal: abort.signal,
+      onStart: (stream) => patchDownload(id, { fileName: stream.fileName }),
+      onProgress: ({ bytesWritten, totalBytes, speed }) => {
+        const remaining = totalBytes === null ? null : totalBytes - bytesWritten;
+        store.updateProgress(id, {
+          percent: totalBytes ? bytesWritten / totalBytes : null,
+          bytesWritten,
+          totalBytes,
+          speed,
+          eta: remaining === null || speed <= 0 ? null : remaining / speed,
+        });
+      },
+    });
+    if (result.status === "cancelled") {
+      store.dismissDownload(id);
+      return;
+    }
+    store.completeDownload(id);
+    if (result.uri !== null) await shareSavedFile(result.uri, result.mimeType, result.fileName);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : i18n.t("downloads.failed");
+    console.warn("[DownloadStore] Session download failed:", message);
+    store.failDownload(id, message);
+  } finally {
+    downloadCancellers.delete(id);
+  }
+}
 
 function findMostRecentDownloadId(downloads: Map<string, Download>): string | null {
   let mostRecent: Download | null = null;
@@ -353,7 +463,7 @@ export function buildDownloadUrl(
  * Saves bytes read over the session. Web and Electron hand them to the browser's download
  * manager and return `null`; native writes the file and returns its URI for the share sheet.
  */
-async function saveDownloadedBytes({
+export async function saveDownloadedBytes({
   bytes,
   fileName,
   mimeType,
@@ -375,7 +485,7 @@ async function saveDownloadedBytes({
   return targetFile.uri;
 }
 
-async function shareSavedFile(
+export async function shareSavedFile(
   uri: string,
   mimeType: string | null,
   fileName: string,
@@ -388,61 +498,6 @@ async function shareSavedFile(
         : i18n.t("downloads.shareFile"),
     });
   }
-}
-
-function triggerBrowserDownload(url: string, fileName: string) {
-  if (typeof document === "undefined") {
-    if (typeof window !== "undefined") {
-      void openExternalUrl(url);
-    }
-    return;
-  }
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.rel = "noopener";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-}
-
-function resolveDownloadTargetFile(fileName: string): FSFile {
-  const directory = Paths.cache ?? Paths.document;
-  if (!directory) {
-    throw new Error("No download directory available.");
-  }
-
-  const safeName = sanitizeDownloadFileName(fileName);
-  const split = splitFileName(safeName);
-  let targetFile = new FSFile(directory, safeName);
-  let suffix = 1;
-
-  while (targetFile.exists) {
-    targetFile = new FSFile(directory, `${split.base} (${suffix})${split.ext}`);
-    suffix += 1;
-  }
-
-  return targetFile;
-}
-
-function sanitizeDownloadFileName(fileName: string): string {
-  const trimmed = fileName.trim();
-  if (!trimmed) {
-    return "download";
-  }
-  return trimmed.replace(/[\\/:*?"<>|]+/g, "_");
-}
-
-function splitFileName(fileName: string): { base: string; ext: string } {
-  const lastDot = fileName.lastIndexOf(".");
-  if (lastDot <= 0) {
-    return { base: fileName, ext: "" };
-  }
-  return {
-    base: fileName.slice(0, lastDot),
-    ext: fileName.slice(lastDot),
-  };
 }
 
 export function formatSpeed(bytesPerSecond: number): string {

@@ -1,6 +1,7 @@
 import { SessionDelivery } from "../owned-subscriptions/index.js";
 import {
   existsSync,
+  mkdirSync as createDirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -8,6 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -26,6 +28,7 @@ import {
 import { ExplorerThumbnailService } from "../../file-explorer/thumbnails/service.js";
 import { DownloadTokenStore } from "../../file-download/token-store.js";
 import type { SessionOutboundMessage } from "../../messages.js";
+import { readZipEntries } from "../../test-utils/read-zip.js";
 
 const tempDirs: string[] = [];
 
@@ -1047,5 +1050,179 @@ describe("WorkspaceFilesSession", () => {
     expect(message.payload.path).toBe("notes.txt");
     expect(readFileSync(join(cwd, "notes.txt"), "utf8")).toBe("hello world");
     await ownership.close();
+  });
+
+  async function pullDownload(
+    subsystem: ReturnType<typeof makeSubsystem>["subsystem"],
+    emitted: ReturnType<typeof makeSubsystem>["emitted"],
+    binary: ReturnType<typeof makeSubsystem>["binary"],
+    downloadId: string,
+    maxBytes: number,
+  ): Promise<{ bytes: Buffer; reads: number[] }> {
+    const parts: Buffer[] = [];
+    const reads: number[] = [];
+    for (let index = 0; index < 100; index += 1) {
+      const requestId = `read-${index}`;
+      binary.length = 0;
+      await subsystem.handleDownloadReadRequest({
+        type: "fs.download.read.request",
+        downloadId,
+        maxBytes,
+        requestId,
+      });
+      const response = emitted.at(-1);
+      if (response?.type !== "fs.download.read.response") throw new Error("expected a read");
+      expect(response.payload).toMatchObject({ requestId, error: null });
+      const frames = binary.map((frame) => decodeFileTransferFrame(frame));
+      const slice = Buffer.concat(
+        frames.map((frame) => {
+          if (frame?.opcode !== FileTransferOpcode.FileChunk || frame.requestId !== requestId)
+            throw new Error("expected chunk frames for this read");
+          return Buffer.from(frame.payload);
+        }),
+      );
+      expect(slice.byteLength).toBe(response.payload.bytes);
+      reads.push(slice.byteLength);
+      parts.push(slice);
+      if (response.payload.done) return { bytes: Buffer.concat(parts), reads };
+    }
+    throw new Error("download never finished");
+  }
+
+  test("pulls a folder's zip in slices, then reads past the end come back empty", async () => {
+    const { subsystem, emitted, binary } = makeSubsystem({ hasBinaryChannel: true });
+    const cwd = makeDir("workspace-files-zip-");
+    createDirSync(join(cwd, "docs"));
+    writeFileSync(join(cwd, "docs", "a.md"), "alpha");
+    writeFileSync(join(cwd, "docs", ".hidden"), "h");
+
+    await subsystem.handleDownloadOpenRequest({
+      type: "fs.download.open.request",
+      cwd,
+      path: "docs",
+      kind: "folder",
+      includeHidden: false,
+      requestId: "open-1",
+    });
+    const opened = emitted[0];
+    if (opened?.type !== "fs.download.open.response") throw new Error("expected an open");
+    expect(opened.payload).toMatchObject({
+      fileName: "docs.zip",
+      mimeType: "application/zip",
+      size: null,
+      error: null,
+    });
+    const downloadId = opened.payload.downloadId!;
+    const { bytes, reads } = await pullDownload(subsystem, emitted, binary, downloadId, 100);
+    expect(reads.slice(0, -1).every((size) => size === 100)).toBe(true);
+    expect(
+      readZipEntries(bytes).map((entry) => [entry.name, entry.content?.toString("utf8")]),
+    ).toEqual([["docs/a.md", "alpha"]]);
+
+    binary.length = 0;
+    await subsystem.handleDownloadReadRequest({
+      type: "fs.download.read.request",
+      downloadId,
+      maxBytes: 100,
+      requestId: "past-end",
+    });
+    expect(binary).toHaveLength(0);
+    expect(emitted.at(-1)).toMatchObject({
+      type: "fs.download.read.response",
+      payload: { bytes: 0, done: true, error: null, requestId: "past-end" },
+    });
+
+    await subsystem.handleDownloadCloseRequest({
+      type: "fs.download.close.request",
+      downloadId,
+      requestId: "close-1",
+    });
+    await subsystem.handleDownloadReadRequest({
+      type: "fs.download.read.request",
+      downloadId,
+      maxBytes: 100,
+      requestId: "after-close",
+    });
+    expect(emitted.at(-1)).toMatchObject({
+      type: "fs.download.read.response",
+      payload: { bytes: 0, done: false, error: "Download not found or expired." },
+    });
+  });
+
+  test("pulls a file larger than one slice with its exact size and bytes", async () => {
+    const { subsystem, emitted, binary } = makeSubsystem({ hasBinaryChannel: true });
+    const cwd = makeDir("workspace-files-download-");
+    const content = randomBytes(3 * 1024 * 1024 + 17);
+    writeFileSync(join(cwd, "big.bin"), content);
+
+    await subsystem.handleDownloadOpenRequest({
+      type: "fs.download.open.request",
+      cwd,
+      path: "big.bin",
+      kind: "file",
+      requestId: "open-file",
+    });
+    const opened = emitted[0];
+    if (opened?.type !== "fs.download.open.response") throw new Error("expected an open");
+    expect(opened.payload).toMatchObject({ fileName: "big.bin", size: content.byteLength });
+
+    const { bytes, reads } = await pullDownload(
+      subsystem,
+      emitted,
+      binary,
+      opened.payload.downloadId!,
+      1024 * 1024,
+    );
+    expect(reads).toEqual([1024 * 1024, 1024 * 1024, 1024 * 1024, 17]);
+    expect(bytes.equals(content)).toBe(true);
+  });
+
+  test("refuses to open a download outside the workspace", async () => {
+    const { subsystem, emitted } = makeSubsystem({ hasBinaryChannel: true });
+    const cwd = makeDir("workspace-files-download-");
+
+    await subsystem.handleDownloadOpenRequest({
+      type: "fs.download.open.request",
+      cwd,
+      path: "../",
+      kind: "folder",
+      requestId: "open-outside",
+    });
+
+    expect(emitted[0]).toMatchObject({
+      type: "fs.download.open.response",
+      payload: { downloadId: null, error: "Access outside of workspace is not allowed" },
+    });
+  });
+
+  test("issues a folder download token only for a folder inside the workspace", async () => {
+    const { subsystem, emitted } = makeSubsystem();
+    const cwd = makeDir("workspace-files-zip-");
+    createDirSync(join(cwd, "src"));
+
+    await subsystem.handleFolderDownloadTokenRequest({
+      type: "fs.folder.get_download_token.request",
+      cwd,
+      path: "src",
+      requestId: "token-1",
+    });
+    await subsystem.handleFolderDownloadTokenRequest({
+      type: "fs.folder.get_download_token.request",
+      cwd,
+      path: "..",
+      requestId: "token-2",
+    });
+
+    expect(emitted[0]).toMatchObject({
+      type: "fs.folder.get_download_token.response",
+      payload: { path: "src", fileName: "src.zip", error: null, requestId: "token-1" },
+    });
+    expect(
+      emitted[0]?.type === "fs.folder.get_download_token.response" && emitted[0].payload.token,
+    ).toBeTruthy();
+    expect(emitted[1]).toMatchObject({
+      type: "fs.folder.get_download_token.response",
+      payload: { token: null, error: "Access outside of workspace is not allowed" },
+    });
   });
 });

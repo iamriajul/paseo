@@ -1714,3 +1714,25 @@ The threadpool storm test pins real libuv threads with FIFO reads and fails with
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-observer/internal/linux.test.ts --bail=1 -t "startup storm|start deadline"
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/workspace-git-service.test.ts --bail=1 -t "initial scan timed out retries|metadata watcher that failed setup retries|more tracked directories than the observer allows"
 ```
+
+## files-folder-download
+
+**download a folder from Files as a zip, and stream every session download to disk**
+
+Files can download any folder row (Download as ZIP in its context menu, tree and grid) and the open folder (the header's Download button: the root in the tree, the current folder in the grid). The daemon streams a zip named after the folder, with entries under one top folder of that name. The zip holds what Files lists (dot-named entries follow the hidden-files toggle), resolves file symlinks only inside the workspace, skips folder symlinks, special files, unreadable entries and entries that vanish mid-walk, retries when the host runs out of descriptors (EMFILE/ENFILE) instead of dropping the entry, and opens one file at a time (`file-download/folder-zip.ts`, yazl for Zip64). Any other failure ends the zip with a message that names the entry and the reason, and `/api/files/download` returns that message instead of a generic one.
+
+Over a direct TCP connection the client gets a token from `fs.folder.get_download_token.request` and the browser or native downloader fetches `/api/files/download` (the token store now carries a `kind`). Over relay, SSH, socket or pipe, files and folders both use `fs.download.open/read/close`: the client pulls a slice at a time (2 MB, three reads in flight) and asks for the next only after writing the last, so neither the app nor the daemon holds more than the slices in flight (`file-download/session-downloads.ts`, `DaemonClient.openDownloadStream`). This replaces the session path's whole-file read and its 64 MB cap, which stays only for daemons without `server_info.features.downloadStream` and for task attachments. `SessionDelivery.authorizeFileReply` admits `fs.download.read.request` next to `file_explorer_request`: without it a modern client receives none of a slice's frames and fails with "Download incomplete".
+
+Where the app writes each slice (`packages/app/src/downloads/download-destination*.ts`): iOS and Android append to a cache file through one `expo-file-system` handle, then share it as before. Web uses File System Access (`showSaveFilePicker`) where it exists, which covers Chrome and Edge on desktop and Electron; Electron's `paseo://` scheme cannot host a service worker. Other browsers in a secure context (Chrome on Android, Firefox, Safari) get a service worker scoped to `/download-stream/` that answers a hidden iframe with a streamed attachment, so the browser's own download manager writes the file. A plain-HTTP LAN origin without File System Access still builds a Blob, capped at 64 MB. The toast shows progress (bytes and speed when the total is unknown) and a cancel button; cancelling or failing deletes the partial file and closes the daemon's stream.
+
+A zip was chosen over a File System Access "save as folder" path: one file is what a phone's share sheet and every browser accept, and a folder picker works only in Chromium and over the relay would cost a round trip per file.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-download/folder-zip.test.ts packages/server/src/server/session/files/workspace-files-session.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/daemon-e2e/file-download.e2e.test.ts -t "folder download" --bail=1
+npm test --workspace=@getpaseo/app -- src/stores/folder-download.test.ts src/stores/download-store.test.ts src/downloads/session-download.test.ts --bail=1
+grep -q 'owner.request.type === "fs.download.read.request"' packages/server/src/server/session/owned-subscriptions/index.ts
+grep -q 'fileKind === "directory" || fileExists' packages/app/src/components/file-actions-menu.tsx
+grep -q 'testID="files-download-folder"' packages/app/src/components/file-explorer-pane.tsx
+test -f packages/app/public/download-stream/sw.js
+```

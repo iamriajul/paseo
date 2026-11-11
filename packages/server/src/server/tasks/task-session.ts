@@ -160,6 +160,7 @@ export class TaskSession {
         throw new Error("Attachment not found");
       }
       const token = this.options.downloadTokenStore.issueToken({
+        kind: "file",
         path: attachment.absolutePath,
         absolutePath: attachment.absolutePath,
         fileName: attachment.fileName,

@@ -541,6 +541,7 @@ export const es: TranslationResources = {
       copyRelativePath: "Copiar ruta relativa",
       revealIn: "Mostrar en {{target}}",
       download: "Descargar",
+      downloadFolder: "Descargar como ZIP",
       addToChat: "Añadir al chat",
       moreActions: "Más acciones",
       newFile: "Nuevo archivo",
@@ -619,6 +620,7 @@ export const es: TranslationResources = {
         hideHiddenFiles: "Ocultar archivos ocultos",
         showHiddenFiles: "Mostrar archivos ocultos",
         upload: "Subir archivos",
+        downloadFolder: "Descargar carpeta como ZIP",
         uploading: "Subiendo archivos",
       },
       empty: {
@@ -2185,6 +2187,9 @@ export const es: TranslationResources = {
     failed: "No se pudo descargar el archivo.",
     shareFile: "compartir archivo",
     shareFileNamed: "Compartir{{fileName}}",
+    cancel: "Cancelar descarga",
+    browserMemoryLimit:
+      "{{fileName}} supera {{size}}, el máximo que este navegador puede guardar con esta conexión. Abre Paseo por HTTPS o usa la app de escritorio.",
   },
   menu: {
     backdrop: "Fondo del menú",

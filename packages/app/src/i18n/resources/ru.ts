@@ -540,6 +540,7 @@ export const ru: TranslationResources = {
       copyRelativePath: "Копировать относительный путь",
       revealIn: "Показать в {{target}}",
       download: "Скачать",
+      downloadFolder: "Скачать как ZIP",
       addToChat: "Добавить в чат",
       moreActions: "Дополнительные действия",
       newFile: "Новый файл",
@@ -618,6 +619,7 @@ export const ru: TranslationResources = {
         hideHiddenFiles: "Скрыть скрытые файлы",
         showHiddenFiles: "Показать скрытые файлы",
         upload: "Загрузить файлы",
+        downloadFolder: "Скачать папку как ZIP",
         uploading: "Загрузка файлов",
       },
       empty: {
@@ -2172,6 +2174,9 @@ export const ru: TranslationResources = {
     failed: "Не удалось загрузить файл.",
     shareFile: "Поделиться файлом",
     shareFileNamed: "Поделиться {{fileName}}",
+    cancel: "Отменить загрузку",
+    browserMemoryLimit:
+      "{{fileName}} больше {{size}} — это максимум, который этот браузер может сохранить через это подключение. Откройте Paseo по HTTPS или используйте приложение для компьютера.",
   },
   menu: {
     backdrop: "Фон меню",

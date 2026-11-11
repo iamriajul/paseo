@@ -158,6 +158,7 @@ import { createWorkspaceProvisioningService } from "./session/workspace-provisio
 import { createPaseoWorktreeWorkflow } from "./worktree-session.js";
 import { DownloadTokenStore } from "./file-download/token-store.js";
 import { formatAttachmentContentDisposition } from "./file-download/content-disposition.js";
+import { streamFolderZipDownload } from "./file-download/folder-zip-http.js";
 import type { OpenAiSpeechProviderConfig } from "./speech/providers/openai/config.js";
 import type { LocalSpeechProviderConfig } from "./speech/providers/local/config.js";
 import type { RequestedSpeechProviders } from "./speech/speech-types.js";
@@ -1004,6 +1005,11 @@ export async function createPaseoDaemon(
     const entry = downloadTokenStore.consumeToken(token);
     if (!entry) {
       res.status(403).json({ error: "Invalid or expired token" });
+      return;
+    }
+
+    if (entry.kind === "folder") {
+      streamFolderZipDownload({ entry, res, logger });
       return;
     }
 

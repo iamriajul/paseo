@@ -1741,3 +1741,15 @@ The test floods a fake page with 3,000 messages; without the budget the tab neve
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "logs in a tight loop"
 ```
+
+## managed-chrome-memory-saver
+
+**Managed Chrome runs with Memory Saver on, at Maximum**
+
+The user asked for Chrome's Memory Saver at Maximum (`MemorySaverModeSavings` = 2) on Managed Chrome, in Window and Headless modes, without system-wide policy files and without touching an Existing browser. `prepareChromeProfile` (`engines.ts`), which only Managed Chrome uses, writes `performance_tuning.high_efficiency_mode` = `{ state: 2, aggressiveness: 2 }` into the profile's `Local State` on every start; Chrome 153 reads it back as set. Chrome never discards a tab that is active in its window or has a DevTools session attached, including under memory pressure, and every Paseo tab is both, so nothing an agent or viewer uses is ever unloaded. Measured: no discards and the same memory with and without it (397 MB against 395 MB over 10 minutes with 6 tabs). [Server browser](server-browser.md) has the details.
+
+The test fails without the setting: the profile keeps Memory Saver off.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/engines.test.ts --bail=1 -t "Memory Saver"
+```

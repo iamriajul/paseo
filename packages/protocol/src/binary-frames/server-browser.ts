@@ -1,8 +1,12 @@
 export const ServerBrowserOpcode = {
   /** daemon → client: one JPEG screencast frame. */
   Frame: 0x40,
-  /** client → daemon: frees one credit of the stream's flow-control window. */
+  /** client → daemon: frees one credit of the stream's flow-control window (JPEG or video). */
   FrameAck: 0x41,
+  /** daemon → client: one encoded video chunk (H.264 Annex B or VP8), when the stream negotiated video. */
+  VideoChunk: 0x42,
+  /** client → daemon: the viewer's decoder lost its place; send its encode's next keyframe. */
+  VideoKeyframeRequest: 0x43,
 } as const;
 
 export interface ServerBrowserFrameFrame {
@@ -21,10 +25,33 @@ export interface ServerBrowserFrameAckFrame {
   seq: number;
 }
 
-export type ServerBrowserBinaryFrame = ServerBrowserFrameFrame | ServerBrowserFrameAckFrame;
+export interface ServerBrowserVideoChunkFrame {
+  opcode: typeof ServerBrowserOpcode.VideoChunk;
+  streamId: number;
+  seq: number;
+  /** CSS-pixel size of the page the chunk shows. */
+  width: number;
+  height: number;
+  /** A keyframe: decodable without any chunk before it. */
+  key: boolean;
+  data: Uint8Array;
+}
+
+export interface ServerBrowserVideoKeyframeRequestFrame {
+  opcode: typeof ServerBrowserOpcode.VideoKeyframeRequest;
+  streamId: number;
+}
+
+export type ServerBrowserBinaryFrame =
+  | ServerBrowserFrameFrame
+  | ServerBrowserFrameAckFrame
+  | ServerBrowserVideoChunkFrame
+  | ServerBrowserVideoKeyframeRequestFrame;
 
 const FRAME_HEADER_BYTES = 13;
 const ACK_BYTES = 9;
+const VIDEO_HEADER_BYTES = 14;
+const KEYFRAME_REQUEST_BYTES = 5;
 
 export function encodeServerBrowserFrame(
   input: Omit<ServerBrowserFrameFrame, "opcode">,
@@ -37,6 +64,28 @@ export function encodeServerBrowserFrame(
   view.setUint16(9, clampUint16(input.width));
   view.setUint16(11, clampUint16(input.height));
   bytes.set(input.jpeg, FRAME_HEADER_BYTES);
+  return bytes;
+}
+
+export function encodeServerBrowserVideoChunk(
+  input: Omit<ServerBrowserVideoChunkFrame, "opcode">,
+): Uint8Array {
+  const bytes = new Uint8Array(VIDEO_HEADER_BYTES + input.data.byteLength);
+  const view = new DataView(bytes.buffer);
+  bytes[0] = ServerBrowserOpcode.VideoChunk;
+  view.setUint32(1, input.streamId >>> 0);
+  view.setUint32(5, input.seq >>> 0);
+  view.setUint16(9, clampUint16(input.width));
+  view.setUint16(11, clampUint16(input.height));
+  bytes[13] = input.key ? 1 : 0;
+  bytes.set(input.data, VIDEO_HEADER_BYTES);
+  return bytes;
+}
+
+export function encodeServerBrowserVideoKeyframeRequest(input: { streamId: number }): Uint8Array {
+  const bytes = new Uint8Array(KEYFRAME_REQUEST_BYTES);
+  bytes[0] = ServerBrowserOpcode.VideoKeyframeRequest;
+  new DataView(bytes.buffer).setUint32(1, input.streamId >>> 0);
   return bytes;
 }
 
@@ -61,6 +110,22 @@ export function decodeServerBrowserFrame(bytes: Uint8Array): ServerBrowserBinary
       height: view.getUint16(11),
       jpeg: bytes.subarray(FRAME_HEADER_BYTES),
     };
+  }
+  if (bytes[0] === ServerBrowserOpcode.VideoChunk) {
+    if (bytes.byteLength < VIDEO_HEADER_BYTES) return null;
+    return {
+      opcode: ServerBrowserOpcode.VideoChunk,
+      streamId: view.getUint32(1),
+      seq: view.getUint32(5),
+      width: view.getUint16(9),
+      height: view.getUint16(11),
+      key: (bytes[13] & 1) === 1,
+      data: bytes.subarray(VIDEO_HEADER_BYTES),
+    };
+  }
+  if (bytes[0] === ServerBrowserOpcode.VideoKeyframeRequest) {
+    if (bytes.byteLength !== KEYFRAME_REQUEST_BYTES) return null;
+    return { opcode: ServerBrowserOpcode.VideoKeyframeRequest, streamId: view.getUint32(1) };
   }
   if (bytes[0] === ServerBrowserOpcode.FrameAck) {
     if (bytes.byteLength !== ACK_BYTES) return null;

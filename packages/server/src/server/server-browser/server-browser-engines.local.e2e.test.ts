@@ -30,6 +30,14 @@ beforeEach(async () => {
       res.end(`<title>${signedIn ? "signed in" : "anonymous"}</title>`);
       return;
     }
+    if (req.url === "/anim") {
+      // Repaints every frame, so a tab capture always has frames to send.
+      res.end(
+        "<body style='margin:0'><script>(function f(){document.body.style.background=" +
+          "`hsl(${Date.now() % 360} 80% 50%)`;requestAnimationFrame(f)})()</script>",
+      );
+      return;
+    }
     if (req.url === "/untitled") {
       res.end("<p>untitled</p>");
       return;
@@ -121,6 +129,94 @@ async function firstFrame(host: ServerBrowserHost, browserId: string) {
     );
   });
 }
+
+interface VideoWatch {
+  chunks: Array<{ key: boolean; bytes: number; at: number }>;
+  fellBack: boolean;
+  stop(): void;
+}
+
+/** Watches a tab as a video viewer that acks every chunk at once. */
+async function watchVideo(host: ServerBrowserHost, browserId: string, codecs: string[]) {
+  const tab = host.getTab(browserId)!;
+  const codec = await tab.video?.negotiate(codecs);
+  if (!codec || !tab.video) return null;
+  const video = tab.video;
+  const watch: VideoWatch = {
+    chunks: [],
+    fellBack: false,
+    stop: () => video.removeViewer("test"),
+  };
+  video.addViewer(
+    "test",
+    {
+      send: (chunk, seq) => {
+        watch.chunks.push({ key: chunk.key, bytes: chunk.data.byteLength, at: Date.now() });
+        video.hub.ack("test", seq);
+      },
+      isCongested: () => false,
+      fallback: () => {
+        watch.fellBack = true;
+      },
+    },
+    { maxWidth: 1280, maxHeight: 800, codec },
+  );
+  return { codec, watch };
+}
+
+describe("tab video", { timeout: 120_000 }, () => {
+  for (const chromeMode of ["window", "headless"] as const) {
+    it(`streams H.264 from Managed Chrome (${chromeMode}): a keyframe, then deltas`, async () => {
+      const host = createHost({ kind: "managed-chrome", chromeMode });
+      const { browserId } = await host.openTab({
+        workspaceId: "ws",
+        url: `${siteUrl}anim`,
+        openedBy: "agent",
+      });
+      const watched = await watchVideo(host, browserId, ["avc1.42E028", "vp8"]);
+      expect(watched?.codec).toBe("avc1.42E028");
+      const { watch } = watched!;
+      await waitFor(() => watch.chunks.length >= 30, 20_000);
+      expect(watch.chunks[0]?.key).toBe(true);
+      expect(watch.chunks.slice(1).some((chunk) => !chunk.key)).toBe(true);
+      expect(watch.fellBack).toBe(false);
+      watch.stop();
+    });
+  }
+
+  it("pauses video around a clipped screenshot and resumes at a keyframe", async () => {
+    const host = createHost({ kind: "managed-chrome", chromeMode: "headless" });
+    const { browserId } = await host.openTab({
+      workspaceId: "ws",
+      url: `${siteUrl}anim`,
+      openedBy: "agent",
+    });
+    const { watch } = (await watchVideo(host, browserId, ["avc1.42E028"]))!;
+    await waitFor(() => watch.chunks.length >= 10, 20_000);
+    const tab = host.getTab(browserId)!;
+    const before = watch.chunks.length;
+    await tab.contents.sendDebugCommand("Page.captureScreenshot", {
+      format: "png",
+      clip: { x: 0, y: 0, width: 120, height: 80, scale: 1 },
+    });
+    const afterShot = watch.chunks.length;
+    await waitFor(() => watch.chunks.length > afterShot + 5, 20_000);
+    // The first chunk after the screenshot is a keyframe: the clip-sized view never reached a viewer.
+    expect(watch.chunks[afterShot]?.key).toBe(true);
+    expect(afterShot).toBeGreaterThanOrEqual(before);
+    watch.stop();
+  });
+
+  it("gives JPEG to a viewer with no codec in common, and on Headless (light)", async () => {
+    const managed = createHost({ kind: "managed-chrome", chromeMode: "headless" });
+    const tab = await managed.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    expect(await watchVideo(managed, tab.browserId, ["av01.0.04M.08-unknown"])).toBeNull();
+    const light = createHost({ kind: "headless" });
+    const lightTab = await light.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    expect(await watchVideo(light, lightTab.browserId, ["avc1.42E028"])).toBeNull();
+    expect((await firstFrame(light, lightTab.browserId)).jpeg.length).toBeGreaterThan(0);
+  });
+});
 
 describe("Managed Chrome", { timeout: 120_000 }, () => {
   it("runs real Chrome headed on a display, without automation tells", async () => {

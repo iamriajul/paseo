@@ -383,6 +383,18 @@ export class ProviderSnapshotManager {
     );
   }
 
+  /**
+   * True when a session of the provider on this model goes through the Gateway. Claude routes per
+   * model: one CLIProxyAPI did not advertise launches with the local login.
+   */
+  isGatewayRoutedModel(provider: AgentProvider, modelId: string | null | undefined): boolean {
+    if (!this.isGatewayRouted(provider)) return false;
+    const definition = this.generation.definitions[provider];
+    if (!definition) return true;
+    const client = this.ensureClient(provider, definition);
+    return client.isGatewayRoutedModel?.(modelId) ?? true;
+  }
+
   private createAgentManagerState(
     definitions: Record<AgentProvider, ProviderDefinition>,
     providerClients: Record<AgentProvider, AgentClient>,

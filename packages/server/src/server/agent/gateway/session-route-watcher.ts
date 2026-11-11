@@ -43,7 +43,7 @@ export interface GatewaySessionRouteWatcherDeps {
     "subscribe" | "getAgent" | "recordGatewayAccountChange" | "readPromptCacheHistory"
   >;
   gateway: () => GatewayEndpoint | null | undefined;
-  isGatewayRouted: (provider: AgentProvider) => boolean;
+  isGatewayRouted: (provider: AgentProvider, model: string | null | undefined) => boolean;
   fetchRoute?: (options: {
     baseUrl: string;
     token: string;
@@ -128,7 +128,7 @@ export function attachGatewaySessionRouteWatcher(deps: GatewaySessionRouteWatche
     const agent = deps.agentManager.getAgent(agentId);
     if (!agent || agent.internal) return;
     const gateway = deps.gateway();
-    if (!gateway || !deps.isGatewayRouted(agent.provider)) return;
+    if (!gateway || !deps.isGatewayRouted(agent.provider, agent.config.model)) return;
     const session = gatewaySessionIdFor(agent.provider, gatewayRoutedSessionId(agent));
     if (!session) return;
 

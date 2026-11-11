@@ -1845,6 +1845,17 @@ export class ClaudeAgentClient implements AgentClient {
     this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
   }
 
+  /** The same rule a session's launch env follows: a model CLIProxyAPI did not list keeps the local login. */
+  isGatewayRoutedModel(modelId: string | null | undefined): boolean {
+    return (
+      this.gateway !== undefined &&
+      shouldRouteClaudeModelThroughCliproxyapi({
+        modelId,
+        advertisedIds: this.cliproxyapiAdvertisedIds,
+      })
+    );
+  }
+
   resolveConfiguredModel(model: AgentModelDefinition): AgentModelDefinition {
     return resolveConfiguredClaudeModel(model);
   }

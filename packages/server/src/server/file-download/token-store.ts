@@ -1,14 +1,34 @@
 import { randomUUID } from "node:crypto";
 
-export interface DownloadTokenEntry {
-  token: string;
+interface FileDownloadTarget {
+  kind: "file";
   path: string;
   absolutePath: string;
   fileName: string;
   mimeType: string;
   size: number;
+}
+
+/** A folder downloads as a zip the daemon builds while it streams (see folder-zip.ts). */
+interface FolderDownloadTarget {
+  kind: "folder";
+  path: string;
+  /** Canonical folder path. */
+  absolutePath: string;
+  /** Canonical workspace root: no entry outside it goes into the zip. */
+  rootPath: string;
+  fileName: string;
+  includeHidden: boolean;
+}
+
+export type DownloadTokenTarget = FileDownloadTarget | FolderDownloadTarget;
+
+interface DownloadTokenMetadata {
+  token: string;
   expiresAt: number;
 }
+
+export type DownloadTokenEntry = DownloadTokenTarget & DownloadTokenMetadata;
 
 interface DownloadTokenStoreOptions {
   ttlMs: number;
@@ -25,11 +45,11 @@ export class DownloadTokenStore {
     this.now = options.now ?? (() => Date.now());
   }
 
-  issueToken(input: Omit<DownloadTokenEntry, "token" | "expiresAt">): DownloadTokenEntry {
+  issueToken<T extends DownloadTokenTarget>(input: T): T & DownloadTokenMetadata {
     this.pruneExpired();
     const token = randomUUID();
     const expiresAt = this.now() + this.ttlMs;
-    const entry: DownloadTokenEntry = {
+    const entry = {
       ...input,
       token,
       expiresAt,

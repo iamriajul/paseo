@@ -3508,6 +3508,47 @@ export const FileDownloadTokenRequestSchema = z.object({
   requestId: z.string(),
 });
 
+// COMPAT(downloadStream): added in v0.15.911, drop gate after 2027-05-11.
+// A folder downloads as a zip the daemon streams. Over a direct HTTP connection the client
+// fetches it with this token from /api/files/download; anything else uses fs.download.*.
+export const FolderDownloadTokenRequestSchema = z.object({
+  type: z.literal("fs.folder.get_download_token.request"),
+  cwd: z.string(),
+  path: z.string(),
+  // Absent means true, matching Files' default of showing hidden files.
+  includeHidden: z.boolean().optional(),
+  requestId: z.string(),
+});
+
+// COMPAT(downloadStream): added in v0.15.911, drop gate after 2027-05-11.
+// Session downloads, for connections with no HTTP route (relay, SSH, socket, pipe). The client
+// opens a file or a folder's zip, pulls it with fs.download.read until `done`, then closes it. It
+// asks for the next slice only after writing the last, so neither end buffers the whole download.
+// The daemon drops a download nobody has read for a minute.
+export const DownloadOpenRequestSchema = z.object({
+  type: z.literal("fs.download.open.request"),
+  cwd: z.string(),
+  path: z.string(),
+  kind: z.enum(["file", "folder"]),
+  // Folders only. Absent means true, matching Files' default of showing hidden files.
+  includeHidden: z.boolean().optional(),
+  requestId: z.string(),
+});
+
+// The daemon sends up to maxBytes as FileChunk frames carrying this requestId, then the response.
+export const DownloadReadRequestSchema = z.object({
+  type: z.literal("fs.download.read.request"),
+  downloadId: z.string(),
+  maxBytes: z.number().int().positive(),
+  requestId: z.string(),
+});
+
+export const DownloadCloseRequestSchema = z.object({
+  type: z.literal("fs.download.close.request"),
+  downloadId: z.string(),
+  requestId: z.string(),
+});
+
 export const FileUploadRequestSchema = z.object({
   type: z.literal("file.upload.request"),
   fileName: z.string().min(1),
@@ -4069,6 +4110,10 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ProjectIconRequestSchema,
   ProjectIconGetRequestSchema,
   FileDownloadTokenRequestSchema,
+  FolderDownloadTokenRequestSchema,
+  DownloadOpenRequestSchema,
+  DownloadReadRequestSchema,
+  DownloadCloseRequestSchema,
   FileUploadRequestSchema,
   ClearAgentAttentionMessageSchema,
   ClientHeartbeatMessageSchema,
@@ -4433,6 +4478,9 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceFileEditing: z.boolean().optional(),
         // COMPAT(fileByteWrites): added in v0.13.0, remove gate after 2027-04-20.
         fileByteWrites: z.boolean().optional(),
+        // COMPAT(downloadStream): added in v0.15.911, drop gate after 2027-05-11.
+        // Folder download (fs.folder.get_download_token) and session downloads (fs.download.*).
+        downloadStream: z.boolean().optional(),
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
         providerUsageList: z.boolean().optional(),
         // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.
@@ -7308,6 +7356,53 @@ export const FileDownloadTokenResponseSchema = z.object({
   }),
 });
 
+export const FolderDownloadTokenResponseSchema = z.object({
+  type: z.literal("fs.folder.get_download_token.response"),
+  payload: z.object({
+    cwd: z.string(),
+    path: z.string(),
+    token: z.string().nullable(),
+    fileName: z.string().nullable(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+
+export const DownloadOpenResponseSchema = z.object({
+  type: z.literal("fs.download.open.response"),
+  payload: z.object({
+    downloadId: z.string().nullable(),
+    fileName: z.string().nullable(),
+    mimeType: z.string().nullable(),
+    // Exact for a file; null for a folder's zip, whose size is known only once it ends.
+    size: z.number().nullable(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+
+export const DownloadReadResponseSchema = z.object({
+  type: z.literal("fs.download.read.response"),
+  payload: z.object({
+    downloadId: z.string(),
+    // Bytes sent as FileChunk frames before this response.
+    bytes: z.number(),
+    // Every byte has been sent. Reads past the end return done with no bytes.
+    done: z.boolean(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+
+export const DownloadCloseResponseSchema = z.object({
+  type: z.literal("fs.download.close.response"),
+  payload: z.object({
+    downloadId: z.string(),
+    error: z.string().nullable(),
+    requestId: z.string(),
+  }),
+});
+
 export const FileUploadResponseSchema = z.object({
   type: z.literal("file.upload.response"),
   payload: z.object({
@@ -8396,6 +8491,10 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProjectIconResponseSchema,
   ProjectIconGetResponseSchema,
   FileDownloadTokenResponseSchema,
+  FolderDownloadTokenResponseSchema,
+  DownloadOpenResponseSchema,
+  DownloadReadResponseSchema,
+  DownloadCloseResponseSchema,
   FileUploadResponseSchema,
   GatewayStatsGetResponseMessageSchema,
   GatewaySessionRouteGetResponseMessageSchema,
@@ -8930,6 +9029,10 @@ export type ProjectIconGetResponse = z.infer<typeof ProjectIconGetResponseSchema
 export type ProjectIcon = z.infer<typeof ProjectIconSchema>;
 export type FileDownloadTokenRequest = z.infer<typeof FileDownloadTokenRequestSchema>;
 export type FileDownloadTokenResponse = z.infer<typeof FileDownloadTokenResponseSchema>;
+export type FolderDownloadTokenRequest = z.infer<typeof FolderDownloadTokenRequestSchema>;
+export type DownloadOpenRequest = z.infer<typeof DownloadOpenRequestSchema>;
+export type DownloadReadRequest = z.infer<typeof DownloadReadRequestSchema>;
+export type DownloadCloseRequest = z.infer<typeof DownloadCloseRequestSchema>;
 export type FileUploadRequest = z.infer<typeof FileUploadRequestSchema>;
 export type FileUploadResponse = z.infer<typeof FileUploadResponseSchema>;
 export type RestartServerRequestMessage = z.infer<typeof RestartServerRequestMessageSchema>;

@@ -535,6 +535,7 @@ export const ar: TranslationResources = {
       copyRelativePath: "نسخ المسار النسبي",
       revealIn: "إظهار في {{target}}",
       download: "تحميل",
+      downloadFolder: "تنزيل بصيغة ZIP",
       addToChat: "إضافة إلى الدردشة",
       moreActions: "المزيد من الإجراءات",
       newFile: "ملف جديد",
@@ -613,6 +614,7 @@ export const ar: TranslationResources = {
         hideHiddenFiles: "إخفاء الملفات المخفية",
         showHiddenFiles: "إظهار الملفات المخفية",
         upload: "رفع الملفات",
+        downloadFolder: "تنزيل المجلد بصيغة ZIP",
         uploading: "جارٍ رفع الملفات",
       },
       empty: {
@@ -2140,6 +2142,9 @@ export const ar: TranslationResources = {
     failed: "فشل تنزيل الملف.",
     shareFile: "مشاركة الملف",
     shareFileNamed: "مشاركة{{fileName}}",
+    cancel: "إلغاء التنزيل",
+    browserMemoryLimit:
+      "حجم {{fileName}} أكبر من {{size}}، وهو أقصى ما يمكن لهذا المتصفح حفظه عبر هذا الاتصال. افتح Paseo عبر HTTPS أو استخدم تطبيق سطح المكتب.",
   },
   menu: {
     backdrop: "خلفية القائمة",

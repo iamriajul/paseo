@@ -111,6 +111,12 @@ export function FileActionsContextMenuContent({
         : null,
     [editorTargetName, fileKind, onOpenInEditor, t],
   );
+  // A folder downloads as a zip; the caller passes onDownload only when the host can zip.
+  const downloadable = fileKind === "directory" || fileExists;
+  const downloadLabel =
+    fileKind === "directory"
+      ? t("workspace.fileActions.downloadFolder")
+      : t("workspace.fileActions.download");
   const actions = useMemo<FileAction[]>(() => {
     const availableFile = fileKind === "file" && fileExists;
     const specs: Array<FileAction | null> = [
@@ -184,15 +190,12 @@ export function FileActionsContextMenuContent({
             onSelect: onReveal,
           }
         : null,
-      availableFile && onDownload
-        ? {
-            key: "download",
-            group: "reference",
-            label: t("workspace.fileActions.download"),
-            icon: Download,
-            onSelect: onDownload,
-          }
-        : null,
+      optionalFileAction(downloadable, onDownload, {
+        key: "download",
+        group: "reference",
+        label: downloadLabel,
+        icon: Download,
+      }),
       availableFile && onAddToChat
         ? {
             key: "add-to-chat",
@@ -249,6 +252,8 @@ export function FileActionsContextMenuContent({
       }),
     );
   }, [
+    downloadLabel,
+    downloadable,
     fileExists,
     fileKind,
     onAddToChat,

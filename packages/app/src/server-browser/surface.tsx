@@ -1,8 +1,17 @@
 import { Buffer } from "buffer";
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Image,
   PixelRatio,
+  Platform,
   Text,
   // An invisible IME bridge, not an editing surface: EditingTextInput's focus authority hands
   // focus back to the last editor (the URL bar), so the soft keyboard typed into it instead.
@@ -13,9 +22,20 @@ import {
   type LayoutChangeEvent,
 } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import type { DaemonClient, ServerBrowserFrame } from "@getpaseo/client/internal/daemon-client";
+import type {
+  DaemonClient,
+  ServerBrowserFrame,
+  ServerBrowserVideoChunk,
+} from "@getpaseo/client/internal/daemon-client";
 import type { ServerBrowserInputEvent } from "@getpaseo/protocol/server-browser/rpc-schemas";
+import {
+  getPaseoVideoView,
+  isPaseoVideoAvailable,
+  type PaseoVideoViewHandle,
+} from "../../modules/paseo-video";
 import { InputBatcher, namedKeyPress } from "./input";
+import { NativeVideoPort, nativeVideoCodecs, type NativeVideoPlatform } from "./native-video-port";
+import { ServerBrowserVideoSession } from "./video-session";
 import {
   pagePixelsPerSurfacePixel,
   quantizeScreencastViewport,
@@ -38,15 +58,21 @@ interface ServerBrowserSurfaceProps {
   onCancelAnnotate?: () => void;
   /** The surface's size in CSS pixels, each time it changes; the Responsive device size follows it. */
   onSize?: (size: { width: number; height: number }) => void;
-  /** Web only for now: native viewers have no WebCodecs and keep JPEG frames. */
+  /** The host streams video (features.serverBrowserVideo); JPEG otherwise. */
   video?: boolean;
 }
+
+/** H.264 when this build has the PaseoVideo decoder; an older build keeps JPEG. */
+const NATIVE_VIDEO_CODECS = nativeVideoCodecs(isPaseoVideoAvailable());
+const NATIVE_VIDEO_PLATFORM: NativeVideoPlatform = Platform.OS === "ios" ? "ios" : "android";
 
 const TAP_SLOP = 8;
 const LONG_PRESS_MS = 500;
 
 /**
- * Native: frames are JPEG data URIs in two stacked Images, so the visible one never blanks while
+ * Native: video goes to the PaseoVideo view (VideoToolbox, MediaCodec), which the shared
+ * ServerBrowserVideoSession feeds. JPEG frames, for a host or build without video or after the
+ * decoder kept failing, are data URIs in two stacked Images, so the visible one never blanks while
  * the next decodes. A tap clicks, a drag scrolls, a long press right-clicks, and the toolbar's
  * keyboard button focuses a hidden TextInput whose text goes to the page.
  */
@@ -54,7 +80,7 @@ export const ServerBrowserSurface = forwardRef<
   ServerBrowserSurfaceHandle,
   ServerBrowserSurfaceProps
 >(function ServerBrowserSurface(
-  { client, browserId, pageWidth, pageHeight, annotating = false, onSize },
+  { client, browserId, pageWidth, pageHeight, annotating = false, onSize, video = false },
   ref,
 ) {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -118,15 +144,76 @@ export const ServerBrowserSurface = forwardRef<
     );
   }, []);
 
-  const handleFrame = useCallback((frame: ServerBrowserFrame) => {
-    const back = frontRef.current === 0 ? 1 : 0;
-    const uri = `data:image/jpeg;base64,${Buffer.from(frame.jpeg).toString("base64")}`;
-    pendingFramesRef.current[back]?.ack();
-    pendingFramesRef.current[back] = frame;
-    setUris((current) => (back === 0 ? [uri, current[1]] : [current[0], uri]));
+  const videoViewRef = useRef<PaseoVideoViewHandle | null>(null);
+  const videoSessionRef = useRef<ServerBrowserVideoSession | null>(null);
+  // Which shows the page: the video view once it drew a frame, the Images when JPEG arrives.
+  const [videoShown, setVideoShown] = useState(false);
+  const videoShownRef = useRef(false);
+  // The decoder kept failing on this tab: watch it as JPEG instead.
+  const [videoFailedFor, setVideoFailedFor] = useState<string | null>(null);
+  const nativeVideo = video && NATIVE_VIDEO_CODECS !== null && videoFailedFor !== browserId;
+
+  const showVideo = useCallback((shown: boolean) => {
+    if (videoShownRef.current === shown) return;
+    videoShownRef.current = shown;
+    setVideoShown(shown);
   }, []);
 
-  useServerBrowserScreencast({ client, browserId, viewport, onFrame: handleFrame });
+  const handleChunk = useCallback(
+    (chunk: ServerBrowserVideoChunk) => {
+      if (!videoSessionRef.current) {
+        const session = new ServerBrowserVideoSession(
+          new NativeVideoPort(
+            () => videoViewRef.current,
+            NATIVE_VIDEO_PLATFORM,
+            () => session.decoderError(),
+          ),
+          { onFatal: () => setVideoFailedFor(browserId) },
+        );
+        videoSessionRef.current = session;
+      }
+      videoSessionRef.current.push(chunk);
+    },
+    [browserId],
+  );
+  const handleVideoFrame = useCallback(
+    (event: { nativeEvent: { id: number } }) => {
+      videoSessionRef.current?.frameShown(event.nativeEvent.id);
+      showVideo(true);
+    },
+    [showVideo],
+  );
+  const handleDecoderError = useCallback(() => videoSessionRef.current?.decoderError(), []);
+  useEffect(
+    () => () => {
+      videoSessionRef.current?.dispose();
+      videoSessionRef.current = null;
+    },
+    [browserId, nativeVideo],
+  );
+
+  const handleFrame = useCallback(
+    (frame: ServerBrowserFrame) => {
+      showVideo(false);
+      const back = frontRef.current === 0 ? 1 : 0;
+      const uri = `data:image/jpeg;base64,${Buffer.from(frame.jpeg).toString("base64")}`;
+      pendingFramesRef.current[back]?.ack();
+      pendingFramesRef.current[back] = frame;
+      setUris((current) => (back === 0 ? [uri, current[1]] : [current[0], uri]));
+    },
+    [showVideo],
+  );
+
+  useServerBrowserScreencast({
+    client,
+    browserId,
+    viewport,
+    onFrame: handleFrame,
+    video:
+      nativeVideo && NATIVE_VIDEO_CODECS
+        ? { codecs: NATIVE_VIDEO_CODECS, onChunk: handleChunk }
+        : null,
+  });
 
   const handleBufferLoaded = useCallback((index: 0 | 1) => {
     frontRef.current = index;
@@ -292,7 +379,8 @@ export const ServerBrowserSurface = forwardRef<
 
   const source0 = useMemo(() => (uris[0] ? { uri: uris[0] } : null), [uris]);
   const source1 = useMemo(() => (uris[1] ? { uri: uris[1] } : null), [uris]);
-  const hasFrame = (front === 0 ? source0 : source1) !== null;
+  const hasFrame = videoShown || (front === 0 ? source0 : source1) !== null;
+  const VideoView = nativeVideo ? getPaseoVideoView() : null;
 
   return (
     <View style={styles.column}>
@@ -324,6 +412,15 @@ export const ServerBrowserSurface = forwardRef<
             resizeMode="contain"
             fadeDuration={0}
             onLoad={handleLoad1}
+          />
+        ) : null}
+        {VideoView ? (
+          // Mounted (and given its surface) before the first chunk; hidden until it draws.
+          <VideoView
+            ref={videoViewRef}
+            style={videoShown ? styles.video : styles.videoHidden}
+            onFrame={handleVideoFrame}
+            onDecoderError={handleDecoderError}
           />
         ) : null}
         {hasFrame ? null : (
@@ -364,6 +461,23 @@ const styles = StyleSheet.create((theme) => ({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+  },
+  video: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2,
+  },
+  videoHidden: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 0,
+    opacity: 0,
   },
   frame: {
     position: "absolute",

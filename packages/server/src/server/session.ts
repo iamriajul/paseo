@@ -1279,7 +1279,9 @@ export class Session {
         "Terminal directories": this.terminalController.getMetrics().directorySubscriptionCount,
         "Terminal output": this.terminalController.getMetrics().streamSubscriptionCount,
       }),
-      listProviderAvailability: () => this.agentManager.listProviderAvailability(),
+      // Daemon status may show availability up to 30 s old: each probe runs every provider's CLI.
+      listProviderAvailability: () =>
+        this.agentManager.listProviderAvailability({ maxAgeMs: 30_000 }),
       getTerminalsUnavailable: () => terminalManager?.getUnavailableError?.()?.message ?? null,
       listAgents: () => this.agentManager.listAgents(),
       listProjects: () => this.projectRegistry.list(),

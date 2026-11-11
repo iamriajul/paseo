@@ -3074,6 +3074,50 @@ test("listProviderAvailability uses registered client keys, including custom pro
   ]);
 });
 
+test("listProviderAvailability probes once for callers that accept a recent answer", async () => {
+  let probes = 0;
+  let available = true;
+  const client: AgentClient = {
+    provider: "zai",
+    capabilities: TEST_CAPABILITIES,
+    async isAvailable() {
+      probes += 1;
+      return available;
+    },
+    async createSession() {
+      throw new Error("not implemented");
+    },
+    async resumeSession() {
+      throw new Error("not implemented");
+    },
+  };
+  const manager = new AgentManager({ clients: { zai: client }, logger });
+
+  // Two status reads at once, then one a moment later: one probe between them.
+  await Promise.all([
+    manager.listProviderAvailability({ maxAgeMs: 30_000 }),
+    manager.listProviderAvailability({ maxAgeMs: 30_000 }),
+  ]);
+  await manager.listProviderAvailability({ maxAgeMs: 30_000 });
+  expect(probes).toBe(1);
+
+  // A caller that wants it fresh (the provider list) probes again, and its answer is reused.
+  available = false;
+  await expect(manager.listProviderAvailability()).resolves.toEqual([
+    { provider: "zai", available: false, error: null },
+  ]);
+  expect(probes).toBe(2);
+  await expect(manager.listProviderAvailability({ maxAgeMs: 30_000 })).resolves.toEqual([
+    { provider: "zai", available: false, error: null },
+  ]);
+  expect(probes).toBe(2);
+
+  // A changed provider registry is never answered from the old one.
+  manager.registerClient("zai", client);
+  await manager.listProviderAvailability({ maxAgeMs: 30_000 });
+  expect(probes).toBe(3);
+});
+
 test("createAgent passes daemon launch env through the provider launch context", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-test-"));
   const storagePath = join(workdir, "agents");

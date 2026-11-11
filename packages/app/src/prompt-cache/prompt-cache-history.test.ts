@@ -7,7 +7,9 @@ import { summarizePromptCacheHistory } from "./prompt-cache-history";
 import {
   buildInsightsColumns,
   createRequestPricer,
+  describeRequestsWithoutCache,
   summarizePromptCacheInsights,
+  summarizeRequestsWithoutCache,
   summarizeWarmUpPayback,
 } from "./prompt-cache-insights";
 
@@ -181,5 +183,46 @@ describe("prompt cache cost insights", () => {
       [6, 9],
       [9, 10],
     ]);
+  });
+});
+
+describe("requests with no prompt cache", () => {
+  // Claude Code ran GPT through CLIProxyAPI between two Opus turns: those requests read and wrote
+  // nothing, so they are neither hits nor misses.
+  function gpt(gapMinutes: number): PromptCacheHistoryEntry {
+    return {
+      ...entry("turn", 0, gapMinutes, { model: "gpt-6.1-terra" }),
+      writeTokens: 0,
+      uncachedTokens: 95_000,
+    };
+  }
+  const requests = [
+    entry("turn", 0, null, { model: "claude-opus-5-5" }),
+    gpt(1),
+    gpt(1),
+    entry("turn", 900, 1, { model: "claude-opus-5-5" }),
+  ];
+
+  it("leaves them out of the pill's bars and the cached share", () => {
+    const summary = summarizePromptCacheHistory(requests);
+    expect(summary?.bars).toHaveLength(2);
+    expect(summary?.bars.some((bar) => bar.avoidableMiss)).toBe(false);
+    expect(summary?.cachedShare).toBeCloseTo(0.45);
+  });
+
+  it("leaves them out of the insights counts and names their model", () => {
+    const insights = summarizePromptCacheInsights({
+      requests,
+      compactions: [],
+      cacheWindowMs: FIVE_MINUTES,
+    });
+    expect(insights.requests).toBe(1);
+    expect(insights.hits).toBe(1);
+    expect(insights.missesWhileWarm + insights.missesAfterExpiry).toBe(0);
+    const without = summarizeRequestsWithoutCache(requests);
+    expect(without).toEqual({ requests: 2, models: ["gpt-6.1-terra"] });
+    expect(describeRequestsWithoutCache(without!)).toBe(
+      "2 requests on gpt-6.1-terra had no prompt cache; counts and charts leave them out.",
+    );
   });
 });

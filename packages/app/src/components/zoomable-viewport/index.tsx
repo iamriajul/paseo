@@ -26,6 +26,7 @@ export function ZoomableViewport({
   maxScale = DEFAULT_MAX_SCALE,
   minScale = DEFAULT_MIN_SCALE,
   onPressOutsideContent,
+  onZoomChange,
   style,
   testID,
 }: ZoomableViewportProps) {
@@ -55,9 +56,14 @@ export function ZoomableViewport({
 
   useEffect(() => reset(), [contentSize.height, contentSize.width, reset, viewport]);
 
+  const zoomed = toolbarScale > FIT_TRANSFORM.scale;
+  useEffect(() => onZoomChange?.(zoomed), [onZoomChange, zoomed]);
+
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
+        // Fitted content has nowhere to pan, so a horizontal swipe is free for a pager around it.
+        .enabled(zoomed)
         .maxPointers(1)
         .onBegin(() => {
           startX.value = translateX.value;
@@ -70,7 +76,7 @@ export function ZoomableViewport({
           translateX.value = Math.min(maxX, Math.max(-maxX, startX.value + event.translationX));
           translateY.value = Math.min(maxY, Math.max(-maxY, startY.value + event.translationY));
         }),
-    [fittedContent, minScale, scale, startX, startY, translateX, translateY, viewport],
+    [fittedContent, minScale, scale, startX, startY, translateX, translateY, viewport, zoomed],
   );
 
   const pinchGesture = useMemo(

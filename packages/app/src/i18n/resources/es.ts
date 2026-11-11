@@ -596,6 +596,12 @@ export const es: TranslationResources = {
         medium: "Mediano",
         large: "Grande",
       },
+      gallery: {
+        previous: "Imagen anterior",
+        next: "Imagen siguiente",
+        position: "{{current}} / {{total}}",
+        positionLabel: "Imagen {{current}} de {{total}}",
+      },
       sort: {
         name: "Nombre",
         modified: "Modificado",

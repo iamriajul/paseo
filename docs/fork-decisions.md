@@ -1539,6 +1539,28 @@ grep -q "openInFiles(folderPath)" packages/app/src/workspace/open-in-file-manage
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/daemon-e2e/filesystem.e2e.test.ts -t "file explorer" --bail=1
 ```
 
+## files-image-gallery
+
+**an image opened from Files pages through its folder's other images**
+
+The user reviews agents' screenshots in the Files grid, and each one meant closing the preview and picking the next tile. A file tab showing an image now pages to the previous or next image of the same folder, in the order Files shows it (sort and hidden files included), skipping everything that is not an image: Left and Right on web and desktop, hover-revealed buttons and a "3 / 12" hint, and a swipe on phones. The behaviour is described in [explorer-sidebar.md](explorer-sidebar.md#files-folders).
+
+- **The list comes from Files' own listing.** `file-explorer/gallery/model.ts` reads the folder from the session store's explorer state for the root Files shows, so any image tab whose folder Files has listed pages, including one opened from a chat link. One image, or a folder Files never listed, shows the plain viewer.
+- **Paging retargets the tab.** The store's `replaceTab` keeps the tab id for a same-kind target, so the gallery stays mounted, the title follows, and Escape, Back and sheet Close behave as for any file tab. Reopening the first image from Files lands on that same tab.
+- **Images load ahead.** `gallery/image-cache.ts` holds each image's URL and pixel size for the image on screen and its two neighbours, keeps six released ones for paging back, and frees older URLs. The observed file version reloads the image on screen when it changes on disk.
+- **Swipe never fights zoom.** The native pager is one Reanimated strip with slides at their folder index, so a landed page needs no reset frame; it pages only while the image is fitted, and blocks the mobile sidebar open gestures while it is on screen.
+- **Chat images and attachments keep the single-image lightbox.** They are scattered across messages with no folder order to page through.
+
+Official files changed: `file-pane/pane.tsx` renders the gallery when the built-in image panel would show a gallery image, and takes the image kind from the extension before the stat lands so a page does not flash Loading; a plugin panel chosen for images keeps the plain path. `zoomable-viewport/{types.ts,index.tsx,index.web.tsx,image.tsx}` report `onZoomChange`, and the native viewport disables its pan while the content is fitted, where panning moved nothing, so an outer swipe can activate.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/file-explorer/gallery --bail=1
+grep -q "useImageGallery({ serverId, workspaceId, workspaceRoot: root, filePath: path })" packages/app/src/file-pane/pane.tsx
+grep -q ".enabled(zoomed)" packages/app/src/components/zoomable-viewport/index.tsx
+grep -q "onZoomChange?.(zoomed)" packages/app/src/components/zoomable-viewport/index.web.tsx
+test -f packages/app/e2e/browser/files-image-gallery.spec.ts
+```
+
 ## workspace-links
 
 **agents link workspaces and main previews; one tap opens them in the app**

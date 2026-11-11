@@ -162,6 +162,11 @@ sized to 128, 256 or 512, cached under `$PASEO_HOME/cache/thumbnails` by path an
 size (Small, Medium, Large) is one per-device setting. All of it is gated on
 `server_info.features.filesFolderSwitcher`; older hosts show only the workspace.
 
+An image tab whose folder Files has listed pages through that folder's images in Files' order:
+Left and Right, edge buttons and a position hint on web and desktop, a swipe on phones (only while
+the image is not zoomed in). Paging retargets the same tab. See
+[fork-decisions.md](fork-decisions.md#files-image-gallery).
+
 ## Side pane
 
 `packages/app/src/workspace-tabs/open-beside.ts` owns content opened beside the user's work. The

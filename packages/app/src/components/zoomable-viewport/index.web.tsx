@@ -52,6 +52,7 @@ export function ZoomableViewport({
   maxScale = DEFAULT_MAX_SCALE,
   minScale = DEFAULT_MIN_SCALE,
   onPressOutsideContent,
+  onZoomChange,
   style,
   testID,
   wheelActivation = "modifier",
@@ -91,6 +92,9 @@ export function ZoomableViewport({
   }, []);
 
   useEffect(() => reset(), [contentSize.height, contentSize.width, reset, viewport]);
+
+  const zoomed = transform.scale > FIT_TRANSFORM.scale;
+  useEffect(() => onZoomChange?.(zoomed), [onZoomChange, zoomed]);
 
   const zoomAt = useCallback(
     (scale: number, focalPoint: ViewportPoint) => {

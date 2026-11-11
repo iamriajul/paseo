@@ -589,6 +589,12 @@ export const zhCN: TranslationResources = {
         medium: "中",
         large: "大",
       },
+      gallery: {
+        previous: "上一张图片",
+        next: "下一张图片",
+        position: "{{current}} / {{total}}",
+        positionLabel: "第 {{current}} 张，共 {{total}} 张",
+      },
       sort: {
         name: "名称",
         modified: "修改时间",

@@ -3819,6 +3819,20 @@ describe("ProviderSnapshotManager gateway routing", () => {
     }
   });
 
+  test("routes Claude per model: a manifest model the gateway did not list keeps the local login", () => {
+    const manager = new ProviderSnapshotManager({ logger: createTestLogger(), gateway });
+    try {
+      // Before discovery lists anything, a manifest model launches on the local login and a
+      // gateway-only id keeps the injection, as the Claude launch env does.
+      expect(manager.isGatewayRoutedModel("claude", "claude-opus-5-5")).toBe(false);
+      expect(manager.isGatewayRoutedModel("claude", "gpt-6.1-terra")).toBe(true);
+      expect(manager.isGatewayRoutedModel("codex", "gpt-6.1-terra")).toBe(true);
+      expect(manager.isGatewayRoutedModel("copilot", "claude-opus-5-5")).toBe(false);
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("reports no routing without a gateway or with provider opt-outs", () => {
     const unconfigured = new ProviderSnapshotManager({ logger: createTestLogger() });
     try {

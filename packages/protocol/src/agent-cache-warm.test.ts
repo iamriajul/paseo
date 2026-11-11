@@ -13,6 +13,7 @@ import {
   recordPromptCacheCompaction,
   isPromptCacheHit,
   isUncountedPromptCacheRequest,
+  isAvoidablePromptCacheMiss,
   resolveCacheAutoCompactEnabled,
   isWarmUpPausedAtIdleCap,
   lastTurnWasCompaction,
@@ -192,6 +193,107 @@ describe("agent-cache-warm protocol utilities", () => {
       expect(isPromptCacheHit(next!)).toBe(true);
       expect(state?.totals).toEqual({ requests: 2, hits: 2, misses: 0 });
       expect(state?.contextInputTokens).toBe(624_696);
+    });
+
+    it("leaves requests with no prompt cache out of every count and keeps the cache on Claude's", () => {
+      // Claude Code ran GPT through CLIProxyAPI for a turn, then the user switched back to Opus:
+      // the GPT requests read and wrote nothing (the journal recorded 659 of them that way).
+      const at = (minutes: number) => new Date(Date.UTC(2026, 10, 9, 7, 0) + minutes * minute);
+      const opus = { isWarmPing: false, model: "claude-opus-5-5" };
+      const gpt = { isWarmPing: false, model: "gpt-6.1-terra", readTokens: 0, writeTokens: 0 };
+      const state = replay([
+        {
+          ...opus,
+          at: at(0).toISOString(),
+          turnId: "t1",
+          readTokens: 0,
+          writeTokens: 80_000,
+          uncachedTokens: 2,
+        },
+        { ...gpt, at: at(2).toISOString(), turnId: "t2", uncachedTokens: 95_000 },
+        { ...gpt, at: at(3).toISOString(), turnId: "t2", uncachedTokens: 99_000 },
+        {
+          ...opus,
+          at: at(4).toISOString(),
+          turnId: "t3",
+          readTokens: 80_000,
+          writeTokens: 19_500,
+          uncachedTokens: 2,
+        },
+      ]);
+      const [, firstGpt, secondGpt, back] = state?.history ?? [];
+      expect(firstGpt).toMatchObject({ kind: "turn", model: "gpt-6.1-terra" });
+      expect(secondGpt).toMatchObject({ kind: "request", model: "gpt-6.1-terra" });
+      expect(isUncountedPromptCacheRequest(firstGpt!)).toBe(true);
+      expect(isAvoidablePromptCacheMiss(secondGpt!)).toBe(false);
+      // Back on Opus: measured against Opus's own context and cache clock, not GPT's.
+      expect(back).toMatchObject({ kind: "turn", gapMs: 4 * minute, previousInputTokens: 80_002 });
+      expect(isPromptCacheHit(back!)).toBe(true);
+      expect(state?.totals).toEqual({ requests: 1, hits: 1, misses: 0 });
+    });
+
+    it("keeps the countdown and context on the latest request that had a prompt cache", () => {
+      const at = (minutes: number) => new Date(Date.UTC(2026, 10, 9, 7, 0) + minutes * minute);
+      const state = replay([
+        {
+          at: at(0).toISOString(),
+          turnId: "t1",
+          isWarmPing: false,
+          readTokens: 0,
+          writeTokens: 80_000,
+          uncachedTokens: 2,
+        },
+        {
+          at: at(2).toISOString(),
+          turnId: "t2",
+          isWarmPing: false,
+          model: "gpt-6.1-terra",
+          readTokens: 0,
+          writeTokens: 0,
+          uncachedTokens: 95_000,
+        },
+      ]);
+      expect(resolvePromptCacheAnchorMs({ promptCache: state })).toBe(at(0).getTime());
+      expect(state?.contextInputTokens).toBe(80_002);
+      expect(state?.lastActivityAt).toBe(at(2).toISOString());
+    });
+
+    it("treats a session begun without a prompt cache as fresh when Claude first writes", () => {
+      const at = (minutes: number) => new Date(Date.UTC(2026, 10, 9, 7, 0) + minutes * minute);
+      const gptOnly = replay([
+        {
+          at: at(0).toISOString(),
+          turnId: "t1",
+          isWarmPing: false,
+          model: "gemini-3.8-flash-high",
+          readTokens: 0,
+          writeTokens: 0,
+          uncachedTokens: 40_000,
+        },
+      ]);
+      expect(resolvePromptCacheAnchorMs({ promptCache: gptOnly })).toBeNull();
+      const state = replay([
+        {
+          at: at(0).toISOString(),
+          turnId: "t1",
+          isWarmPing: false,
+          model: "gemini-3.8-flash-high",
+          readTokens: 0,
+          writeTokens: 0,
+          uncachedTokens: 40_000,
+        },
+        {
+          at: at(1).toISOString(),
+          turnId: "t2",
+          isWarmPing: false,
+          model: "claude-opus-5-5",
+          readTokens: 12_000,
+          writeTokens: 30_000,
+          uncachedTokens: 2,
+        },
+      ]);
+      expect(state?.history?.at(-1)).toMatchObject({ kind: "turn", gapMs: null });
+      expect(state?.totals).toEqual({ requests: 0, hits: 0, misses: 0 });
     });
 
     it("keeps measuring against the agent's context across a run of fork warm-ups", () => {

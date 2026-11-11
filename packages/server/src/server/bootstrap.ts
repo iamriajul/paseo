@@ -1202,7 +1202,8 @@ export async function createPaseoDaemon(
           persistence: agent.persistence,
         },
         gateway: providerSnapshotManager.getGatewayConfig(),
-        isGatewayRouted: (provider) => providerSnapshotManager.isGatewayRouted(provider),
+        isGatewayRouted: (provider, model) =>
+          providerSnapshotManager.isGatewayRoutedModel(provider, model),
         lastRequestAtMs: resolvePromptCacheAnchorMs(agent),
       });
     },
@@ -1258,7 +1259,8 @@ export async function createPaseoDaemon(
     logger,
     agentManager,
     gateway: () => providerSnapshotManager.getGatewayConfig(),
-    isGatewayRouted: (provider) => providerSnapshotManager.isGatewayRouted(provider),
+    isGatewayRouted: (provider, model) =>
+      providerSnapshotManager.isGatewayRoutedModel(provider, model),
   });
   await agentStorage.initialize();
   const restartRecovery = createRestartRecovery({

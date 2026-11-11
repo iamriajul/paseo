@@ -1,4 +1,5 @@
 import {
+  hasNoPromptCache,
   isAvoidablePromptCacheMiss,
   isPromptCacheHit,
   isUncountedPromptCacheRequest,
@@ -283,7 +284,33 @@ export function buildInsightsColumns(
   );
 }
 
-/** The requests every count and chart uses: the first request after a compaction is left out. */
+/** Requests that had no prompt cache, which every count and chart leaves out, by model. */
+export interface RequestsWithoutCache {
+  requests: number;
+  /** Models those requests ran on, in order of first use; empty when none was recorded. */
+  models: string[];
+}
+
+export function summarizeRequestsWithoutCache(
+  requests: readonly PromptCacheHistoryEntry[],
+): RequestsWithoutCache | null {
+  const without = requests.filter(hasNoPromptCache);
+  if (without.length === 0) return null;
+  const models = [...new Set(without.flatMap((entry) => (entry.model ? [entry.model] : [])))];
+  return { requests: without.length, models };
+}
+
+/** "37 requests on gpt-6.1-terra had no prompt cache; counts and charts leave them out." */
+export function describeRequestsWithoutCache(summary: RequestsWithoutCache): string {
+  const noun = summary.requests === 1 ? "request" : "requests";
+  const on = summary.models.length > 0 ? ` on ${summary.models.join(", ")}` : "";
+  return `${summary.requests} ${noun}${on} had no prompt cache; counts and charts leave them out.`;
+}
+
+/**
+ * The requests every count and chart uses: the first request after a compaction and requests
+ * with no prompt cache are left out.
+ */
 export function selectShownRequests(
   requests: readonly PromptCacheHistoryEntry[],
 ): PromptCacheHistoryEntry[] {

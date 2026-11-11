@@ -1,5 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { DaemonClient, ServerBrowserFrame } from "@getpaseo/client/internal/daemon-client";
+import type {
+  DaemonClient,
+  ServerBrowserFrame,
+  ServerBrowserVideoChunk,
+} from "@getpaseo/client/internal/daemon-client";
 import type { ServerBrowserInputEvent } from "@getpaseo/protocol/server-browser/rpc-schemas";
 import { InputBatcher, keyboardEventToInput, modifiersOf, mouseButtonOf } from "./input";
 import {
@@ -8,6 +12,7 @@ import {
   useServerBrowserScreencast,
   type ScreencastViewport,
 } from "./use-screencast";
+import { ServerBrowserVideoPlayer, WEB_VIDEO_CODECS, webVideoSupported } from "./video-player";
 
 export interface ServerBrowserSurfaceHandle {
   focusKeyboard(): void;
@@ -23,6 +28,17 @@ interface ServerBrowserSurfaceProps {
   onCancelAnnotate?: () => void;
   /** The surface's size in CSS pixels, each time it changes; the Responsive device size follows it. */
   onSize?: (size: { width: number; height: number }) => void;
+  /** The host streams video (features.serverBrowserVideo); JPEG otherwise. */
+  video?: boolean;
+}
+
+interface ProbeGlobal {
+  /** Measurement hook (scripts/server-browser-video-bench): called with the element just painted. */
+  __paseoServerBrowserProbe?: (element: HTMLCanvasElement | HTMLImageElement) => void;
+}
+
+function probe(element: HTMLCanvasElement | HTMLImageElement): void {
+  (globalThis as ProbeGlobal).__paseoServerBrowserProbe?.(element);
 }
 
 // Web and Electron: the frame is an <img>, input is DOM events on a focusable wrapper.
@@ -30,7 +46,16 @@ export const ServerBrowserSurface = forwardRef<
   ServerBrowserSurfaceHandle,
   ServerBrowserSurfaceProps
 >(function ServerBrowserSurface(
-  { client, browserId, pageWidth, pageHeight, annotating = false, onCancelAnnotate, onSize },
+  {
+    client,
+    browserId,
+    pageWidth,
+    pageHeight,
+    annotating = false,
+    onCancelAnnotate,
+    onSize,
+    video = false,
+  },
   ref,
 ) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -38,6 +63,12 @@ export const ServerBrowserSurface = forwardRef<
   const objectUrlRef = useRef<string | null>(null);
   const [viewport, setViewport] = useState<ScreencastViewport | null>(null);
   const [hasFrame, setHasFrame] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const playerRef = useRef<ServerBrowserVideoPlayer | null>(null);
+  // Which element shows the page: the last stream to paint wins (video, or JPEG as fallback).
+  const [shown, setShown] = useState<"jpeg" | "video">("jpeg");
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
   const pageSizeRef = useRef({ width: pageWidth, height: pageHeight });
   pageSizeRef.current = { width: pageWidth, height: pageHeight };
   const annotatingRef = useRef(annotating);
@@ -97,6 +128,8 @@ export const ServerBrowserSurface = forwardRef<
       objectUrlRef.current = url;
       if (previous) URL.revokeObjectURL(previous);
       setHasFrame(true);
+      if (shownRef.current !== "jpeg") setShown("jpeg");
+      probe(image);
       frame.ack();
     };
     const onError = () => {
@@ -117,7 +150,38 @@ export const ServerBrowserSurface = forwardRef<
     [],
   );
 
-  useServerBrowserScreencast({ client, browserId, viewport, onFrame: handleFrame });
+  const handleChunk = useCallback((chunk: ServerBrowserVideoChunk) => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      chunk.ack();
+      return;
+    }
+    if (!playerRef.current) {
+      playerRef.current = new ServerBrowserVideoPlayer(canvas, () => {
+        if (shownRef.current !== "video") setShown("video");
+        setHasFrame(true);
+        probe(canvas);
+      });
+    }
+    playerRef.current.push(chunk);
+  }, []);
+
+  useEffect(
+    () => () => {
+      playerRef.current?.dispose();
+      playerRef.current = null;
+    },
+    [browserId],
+  );
+
+  const videoEnabled = video && webVideoSupported();
+  useServerBrowserScreencast({
+    client,
+    browserId,
+    viewport,
+    onFrame: handleFrame,
+    video: videoEnabled ? { codecs: WEB_VIDEO_CODECS, onChunk: handleChunk } : null,
+  });
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -289,7 +353,11 @@ export const ServerBrowserSurface = forwardRef<
         ref={imageRef}
         alt=""
         draggable={false}
-        style={hasFrame ? IMAGE_STYLE : HIDDEN_IMAGE_STYLE}
+        style={hasFrame && shown === "jpeg" ? IMAGE_STYLE : HIDDEN_IMAGE_STYLE}
+      />
+      <canvas
+        ref={canvasRef}
+        style={hasFrame && shown === "video" ? IMAGE_STYLE : HIDDEN_IMAGE_STYLE}
       />
       {hasFrame ? null : <div style={PLACEHOLDER_STYLE}>Connecting to the server browser…</div>}
     </div>

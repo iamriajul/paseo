@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Paseo tab video",
+  "version": "0.1",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtJr0rPEVFF5FeUauphhFG1TZULRNhbpFHxtChDpYfCeQ8tcL0T0SpTn2KgVmPz6frTijcm6L0kaajVZqkab/S8czdT/zLqdwfz9u1BCeS8yrnHdkgJe2Jkc4y5vqWX7h8mXnqdyP9ZWHNHGZcpmF7Cueuf26O6axeR8bEL96HmxmMmfvPdZzmabS+f4cSI5ZYtFRzYHvlPWkEAQLQQPWd9McLAsdWrxD8jirDzBw6Ih2jDGoCzon7mPo2dkNr5z3SY03yGObdDN6ZOfNBiYoEhVo/cSsjTfhgsPGAqoyvus5wa2FWasTBRduIhdrfg7MYZC3JXWr976KbtJteaMshQIDAQAB",
+  "permissions": ["tabCapture", "offscreen", "debugger"],
+  "background": { "service_worker": "sw.js" }
+}

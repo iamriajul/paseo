@@ -16,6 +16,7 @@ import {
   type ChromiumExecutableResolution,
 } from "./chromium-executable.js";
 import { SharedChromium, type LaunchFn, type SharedChromiumEvents } from "./shared-chromium.js";
+import { TAB_VIDEO_CHROME_ARGS } from "./tab-video.js";
 
 /**
  * The engines behind the server browser. Tabs, the viewer and the MCP tools never see which one
@@ -125,6 +126,8 @@ const MANAGED_CHROME_ARGS = [
   // and bot checks expect WebGL.
   "--process-per-site",
   "--js-flags=--optimize-for-size",
+  // Viewers get real video: the daemon loads its tab-capture extension over the pipe.
+  ...TAB_VIDEO_CHROME_ARGS,
 ];
 
 async function startManagedChrome(params: StartEngineParams): Promise<SharedChromium> {

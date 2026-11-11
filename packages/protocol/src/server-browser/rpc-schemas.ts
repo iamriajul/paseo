@@ -154,6 +154,11 @@ export const ServerBrowserScreencastStartRequestSchema = z.object({
   /** Device pixels the viewer can show; the daemon caps both at 1600. */
   maxWidth: z.number().int().positive(),
   maxHeight: z.number().int().positive(),
+  /**
+   * The viewer decodes video: codecs it can decode, best first (WebCodecs codec strings).
+   * Needs features.serverBrowserVideo; the daemon answers with `video` when it streams video.
+   */
+  video: z.object({ codecs: z.array(z.string()) }).optional(),
 });
 export const ServerBrowserScreencastStartResponseSchema = z.object({
   type: z.literal("browser.server.screencast.start.response"),
@@ -161,8 +166,13 @@ export const ServerBrowserScreencastStartResponseSchema = z.object({
     requestId: z.string(),
     /** Release with subscription.release.request to stop the stream. */
     subscriptionId: z.string().optional(),
-    /** Matches the streamId of binary Frame (0x40) and FrameAck (0x41) frames. */
+    /** Matches the streamId of binary Frame (0x40), VideoChunk (0x42) and FrameAck (0x41) frames. */
     streamId: z.number().int().optional(),
+    /**
+     * Present when the stream sends VideoChunk frames in this codec. JPEG Frames may still arrive
+     * (before the first keyframe, or after the capture failed); show whichever came last.
+     */
+    video: z.object({ codec: z.string() }).optional(),
     error: ErrorField,
   }),
 });

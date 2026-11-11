@@ -126,6 +126,9 @@ import('node:fs').then(({appendFileSync}) => {
     console.log("✓ local authenticated connection remains reachable when details time out\n");
 
     console.log("Test 5: explicit endpoint status remains an error when details time out");
+    // Daemon status reuses a provider probe for 30 s, so Test 4's probe would answer this query
+    // at once. Past that window the query probes the slow provider again and times out.
+    await new Promise((resolve) => setTimeout(resolve, 31_000));
     const remote = await runLocalPaseo(
       ["daemon", "status", "--host", `127.0.0.1:${slowDaemon.port}`, "--json"],
       { PASEO_PASSWORD: "shared-secret" },

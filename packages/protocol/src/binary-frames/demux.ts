@@ -62,7 +62,9 @@ function decodeTcpTunnelBinaryFrame(bytes: Uint8Array): BinaryFrame | null {
       return frame ? { kind: "tcp_tunnel", frame } : null;
     }
     case ServerBrowserOpcode.Frame:
-    case ServerBrowserOpcode.FrameAck: {
+    case ServerBrowserOpcode.FrameAck:
+    case ServerBrowserOpcode.VideoChunk:
+    case ServerBrowserOpcode.VideoKeyframeRequest: {
       const frame = decodeServerBrowserFrame(bytes);
       return frame ? { kind: "server_browser", frame } : null;
     }

@@ -2310,6 +2310,8 @@ export class VoiceAssistantWebSocketServer {
         serverBrowserEngines: serverBrowserOf(this.browserToolsBroker) !== null,
         // COMPAT(serverBrowserAnnotate): added in v0.15.x (fork), drop gate after 2027-05-01.
         serverBrowserAnnotate: serverBrowserOf(this.browserToolsBroker) !== null,
+        // COMPAT(serverBrowserVideo): added in v0.15.x (fork), drop gate after 2027-05-01.
+        serverBrowserVideo: serverBrowserOf(this.browserToolsBroker) !== null,
         // COMPAT(serverBrowserTabTarget): added in v0.15.x (fork), drop gate after 2027-05-01.
         serverBrowserTabTarget: serverBrowserOf(this.browserToolsBroker) !== null,
         // COMPAT(serverBrowserViewerControls): added in v0.15.x (fork), drop gate after 2027-05-01.

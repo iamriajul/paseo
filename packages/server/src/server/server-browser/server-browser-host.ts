@@ -10,6 +10,7 @@ import type {
 import { browserToolsFailure, type BrowserToolsResponsePayload } from "../browser-tools/errors.js";
 import type { ChromiumExecutableResolution } from "./chromium-executable.js";
 import { ServerBrowserUnavailableError, type CdpEvent } from "./cdp-connection.js";
+import { TabVideoCapture } from "./tab-video.js";
 import {
   executeAutomationCommand,
   type BrowserRegistry,
@@ -133,6 +134,8 @@ export class ServerBrowserHost {
   private browserLostAt: number | null = null;
   private chromium: Promise<SharedChromium> | null = null;
   private launchedChromium: SharedChromium | null = null;
+  /** The tab-capture extension of the running Managed Chrome, loaded on the first video viewer. */
+  private tabVideo: { chromium: SharedChromium; capture: Promise<TabVideoCapture> } | null = null;
   private runningEngine: ServerBrowserEngineKind | null = null;
   /** The running engine's whole config; the setting may already name the next one. */
   private runningEngineConfig: ServerBrowserEngineConfig | null = null;
@@ -385,6 +388,14 @@ export class ServerBrowserHost {
       ...(params.openerBrowserId ? { openerBrowserId: params.openerBrowserId } : {}),
       onChange: () => this.scheduleNotify(),
       onNavigated: (url) => void this.onTabNavigated(workspaceId, url),
+      videoCapture: () => this.videoCapture(),
+      onVideoError: (message) =>
+        this.options.logger.warn({ message }, "Server browser video failed; back to JPEG"),
+      onVideoPlan: (encodes) =>
+        this.options.logger.debug(
+          { browserId: params.browserId, encodes },
+          "Server browser video encodes",
+        ),
       now: this.now,
     });
     this.tabs.set(tab.browserId, tab);
@@ -951,7 +962,7 @@ export class ServerBrowserHost {
   public sweepIdleTabs(): void {
     const cutoff = this.now() - this.limits.tabIdleMs;
     for (const tab of this.tabs.values()) {
-      if (tab.screencast.viewerCount > 0) tab.touch();
+      if (tab.viewerCount > 0) tab.touch();
       else if (tab.lastUsedAt < cutoff) void this.closeTab(tab.browserId);
     }
   }
@@ -974,6 +985,23 @@ export class ServerBrowserHost {
       const status = this.status();
       for (const listener of this.listeners) listener(tabs, status);
     }, 50);
+  }
+
+  /** Null on engines without tab capture: Headless (light) and Existing browser. */
+  private async videoCapture(): Promise<TabVideoCapture | null> {
+    const chromium = this.launchedChromium;
+    if (!chromium?.isAlive || this.runningEngine !== "managed-chrome") return null;
+    if (this.tabVideo?.chromium !== chromium) {
+      const capture = TabVideoCapture.load(
+        chromium.cdp,
+        join(this.rootDir(), "tab-video-extension"),
+      );
+      capture.catch((error: unknown) =>
+        this.options.logger.warn({ err: error }, "Server browser tab video unavailable"),
+      );
+      this.tabVideo = { chromium, capture };
+    }
+    return this.tabVideo.capture;
   }
 
   private rootDir(): string {

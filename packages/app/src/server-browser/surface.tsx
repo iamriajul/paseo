@@ -38,6 +38,8 @@ interface ServerBrowserSurfaceProps {
   onCancelAnnotate?: () => void;
   /** The surface's size in CSS pixels, each time it changes; the Responsive device size follows it. */
   onSize?: (size: { width: number; height: number }) => void;
+  /** Web only for now: native viewers have no WebCodecs and keep JPEG frames. */
+  video?: boolean;
 }
 
 const TAP_SLOP = 8;

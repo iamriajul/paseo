@@ -1,4 +1,5 @@
 import http from "node:http";
+import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "../support/fixtures";
 import { openAgentRoute } from "../support/helpers/mock-agent";
 import {
@@ -15,6 +16,11 @@ let scenario: ServerBrowserScenario;
  * Opens the scenario's workspace and waits for it to render: a fresh worker's first test also
  * waits out the app's cold connection, which takes a while on a loaded machine.
  */
+/** The surface shows the page: JPEG frames paint an <img>, video (Managed Chrome) a <canvas>. */
+async function expectPagePainted(surface: Locator): Promise<void> {
+  await expect(surface.locator("img:visible, canvas:visible")).toHaveCount(1);
+}
+
 async function openScenarioWorkspace(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1400, height: 900 });
   await openAgentRoute(page, {
@@ -167,7 +173,7 @@ test("Screenshot element copies the picked element's crop to the clipboard", asy
   await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
   const surface = page.getByTestId("server-browser-surface");
-  await expect(surface.locator("img")).toBeVisible();
+  await expectPagePainted(surface);
 
   await page.getByTestId("server-browser-screenshot").click();
   // The target box fills the page's top-left quarter; point at its middle and click.
@@ -206,7 +212,7 @@ test("a link the page opens in a new tab opens as a server tab, in front for the
   await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${opener}`).click();
   const surface = page.getByTestId("server-browser-surface");
-  await expect(surface.locator("img")).toBeVisible();
+  await expectPagePainted(surface);
   const box = (await surface.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 
@@ -225,7 +231,7 @@ test("a dialog the page opens waits for the viewer's answer", async ({ page }) =
   await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
   const surface = page.getByTestId("server-browser-surface");
-  await expect(surface.locator("img")).toBeVisible();
+  await expectPagePainted(surface);
   const box = (await surface.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 
@@ -246,7 +252,7 @@ test("a page's file input takes a file the viewer picks on its own device", asyn
   await openScenarioWorkspace(page);
   await page.getByTestId(`workspace-tab-server_browser_${browserId}`).click();
   const surface = page.getByTestId("server-browser-surface");
-  await expect(surface.locator("img")).toBeVisible();
+  await expectPagePainted(surface);
   const box = (await surface.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 

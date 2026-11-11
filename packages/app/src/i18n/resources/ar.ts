@@ -590,6 +590,12 @@ export const ar: TranslationResources = {
         medium: "متوسط",
         large: "كبير",
       },
+      gallery: {
+        previous: "الصورة السابقة",
+        next: "الصورة التالية",
+        position: "{{current}} / {{total}}",
+        positionLabel: "الصورة {{current}} من {{total}}",
+      },
       sort: {
         name: "اسم",
         modified: "معدل",

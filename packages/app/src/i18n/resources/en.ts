@@ -587,6 +587,12 @@ export const en = {
         medium: "Medium",
         large: "Large",
       },
+      gallery: {
+        previous: "Previous image",
+        next: "Next image",
+        position: "{{current}} / {{total}}",
+        positionLabel: "Image {{current}} of {{total}}",
+      },
       sort: {
         name: "Name",
         modified: "Modified",

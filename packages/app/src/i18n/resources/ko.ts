@@ -590,6 +590,12 @@ export const ko: TranslationResources = {
         medium: "보통",
         large: "크게",
       },
+      gallery: {
+        previous: "이전 이미지",
+        next: "다음 이미지",
+        position: "{{current}} / {{total}}",
+        positionLabel: "{{total}}개 중 {{current}}번째 이미지",
+      },
       sort: {
         name: "이름",
         modified: "수정일",

@@ -595,6 +595,12 @@ export const ru: TranslationResources = {
         medium: "Средний",
         large: "Крупный",
       },
+      gallery: {
+        previous: "Предыдущее изображение",
+        next: "Следующее изображение",
+        position: "{{current}} / {{total}}",
+        positionLabel: "Изображение {{current}} из {{total}}",
+      },
       sort: {
         name: "Имя",
         modified: "Дата изменения",

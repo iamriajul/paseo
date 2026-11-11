@@ -6,7 +6,8 @@ import { StyleSheet } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
-import { useFileHandle, useFileHandleSnapshot } from "@/file-panels/file";
+import { useFileHandle, useFileHandleSnapshot, type FileHandleSnapshot } from "@/file-panels/file";
+import type { FilePanelFileKind } from "@/file-panels/resolve";
 import { FilePanelLoading } from "@/file-panels/loading";
 import { FilePanelPicker, FilePanelView, useFilePanelChoice, type FilePanel } from "@/file-panels";
 import { resolveFilePreviewReadTarget } from "@/file-explorer/preview-target";
@@ -17,6 +18,9 @@ import { buildAbsoluteExplorerPath } from "@/utils/explorer-paths";
 import { formatFileSize } from "@/utils/format-file-size";
 import type { WorkspaceFileLocation } from "@/workspace/file-open";
 import { OutsideFileBar } from "@/file-explorer/folders/outside-file-bar";
+import { useImageGallery } from "@/file-explorer/gallery/hooks";
+import { ImageGalleryView } from "@/file-explorer/gallery/view";
+import type { ImageGallery } from "@/file-explorer/gallery/model";
 
 /**
  * The file tab: stats the file, picks its panel and mounts it. The panel reads, saves and shows
@@ -58,11 +62,13 @@ export function FilePane({
   });
   const snapshot = useFileHandleSnapshot(handle);
   const targetKey = target ? `${target.cwd}:${target.path}` : null;
+  // An image in a folder Files has listed pages through that folder's images.
+  const gallery = useImageGallery({ serverId, workspaceId, workspaceRoot: root, filePath: path });
   const { panel, choice } = useFilePanelChoice({
     serverId,
     targetKey,
     path,
-    fileKind: snapshot.status === "ready" ? snapshot.kind : null,
+    fileKind: choiceFileKind(snapshot, gallery !== null),
     presentable: isActive,
     lineNavigation: location.lineStart ? navigationRevision : null,
   });
@@ -87,6 +93,20 @@ export function FilePane({
   );
 
   let body;
+  if (connected && isGalleryImage(gallery, panel)) {
+    return (
+      <View style={styles.container} testID="workspace-file-pane">
+        {outsideBar}
+        <FilePanelPicker choice={choice} />
+        <ImageGalleryView
+          serverId={serverId}
+          workspaceRoot={root}
+          gallery={gallery}
+          version={snapshot.status === "ready" ? fileVersion(snapshot) : null}
+        />
+      </View>
+    );
+  }
   if (!connected && target) {
     body = <Text style={styles.errorText}>{t("workspace.terminal.hostDisconnected")}</Text>;
   } else if (!handle || snapshot.status === "loading") {
@@ -135,6 +155,27 @@ export function FilePane({
       <View style={styles.centerState}>{body}</View>
     </View>
   );
+}
+
+/** Before its stat lands, a gallery image is taken at its extension, so a page shows at once. */
+function choiceFileKind(
+  snapshot: FileHandleSnapshot,
+  inGallery: boolean,
+): FilePanelFileKind | null {
+  if (snapshot.status === "ready") return snapshot.kind;
+  return inGallery ? "image" : null;
+}
+
+/** The built-in image panel pages through the folder; a plugin panel chosen for images does not. */
+function isGalleryImage(
+  gallery: ImageGallery | null,
+  panel: FilePanel | null,
+): gallery is ImageGallery {
+  return gallery !== null && panel?.id === "builtin:image";
+}
+
+function fileVersion(version: { revision?: string; size: number; modifiedAt: string }): string {
+  return version.revision ?? `${version.size}:${version.modifiedAt}`;
 }
 
 /** One panel mount. Its tab reports unsaved changes until the panel unmounts. */

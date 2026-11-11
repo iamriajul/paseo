@@ -83,7 +83,8 @@ export interface WarmUpAccountGateway {
 export interface ReadWarmUpAccountBlockInput {
   agent: WarmUpAccountAgent;
   gateway: WarmUpAccountGateway | null | undefined;
-  isGatewayRouted: (provider: string) => boolean;
+  /** Whether the agent's provider sends this model through the Gateway (Claude decides per model). */
+  isGatewayRouted: (provider: string, model: string | null | undefined) => boolean;
   /** When the agent's last request was recorded: the cache the warm-up would keep. */
   lastRequestAtMs: number | null;
   readRoute?: (options: {
@@ -109,7 +110,7 @@ export async function readWarmUpAccountBlock(
   input: ReadWarmUpAccountBlockInput,
 ): Promise<WarmUpAccountBlock | null> {
   const { agent, gateway } = input;
-  if (!gateway || !input.isGatewayRouted(agent.provider)) return null;
+  if (!gateway || !input.isGatewayRouted(agent.provider, agent.config.model)) return null;
   const session = gatewaySessionIdFor(agent.provider, gatewayRoutedSessionId(agent));
   const model = agent.config.model
     ? resolveGatewayModelSlug(agent.provider, agent.config.model)

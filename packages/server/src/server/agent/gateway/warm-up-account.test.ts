@@ -172,6 +172,28 @@ describe("readWarmUpAccountBlock", () => {
     expect(readRoute).not.toHaveBeenCalled();
   });
 
+  test("asks about the agent's model, so a Claude model on the local login warms unchecked", async () => {
+    const readRoute = vi.fn(async () => routeResult(serving));
+    const isGatewayRouted = vi.fn(
+      (_provider: string, model: string | null | undefined) => model !== "claude-opus-5-5",
+    );
+    const block = await readWarmUpAccountBlock({
+      agent: {
+        provider: "claude",
+        config: { model: "claude-opus-5-5" },
+        persistence: { sessionId: "7f0c" },
+      },
+      gateway: { baseUrl: "http://gateway:8317", apiKey: "sk-test" },
+      isGatewayRouted,
+      lastRequestAtMs: LAST_REQUEST_AT_MS,
+      readRoute,
+      readQuota: vi.fn(async () => ({ supported: true, accounts: [quotaAccount()] })),
+    });
+    expect(isGatewayRouted).toHaveBeenCalledWith("claude", "claude-opus-5-5");
+    expect(block).toBeNull();
+    expect(readRoute).not.toHaveBeenCalled();
+  });
+
   test("blocks when the serving account is missing from the model's quota list", async () => {
     const { result } = check({
       quota: { supported: true, accounts: [quotaAccount({ name: "u***b@example.com" })] },

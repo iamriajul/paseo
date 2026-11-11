@@ -1076,6 +1076,7 @@ export const AgentPromptCacheStateSchema = z.object({
     .object({ at: z.string(), tool: z.string(), command: z.string().optional() })
     .optional(),
   lastActivityAt: z.string().optional(),
+  latestTurnId: z.string().nullable().optional(),
   history: z.array(PromptCacheHistoryEntrySchema).optional(),
   compactions: z.array(PromptCacheCompactionSchema).optional(),
   totals: PromptCacheTotalsSchema.optional(),

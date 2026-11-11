@@ -329,6 +329,12 @@ export interface AgentPromptCacheState {
   permissionClosed?: PromptCacheClosedPermission;
   /** Latest request that was not a warm-up: where the next turn's time away starts. */
   lastActivityAt?: string;
+  /**
+   * Turn of the latest request on any model. `turnFirstRequest` only moves on requests with a
+   * prompt cache, so a run of requests without one (`hasNoPromptCache`) tells its turns apart by
+   * this. Absent on records written before it.
+   */
+  latestTurnId?: string | null;
   /** Oldest first, at most PROMPT_CACHE_HISTORY_LIMIT entries. */
   history?: PromptCacheHistoryEntry[];
   /** Oldest first, at most PROMPT_CACHE_COMPACTION_LIMIT entries. */
@@ -363,7 +369,7 @@ export function visiblePromptCacheMisses(
 export function isPromptCacheHit(
   entry: PromptCacheRequestTokens & Pick<PromptCacheHistoryEntry, "gapMs" | "previousInputTokens">,
 ): boolean {
-  if (entry.gapMs === null) return false;
+  if (entry.gapMs === null || hasNoPromptCache(entry)) return false;
   if (entry.previousInputTokens !== undefined) {
     return entry.readTokens >= PROMPT_CACHE_PREVIOUS_READ_RATIO * entry.previousInputTokens;
   }
@@ -371,13 +377,29 @@ export function isPromptCacheHit(
 }
 
 /**
- * The first request after a compaction. The compacted context was never cached, so it cannot hit
- * and it is not a miss. The counts and charts leave it out entirely; the compaction itself shows.
+ * A request that neither read nor wrote the cache had no prompt cache at all: Claude Code sent it
+ * to a model without one (GPT or Gemini through CLIProxyAPI, which reports no cache fields), or it
+ * was under the cacheable minimum. On this host every GPT and Gemini request journalled read and
+ * wrote 0, and every Claude request did one or the other, so the tokens decide, not the model id:
+ * entries written before `model` existed are judged the same way, and a gateway's Claude id that
+ * `isClaudeModel` rejects (`-dd-`) still counts.
+ */
+export function hasNoPromptCache(
+  tokens: Pick<PromptCacheRequestTokens, "readTokens" | "writeTokens">,
+): boolean {
+  return tokens.readTokens === 0 && tokens.writeTokens === 0;
+}
+
+/**
+ * A request that is neither a hit nor a miss, so the counts and charts leave it out entirely:
+ * the first request after a compaction, whose compacted context was never cached (the compaction
+ * itself shows), and a request with no prompt cache (`hasNoPromptCache`), which the request list
+ * still shows with its model.
  */
 export function isUncountedPromptCacheRequest(
-  entry: Pick<PromptCacheHistoryEntry, "afterCompaction">,
+  entry: Pick<PromptCacheHistoryEntry, "afterCompaction" | "readTokens" | "writeTokens">,
 ): boolean {
-  return entry.afterCompaction === true;
+  return entry.afterCompaction === true || hasNoPromptCache(entry);
 }
 
 /**
@@ -386,7 +408,7 @@ export function isUncountedPromptCacheRequest(
  * writes context that was never cached, so neither is a miss.
  */
 export function isAvoidablePromptCacheMiss(entry: PromptCacheHistoryEntry): boolean {
-  return entry.gapMs !== null && !entry.afterCompaction && !isPromptCacheHit(entry);
+  return entry.gapMs !== null && !isUncountedPromptCacheRequest(entry) && !isPromptCacheHit(entry);
 }
 
 /**
@@ -546,6 +568,59 @@ function nextContextInputTokens(
     : promptCacheInputTokens(sample);
 }
 
+/**
+ * The state as of the agent's latest request that had a prompt cache. A state holding only
+ * requests without one (the session began on GPT) has no cache to measure against.
+ */
+function cachedBasis(
+  previous: AgentPromptCacheState | undefined,
+): AgentPromptCacheState | undefined {
+  return previous && !hasNoPromptCache(previous.lastRequest) ? previous : undefined;
+}
+
+function startsNewTurn(
+  previous: AgentPromptCacheState | undefined,
+  sample: PromptCacheRequestSample,
+): boolean {
+  if (!previous) return true;
+  const latestTurnId =
+    previous.latestTurnId === undefined ? previous.turnFirstRequest.turnId : previous.latestTurnId;
+  return !sample.isWarmPing && latestTurnId !== sample.turnId;
+}
+
+interface MeasureBasis {
+  /** When the context this request is measured against was last sent; the gap runs from it. */
+  basisAt: string | undefined;
+  /** That context's size; 0 when there is none to measure against. */
+  previousInputTokens: number;
+}
+
+/**
+ * What a request is measured against. One without a prompt cache is measured against nothing (it
+ * can neither hit nor miss); its gap runs from the latest request on any model. Any other is
+ * measured against the agent's context as of its previous request that had a cache, since requests
+ * without one never touch it, else, for a native fork's first request, what it inherited.
+ */
+function resolveMeasureBasis(
+  previous: AgentPromptCacheState | undefined,
+  sample: PromptCacheRequestSample,
+  inherited: PromptCacheInheritance | undefined,
+): MeasureBasis {
+  if (hasNoPromptCache(sample)) {
+    return {
+      basisAt: previous?.history?.at(-1)?.at ?? previous?.lastRequest.at,
+      previousInputTokens: 0,
+    };
+  }
+  const basis = cachedBasis(previous);
+  if (basis) {
+    return { basisAt: basis.lastRequest.at, previousInputTokens: agentContextInputTokens(basis) };
+  }
+  // Only requests without a cache so far: Claude's first write is a fresh session's.
+  if (previous) return { basisAt: undefined, previousInputTokens: 0 };
+  return { basisAt: inherited?.at, previousInputTokens: inherited?.inputTokens ?? 0 };
+}
+
 function buildHistoryEntry(
   previous: AgentPromptCacheState | undefined,
   sample: PromptCacheRequestSample,
@@ -553,13 +628,8 @@ function buildHistoryEntry(
   inherited: PromptCacheInheritance | undefined,
 ): PromptCacheHistoryEntry {
   const kind: PromptCacheRequestKind = resolveRequestKind(sample, startsTurn);
-  // The agent's context this one is measured against: as of the previous request, else what a
-  // native fork inherited.
-  const basisAt = previous?.lastRequest.at ?? inherited?.at;
+  const { basisAt, previousInputTokens } = resolveMeasureBasis(previous, sample, inherited);
   const basisActivityAt = previous?.lastActivityAt ?? inherited?.at;
-  const previousInputTokens = previous
-    ? agentContextInputTokens(previous)
-    : (inherited?.inputTokens ?? 0);
   const awayMs = kind === "turn" ? elapsedSinceMs(basisActivityAt, sample.at) : null;
   const afterCompaction = followsCompaction(previous);
   return {
@@ -577,6 +647,38 @@ function buildHistoryEntry(
   };
 }
 
+/**
+ * A request without a prompt cache leaves the cache as it was: the countdown, the TTL, the context
+ * the next request is measured against and the last prompt's hit all stay on the agent's latest
+ * request that had one. It is still the agent's activity and part of its history.
+ */
+/** A warm-up belongs to no turn, so it leaves the latest turn as it was. */
+function nextLatestTurnId(
+  previous: AgentPromptCacheState | undefined,
+  sample: PromptCacheRequestSample,
+): string | null | undefined {
+  return sample.isWarmPing ? previous?.latestTurnId : sample.turnId;
+}
+
+function appendHistory(
+  previous: AgentPromptCacheState | undefined,
+  entry: PromptCacheHistoryEntry,
+): PromptCacheHistoryEntry[] {
+  return [...(previous?.history ?? []), entry].slice(-PROMPT_CACHE_HISTORY_LIMIT);
+}
+
+function keepCacheState(
+  previous: AgentPromptCacheState,
+  sample: PromptCacheRequestSample,
+  next: Pick<AgentPromptCacheState, "latestTurnId" | "history" | "totals">,
+): AgentPromptCacheState {
+  return {
+    ...previous,
+    ...next,
+    lastActivityAt: sample.isWarmPing ? previous.lastActivityAt : sample.at,
+  };
+}
+
 /** Records one main-thread request into the cache state; pure so the daemon and tests share it. */
 export function recordPromptCacheRequest(
   previous: AgentPromptCacheState | undefined,
@@ -585,10 +687,13 @@ export function recordPromptCacheRequest(
 ): AgentPromptCacheState {
   // A warm-up belongs to no turn: it can land in the middle of one, and the agent's next request
   // there still continues that turn.
-  const startsTurn =
-    !previous || (!sample.isWarmPing && previous.turnFirstRequest.turnId !== sample.turnId);
+  const startsTurn = startsNewTurn(previous, sample);
   const entry = buildHistoryEntry(previous, sample, startsTurn, inherited);
   const priorTotals = previous?.totals ?? sumPromptCacheTotals(previous?.history ?? []);
+  const latestTurnId = nextLatestTurnId(previous, sample);
+  const history = appendHistory(previous, entry);
+  const basis = hasNoPromptCache(sample) ? cachedBasis(previous) : undefined;
+  if (basis) return keepCacheState(basis, sample, { latestTurnId, history, totals: priorTotals });
   return {
     lastRequest: sample,
     turnFirstRequest: previous && !startsTurn ? previous.turnFirstRequest : sample,
@@ -597,7 +702,8 @@ export function recordPromptCacheRequest(
     questionClosedAt: previous?.questionClosedAt,
     permissionClosed: previous?.permissionClosed,
     lastActivityAt: sample.isWarmPing ? previous?.lastActivityAt : sample.at,
-    history: [...(previous?.history ?? []), entry].slice(-PROMPT_CACHE_HISTORY_LIMIT),
+    latestTurnId,
+    history,
     compactions: previous?.compactions,
     totals: addToTotals(priorTotals, entry),
     missesCleared: previous?.missesCleared,
@@ -658,10 +764,24 @@ export function isWarmUpPausedAtIdleCap(
  * only the fallback for records written before request samples existed.
  */
 export function resolvePromptCacheAnchorMs(input: {
-  promptCache?: { lastRequest: { at: string } } | null;
+  promptCache?: {
+    lastRequest: { at: string } & Partial<
+      Pick<PromptCacheRequestTokens, "readTokens" | "writeTokens">
+    >;
+  } | null;
   lastResponseAt?: Date | string | null;
 }): number | null {
-  const requestAt = input.promptCache?.lastRequest.at;
+  const lastRequest = input.promptCache?.lastRequest;
+  // Only requests without a prompt cache so far (a session begun on GPT): nothing to keep warm.
+  if (
+    lastRequest &&
+    lastRequest.readTokens !== undefined &&
+    lastRequest.writeTokens !== undefined &&
+    hasNoPromptCache({ readTokens: lastRequest.readTokens, writeTokens: lastRequest.writeTokens })
+  ) {
+    return null;
+  }
+  const requestAt = lastRequest?.at;
   const source = requestAt ?? input.lastResponseAt ?? null;
   if (source === null) {
     return null;

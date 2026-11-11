@@ -1729,3 +1729,15 @@ The title test fails without the rate limit: the page and the observer trade 10,
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/window-title.test.ts --bail=1 -t "stops marking a page that puts its own title back"
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "closed with the browser|went away to come back"
 ```
+
+## server-browser-console-budget
+
+**A server tab stops reading a flooding page's console, and says how much it dropped**
+
+A page that logs in a tight loop sends Chrome's browser process one event per console call while Paseo has the Runtime domain on; past what Chrome can forward, it holds the rest in memory and every tab on the shared CDP connection waits behind them. Each tab now reads at most 1,000 messages or 1 MB a second (`console-budget.ts`); past that it turns the Runtime domain off at the page, turns it back on after a pause that doubles while the page keeps flooding (2 s up to 5 min) once the in-flight events stop, discards what Chromium stored meanwhile, and writes a "N console messages dropped" warning that `browser_logs` and the console panel show. Measured on a 50 MB/s console page: Chrome held 0.4–1.0 GB after 45 s without it; with it, Chrome peaked at 90–200 MB in three of four runs (940 MB in one) and drained back to its baseline in three. A new tab during the flood still waits for Chrome to drain: that stall is Chrome's, and the budget does not remove it. The rules are in [Server browser](server-browser.md).
+
+The test floods a fake page with 3,000 messages; without the budget the tab never turns the Runtime domain off.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "logs in a tight loop"
+```

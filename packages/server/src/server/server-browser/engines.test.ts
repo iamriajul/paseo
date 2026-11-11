@@ -81,6 +81,28 @@ describe("prepareChromeProfile", () => {
     expect(existsSync(join(dir, "First Run"))).toBe(true);
     expect(existsSync(join(dir, "SingletonLock"))).toBe(false);
   });
+
+  it("turns Memory Saver on at Maximum, whatever the profile had, and keeps its other settings", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "chrome-profile-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "Local State"),
+      JSON.stringify({
+        performance_tuning: {
+          high_efficiency_mode: { state: 0, aggressiveness: 0 },
+          battery_saver_mode: { state: 1 },
+        },
+      }),
+    );
+
+    await prepareChromeProfile(dir);
+
+    const localState = JSON.parse(readFileSync(join(dir, "Local State"), "utf8"));
+    expect(localState.performance_tuning).toEqual({
+      high_efficiency_mode: { state: 2, aggressiveness: 2 },
+      battery_saver_mode: { state: 1 },
+    });
+  });
 });
 
 describe("resolveChromeExecutable", () => {

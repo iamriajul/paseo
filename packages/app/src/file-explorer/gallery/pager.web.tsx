@@ -18,7 +18,7 @@ export function GalleryPager({
   index,
   count,
   slides,
-  pagingEnabled,
+  zoomed,
   keyboardActive,
   gesturesActive,
   onNavigate,
@@ -58,13 +58,13 @@ export function GalleryPager({
       const start = touchStart.current;
       if (!start || start.id !== event.pointerId) return;
       touchStart.current = null;
-      if (!pagingEnabled) return;
+      if (zoomed) return;
       const dx = event.clientX - start.x;
       const dy = event.clientY - start.y;
       if (Math.abs(dx) < SWIPE_DISTANCE || Math.abs(dx) < Math.abs(dy) * 1.5) return;
       onNavigate(dx > 0 ? -1 : 1);
     },
-    [onNavigate, pagingEnabled],
+    [onNavigate, zoomed],
   );
   const handlePointerCancel = useCallback(() => {
     touchStart.current = null;

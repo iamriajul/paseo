@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -10,13 +10,11 @@ import Animated, {
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useBlockMobilePanelOpenGestures } from "@/mobile-panels/provider";
 import type { GalleryPagerProps } from "./pager-types";
+import { canSwipePage, dragOffset, settleSwipe } from "./paging";
 
 export type { GallerySlide } from "./pager-types";
 
 const PAGE_DURATION = 220;
-const PAGE_DISTANCE = 0.2;
-const PAGE_VELOCITY = 500;
-const EDGE_RESISTANCE = 0.3;
 
 /**
  * A horizontal strip of the folder's images that follows the finger. Slides are placed by their
@@ -27,23 +25,30 @@ export function GalleryPager({
   index,
   count,
   slides,
-  pagingEnabled,
+  zoomed,
   gesturesActive,
   onSelect,
 }: GalleryPagerProps) {
   const isCompact = useIsCompactFormFactor();
   const [width, setWidth] = useState(0);
   const offset = useSharedValue(0);
+  // The image the strip is at or heading to. A swipe sets it before React hears of the page.
   const settled = useSharedValue(index);
+  const laidOutWidth = useRef(0);
   // A horizontal swipe here pages; it must not also open a mobile sidebar.
   useBlockMobilePanelOpenGestures(isCompact && gesturesActive && count > 1);
 
   useLayoutEffect(() => {
     if (width <= 0) return;
     const target = -index * width;
-    // A swipe already moved the strip; a button, key or retarget from elsewhere slides it.
-    offset.value =
-      settled.value === index ? target : withTiming(target, { duration: PAGE_DURATION });
+    if (laidOutWidth.current !== width) {
+      // First layout or a resize: jump, there is nothing to animate from.
+      laidOutWidth.current = width;
+      offset.value = target;
+    } else if (settled.value !== index) {
+      // A button, key or retarget from elsewhere. A swipe already set `settled` and is animating.
+      offset.value = withTiming(target, { duration: PAGE_DURATION });
+    }
     settled.value = index;
   }, [index, offset, settled, width]);
 
@@ -54,34 +59,34 @@ export function GalleryPager({
   const pan = useMemo(
     () =>
       Gesture.Pan()
-        .enabled(pagingEnabled && count > 1 && width > 0)
+        .enabled(canSwipePage({ zoomed, count, width }))
         .maxPointers(1)
         .activeOffsetX([-12, 12])
         .failOffsetY([-12, 12])
         .onUpdate((event) => {
-          const current = settled.value;
-          const pullingPastEnd =
-            (event.translationX > 0 && current === 0) ||
-            (event.translationX < 0 && current === count - 1);
-          const dx = pullingPastEnd ? event.translationX * EDGE_RESISTANCE : event.translationX;
-          offset.value = -current * width + dx;
+          offset.value = dragOffset({
+            index: settled.value,
+            count,
+            width,
+            translationX: event.translationX,
+          });
         })
         .onEnd((event) => {
           const current = settled.value;
-          let delta: -1 | 0 | 1 = 0;
-          const forward =
-            event.translationX < -width * PAGE_DISTANCE || event.velocityX < -PAGE_VELOCITY;
-          const back =
-            event.translationX > width * PAGE_DISTANCE || event.velocityX > PAGE_VELOCITY;
-          if (forward && current < count - 1) delta = 1;
-          else if (back && current > 0) delta = -1;
-          const next = current + delta;
-          settled.value = next;
-          offset.value = withTiming(-next * width, { duration: PAGE_DURATION }, (finished) => {
-            if (finished && delta !== 0) runOnJS(onSelect)(next);
+          const next = settleSwipe({
+            index: current,
+            count,
+            width,
+            translationX: event.translationX,
+            velocityX: event.velocityX,
           });
+          settled.value = next;
+          offset.value = withTiming(-next * width, { duration: PAGE_DURATION });
+          // Retarget now, not when the slide ends: a touch during the slide cancels the
+          // animation, and the tab must already show the image the strip is heading to.
+          if (next !== current) runOnJS(onSelect)(next);
         }),
-    [count, offset, onSelect, pagingEnabled, settled, width],
+    [count, offset, onSelect, settled, width, zoomed],
   );
 
   const stripStyle = useAnimatedStyle(() => ({ transform: [{ translateX: offset.value }] }));

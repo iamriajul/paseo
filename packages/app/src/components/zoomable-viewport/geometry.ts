@@ -27,6 +27,14 @@ export interface ViewportFitOptions {
 
 export const FIT_TRANSFORM: ViewportTransform = { scale: 1, x: 0, y: 0 };
 
+/**
+ * Content larger than its fit. Only then can a one-finger drag pan it: fitted content is never
+ * larger than the viewport, so at or below fit the pan limits are zero.
+ */
+export function isZoomedIn(scale: number): boolean {
+  return scale > FIT_TRANSFORM.scale;
+}
+
 export function isActivePinchUpdate(activeTouches: number, reportedPointers: number): boolean {
   "worklet";
   return activeTouches >= 2 && reportedPointers >= 2;

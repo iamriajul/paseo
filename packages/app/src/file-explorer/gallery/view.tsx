@@ -104,7 +104,7 @@ export function ImageGalleryView({
         index={index}
         count={items.length}
         slides={slides}
-        pagingEnabled={!zoomed}
+        zoomed={zoomed}
         keyboardActive={isInteractive && active}
         gesturesActive={active}
         onSelect={select}

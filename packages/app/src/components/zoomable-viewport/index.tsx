@@ -8,6 +8,7 @@ import {
   fitContentSize,
   isActivePinchUpdate,
   isPointInsideTransformedContent,
+  isZoomedIn,
   zoomContentAtPoint,
   type ViewportSize,
 } from "./geometry";
@@ -56,7 +57,7 @@ export function ZoomableViewport({
 
   useEffect(() => reset(), [contentSize.height, contentSize.width, reset, viewport]);
 
-  const zoomed = toolbarScale > FIT_TRANSFORM.scale;
+  const zoomed = isZoomedIn(toolbarScale);
   useEffect(() => onZoomChange?.(zoomed), [onZoomChange, zoomed]);
 
   const panGesture = useMemo(

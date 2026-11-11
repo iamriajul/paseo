@@ -5,6 +5,7 @@ import {
   FIT_TRANSFORM,
   fitContentSize,
   isPointInsideTransformedContent,
+  isZoomedIn,
   panContent,
   zoomContentAtPoint,
   type ViewportPoint,
@@ -93,7 +94,7 @@ export function ZoomableViewport({
 
   useEffect(() => reset(), [contentSize.height, contentSize.width, reset, viewport]);
 
-  const zoomed = transform.scale > FIT_TRANSFORM.scale;
+  const zoomed = isZoomedIn(transform.scale);
   useEffect(() => onZoomChange?.(zoomed), [onZoomChange, zoomed]);
 
   const zoomAt = useCallback(

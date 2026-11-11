@@ -12,8 +12,8 @@ export interface GalleryPagerProps {
   count: number;
   /** The previous, current and next slides that exist. */
   slides: readonly GallerySlide[];
-  /** False while the image is zoomed in: the drag pans it instead. */
-  pagingEnabled: boolean;
+  /** The image is zoomed in: a drag pans it instead of paging. */
+  zoomed: boolean;
   keyboardActive: boolean;
   gesturesActive: boolean;
   /** One step back or forward: keys and touch swipes on web. */

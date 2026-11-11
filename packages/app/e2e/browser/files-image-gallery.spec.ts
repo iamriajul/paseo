@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
+import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "../support/fixtures";
 import {
   expandFolder,
@@ -43,6 +44,42 @@ function solidPng(width: number, height: number, rgb: [number, number, number]):
   ]);
 }
 
+async function seedShots(repoPath: string): Promise<void> {
+  const shots = path.join(repoPath, "shots");
+  await mkdir(shots, { recursive: true });
+  // Name order is alpha, beta, gamma; the Markdown file between them is skipped.
+  await writeFile(path.join(shots, "alpha.png"), solidPng(64, 40, [220, 60, 60]));
+  await writeFile(path.join(shots, "beta.png"), solidPng(80, 40, [60, 160, 90]));
+  await writeFile(path.join(shots, "between.md"), "# not an image\n", "utf8");
+  await writeFile(path.join(shots, "gamma.png"), solidPng(96, 40, [60, 90, 220]));
+}
+
+/** A one-finger horizontal swipe across the middle of the element, as real touch events. */
+async function swipe(target: Locator, direction: "left" | "right"): Promise<void> {
+  const page = target.page();
+  const box = await target.boundingBox();
+  if (!box) throw new Error("Swipe target has no bounding box");
+  const y = box.y + box.height / 2;
+  const from = box.x + box.width * (direction === "left" ? 0.8 : 0.2);
+  const to = box.x + box.width * (direction === "left" ? 0.2 : 0.8);
+  const input = await page.context().newCDPSession(page);
+  try {
+    await input.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: from, y }],
+    });
+    for (let step = 1; step <= 8; step++) {
+      await input.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: from + ((to - from) * step) / 8, y }],
+      });
+    }
+    await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  } finally {
+    await input.detach();
+  }
+}
+
 function visible(page: Page, testId: string) {
   return page.getByTestId(testId).filter({ visible: true }).first();
 }
@@ -66,13 +103,7 @@ test.describe("Files image gallery", () => {
   }) => {
     test.setTimeout(90_000);
     const workspace = await withWorkspace({ prefix: "files-image-gallery-" });
-    const shots = path.join(workspace.repoPath, "shots");
-    await mkdir(shots, { recursive: true });
-    // Name order is alpha, beta, gamma; the Markdown file between them is skipped.
-    await writeFile(path.join(shots, "alpha.png"), solidPng(64, 40, [220, 60, 60]));
-    await writeFile(path.join(shots, "beta.png"), solidPng(80, 40, [60, 160, 90]));
-    await writeFile(path.join(shots, "between.md"), "# not an image\n", "utf8");
-    await writeFile(path.join(shots, "gamma.png"), solidPng(96, 40, [60, 90, 220]));
+    await seedShots(workspace.repoPath);
     await workspace.navigateTo();
     await openFileExplorer(page);
     await expandFolder(page, "shots");
@@ -119,6 +150,65 @@ test.describe("Files image gallery", () => {
       await expect(
         page.getByTestId("workspace-tab-file_shots/alpha.png").filter({ visible: true }),
       ).toContainText("alpha.png");
+    });
+  });
+});
+
+test.describe("Files image gallery on a phone", () => {
+  // The workspace helpers need the desktop sidebar, so the image opens wide and the page then
+  // narrows to a phone, which switches the app to its compact layout.
+  test.use({ hasTouch: true });
+
+  test("swipes between images, and a zoomed-in image does not page", async ({
+    page,
+    withWorkspace,
+  }) => {
+    test.setTimeout(90_000);
+    const workspace = await withWorkspace({ prefix: "files-image-gallery-phone-" });
+    await seedShots(workspace.repoPath);
+    await workspace.navigateTo();
+    await openFileExplorer(page);
+    await expandFolder(page, "shots");
+    await openFileFromExplorer(page, "alpha.png");
+    await expectShowing(page, "1 / 3", 64);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectShowing(page, "1 / 3", 64);
+    const pager = visible(page, "image-gallery-slide-current");
+
+    await test.step("the buttons show without hover", async () => {
+      await expect(visible(page, "image-gallery-next-slot")).toHaveCSS("opacity", "1");
+    });
+
+    await test.step("a swipe past the first image stays on it", async () => {
+      await swipe(pager, "right");
+      await expectShowing(page, "1 / 3", 64);
+    });
+
+    await test.step("swiping left pages forward, swiping right pages back", async () => {
+      await swipe(pager, "left");
+      await expectShowing(page, "2 / 3", 80);
+      await swipe(pager, "left");
+      await expectShowing(page, "3 / 3", 96);
+      await visible(page, "image-gallery").screenshot({
+        path: test.info().outputPath("files-image-gallery-phone.png"),
+      });
+      await swipe(pager, "right");
+      await expectShowing(page, "2 / 3", 80);
+    });
+
+    await test.step("a zoomed-in image pans instead of paging", async () => {
+      // The toolbar is not under test; a click presses it reliably after synthetic touches.
+      const toolbarButton = (name: string) =>
+        page.getByRole("button", { name, exact: true }).filter({ visible: true }).first();
+      const resetView = toolbarButton("Reset view");
+      await toolbarButton("Zoom in").click();
+      await expect(resetView).not.toHaveAttribute("aria-disabled", "true");
+      await swipe(pager, "left");
+      await expectShowing(page, "2 / 3", 80);
+      await resetView.click();
+      await expect(resetView).toHaveAttribute("aria-disabled", "true");
+      await swipe(pager, "left");
+      await expectShowing(page, "3 / 3", 96);
     });
   });
 });

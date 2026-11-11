@@ -1,0 +1,85 @@
+<!doctype html>
+<body style="margin: 0; background: #222">
+  <canvas id="c"></canvas>
+  <script>
+    const W = new URLSearchParams(location.search);
+    const ws = new WebSocket(W.get("ws"));
+    ws.binaryType = "arraybuffer";
+    const cv = document.getElementById("c");
+    const ctx = cv.getContext("2d", { willReadFrequently: true });
+    const S = (window.stats = { lat: [], perSec: {}, frames: 0, bytes: 0, errors: [] });
+    function readBar() {
+      const px = ctx.getImageData(0, 0, 480, 12).data;
+      let t = 0;
+      for (let i = 39; i >= 0; i--) {
+        const o = (6 * 480 + i * 12 + 6) * 4;
+        t = t * 2 + ((px[o] + px[o + 1] + px[o + 2]) / 3 > 128 ? 1 : 0);
+      }
+      return t;
+    }
+    function shown() {
+      const now = Date.now();
+      const t = readBar();
+      const l = (now % 2 ** 40) - t;
+      if (l >= 0 && l < 10000) S.lat.push(l);
+      const s = Math.floor(now / 1000);
+      S.perSec[s] = (S.perSec[s] || 0) + 1;
+      S.frames++;
+    }
+    let dec = null;
+    function mkDec() {
+      dec = new VideoDecoder({
+        output: (f) => {
+          if (cv.width !== f.displayWidth) {
+            cv.width = f.displayWidth;
+            cv.height = f.displayHeight;
+          }
+          ctx.drawImage(f, 0, 0);
+          f.close();
+          shown();
+        },
+        error: (e) => {
+          S.errors.push(String(e));
+          dec = null;
+          ws.send("key");
+        },
+      });
+      dec.configure({
+        codec: W.get("codec") || "avc1.42E028",
+        optimizeForLatency: true,
+        hardwareAcceleration: "prefer-software",
+      });
+    }
+    let needKey = true;
+    ws.onmessage = async (ev) => {
+      if (typeof ev.data === "string") return;
+      const u = new Uint8Array(ev.data);
+      S.bytes += u.length;
+      const type = u[0];
+      if (type === 1) {
+        const seq = new DataView(ev.data).getUint32(1);
+        const bmp = await createImageBitmap(new Blob([u.subarray(5)], { type: "image/jpeg" }));
+        if (cv.width !== bmp.width) {
+          cv.width = bmp.width;
+          cv.height = bmp.height;
+        }
+        ctx.drawImage(bmp, 0, 0);
+        bmp.close();
+        shown();
+        ws.send("ack:" + seq);
+        return;
+      }
+      const key = type === 2;
+      if (!dec) mkDec();
+      if (needKey && !key) return;
+      needKey = false;
+      dec.decode(
+        new EncodedVideoChunk({
+          type: key ? "key" : "delta",
+          timestamp: performance.now() * 1000,
+          data: u.subarray(1),
+        }),
+      );
+    };
+  </script>
+</body>

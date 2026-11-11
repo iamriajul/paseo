@@ -295,6 +295,7 @@ function ServerBrowserPanel(): ReactElement {
   const browserId = target.browserId;
   const { t } = useTranslation();
   const supportsAnnotate = useHostFeature(serverId, "serverBrowserAnnotate");
+  const supportsVideo = useHostFeature(serverId, "serverBrowserVideo");
   const supportsViewerControls = useHostFeature(serverId, "serverBrowserViewerControls");
   const toast = useToast();
   const handleCopied = useCallback(
@@ -493,6 +494,7 @@ function ServerBrowserPanel(): ReactElement {
           annotating={isPicking}
           onCancelAnnotate={annotate.cancel}
           onSize={deviceSize.onSurfaceSize}
+          video={supportsVideo}
         />
         <LoadFailureOverlay tab={tab} onRetry={handleRetry} />
         <PageRequests client={client} browserId={browserId} tab={tab} run={run} />

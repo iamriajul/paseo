@@ -4556,6 +4556,9 @@ export const ServerInfoStatusPayloadSchema = z
         serverBrowserEngines: z.boolean().optional(),
         // COMPAT(serverBrowserAnnotate): added in v0.15.x (fork), drop the gate after 2027-05-01.
         serverBrowserAnnotate: z.boolean().optional(),
+        // COMPAT(serverBrowserVideo): added in v0.15.x (fork), drop the gate after 2027-05-01.
+        // True when screencast.start takes `video` and the daemon may answer with VideoChunk frames.
+        serverBrowserVideo: z.boolean().optional(),
         // COMPAT(serverBrowserTabTarget): added in v0.15.x (fork), drop the gate after 2027-05-01.
         // True when browser_new_tab takes `target` and serverBrowser.newTabTarget is honoured.
         serverBrowserTabTarget: z.boolean().optional(),

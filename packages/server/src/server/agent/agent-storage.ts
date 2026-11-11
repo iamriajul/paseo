@@ -8,6 +8,7 @@ import {
   AgentFeatureSchema,
   AgentPromptCacheStateSchema,
   AgentStatusSchema,
+  AgentCacheWarmPauseSchema,
   GatewayAccountChangeSchema,
 } from "../messages.js";
 import { toStoredAgentRecord } from "./agent-projections.js";
@@ -88,6 +89,8 @@ const STORED_AGENT_SCHEMA = z.object({
   warmUpCostUsd: z.number().optional(),
   promptCache: AgentPromptCacheStateSchema.optional(),
   gatewayAccounts: z.array(GatewayAccountChangeSchema).optional(),
+  /** Why warm-up is paused for the serving account, so the reason survives a restart. */
+  cacheWarmPause: AgentCacheWarmPauseSchema.optional(),
   /**
    * Last usage the provider reported, so a stopped agent still shows its context size and the
    * price of waking it. Only the numeric fields; the per-request cache sample lives in promptCache.

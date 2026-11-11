@@ -65,6 +65,13 @@ export interface GatewayQuotaAccount {
 export interface GatewayQuotaResult {
   supported: boolean;
   accounts: GatewayQuotaAccount[];
+  /**
+   * The Gateway gave no usable answer: transport failure, timeout, an unparseable 200, an error
+   * envelope other than 404 "no serving account" (bad key, auth manager unavailable), or an error
+   * status other than a plain 404 (a build without the route). The UI hides quota either way;
+   * the warm-up account check must not read it as "no block".
+   */
+  failed?: true;
 }
 
 export interface FetchGatewayQuotaOptions {
@@ -78,8 +85,9 @@ export async function fetchGatewayQuota(
   options: FetchGatewayQuotaOptions,
 ): Promise<GatewayQuotaResult> {
   const unsupported: GatewayQuotaResult = { supported: false, accounts: [] };
+  const failed: GatewayQuotaResult = { supported: false, accounts: [], failed: true };
   const url = buildGatewayQuotaUrl(options.baseUrl, options.model);
-  if (!url) return unsupported;
+  if (!url) return failed;
 
   const fetchImpl = options.fetchImpl ?? fetch;
   let response: Response;
@@ -90,13 +98,13 @@ export async function fetchGatewayQuota(
       signal: AbortSignal.timeout(GATEWAY_QUOTA_TIMEOUT_MS),
     });
   } catch {
-    return unsupported;
+    return failed;
   }
 
   if (response.status === 200) {
     const payload: unknown = await response.json().catch(() => undefined);
     const parsed = GatewayQuotaResponsePayloadSchema.safeParse(payload);
-    if (!parsed.success) return unsupported;
+    if (!parsed.success) return failed;
     return { supported: true, accounts: parsed.data.map(mapQuotaAccount) };
   }
 
@@ -104,8 +112,13 @@ export async function fetchGatewayQuota(
   // unavailable auth manager); anything else means an old Gateway without
   // the route, so quota stays hidden either way.
   const payload: unknown = await response.json().catch(() => undefined);
-  if (!GatewayQuotaErrorPayloadSchema.safeParse(payload).success) return unsupported;
-  return { supported: true, accounts: [] };
+  if (!GatewayQuotaErrorPayloadSchema.safeParse(payload).success) {
+    return response.status === 404 ? unsupported : failed;
+  }
+  // 404 means no account serves the model: an answer. Any other error is not one.
+  return response.status === 404
+    ? { supported: true, accounts: [] }
+    : { supported: true, accounts: [], failed: true };
 }
 
 function mapQuotaAccount(

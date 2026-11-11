@@ -13822,6 +13822,7 @@ test("records a compaction, marks the request after it, and journals the whole h
       ],
       compactions: [expect.objectContaining({ trigger: "manual", preTokens: 1000 })],
       accounts: [],
+      warmUpStops: [],
     });
   } finally {
     if (snapshotId) await manager.closeAgent(snapshotId);

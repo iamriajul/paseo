@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Logger } from "pino";
 import type {
   AgentPromptCacheState,
+  CacheWarmStop,
   GatewayAccountChange,
   PromptCacheCompaction,
   PromptCacheHistoryEntry,
@@ -11,13 +12,16 @@ import type {
 type JournalLine =
   | ({ type: "request" } & PromptCacheHistoryEntry)
   | ({ type: "compaction" } & PromptCacheCompaction)
-  | ({ type: "account" } & GatewayAccountChange);
+  | ({ type: "account" } & GatewayAccountChange)
+  | ({ type: "warm-up-stop" } & CacheWarmStop);
 
 export interface PromptCacheJournalHistory {
   requests: PromptCacheHistoryEntry[];
   compactions: PromptCacheCompaction[];
   /** CLIProxyAPI account changes, so insights can name the switch behind a miss. */
   accounts: GatewayAccountChange[];
+  /** Idle stretches whose warm-up stopped with the cache warm, so insights can say why. */
+  warmUpStops: CacheWarmStop[];
 }
 
 function toLines(
@@ -36,7 +40,10 @@ function serialize(lines: JournalLine[]): string {
 function parseLine(text: string): JournalLine | null {
   try {
     const value = JSON.parse(text) as JournalLine;
-    return value.type === "request" || value.type === "compaction" || value.type === "account"
+    return value.type === "request" ||
+      value.type === "compaction" ||
+      value.type === "account" ||
+      value.type === "warm-up-stop"
       ? value
       : null;
   } catch {
@@ -143,6 +150,18 @@ export class PromptCacheJournal {
     });
   }
 
+  appendWarmUpStop(input: {
+    agentId: string;
+    stop: CacheWarmStop;
+    before: AgentPromptCacheState | undefined;
+  }): Promise<void> {
+    return this.append({
+      agentId: input.agentId,
+      line: { type: "warm-up-stop", ...input.stop },
+      before: input.before,
+    });
+  }
+
   /** Null when nothing was journaled yet; the caller falls back to the snapshot window. */
   async read(agentId: string): Promise<PromptCacheJournalHistory | null> {
     await this.queues.get(agentId);
@@ -153,7 +172,12 @@ export class PromptCacheJournal {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
     }
-    const history: PromptCacheJournalHistory = { requests: [], compactions: [], accounts: [] };
+    const history: PromptCacheJournalHistory = {
+      requests: [],
+      compactions: [],
+      accounts: [],
+      warmUpStops: [],
+    };
     for (const raw of text.split("\n")) {
       if (!raw.trim()) continue;
       const line = parseLine(raw);
@@ -161,6 +185,7 @@ export class PromptCacheJournal {
       const { type, ...entry } = line;
       if (type === "request") history.requests.push(entry as PromptCacheHistoryEntry);
       else if (type === "account") history.accounts.push(entry as GatewayAccountChange);
+      else if (type === "warm-up-stop") history.warmUpStops.push(entry as CacheWarmStop);
       else history.compactions.push(entry as PromptCacheCompaction);
     }
     return history;

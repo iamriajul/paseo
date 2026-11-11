@@ -2298,6 +2298,8 @@ export class VoiceAssistantWebSocketServer {
         cacheWarmMaxPings: true,
         // COMPAT(cacheWarmClosesPermissions): added in v0.15.908, drop gate after 2027-05-01.
         cacheWarmClosesPermissions: true,
+        // COMPAT(cacheWarmStopReasons): added in v0.15.911, drop gate after 2027-05-01.
+        cacheWarmStopReasons: true,
         // COMPAT(agentNativeFork): added in v0.2.916, drop gate after 2027-02-01.
         agentNativeFork: true,
         // COMPAT(tcpTunnel): added in v0.1.105, remove gate after 2027-01-07 once daemon floor >= v0.1.105.

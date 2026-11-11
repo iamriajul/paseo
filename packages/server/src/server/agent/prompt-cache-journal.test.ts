@@ -70,6 +70,28 @@ describe("PromptCacheJournal", () => {
     ]);
   });
 
+  it("keeps why each warm-up stopped, apart from everything else", async () => {
+    void journal.appendRequest({
+      agentId: "a",
+      entry: entry("2026-11-01T10:00:00.000Z", 5),
+      before: undefined,
+    });
+    const stop = {
+      at: "2026-11-01T10:04:00.000Z",
+      reason: "quota",
+      account: "s***b",
+      window: "5h",
+      until: "2026-11-01T14:05:00.000Z",
+    };
+    void journal.appendWarmUpStop({ agentId: "a", stop, before: undefined });
+
+    const history = await journal.read("a");
+
+    expect(history?.requests).toHaveLength(1);
+    expect(history?.accounts).toEqual([]);
+    expect(history?.warmUpStops).toEqual([stop]);
+  });
+
   it("starts an existing agent's journal from its snapshot history", async () => {
     const before: AgentPromptCacheState = {
       lastRequest: {

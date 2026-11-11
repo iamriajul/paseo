@@ -126,6 +126,20 @@ describe("describeRequest", () => {
     expect(row.detail).not.toContain("switched");
   });
 
+  it("says why the warm-up let an expired cache go, first on the row", () => {
+    const entry = request(40, { readTokens: 0, writeTokens: 120_000, gapMs: 20 * MINUTE });
+    const row = describeRequest({
+      entry,
+      price,
+      cacheWindowMs: FIVE_MINUTES,
+      warmUpStop: { at: at(24), reason: "moved", account: "n***u" },
+    });
+    expect(row.outcome).toBe("miss · expired");
+    expect(row.detail).toMatch(
+      /^Warm-up skipped: the gateway had already moved this session to n\*\*\*u, cache left to expire · 120k context/,
+    );
+  });
+
   it("marks a hit and prices it as a read", () => {
     const row = describeRequest({ entry: request(5), price, cacheWindowMs: FIVE_MINUTES });
     expect(row).toMatchObject({ kind: "Tool step", outcome: "hit", tone: "hit" });

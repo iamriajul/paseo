@@ -19,9 +19,12 @@ import {
   isClaudeModel,
   isQuestionPermission,
   isWarmUpPausedAtIdleCap,
+  type CacheWarmStop,
+  type CacheWarmStopReason,
   type PromptCacheTtl,
   type PromptCacheWindows,
 } from "@getpaseo/protocol/agent-cache-warm";
+import type { AgentCacheWarmPause } from "@getpaseo/protocol/messages";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import type { AgentPermissionRequest } from "./agent-sdk-types.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
@@ -67,10 +70,13 @@ interface CacheWarmView {
   pausedAtIdleCap: boolean;
   /** The serving account could not take a warm-up; it resumes on the agent's next request. */
   pausedForAccount: boolean;
+  /** The account check went unanswered; no warm-up goes out before it reads again at this time. */
+  accountRetryAtMs: number | null;
 }
 
 type CacheWarmDecision =
-  | { kind: "skip"; reason: string }
+  /** `stop`: the warm-up stops for this idle stretch and leaves a still-warm cache to expire. */
+  | { kind: "skip"; reason: string; stop?: CacheWarmStopReason }
   | { kind: "wait"; delayMs: number }
   | { kind: "ping"; consecutivePings: number; maxPings: number }
   | { kind: "fork-warm"; consecutivePings: number; maxPings: number }
@@ -86,6 +92,7 @@ type CacheWarmDecision =
 interface ViewInput {
   consecutivePings: number;
   pausedForAccount: boolean;
+  accountRetryAtMs: number | null;
   /** The manager compacted this agent at the cap and nothing of its own ran since. */
   compactedAtCap: boolean;
   autoCompactByDefault: boolean;
@@ -129,6 +136,7 @@ function viewLiveAgent(
     warmPastCap: input.warmPastCap,
     pausedAtIdleCap: input.compactedAtCap || isWarmUpPausedAtIdleCap(agent.promptCache),
     pausedForAccount: input.pausedForAccount,
+    accountRetryAtMs: input.accountRetryAtMs,
   };
 }
 
@@ -156,6 +164,7 @@ function viewDormantRecord(record: StoredAgentRecord, input: ViewInput): CacheWa
     warmPastCap: input.warmPastCap,
     pausedAtIdleCap: input.compactedAtCap || isWarmUpPausedAtIdleCap(record.promptCache),
     pausedForAccount: input.pausedForAccount,
+    accountRetryAtMs: input.accountRetryAtMs,
   };
 }
 
@@ -200,6 +209,16 @@ export function resolveCacheWarmWindows(view: {
     : null;
 }
 
+/** When the cache expires without another request, warm-up on or off; null without a window. */
+function cacheExpiresAtMs(view: CacheWarmView): number | null {
+  if (view.provider !== "claude" || view.anchorMs === null) return null;
+  const windows = resolveEffectivePromptCacheWindows({
+    observedTtl: view.observedTtl,
+    promptCacheTtl: view.featureValues?.[CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID],
+  });
+  return windows ? view.anchorMs + windows.cacheWindowMs : null;
+}
+
 type Warmable =
   | { kind: "warmable"; windows: PromptCacheWindows }
   | { kind: "skip"; reason: string };
@@ -227,6 +246,20 @@ function decideCacheWarm(input: {
   nowMs: number;
   lastAttemptMs: number | null;
 }): CacheWarmDecision {
+  const decision = decideCacheWarmTiming(input);
+  const retryAtMs = input.view.accountRetryAtMs;
+  // An unanswered account check holds every send until it reads again.
+  if (sendsRequest(decision) && retryAtMs !== null && retryAtMs > input.nowMs) {
+    return { kind: "wait", delayMs: retryAtMs - input.nowMs };
+  }
+  return decision;
+}
+
+function decideCacheWarmTiming(input: {
+  view: CacheWarmView;
+  nowMs: number;
+  lastAttemptMs: number | null;
+}): CacheWarmDecision {
   const { view, nowMs, lastAttemptMs } = input;
   const warmable = resolveWarmable(view);
   if (warmable.kind === "skip") return warmable;
@@ -238,7 +271,11 @@ function decideCacheWarm(input: {
   // deadline the watchdog closes it for the user who is away, and the turn ends.
   const hasPending = view.pendingQuestions.length + view.pendingPermissions.length > 0;
   if (hasPending && view.isDelegated) {
-    return { kind: "skip", reason: "the parent agent answers this request" };
+    return {
+      kind: "skip",
+      reason: "the parent agent answers this request",
+      stop: "parent-answers",
+    };
   }
   if (!hasPending && view.activity !== "ready") {
     return { kind: "skip", reason: "agent is busy" };
@@ -252,10 +289,10 @@ function decideCacheWarm(input: {
   }
   const capped = reachedCap(view, windows);
   if (capped && (!compactsAtCap(view) || hasPending)) {
-    return { kind: "skip", reason: "auto-cap reached for this idle stretch" };
+    return { kind: "skip", reason: "auto-cap reached for this idle stretch", stop: "capped" };
   }
   if (lastAttemptMs !== null && lastAttemptMs > view.anchorMs) {
-    return { kind: "skip", reason: "the last warm-up did not reach Anthropic" };
+    return { kind: "skip", reason: "the last warm-up did not reach Anthropic", stop: "failed" };
   }
   if (elapsedMs < windows.warmIntervalMs) {
     return { kind: "wait", delayMs: windows.warmIntervalMs - elapsedMs };
@@ -303,10 +340,10 @@ function decideForkWarm(input: {
     view.pendingQuestions.length === 0 &&
     view.pendingPermissions.length === 0;
   if (capped && !canCompact) {
-    return { kind: "skip", reason: "auto-cap reached for this idle stretch" };
+    return { kind: "skip", reason: "auto-cap reached for this idle stretch", stop: "capped" };
   }
   if (lastAttemptMs !== null && lastAttemptMs > view.anchorMs) {
-    return { kind: "skip", reason: "the last warm-up did not reach Anthropic" };
+    return { kind: "skip", reason: "the last warm-up did not reach Anthropic", stop: "failed" };
   }
   if (elapsedMs < windows.warmIntervalMs) {
     return { kind: "wait", delayMs: windows.warmIntervalMs - elapsedMs };
@@ -361,9 +398,25 @@ export interface AgentCacheWarmManagerDependencies {
   warmsThroughFork?: () => boolean;
   /**
    * Whether the CLIProxyAPI account serving the agent can take a warm-up, read right before one is
-   * sent. Null when it can, or when the Gateway cannot say (an unrouted agent, an older Gateway).
+   * sent. Null when it can, or when the Gateway does not route the agent. A Gateway that cannot
+   * confirm the account blocks too (see `readWarmUpAccountBlock`).
    */
   readAccountBlock?: (agentId: string) => Promise<WarmUpAccountBlock | null>;
+}
+
+/** How long an unanswered account check waits before it reads the Gateway again. */
+export const WARM_UP_ACCOUNT_RETRY_MS = 20_000;
+
+/** A retried check must leave a warm-up this long to reach Anthropic before the cache expires. */
+const WARM_UP_ACCOUNT_RETRY_MARGIN_MS = 10_000;
+
+function stopForBlock(block: WarmUpAccountBlock): Omit<CacheWarmStop, "at"> {
+  return {
+    reason: block.reason,
+    ...(block.account ? { account: block.account } : {}),
+    ...(block.until ? { until: block.until } : {}),
+    ...(block.window ? { window: block.window } : {}),
+  };
 }
 
 type SendingDecision = Extract<
@@ -408,8 +461,13 @@ export class AgentCacheWarmManager {
   private readonly compactedAtCap = new Set<string>();
   /** Agents known only from storage after a daemon restart, until something loads them. */
   private readonly dormantRecords = new Map<string, StoredAgentRecord>();
-  /** Paused because the serving account was blocked, until the agent's next request of its own. */
-  private readonly accountPauses = new Map<string, WarmUpAccountBlock>();
+  /**
+   * Paused because the serving account could not take a warm-up, until the agent's next request of
+   * its own. The agent record carries the same pause, so it survives a restart.
+   */
+  private readonly accountPauses = new Map<string, AgentCacheWarmPause>();
+  /** The anchor of the idle stretch whose stop was journaled, so a stretch records one stop. */
+  private readonly stopRecordedFor = new Map<string, number>();
 
   constructor(dependencies: AgentCacheWarmManagerDependencies) {
     this.agentManager = dependencies.agentManager;
@@ -471,14 +529,43 @@ export class AgentCacheWarmManager {
     this.setConsecutivePings(agentId, 0);
   }
 
-  private pauseForAccount(agentId: string, block: WarmUpAccountBlock): void {
-    this.logger.info({ agentId, ...block }, "Cache warm paused: the serving account is blocked");
-    this.accountPauses.set(agentId, block);
-    this.agentManager.setCacheWarmPause(agentId, block);
+  private pauseForAccount(agentId: string, pause: AgentCacheWarmPause): void {
+    this.logger.info({ agentId, ...pause }, "Cache warm paused: the serving account cannot serve");
+    this.accountPauses.set(agentId, pause);
+    this.agentManager.setCacheWarmPause(agentId, pause);
+  }
+
+  /** The pause in memory, else the one the agent record kept across a restart. */
+  private getAccountPause(agentId: string): AgentCacheWarmPause | null {
+    return (
+      this.accountPauses.get(agentId) ??
+      this.agentManager.getAgent(agentId)?.cacheWarmPause ??
+      this.dormantRecords.get(agentId)?.cacheWarmPause ??
+      null
+    );
   }
 
   private clearAccountPause(agentId: string): void {
-    if (this.accountPauses.delete(agentId)) this.agentManager.setCacheWarmPause(agentId, null);
+    const paused = this.getAccountPause(agentId) !== null;
+    this.accountPauses.delete(agentId);
+    if (paused) this.agentManager.setCacheWarmPause(agentId, null);
+  }
+
+  /**
+   * Journals why this idle stretch's warm-up stopped, once per stretch and only while the cache
+   * is still warm: that is the expiry the warm-up let happen.
+   */
+  private recordStop(agentId: string, stop: Omit<CacheWarmStop, "at">): void {
+    const view = this.viewAgent(agentId);
+    const expiresAtMs = view ? cacheExpiresAtMs(view) : null;
+    if (!view || view.anchorMs === null || expiresAtMs === null) return;
+    if (expiresAtMs <= this.now() || this.stopRecordedFor.get(agentId) === view.anchorMs) return;
+    this.stopRecordedFor.set(agentId, view.anchorMs);
+    this.logger.info({ agentId, ...stop }, "Cache warm-up stopped; the cache is left to expire");
+    this.agentManager.recordCacheWarmStop(agentId, {
+      at: new Date(this.now()).toISOString(),
+      ...stop,
+    });
   }
 
   getPending(agentId: string): { scheduledFor: Date } | null {
@@ -492,8 +579,9 @@ export class AgentCacheWarmManager {
     this.schedule(agentId);
   }
 
-  onFeatureToggled(agentId: string, _enabled: boolean): void {
+  onFeatureToggled(agentId: string, enabled: boolean): void {
     this.resetConsecutivePings(agentId);
+    if (!enabled) this.recordStop(agentId, { reason: "off" });
     this.schedule(agentId);
   }
 
@@ -507,9 +595,12 @@ export class AgentCacheWarmManager {
 
   private viewAgent(agentId: string): CacheWarmView | null {
     const agent = this.agentManager.getAgent(agentId);
+    const pause = this.getAccountPause(agentId);
+    const retryAtMs = pause?.retryAt ? Date.parse(pause.retryAt) : Number.NaN;
     const input: ViewInput = {
       consecutivePings: this.getConsecutivePings(agentId),
-      pausedForAccount: this.accountPauses.has(agentId),
+      pausedForAccount: pause !== null && !pause.retryAt,
+      accountRetryAtMs: Number.isFinite(retryAtMs) ? retryAtMs : null,
       compactedAtCap: this.compactedAtCap.has(agentId),
       autoCompactByDefault: this.isCacheAutoCompactByDefault(),
       warmPastCap: this.warmsPastCap(agentId),
@@ -549,6 +640,7 @@ export class AgentCacheWarmManager {
     const decision = this.decide(agentId);
     if (decision.kind === "skip") {
       this.logger.debug({ agentId, reason: decision.reason }, "Cache warm not scheduled");
+      if (decision.stop) this.recordStop(agentId, { reason: decision.stop });
       return false;
     }
     const delayMs = decision.kind === "wait" ? decision.delayMs : 0;
@@ -577,8 +669,14 @@ export class AgentCacheWarmManager {
       // The read is a network call; anything that rescheduled meanwhile owns the agent now.
       if (this.agentEpochs.get(agentId) !== expectedEpoch) return false;
       if (block) {
-        this.pauseForAccount(agentId, block);
+        this.holdForAccount(agentId, block);
         return false;
+      }
+      // An earlier unanswered check is answered now. Clearing it publishes the agent, which can
+      // arm a fresh warm-up; that one owns the agent then.
+      if (this.getAccountPause(agentId)?.retryAt) {
+        this.clearAccountPause(agentId);
+        if (this.agentEpochs.get(agentId) !== expectedEpoch) return false;
       }
       // A turn may have started during the read; decide again on the agent as it is now.
       decision = this.decide(agentId);
@@ -586,6 +684,7 @@ export class AgentCacheWarmManager {
     switch (decision.kind) {
       case "skip":
         this.logger.debug({ agentId, reason: decision.reason }, "Cache warm ping skipped");
+        if (decision.stop) this.recordStop(agentId, { reason: decision.stop });
         return false;
       case "wait":
         this.schedule(agentId);
@@ -596,6 +695,7 @@ export class AgentCacheWarmManager {
           counts: decision,
           logMessage: "Closing an unanswered question or permission",
           attempt: () => this.closePendingRequests(agentId, decision),
+          isWarmUp: false,
         });
       case "ping":
         return this.runAttempt({
@@ -620,14 +720,41 @@ export class AgentCacheWarmManager {
     }
   }
 
-  /** No answer is no block: a failed read leaves warm-up as it was before the check existed. */
+  /**
+   * A check that throws is unconfirmed, like a Gateway that does not answer: nothing goes out
+   * unchecked (the user's rule, 2026-11-11). Until then a failed read warmed anyway.
+   */
   private async checkAccount(agentId: string): Promise<WarmUpAccountBlock | null> {
     try {
       return await this.readAccountBlock(agentId);
     } catch (error) {
-      this.logger.debug({ err: error, agentId }, "Warm-up account check failed; warming anyway");
-      return null;
+      this.logger.warn({ err: error, agentId }, "Warm-up account check failed; not warming");
+      return { reason: "unconfirmed", account: "" };
     }
+  }
+
+  /**
+   * Holds the warm-up the account cannot take. A Gateway that did not answer gets another read
+   * while a warm-up after it can still reach the cache in time; the pause says when, and the
+   * cache is not given up yet. Anything else, and an unanswered read with no time left, pauses
+   * until the agent's next request of its own and journals why the cache was left to expire.
+   */
+  private holdForAccount(agentId: string, block: WarmUpAccountBlock): void {
+    const view = this.viewAgent(agentId);
+    const expiresAtMs = view ? cacheExpiresAtMs(view) : null;
+    const retryAtMs = this.now() + WARM_UP_ACCOUNT_RETRY_MS;
+    if (
+      block.reason === "unconfirmed" &&
+      expiresAtMs !== null &&
+      retryAtMs + WARM_UP_ACCOUNT_RETRY_MARGIN_MS < expiresAtMs
+    ) {
+      this.pauseForAccount(agentId, { ...block, retryAt: new Date(retryAtMs).toISOString() });
+      this.schedule(agentId);
+      return;
+    }
+    const { retryAt: _retryAt, ...pause } = block;
+    this.recordStop(agentId, stopForBlock(pause));
+    this.pauseForAccount(agentId, pause);
   }
 
   /** Set once the schedule service exists, which bootstrap builds after this manager. */
@@ -664,8 +791,10 @@ export class AgentCacheWarmManager {
     counts: { consecutivePings: number; maxPings: number };
     logMessage: string;
     attempt: () => Promise<boolean>;
+    /** False for closing a pending question or permission: its failure sent nothing to Anthropic. */
+    isWarmUp?: boolean;
   }): Promise<boolean> {
-    const { agentId, counts, logMessage, attempt } = input;
+    const { agentId, counts, logMessage, attempt, isWarmUp = true } = input;
     this.logger.info(
       { agentId, pingNumber: counts.consecutivePings + 1, maxPings: counts.maxPings },
       logMessage,
@@ -684,6 +813,9 @@ export class AgentCacheWarmManager {
     }
     // A failed attempt stays recorded, so the next decision stops this idle stretch instead
     // of retrying in a tight loop. Any new request moves the anchor past it and re-arms.
+    // Only a warm-up that never reached Anthropic is a "failed" stop; a close that failed tried
+    // nothing there, and the question or permission it left open is what keeps the stretch idle.
+    if (!sent && isWarmUp) this.recordStop(agentId, { reason: "failed" });
     if (sent) {
       // Published on its own: a warm-up reply can finish its turn before the send resolves,
       // so the turn's last state update would not carry the new counts.
@@ -785,6 +917,7 @@ export class AgentCacheWarmManager {
   deleteAgent(agentId: string): void {
     this.cancel(agentId);
     this.agentEpochs.delete(agentId);
+    this.stopRecordedFor.delete(agentId);
   }
 
   cancelAll(): void {
@@ -822,6 +955,7 @@ export class AgentCacheWarmManager {
       const view = viewDormantRecord(record, {
         consecutivePings: 0,
         pausedForAccount: false,
+        accountRetryAtMs: null,
         compactedAtCap: false,
         autoCompactByDefault: false,
         forkWarm: false,

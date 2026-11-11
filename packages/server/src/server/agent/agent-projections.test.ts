@@ -217,6 +217,13 @@ describe("toStoredAgentRecord", () => {
     expect(record.config).toBeNull();
   });
 
+  it("keeps a warm-up pause on the record and in the stored agent's snapshot", () => {
+    const pause = { reason: "moved", account: "n***u" };
+    const record = toStoredAgentRecord(createManagedAgent({ cacheWarmPause: pause }));
+    expect(record.cacheWarmPause).toEqual(pause);
+    expect(buildStoredAgentPayload(record, ["claude"]).cacheWarmPause).toEqual(pause);
+  });
+
   it("propagates lifecycle status for all states", () => {
     for (const status of AGENT_LIFECYCLE_STATUSES) {
       const agent = createManagedAgent({ lifecycle: status });

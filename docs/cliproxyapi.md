@@ -73,7 +73,7 @@ Set `PASEO_DISABLE_GATEWAY_CACHE=1` to skip the cache entirely. Both vitest conf
 
 The composer meter's details show the CLIProxyAPI account serving the agent, with its quota for the agent's model, through the `cliproxyapi.quota.get` RPC (gated on `server_info.features.cliproxyapiQuota`) and the session route below. The daemon maps the Paseo model id to the CLIProxyAPI slug — raw for Claude (wire form decoded, `[1m]`/thinking suffixes stripped), bare for Codex, `cliproxyapi/` and `litellm/` prefixes stripped for OpenCode and OMP — and only queries when that provider is CLIProxyAPI-routed. Results cache for 60 seconds.
 
-CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (observed live); current builds answer errors with a JSON envelope. Anything but a valid quota payload — missing route, unknown model, bad key, unparseable body, transport failure — returns `supported: false` and the tooltip hides the section instead of showing an error.
+CLIProxyAPI builds that predate `/v1/quota` answer 404 with an empty body (observed live); current builds answer errors with a JSON envelope. Anything but a valid quota payload hides the section instead of showing an error. The result also says why, for the warm-up account check: `supported: false` for a plain 404 (no route), a 404 envelope is an answer with no accounts, and a transport failure, timeout, unparseable body or other error status sets `failed`.
 
 ### Accounts in the meter and the All accounts window
 
@@ -112,11 +112,11 @@ A Claude native fork sends its root session's id, not its own, so the Gateway ke
 
 The Gateway records each request on its usage bus asynchronously, so the daemon checks two seconds after a turn ends, once per turn. It never polls. Each change is saved on the agent (`gatewayAccounts`, the newest 12 on the snapshot) and in the prompt-cache journal (all of them, for insights), so a restart neither loses nor repeats one. The daemon charges a switch with the first request it recorded at or after the switch, when that request missed (`findGatewaySwitchMiss`, with two seconds of slack for clock drift). The app places a change above the latest prompt sent before it, with five seconds of slack; a change during a turn the user did not write (a warm-up ping, a restart's resume) goes above the user's next prompt, the first the new account answers for them. A native fork looks up its root's route, so its first record starts at the fork's creation rather than when the root's account began. The account label is the masked name `/v1/quota` shows; config API keys show as `config:<provider>[<hash>]`.
 
-`/v1/session-route` shipped in CLIProxyAPI v8.0.941. Older Gateways answer 404, and the section and account lines stay hidden, the same as quota.
+`/v1/session-route` shipped in CLIProxyAPI v8.0.941. Older Gateways answer 404, and the section and account lines stay hidden, the same as quota. Cache warm-up skips every warm-up for agents such a Gateway routes, since nothing can say which account serves them.
 
 ## Warm-up and blocked accounts
 
-Cache warm-up checks the account serving the agent right before each warm-up. When that account is in cooldown, or one of its quota windows is at 100%, Paseo sends nothing and pauses warm-up until your next message: the Gateway would reject the warm-up or write the context cold on another account, and the blocked account's cache expires before it recovers. The pill reads `paused` and the popover says why and until when. An agent the Gateway does not route, or a Gateway without `/v1/session-route` or `/v1/quota`, warms as before. See [cache-warm-blocked-account](fork-decisions.md#cache-warm-blocked-account).
+Cache warm-up checks the account serving the agent right before every warm-up. When that account cannot serve (a used-up quota window, cooldown, gone from the model's quota list), when the Gateway already moved the session to another account, or when Paseo cannot confirm any of it (the Gateway does not answer, does not track the session, or has no `/v1/session-route`), Paseo sends nothing and lets the cache expire: the warm-up would be rejected or would write the whole context cold on another account. An unanswered check is read again 20 seconds later while a warm-up could still land in time. The pill reads `paused`, the popover says why, and Session cache insights put the reason on the miss where the cache expired. Only an agent the Gateway does not route warms unchecked. See [cache-warm-blocked-account](fork-decisions.md#cache-warm-blocked-account).
 
 ## Terminal tabs
 

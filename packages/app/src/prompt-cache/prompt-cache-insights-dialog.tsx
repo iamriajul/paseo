@@ -7,6 +7,7 @@ import {
   type GatewayAccountChange,
   type PromptCacheCompaction,
   type PromptCacheHistoryEntry,
+  type CacheWarmStop,
 } from "@getpaseo/protocol/agent-cache-warm";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { formatTokenCount } from "@/components/context-window-meter.utils";
@@ -44,6 +45,7 @@ import { usePromptCacheAgent } from "./use-prompt-cache";
 import { useMoneyStatsEnabled } from "./money-stats-context";
 import { resolveMoneyStatsPrices } from "./money-stats";
 import { SessionActivitySection } from "./session-activity-section";
+import { describeWarmUpStop, indexWarmUpStops } from "./warm-up-stop";
 
 const HEADER = { title: "Session cache insights" };
 /** Request rows shown before "Show more"; the chart already places every request in time. */
@@ -56,6 +58,8 @@ interface InsightsData {
   compactions: PromptCacheCompaction[];
   /** CLIProxyAPI account changes; empty on hosts that do not journal them. */
   accounts: GatewayAccountChange[];
+  /** Why each warm-up stopped with the cache warm; empty on hosts that do not journal them. */
+  warmUpStops: CacheWarmStop[];
 }
 
 type InsightsLoad =
@@ -96,6 +100,7 @@ function useInsightsLoad(input: {
   const { t } = useTranslation();
   const client = useHostRuntimeClient(input.serverId);
   const supported = useHostFeature(input.serverId, "promptCacheInsights");
+  const stopReasons = useHostFeature(input.serverId, "cacheWarmStopReasons");
   const query = useFetchQuery<InsightsData, Error>({
     queryKey: ["promptCacheInsights", input.serverId, input.agentId, input.revision],
     queryFn: async () => {
@@ -106,6 +111,7 @@ function useInsightsLoad(input: {
         requests: payload.requests,
         compactions: payload.compactions,
         accounts: payload.accounts ?? [],
+        warmUpStops: stopReasons ? (payload.warmUpStops ?? []) : [],
       };
     },
     enabled: Boolean(input.visible && client && supported),
@@ -379,6 +385,10 @@ function InsightsExplorer({
 
   const misses = insights.missesAfterExpiry + insights.missesWhileWarm;
   const switchMisses = useMemo(() => indexSwitchMisses(data.accounts), [data.accounts]);
+  const warmUpStops = useMemo(
+    () => indexWarmUpStops({ requests: data.requests, stops: data.warmUpStops, cacheWindowMs }),
+    [data.requests, data.warmUpStops, cacheWindowMs],
+  );
   return (
     <View style={styles.content}>
       <RangeBar
@@ -388,6 +398,11 @@ function InsightsExplorer({
         onZoomOut={zoomOut}
         onReset={zoomReset}
       />
+      {warmUpStops.latestOpen ? (
+        <Text style={styles.note} testID="prompt-cache-insights-open-stop">
+          {`${formatClock(warmUpStops.latestOpen.at)} · ${describeWarmUpStop(warmUpStops.latestOpen)}`}
+        </Text>
+      ) : null}
       <View style={styles.tiles}>
         <Tile label="Requests" value={String(insights.requests)} />
         <Tile
@@ -465,6 +480,7 @@ function InsightsExplorer({
               price,
               cacheWindowMs,
               switchedAccount: switchMisses.get(entry.at),
+              warmUpStop: warmUpStops.byRequest.get(entry.at),
             })}
           />
         ))}

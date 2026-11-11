@@ -3,7 +3,6 @@ import type { AgentToolResult } from "@getpaseo/plugin/server";
 import type { RuntimeCleanupCandidate } from "./idle-runtime-cleanup/index.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
 import type { AgentRateLimitAutoResumeManager } from "./agent-rate-limit-auto-resume.js";
-import type { WarmUpAccountBlock } from "./gateway/warm-up-account.js";
 import type { AgentCacheWarmManager } from "./agent-cache-warm.js";
 import type { PromptCacheJournal, PromptCacheJournalHistory } from "./prompt-cache-journal.js";
 import {
@@ -11,7 +10,10 @@ import {
   CLAUDE_PROMPT_CACHE_TTL_FEATURE_ID,
   withNewAgentPromptCacheTtl,
 } from "./providers/claude/feature-definitions.js";
-import type { AgentRateLimitCooldownPayload } from "@getpaseo/protocol/messages";
+import type {
+  AgentCacheWarmPause,
+  AgentRateLimitCooldownPayload,
+} from "@getpaseo/protocol/messages";
 import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-labels";
 import {
   isCacheWarmPrompt,
@@ -26,6 +28,7 @@ import {
   type PromptCacheCompaction,
   type AgentPromptCacheState,
   type GatewayAccountChange,
+  type CacheWarmStop,
   GATEWAY_ACCOUNT_CHANGE_LIMIT,
   type PromptCacheRequestSample,
   sumPromptCacheTotals,
@@ -520,8 +523,8 @@ interface ManagedAgentBase {
   promptCache?: AgentPromptCacheState;
   /** CLIProxyAPI accounts that served the session, oldest first; see GatewayAccountChange. */
   gatewayAccounts?: GatewayAccountChange[];
-  /** Warm-up paused for the serving account; live only, the next check decides after a restart. */
-  cacheWarmPause?: WarmUpAccountBlock;
+  /** Warm-up paused for the serving account, and why; persisted, so it survives a restart. */
+  cacheWarmPause?: AgentCacheWarmPause;
   lastUsage?: AgentUsage;
   lastError?: string;
   attention: AttentionState;
@@ -864,6 +867,7 @@ function pickCacheWarmRegistration(
         ManagedAgent,
         | "promptCache"
         | "gatewayAccounts"
+        | "cacheWarmPause"
         | "consecutiveWarmPings"
         | "totalWarmPings"
         | "warmUpCostUsd"
@@ -871,11 +875,17 @@ function pickCacheWarmRegistration(
     | undefined,
 ): Pick<
   ManagedAgent,
-  "promptCache" | "gatewayAccounts" | "consecutiveWarmPings" | "totalWarmPings" | "warmUpCostUsd"
+  | "promptCache"
+  | "gatewayAccounts"
+  | "cacheWarmPause"
+  | "consecutiveWarmPings"
+  | "totalWarmPings"
+  | "warmUpCostUsd"
 > {
   return {
     promptCache: options?.promptCache,
     gatewayAccounts: options?.gatewayAccounts,
+    ...(options?.cacheWarmPause ? { cacheWarmPause: options.cacheWarmPause } : {}),
     consecutiveWarmPings: options?.consecutiveWarmPings,
     totalWarmPings: options?.totalWarmPings,
     warmUpCostUsd: options?.warmUpCostUsd,
@@ -1009,6 +1019,7 @@ export class AgentManager {
       requests: agent?.promptCache?.history ?? [],
       compactions: agent?.promptCache?.compactions ?? [],
       accounts: agent?.gatewayAccounts ?? [],
+      warmUpStops: [],
     };
   }
 
@@ -1887,6 +1898,7 @@ export class AgentManager {
       restoring: true,
       promptCache: record?.promptCache,
       gatewayAccounts: record?.gatewayAccounts,
+      cacheWarmPause: record?.cacheWarmPause,
       consecutiveWarmPings: record?.consecutiveWarmPings,
       totalWarmPings: record?.totalWarmPings,
       warmUpCostUsd: record?.warmUpCostUsd,
@@ -2591,6 +2603,7 @@ export class AgentManager {
         totalWarmPings: record.totalWarmPings ?? undefined,
         warmUpCostUsd: record.warmUpCostUsd ?? undefined,
         gatewayAccounts: record.gatewayAccounts,
+        ...(record.cacheWarmPause ? { cacheWarmPause: record.cacheWarmPause } : {}),
         lastUsage: record.lastUsage,
         lastError: record.lastError ?? undefined,
         attention,
@@ -2839,7 +2852,7 @@ export class AgentManager {
   }
 
   /** Publishes why warm-up is paused for the serving account, or that it no longer is. */
-  setCacheWarmPause(agentId: string, pause: WarmUpAccountBlock | null): void {
+  setCacheWarmPause(agentId: string, pause: AgentCacheWarmPause | null): void {
     const agent = this.agents.get(agentId);
     if (!agent) return;
     if (pause) agent.cacheWarmPause = pause;
@@ -4503,6 +4516,7 @@ export class AgentManager {
       attention?: AttentionState;
       promptCache?: AgentPromptCacheState;
       gatewayAccounts?: GatewayAccountChange[];
+      cacheWarmPause?: AgentCacheWarmPause;
       consecutiveWarmPings?: number;
       totalWarmPings?: number;
       warmUpCostUsd?: number;
@@ -4713,6 +4727,7 @@ export class AgentManager {
           owner?: AgentOwner;
           promptCache?: AgentPromptCacheState;
           gatewayAccounts?: GatewayAccountChange[];
+          cacheWarmPause?: AgentCacheWarmPause;
           consecutiveWarmPings?: number;
           totalWarmPings?: number;
           warmUpCostUsd?: number;
@@ -4758,6 +4773,7 @@ export class AgentManager {
           launchEnv?: Record<string, string>;
           promptCache?: AgentPromptCacheState;
           gatewayAccounts?: GatewayAccountChange[];
+          cacheWarmPause?: AgentCacheWarmPause;
           consecutiveWarmPings?: number;
           totalWarmPings?: number;
           warmUpCostUsd?: number;
@@ -5757,6 +5773,18 @@ export class AgentManager {
       before: agent.promptCache,
     });
     this.emitState(agent);
+  }
+
+  /**
+   * Journals an idle stretch whose warm-up stopped with the cache still warm, so insights can say
+   * why the cache expired. A dormant agent has no live record; its journal still takes the line.
+   */
+  recordCacheWarmStop(agentId: string, stop: CacheWarmStop): void {
+    void this.promptCacheJournal?.appendWarmUpStop({
+      agentId,
+      stop,
+      before: this.agents.get(agentId)?.promptCache,
+    });
   }
 
   private recordPromptCacheCompaction(

@@ -83,23 +83,34 @@ describe("fetchGatewaySessionRoute", () => {
     expect(result.route?.account).toEqual({ label: "Codex", provider: "Codex", inCooldown: false });
   });
 
-  test.each([
-    ["an unknown session", jsonResponse({ error: "no request served for session" }, 404)],
-    ["a Gateway without the route", new Response("", { status: 404 })],
-    ["a bad key", jsonResponse({ error: "Invalid API key" }, 401)],
-    ["an unparseable body", jsonResponse("not json")],
-    ["a body missing the account", jsonResponse({ ...record, account: undefined })],
-  ])("hides on %s", async (_label, response) => {
+  test("hides an unknown session, but says the Gateway serves the route", async () => {
+    const response = jsonResponse({ error: "no request served for session" }, 404);
+    const result = await fetchGatewaySessionRoute({ ...base, fetchImpl: async () => response });
+    expect(result).toEqual({ supported: true, route: null });
+  });
+
+  test("hides on a Gateway without the route, which is no failure", async () => {
+    const response = new Response("404 page not found", { status: 404 });
     const result = await fetchGatewaySessionRoute({ ...base, fetchImpl: async () => response });
     expect(result).toEqual({ supported: false, route: null });
   });
 
-  test("hides on a transport failure", async () => {
+  test.each([
+    ["a bad key", jsonResponse({ error: "Invalid API key" }, 401)],
+    ["a Gateway error", new Response("bad gateway", { status: 502 })],
+    ["an unparseable body", jsonResponse("not json")],
+    ["a body missing the account", jsonResponse({ ...record, account: undefined })],
+  ])("hides on %s and reports the read failed", async (_label, response) => {
+    const result = await fetchGatewaySessionRoute({ ...base, fetchImpl: async () => response });
+    expect(result).toEqual({ supported: false, route: null, failed: true });
+  });
+
+  test("hides on a transport failure and reports the read failed", async () => {
     const fetchImpl = vi.fn(async () => {
       throw new TypeError("fetch failed");
     });
     const result = await fetchGatewaySessionRoute({ ...base, fetchImpl });
-    expect(result).toEqual({ supported: false, route: null });
+    expect(result).toEqual({ supported: false, route: null, failed: true });
   });
 });
 

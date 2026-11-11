@@ -29,6 +29,7 @@ import { isWeb } from "@/constants/platform";
 import * as Clipboard from "expo-clipboard";
 import {
   ChevronDown,
+  Download,
   Eye,
   EyeOff,
   FilePlus,
@@ -67,6 +68,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { FileActionsContextMenuContent } from "@/components/file-actions-menu";
 import { ContextMenu, ContextMenuTrigger, useContextMenu } from "@/components/ui/context-menu";
 import { useFileDownload } from "@/hooks/use-file-download";
+import { useFolderDownload } from "@/hooks/use-folder-download";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
 import { buildWorkspaceExplorerStateKey } from "@/hooks/use-file-explorer-actions";
@@ -151,6 +153,8 @@ interface TreeRowItemProps {
   onRevealEntry?: (entry: ExplorerEntry) => void;
   revealTargetName?: string;
   onDownloadEntry: (entry: ExplorerEntry) => void;
+  /** Absent when the host's daemon cannot zip folders. */
+  onDownloadFolder?: (entry: ExplorerEntry) => void;
   onAddToChat?: (path: string) => void;
   onOpenFileToSide?: (path: string) => void;
   onNewEntry?: (parentPath: string, kind: "file" | "directory") => void;
@@ -277,6 +281,7 @@ function TreeRowItem({
   onRevealEntry,
   revealTargetName,
   onDownloadEntry,
+  onDownloadFolder,
   onAddToChat,
   onOpenFileToSide,
   onNewEntry,
@@ -336,8 +341,9 @@ function TreeRowItem({
   }, [onRevealEntry, entry]);
 
   const handleDownload = useCallback(() => {
-    onDownloadEntry(entry);
-  }, [onDownloadEntry, entry]);
+    if (isDirectory) onDownloadFolder?.(entry);
+    else onDownloadEntry(entry);
+  }, [entry, isDirectory, onDownloadEntry, onDownloadFolder]);
 
   const handleAddToChat = useCallback(() => {
     onAddToChat?.(entry.path);
@@ -413,7 +419,7 @@ function TreeRowItem({
         onCopyRelativePath={handleCopyRelativePath}
         onReveal={onRevealEntry ? handleReveal : undefined}
         revealTargetName={revealTargetName}
-        onDownload={handleDownload}
+        onDownload={!isDirectory || onDownloadFolder ? handleDownload : undefined}
         onAddToChat={onAddToChat ? handleAddToChat : undefined}
         onOpenToSide={!isDirectory && onOpenFileToSide ? handleOpenToSide : undefined}
         onNewFile={onNewEntry ? handleNewFile : undefined}
@@ -519,6 +525,11 @@ export function FileExplorerPane({
   const uploadLockRef = useRef(false);
   const { pickFiles } = useFilePicker();
   const downloadFile = useFileDownload({
+    serverId,
+    workspaceId,
+    workspaceRoot: normalizedWorkspaceRoot,
+  });
+  const downloadFolder = useFolderDownload({
     serverId,
     workspaceId,
     workspaceRoot: normalizedWorkspaceRoot,
@@ -713,6 +724,14 @@ export function FileExplorerPane({
       downloadFile({ fileName: entry.name, path: entry.path });
     },
     [downloadFile],
+  );
+
+  const handleDownloadFolderEntry = useMemo(
+    () =>
+      downloadFolder
+        ? (entry: ExplorerEntry) => downloadFolder({ path: entry.path, name: entry.name })
+        : undefined,
+    [downloadFolder],
   );
 
   const handleNewEntry = useCallback(
@@ -1061,6 +1080,7 @@ export function FileExplorerPane({
           onRevealEntry={fileManagerTarget ? handleRevealEntry : undefined}
           revealTargetName={fileManagerTarget?.label}
           onDownloadEntry={handleDownloadEntry}
+          onDownloadFolder={handleDownloadFolderEntry}
           onAddToChat={onAddToChat}
           onOpenFileToSide={onOpenFileToSide}
           onNewEntry={fsEntryOpsEnabled ? handleNewEntry : undefined}
@@ -1081,6 +1101,7 @@ export function FileExplorerPane({
       handleOpenDirectoryInEditor,
       handleDeleteEntry,
       handleDownloadEntry,
+      handleDownloadFolderEntry,
       handleDraftCommit,
       handleDuplicateEntry,
       handleEditCancel,
@@ -1299,6 +1320,7 @@ export function FileExplorerPane({
         onReveal={fileManagerTarget ? handleRevealEntry : undefined}
         revealTargetName={fileManagerTarget?.label}
         onDownload={handleDownloadEntry}
+        onDownloadFolder={handleDownloadFolderEntry}
         onAddToChat={onAddToChat}
         onOpenToSide={onOpenFileToSide}
         onDuplicate={fsEntryDuplicateEnabled ? handleDuplicateEntry : undefined}
@@ -1313,12 +1335,29 @@ export function FileExplorerPane({
       handleCopyRelativePath,
       handleDeleteEntry,
       handleDownloadEntry,
+      handleDownloadFolderEntry,
       handleDuplicateEntry,
       handleRevealEntry,
       onAddToChat,
       onOpenFileToSide,
     ],
   );
+  // The open folder: the grid's current folder, or the Files root the tree lists.
+  const openFolderPath = viewMode === "grid" ? gridPath : ".";
+  const handleDownloadOpenFolder = useMemo(
+    () =>
+      downloadFolder
+        ? () =>
+            downloadFolder({
+              path: openFolderPath,
+              name: explorerFolderName(
+                openFolderPath === "." ? normalizedWorkspaceRoot : openFolderPath,
+              ),
+            })
+        : undefined,
+    [downloadFolder, normalizedWorkspaceRoot, openFolderPath],
+  );
+
   const grid = useMemo(
     () =>
       viewMode === "grid" ? (
@@ -1374,6 +1413,7 @@ export function FileExplorerPane({
           listRows={listRows}
           onNewEntryAtRoot={fsEntryOpsEnabled ? handleNewEntry : undefined}
           onUploadPress={fsEntryUploadEnabled ? handleUploadButtonPress : undefined}
+          onDownloadFolderPress={handleDownloadOpenFolder}
           isUploading={isUploading}
           onDropItems={fsEntryUploadEnabled ? handleDropItems : undefined}
           onDropSkipped={fsEntryUploadEnabled ? handleDropSkipped : undefined}
@@ -1408,6 +1448,7 @@ function GridEntryMenu({
   onReveal,
   revealTargetName,
   onDownload,
+  onDownloadFolder,
   onAddToChat,
   onOpenToSide,
   onDuplicate,
@@ -1419,6 +1460,7 @@ function GridEntryMenu({
   onReveal?: (entry: ExplorerEntry) => void | Promise<void>;
   revealTargetName?: string;
   onDownload: (entry: ExplorerEntry) => void;
+  onDownloadFolder?: (entry: ExplorerEntry) => void;
   onAddToChat?: (path: string) => void;
   onOpenToSide?: (path: string) => void;
   onDuplicate?: (entry: ExplorerEntry) => void | Promise<void>;
@@ -1432,6 +1474,8 @@ function GridEntryMenu({
   );
   const reveal = useCallback(() => void onReveal?.(entry), [entry, onReveal]);
   const download = useCallback(() => onDownload(entry), [entry, onDownload]);
+  const downloadFolder = useCallback(() => onDownloadFolder?.(entry), [entry, onDownloadFolder]);
+  const folderDownloadAction = onDownloadFolder ? downloadFolder : undefined;
   const addToChat = useCallback(() => onAddToChat?.(entry.path), [entry.path, onAddToChat]);
   const openToSide = useCallback(() => onOpenToSide?.(entry.path), [entry.path, onOpenToSide]);
   const duplicate = useCallback(() => void onDuplicate?.(entry), [entry, onDuplicate]);
@@ -1443,7 +1487,7 @@ function GridEntryMenu({
       onCopyRelativePath={copyRelativePath}
       onReveal={onReveal ? reveal : undefined}
       revealTargetName={revealTargetName}
-      onDownload={isFile ? download : undefined}
+      onDownload={isFile ? download : folderDownloadAction}
       onAddToChat={onAddToChat ? addToChat : undefined}
       onOpenToSide={isFile && onOpenToSide ? openToSide : undefined}
       onDuplicate={onDuplicate ? duplicate : undefined}
@@ -1512,6 +1556,8 @@ interface FileExplorerPaneContentProps {
   listRows: ExplorerListRow[];
   onNewEntryAtRoot?: (parentPath: string, kind: "file" | "directory") => void;
   onUploadPress?: () => void;
+  /** Downloads the open folder as a zip; absent when the host's daemon cannot. */
+  onDownloadFolderPress?: () => void;
   isUploading: boolean;
   onDropItems?: (items: DroppedItem[]) => void;
   onDropSkipped?: () => void;
@@ -1546,6 +1592,7 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
     listRows,
     onNewEntryAtRoot,
     onUploadPress,
+    onDownloadFolderPress,
     isUploading,
     onDropItems,
     onDropSkipped,
@@ -1705,6 +1752,20 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
                   color={theme.colors.foregroundExtraMuted}
                 />
               )}
+            </ToolbarButton>
+          ) : null}
+          {onDownloadFolderPress ? (
+            <ToolbarButton
+              label={t("workspace.fileExplorer.actions.downloadFolder")}
+              compact={isCompact}
+              hitSlop={8}
+              testID="files-download-folder"
+              onPress={onDownloadFolderPress}
+            >
+              <Download
+                size={paneContentToolbarIconSize(isCompact)}
+                color={theme.colors.foregroundExtraMuted}
+              />
             </ToolbarButton>
           ) : null}
           <ToolbarButton
@@ -1900,6 +1961,7 @@ function TreeRowDispatcher({
   onRevealEntry,
   revealTargetName,
   onDownloadEntry,
+  onDownloadFolder,
   onAddToChat,
   onOpenFileToSide,
   onNewEntry,
@@ -1924,6 +1986,8 @@ function TreeRowDispatcher({
   onRevealEntry?: (entry: ExplorerEntry) => void;
   revealTargetName?: string;
   onDownloadEntry: (entry: ExplorerEntry) => void;
+  /** Absent when the host's daemon cannot zip folders. */
+  onDownloadFolder?: (entry: ExplorerEntry) => void;
   onAddToChat?: (path: string) => void;
   onOpenFileToSide?: (path: string) => void;
   onNewEntry?: (parentPath: string, kind: "file" | "directory") => void;
@@ -1957,6 +2021,7 @@ function TreeRowDispatcher({
       onRevealEntry={onRevealEntry}
       revealTargetName={revealTargetName}
       onDownloadEntry={onDownloadEntry}
+      onDownloadFolder={onDownloadFolder}
       onAddToChat={onAddToChat}
       onOpenFileToSide={onOpenFileToSide}
       onNewEntry={onNewEntry}
@@ -2311,3 +2376,8 @@ const styles = StyleSheet.create((theme) => ({
     padding: theme.spacing[4],
   },
 }));
+
+function explorerFolderName(folderPath: string): string {
+  const segments = folderPath.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] ?? "folder";
+}

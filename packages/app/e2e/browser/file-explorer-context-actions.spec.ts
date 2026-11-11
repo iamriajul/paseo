@@ -1,8 +1,14 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { test } from "../support/fixtures";
-import { downloadFileFromExplorer, openFileExplorer } from "../support/helpers/file-explorer";
+import {
+  downloadFileFromExplorer,
+  downloadFolderFromExplorer,
+  downloadOpenFolder,
+  openFileExplorer,
+} from "../support/helpers/file-explorer";
 import { openChangesPanel } from "../support/helpers/workspace-tabs";
 import { gotoWorkspace } from "../support/helpers/launcher";
 import { daemonWsRoutePattern, getE2EDaemonPort } from "../support/helpers/daemon-port";
@@ -469,4 +475,91 @@ test("downloads a file over direct TCP with its original filename and bytes", as
   await downloaded.saveAs(savedFile);
   expect(await downloaded.failure()).toBeNull();
   expect(await readFile(savedFile)).toEqual(source);
+});
+
+/** Every file under `root` as relative path → contents; empty folders end in "/". */
+async function readTree(root: string): Promise<Record<string, string>> {
+  const tree: Record<string, string> = {};
+  async function walk(directory: string, prefix: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    if (entries.length === 0) tree[`${prefix}/`] = "";
+    for (const entry of entries) {
+      const child = path.join(directory, entry.name);
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await walk(child, relative);
+      else tree[relative] = await readFile(child, "utf8");
+    }
+  }
+  await walk(root, "");
+  return tree;
+}
+
+async function unzipDownload(
+  downloaded: Awaited<ReturnType<typeof downloadOpenFolder>>,
+  directory: string,
+): Promise<Record<string, string>> {
+  expect(await downloaded.failure()).toBeNull();
+  const zipPath = path.join(directory, downloaded.suggestedFilename());
+  await downloaded.saveAs(zipPath);
+  const extracted = path.join(directory, "extracted");
+  execFileSync("unzip", ["-q", zipPath, "-d", extracted]);
+  return readTree(extracted);
+}
+
+test("downloads a subfolder and the open folder as zips matching Files", async ({
+  page,
+}, testInfo) => {
+  const root = workspace.workspaceDirectory;
+  await mkdir(path.join(root, "assets", "deep"), { recursive: true });
+  await mkdir(path.join(root, "assets", "empty"));
+  await writeFile(path.join(root, "assets", "deep", "données.txt"), "deep file");
+  await writeFile(path.join(root, "assets", "logo.svg"), "<svg/>");
+  await writeFile(path.join(root, "assets", ".secret"), "hidden");
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+
+  const subfolder = await downloadFolderFromExplorer(page, "assets");
+  const url = new URL(subfolder.url());
+  expect(url.port).toBe(getE2EDaemonPort());
+  expect(url.pathname).toBe("/api/files/download");
+  expect(subfolder.suggestedFilename()).toBe("assets.zip");
+  expect(await unzipDownload(subfolder, testInfo.outputPath("subfolder"))).toEqual({
+    "assets/.secret": "hidden",
+    "assets/deep/données.txt": "deep file",
+    "assets/empty/": "",
+    "assets/logo.svg": "<svg/>",
+  });
+
+  // With hidden files hidden, the zip leaves out what Files hides (.git, dotfiles).
+  await page.getByTestId("files-hidden-toggle").click();
+  const openFolder = await downloadOpenFolder(page);
+  const rootName = path.basename(root);
+  expect(openFolder.suggestedFilename()).toBe(`${rootName}.zip`);
+  const extracted = await unzipDownload(openFolder, testInfo.outputPath("root"));
+  const expected = Object.fromEntries(
+    Object.entries(await readTree(root))
+      .filter(([relative]) => !relative.split("/").some((segment) => segment.startsWith(".")))
+      .map(([relative, contents]) => [`${rootName}/${relative}`, contents]),
+  );
+  expect(extracted).toEqual(expected);
+  expect(Object.keys(extracted)).toContain(`${rootName}/assets/logo.svg`);
+});
+
+test("downloads the open folder from the Files header at phone width", async ({
+  page,
+}, testInfo) => {
+  await writeFile(path.join(workspace.workspaceDirectory, "phone.txt"), "from the phone");
+  // A phone-width deep link lands on the project screen; open the workspace, then narrow.
+  await gotoWorkspace(page, workspace.workspaceId);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openFileExplorer(page);
+  await page
+    .getByTestId("files-pane-header")
+    .filter({ visible: true })
+    .screenshot({ path: testInfo.outputPath("files-header-390.png") });
+
+  const downloaded = await downloadOpenFolder(page);
+  const rootName = path.basename(workspace.workspaceDirectory);
+  const extracted = await unzipDownload(downloaded, testInfo.outputPath("phone"));
+  expect(extracted[`${rootName}/phone.txt`]).toBe("from the phone");
 });

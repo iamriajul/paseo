@@ -535,6 +535,7 @@ export const ko: TranslationResources = {
       copyRelativePath: "상대 경로 복사",
       revealIn: "{{target}}에서 보기",
       download: "다운로드",
+      downloadFolder: "ZIP으로 다운로드",
       addToChat: "채팅에 추가",
       moreActions: "추가 작업",
       newFile: "새 파일",
@@ -613,6 +614,7 @@ export const ko: TranslationResources = {
         hideHiddenFiles: "숨겨진 파일 숨기기",
         showHiddenFiles: "숨겨진 파일 표시",
         upload: "파일 업로드",
+        downloadFolder: "폴더를 ZIP으로 다운로드",
         uploading: "파일 업로드 중",
       },
       empty: {
@@ -2149,6 +2151,9 @@ export const ko: TranslationResources = {
     failed: "파일을 다운로드하지 못했습니다.",
     shareFile: "파일 공유",
     shareFileNamed: "{{fileName}} 공유",
+    cancel: "다운로드 취소",
+    browserMemoryLimit:
+      "{{fileName}}이(가) {{size}}를 넘습니다. 이 연결에서 이 브라우저가 저장할 수 있는 최대 크기입니다. HTTPS로 Paseo를 열거나 데스크톱 앱을 사용하세요.",
   },
   menu: {
     backdrop: "메뉴 배경",

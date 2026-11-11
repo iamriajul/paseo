@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaultHostAppearance } from "@/hosts/appearance";
 import { i18n } from "@/i18n/i18next";
+import type { SessionDownloadStream } from "@/downloads/session-download";
+import { fakeDownloadStream, memoryDownloadDestination } from "@/test/memory-download-destination";
 import {
   MAX_SESSION_DOWNLOAD_BYTES,
   useDownloadStore,
@@ -106,12 +108,128 @@ async function startDownload(input: StartInput): Promise<Download | undefined> {
     daemonProfile: input.profile,
     activeConnectionId: input.activeConnectionId,
     requestFileDownloadToken: token.request,
+    openStream: null,
     readFile: reader.read,
     saveFile: saver.save,
   });
   const { activeDownloadId, downloads } = useDownloadStore.getState();
   return activeDownloadId ? downloads.get(activeDownloadId) : undefined;
 }
+
+describe("download store streamed session downloads", () => {
+  beforeEach(() => {
+    useDownloadStore.setState({ downloads: new Map(), activeDownloadId: null });
+  });
+
+  function start(input: {
+    activeConnectionId: string;
+    open: (signal: AbortSignal) => Promise<SessionDownloadStream>;
+    destination: ReturnType<typeof memoryDownloadDestination>;
+  }) {
+    const token = createTokenRequest();
+    const reader = createFileReader(async () => ({ bytes: FILE_BYTES, size: 0 }));
+    const done = useDownloadStore.getState().startDownload({
+      serverId: "srv_remote",
+      scopeId: "workspace-1",
+      fileName: FILE_NAME,
+      path: FILE_PATH,
+      daemonProfile: profileWith([localTcpConnection, relayConnection]),
+      activeConnectionId: input.activeConnectionId,
+      requestFileDownloadToken: token.request,
+      openStream: input.open,
+      readFile: reader.read,
+      prepareDestination: input.destination.prepare,
+    });
+    return { done, token, reader };
+  }
+
+  function activeDownload(): Download | undefined {
+    const { activeDownloadId, downloads } = useDownloadStore.getState();
+    return activeDownloadId ? downloads.get(activeDownloadId) : undefined;
+  }
+
+  it("streams a file over the relay to disk with no size cap and no token", async () => {
+    const size = MAX_SESSION_DOWNLOAD_BYTES + 3;
+    const chunks = [new Uint8Array(MAX_SESSION_DOWNLOAD_BYTES), new Uint8Array([1, 2, 3])];
+    const destination = memoryDownloadDestination();
+    const { stream } = fakeDownloadStream(chunks, {
+      fileName: FILE_NAME,
+      mimeType: MIME_TYPE,
+      size,
+    });
+
+    const { done, token, reader } = start({
+      activeConnectionId: relayConnection.id,
+      open: async () => stream,
+      destination,
+    });
+    await done;
+
+    expect(activeDownload()).toMatchObject({ status: "complete", fileName: FILE_NAME });
+    expect(destination.bytes().byteLength).toBe(size);
+    expect(destination.events[0]).toEqual({ type: "prepare", suggestedName: FILE_NAME });
+    expect(token.requested).toEqual([]);
+    expect(reader.requested).toEqual([]);
+  });
+
+  it("opens the save prompt before anything is awaited", () => {
+    const destination = memoryDownloadDestination();
+    void start({
+      activeConnectionId: relayConnection.id,
+      open: async () =>
+        fakeDownloadStream([FILE_BYTES], { fileName: FILE_NAME, mimeType: MIME_TYPE, size: null })
+          .stream,
+      destination,
+    });
+
+    // Synchronously, in the same tick as the tap.
+    expect(destination.events).toEqual([{ type: "prepare", suggestedName: FILE_NAME }]);
+  });
+
+  it("removes a cancelled download and drops its partial file", async () => {
+    const destination = memoryDownloadDestination({
+      onWrite: () => {
+        const download = activeDownload();
+        expect(download?.cancellable).toBe(true);
+        useDownloadStore.getState().cancelDownload(download!.id);
+      },
+    });
+    const { done } = start({
+      activeConnectionId: relayConnection.id,
+      open: async (signal) => ({
+        fileName: FILE_NAME,
+        mimeType: MIME_TYPE,
+        size: 6,
+        chunks: (async function* () {
+          for (const chunk of [new Uint8Array(3), new Uint8Array(3)]) {
+            if (signal.aborted) throw signal.reason;
+            yield chunk;
+          }
+        })(),
+      }),
+      destination,
+    });
+    await done;
+
+    expect(useDownloadStore.getState().downloads.size).toBe(0);
+    expect(destination.events.at(-1)).toMatchObject({ type: "abort" });
+  });
+
+  it("keeps the HTTP route on directTcp even when the daemon can stream", async () => {
+    const destination = memoryDownloadDestination();
+    const { done, token } = start({
+      activeConnectionId: localTcpConnection.id,
+      open: async () => {
+        throw new Error("must not stream");
+      },
+      destination,
+    });
+    await done;
+
+    expect(token.requested).toEqual([FILE_PATH]);
+    expect(destination.events).toEqual([]);
+  });
+});
 
 describe("download store transport selection", () => {
   beforeEach(() => {
@@ -153,6 +271,7 @@ describe("download store transport selection", () => {
       daemonProfile: profileWith([relayConnection]),
       activeConnectionId: relayConnection.id,
       requestFileDownloadToken: createTokenRequest(1).request,
+      openStream: null,
       readFile: async (path: string, maxBytes: number) => {
         readRequests.push({ path, maxBytes });
         return { bytes: FILE_BYTES, size: FILE_BYTES.byteLength };

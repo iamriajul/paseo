@@ -540,6 +540,7 @@ export const ptBR: TranslationResources = {
       copyRelativePath: "Copiar caminho relativo",
       revealIn: "Mostrar no {{target}}",
       download: "Baixar",
+      downloadFolder: "Baixar como ZIP",
       addToChat: "Adicionar ao chat",
       moreActions: "Mais ações",
       newFile: "Novo arquivo",
@@ -618,6 +619,7 @@ export const ptBR: TranslationResources = {
         hideHiddenFiles: "Ocultar arquivos ocultos",
         showHiddenFiles: "Mostrar arquivos ocultos",
         upload: "Enviar arquivos",
+        downloadFolder: "Baixar pasta como ZIP",
         uploading: "Enviando arquivos",
       },
       empty: {
@@ -2170,6 +2172,9 @@ export const ptBR: TranslationResources = {
     failed: "Falha ao baixar arquivo.",
     shareFile: "Compartilhar arquivo",
     shareFileNamed: "Compartilhar {{fileName}}",
+    cancel: "Cancelar download",
+    browserMemoryLimit:
+      "{{fileName}} passa de {{size}}, o máximo que este navegador consegue salvar nesta conexão. Abra o Paseo por HTTPS ou use o app para desktop.",
   },
   menu: {
     backdrop: "Fundo do menu",

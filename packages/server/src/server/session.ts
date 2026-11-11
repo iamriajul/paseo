@@ -3740,6 +3740,14 @@ export class Session {
         return this.handleProjectIconGetRequest(msg.projectId, msg.requestId);
       case "file_download_token_request":
         return this.workspaceFilesSession.handleFileDownloadTokenRequest(msg);
+      case "fs.folder.get_download_token.request":
+        return this.workspaceFilesSession.handleFolderDownloadTokenRequest(msg);
+      case "fs.download.open.request":
+        return this.workspaceFilesSession.handleDownloadOpenRequest(msg);
+      case "fs.download.read.request":
+        return this.workspaceFilesSession.handleDownloadReadRequest(msg, source);
+      case "fs.download.close.request":
+        return this.workspaceFilesSession.handleDownloadCloseRequest(msg);
       case "file.upload.request":
         this.workspaceFilesSession.handleFileUploadRequest(msg, this.delivery);
         return undefined;
@@ -10067,6 +10075,8 @@ export class Session {
     this.checkoutSession.cleanup();
 
     this.workspaceGitObserver.dispose();
+
+    this.workspaceFilesSession.dispose();
   }
 }
 

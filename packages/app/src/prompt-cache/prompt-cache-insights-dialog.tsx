@@ -35,6 +35,8 @@ import {
   createRequestPricer,
   effectiveInputUsdPerMTok,
   selectShownRequests,
+  summarizeRequestsWithoutCache,
+  describeRequestsWithoutCache,
   summarizePromptCacheInsights,
   type InsightsColumn,
   type InsightsCost,
@@ -389,6 +391,7 @@ function InsightsExplorer({
     () => indexWarmUpStops({ requests: data.requests, stops: data.warmUpStops, cacheWindowMs }),
     [data.requests, data.warmUpStops, cacheWindowMs],
   );
+  const withoutCache = useMemo(() => summarizeRequestsWithoutCache(data.requests), [data.requests]);
   return (
     <View style={styles.content}>
       <RangeBar
@@ -401,6 +404,11 @@ function InsightsExplorer({
       {warmUpStops.latestOpen ? (
         <Text style={styles.note} testID="prompt-cache-insights-open-stop">
           {`${formatClock(warmUpStops.latestOpen.at)} · ${describeWarmUpStop(warmUpStops.latestOpen)}`}
+        </Text>
+      ) : null}
+      {withoutCache ? (
+        <Text style={styles.note} testID="prompt-cache-insights-without-cache">
+          {describeRequestsWithoutCache(withoutCache)}
         </Text>
       ) : null}
       <View style={styles.tiles}>

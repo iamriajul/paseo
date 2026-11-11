@@ -18,6 +18,7 @@ import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-lab
 import {
   isCacheWarmPrompt,
   recordPromptCacheRequest,
+  hasNoPromptCache,
   recordPromptCacheCompaction,
   type PromptCacheInheritance,
   latestPromptCacheEntry,
@@ -5754,7 +5755,10 @@ export class AgentManager {
       void this.promptCacheJournal?.appendRequest({ agentId: agent.id, entry, before });
     }
     // Each request restarts the cache's TTL, so the next warm-up is timed from it, mid-turn too.
-    if (!sample.isWarmPing) this.cacheWarmManager?.onRequestRecorded(agent.id);
+    // A request without a prompt cache (GPT through the gateway) touches no cache.
+    if (!sample.isWarmPing && !hasNoPromptCache(sample)) {
+      this.cacheWarmManager?.onRequestRecorded(agent.id);
+    }
   }
 
   /**

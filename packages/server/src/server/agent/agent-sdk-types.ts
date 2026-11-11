@@ -856,6 +856,11 @@ export interface AgentClient {
     options: FetchCatalogOptions,
     context?: ProviderRefreshContext,
   ): Promise<ProviderCatalog>;
+  /**
+   * Whether a session on this model goes through the Gateway, for providers that route per model.
+   * Absent means every model of a Gateway-routed provider goes through it.
+   */
+  isGatewayRoutedModel?(modelId: string | null | undefined): boolean;
   /** Apply provider-owned defaults to a model supplied through provider configuration. */
   resolveConfiguredModel?(model: AgentModelDefinition): AgentModelDefinition;
   resolveDefaultModeId?(input: ResolveAgentDefaultModeInput): Promise<string | undefined>;

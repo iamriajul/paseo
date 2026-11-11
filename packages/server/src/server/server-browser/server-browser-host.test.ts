@@ -8,12 +8,15 @@ import {
   writeFileSync,
   mkdirSync,
 } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocketServer } from "ws";
 import { CdpConnection, pipeTransport, type CdpParams } from "./cdp-connection.js";
 import { pickElement } from "./element-picker.js";
 import { ServerBrowserHost, type ServerBrowserLimits } from "./server-browser-host.js";
@@ -382,10 +385,114 @@ describe("ServerBrowserHost lifecycle", () => {
     chromium.crash();
     expect(await snapshot).toMatchObject({
       ok: false,
-      error: { code: "browser_no_host", retryable: true, message: "The server browser closed" },
+      error: { code: "browser_no_host", retryable: true, message: /Open a new tab/ },
     });
   });
+
+  it("says a tab closed with the browser and to open a new one, when its id is used later", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: "about:blank", openedBy: "agent" });
+    chromium.crash();
+    await waitFor(() => host.listTabs().length === 0);
+
+    expect(host.ownsTab(tab.browserId)).toBe(true);
+    expect(
+      await host.execute({
+        type: "browser.automation.execute.request",
+        requestId: "r",
+        workspaceId: "ws",
+        command: { command: "snapshot", args: { browserId: tab.browserId } },
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: {
+        code: "browser_tab_closed",
+        message: `Browser tab ${tab.browserId} closed when the server browser stopped. Open a new tab with browser_new_tab.`,
+      },
+    });
+  });
+
+  it("waits for an Existing browser that went away to come back before opening a new tab", async () => {
+    const browser = await FakeExistingBrowser.start();
+    const host = new ServerBrowserHost({
+      paseoHome,
+      logger: pino({ level: "silent" }),
+      isEnabled: () => true,
+      getEngine: () => ({ kind: "existing", cdpUrl: browser.url }),
+      limits: { reattachWaitMs: 5_000 },
+    });
+    hosts.push(host);
+    await host.openTab({ workspaceId: "ws", url: "about:blank", openedBy: "agent" });
+    await browser.stop();
+    await waitFor(() => host.listTabs().length === 0);
+    setTimeout(() => void browser.restart(), 1_500);
+
+    const reopened = await host.execute({
+      type: "browser.automation.execute.request",
+      requestId: "r",
+      workspaceId: "ws",
+      command: { command: "new_tab", args: { url: "about:blank" } },
+    });
+    await browser.stop();
+    expect(reopened).toMatchObject({ ok: true, result: { command: "new_tab" } });
+  });
 });
+
+/** A browser someone else runs, reached over its DevTools port; it can go away and come back. */
+class FakeExistingBrowser {
+  private server: WebSocketServer | null = null;
+  private http: Server | null = null;
+  private nextId = 0;
+
+  private constructor(private readonly port: number) {}
+
+  public static async start(): Promise<FakeExistingBrowser> {
+    const probe = createServer();
+    await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+    const port = (probe.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    const browser = new FakeExistingBrowser(port);
+    await browser.restart();
+    return browser;
+  }
+
+  public get url(): string {
+    return `http://127.0.0.1:${this.port}`;
+  }
+
+  public async restart(): Promise<void> {
+    const http = createServer((req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ webSocketDebuggerUrl: `ws://127.0.0.1:${this.port}/devtools` }));
+    });
+    const server = new WebSocketServer({ server: http });
+    server.on("connection", (socket) => {
+      socket.on("message", (data) => {
+        const { id, method } = JSON.parse(String(data)) as { id: number; method: string };
+        socket.send(JSON.stringify({ id, result: this.answer(method) }));
+      });
+    });
+    await new Promise<void>((resolve) => http.listen(this.port, "127.0.0.1", resolve));
+    this.http = http;
+    this.server = server;
+  }
+
+  private answer(method: string): CdpParams {
+    if (method === "Target.createTarget") return { targetId: `target-${++this.nextId}` };
+    if (method === "Target.attachToTarget") return { sessionId: `session-${++this.nextId}` };
+    return {};
+  }
+
+  public async stop(): Promise<void> {
+    const { server, http } = this;
+    this.server = null;
+    this.http = null;
+    for (const client of server?.clients ?? []) client.terminate();
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    http?.closeAllConnections();
+    await new Promise<void>((resolve) => (http ? http.close(() => resolve()) : resolve()));
+  }
+}
 
 function isEvaluate(command: { method: string }): boolean {
   return command.method === "Runtime.evaluate";

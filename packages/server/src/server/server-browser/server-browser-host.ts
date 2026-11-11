@@ -52,6 +52,8 @@ export interface ServerBrowserLimits {
   saveDelayMs: number;
   /** While a workspace has tabs, its storage is also saved this often (cookies set by fetch). */
   saveIntervalMs: number;
+  /** How long a new tab waits for an Existing browser that went away in the last minute. */
+  reattachWaitMs: number;
 }
 
 export const DEFAULT_SERVER_BROWSER_LIMITS: ServerBrowserLimits = {
@@ -61,6 +63,7 @@ export const DEFAULT_SERVER_BROWSER_LIMITS: ServerBrowserLimits = {
   tabIdleMs: 30 * 60_000,
   saveDelayMs: 2_000,
   saveIntervalMs: 30_000,
+  reattachWaitMs: 10_000,
 };
 
 export interface ServerBrowserHostOptions {
@@ -107,6 +110,11 @@ interface WorkspaceContext {
 }
 
 const SHUTDOWN_SAVE_BUDGET_MS = 5_000;
+/** A browser that went away this recently may be on its way back (its supervisor restarts it). */
+const REATTACH_WINDOW_MS = 60_000;
+const REATTACH_POLL_MS = 500;
+/** Tabs that closed with the browser, still answered for so an agent knows to open a new one. */
+const MAX_LOST_TABS = 200;
 /** Window keeps the first engines build's file name, so its session cookies carry over. */
 function sessionCookiesKey(config: ServerBrowserEngineConfig | null): string {
   return config?.chromeMode === "headless" ? "session-cookies-headless" : "session-cookies";
@@ -120,6 +128,9 @@ function sessionCookiesKey(config: ServerBrowserEngineConfig | null): string {
  */
 export class ServerBrowserHost {
   private readonly tabs = new Map<string, ServerBrowserTab>();
+  /** Tabs the browser took with it when it went away, by browserId. */
+  private readonly lostTabs = new Set<string>();
+  private browserLostAt: number | null = null;
   private chromium: Promise<SharedChromium> | null = null;
   private launchedChromium: SharedChromium | null = null;
   private runningEngine: ServerBrowserEngineKind | null = null;
@@ -185,7 +196,7 @@ export class ServerBrowserHost {
   }
 
   public ownsTab(browserId: string): boolean {
-    return this.tabs.has(browserId);
+    return this.tabs.has(browserId) || this.lostTabs.has(browserId);
   }
 
   public getTab(browserId: string): ServerBrowserTab | null {
@@ -249,6 +260,13 @@ export class ServerBrowserHost {
       }
     }
     const browserId = "browserId" in request.command.args ? request.command.args.browserId : null;
+    if (browserId && !this.tabs.has(browserId) && this.lostTabs.has(browserId)) {
+      return browserToolsFailure({
+        requestId: request.requestId,
+        code: "browser_tab_closed",
+        message: `Browser tab ${browserId} closed when the server browser stopped. Open a new tab with browser_new_tab.`,
+      });
+    }
     if (browserId) this.tabs.get(browserId)?.touch();
     const owned = await this.executeHostCommand(request);
     if (owned) return owned;
@@ -700,24 +718,26 @@ export class ServerBrowserHost {
     const startedAt = this.now();
     let started: SharedChromium | null = null;
     try {
-      started = await startEngine({
-        config,
-        paseoHome: this.options.paseoHome,
-        noSandbox: this.noSandbox,
-        ...(this.options.launch ? { launch: this.options.launch } : {}),
-        ...(this.options.resolveExecutable
-          ? { resolveExecutable: this.options.resolveExecutable }
-          : {}),
-        ...(this.options.display ? { display: this.options.display } : {}),
-        onWarning: (message) => this.options.logger.warn(`Server browser: ${message}`),
-        events: {
-          onEvent: (event) => this.routeEvent(event),
-          onTargetInfo: (info) => this.findTabByTarget(info.targetId)?.updateTargetInfo(info),
-          onTargetDestroyed: (targetId) => this.onTargetDestroyed(targetId),
-          onPopup: (popup) => void this.adoptPopup(popup),
-          onExit: () => this.onChromiumExit(started),
-        },
-      });
+      started = await this.waitingForReturn(config, () =>
+        startEngine({
+          config,
+          paseoHome: this.options.paseoHome,
+          noSandbox: this.noSandbox,
+          ...(this.options.launch ? { launch: this.options.launch } : {}),
+          ...(this.options.resolveExecutable
+            ? { resolveExecutable: this.options.resolveExecutable }
+            : {}),
+          ...(this.options.display ? { display: this.options.display } : {}),
+          onWarning: (message) => this.options.logger.warn(`Server browser: ${message}`),
+          events: {
+            onEvent: (event) => this.routeEvent(event),
+            onTargetInfo: (info) => this.findTabByTarget(info.targetId)?.updateTargetInfo(info),
+            onTargetDestroyed: (targetId) => this.onTargetDestroyed(targetId),
+            onPopup: (popup) => void this.adoptPopup(popup),
+            onExit: () => this.onChromiumExit(started),
+          },
+        }),
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.unavailableReason =
@@ -742,6 +762,29 @@ export class ServerBrowserHost {
       "Server browser started",
     );
     return chromium;
+  }
+
+  /**
+   * An Existing browser that went away a moment ago is usually being restarted by whatever runs
+   * it, which takes a few seconds; a new tab waits for it instead of failing in the gap.
+   */
+  private async waitingForReturn(
+    config: ServerBrowserEngineConfig,
+    start: () => Promise<SharedChromium>,
+  ): Promise<SharedChromium> {
+    const lostAt = this.browserLostAt;
+    const recentlyLost = lostAt !== null && Date.now() - lostAt < REATTACH_WINDOW_MS;
+    const deadline =
+      config.kind === "existing" && recentlyLost ? Date.now() + this.limits.reattachWaitMs : 0;
+    for (;;) {
+      try {
+        return await start();
+      } catch (error) {
+        if (!(error instanceof ServerBrowserUnavailableError) || Date.now() >= deadline)
+          throw error;
+        await new Promise((resolve) => setTimeout(resolve, REATTACH_POLL_MS));
+      }
+    }
   }
 
   /** The isolation of the browser that runs now, or of the one the next start brings. */
@@ -827,10 +870,16 @@ export class ServerBrowserHost {
     // Every context died with the process; their storage is what the last save wrote. A pending
     // save timer finds its browser gone and writes nothing.
     this.contexts.clear();
+    this.browserLostAt = Date.now();
     const tabs = [...this.tabs.values()].filter((tab) => !this.clearing.has(tab.workspaceId));
     for (const tab of tabs) {
       this.tabs.delete(tab.browserId);
       tab.dispose();
+      this.lostTabs.add(tab.browserId);
+    }
+    for (const browserId of this.lostTabs) {
+      if (this.lostTabs.size <= MAX_LOST_TABS) break;
+      this.lostTabs.delete(browserId);
     }
     for (const timer of this.contextIdleTimers.values()) clearTimeout(timer);
     this.contextIdleTimers.clear();

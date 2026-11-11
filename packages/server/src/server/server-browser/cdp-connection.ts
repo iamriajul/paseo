@@ -34,7 +34,7 @@ export class ServerBrowserUnavailableError extends Error {
 
 export class CdpConnectionClosedError extends ServerBrowserUnavailableError {
   public constructor() {
-    super("The server browser closed");
+    super("The server browser closed, and its tabs with it. Open a new tab with browser_new_tab.");
     this.name = "CdpConnectionClosedError";
   }
 }

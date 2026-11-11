@@ -275,6 +275,11 @@ export async function prepareChromeProfile(userDataDir: string): Promise<void> {
     },
     first_run_tabs: [],
     metrics_reporting: { enabled: false },
+    // Memory Saver on, at Maximum (the MemorySaverModeSavings policy's 2), set on every start.
+    // Chrome 153 keeps both in Local State; the policy would need a system-wide file. Chrome never
+    // discards a tab with a DevTools session attached, even under memory pressure, and the daemon
+    // holds one on every tab it owns, so this never unloads a page an agent or viewer is using.
+    performance_tuning: { high_efficiency_mode: { state: 2, aggressiveness: 2 } },
     user_experience_metrics: { reporting_enabled: false },
   });
   await mergeJson(join(userDataDir, "Default", "Preferences"), {

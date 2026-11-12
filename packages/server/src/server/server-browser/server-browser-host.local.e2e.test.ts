@@ -27,6 +27,10 @@ beforeEach(async () => {
       );
       return;
     }
+    if (req.url === "/long") {
+      res.end("<title>Long</title><div style='height:5000px'>long page</div>");
+      return;
+    }
     if (req.url === "/slow") {
       // A page that starts and never finishes loading.
       res.write("<title>Slow</title><p>slow page</p>");
@@ -105,6 +109,38 @@ describe("ServerBrowserHost with a real Chromium", () => {
     await host.closeTab(b.browserId);
     await waitFor(() => host.openContextIds().length === 0);
     await waitFor(() => !isRunning(pid));
+  });
+
+  it("suspends an idle tab, then reloads it at its URL and scroll when used", async () => {
+    const host = createHost({ contextIdleMs: 200, browserIdleMs: 200 });
+    const tab = await host.openTab({ workspaceId: "ws", url: `${siteUrl}long`, openedBy: "agent" });
+    const pid = host.browserPid()!;
+    await evaluate(host, tab.browserId, "window.scrollTo(0, 1200)");
+
+    await host.suspendTab(tab.browserId);
+
+    expect(host.listTabs()).toEqual([
+      expect.objectContaining({ url: `${siteUrl}long`, title: "Long", suspended: true }),
+    ]);
+    const frame = tab.currentStillFrame!;
+    expect([frame.jpeg[0], frame.jpeg[1]]).toEqual([0xff, 0xd8]);
+    expect(frame).toMatchObject({ width: 1280, height: 800 });
+    // The only tab gone, the workspace's context and then Chromium go too.
+    await waitFor(() => !isRunning(pid));
+
+    const response = await host.execute({
+      type: "browser.automation.execute.request",
+      requestId: "r",
+      workspaceId: "ws",
+      command: { command: "evaluate", args: { browserId: tab.browserId, function: "() => 1" } },
+    });
+
+    expect(response.notice).toMatch(/suspended it to free memory/);
+    expect(tab.isSuspended).toBe(false);
+    expect(await evaluate(host, tab.browserId, "[location.href, window.scrollY]")).toEqual([
+      `${siteUrl}long`,
+      1200,
+    ]);
   });
 
   it("keeps workspaces' cookies and localStorage apart inside the one browser", async () => {
@@ -196,9 +232,17 @@ describe("ServerBrowserHost with a real Chromium", () => {
     expect(await evaluate(host, tab.browserId, "localStorage.getItem('token')")).toBeNull();
   });
 
-  it("refuses a tab past the limit with a message the agent can act on", async () => {
+  it("refuses a tab past the limit, when every tab is watched, with a message the agent can act on", async () => {
     const host = createHost({ maxTabs: 1 });
-    await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
+    tab.screencast.addViewer(
+      "v",
+      { send: () => {}, isCongested: () => false },
+      {
+        maxWidth: 640,
+        maxHeight: 400,
+      },
+    );
     await expect(
       host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" }),
     ).rejects.toThrow(/browser_close_tab/);

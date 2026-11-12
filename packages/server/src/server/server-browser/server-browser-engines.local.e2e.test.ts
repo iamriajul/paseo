@@ -207,6 +207,32 @@ describe("tab video", { timeout: 120_000 }, () => {
     watch.stop();
   });
 
+  it("shows a suspended tab's frame to a video viewer, then streams video once it reloads", async () => {
+    const host = createHost({ kind: "managed-chrome", chromeMode: "window" });
+    const { browserId } = await host.openTab({
+      workspaceId: "ws",
+      url: `${siteUrl}anim`,
+      openedBy: "agent",
+    });
+    const tab = host.getTab(browserId)!;
+    const pid = host.browserPid()!;
+    await host.suspendTab(browserId);
+    // Headed Chrome quits once its last window closes; the host closes it first.
+    expect(host.browserPid()).toBeUndefined();
+    await waitFor(() => !isRunning(pid));
+    expect(tab.isSuspended).toBe(true);
+    const still = tab.currentStillFrame!;
+    expect([still.jpeg[0], still.jpeg[1]]).toEqual([0xff, 0xd8]);
+
+    const { watch } = (await watchVideo(host, browserId, ["avc1.42E028"]))!;
+    await waitFor(() => watch.chunks.length >= 10, 30_000);
+    expect(tab.isSuspended).toBe(false);
+    expect(tab.currentUrl).toBe(`${siteUrl}anim`);
+    expect(watch.chunks[0]?.key).toBe(true);
+    expect(watch.fellBack).toBe(false);
+    watch.stop();
+  });
+
   it("gives JPEG to a viewer with no codec in common, and on Headless (light)", async () => {
     const managed = createHost({ kind: "managed-chrome", chromeMode: "headless" });
     const tab = await managed.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
@@ -576,6 +602,28 @@ describe("Existing browser", { timeout: 120_000 }, () => {
     const remaining = await pageTargets(users.cdp);
     expect(remaining.map((info) => info.targetId)).toEqual([users.ownTabId]);
     expect(remaining[0]!.url).toContain("users-own-tab");
+    users.cdp.disconnect();
+  });
+
+  it("suspends its tab by closing only that tab, and reopens it there when used", async () => {
+    const users = await startUsersChrome();
+    const host = createHost({ kind: "existing", cdpUrl: users.url });
+    const tab = await host.openTab({
+      workspaceId: "ws",
+      url: `${siteUrl}?paseo`,
+      openedBy: "agent",
+    });
+
+    await host.suspendTab(tab.browserId);
+    await waitForAsync(async () => (await pageTargets(users.cdp)).length === 1);
+    expect((await pageTargets(users.cdp)).map((info) => info.targetId)).toEqual([users.ownTabId]);
+
+    await host.wakeTab(tab);
+    const pages = await pageTargets(users.cdp);
+    expect(pages.map((info) => info.url).sort()).toEqual(
+      [`${siteUrl}?paseo`, `${siteUrl}?users-own-tab`].sort(),
+    );
+    expect(isRunning(users.pid)).toBe(true);
     users.cdp.disconnect();
   });
 

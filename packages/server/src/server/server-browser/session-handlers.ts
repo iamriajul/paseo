@@ -195,6 +195,19 @@ export class ServerBrowserSessionHandlers {
       watchJpeg();
       return;
     }
+    // A suspended tab's last frame shows until its reloaded page streams; its ack is ignored.
+    const still = tab.currentStillFrame;
+    if (still) {
+      emitCounted(
+        encodeServerBrowserFrame({
+          streamId,
+          seq: 0,
+          width: still.width,
+          height: still.height,
+          jpeg: still.jpeg,
+        }),
+      );
+    }
     tab.video.addViewer(
       viewerId,
       {

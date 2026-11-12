@@ -19,6 +19,8 @@ export interface ScreencastSize {
 export interface ScreencastSource {
   start(size: ScreencastSize): void;
   stop(): void;
+  /** A frame for a joiner while the source has painted none (a suspended tab's last page). */
+  stillFrame?: () => ScreencastFrame | null;
 }
 
 interface Viewer {
@@ -64,6 +66,11 @@ export class ScreencastHub {
     return this.viewers.size;
   }
 
+  /** The newest frame while the stream runs. */
+  public get currentFrame(): ScreencastFrame | null {
+    return this.lastFrame;
+  }
+
   public addViewer(id: string, sink: ScreencastViewerSink, size: ScreencastSize): void {
     const viewer: Viewer = {
       sink,
@@ -75,7 +82,8 @@ export class ScreencastHub {
     };
     this.viewers.set(id, viewer);
     // A static page paints nothing new; show the joiner what the others already see.
-    if (this.lastFrame) this.deliver(viewer, this.lastFrame);
+    const first = this.lastFrame ?? this.source.stillFrame?.() ?? null;
+    if (first) this.deliver(viewer, first);
     this.reconcileSource();
   }
 

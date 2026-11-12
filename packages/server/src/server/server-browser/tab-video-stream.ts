@@ -157,6 +157,8 @@ export class TabVideoStream {
       this.stopCapture();
       return;
     }
+    // A suspended tab has no target yet; refresh() plans again once its page is back.
+    if (!this.params.targetId()) return;
     const capture = await this.params.capture().catch(() => null);
     if (generation !== this.generation) return;
     this.captureApi = capture;

@@ -748,6 +748,10 @@ export const zhCN: TranslationResources = {
         startAndOpen: "启动并打开",
       },
       portForward: {
+        notificationTitle: "正在将端口转发到此手机",
+        notificationText:
+          "Paseo 会保持运行，让你在浏览器中打开的页面继续加载。停止将结束所有转发。",
+        notificationStop: "停止",
         labelPhone: "在此手机上打开",
         hintPhone:
           "将这些端口从工作区主机转发到此手机，然后在浏览器中打开页面。转发期间 Paseo 会在后台保持运行。",

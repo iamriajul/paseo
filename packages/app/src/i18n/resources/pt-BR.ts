@@ -754,6 +754,10 @@ export const ptBR: TranslationResources = {
         startAndOpen: "Iniciar e abrir",
       },
       portForward: {
+        notificationTitle: "Encaminhando portas para este telefone",
+        notificationText:
+          "O Paseo continua ativo para que as páginas abertas no seu navegador continuem carregando. Parar encerra todos os encaminhamentos.",
+        notificationStop: "Parar",
         labelPhone: "Abrir neste telefone",
         hintPhone:
           "Encaminha estas portas do host do espaço de trabalho para este telefone e abre a página no seu navegador. O Paseo continua em segundo plano enquanto elas estiverem abertas.",

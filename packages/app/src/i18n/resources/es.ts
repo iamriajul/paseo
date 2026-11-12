@@ -755,6 +755,10 @@ export const es: TranslationResources = {
         startAndOpen: "Iniciar y abrir",
       },
       portForward: {
+        notificationTitle: "Reenviando puertos a este teléfono",
+        notificationText:
+          "Paseo sigue activo para que las páginas que abriste en tu navegador sigan cargando. Detener termina todos los reenvíos.",
+        notificationStop: "Detener",
         labelPhone: "Abrir en este teléfono",
         hintPhone:
           "Reenvía estos puertos del host del espacio de trabajo a este teléfono y abre la página en tu navegador. Paseo sigue en segundo plano mientras estén abiertos.",

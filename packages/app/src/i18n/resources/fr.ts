@@ -756,6 +756,10 @@ export const fr: TranslationResources = {
         startAndOpen: "Démarrer et ouvrir",
       },
       portForward: {
+        notificationTitle: "Transfert de ports vers ce téléphone",
+        notificationText:
+          "Paseo reste actif pour que les pages ouvertes dans votre navigateur continuent de se charger. Arrêter met fin à tous les transferts.",
+        notificationStop: "Arrêter",
         labelPhone: "Ouvrir sur ce téléphone",
         hintPhone:
           "Transfère ces ports de l'hôte de l'espace de travail vers ce téléphone, puis ouvre la page dans votre navigateur. Paseo reste actif en arrière-plan tant qu'ils sont ouverts.",

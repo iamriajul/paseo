@@ -749,6 +749,10 @@ export const ar: TranslationResources = {
         startAndOpen: "ابدأ وافتح",
       },
       portForward: {
+        notificationTitle: "يعيد توجيه المنافذ إلى هذا الهاتف",
+        notificationText:
+          "يبقى Paseo قيد التشغيل لتواصل الصفحات التي فتحتها في متصفحك التحميل. يؤدي الإيقاف إلى إنهاء كل عمليات التوجيه.",
+        notificationStop: "إيقاف",
         labelPhone: "افتح على هذا الهاتف",
         hintPhone:
           "يعيد توجيه هذه المنافذ من مضيف مساحة العمل إلى هذا الهاتف، ثم يفتح الصفحة في متصفحك. يبقى Paseo قيد التشغيل في الخلفية ما دامت مفتوحة.",

@@ -545,9 +545,29 @@ ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, brows
 
 const browserPortForwards = new BrowserPortForwards();
 
-function readPortForwardStartInput(
-  input: unknown,
-): { browserId: string; ports: number[]; fallbackToAnyPort: boolean } | null {
+interface PortForwardStartInput {
+  browserId: string;
+  ports: number[];
+  fallbackToAnyPort: boolean;
+  /** A server browser tab: it has no webview here, so the renderer names its host. */
+  host: { serverId: string; workspaceId: string } | null;
+}
+
+function readPortForwardHost(input: unknown): PortForwardStartInput["host"] {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  if (typeof record.serverId !== "string" || record.serverId.trim().length === 0) {
+    return null;
+  }
+  return {
+    serverId: record.serverId.trim(),
+    workspaceId: typeof record.workspaceId === "string" ? record.workspaceId.trim() : "",
+  };
+}
+
+function readPortForwardStartInput(input: unknown): PortForwardStartInput | null {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return null;
   }
@@ -562,15 +582,43 @@ function readPortForwardStartInput(
     browserId: record.browserId.trim(),
     ports: record.ports.filter((port): port is number => typeof port === "number"),
     fallbackToAnyPort: record.fallbackToAnyPort === true,
+    host: readPortForwardHost(record.host),
   };
 }
 
-ipcMain.handle("paseo:browser:port-forward:start", async (_event, rawInput: unknown) => {
+const portForwardRenderers = new Set<number>();
+
+ipcMain.handle("paseo:browser:port-forward:start", async (event, rawInput: unknown) => {
   const input = readPortForwardStartInput(rawInput);
   if (!input) {
     throw new Error("Invalid port forward request");
   }
-  const result = await browserPortForwards.start(input);
+  const { host, ...forward } = input;
+  if (host && !portForwardRenderers.has(event.sender.id)) {
+    const rendererId = event.sender.id;
+    portForwardRenderers.add(rendererId);
+    event.sender.once("destroyed", () => {
+      portForwardRenderers.delete(rendererId);
+      void browserPortForwards.stopAllForRenderer(rendererId);
+    });
+  }
+  const result = await browserPortForwards.start({
+    ...forward,
+    ...(host
+      ? {
+          route: {
+            rendererWebContentsId: event.sender.id,
+            browserId: input.browserId,
+            serverId: host.serverId,
+            workspaceId: host.workspaceId,
+            directLoopback: shouldUseDirectLoopback({
+              localDaemonServerId: peekDesktopDaemonServerId(),
+              tabServerId: host.serverId,
+            }),
+          },
+        }
+      : {}),
+  });
   log.info("[browser-port-forward] start", { browserId: input.browserId, result });
   return result;
 });
@@ -585,6 +633,13 @@ ipcMain.handle("paseo:browser:port-forward:stop", async (_event, rawInput: unkno
       browserId: record.browserId.trim(),
       remotePort: record.remotePort,
     });
+  }
+});
+
+ipcMain.handle("paseo:browser:port-forward:stop-all", async (_event, browserId: unknown) => {
+  if (typeof browserId === "string" && browserId.trim().length > 0) {
+    log.info("[browser-port-forward] stop-all", { browserId: browserId.trim() });
+    await browserPortForwards.stopAll(browserId.trim());
   }
 });
 

@@ -4594,6 +4594,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(serverBrowserSuspend): added in v0.15.x (fork), drop the gate after 2027-05-01.
         // True when an idle server tab is suspended (tab.suspended) instead of closed.
         serverBrowserSuspend: z.boolean().optional(),
+        // COMPAT(serverBrowserLoopbackPorts): added in v0.15.x (fork), drop the gate after 2027-05-01.
+        // True when browser.server.tab.loopback_ports answers (Open on this computer for server tabs).
+        serverBrowserLoopbackPorts: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

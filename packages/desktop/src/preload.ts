@@ -186,9 +186,12 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
       browserId: string;
       ports: number[];
       fallbackToAnyPort?: boolean;
+      host?: { serverId: string; workspaceId: string };
     }) => ipcRenderer.invoke("paseo:browser:port-forward:start", input),
     stopPortForward: (input: { browserId: string; remotePort: number }) =>
       ipcRenderer.invoke("paseo:browser:port-forward:stop", input),
+    stopAllPortForwards: (browserId: string) =>
+      ipcRenderer.invoke("paseo:browser:port-forward:stop-all", browserId),
     listPortForwards: (browserId: string) =>
       ipcRenderer.invoke("paseo:browser:port-forward:list", browserId),
   },

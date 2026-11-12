@@ -123,4 +123,55 @@ describe("browser port forwards", () => {
       kind: "local-host",
     });
   });
+
+  test("forwards a tab with no webview here on the route the renderer gave, until it stops", async () => {
+    const echoPort = await startEchoServer();
+    const remotePort = await freePort();
+    const relayed: number[] = [];
+    const routes: string[] = [];
+    const forwards = new BrowserPortForwards({
+      // A server browser tab never registers a loopback proxy.
+      resolveRoute: () => null,
+      relay: async (input) => {
+        routes.push(input.route.serverId);
+        await relayTo(echoPort, relayed)(input);
+      },
+    });
+    const serverTabRoute = { ...remoteRoute, browserId: "server-tab", rendererWebContentsId: 7 };
+
+    expect(await forwards.start({ browserId: "server-tab", ports: [remotePort] })).toEqual({
+      kind: "unavailable",
+      reason: "This Browser tab is not connected to a host.",
+    });
+    const result = await forwards.start({
+      browserId: "server-tab",
+      ports: [remotePort],
+      route: serverTabRoute,
+    });
+    expect(result.kind).toBe("started");
+    expect(await roundTrip(remotePort, "hello")).toBe("hello");
+    expect(routes).toEqual(["remote-host"]);
+
+    await forwards.stopAllForRenderer(7);
+    expect(forwards.list("server-tab")).toEqual([]);
+    await expect(roundTrip(remotePort, "gone")).rejects.toThrow();
+    // The route went with the forwards: a later start without one has nowhere to go.
+    expect((await forwards.start({ browserId: "server-tab", ports: [remotePort] })).kind).toBe(
+      "unavailable",
+    );
+  });
+
+  test("opens a server tab directly when the route it was given is this machine", async () => {
+    const forwards = new BrowserPortForwards({
+      resolveRoute: () => null,
+      relay: async () => undefined,
+    });
+    expect(
+      await forwards.start({
+        browserId: "server-tab",
+        ports: [3000],
+        route: { ...remoteRoute, directLoopback: true },
+      }),
+    ).toEqual({ kind: "local-host" });
+  });
 });

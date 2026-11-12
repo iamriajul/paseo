@@ -351,6 +351,24 @@ export const ServerBrowserTabLogsResponseSchema = z.object({
   }),
 });
 
+/**
+ * The loopback ports the tab's page has used (documents, scripts, fetch/XHR, WebSockets), for a
+ * viewer forwarding the tab to its own machine. Needs features.serverBrowserLoopbackPorts.
+ */
+export const ServerBrowserTabLoopbackPortsRequestSchema = z.object({
+  type: z.literal("browser.server.tab.loopback_ports.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+});
+export const ServerBrowserTabLoopbackPortsResponseSchema = z.object({
+  type: z.literal("browser.server.tab.loopback_ports.response"),
+  payload: z.object({
+    requestId: z.string(),
+    ports: z.array(z.number()).optional(),
+    error: ErrorField,
+  }),
+});
+
 export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabsSubscribeRequestSchema,
   ServerBrowserTabOpenRequestSchema,
@@ -365,6 +383,7 @@ export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabLogsRequestSchema,
   ServerBrowserTabDialogAnswerRequestSchema,
   ServerBrowserTabFileChooserAnswerRequestSchema,
+  ServerBrowserTabLoopbackPortsRequestSchema,
 ] as const;
 
 export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
@@ -382,4 +401,5 @@ export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
   ServerBrowserTabLogsResponseSchema,
   ServerBrowserTabDialogAnswerResponseSchema,
   ServerBrowserTabFileChooserAnswerResponseSchema,
+  ServerBrowserTabLoopbackPortsResponseSchema,
 ] as const;

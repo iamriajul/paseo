@@ -220,6 +220,24 @@ grep -q "paseo:browser:port-forward:start" packages/desktop/src/main.ts
 grep -q "startPortForward" packages/desktop/src/preload.ts
 ```
 
+## server-browser-open-on-this-computer
+
+**a server browser tab forwards its host ports to the desktop machine, as Browser tabs do**
+
+The daemon records the loopback ports each server tab's page uses from CDP `Network` events (`server-browser/loopback-ports.ts`, `server-browser-tab.ts` turns the domain on with no body buffers) and answers `browser.server.tab.loopback_ports`. Official files only wire it: `messages.ts` adds `features.serverBrowserLoopbackPorts`, `websocket-server.ts` advertises the feature, `operation-permissions.ts` maps the RPC to `workspace.read`, and `daemon-client.ts` adds `serverBrowserLoopbackPorts`. On the desktop, `port-forward-menu.tsx` takes the forward controller from `port-forward/` and an optional route; `main.ts` keeps the route a renderer gives for a tab with no webview, adds `port-forward:stop-all`, and stops a window's forwards when it closes; `preload.ts` and `host.ts` expose it. `use-server-browser-sync.ts` stops a tab's forwards when the host's tab list drops it or marks it `suspended` (the optional tab field the suspend change adds, carried in the fork-owned `server-browser/rpc-schemas.ts`). See [Open on this computer](browser-localhost-routing.md#open-on-this-computer).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/loopback-ports.test.ts --bail=1
+npx vitest run packages/desktop/src/features/browser-port-forward.test.ts -t "no webview" --bail=1
+npm test --workspace=@getpaseo/app -- src/port-forward/server-tab-forwards.test.ts --bail=1
+grep -q "serverBrowserLoopbackPorts: z.boolean().optional()" packages/protocol/src/messages.ts
+grep -q '"browser.server.tab.loopback_ports.request": "workspace.read"' packages/server/src/server/authorization/operation-permissions.ts
+grep -q "paseo:browser:port-forward:stop-all" packages/desktop/src/main.ts
+grep -q "stopForwardsOfEndedServerTabs(serverId, tabs)" packages/app/src/server-browser/use-server-browser-sync.ts
+```
+
+The page-traffic recording against a real Chromium is local-only: `npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.local.e2e.test.ts -t "loopback ports"`.
+
 ## code-server-tab
 
 **register Code Server as a workspace tab kind**

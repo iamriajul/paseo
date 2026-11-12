@@ -5,6 +5,7 @@ import { collectAllTabs, findPaneById } from "@/stores/workspace-layout-actions"
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildDeterministicWorkspaceTabId } from "@/workspace-tabs/identity";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+import { stopForwardsOfEndedServerTabs } from "@/port-forward/server-tab-forwards";
 import { useServerBrowserStore, type ServerBrowserTab } from "./store";
 
 // Agent tabs and popups already placed in a workspace this app session. A tab the user closed
@@ -29,6 +30,7 @@ export function useServerBrowserSync(serverId: string): void {
       useServerBrowserStore.getState().setHost(serverId, { tabs, status });
       placeAgentTabs(serverId, tabs);
       removeClosedTabs(serverId, tabs);
+      stopForwardsOfEndedServerTabs(serverId, tabs);
     };
     const unsubscribe = subscription.subscribe({
       snapshot: (snapshot) => {

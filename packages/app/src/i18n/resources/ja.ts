@@ -754,6 +754,10 @@ export const ja: TranslationResources = {
         startAndOpen: "起動して開く",
       },
       portForward: {
+        labelPhone: "このスマートフォンで開く",
+        hintPhone:
+          "ワークスペースのホストからこのスマートフォンへポートを転送し、ブラウザでページを開きます。転送中は Paseo がバックグラウンドで動作し続けます。",
+        portInUsePhone: "このスマートフォンでポートは使用中です",
         label: "このコンピューターで開く",
         hint: "これらのポートをワークスペースのホストからこのコンピューターに転送し、ブラウザでページを開きます。",
         addPort: "ポートを追加（例: 8080）",

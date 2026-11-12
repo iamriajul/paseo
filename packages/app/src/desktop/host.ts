@@ -2,6 +2,11 @@ import { Platform } from "react-native";
 import { getElectronHost } from "@/desktop/electron/host";
 import type { BrowserKeyboardPolicy } from "@/desktop/browser/shortcuts";
 import type { SessionInboundMessage, SessionOutboundMessage } from "@getpaseo/protocol/messages";
+import type {
+  PortForwardList,
+  PortForwardRoute,
+  PortForwardStartResult,
+} from "@/port-forward/types";
 
 type BrowserAutomationExecuteRequest = Extract<
   SessionOutboundMessage,
@@ -193,24 +198,13 @@ export interface DesktopBrowserBridge {
     browserId: string;
     ports: number[];
     fallbackToAnyPort?: boolean;
-  }) => Promise<DesktopPortForwardStartResult>;
+    /** A tab with no webview here (a server browser tab): the host its ports live on. */
+    host?: PortForwardRoute;
+  }) => Promise<PortForwardStartResult>;
   stopPortForward?: (input: { browserId: string; remotePort: number }) => Promise<void>;
-  listPortForwards?: (browserId: string) => Promise<DesktopPortForwardList>;
-}
-
-export type DesktopPortForwardStatus =
-  | { state: "forwarding"; remotePort: number; localPort: number }
-  | { state: "port-in-use"; remotePort: number }
-  | { state: "failed"; remotePort: number; error: string };
-
-export type DesktopPortForwardStartResult =
-  | { kind: "local-host" }
-  | { kind: "unavailable"; reason: string }
-  | { kind: "started"; forwards: DesktopPortForwardStatus[] };
-
-export interface DesktopPortForwardList {
-  forwards: DesktopPortForwardStatus[];
-  observedPorts: number[];
+  /** Fork: added with server-tab forwarding; an older desktop build lacks it. */
+  stopAllPortForwards?: (browserId: string) => Promise<void>;
+  listPortForwards?: (browserId: string) => Promise<PortForwardList>;
 }
 
 export interface DesktopInvokeBridge {

@@ -1547,6 +1547,19 @@ npx vitest run scripts/merge-mac-manifest.test.mjs scripts/validate-desktop-mani
 grep -q 'npx vitest run scripts/merge-mac-manifest.test.mjs' .github/workflows/ci.yml
 ```
 
+## release-single-creator
+
+**every release workflow creates the tag's release through `scripts/github-release.mjs --ensure`, as a draft; every uploader resolves the same canonical release; npm publishes it once its tarballs are up**
+
+A `vX.Y.Z` tag starts Desktop Release, Android APK Release (twice: `ensure-release` and the fork's APK job), npm Global Install Release and Release Notes Sync, and each checked for the release, then created one. GitHub lets several releases share a tag, so when they checked in the same second they all succeeded: v0.15.913 got a draft and two published releases, one empty one was marked Latest, and `finalize-rollout` failed to publish the draft with "Release.tag_name already exists". Official creates only drafts; the fork's npm and APK jobs created published releases, which is what made the publish fail. `ensureGitHubRelease` creates a draft, waits five seconds for concurrent creators to become visible, keeps the canonical release (the oldest published one, otherwise the oldest draft) and deletes the empty others; it never deletes a release with assets. Uploaders call `github-release.mjs` without `--ensure` and get the same release by the same rule. A workflow-level `concurrency` group across the workflows was ruled out: a group holds one running and one pending job and cancels the rest, which would have cancelled two of the four creators. The fork APK job waits for `ensure-release` instead of creating its own release, and the EAS job's second upload by tag is gone.
+
+`publishGitHubRelease` (`--publish`) removes empty duplicates, then publishes the canonical release unless it already is. npm Global Install Release calls it right after uploading its tarballs, because the box's daemon and CLI install from them and macOS runner failures failed or cancelled the desktop publish twice in the week to 2026-11-12 (v0.15.910 needed reruns); leaving publication to `finalize-rollout` alone, as official does, would block those installs whenever desktop fails. `finalize-rollout` calls it last and only checks for duplicates when npm got there first. Publishing early exposes no half-ready desktop update: the desktop build jobs upload only non-`.yml` files, `finalize-rollout` uploads `latest-mac.yml` after them, and until it does the app reads the release as having no update. The APK job does not publish: npm is a default target that finishes well before the 50-minute APK, so a second publisher would never be the one that acts. The proof races three real `--ensure` processes against a fake `gh` that answers "no release" to all three and then publishes the survivor, and runs the real finalize step against a duplicate and against a release npm already published.
+
+```bash
+node --test scripts/github-release.test.mjs scripts/sync-release-notes-from-changelog.test.mjs
+node --test --test-name-pattern "duplicate release|shared script|already published|updater manifests" scripts/ci-workflow.test.mjs
+```
+
 ## hub-bootstrap-poll-budget
 
 **the Hub bootstrap e2e waits up to 10 s for each frame it polls**

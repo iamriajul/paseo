@@ -66,28 +66,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          set -euo pipefail
-
-          if node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG" >/dev/null 2>&1; then
-            exit 0
-          fi
-
-          release_args=(
-            release create "$RELEASE_TAG"
-            --repo "${{ github.repository }}"
-            --title "Paseo $RELEASE_TAG"
-            --notes ""
-            --draft
-          )
-
+          # Fork: every release workflow creates through this script. See docs/fork-decisions.md#release-single-creator.
+          ensure_args=(--repo "${{ github.repository }}" --tag "$RELEASE_TAG" --ensure)
           if [[ "$IS_PRERELEASE" == "true" ]]; then
-            release_args+=(--prerelease)
+            ensure_args+=(--prerelease)
           fi
-
-          if ! gh "${release_args[@]}"; then
-            echo "Release creation raced with another workflow; continuing."
-            node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG" >/dev/null
-          fi
+          node scripts/github-release.mjs "${ensure_args[@]}"
 
   publish-android-apk-eas:
     if: ${{ github.repository_owner == 'getpaseo' && needs.release-targets.outputs.android-apk == 'true' }}
@@ -175,11 +159,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           release_lookup="$(node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")"
-          gh release upload "$release_lookup" "${{ steps.artifact.outputs.asset_path }}" --clobber --repo "${{ github.repository }}" 
-          gh release upload "$RELEASE_TAG" "${{ steps.artifact.outputs.asset_path }}" --clobber --repo "${{ github.repository }}"
+          gh release upload "$release_lookup" "${{ steps.artifact.outputs.asset_path }}" --clobber --repo "${{ github.repository }}"
 
   publish-fork-android-apk:
-    needs: [release-targets]
+    needs: [release-targets, ensure-release]
     if: ${{ github.repository_owner != 'getpaseo' && needs.release-targets.outputs.android-apk == 'true' }}
     permissions:
       contents: write
@@ -235,32 +218,6 @@ jobs:
             printf 'Android signing secrets are partially configured. Configure all of them, or remove all of them to use the insecure fallback key:\n' >&2
             printf '  - %s\n' "${missing[@]}" >&2
             exit 1
-          fi
-
-      - name: Ensure GitHub release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            exit 0
-          fi
-
-          release_args=(
-            release create "$RELEASE_TAG"
-            --repo "${{ github.repository }}"
-            --title "Paseo $RELEASE_TAG"
-            --notes ""
-          )
-
-          if [[ "$IS_PRERELEASE" == "true" ]]; then
-            release_args+=(--prerelease)
-          fi
-
-          if ! gh "${release_args[@]}"; then
-            echo "Release creation raced with another workflow; continuing."
           fi
 
       - name: Setup Java
@@ -510,7 +467,7 @@ jobs:
             warning_path="$RUNNER_TEMP/$warning_name"
             warning_text="WARNING: This APK was signed with Paseo's public insecure fallback Android key because ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD were not configured. Do not distribute it as a trusted production build. Configure secure Android signing secrets using docs/fork-release.md#android-apks."
             printf '%s\n' "$warning_text" > "$warning_path"
-            gh release upload "$RELEASE_TAG" "$asset_path" "$warning_path" --clobber --repo "${{ github.repository }}"
-          else
-            gh release upload "$RELEASE_TAG" "$asset_path" --clobber --repo "${{ github.repository }}"
           fi
+
+          release_lookup="$(node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")"
+          gh release upload "$release_lookup" "$asset_path" ${warning_path:+"$warning_path"} --clobber --repo "${{ github.repository }}"

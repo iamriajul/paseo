@@ -78,29 +78,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            exit 0
-          fi
-
-          release_args=(
-            release create "$RELEASE_TAG"
-            --repo "${{ github.repository }}"
-            --title "Paseo $RELEASE_TAG"
-            --notes ""
-          )
-
+          # Fork: every release workflow creates through this script, as a draft. See
+          # docs/fork-decisions.md#release-single-creator.
+          ensure_args=(--repo "${{ github.repository }}" --tag "$RELEASE_TAG" --ensure)
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            release_args+=(--target "$CHECKOUT_REF")
+            ensure_args+=(--target "$CHECKOUT_REF")
           fi
-
           if [[ "$IS_PRERELEASE" == "true" ]]; then
-            release_args+=(--prerelease)
+            ensure_args+=(--prerelease)
           fi
-
-          if ! gh "${release_args[@]}"; then
-            echo "Release creation raced with another workflow; continuing."
-          fi
+          node scripts/github-release.mjs "${ensure_args[@]}"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -172,14 +159,25 @@ jobs:
 
           echo "NPM_RELEASE_ASSETS=$pack_dir" >> "$GITHUB_ENV"
 
-      - name: Upload npm tarballs to release
+      - name: Upload npm tarballs and publish the release
         if: env.SHOULD_PUBLISH == 'true' && env.IS_SMOKE_TAG != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "$RELEASE_TAG" "$NPM_RELEASE_ASSETS"/*.tgz --clobber --repo "${{ github.repository }}"
+          release_lookup="$(node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")"
+          gh release upload "$release_lookup" "$NPM_RELEASE_ASSETS"/*.tgz --clobber --repo "${{ github.repository }}"
+
+          # Fork: the daemon and CLI install from these tarballs, so they must not wait on a
+          # desktop build that can fail. Publishing early is safe for desktop updaters: they
+          # report no update until finalize-rollout uploads latest-mac.yml, which it does
+          # only after the mac assets. See docs/fork-decisions.md#release-single-creator.
+          publish_args=(--repo "${{ github.repository }}" --tag "$RELEASE_TAG" --publish)
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            publish_args+=(--prerelease)
+          fi
+          node scripts/github-release.mjs "${publish_args[@]}"
 
       - name: Upload npm tarballs to workflow
         if: env.SHOULD_PUBLISH != 'true'

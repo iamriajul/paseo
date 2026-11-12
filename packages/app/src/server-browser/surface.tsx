@@ -35,7 +35,7 @@ import {
 } from "../../modules/paseo-video";
 import { InputBatcher, namedKeyPress } from "./input";
 import { NativeVideoPort, nativeVideoCodecs, type NativeVideoPlatform } from "./native-video-port";
-import { ServerBrowserVideoSession } from "./video-session";
+import { ServerBrowserVideoSession, ServerBrowserVideoStream } from "./video-session";
 import {
   pagePixelsPerSurfacePixel,
   quantizeScreencastViewport,
@@ -145,13 +145,34 @@ export const ServerBrowserSurface = forwardRef<
   }, []);
 
   const videoViewRef = useRef<PaseoVideoViewHandle | null>(null);
-  const videoSessionRef = useRef<ServerBrowserVideoSession | null>(null);
   // Which shows the page: the video view once it drew a frame, the Images when JPEG arrives.
   const [videoShown, setVideoShown] = useState(false);
   const videoShownRef = useRef(false);
   // The decoder kept failing on this tab: watch it as JPEG instead.
   const [videoFailedFor, setVideoFailedFor] = useState<string | null>(null);
   const nativeVideo = video && NATIVE_VIDEO_CODECS !== null && videoFailedFor !== browserId;
+
+  // Read when a chunk arrives: video may have been turned off since this render.
+  const nativeVideoRef = useRef(nativeVideo);
+  nativeVideoRef.current = nativeVideo;
+  const browserIdRef = useRef(browserId);
+  browserIdRef.current = browserId;
+  const [videoStream] = useState(
+    () =>
+      new ServerBrowserVideoStream(() => {
+        if (!nativeVideoRef.current) return null;
+        const failedFor = browserIdRef.current;
+        const session: ServerBrowserVideoSession = new ServerBrowserVideoSession(
+          new NativeVideoPort(
+            () => videoViewRef.current,
+            NATIVE_VIDEO_PLATFORM,
+            () => session.decoderError(),
+          ),
+          { onFatal: () => setVideoFailedFor(failedFor) },
+        );
+        return session;
+      }),
+  );
 
   const showVideo = useCallback((shown: boolean) => {
     if (videoShownRef.current === shown) return;
@@ -160,40 +181,36 @@ export const ServerBrowserSurface = forwardRef<
   }, []);
 
   const handleChunk = useCallback(
-    (chunk: ServerBrowserVideoChunk) => {
-      if (!videoSessionRef.current) {
-        const session = new ServerBrowserVideoSession(
-          new NativeVideoPort(
-            () => videoViewRef.current,
-            NATIVE_VIDEO_PLATFORM,
-            () => session.decoderError(),
-          ),
-          { onFatal: () => setVideoFailedFor(browserId) },
-        );
-        videoSessionRef.current = session;
-      }
-      videoSessionRef.current.push(chunk);
-    },
-    [browserId],
+    (chunk: ServerBrowserVideoChunk) => videoStream.push(chunk),
+    [videoStream],
   );
+  const handleVideoStop = useCallback(() => videoStream.stop(), [videoStream]);
   const handleVideoFrame = useCallback(
     (event: { nativeEvent: { id: number } }) => {
-      videoSessionRef.current?.frameShown(event.nativeEvent.id);
+      videoStream.current?.frameShown(event.nativeEvent.id);
       showVideo(true);
     },
-    [showVideo],
+    [showVideo, videoStream],
   );
-  const handleDecoderError = useCallback(() => videoSessionRef.current?.decoderError(), []);
-  useEffect(
-    () => () => {
-      videoSessionRef.current?.dispose();
-      videoSessionRef.current = null;
+  const handleDecoderError = useCallback(
+    (event: { nativeEvent: { interrupted?: boolean } }) => {
+      const session = videoStream.current;
+      if (event.nativeEvent.interrupted) session?.decoderInterrupted();
+      else session?.decoderError();
     },
-    [browserId, nativeVideo],
+    [videoStream],
   );
+  // The decoder is released when video stops: a new tab, video turned off, the stream ended
+  // (handleVideoStop) or the daemon moved this viewer to JPEG (handleFrame).
+  useEffect(() => () => videoStream.stop(), [browserId, videoStream]);
+  useEffect(() => {
+    if (!nativeVideo) videoStream.stop();
+  }, [nativeVideo, videoStream]);
 
   const handleFrame = useCallback(
     (frame: ServerBrowserFrame) => {
+      // JPEG comes only once this viewer has no video stream (the daemon moved it to JPEG).
+      videoStream.stop();
       showVideo(false);
       const back = frontRef.current === 0 ? 1 : 0;
       const uri = `data:image/jpeg;base64,${Buffer.from(frame.jpeg).toString("base64")}`;
@@ -201,7 +218,7 @@ export const ServerBrowserSurface = forwardRef<
       pendingFramesRef.current[back] = frame;
       setUris((current) => (back === 0 ? [uri, current[1]] : [current[0], uri]));
     },
-    [showVideo],
+    [showVideo, videoStream],
   );
 
   useServerBrowserScreencast({
@@ -211,7 +228,7 @@ export const ServerBrowserSurface = forwardRef<
     onFrame: handleFrame,
     video:
       nativeVideo && NATIVE_VIDEO_CODECS
-        ? { codecs: NATIVE_VIDEO_CODECS, onChunk: handleChunk }
+        ? { codecs: NATIVE_VIDEO_CODECS, onChunk: handleChunk, onStop: handleVideoStop }
         : null,
   });
 

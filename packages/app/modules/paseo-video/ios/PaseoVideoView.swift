@@ -22,7 +22,9 @@ final class PaseoVideoView: ExpoView {
     super.init(appContext: appContext)
     decoder = H264Decoder(
       onFrame: { [weak self] id, image in self?.show(id: id, image: image) },
-      onError: { [weak self] message in self?.onDecoderError(["message": message]) }
+      onError: { [weak self] message, interrupted in
+        self?.onDecoderError(["message": message, "interrupted": interrupted])
+      }
     )
     clipsToBounds = true
     backgroundColor = UIColor(white: 17.0 / 255.0, alpha: 1)

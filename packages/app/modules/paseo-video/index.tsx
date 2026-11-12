@@ -24,8 +24,11 @@ export interface PaseoVideoViewProps {
   ref?: Ref<PaseoVideoViewHandle>;
   /** A frame is on screen: chunk `id` and every one before it are done. */
   onFrame?: (event: { nativeEvent: { id: number } }) => void;
-  /** The decoder failed; it drops deltas until the next keyframe rebuilds it. */
-  onDecoderError?: (event: { nativeEvent: { message: string } }) => void;
+  /**
+   * The decoder stopped; it drops deltas until the next keyframe rebuilds it. `interrupted`: the
+   * platform took it away (background, a new surface), so it is not a decode failure.
+   */
+  onDecoderError?: (event: { nativeEvent: { message: string; interrupted: boolean } }) => void;
   style?: StyleProp<ViewStyle>;
 }
 

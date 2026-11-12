@@ -20,7 +20,7 @@ class PaseoVideoView(context: Context, appContext: AppContext) :
   ExpoView(context, appContext), TextureView.SurfaceTextureListener {
 
   private val onFrame by EventDispatcher<Map<String, Int>>()
-  private val onDecoderError by EventDispatcher<Map<String, String>>()
+  private val onDecoderError by EventDispatcher<Map<String, Any>>()
   private val main = Handler(Looper.getMainLooper())
   private val textureView = TextureView(context)
   private var videoWidth = 0
@@ -28,7 +28,9 @@ class PaseoVideoView(context: Context, appContext: AppContext) :
 
   private val decoder = H264Decoder(
     onFrame = { id -> main.post { onFrame(mapOf("id" to id)) } },
-    onError = { message -> main.post { onDecoderError(mapOf("message" to message)) } },
+    onError = { message, interrupted ->
+      main.post { onDecoderError(mapOf("message" to message, "interrupted" to interrupted)) }
+    },
     onSize = { width, height ->
       main.post {
         videoWidth = width

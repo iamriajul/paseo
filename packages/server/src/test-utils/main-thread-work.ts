@@ -2,6 +2,24 @@ import { createHook, executionAsyncResource } from "node:async_hooks";
 import { performance, PerformanceObserver, type PerformanceEntry } from "node:perf_hooks";
 import { MessagePort } from "node:worker_threads";
 
+/**
+ * The smallest step the thread CPU counter takes. Windows counts thread CPU in scheduler ticks
+ * of about 15.6 ms, so one reading can overstate a short callback by a whole tick.
+ */
+function measureThreadCpuResolutionMs(
+  threadCpuUsage: (previous?: NodeJS.CpuUsage) => NodeJS.CpuUsage,
+) {
+  const total = (usage: NodeJS.CpuUsage) => usage.user + usage.system;
+  let resolution = Number.POSITIVE_INFINITY;
+  for (let sample = 0; sample < 3; sample++) {
+    const start = total(threadCpuUsage());
+    let next = start;
+    while (next === start) next = total(threadCpuUsage());
+    resolution = Math.min(resolution, next - start);
+  }
+  return resolution / 1_000;
+}
+
 /** Measure main-thread work without charging idle IO or runner descheduling. */
 export async function measureMainThreadWork<T>(label: string, action: () => T | Promise<T>) {
   // Node 22.20 supplies this API; the repository's older declarations omit it.
@@ -9,6 +27,7 @@ export async function measureMainThreadWork<T>(label: string, action: () => T | 
     process,
     "threadCpuUsage",
   );
+  const cpuResolutionMs = measureThreadCpuResolutionMs(threadCpuUsage);
   let blockingMs = 0;
   let filesystemRequests = 0;
   let yields = 0;
@@ -22,6 +41,8 @@ export async function measureMainThreadWork<T>(label: string, action: () => T | 
   const startedAt = performance.now();
   let previous = startedAt;
   let previousCpu = threadCpuUsage();
+  const startedCpu = previousCpu;
+  let totalCpuMs = 0;
   let probe: ReturnType<typeof setInterval>;
   let drain: ReturnType<typeof setImmediate>;
   const callbacks = new Map<number, { wall: number; cpu: NodeJS.CpuUsage }>();
@@ -93,6 +114,8 @@ export async function measureMainThreadWork<T>(label: string, action: () => T | 
       drain = setImmediate(resolve);
     });
     sample();
+    const totalCpu = threadCpuUsage(startedCpu);
+    totalCpuMs = (totalCpu.user + totalCpu.system) / 1_000;
     observeGc(gc.takeRecords());
   } finally {
     clearInterval(probe);
@@ -102,7 +125,7 @@ export async function measureMainThreadWork<T>(label: string, action: () => T | 
   // GC CPU inside callbacks is charged above. Elapsed GC spans, like elapsed
   // callback spans, include preemption and remain diagnostics rather than gates.
   process.stderr.write(
-    `${label}: ${JSON.stringify({ blockingMs, filesystemRequests, yields, longestCallbackMs, longestCallbackCpuMs, longestGcMs, gcCount, longestGapMs })}\n`,
+    `${label}: ${JSON.stringify({ blockingMs, totalCpuMs, cpuResolutionMs, filesystemRequests, yields, longestCallbackMs, longestCallbackCpuMs, longestGcMs, gcCount, longestGapMs })}\n`,
   );
-  return { result, blockingMs, filesystemRequests, yields };
+  return { result, blockingMs, totalCpuMs, cpuResolutionMs, filesystemRequests, yields };
 }

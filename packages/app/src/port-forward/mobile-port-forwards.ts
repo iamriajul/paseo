@@ -53,7 +53,7 @@ export interface MobilePortForwardDeps {
    * keeps Paseo and its WebSocket running behind the user's browser.
    */
   service: { show(): Promise<void>; hide(): void };
-  /** True when the host is this phone: nothing to forward. Never on a phone today. */
+  /** True when the host is this phone (a daemon reached on its loopback): nothing to forward. */
   isLocalHost?(serverId: string): boolean;
   encodeBase64(data: Uint8Array): string;
   decodeBase64(base64: string): Uint8Array;

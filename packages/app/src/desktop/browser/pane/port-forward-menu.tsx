@@ -15,7 +15,6 @@ import {
 import { MenuTextField } from "@/components/ui/menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getPortForwardController } from "@/port-forward/controller";
-import { rememberServerTabForward } from "@/port-forward/server-tab-forwards";
 import type { PublicPageUrl } from "@/port-forward/public-page-url";
 import type { PortForwardRoute, PortForwardStatus } from "@/port-forward/types";
 import { openExternalUrl } from "@/utils/open-external-url";
@@ -87,10 +86,15 @@ export function BrowserPortForwardMenu(props: {
   loadObservedPorts?: () => Promise<number[]>;
   /** A public URL the host serves for the page, offered as the no-forward alternative. */
   publicPage?: PublicPageUrl | null;
+  /**
+   * Called once forwards start, for a tab whose end this device must watch itself so they stop
+   * with it (a server tab, an Android Browser tab). Electron main watches its own webviews.
+   */
+  onForwardsStarted?: () => void;
 }): ReactElement | null {
   const { t } = useTranslation();
   const controller = useMemo(() => getPortForwardController(), []);
-  const { browserId, loadObservedPorts, route } = props;
+  const { browserId, loadObservedPorts, onForwardsStarted, route } = props;
   const [forwards, setForwards] = useState<PortForwardStatus[]>([]);
   const [observedPorts, setObservedPorts] = useState<number[]>([]);
   const [customPorts, setCustomPorts] = useState<number[]>([]);
@@ -148,7 +152,7 @@ export function BrowserPortForwardMenu(props: {
         setState({ status: "error", message: result.reason });
         return;
       }
-      if (route) rememberServerTabForward(route.serverId, browserId);
+      onForwardsStarted?.();
       await refresh();
       setForwards((current) => mergeForwards(current, result.forwards));
       setState({ status: "idle" });
@@ -157,7 +161,7 @@ export function BrowserPortForwardMenu(props: {
         void openExternalUrl(localUrlFor({ url: props.url, localPort: main.localPort }));
       }
     },
-    [browserId, controller, mainPort, ports, props.url, refresh, route],
+    [browserId, controller, mainPort, onForwardsStarted, ports, props.url, refresh, route],
   );
 
   const handleForward = useCallback(() => void start(false), [start]);

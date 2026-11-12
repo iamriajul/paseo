@@ -240,12 +240,15 @@ The page-traffic recording against a real Chromium is local-only: `npx vitest ru
 
 ## server-browser-open-on-this-phone
 
-**Android forwards a server tab's host ports to the phone, kept alive by a foreground service**
+**Android forwards a server tab's or Browser tab's host ports to the phone, kept alive by a foreground service**
 
-The Android port-forward controller (`port-forward/controller.android.ts`, logic in `port-forward/mobile-port-forwards.ts`) binds listeners through the fork's `paseo-browser-proxy` module (`PortForwardListeners.kt`) and holds `PortForwardService.kt`, a `specialUse` foreground service, while any forward is open; the module's manifest adds the service and the `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE` and `POST_NOTIFICATIONS` permissions, and its `build.gradle` depends on `react-android` for the headless task that keeps JS timers running. `android-browser-native.yml` also runs on `controller.android.ts`. See [On a phone](browser-localhost-routing.md#on-a-phone).
+The Android Browser pane (`pane/index.android.tsx`) renders the same `port-forward-menu.tsx`, with the ports its page's traffic used (`mobile-browser-loopback-traffic.ts`, fed by `mobile-browser-tunnel-controller.tsx` from each proxied request's `Origin`/`Referer`), and `port-forward/browser-tab-forwards.ts` stops a tab's forwards when it closes or leaves localhost. The menu takes `onForwardsStarted` from its caller, so a Browser tab never lands in the server-tab registry, whose next tab-list sync would stop it. A host reached on the phone's loopback opens the URL with no forward (`port-forward/host-on-this-device.ts`). The Android port-forward controller (`port-forward/controller.android.ts`, logic in `port-forward/mobile-port-forwards.ts`) binds listeners through the fork's `paseo-browser-proxy` module (`PortForwardListeners.kt`) and holds `PortForwardService.kt`, a `specialUse` foreground service, while any forward is open; the module's manifest adds the service and the `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE` and `POST_NOTIFICATIONS` permissions, and its `build.gradle` depends on `react-android` for the headless task that keeps JS timers running. `android-browser-native.yml` also runs on `controller.android.ts`. See [On a phone](browser-localhost-routing.md#on-a-phone).
 
 ```bash
 npm test --workspace=@getpaseo/app -- src/port-forward/mobile-port-forwards.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/port-forward/browser-tab-forwards.test.ts src/port-forward/host-on-this-device.test.ts src/desktop/browser/mobile-browser-loopback-traffic.test.ts src/desktop/browser/pane/port-forward-menu.wiring.test.tsx --bail=1
+grep -q "BrowserPortForwardMenu" packages/app/src/desktop/browser/pane/index.android.tsx
+grep -q "recordMobileBrowserLoopbackRequest" packages/app/src/desktop/browser/mobile-browser-tunnel-controller.tsx
 grep -q "FOREGROUND_SERVICE_SPECIAL_USE" packages/app/modules/paseo-browser-proxy/android/src/main/AndroidManifest.xml
 grep -q "PortForwardService" packages/app/modules/paseo-browser-proxy/android/src/main/AndroidManifest.xml
 grep -q "PaseoPortForwardKeepAlive" packages/app/src/port-forward/controller.android.ts

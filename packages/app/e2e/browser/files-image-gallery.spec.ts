@@ -96,12 +96,22 @@ async function expectShowing(page: Page, position: string, imageWidth: number) {
     .toBe(imageWidth);
 }
 
+/** React's dev build logs this when paging renders two children under one key. */
+function collectDuplicateKeyWarnings(page: Page): string[] {
+  const warnings: string[] = [];
+  page.on("console", (message) => {
+    if (message.text().includes("same key")) warnings.push(message.text());
+  });
+  return warnings;
+}
+
 test.describe("Files image gallery", () => {
   test("pages through the folder's images with keys and buttons in one tab", async ({
     page,
     withWorkspace,
   }) => {
     test.setTimeout(90_000);
+    const duplicateKeyWarnings = collectDuplicateKeyWarnings(page);
     const workspace = await withWorkspace({ prefix: "files-image-gallery-" });
     await seedShots(workspace.repoPath);
     await workspace.navigateTo();
@@ -151,6 +161,7 @@ test.describe("Files image gallery", () => {
         page.getByTestId("workspace-tab-file_shots/alpha.png").filter({ visible: true }),
       ).toContainText("alpha.png");
     });
+    expect(duplicateKeyWarnings).toEqual([]);
   });
 });
 
@@ -164,6 +175,7 @@ test.describe("Files image gallery on a phone", () => {
     withWorkspace,
   }) => {
     test.setTimeout(90_000);
+    const duplicateKeyWarnings = collectDuplicateKeyWarnings(page);
     const workspace = await withWorkspace({ prefix: "files-image-gallery-phone-" });
     await seedShots(workspace.repoPath);
     await workspace.navigateTo();
@@ -210,5 +222,6 @@ test.describe("Files image gallery on a phone", () => {
       await swipe(pager, "left");
       await expectShowing(page, "3 / 3", 96);
     });
+    expect(duplicateKeyWarnings).toEqual([]);
   });
 });

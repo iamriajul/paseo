@@ -42,6 +42,7 @@ import type {
   ProjectPlacementPayload,
   AgentRateLimitCooldownPayload,
   AgentCacheWarmPause,
+  AgentWakeUpHold,
   ServerCapabilities,
   WorkspaceDescriptorPayload,
   WorkspaceProjectDescriptorPayload,
@@ -100,6 +101,8 @@ export interface Agent {
   runtimeActive?: boolean;
   /** Warm-up paused because the CLIProxyAPI account serving the agent is blocked. Live only. */
   cacheWarmPause?: AgentCacheWarmPause;
+  /** Automated wake-ups waiting for the serving account to come back. Live only. */
+  wakeUpHold?: AgentWakeUpHold;
   lastActivityAt: Date;
   capabilities: AgentCapabilityFlags;
   currentModeId: string | null;

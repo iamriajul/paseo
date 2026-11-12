@@ -47,7 +47,7 @@ import { usePromptCacheAgent } from "./use-prompt-cache";
 import { useMoneyStatsEnabled } from "./money-stats-context";
 import { resolveMoneyStatsPrices } from "./money-stats";
 import { SessionActivitySection } from "./session-activity-section";
-import { describeWarmUpStop, indexWarmUpStops } from "./warm-up-stop";
+import { describeWakeUpHold, describeWarmUpStop, indexWarmUpStops } from "./warm-up-stop";
 
 const HEADER = { title: "Session cache insights" };
 /** Request rows shown before "Show more"; the chart already places every request in time. */
@@ -182,6 +182,11 @@ export function PromptCacheInsightsDialog({
       desktopMaxWidth={760}
       testID="prompt-cache-insights"
     >
+      {agent?.wakeUpHold ? (
+        <Text style={styles.note} testID="prompt-cache-insights-wake-up-hold">
+          {describeWakeUpHold(agent.wakeUpHold)}
+        </Text>
+      ) : null}
       <InsightsBody
         load={load}
         price={price}

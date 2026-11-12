@@ -166,6 +166,7 @@ export function toAgentPayload(
     archivedAt: options?.archivedAt ?? null,
     ...(agent.internal ? { internal: true } : {}),
     ...projectCacheWarmState(agent),
+    ...(agent.wakeUpHold ? { wakeUpHold: agent.wakeUpHold } : {}),
     ...projectRuntimeActive(agent),
   };
 

@@ -1871,12 +1871,16 @@ Over 2026-11-10 and 11, agents' browser tools on desktop-app tabs failed about 1
 
 Official files changed: `browser-automation/{service.ts,ipc.ts}` and their tests, `server/browser-tools/{broker.ts,tools.ts}` and their tests, `desktop/browser/resident-webviews.ts` and its test, and `desktop/e2e/browser-tabs.e2e.mjs`, which runs the loading regression (alone with `PASEO_DESKTOP_BROWSER_LOADING_ONLY=1`).
 
+The server browser runs a vendored copy of the engine (`server-browser/engine/`, from `scripts/sync-server-browser-engine.mjs`), so `ServerBrowserTab` implements the same `TabContents` contract: `loadDocument` settles at `Page.domContentEventFired` after the main frame's commit, and `executeJavaScript` reports a script whose document went as `PageNavigatedError`. Chromium holds page-bound CDP commands until a pending navigation commits, so there a script waits for the commit for at most 8 s and then fails with what to call next; see [Loading pages](server-browser.md). v0.15.913's first batch synced the engine without the adapter, and the server's drift test caught it; that test is in the proof below.
+
 ```bash
 npx vitest run packages/desktop/src/features/browser-automation/ipc.test.ts packages/desktop/src/features/browser-automation/service.test.ts packages/desktop/src/features/browser-loopback-proxy.test.ts --bail=1
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/browser-tools/broker.test.ts packages/server/src/server/browser-tools/tools.test.ts --bail=1
 npm test --workspace=@getpaseo/app -- --project browser src/desktop/browser/resident-webviews.browser.test.ts --bail=1
 grep -q "runBrowserLoadingRegression" packages/desktop/e2e/browser-tabs.e2e.mjs
 grep -q "loadDocument: (url: string) => loadDocument(contents, url)" packages/desktop/src/features/browser-automation/ipc.ts
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/engine-sync.test.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1
+grep -q "loadDocument: (url) => this.loadDocument(url)" packages/server/src/server/server-browser/server-browser-tab.ts
 ```
 
 ## config-read-turn-share

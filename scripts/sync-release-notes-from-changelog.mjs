@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseChangelogEntries } from "./changelog-utils.mjs";
-import { getGitHubRelease } from "./github-release.mjs";
+import { ensureGitHubRelease, getGitHubRelease } from "./github-release.mjs";
 import {
   getReleaseInfoFromSourceTag,
   normalizeReleaseTag,
@@ -135,68 +135,27 @@ export function syncReleaseNotes(argv = process.argv.slice(2), deps = {}) {
   const notesPath = path.join(tempDir, `${targetTag}-notes.md`);
   writeFileSync(notesPath, notes);
 
-  const createArgs = [
-    "release",
-    "create",
-    targetTag,
-    "--repo",
-    args.repo,
-    "--title",
-    `Paseo ${targetTag}`,
-    "--notes-file",
-    notesPath,
-    "--verify-tag",
-    "--draft",
-    ...(parseReleaseVersion(releaseInfo.version).isPrerelease ? ["--prerelease"] : []),
-  ];
-
   try {
-    const release = getGitHubRelease(args.repo, targetTag, execFileSync);
-    if (release) {
-      updateReleaseNotes({ releaseId: release.id, repo: args.repo, notesPath }, execFileSync);
-      console.log(`Updated release notes for ${targetTag}.`);
-      return;
-    }
-
-    if (!args.createIfMissing) {
+    const existing = getGitHubRelease(args.repo, targetTag, execFileSync);
+    if (!existing && !args.createIfMissing) {
       console.log(
         `Release ${targetTag} not found. Skipping because --create-if-missing was not provided.`,
       );
       return;
     }
-
-    try {
-      runGh(createArgs, execFileSync);
-    } catch (createError) {
-      console.warn(
-        `Release creation failed for ${targetTag}; attempting edit in case another workflow created it concurrently.`,
+    const release =
+      existing ??
+      ensureGitHubRelease(
+        {
+          repo: args.repo,
+          tag: targetTag,
+          prerelease: parseReleaseVersion(releaseInfo.version).isPrerelease,
+          verifyTag: true,
+        },
+        { execFileSync, sleep: sleepSync },
       );
-      const raceRelease = getGitHubRelease(args.repo, targetTag, execFileSync);
-      if (!raceRelease) {
-        throw createError;
-      }
-      updateReleaseNotes({ releaseId: raceRelease.id, repo: args.repo, notesPath }, execFileSync);
-      console.log(`Updated release notes for ${targetTag} after create race.`);
-
-      if (createError instanceof Error) {
-        console.warn(createError.message);
-      }
-      return;
-    }
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const createdRelease = getGitHubRelease(args.repo, targetTag, execFileSync);
-      if (createdRelease) {
-        updateReleaseNotes(
-          { releaseId: createdRelease.id, repo: args.repo, notesPath },
-          execFileSync,
-        );
-        console.log(`Created release ${targetTag} with changelog notes.`);
-        return;
-      }
-      sleepSync(1_000);
-    }
-    throw new Error(`Created release ${targetTag} could not be resolved.`);
+    updateReleaseNotes({ releaseId: release.id, repo: args.repo, notesPath }, execFileSync);
+    console.log(`${existing ? "Updated" : "Created"} release notes for ${targetTag}.`);
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

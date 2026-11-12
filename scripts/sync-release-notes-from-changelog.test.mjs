@@ -20,10 +20,6 @@ function withTempChangelog(fn, changelogText = "## 0.1.60-beta.1 - 2026-04-20\n\
   }
 }
 
-function notFoundError() {
-  return Object.assign(new Error("release not found"), { stderr: "gh: Not Found (HTTP 404)" });
-}
-
 test("uses the untagged URL slug for draft release CLI operations", () => {
   assert.equal(
     getReleaseLookupTag({
@@ -58,8 +54,8 @@ test("updates an existing release body through the release id API", () => {
     const execFileSync = (command, args, options) => {
       calls.push({ args, command, options });
 
-      if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/releases/tags/v0.1.60-beta.1") {
-        return JSON.stringify({ id: 311163621, draft: false });
+      if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/releases?per_page=100") {
+        return JSON.stringify([{ id: 311163621, draft: false, tag_name: "v0.1.60-beta.1" }]);
       }
 
       if (args[0] === "api" && args[1] === "-X" && args[2] === "PATCH") {
@@ -102,10 +98,6 @@ test("updates a draft release body without publishing it", () => {
 
     const execFileSync = (command, args, options) => {
       calls.push({ args, command, options });
-
-      if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/releases/tags/v0.1.60-beta.1") {
-        throw notFoundError();
-      }
 
       if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/releases?per_page=100") {
         return JSON.stringify([
@@ -150,10 +142,6 @@ test("creates missing beta releases as drafts", () => {
     const execFileSync = (command, args, options) => {
       calls.push({ args, command, options });
 
-      if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/releases/tags/v0.1.60-beta.1") {
-        throw notFoundError();
-      }
-
       if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/releases?per_page=100") {
         return created
           ? JSON.stringify([
@@ -167,9 +155,13 @@ test("creates missing beta releases as drafts", () => {
           : "[]";
       }
 
-      if (args[0] === "release" && args[1] === "create") {
+      if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/git/ref/tags/v0.1.60-beta.1") {
+        return "{}";
+      }
+
+      if (args[0] === "api" && args[1] === "--method" && args[2] === "POST") {
         created = true;
-        return "";
+        return "{}";
       }
 
       if (args[0] === "api" && args[1] === "-X" && args[2] === "PATCH") {
@@ -181,15 +173,17 @@ test("creates missing beta releases as drafts", () => {
 
     syncReleaseNotes(
       ["--repo", "getpaseo/paseo", "--tag", "v0.1.60-beta.1", "--create-if-missing"],
-      { execFileSync },
+      { execFileSync, sleepSync: () => {} },
     );
 
-    const createCall = calls.find(
-      (call) => call.args[0] === "release" && call.args[1] === "create",
-    );
+    const createCall = calls.find((call) => call.args[2] === "POST");
     assert.ok(createCall, "the missing release should be created");
-    assert.equal(createCall.args.includes("--draft"), true);
-    assert.equal(createCall.args.includes("--prerelease"), true);
+    assert.equal(createCall.args.includes("draft=true"), true);
+    assert.equal(createCall.args.includes("prerelease=true"), true);
+    assert.ok(
+      calls.some((call) => call.args[2] === "PATCH" && call.args[3].endsWith("/311163621")),
+      "the created release gets the changelog notes",
+    );
   });
 });
 
@@ -205,8 +199,8 @@ test("converts contributor profile links to mentions in synced release notes", (
     let syncedNotes = "";
 
     const execFileSync = (command, args) => {
-      if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/releases/tags/v0.1.60-beta.1") {
-        return JSON.stringify({ id: 311163621, draft: false });
+      if (args[0] === "api" && args[1] === "repos/getpaseo/paseo/releases?per_page=100") {
+        return JSON.stringify([{ id: 311163621, draft: false, tag_name: "v0.1.60-beta.1" }]);
       }
 
       if (args[0] === "api" && args[1] === "-X" && args[2] === "PATCH") {

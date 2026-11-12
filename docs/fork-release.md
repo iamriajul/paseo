@@ -8,7 +8,8 @@ Always ship fork work in this order. Do not skip steps.
 
 1. **Open a PR** from the feature branch into `main`.
 2. **Merge the PR** into `main`.
-3. **Release from `main`** by tagging the merge commit (or dispatching workflows with `checkout_ref` set to `main` / that merge SHA).
+3. **Check the Claude Code contract** on the box that runs the daemon, with the Claude Code it will launch: `npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/agent.cache-warm-fork.local.e2e.test.ts`. A failure means a Claude Code upgrade broke what the v2 fork warm-up relies on ([the v2 contract check](fork-decisions.md#claude-prompt-cache-warming)); fix it or keep the host on v1 before releasing.
+4. **Release from `main`** by tagging the merge commit (or dispatching workflows with `checkout_ref` set to `main` / that merge SHA).
 
 Rules:
 

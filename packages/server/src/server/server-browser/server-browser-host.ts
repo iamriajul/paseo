@@ -19,7 +19,12 @@ import {
 import { BrowserSnapshotEngine } from "./engine/snapshot-engine.js";
 import { removeUploads, writeUploads, type UploadedFile } from "./file-uploads.js";
 import { stripSnapshotTitle, windowTitleMark, type WindowTitleMark } from "./window-title.js";
-import { ServerBrowserTab, type ServerBrowserViewport } from "./server-browser-tab.js";
+import {
+  ServerBrowserTab,
+  type ServerBrowserViewport,
+  type SuspendedTabRecord,
+} from "./server-browser-tab.js";
+import { SuspendedTabStore, type StoredSuspendedTab } from "./suspended-tab-store.js";
 import {
   SERVER_BROWSER_ENGINE_TRAITS,
   startEngine,
@@ -42,13 +47,18 @@ import {
 } from "./workspace-storage-state.js";
 
 export interface ServerBrowserLimits {
+  /** Live tabs (a page loaded); suspended tabs do not count. */
   maxTabs: number;
   /** A workspace with no tabs saves its storage and closes its browser context after this long. */
   contextIdleMs: number;
   /** The shared Chromium exits after this long with no workspace context open. */
   browserIdleMs: number;
-  /** A tab no agent command or viewer touched for this long is closed. */
+  /** A tab no agent command or viewer touched for this long is suspended: its page unloads. */
   tabIdleMs: number;
+  /** Suspended tabs kept per host; past it the longest-unused one closes. */
+  maxSuspendedTabs: number;
+  /** A suspended tab nobody used for this long closes. */
+  suspendedTabTtlMs: number;
   /** A workspace's storage is saved this long after one of its tabs navigates. */
   saveDelayMs: number;
   /** While a workspace has tabs, its storage is also saved this often (cookies set by fetch). */
@@ -61,7 +71,9 @@ export const DEFAULT_SERVER_BROWSER_LIMITS: ServerBrowserLimits = {
   maxTabs: 8,
   contextIdleMs: 3 * 60_000,
   browserIdleMs: 2 * 60_000,
-  tabIdleMs: 30 * 60_000,
+  tabIdleMs: 10 * 60_000,
+  maxSuspendedTabs: 24,
+  suspendedTabTtlMs: 7 * 24 * 60 * 60_000,
   saveDelayMs: 2_000,
   saveIntervalMs: 30_000,
   reattachWaitMs: 10_000,
@@ -111,6 +123,8 @@ interface WorkspaceContext {
 }
 
 const SHUTDOWN_SAVE_BUDGET_MS = 5_000;
+/** How long shutdown spends suspending open tabs so they come back after the restart. */
+const SHUTDOWN_SUSPEND_BUDGET_MS = 3_000;
 /** A browser that went away this recently may be on its way back (its supervisor restarts it). */
 const REATTACH_WINDOW_MS = 60_000;
 const REATTACH_POLL_MS = 500;
@@ -151,6 +165,10 @@ export class ServerBrowserHost {
   private readonly registry: BrowserRegistry;
   private readonly store: WorkspaceStorageStore;
   private readonly managedChromeStore: WorkspaceStorageStore;
+  private readonly suspendedStore: SuspendedTabStore;
+  /** Suspended tabs reloading their page, by browserId. */
+  private readonly waking = new Map<string, Promise<void>>();
+  private readonly suspending = new Map<string, Promise<void>>();
   private nextContentsId = 1;
   private noSandbox = false;
   private unavailableReason: string | undefined;
@@ -165,6 +183,7 @@ export class ServerBrowserHost {
     this.registry = this.createRegistry();
     this.store = new WorkspaceStorageStore(join(this.rootDir(), "storage"));
     this.managedChromeStore = new WorkspaceStorageStore(join(this.rootDir(), "chrome-session"));
+    this.suspendedStore = new SuspendedTabStore(join(this.rootDir(), "suspended-tabs"));
   }
 
   public isEnabled(): boolean {
@@ -207,6 +226,11 @@ export class ServerBrowserHost {
     return tab && !tab.isClosed ? tab : null;
   }
 
+  /** Tabs with a page loaded: the ones that cost memory and count toward the tab limit. */
+  private liveTabs(): ServerBrowserTab[] {
+    return [...this.tabs.values()].filter((tab) => !tab.isClosed && !tab.isSuspended);
+  }
+
   /** The shared Chromium's process id, while it runs. */
   public browserPid(): number | undefined {
     return this.launchedChromium?.isAlive ? this.launchedChromium.pid : undefined;
@@ -247,7 +271,11 @@ export class ServerBrowserHost {
       }
       const url = request.command.args.url ?? "about:blank";
       try {
-        const tab = await this.openTab({ workspaceId, url, openedBy: "agent" });
+        const { tab, suspended } = await this.openTabMakingRoom({
+          workspaceId,
+          url,
+          openedBy: "agent",
+        });
         return {
           requestId: request.requestId,
           ok: true,
@@ -257,6 +285,7 @@ export class ServerBrowserHost {
             workspaceId,
             url: tab.currentUrl,
           },
+          ...(suspended.length > 0 ? { notice: roomNotice(this.limits.maxTabs, suspended) } : {}),
         };
       } catch (error) {
         return commandFailure(request.requestId, error);
@@ -270,18 +299,47 @@ export class ServerBrowserHost {
         message: `Browser tab ${browserId} closed when the server browser stopped. Open a new tab with browser_new_tab.`,
       });
     }
-    if (browserId) this.tabs.get(browserId)?.touch();
-    const owned = await this.executeHostCommand(request);
-    if (owned) return owned;
-    const response = await executeAutomationCommand(request, this.registry, {
-      snapshotEngine: this.snapshotEngine,
-    });
+    const tab = browserId ? this.tabs.get(browserId) : undefined;
+    tab?.touch();
+    const notice =
+      tab?.isSuspended && request.command.command !== "close_tab"
+        ? await this.wakeForCommand(tab)
+        : undefined;
+    const response =
+      (await this.executeHostCommand(request)) ??
+      (await executeAutomationCommand(request, this.registry, {
+        snapshotEngine: this.snapshotEngine,
+      }));
+    return this.finishResponse(response, tab, notice);
+  }
+
+  /** What the host adds to a command's answer: titles unmarked, suspended tabs, the notice. */
+  private finishResponse(
+    response: BrowserToolsResponsePayload,
+    tab: ServerBrowserTab | undefined,
+    notice: string | undefined,
+  ): BrowserToolsResponsePayload {
     // The snapshot's root names the page by its document.title, which carries the window mark.
-    const mark = browserId ? this.tabs.get(browserId)?.titleMark : null;
+    const mark = tab?.titleMark;
     if (mark && response.ok && response.result.command === "snapshot") {
       response.result.snapshot = stripSnapshotTitle(response.result.snapshot, mark);
     }
-    return response;
+    if (response.ok && response.result.command === "list_tabs") {
+      response.result.tabs = response.result.tabs.map((info) =>
+        this.tabs.get(info.browserId)?.isSuspended ? { ...info, suspended: true } : info,
+      );
+    }
+    return notice ? { ...response, notice } : response;
+  }
+
+  /**
+   * Reloads a suspended tab before an agent's command and returns what the agent must be told:
+   * the page is new, so its in-page state and earlier refs are gone. Throws when it cannot reload.
+   */
+  private async wakeForCommand(tab: ServerBrowserTab): Promise<string> {
+    const url = tab.currentUrl;
+    await this.wakeTab(tab);
+    return `Note: browser tab ${tab.browserId} sat unused, so the server browser suspended it to free memory, and this command reloaded its page at ${url}. Anything the site did not save is gone (form input, in-page state), and @e refs from earlier snapshots are stale: take a new snapshot before using refs.`;
   }
 
   private async workspaceName(workspaceId: string): Promise<string | null> {
@@ -328,18 +386,20 @@ export class ServerBrowserHost {
     };
   }
 
-  public async openTab(params: {
-    workspaceId: string;
-    url: string;
-    openedBy: "agent" | "user";
-    browserId?: string;
-    viewport?: ServerBrowserViewport;
-  }): Promise<ServerBrowserTab> {
+  public async openTab(params: OpenTabParams): Promise<ServerBrowserTab> {
+    return (await this.openTabMakingRoom(params)).tab;
+  }
+
+  /**
+   * Opens a tab; at the tab limit it first suspends the live tab used longest ago that nobody
+   * watches, and says which. With every live tab watched it fails as before.
+   */
+  private async openTabMakingRoom(
+    params: OpenTabParams,
+  ): Promise<{ tab: ServerBrowserTab; suspended: ServerBrowserTab[] }> {
     if (!this.isEnabled()) throw new Error("The server browser is turned off on this host.");
-    if (this.listTabs().length >= this.limits.maxTabs) {
-      throw new ServerBrowserLimitError(this.limits.maxTabs);
-    }
     assertNavigableUrl(params.url);
+    const suspended = await this.makeRoom(null);
     this.cancelContextIdle(params.workspaceId);
     const context = await this.ensureContext(params.workspaceId);
     const titleMark =
@@ -362,26 +422,30 @@ export class ServerBrowserHost {
       this.options.logger.warn({ err: error, url: params.url }, "Server browser tab load failed");
     }
     this.scheduleNotify();
-    return tab;
+    return { tab, suspended };
   }
 
   private addTab(params: {
     browserId: string;
     workspaceId: string;
-    target: ChromiumTarget;
+    /** Null for a suspended tab read back from disk. */
+    target: ChromiumTarget | null;
+    suspended?: SuspendedTabRecord;
     openedBy: "agent" | "user";
     viewport?: ServerBrowserViewport;
     titleMark?: WindowTitleMark;
     openerBrowserId?: string;
   }): ServerBrowserTab {
     const { target, workspaceId } = params;
-    const tab = new ServerBrowserTab({
+    const tab: ServerBrowserTab = new ServerBrowserTab({
       browserId: params.browserId,
       workspaceId,
       contentsId: this.nextContentsId++,
-      targetId: target.targetId,
-      sessionId: target.sessionId,
-      connection: target.connection,
+      target: target
+        ? { targetId: target.targetId, sessionId: target.sessionId, connection: target.connection }
+        : null,
+      ...(params.suspended ? { suspended: params.suspended } : {}),
+      onWake: () => this.wakeTab(tab),
       openedBy: params.openedBy,
       ...(params.viewport ? { viewport: params.viewport } : {}),
       ...(params.titleMark ? { titleMark: params.titleMark } : {}),
@@ -412,7 +476,7 @@ export class ServerBrowserHost {
     const opener = this.findTabByTarget(popup.openerId);
     const chromium = this.launchedChromium;
     if (!opener || !chromium?.isAlive) return;
-    if (this.listTabs().length >= this.limits.maxTabs) {
+    if (this.liveTabs().length >= this.limits.maxTabs) {
       await chromium.closeTarget(popup.targetId);
       opener.warn(
         `A popup was closed: the server browser already has ${this.limits.maxTabs} open tabs.`,
@@ -461,15 +525,231 @@ export class ServerBrowserHost {
     const tab = this.tabs.get(browserId);
     if (!tab) return;
     this.tabs.delete(browserId);
+    const targetId = tab.isSuspended ? null : tab.cdpTargetId;
     tab.dispose();
-    const chromium = this.launchedChromium;
-    // Headed Chrome left without a window can quit on its own; keep its session cookies first.
-    if (chromium?.isAlive && this.runningEngine === "managed-chrome" && this.tabs.size === 0) {
-      await this.saveSessionCookies(chromium);
-    }
-    if (chromium?.isAlive) await chromium.closeTarget(tab.cdpTargetId);
+    void this.suspendedStore.remove(browserId).catch(() => {});
+    if (targetId) await this.closeTarget(targetId);
     void removeUploads(this.uploadsDir(), browserId).catch(() => {});
     this.afterTabRemoved(tab.workspaceId);
+  }
+
+  private async closeTarget(targetId: string): Promise<void> {
+    const chromium = this.launchedChromium;
+    // Headed Chrome left without a window can quit on its own; keep its session cookies first.
+    if (
+      chromium?.isAlive &&
+      this.runningEngine === "managed-chrome" &&
+      this.liveTabs().length === 0
+    ) {
+      await this.saveSessionCookies(chromium);
+    }
+    if (chromium?.isAlive) await chromium.closeTarget(targetId);
+  }
+
+  /**
+   * Unloads an idle tab's page and keeps the tab: its URL, title, size, scroll position and a
+   * frame of the page stay (in memory and on disk), its target closes. A viewer or a command
+   * reloads it (wakeTab). Skipped when someone watches or used the tab while it was captured.
+   */
+  public suspendTab(browserId: string): Promise<void> {
+    const pending = this.suspending.get(browserId) ?? this.waking.get(browserId);
+    if (pending) return pending;
+    const work = this.suspendNow(browserId).finally(() => this.suspending.delete(browserId));
+    this.suspending.set(browserId, work);
+    return work;
+  }
+
+  private async suspendNow(browserId: string): Promise<void> {
+    const tab = this.tabs.get(browserId);
+    if (!tab || tab.isClosed || tab.isSuspended || tab.viewerCount > 0) return;
+    const usedAt = tab.lastUsedAt;
+    const suspension = await tab.captureSuspension();
+    const current = this.tabs.get(browserId) === tab && !tab.isClosed && !tab.isSuspended;
+    if (!current || tab.viewerCount > 0 || tab.lastUsedAt !== usedAt) return;
+    const targetId = tab.cdpTargetId;
+    tab.suspend(suspension);
+    this.options.logger.info({ browserId, url: tab.currentUrl }, "Server browser tab suspended");
+    await this.closeTarget(targetId);
+    // Headed Chrome quits by itself a moment after its last window closes, and a viewer arriving
+    // meanwhile would find it dying; it goes now, and the next wake starts it again.
+    const config = this.runningEngineConfig;
+    if (
+      config?.kind === "managed-chrome" &&
+      config.chromeMode !== "headless" &&
+      this.liveTabs().length === 0
+    ) {
+      await this.closeChromium();
+    }
+    void removeUploads(this.uploadsDir(), browserId).catch(() => {});
+    await this.persistSuspended(tab);
+    this.trimSuspendedTabs();
+    this.afterTabRemoved(tab.workspaceId);
+  }
+
+  private async persistSuspended(tab: ServerBrowserTab): Promise<void> {
+    const suspension = tab.suspendedState;
+    if (!suspension) return;
+    await this.suspendedStore
+      .save({
+        browserId: tab.browserId,
+        workspaceId: tab.workspaceId,
+        openedBy: tab.openedBy,
+        url: tab.currentUrl,
+        title: tab.info().title,
+        viewport: tab.currentViewport,
+        ...(tab.openerBrowserId ? { openerBrowserId: tab.openerBrowserId } : {}),
+        createdAt: tab.createdAt,
+        lastUsedAt: tab.lastUsedAt,
+        suspension,
+      })
+      .catch((error) => {
+        this.options.logger.warn({ err: error }, "Server browser: suspended tab not saved");
+      });
+    // Closed or woken while the file was written: it must not come back after a restart.
+    if (this.tabs.get(tab.browserId) !== tab || !tab.isSuspended) {
+      await this.suspendedStore.remove(tab.browserId).catch(() => {});
+    }
+  }
+
+  /** Reloads a suspended tab's page; concurrent callers share one reload. */
+  public wakeTab(tab: ServerBrowserTab): Promise<void> {
+    const pending = this.waking.get(tab.browserId);
+    if (pending) return pending;
+    const work = (async () => {
+      // A suspend still capturing finishes (or gives up) first.
+      await this.suspending.get(tab.browserId)?.catch(() => {});
+      await this.wakeNow(tab);
+    })().finally(() => this.waking.delete(tab.browserId));
+    this.waking.set(tab.browserId, work);
+    return work;
+  }
+
+  private async wakeNow(tab: ServerBrowserTab): Promise<void> {
+    const suspension = tab.suspendedState;
+    if (!suspension || tab.isClosed) return;
+    if (!this.isEnabled()) throw new Error("The server browser is turned off on this host.");
+    // Read now: the new target reports its about:blank, which would replace the tab's URL.
+    const url = tab.currentUrl;
+    await this.makeRoom(tab);
+    this.cancelContextIdle(tab.workspaceId);
+    const context = await this.ensureContext(tab.workspaceId);
+    const target = await context.chromium.createTarget(context.browserContextId ?? undefined);
+    if (tab.isClosed || this.tabs.get(tab.browserId) !== tab) {
+      await context.chromium.closeTarget(target.targetId);
+      return;
+    }
+    tab.rebind(target, { videoAfterLoad: true });
+    tab.touch();
+    this.ensureSweeps();
+    // Awaited, so a later suspend's save cannot land before this removal.
+    await this.suspendedStore.remove(tab.browserId).catch(() => {});
+    this.options.logger.info({ browserId: tab.browserId }, "Server browser tab woke");
+    try {
+      await tab.initialize();
+      if (/^https?:/.test(url)) await tab.loadFirstPage(url);
+      await tab.restoreScroll(suspension.scroll);
+    } catch (error) {
+      this.options.logger.warn({ err: error, url }, "Server browser tab reload failed");
+    } finally {
+      tab.startVideo();
+      tab.dropStillFrame();
+      tab.touch();
+      this.scheduleNotify();
+    }
+  }
+
+  /**
+   * Room for one more live tab (a new one, or `waking`): the live tabs used longest ago that
+   * nobody watches are suspended, and returned. With every live tab watched it fails.
+   */
+  private async makeRoom(waking: ServerBrowserTab | null): Promise<ServerBrowserTab[]> {
+    const suspended: ServerBrowserTab[] = [];
+    while (this.liveTabs().length >= this.limits.maxTabs) {
+      const idle = this.liveTabs()
+        .filter((tab) => tab !== waking && tab.viewerCount === 0 && !this.waking.has(tab.browserId))
+        .sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0];
+      if (!idle) throw new ServerBrowserLimitError(this.limits.maxTabs);
+      await this.suspendTab(idle.browserId);
+      if (!idle.isSuspended && !idle.isClosed) {
+        throw new ServerBrowserLimitError(this.limits.maxTabs);
+      }
+      suspended.push(idle);
+    }
+    return suspended;
+  }
+
+  /** Past the cap, the suspended tabs used longest ago close. */
+  private trimSuspendedTabs(): void {
+    const suspended = [...this.tabs.values()]
+      .filter((tab) => tab.isSuspended && !tab.isClosed)
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+    for (const tab of suspended.slice(this.limits.maxSuspendedTabs)) {
+      void this.closeTab(tab.browserId);
+    }
+  }
+
+  /**
+   * Suspended tabs saved before the daemon last stopped come back as suspended tabs, with the
+   * same browserIds. Run once at startup; a host turned off drops them.
+   */
+  public async loadSuspendedTabs(): Promise<void> {
+    if (!this.isEnabled()) {
+      await this.suspendedStore.clear().catch(() => {});
+      return;
+    }
+    const cutoff = this.now() - this.limits.suspendedTabTtlMs;
+    const stored = await this.suspendedStore.loadAll();
+    const fresh = stored
+      .filter((tab) => tab.lastUsedAt >= cutoff && !this.tabs.has(tab.browserId))
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+    const kept = fresh.slice(0, this.limits.maxSuspendedTabs);
+    for (const dropped of stored.filter((tab) => !kept.includes(tab))) {
+      if (!this.tabs.has(dropped.browserId)) await this.suspendedStore.remove(dropped.browserId);
+    }
+    const marked = this.engineConfig().kind === "existing";
+    for (const record of kept) {
+      const titleMark = marked
+        ? windowTitleMark(await this.workspaceName(record.workspaceId))
+        : null;
+      this.addSuspendedTab(record, titleMark);
+    }
+    if (kept.length > 0) {
+      this.options.logger.info({ tabs: kept.length }, "Server browser: suspended tabs restored");
+      this.scheduleNotify();
+    }
+  }
+
+  private addSuspendedTab(record: StoredSuspendedTab, titleMark: WindowTitleMark | null): void {
+    this.addTab({
+      browserId: record.browserId,
+      workspaceId: record.workspaceId,
+      target: null,
+      suspended: record,
+      openedBy: record.openedBy,
+      viewport: record.viewport,
+      ...(titleMark ? { titleMark } : {}),
+      ...(record.openerBrowserId ? { openerBrowserId: record.openerBrowserId } : {}),
+    });
+  }
+
+  /**
+   * Open tabs are suspended on the way down, so the restarted daemon shows them where they were.
+   * Bounded: a page too slow to capture is left out.
+   */
+  private async suspendAllForShutdown(): Promise<void> {
+    const tabs = this.liveTabs();
+    if (tabs.length === 0) return;
+    await withTimeout(
+      Promise.all(
+        tabs.map(async (tab) => {
+          const suspension = await tab.captureSuspension();
+          if (tab.isClosed) return;
+          tab.suspend(suspension);
+          await this.persistSuspended(tab);
+        }),
+      ),
+      SHUTDOWN_SUSPEND_BUDGET_MS,
+    );
   }
 
   /** Wipes a workspace's storage; open tabs come back at their URLs with the same browserIds. */
@@ -479,7 +759,8 @@ export class ServerBrowserHost {
         "This engine keeps one browser profile for every workspace, so there is no workspace data to clear. Sign out in the page, or clear data in that browser.",
       );
     }
-    const reopen = [...this.tabs.values()]
+    // A suspended tab has no page in the context; it reloads into the new one when used.
+    const reopen = this.liveTabs()
       .filter((tab) => tab.workspaceId === workspaceId)
       .map((tab) => ({ url: tab.currentUrl, tab }));
     this.clearing.add(workspaceId);
@@ -504,14 +785,16 @@ export class ServerBrowserHost {
   public async shutdown(): Promise<void> {
     this.shuttingDown = true;
     this.stopSweeps();
+    if (this.isEnabled()) await this.suspendAllForShutdown();
     await this.closeEverything();
     await rm(this.uploadsDir(), { recursive: true, force: true }).catch(() => {});
     this.listeners.clear();
   }
 
-  /** The switch went off: save storage, close everything, tell viewers. */
+  /** The switch went off (or the engine changed): save storage, close every tab, tell viewers. */
   public async disable(): Promise<void> {
     await this.closeEverything();
+    await this.suspendedStore.clear().catch(() => {});
     this.scheduleNotify();
   }
 
@@ -636,9 +919,8 @@ export class ServerBrowserHost {
     // A shared default context belongs to the browser's own profile, which persists itself.
     if (context.disposed || !chromium.isAlive || !browserContextId) return;
     const cookies = await chromium.getCookies(browserContextId);
-    const tabs = [...this.tabs.values()].filter(
-      (tab) => tab.workspaceId === context.workspaceId && !tab.isClosed,
-    );
+    // A suspended tab's origin is read from a hidden page, as one a tab left is.
+    const tabs = this.liveTabs().filter((tab) => tab.workspaceId === context.workspaceId);
     const read = new Set<string>();
     const stillOpen = new Set<string>();
     for (const tab of tabs) {
@@ -868,7 +1150,7 @@ export class ServerBrowserHost {
   private onTargetDestroyed(targetId: string): void {
     const tab = this.findTabByTarget(targetId);
     // Clearing data disposes the context; the tabs come back under the same ids.
-    if (!tab || this.clearing.has(tab.workspaceId)) return;
+    if (!tab || tab.isSuspended || this.clearing.has(tab.workspaceId)) return;
     this.tabs.delete(tab.browserId);
     tab.dispose();
     void removeUploads(this.uploadsDir(), tab.browserId).catch(() => {});
@@ -882,7 +1164,8 @@ export class ServerBrowserHost {
     // save timer finds its browser gone and writes nothing.
     this.contexts.clear();
     this.browserLostAt = Date.now();
-    const tabs = [...this.tabs.values()].filter((tab) => !this.clearing.has(tab.workspaceId));
+    // A suspended tab has no page in the browser; it stays and reloads in the next one.
+    const tabs = this.liveTabs().filter((tab) => !this.clearing.has(tab.workspaceId));
     for (const tab of tabs) {
       this.tabs.delete(tab.browserId);
       tab.dispose();
@@ -900,9 +1183,10 @@ export class ServerBrowserHost {
     }
   }
 
+  /** A tab closed or suspended: a workspace with no live tab left lets its context go idle. */
   private afterTabRemoved(workspaceId: string): void {
     this.scheduleNotify();
-    const remaining = [...this.tabs.values()].some((tab) => tab.workspaceId === workspaceId);
+    const remaining = this.liveTabs().some((tab) => tab.workspaceId === workspaceId);
     if (!remaining && this.contexts.has(workspaceId)) this.scheduleContextIdle(workspaceId);
   }
 
@@ -910,7 +1194,7 @@ export class ServerBrowserHost {
     this.cancelContextIdle(workspaceId);
     const timer = setTimeout(() => {
       this.contextIdleTimers.delete(workspaceId);
-      if ([...this.tabs.values()].some((tab) => tab.workspaceId === workspaceId)) return;
+      if (this.liveTabs().some((tab) => tab.workspaceId === workspaceId)) return;
       void this.closeContext(workspaceId, { save: true });
     }, this.limits.contextIdleMs);
     timer.unref?.();
@@ -941,7 +1225,7 @@ export class ServerBrowserHost {
   private ensureSweeps(): void {
     if (!this.tabSweep) {
       this.tabSweep = setInterval(
-        () => this.sweepIdleTabs(),
+        () => void this.sweepIdleTabs(),
         Math.min(60_000, this.limits.tabIdleMs),
       );
       this.tabSweep.unref?.();
@@ -959,19 +1243,26 @@ export class ServerBrowserHost {
     this.saveSweep = null;
   }
 
-  public sweepIdleTabs(): void {
-    const cutoff = this.now() - this.limits.tabIdleMs;
+  /** Idle live tabs are suspended; suspended tabs past their time close. Resolves when done. */
+  public async sweepIdleTabs(): Promise<void> {
+    const now = this.now();
+    const work: Promise<void>[] = [];
     for (const tab of this.tabs.values()) {
-      if (tab.viewerCount > 0) tab.touch();
-      else if (tab.lastUsedAt < cutoff) void this.closeTab(tab.browserId);
+      if (tab.isSuspended) {
+        if (tab.lastUsedAt < now - this.limits.suspendedTabTtlMs)
+          work.push(this.closeTab(tab.browserId));
+      } else if (tab.viewerCount > 0) tab.touch();
+      else if (tab.lastUsedAt < now - this.limits.tabIdleMs)
+        work.push(this.suspendTab(tab.browserId));
     }
+    await Promise.all(work.map((item) => item.catch(() => {})));
   }
 
   private saveWorkspacesWithTabs(): void {
-    const workspaces = new Set([...this.tabs.values()].map((tab) => tab.workspaceId));
+    const workspaces = new Set(this.liveTabs().map((tab) => tab.workspaceId));
     for (const workspaceId of workspaces) void this.saveWorkspaceStorage(workspaceId);
     const chromium = this.launchedChromium;
-    if (chromium && this.runningEngine === "managed-chrome" && this.tabs.size > 0) {
+    if (chromium && this.runningEngine === "managed-chrome" && this.liveTabs().length > 0) {
       void this.saveSessionCookies(chromium);
     }
   }
@@ -989,6 +1280,11 @@ export class ServerBrowserHost {
 
   /** Null on engines without tab capture: Headless (light) and Existing browser. */
   private async videoCapture(): Promise<TabVideoCapture | null> {
+    // A viewer of a suspended tab may come after the browser exited; its wake starts it anyway.
+    if (!this.launchedChromium?.isAlive && this.isEnabled()) {
+      if (this.engineConfig().kind !== "managed-chrome") return null;
+      await this.ensureChromium().catch(() => null);
+    }
     const chromium = this.launchedChromium;
     if (!chromium?.isAlive || this.runningEngine !== "managed-chrome") return null;
     if (this.tabVideo?.chromium !== chromium) {
@@ -1025,6 +1321,19 @@ export class ServerBrowserHost {
       },
     };
   }
+}
+
+interface OpenTabParams {
+  workspaceId: string;
+  url: string;
+  openedBy: "agent" | "user";
+  browserId?: string;
+  viewport?: ServerBrowserViewport;
+}
+
+function roomNotice(maxTabs: number, suspended: ServerBrowserTab[]): string {
+  const names = suspended.map((tab) => `browserId=${tab.browserId} (${tab.currentUrl})`).join(", ");
+  return `Note: the server browser already had ${maxTabs} open tabs, its limit, so it suspended the one used longest ago that nobody was watching: ${names}. It stays in browser_list_tabs and reloads its page when used.`;
 }
 
 function setOrigin(context: WorkspaceContext, origin: string, items: LocalStorageItems): void {

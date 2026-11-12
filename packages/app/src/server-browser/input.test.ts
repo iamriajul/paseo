@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ServerBrowserInputEvent } from "@getpaseo/protocol/server-browser/rpc-schemas";
 import { InputBatcher, keyboardEventToInput } from "./input";
-import { quantizeScreencastViewport, surfacePointToPage } from "./use-screencast";
+import {
+  quantizeScreencastViewport,
+  streamingViewport,
+  surfacePointToPage,
+} from "./use-screencast";
 
 function createBatcher() {
   const batches: ServerBrowserInputEvent[][] = [];
@@ -91,6 +95,20 @@ describe("quantizeScreencastViewport", () => {
     expect(quantizeScreencastViewport(first, { maxWidth: 1250, maxHeight: 790 })).toBe(first);
     expect(quantizeScreencastViewport(first, { maxWidth: 600, maxHeight: 790 })).toEqual({
       maxWidth: 600,
+      maxHeight: 800,
+    });
+  });
+});
+
+// Fork: server-browser-suspend-idle-tabs in docs/fork-decisions.md.
+describe("streamingViewport", () => {
+  it("streams only a tab on screen", () => {
+    const hiddenSize = quantizeScreencastViewport(null, { maxWidth: 0, maxHeight: 0 });
+    expect(streamingViewport(hiddenSize, false)).toBeNull();
+    expect(streamingViewport({ maxWidth: 1200, maxHeight: 800 }, false)).toBeNull();
+    expect(streamingViewport(null, true)).toBeNull();
+    expect(streamingViewport({ maxWidth: 1200, maxHeight: 800 }, true)).toEqual({
+      maxWidth: 1200,
       maxHeight: 800,
     });
   });

@@ -628,6 +628,49 @@ describe("registerBrowserTools", () => {
     ]);
   });
 
+  // Fork: server-browser-suspend-idle-tabs in docs/fork-decisions.md.
+  test("list tabs marks a suspended server tab, and a reloaded tab's notice leads the result", async () => {
+    const harness = new BrowserToolHarness();
+    harness.broker.setResponse({
+      requestId: "r",
+      ok: true,
+      result: {
+        command: "list_tabs",
+        tabs: [
+          {
+            browserId: BROWSER_ID,
+            location: "server",
+            url: "https://example.com/",
+            title: "Example",
+            isActive: false,
+            isLoading: false,
+            suspended: true,
+          },
+        ],
+      },
+    } as BrowserToolsResponsePayload);
+    const listed = await harness.execute("browser_list_tabs", {});
+    expect(listed.content[0]).toMatchObject({
+      text: expect.stringContaining(
+        `- browserId=${BROWSER_ID} location=server suspended (the next command reloads its page) title="Example"`,
+      ),
+    });
+
+    harness.broker.setResponse({
+      requestId: "r",
+      ok: true,
+      result: { command: "reload", browserId: BROWSER_ID },
+      notice: "Note: browser tab was suspended and reloaded.",
+    } as BrowserToolsResponsePayload);
+    const reloaded = await harness.execute("browser_reload", { browserId: BROWSER_ID });
+    expect(reloaded.content).toEqual([
+      {
+        type: "text",
+        text: "Note: browser tab was suspended and reloaded.\nBrowser reload complete.",
+      },
+    ]);
+  });
+
   test("new tab rejects a target that is neither desktop nor server", async () => {
     const harness = new BrowserToolHarness();
     await expect(

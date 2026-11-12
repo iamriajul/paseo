@@ -51,13 +51,23 @@ export function useServerBrowserScreencast(params: {
   browserId: string;
   viewport: ScreencastViewport | null;
   onFrame: (frame: ServerBrowserFrame) => void;
-  /** Ask for video in these codecs; JPEG frames still arrive until (or instead of) video. */
-  video?: { codecs: string[]; onChunk: (chunk: ServerBrowserVideoChunk) => void } | null;
+  /**
+   * Ask for video in these codecs; JPEG frames arrive instead when the daemon cannot send video,
+   * or moves this viewer to JPEG. `onStop` runs when the stream ends (resize, hidden, unmount):
+   * release the decoder there.
+   */
+  video?: {
+    codecs: string[];
+    onChunk: (chunk: ServerBrowserVideoChunk) => void;
+    onStop: () => void;
+  } | null;
 }): void {
   const onFrameRef = useRef(params.onFrame);
   onFrameRef.current = params.onFrame;
   const onChunkRef = useRef(params.video?.onChunk);
   onChunkRef.current = params.video?.onChunk;
+  const onStopRef = useRef(params.video?.onStop);
+  onStopRef.current = params.video?.onStop;
   const videoCodecs = params.video?.codecs.join(",") ?? "";
   const { client, browserId } = params;
   const viewport = streamingViewport(params.viewport, useRetainedPanelActive());
@@ -66,6 +76,10 @@ export function useServerBrowserScreencast(params: {
 
   useEffect(() => {
     if (maxWidth <= 0 || maxHeight <= 0) return;
+    // A chunk still in flight when this stream ended must not reach the surface: it would start
+    // a decoder after onStop released it.
+    let live = true;
+    const onStop = videoCodecs ? onStopRef.current : undefined;
     const subscription = client.observeServerBrowserScreencast(
       { browserId, maxWidth, maxHeight },
       (frame) => onFrameRef.current(frame),
@@ -74,7 +88,7 @@ export function useServerBrowserScreencast(params: {
             video: {
               codecs: videoCodecs.split(","),
               onChunk: (chunk) => {
-                if (onChunkRef.current) onChunkRef.current(chunk);
+                if (live && onChunkRef.current) onChunkRef.current(chunk);
                 else chunk.ack();
               },
             },
@@ -82,6 +96,8 @@ export function useServerBrowserScreencast(params: {
         : undefined,
     );
     return () => {
+      live = false;
+      onStop?.();
       void subscription.release().catch(() => {});
     };
   }, [browserId, client, maxHeight, maxWidth, videoCodecs]);

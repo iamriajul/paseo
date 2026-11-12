@@ -70,22 +70,38 @@ export class ServerBrowserVideoSession {
   /** The decoder failed: wait for a keyframe, ask for one, and give up after repeated failures. */
   public decoderError(): void {
     if (this.failed) return;
-    this.releaseAcks();
-    this.port.reset();
-    this.awaitingKey = true;
     const now = this.now();
     this.errors = [...this.errors.filter((at) => now - at < FATAL_WINDOW_MS), now];
     if (this.errors.length >= FATAL_ERRORS) {
+      this.releaseAcks();
+      this.port.reset();
       this.failed = true;
       this.options.onFatal();
       return;
     }
-    this.requestKeyframe();
+    this.restart();
+  }
+
+  /**
+   * The platform took the decoder away (the app went to the background, the view got a new
+   * surface): start again at a keyframe. The decoder did nothing wrong, so this never counts
+   * towards giving up on video.
+   */
+  public decoderInterrupted(): void {
+    if (this.failed) return;
+    this.restart();
   }
 
   public dispose(): void {
     this.releaseAcks();
     this.port.reset();
+  }
+
+  private restart(): void {
+    this.releaseAcks();
+    this.port.reset();
+    this.awaitingKey = true;
+    this.requestKeyframe();
   }
 
   private requestKeyframe(): void {
@@ -102,5 +118,35 @@ export class ServerBrowserVideoSession {
 
   private now(): number {
     return (this.options.now ?? Date.now)();
+  }
+}
+
+/**
+ * The video stream a surface is showing now, if any. The surface creates the player at the first
+ * chunk and stops it when video stops (the daemon moved this viewer to JPEG, the stream ended, or
+ * the surface turned video off), which releases the platform decoder. `create` returns null when
+ * the surface cannot show video now; a chunk that arrives then, such as one in flight when video
+ * was turned off, is acked and dropped instead of bringing back a player nothing would stop.
+ */
+export class ServerBrowserVideoStream<
+  Player extends { push(chunk: ServerBrowserVideoChunk): void; dispose(): void },
+> {
+  private player: Player | null = null;
+
+  public constructor(private readonly create: () => Player | null) {}
+
+  public get current(): Player | null {
+    return this.player;
+  }
+
+  public push(chunk: ServerBrowserVideoChunk): void {
+    this.player ??= this.create();
+    if (this.player) this.player.push(chunk);
+    else chunk.ack();
+  }
+
+  public stop(): void {
+    this.player?.dispose();
+    this.player = null;
   }
 }

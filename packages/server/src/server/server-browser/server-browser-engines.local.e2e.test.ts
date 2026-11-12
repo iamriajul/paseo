@@ -422,7 +422,7 @@ describe("Managed Chrome, headless", { timeout: 120_000 }, () => {
       openedBy: "user",
     });
     expect(headless.getTab(fresh.browserId)!.info().title).toBe("anonymous");
-    await headless.getTab(fresh.browserId)!.contents.loadURL(`${siteUrl}login`);
+    await headless.getTab(fresh.browserId)!.contents.loadDocument(`${siteUrl}login`);
     await headless.shutdown();
 
     const again = createHost({ kind: "managed-chrome", chromeMode: "headless" });

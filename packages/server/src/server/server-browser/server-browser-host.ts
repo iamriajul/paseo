@@ -646,7 +646,7 @@ export class ServerBrowserHost {
     this.options.logger.info({ browserId: tab.browserId }, "Server browser tab woke");
     try {
       await tab.initialize();
-      if (/^https?:/.test(url)) await tab.loadFirstPage(url);
+      if (/^https?:/.test(url)) await tab.loadFirstPage(url, { untilLoad: true });
       await tab.restoreScroll(suspension.scroll);
     } catch (error) {
       this.options.logger.warn({ err: error, url }, "Server browser tab reload failed");

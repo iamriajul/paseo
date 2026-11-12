@@ -16,6 +16,7 @@ import {
   promptShimRestoreScript,
 } from "./dialog-handling.js";
 import { BrowserTabClosedError, executeAutomationCommand } from "./service.js";
+import { loadDocument, runPageScript, type PageLifecycleContents } from "./page-lifecycle.js";
 import { BrowserSnapshotEngine } from "./snapshot-engine.js";
 import {
   listRegisteredPaseoBrowserIds,
@@ -76,7 +77,7 @@ interface WebContentsDebugger {
   on?(event: "detach", listener: () => void): void;
 }
 
-interface ConsoleMessageEmitter {
+interface BrowserAutomationWebContents {
   on(
     event: "console-message",
     listener: (
@@ -86,21 +87,25 @@ interface ConsoleMessageEmitter {
       line: unknown,
       sourceId: unknown,
     ) => void,
-  ): void;
-  once(event: "destroyed", listener: () => void): void;
-}
-
-interface BrowserAutomationWebContents extends ConsoleMessageEmitter {
-  removeListener(event: "destroyed", listener: () => void): void;
+  ): unknown;
+  on(event: "did-navigate", listener: (event: unknown, url: string) => void): unknown;
+  on(event: "dom-ready" | "destroyed" | "render-process-gone", listener: () => void): unknown;
+  once(event: "destroyed", listener: () => void): unknown;
+  removeListener(event: "did-navigate", listener: (event: unknown, url: string) => void): unknown;
+  removeListener(
+    event: "dom-ready" | "destroyed" | "render-process-gone",
+    listener: () => void,
+  ): unknown;
   readonly id: number;
   readonly debugger: WebContentsDebugger;
+  readonly mainFrame: PageLifecycleContents["mainFrame"];
   getURL(): string;
   getTitle(): string;
   canGoBack(): boolean;
   canGoForward(): boolean;
   isLoading(): boolean;
+  isLoadingMainFrame(): boolean;
   isDestroyed(): boolean;
-  executeJavaScript(code: string): Promise<unknown>;
   loadURL(url: string): Promise<void>;
   goBack(): void;
   goForward(): void;
@@ -127,8 +132,8 @@ export function adaptWebContents(contents: BrowserAutomationWebContents): TabCon
     canGoForward: () => contents.canGoForward(),
     isLoading: () => contents.isLoading(),
     isDestroyed: () => contents.isDestroyed(),
-    executeJavaScript: (code: string) => contents.executeJavaScript(code),
-    loadURL: (url: string) => contents.loadURL(url),
+    executeJavaScript: (code: string) => runPageScript(contents, code),
+    loadDocument: (url: string) => loadDocument(contents, url),
     goBack: () => contents.goBack(),
     goForward: () => contents.goForward(),
     reload: () => contents.reload(),
@@ -318,20 +323,16 @@ class DialogMonitor {
     });
   }
 
+  // The prompt shim runs as a page script, not CDP Runtime.evaluate: Runtime.evaluate waits for
+  // a pending navigation to commit, and on this per-tab queue it stalled every later command
+  // until a slow server answered.
   private async installPromptShim(): Promise<void> {
-    await this.sendDebugCommand("Runtime.evaluate", {
-      expression: promptShimInstallScript(),
-      returnByValue: true,
-    });
+    await runPageScript(this.contents, promptShimInstallScript());
   }
 
   private async drainPromptShim(): Promise<BrowserAutomationDialogEvent[]> {
     try {
-      const result = (await this.sendDebugCommand("Runtime.evaluate", {
-        expression: promptShimDrainScript(),
-        returnByValue: true,
-      })) as { result?: { value?: unknown } };
-      return parsePromptShimDialogs(result.result?.value);
+      return parsePromptShimDialogs(await runPageScript(this.contents, promptShimDrainScript()));
     } catch {
       return [];
     }
@@ -339,10 +340,7 @@ class DialogMonitor {
 
   private async restorePromptShim(): Promise<void> {
     try {
-      await this.sendDebugCommand("Runtime.evaluate", {
-        expression: promptShimRestoreScript(),
-        returnByValue: true,
-      });
+      await runPageScript(this.contents, promptShimRestoreScript());
     } catch {
       // Navigation can destroy the execution context before cleanup runs; the next page has no shim.
     }

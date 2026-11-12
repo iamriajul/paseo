@@ -488,7 +488,7 @@ const brokerErrorCases = [
     content: [
       {
         type: "text",
-        text: "The browser did not respond before the timeout. Try again or check the browser host.",
+        text: "Browser automation timed out after 15000ms.",
       },
     ],
     context: {
@@ -927,7 +927,7 @@ describe("registerBrowserTools", () => {
     expect(response.content).toEqual([
       {
         type: "text",
-        text: 'The browser did not respond before the timeout. Try again or check the browser host.\nHandled browser dialog: dismissed beforeunload "Leave site?".',
+        text: 'Timed out waiting for browser URL: /next\nHandled browser dialog: dismissed beforeunload "Leave site?".',
       },
     ]);
     expect(response.structuredContent).toEqual({

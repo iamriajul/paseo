@@ -1,3 +1,4 @@
+import { connect, type Socket } from "node:net";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -208,5 +209,39 @@ describe("workspace loopback proxy multi-tab lifecycle", () => {
     ).toBeNull();
 
     await unregisterBrowserLoopbackProxy("tab-early");
+  });
+
+  test("closing a workspace's last tab closes the proxy while the guest holds connections open", async () => {
+    await registerBrowserLoopbackProxy({
+      browserId: "tab-open-sockets",
+      serverId: "server-remote",
+      workspaceId: "ws-open-sockets",
+      rendererWebContentsId: 999,
+      directLoopback: false,
+    });
+    const proxyPort = getBrowserLoopbackProxyPortForTest("tab-open-sockets")!;
+    const connectToProxy = () =>
+      new Promise<Socket>((resolve, reject) => {
+        const socket = connect(proxyPort, "127.0.0.1", () => resolve(socket));
+        socket.once("error", reject);
+      });
+    // Chromium keeps pooled sockets to the proxy open after the guest is gone: an idle
+    // keep-alive socket, and one that has sent part of a request.
+    const idle = await connectToProxy();
+    const partial = await connectToProxy();
+    partial.write("GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n");
+    const closed = (socket: Socket) =>
+      new Promise<void>((resolve) => {
+        if (socket.destroyed) resolve();
+        else socket.once("close", () => resolve());
+      });
+
+    const unregistered = await Promise.race([
+      unregisterBrowserLoopbackProxy("tab-open-sockets").then(() => "closed"),
+      new Promise((resolve) => setTimeout(() => resolve("still open"), 2_000)),
+    ]);
+
+    expect(unregistered).toBe("closed");
+    await Promise.all([closed(idle), closed(partial)]);
   });
 });

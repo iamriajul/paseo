@@ -3,6 +3,8 @@ import { useWorkspaceLoopbackOpener } from "@/hooks/use-workspace-loopback-opene
 import { closeServerBrowserTab } from "@/server-browser/close-tab";
 import { useServerBrowserUrlOpener } from "@/server-browser/use-server-browser-opener";
 import { useServerBrowserSync } from "@/server-browser/use-server-browser-sync";
+import { openNewServerBrowserTab } from "@/server-browser/new-tab";
+import { useServerBrowserEnabled } from "@/server-browser/store";
 import { useHostFeature } from "@/runtime/host-features";
 import {
   AssistantFileLinkResolverProvider,
@@ -1923,15 +1925,29 @@ function WorkspaceScreenContent({
         openTarget({ kind: "codeServer", codeServerId });
         return;
       }
+      if (selection.kind === "serverBrowser") {
+        if (!client) return;
+        openNewServerBrowserTab({
+          client,
+          workspaceId: normalizedWorkspaceId,
+          open: openTarget,
+        }).catch((error: unknown) => {
+          toast.error(error instanceof Error ? error.message : String(error));
+        });
+        return;
+      }
       const { browserId } = createWorkspaceBrowser();
       openTarget({ kind: "browser", browserId });
     },
     [
+      client,
       createTerminal,
       createWorkspaceTab,
       normalizedServerId,
+      normalizedWorkspaceId,
       persistenceKey,
       replaceWorkspaceTabTarget,
+      toast,
       workspaceDirectory,
     ],
   );
@@ -3401,11 +3417,17 @@ function WorkspaceScreenContent({
       workspaceDirectory,
     }),
   );
+  const serverBrowserEnabled = useServerBrowserEnabled(normalizedServerId);
+  const handleCreateServerBrowserTab = useCallback(
+    () => launchWorkspaceTab({ kind: "serverBrowser" }, { kind: "open" }),
+    [launchWorkspaceTab],
+  );
   const newTabLauncher = useMemo<NewTabLauncher>(
     () => ({
       showChanges: isGitCheckout,
       showPullRequest: hasPullRequest,
       showBrowser: showCreateBrowserTab,
+      showServerBrowser: serverBrowserEnabled,
       showCodeServer: showCreateCodeServerTab,
       terminalDisabled: createTerminalDisabled,
       launch: launchWorkspaceTab,
@@ -3417,6 +3439,7 @@ function WorkspaceScreenContent({
       launchWorkspaceTab,
       showCreateBrowserTab,
       showCreateCodeServerTab,
+      serverBrowserEnabled,
     ],
   );
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);
@@ -3537,11 +3560,13 @@ function WorkspaceScreenContent({
             currentBranchName={currentBranchName}
             showWorkspaceSetup={showWorkspaceSetup}
             showCreateBrowserTab={showCreateBrowserTab}
+            showCreateServerBrowserTab={serverBrowserEnabled}
             createTerminalDisabled={createTerminalDisabled}
             importAgentDisabled={!canOpenImportSheet}
             copyPathDisabled={!workspaceDirectory}
             onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
             onCreateBrowser={handleCreateBrowserTab}
+            onCreateServerBrowser={handleCreateServerBrowserTab}
             onOpenImportSheet={openImportSheet}
             onCopyWorkspacePath={handleCopyWorkspacePath}
             onCopyBranchName={handleCopyBranchName}
@@ -3570,6 +3595,7 @@ function WorkspaceScreenContent({
       handleCopyWorkspacePath,
       handleCreateBrowserTab,
       handleCreateDraftTab,
+      handleCreateServerBrowserTab,
       handleCreateTerminal,
       handleCreateTerminalWithProfile,
       handleOpenSetupTab,
@@ -3584,6 +3610,7 @@ function WorkspaceScreenContent({
       normalizedServerId,
       normalizedWorkspaceId,
       openImportSheet,
+      serverBrowserEnabled,
       showCreateBrowserTab,
       showWorkspaceSetup,
       tabs,

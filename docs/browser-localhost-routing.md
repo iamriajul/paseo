@@ -87,7 +87,7 @@ A Browser tab or [server browser](server-browser.md) tab showing a localhost URL
 
 ### On a phone
 
-Android has it for server browser tabs, as "Open on this phone". Through v0.15.912 no phone had it: the user's browser is another app, and switching to it backgrounds Paseo, where Android froze the process and its WebSocket. A foreground service now keeps Paseo running exactly while a forward is open.
+Android has it for server browser tabs, as "Open on this phone". Through v0.15.913 no phone had it: the user's browser is another app, and switching to it backgrounds Paseo, where Android froze the process and its WebSocket. A foreground service now keeps Paseo running exactly while a forward is open.
 
 - **Listeners.** `PortForwardListeners.kt` in the `paseo-browser-proxy` module binds each port on the phone's `127.0.0.1` at the same number (free-port fallback as on desktop) and hands every accepted socket to JS, reading nothing until JS has opened its daemon TCP tunnel. Ports, tunnels and lifetime live in `port-forward/mobile-port-forwards.ts`, which is unit-tested; the native layer only binds and moves bytes.
 - **Foreground service.** `PortForwardService.kt` runs while at least one forward is open, type `specialUse` (Android 14+ requires a type; no other type fits a local port relay, and `dataSync` is capped at 6 hours a day on Android 15), with an ongoing notification whose Stop ends every forward. It starts from the menu, while Paseo is in front, as Android 12+ requires. Without the notification permission (Android 13+) the forwards still run and the notification is hidden.

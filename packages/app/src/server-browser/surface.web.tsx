@@ -1,3 +1,4 @@
+import { isCopyShortcut } from "./viewer-shortcuts";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type {
   DaemonClient,
@@ -27,6 +28,8 @@ interface ServerBrowserSurfaceProps {
   /** Annotate element is picking: pointing highlights, a click or tap picks, other input stops. */
   annotating?: boolean;
   onCancelAnnotate?: () => void;
+  /** Cmd/Ctrl+C or X in the page (desktop and web): copy its selection to this device. */
+  onCopySelection?: () => void;
   /** The surface's size in CSS pixels, each time it changes; the Responsive device size follows it. */
   onSize?: (size: { width: number; height: number }) => void;
   /** The host streams video (features.serverBrowserVideo); JPEG otherwise. */
@@ -54,6 +57,7 @@ export const ServerBrowserSurface = forwardRef<
     pageHeight,
     annotating = false,
     onCancelAnnotate,
+    onCopySelection,
     onSize,
     video = false,
   },
@@ -96,6 +100,8 @@ export const ServerBrowserSurface = forwardRef<
   annotatingRef.current = annotating;
   const onCancelAnnotateRef = useRef(onCancelAnnotate);
   onCancelAnnotateRef.current = onCancelAnnotate;
+  const onCopySelectionRef = useRef(onCopySelection);
+  onCopySelectionRef.current = onCopySelection;
   const onSizeRef = useRef(onSize);
   onSizeRef.current = onSize;
 
@@ -321,6 +327,8 @@ export const ServerBrowserSurface = forwardRef<
       const isPaste = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
       if (isPaste) return;
       event.preventDefault();
+      // Read the selection before the key reaches the page, which a cut changes.
+      if (isCopyShortcut(event)) onCopySelectionRef.current?.();
       for (const input of keyboardEventToInput(event, "down")) send(input, true);
     };
     const onKeyUp = (event: KeyboardEvent) => {

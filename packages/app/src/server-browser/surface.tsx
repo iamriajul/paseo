@@ -56,6 +56,8 @@ interface ServerBrowserSurfaceProps {
   /** Annotate element is picking: a touch points, a drag moves the highlight, lifting picks. */
   annotating?: boolean;
   onCancelAnnotate?: () => void;
+  /** Cmd/Ctrl+C or X in the page (desktop and web): copy its selection to this device. */
+  onCopySelection?: () => void;
   /** The surface's size in CSS pixels, each time it changes; the Responsive device size follows it. */
   onSize?: (size: { width: number; height: number }) => void;
   /** The host streams video (features.serverBrowserVideo); JPEG otherwise. */

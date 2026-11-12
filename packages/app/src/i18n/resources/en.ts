@@ -745,6 +745,16 @@ export const en = {
         unhealthy: "unhealthy",
         startAndOpen: "Start and open",
       },
+      serverTab: {
+        clearData: "Clear browser data",
+        clearDataTitle: "Clear this workspace's browser data?",
+        clearDataMessage:
+          "Deletes the cookies and storage of this workspace's server browser tabs, which signs you out of every dev app in this workspace. Its tabs reload.",
+        closeTab: "Close tab",
+        copySelection: "Copy selected text",
+        selectionCopied: "Copied the page's selection",
+        nothingSelected: "Nothing is selected in the page",
+      },
       openInBrowser: {
         label: "Open in browser",
         noPublicUrl:
@@ -822,6 +832,7 @@ export const en = {
         workspaceSetup: "Workspace setup",
         terminal: "Terminal",
         browser: "Browser",
+        serverBrowser: "Server browser",
         agent: "Agent",
         workspace: "Workspace",
       },
@@ -945,6 +956,7 @@ export const en = {
         newAgent: "New agent",
         newTerminal: "New terminal",
         newBrowser: "New browser tab",
+        newServerBrowser: "New server browser tab",
         newCodeServer: "New Code Server",
         importSession: "Import session",
         copyPath: "Copy workspace path",

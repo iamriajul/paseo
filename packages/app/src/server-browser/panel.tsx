@@ -28,7 +28,8 @@ import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/t
 import { isNative } from "@/constants/platform";
 import { usePaneContext } from "@/panels/pane-context";
 import { definePanel, type PanelDescriptor, type PanelIconProps } from "@/panels/panel-registry";
-import { useHostRuntimeClient } from "@/runtime/host-runtime";
+import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
+import { useRetainedPanelActive } from "@/components/retained-panel";
 import { normalizeBrowserUrl } from "@/desktop/browser/store/state";
 import { truncateBrowserText } from "@/desktop/browser/browser-element-attachment";
 import { WebAnnotationComposer } from "@/desktop/browser/pane/web-annotation-composer";
@@ -54,6 +55,13 @@ import { ServerBrowserLogsPanel, useServerBrowserLogs } from "./logs-panel";
 import { ServerBrowserDialogCard } from "./dialog-card";
 import { ServerBrowserFileChooserCard } from "./file-chooser-card";
 import { ServerBrowserOpenInBrowserButton } from "./open-in-browser-button";
+import { useLoadFailureRetry } from "./use-load-failure-retry";
+import { useCopySelection } from "./use-copy-selection";
+import { useViewerShortcuts } from "./viewer-shortcuts";
+import { confirmAndClearServerBrowserData } from "./clear-data";
+import { NEW_SERVER_TAB_URL } from "./new-tab";
+import { confirmDialog } from "@/utils/confirm-dialog";
+import { usePaneFocus } from "@/panels/pane-context";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
@@ -213,19 +221,52 @@ function NavigationButtons(props: {
 }
 
 /** The other Browsers' card for a failed load; Chromium's own error page is blank in the headless shell. */
+/**
+ * The other Browsers' failure card: a load that failed (retried by itself while nothing answers
+ * yet), or a page whose renderer crashed (Retry reloads it). Retries report nothing of their own:
+ * a retry that fails again shows up as the same card.
+ */
 function LoadFailureOverlay(props: {
   tab: ServerBrowserTab;
-  onRetry: () => void;
+  client: DaemonClient;
+  serverId: string;
 }): ReactElement | null {
   const { t } = useTranslation();
-  const { loadError, isLoading } = props.tab;
+  const { tab, client } = props;
+  const { loadError, isLoading, crashed, browserId } = tab;
+  const active = useRetainedPanelActive();
+  const hostConnected = useHostRuntimeIsConnected(props.serverId);
+  const failedUrl = loadError?.url ?? null;
+  const retry = useCallback(() => {
+    if (crashed) {
+      void client.serverBrowserNavigate(browserId, "reload").catch(() => {});
+    } else if (failedUrl) {
+      void client.serverBrowserNavigate(browserId, "url", failedUrl).catch(() => {});
+    }
+  }, [browserId, client, crashed, failedUrl]);
+  const retryInSeconds = useLoadFailureRetry({
+    failure: crashed ? null : (loadError ?? null),
+    active: active && !isLoading,
+    hostConnected,
+    retry,
+  });
+  if (crashed) {
+    return (
+      <BrowserLoadFailure
+        title={t("workspace.browser.errors.crashed")}
+        message={t("workspace.browser.errors.crashedDetail")}
+        retryInSeconds={null}
+        onRetry={retry}
+      />
+    );
+  }
   if (!loadError || isLoading) return null;
   return (
     <BrowserLoadFailure
       title={t("workspace.browser.errors.loadFailedTitle")}
       message={`${loadError.errorText ?? t("workspace.browser.errors.failedToLoad")}: ${loadError.url}`}
-      retryInSeconds={null}
-      onRetry={props.onRetry}
+      retryInSeconds={retryInSeconds}
+      onRetry={retry}
     />
   );
 }
@@ -272,6 +313,7 @@ function PickButtons(props: {
 }
 
 function ActionsMenu(props: {
+  onCopySelection: (() => void) | undefined;
   canClearData: boolean;
   canShowConsole: boolean;
   consoleShown: boolean;
@@ -286,9 +328,16 @@ function ActionsMenu(props: {
         <ThemedMore size={16} uniProps={muted} />
       </ToolbarButton>
       <DropdownMenuContent align="end">
+        {props.onCopySelection ? (
+          <DropdownMenuItem onSelect={props.onCopySelection} testID="server-browser-copy-selection">
+            {t("workspace.browser.serverTab.copySelection")}
+          </DropdownMenuItem>
+        ) : null}
         {/* A shared-profile engine has no per-workspace data to clear. */}
         {props.canClearData ? (
-          <DropdownMenuItem onSelect={props.onClearData}>Clear browser data</DropdownMenuItem>
+          <DropdownMenuItem onSelect={props.onClearData} testID="server-browser-clear-data">
+            {t("workspace.browser.serverTab.clearData")}
+          </DropdownMenuItem>
         ) : null}
         {props.canShowConsole ? (
           <DropdownMenuItem onSelect={props.onToggleConsole} testID="server-browser-console-toggle">
@@ -297,7 +346,9 @@ function ActionsMenu(props: {
               : t("workspace.browser.console.show")}
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem onSelect={props.onCloseTab}>Close tab</DropdownMenuItem>
+        <DropdownMenuItem onSelect={props.onCloseTab}>
+          {t("workspace.browser.serverTab.closeTab")}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -429,24 +480,49 @@ function ServerBrowserPanel(): ReactElement {
   );
   const handleSelectDefault = useCallback(() => selectDevice("default"), [selectDevice]);
   const handleClearData = useCallback(
-    () => run(() => client?.serverBrowserClearWorkspaceData(workspaceId)),
-    [client, run, workspaceId],
+    () =>
+      run(async () => {
+        if (!client) return;
+        await confirmAndClearServerBrowserData({
+          confirm: confirmDialog,
+          clear: () => client.serverBrowserClearWorkspaceData(workspaceId),
+          t,
+        });
+      }),
+    [client, run, t, workspaceId],
   );
   const handleCloseTab = useCallback(
     () => run(() => client?.serverBrowserCloseTab(browserId)),
     [browserId, client, run],
   );
   const handleKeyboard = useCallback(() => surfaceRef.current?.focusKeyboard(), []);
+  const copySelection = useCopySelection({ client, serverId, browserId });
+  const { isInteractive } = usePaneFocus();
+  const selectUrl = useCallback(() => {
+    const selectAll = () => {
+      const input = urlInputRef.current;
+      input?.setSelection({ start: 0, end: input.getText().length });
+    };
+    selectAll();
+    // Again once the click that focused the field has placed its caret.
+    setTimeout(selectAll, 0);
+  }, []);
+  const focusUrl = useCallback(() => {
+    urlInputRef.current?.focus();
+    selectUrl();
+  }, [selectUrl]);
+  const isLoading = tab?.isLoading === true;
+  useViewerShortcuts({
+    enabled: isInteractive,
+    onFocusUrl: focusUrl,
+    onReload: isLoading ? handleStop : handleReload,
+  });
   const toggleAnnotate = annotate.toggle;
   const handleAnnotate = useCallback(() => toggleAnnotate("annotate"), [toggleAnnotate]);
   const handleScreenshot = useCallback(() => toggleAnnotate("screenshot"), [toggleAnnotate]);
   const [showConsole, setShowConsole] = useState(false);
   const logs = useServerBrowserLogs({ client, browserId, open: showConsole });
   const handleToggleConsole = useCallback(() => setShowConsole((shown) => !shown), []);
-  const failedUrl = tab?.loadError?.url;
-  const handleRetry = useCallback(() => {
-    if (failedUrl) run(() => client?.serverBrowserNavigate(browserId, "url", failedUrl));
-  }, [browserId, client, failedUrl, run]);
 
   if (!tab || !client) return <ServerBrowserTabGone status={status} />;
 
@@ -471,8 +547,10 @@ function ServerBrowserPanel(): ReactElement {
             accessibilityLabel="Server browser URL"
             autoCapitalize="none"
             autoCorrect={false}
-            initialValue={tab.url}
+            initialValue={tab.url === NEW_SERVER_TAB_URL ? "" : tab.url}
+            autoFocus={tab.url === NEW_SERVER_TAB_URL}
             onSubmitEditing={handleSubmitUrl}
+            onFocus={selectUrl}
             placeholder="Enter a URL"
             style={styles.urlInput}
           />
@@ -531,6 +609,7 @@ function ServerBrowserPanel(): ReactElement {
             </DropdownMenuContent>
           </DropdownMenu>
           <ActionsMenu
+            onCopySelection={copySelection}
             canClearData={!status?.engine?.sharedStorage}
             canShowConsole={supportsViewerControls}
             consoleShown={showConsole}
@@ -557,10 +636,11 @@ function ServerBrowserPanel(): ReactElement {
           pageHeight={tab.viewport.height}
           annotating={isPicking}
           onCancelAnnotate={annotate.cancel}
+          onCopySelection={copySelection}
           onSize={deviceSize.onSurfaceSize}
           video={supportsVideo}
         />
-        <LoadFailureOverlay tab={tab} onRetry={handleRetry} />
+        <LoadFailureOverlay tab={tab} client={client} serverId={serverId} />
         <PageRequests client={client} browserId={browserId} tab={tab} run={run} />
       </View>
       {showConsole ? <ServerBrowserLogsPanel entries={logs.entries} onClear={logs.clear} /> : null}

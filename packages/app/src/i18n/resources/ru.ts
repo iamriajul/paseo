@@ -754,6 +754,16 @@ export const ru: TranslationResources = {
         unhealthy: "неисправен",
         startAndOpen: "Запустить и открыть",
       },
+      serverTab: {
+        clearData: "Очистить данные браузера",
+        clearDataTitle: "Очистить данные браузера этого рабочего пространства?",
+        clearDataMessage:
+          "Удаляет cookie и хранилище вкладок браузера сервера этого рабочего пространства, и вы выйдете из всех dev-приложений этого пространства. Вкладки перезагрузятся.",
+        closeTab: "Закрыть вкладку",
+        copySelection: "Копировать выделенный текст",
+        selectionCopied: "Выделение страницы скопировано",
+        nothingSelected: "На странице ничего не выделено",
+      },
       openInBrowser: {
         label: "Открыть в браузере",
         noPublicUrl:
@@ -826,6 +836,7 @@ export const ru: TranslationResources = {
         workspaceSetup: "Настройка рабочего пространства",
         terminal: "Терминал",
         browser: "Браузер",
+        serverBrowser: "Браузер сервера",
         agent: "Агент",
         workspace: "Рабочее пространство",
       },
@@ -951,6 +962,7 @@ export const ru: TranslationResources = {
         newAgent: "Новый агент",
         newTerminal: "Новый терминал",
         newBrowser: "Новая вкладка браузера",
+        newServerBrowser: "Новая вкладка браузера сервера",
         newCodeServer: "New Code Server",
         importSession: "Импортировать сессию",
         copyPath: "Скопировать путь к рабочему пространству",

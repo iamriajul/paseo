@@ -754,6 +754,16 @@ export const es: TranslationResources = {
         unhealthy: "con fallos",
         startAndOpen: "Iniciar y abrir",
       },
+      serverTab: {
+        clearData: "Borrar datos del navegador",
+        clearDataTitle: "¿Borrar los datos del navegador de este espacio de trabajo?",
+        clearDataMessage:
+          "Elimina las cookies y el almacenamiento de las pestañas del navegador del servidor de este espacio de trabajo, lo que cierra tu sesión en todas las apps de desarrollo de este espacio. Sus pestañas se recargan.",
+        closeTab: "Cerrar pestaña",
+        copySelection: "Copiar el texto seleccionado",
+        selectionCopied: "Se copió la selección de la página",
+        nothingSelected: "No hay nada seleccionado en la página",
+      },
       openInBrowser: {
         label: "Abrir en el navegador",
         noPublicUrl:
@@ -826,6 +836,7 @@ export const es: TranslationResources = {
         workspaceSetup: "Configuración deWorkspace",
         terminal: "Terminal",
         browser: "Navegador",
+        serverBrowser: "Navegador del servidor",
         agent: "Agent",
         workspace: "Workspace",
       },
@@ -952,6 +963,7 @@ export const es: TranslationResources = {
         newAgent: "Nuevo agente",
         newTerminal: "Nueva terminal",
         newBrowser: "Nueva pestaña del navegador",
+        newServerBrowser: "Nueva pestaña del navegador del servidor",
         newCodeServer: "New Code Server",
         importSession: "Importar sesión",
         copyPath: "Copiar ruta del espacio de trabajo",

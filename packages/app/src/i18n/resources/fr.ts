@@ -755,6 +755,16 @@ export const fr: TranslationResources = {
         unhealthy: "en échec",
         startAndOpen: "Démarrer et ouvrir",
       },
+      serverTab: {
+        clearData: "Effacer les données du navigateur",
+        clearDataTitle: "Effacer les données du navigateur de cet espace de travail ?",
+        clearDataMessage:
+          "Supprime les cookies et le stockage des onglets du navigateur du serveur de cet espace de travail, ce qui vous déconnecte de toutes les applications de développement de cet espace. Ses onglets se rechargent.",
+        closeTab: "Fermer l'onglet",
+        copySelection: "Copier le texte sélectionné",
+        selectionCopied: "Sélection de la page copiée",
+        nothingSelected: "Rien n'est sélectionné dans la page",
+      },
       openInBrowser: {
         label: "Ouvrir dans le navigateur",
         noPublicUrl:
@@ -828,6 +838,7 @@ export const fr: TranslationResources = {
         workspaceSetup: "Configuration de l’espace de travail",
         terminal: "Terminal",
         browser: "Navigateur",
+        serverBrowser: "Navigateur du serveur",
         agent: "Agent",
         workspace: "Espace de travail",
       },
@@ -955,6 +966,7 @@ export const fr: TranslationResources = {
         newAgent: "Nouvel agent",
         newTerminal: "Nouveau terminal",
         newBrowser: "Nouvel onglet de navigateur",
+        newServerBrowser: "Nouvel onglet du navigateur du serveur",
         newCodeServer: "New Code Server",
         importSession: "Importer une session",
         copyPath: "Copier le chemin de l’espace de travail",

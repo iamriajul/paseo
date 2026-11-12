@@ -2,7 +2,7 @@ import React, { useCallback, useMemo } from "react";
 import { View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { Copy, Ellipsis, Globe, Import as ImportIcon, Settings } from "lucide-react-native";
+import { Copy, Ellipsis, Globe, Import as ImportIcon, Server, Settings } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
 import {
@@ -37,12 +37,14 @@ import { useAgentChatDisplayMenuPage } from "@/chat-display/menu-page";
 const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedGlobe = withUnistyles(Globe);
+const ThemedServer = withUnistyles(Server);
 const ThemedImport = withUnistyles(ImportIcon);
 const ThemedSettings = withUnistyles(Settings);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const MENU_NEW_BROWSER_ICON = <ThemedGlobe size={16} uniProps={mutedColorMapping} />;
+const MENU_NEW_SERVER_BROWSER_ICON = <ThemedServer size={16} uniProps={mutedColorMapping} />;
 const MENU_IMPORT_ICON = <ThemedImport size={16} uniProps={mutedColorMapping} />;
 const MENU_COPY_ICON = <ThemedCopy size={16} uniProps={mutedColorMapping} />;
 const MENU_SETTINGS_ICON = <ThemedSettings size={16} uniProps={mutedColorMapping} />;
@@ -213,9 +215,12 @@ export interface WorkspaceHeaderMenuMobileProps extends WorkspaceHeaderWorkspace
   /** The agent on screen, whose chat display the menu offers; null for any other tab. */
   chatDisplayAgentId: string | null;
   showCreateBrowserTab: boolean;
+  /** Fork: the host's server browser is on (docs/server-browser.md). */
+  showCreateServerBrowserTab: boolean;
   createTerminalDisabled: boolean;
   onCreateTerminalWithProfile: (profile: TerminalProfile) => void;
   onCreateBrowser: () => void;
+  onCreateServerBrowser: () => void;
 }
 
 /**
@@ -232,9 +237,11 @@ export function WorkspaceHeaderMenuMobile({
   scripts,
   chatDisplayAgentId,
   showCreateBrowserTab,
+  showCreateServerBrowserTab,
   createTerminalDisabled,
   onCreateTerminalWithProfile,
   onCreateBrowser,
+  onCreateServerBrowser,
   ...workspaceActions
 }: WorkspaceHeaderMenuMobileProps) {
   const { t } = useTranslation();
@@ -294,6 +301,15 @@ export function WorkspaceHeaderMenuMobile({
             onSelect={onCreateBrowser}
           >
             {t("workspace.header.actions.newBrowser")}
+          </DropdownMenuItem>
+        ) : null}
+        {showCreateServerBrowserTab ? (
+          <DropdownMenuItem
+            testID="workspace-header-new-server-browser"
+            leading={MENU_NEW_SERVER_BROWSER_ICON}
+            onSelect={onCreateServerBrowser}
+          >
+            {t("workspace.header.actions.newServerBrowser")}
           </DropdownMenuItem>
         ) : null}
         <WorkspaceHeaderWorkspaceActionItems {...workspaceActions} />

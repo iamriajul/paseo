@@ -753,6 +753,16 @@ export const ja: TranslationResources = {
         unhealthy: "異常",
         startAndOpen: "起動して開く",
       },
+      serverTab: {
+        clearData: "ブラウザデータを消去",
+        clearDataTitle: "このワークスペースのブラウザデータを消去しますか？",
+        clearDataMessage:
+          "このワークスペースのサーバーブラウザのタブの Cookie とストレージを削除するため、このワークスペースのすべての開発アプリからサインアウトします。タブは再読み込みされます。",
+        closeTab: "タブを閉じる",
+        copySelection: "選択したテキストをコピー",
+        selectionCopied: "ページの選択範囲をコピーしました",
+        nothingSelected: "ページで何も選択されていません",
+      },
       openInBrowser: {
         label: "ブラウザで開く",
         noPublicUrl:
@@ -825,6 +835,7 @@ export const ja: TranslationResources = {
         workspaceSetup: "ワークスペースセットアップ",
         terminal: "ターミナル",
         browser: "ブラウザ",
+        serverBrowser: "サーバーブラウザ",
         agent: "エージェント",
         workspace: "ワークスペース",
       },
@@ -948,6 +959,7 @@ export const ja: TranslationResources = {
         newAgent: "新しいエージェント",
         newTerminal: "新しいターミナル",
         newBrowser: "新しいブラウザタブ",
+        newServerBrowser: "新しいサーバーブラウザのタブ",
         newCodeServer: "New Code Server",
         importSession: "セッションをインポート",
         copyPath: "ワークスペースパスをコピー",

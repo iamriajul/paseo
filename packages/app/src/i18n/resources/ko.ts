@@ -748,6 +748,16 @@ export const ko: TranslationResources = {
         unhealthy: "비정상",
         startAndOpen: "시작하고 열기",
       },
+      serverTab: {
+        clearData: "브라우저 데이터 지우기",
+        clearDataTitle: "이 워크스페이스의 브라우저 데이터를 지울까요?",
+        clearDataMessage:
+          "이 워크스페이스의 서버 브라우저 탭의 쿠키와 저장소를 삭제하므로 이 워크스페이스의 모든 개발 앱에서 로그아웃됩니다. 탭은 다시 로드됩니다.",
+        closeTab: "탭 닫기",
+        copySelection: "선택한 텍스트 복사",
+        selectionCopied: "페이지의 선택 영역을 복사했습니다",
+        nothingSelected: "페이지에서 선택된 내용이 없습니다",
+      },
       openInBrowser: {
         label: "브라우저에서 열기",
         noPublicUrl:
@@ -819,6 +829,7 @@ export const ko: TranslationResources = {
         workspaceSetup: "워크스페이스 설정",
         terminal: "터미널",
         browser: "브라우저",
+        serverBrowser: "서버 브라우저",
         agent: "에이전트",
         workspace: "워크스페이스",
       },
@@ -943,6 +954,7 @@ export const ko: TranslationResources = {
         newAgent: "새 에이전트",
         newTerminal: "새 터미널",
         newBrowser: "새 브라우저 탭",
+        newServerBrowser: "새 서버 브라우저 탭",
         newCodeServer: "New Code Server",
         importSession: "세션 가져오기",
         copyPath: "워크스페이스 경로 복사",

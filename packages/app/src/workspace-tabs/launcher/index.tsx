@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { AppWindow, Globe, SquarePen, SquareTerminal } from "lucide-react-native";
+import { AppWindow, Globe, Server, SquarePen, SquareTerminal } from "lucide-react-native";
 import invariant from "tiny-invariant";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
@@ -41,6 +41,8 @@ export interface NewTabLauncher {
   showChanges: boolean;
   showPullRequest: boolean;
   showBrowser: boolean;
+  /** The host's server browser is on: a launcher entry opens a server tab. */
+  showServerBrowser: boolean;
   showCodeServer: boolean;
   terminalDisabled: boolean;
   launch: (selection: NewTabSelection, destination: WorkspaceTabLaunchDestination) => void;
@@ -87,6 +89,7 @@ const BUILT_IN_SELECTIONS = {
   diff: { kind: "target", target: { kind: "working_diff" } },
   files: { kind: "target", target: { kind: "files" } },
   browser: { kind: "browser" },
+  serverBrowser: { kind: "serverBrowser" },
   codeServer: { kind: "codeServer" },
   pullRequest: { kind: "target", target: { kind: "pull_request" } },
 } satisfies Record<BuiltInLaunchItemId, NewTabSelection>;
@@ -203,6 +206,15 @@ export function useWorkspaceTabLaunchCatalog(input: {
         panelKind: "browser",
         hidden: !launcher.showBrowser,
         launch: launchSelection(BUILT_IN_SELECTIONS.browser),
+      },
+      serverBrowser: {
+        id: "server-browser",
+        label: t("workspace.tabs.fallback.serverBrowser"),
+        Icon: Server,
+        disabled: false,
+        panelKind: "server_browser",
+        hidden: !launcher.showServerBrowser,
+        launch: launchSelection(BUILT_IN_SELECTIONS.serverBrowser),
       },
       codeServer: {
         id: "code-server",

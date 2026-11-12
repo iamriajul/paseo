@@ -264,6 +264,22 @@ grep -q "ServerBrowserOpenInBrowserButton" packages/app/src/server-browser/panel
 grep -q "browser-port-forward-public-url" packages/app/src/desktop/browser/pane/port-forward-menu.tsx
 ```
 
+## server-browser-viewer-parity
+
+**server tabs retry failed loads, report crashes, take the desktop Browser's keys and copy selections to the viewer**
+
+Fork modules hold the behaviour: `server-browser-tab.ts` reports `crashed`, fails a crashed page's commands fast and maps a Mac viewer's Cmd editing keys to Ctrl on other hosts; `server-browser/use-load-failure-retry.ts`, `viewer-shortcuts.ts`, `use-copy-selection.ts`, `new-tab.ts` and `clear-data.ts` hold the app side. Official files only wire it: `messages.ts` adds `features.serverBrowserClipboard`, `websocket-server.ts` advertises it, `operation-permissions.ts` maps `browser.server.tab.selection` to `workspace.write` (a page's text, like its frames), `daemon-client.ts` adds `serverBrowserSelection`, and the launcher (`workspace-tabs/launcher/index.tsx`, `internal/catalog.ts`, `new-tab.ts`) and `workspace-screen.tsx` add the Server browser entry. See [Server browser](server-browser.md).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/editing-modifiers.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/server-browser/use-load-failure-retry.test.ts src/server-browser/viewer-shortcuts.test.ts src/server-browser/new-tab.test.ts src/server-browser/clear-data.test.ts src/workspace-tabs/launcher/internal/catalog.test.ts --bail=1
+grep -q "serverBrowserClipboard: z.boolean().optional()" packages/protocol/src/messages.ts
+grep -q '"browser.server.tab.selection.request": "workspace.write"' packages/server/src/server/authorization/operation-permissions.ts
+grep -q 'selection.kind === "serverBrowser"' packages/app/src/screens/workspace/workspace-screen.tsx
+```
+
+The crash, Cmd key and selection behaviour against a real Chromium is local-only: `npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.local.e2e.test.ts -t "crashed|Mac viewer|selection for a viewer"`.
+
 ## code-server-tab
 
 **register Code Server as a workspace tab kind**

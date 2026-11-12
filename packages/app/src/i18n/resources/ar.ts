@@ -748,6 +748,16 @@ export const ar: TranslationResources = {
         unhealthy: "غير سليمة",
         startAndOpen: "ابدأ وافتح",
       },
+      serverTab: {
+        clearData: "مسح بيانات المتصفح",
+        clearDataTitle: "هل تريد مسح بيانات المتصفح لمساحة العمل هذه؟",
+        clearDataMessage:
+          "يحذف ملفات تعريف الارتباط والتخزين لعلامات تبويب متصفح الخادم في مساحة العمل هذه، ما يسجّل خروجك من كل تطبيقات التطوير في مساحة العمل هذه. تُعاد تحميل علامات التبويب.",
+        closeTab: "إغلاق علامة التبويب",
+        copySelection: "نسخ النص المحدد",
+        selectionCopied: "تم نسخ تحديد الصفحة",
+        nothingSelected: "لا يوجد شيء محدد في الصفحة",
+      },
       openInBrowser: {
         label: "افتح في المتصفح",
         noPublicUrl:
@@ -819,6 +829,7 @@ export const ar: TranslationResources = {
         workspaceSetup: "إعداد Workspace",
         terminal: "Terminal",
         browser: "المتصفح",
+        serverBrowser: "متصفح الخادم",
         agent: "Agent",
         workspace: "Workspace",
       },
@@ -944,6 +955,7 @@ export const ar: TranslationResources = {
         newAgent: "وكيل جديد",
         newTerminal: "محطة جديدة",
         newBrowser: "علامة تبويب متصفح جديدة",
+        newServerBrowser: "علامة تبويب جديدة في متصفح الخادم",
         newCodeServer: "New Code Server",
         importSession: "جلسة الاستيراد",
         copyPath: "نسخ مسار مساحة العمل",

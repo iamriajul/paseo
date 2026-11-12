@@ -1833,3 +1833,14 @@ npm test --workspace=@getpaseo/app -- --project browser src/desktop/browser/resi
 grep -q "runBrowserLoadingRegression" packages/desktop/e2e/browser-tabs.e2e.mjs
 grep -q "loadDocument: (url: string) => loadDocument(contents, url)" packages/desktop/src/features/browser-automation/ipc.ts
 ```
+
+## config-read-turn-share
+
+**the large project config gate measures the longest turn's share of the work, not milliseconds**
+
+`paseo-config-file.test.ts` "keeps main-thread work below 20ms while admitting large configs" failed on Windows CI in v0.15.910 at 32 ms. Windows counts thread CPU in ~15.6 ms ticks (that run's readings were 0, 15, 16 and 32), so one callback that crosses two tick boundaries reads 31 ms, and a slower runner does more real work per turn. A fixed millisecond budget measured the runner. The test, now "spreads a large config's main-thread work across many turns", asserts that the longest turn, less one counter step, is under a quarter of the read's total main-thread CPU. That share does not depend on runner speed. Validating every script in one turn makes it about 1: with the chunking removed it read 66 ms against an allowed 19.3 ms. `measureMainThreadWork` (`test-utils/main-thread-work.ts`) reports `totalCpuMs` and the counter's measured `cpuResolutionMs` for it.
+
+```bash
+grep -q "cpuResolutionMs" packages/server/src/test-utils/main-thread-work.ts
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/utils/paseo-config-file.test.ts --bail=1 -t "spreads a large config"
+```

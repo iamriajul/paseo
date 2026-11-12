@@ -27,6 +27,7 @@ import {
   type WindowTitleMark,
 } from "./window-title.js";
 import { CONSOLE_BUDGET, ConsoleBudget } from "./console-budget.js";
+import { LoopbackPortSet } from "./loopback-ports.js";
 
 const MAX_CONSOLE_ENTRIES = 200;
 /** How long a tab over its console budget first stops reading the console; doubles per repeat. */
@@ -176,6 +177,7 @@ export class ServerBrowserTab {
   private nextDialogId = 1;
   private visibleUntil = 0;
   private readonly consoleBudget = new ConsoleBudget();
+  private readonly loopbackPorts = new LoopbackPortSet();
   /** Set while the tab is over its console budget and the Runtime domain is off. */
   private consolePause: {
     dropped: number;
@@ -295,6 +297,13 @@ export class ServerBrowserTab {
   public async initialize(): Promise<void> {
     await this.send("Page.enable");
     await this.send("Runtime.enable");
+    // For the loopback ports the page uses (Open on this computer). No bodies are kept: nothing
+    // reads them, and the default buffers hold up to 100 MB per tab.
+    await this.send("Network.enable", {
+      maxTotalBufferSize: 0,
+      maxResourceBufferSize: 0,
+      maxPostDataSize: 0,
+    });
     await this.send("Page.setLifecycleEventsEnabled", { enabled: true });
     await this.send("Runtime.addBinding", {
       name: TITLE_BINDING,
@@ -337,6 +346,7 @@ export class ServerBrowserTab {
   }
 
   public handleEvent(event: CdpEvent): void {
+    if (this.loopbackPorts.observe(event)) return;
     if (this.handlePageRequest(event)) return;
     switch (event.method) {
       case "Page.frameNavigated":
@@ -567,6 +577,11 @@ export class ServerBrowserTab {
       entries.push(Object.assign({ seq: this.consoleFirstSeq + index }, this.console[index]));
     }
     return entries;
+  }
+
+  /** Every loopback port the page has used since the tab opened, ascending. */
+  public observedLoopbackPorts(): number[] {
+    return this.loopbackPorts.list();
   }
 
   /** The toolbar's Stop: ends the load, keeping what the page has shown so far. */

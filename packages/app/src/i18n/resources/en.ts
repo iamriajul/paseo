@@ -746,6 +746,10 @@ export const en = {
         startAndOpen: "Start and open",
       },
       portForward: {
+        labelPhone: "Open on this phone",
+        hintPhone:
+          "Forwards these ports from the workspace host to this phone, then opens the page in your browser. Paseo stays running in the background while they are open.",
+        portInUsePhone: "Port already in use on this phone",
         label: "Open on this computer",
         hint: "Forwards these ports from the workspace host to this computer, then opens the page in your browser.",
         addPort: "Add a port, e.g. 8080",

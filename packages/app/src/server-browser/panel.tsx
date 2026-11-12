@@ -34,6 +34,7 @@ import { truncateBrowserText } from "@/desktop/browser/browser-element-attachmen
 import { WebAnnotationComposer } from "@/desktop/browser/pane/web-annotation-composer";
 import { BrowserServiceChip, BrowserServicesMenu } from "@/desktop/browser/pane/services-menu";
 import { BrowserLoadFailure } from "@/desktop/browser/pane/load-failure";
+import { BrowserPortForwardMenu } from "@/desktop/browser/pane/port-forward-menu";
 import type { BrowserDeviceSizeId } from "@/desktop/browser/device-presets";
 import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser/device-size-menu";
 import { useHostFeature } from "@/runtime/host-features";
@@ -307,6 +308,15 @@ function ServerBrowserPanel(): ReactElement {
   const supportsAnnotate = useHostFeature(serverId, "serverBrowserAnnotate");
   const supportsVideo = useHostFeature(serverId, "serverBrowserVideo");
   const supportsViewerControls = useHostFeature(serverId, "serverBrowserViewerControls");
+  const supportsLoopbackPorts = useHostFeature(serverId, "serverBrowserLoopbackPorts");
+  const forwardRoute = useMemo(() => ({ serverId, workspaceId }), [serverId, workspaceId]);
+  const loadObservedPorts = useMemo(
+    () =>
+      supportsLoopbackPorts && client
+        ? () => client.serverBrowserLoopbackPorts(browserId)
+        : undefined,
+    [browserId, client, supportsLoopbackPorts],
+  );
   const toast = useToast();
   const handleCopied = useCallback(
     (copied: "image" | "text") =>
@@ -437,6 +447,13 @@ function ServerBrowserPanel(): ReactElement {
             workspaceId={workspaceId}
             currentUrl={tab.url}
             onNavigate={handleNavigateService}
+            triggerStyle={menuTriggerStyle}
+          />
+          <BrowserPortForwardMenu
+            browserId={browserId}
+            url={tab.url}
+            route={forwardRoute}
+            loadObservedPorts={loadObservedPorts}
             triggerStyle={menuTriggerStyle}
           />
           {isNative ? (

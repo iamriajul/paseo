@@ -3143,6 +3143,17 @@ export class DaemonClient {
     return payload.entries ?? [];
   }
 
+  /** The loopback ports the tab's page has used. Gate on features.serverBrowserLoopbackPorts. */
+  async serverBrowserLoopbackPorts(browserId: string): Promise<number[]> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      message: { type: "browser.server.tab.loopback_ports.request", browserId },
+      responseType: "browser.server.tab.loopback_ports.response",
+      timeout: 20_000,
+    });
+    if (payload.error) throw new Error(payload.error);
+    return payload.ports ?? [];
+  }
+
   /** Answers the tab's open dialog. Gate on features.serverBrowserViewerControls. */
   async serverBrowserAnswerDialog(
     browserId: string,

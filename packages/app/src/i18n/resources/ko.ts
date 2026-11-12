@@ -749,6 +749,10 @@ export const ko: TranslationResources = {
         startAndOpen: "시작하고 열기",
       },
       portForward: {
+        labelPhone: "이 휴대폰에서 열기",
+        hintPhone:
+          "워크스페이스 호스트의 포트를 이 휴대폰으로 전달한 뒤 브라우저에서 페이지를 엽니다. 전달하는 동안 Paseo가 백그라운드에서 계속 실행됩니다.",
+        portInUsePhone: "이 휴대폰에서 이미 사용 중인 포트",
         label: "이 컴퓨터에서 열기",
         hint: "이 포트들을 워크스페이스 호스트에서 이 컴퓨터로 전달한 뒤 브라우저에서 페이지를 엽니다.",
         addPort: "포트 추가 (예: 8080)",

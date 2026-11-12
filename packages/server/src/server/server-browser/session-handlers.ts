@@ -25,6 +25,7 @@ export const SERVER_BROWSER_REQUEST_TYPES = [
   "browser.server.tab.logs.request",
   "browser.server.tab.dialog.answer.request",
   "browser.server.tab.file_chooser.answer.request",
+  "browser.server.tab.loopback_ports.request",
 ] as const;
 
 type ServerBrowserRequest = Extract<
@@ -74,6 +75,8 @@ export class ServerBrowserSessionHandlers {
         return this.annotate(msg);
       case "browser.server.tab.logs.request":
         return this.logs(msg);
+      case "browser.server.tab.loopback_ports.request":
+        return this.loopbackPorts(msg);
       default:
         return this.handleCommand(msg);
     }
@@ -246,6 +249,18 @@ export class ServerBrowserSessionHandlers {
     });
   }
 
+  private async loopbackPorts(
+    msg: Extract<ServerBrowserRequest, { type: "browser.server.tab.loopback_ports.request" }>,
+  ): Promise<void> {
+    const tab = this.params.host.getTab(msg.browserId);
+    this.params.emit({
+      type: "browser.server.tab.loopback_ports.response",
+      payload: tab
+        ? { requestId: msg.requestId, ports: tab.observedLoopbackPorts() }
+        : { requestId: msg.requestId, error: `No server browser tab ${msg.browserId}` },
+    });
+  }
+
   private async annotate(
     msg: Extract<ServerBrowserRequest, { type: "browser.server.tab.annotate.start.request" }>,
   ): Promise<void> {
@@ -287,7 +302,8 @@ export class ServerBrowserSessionHandlers {
           | "browser.server.tabs.subscribe.request"
           | "browser.server.screencast.start.request"
           | "browser.server.tab.annotate.start.request"
-          | "browser.server.tab.logs.request";
+          | "browser.server.tab.logs.request"
+          | "browser.server.tab.loopback_ports.request";
       }
     >,
   ): Promise<void> {
@@ -342,7 +358,8 @@ export class ServerBrowserSessionHandlers {
           | "browser.server.tabs.subscribe.request"
           | "browser.server.screencast.start.request"
           | "browser.server.tab.annotate.start.request"
-          | "browser.server.tab.logs.request";
+          | "browser.server.tab.logs.request"
+          | "browser.server.tab.loopback_ports.request";
       }
     >,
   ): Promise<string | undefined> {

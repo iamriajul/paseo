@@ -756,6 +756,10 @@ export const fr: TranslationResources = {
         startAndOpen: "Démarrer et ouvrir",
       },
       portForward: {
+        labelPhone: "Ouvrir sur ce téléphone",
+        hintPhone:
+          "Transfère ces ports de l'hôte de l'espace de travail vers ce téléphone, puis ouvre la page dans votre navigateur. Paseo reste actif en arrière-plan tant qu'ils sont ouverts.",
+        portInUsePhone: "Port déjà utilisé sur ce téléphone",
         label: "Ouvrir sur cet ordinateur",
         hint: "Redirige ces ports de l’hôte de l’espace de travail vers cet ordinateur, puis ouvre la page dans votre navigateur.",
         addPort: "Ajouter un port, ex. 8080",

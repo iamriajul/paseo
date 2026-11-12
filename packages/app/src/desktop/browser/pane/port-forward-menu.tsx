@@ -14,7 +14,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MenuTextField } from "@/components/ui/menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getDesktopHost, type DesktopPortForwardStatus } from "@/desktop/host";
+import { getPortForwardController } from "@/port-forward/controller";
+import { rememberServerTabForward } from "@/port-forward/server-tab-forwards";
+import type { PortForwardRoute, PortForwardStatus } from "@/port-forward/types";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { isLoopbackHttpUrl } from "@/utils/localhost-url";
 
@@ -70,18 +72,23 @@ type MenuState =
   | { status: "error"; message: string };
 
 /**
- * "Open on this computer" for a Browser tab showing a workspace localhost URL.
- * Forwards the tab's port plus every loopback port its page has used (and any
- * the user adds) to this machine, then opens the page in the system browser.
+ * "Open on this computer" (or this phone) for a Browser or server browser tab showing a
+ * workspace localhost URL. Forwards the tab's port plus every loopback port its page has used
+ * (and any the user adds) to this device, then opens the page in the system browser.
  */
 export function BrowserPortForwardMenu(props: {
   browserId: string;
   url: string;
   triggerStyle: (state: { hovered?: boolean; pressed?: boolean }) => StyleProp<ViewStyle>;
+  /** A tab this device does not render (a server browser tab): the host its ports live on. */
+  route?: PortForwardRoute;
+  /** The loopback ports the page used, when another machine renders it. */
+  loadObservedPorts?: () => Promise<number[]>;
 }): ReactElement | null {
   const { t } = useTranslation();
-  const bridge = getDesktopHost()?.browser;
-  const [forwards, setForwards] = useState<DesktopPortForwardStatus[]>([]);
+  const controller = useMemo(() => getPortForwardController(), []);
+  const { browserId, loadObservedPorts, route } = props;
+  const [forwards, setForwards] = useState<PortForwardStatus[]>([]);
   const [observedPorts, setObservedPorts] = useState<number[]>([]);
   const [customPorts, setCustomPorts] = useState<number[]>([]);
   const [draftPort, setDraftPort] = useState("");
@@ -100,12 +107,14 @@ export function BrowserPortForwardMenu(props: {
   const isForwarding = forwards.some((forward) => forward.state === "forwarding");
 
   const refresh = useCallback(async () => {
-    const list = await bridge?.listPortForwards?.(props.browserId);
-    if (list) {
-      setForwards(list.forwards);
-      setObservedPorts(list.observedPorts);
-    }
-  }, [bridge, props.browserId]);
+    if (!controller) return;
+    const [list, remotePorts] = await Promise.all([
+      controller.list(browserId),
+      loadObservedPorts?.().catch(() => []) ?? Promise.resolve([]),
+    ]);
+    setForwards(list.forwards);
+    setObservedPorts(Array.from(new Set([...list.observedPorts, ...remotePorts])));
+  }, [browserId, controller, loadObservedPorts]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -119,10 +128,10 @@ export function BrowserPortForwardMenu(props: {
 
   const start = useCallback(
     async (fallbackToAnyPort: boolean) => {
-      if (!bridge?.startPortForward) return;
+      if (!controller) return;
       setState({ status: "loading" });
-      const result = await bridge
-        .startPortForward({ browserId: props.browserId, ports, fallbackToAnyPort })
+      const result = await controller
+        .start({ browserId, ports, fallbackToAnyPort, ...(route ? { route } : {}) })
         .catch((error: unknown) => ({
           kind: "unavailable" as const,
           reason: error instanceof Error ? error.message : String(error),
@@ -136,6 +145,7 @@ export function BrowserPortForwardMenu(props: {
         setState({ status: "error", message: result.reason });
         return;
       }
+      if (route) rememberServerTabForward(route.serverId, browserId);
       await refresh();
       setForwards((current) => mergeForwards(current, result.forwards));
       setState({ status: "idle" });
@@ -144,7 +154,7 @@ export function BrowserPortForwardMenu(props: {
         void openExternalUrl(localUrlFor({ url: props.url, localPort: main.localPort }));
       }
     },
-    [bridge, mainPort, ports, props.browserId, props.url, refresh],
+    [browserId, controller, mainPort, ports, props.url, refresh, route],
   );
 
   const handleForward = useCallback(() => void start(false), [start]);
@@ -152,10 +162,10 @@ export function BrowserPortForwardMenu(props: {
 
   const stop = useCallback(
     async (remotePort: number) => {
-      await bridge?.stopPortForward?.({ browserId: props.browserId, remotePort });
+      await controller?.stop({ browserId, remotePort });
       await refresh();
     },
-    [bridge, props.browserId, refresh],
+    [browserId, controller, refresh],
   );
 
   const addCustomPort = useCallback(() => {
@@ -166,10 +176,13 @@ export function BrowserPortForwardMenu(props: {
     setDraftKey((key) => key + 1);
   }, [draftPort]);
 
-  if (!bridge?.startPortForward || !isLoopbackHttpUrl(props.url)) {
+  if (!controller || !isLoopbackHttpUrl(props.url)) {
     return null;
   }
-  const label = t("workspace.browser.portForward.label");
+  const onPhone = controller.device === "phone";
+  const label = onPhone
+    ? t("workspace.browser.portForward.labelPhone")
+    : t("workspace.browser.portForward.label");
   const hasCollision = forwards.some((forward) => forward.state === "port-in-use");
   return (
     <DropdownMenu onOpenChange={handleOpenChange}>
@@ -189,13 +202,18 @@ export function BrowserPortForwardMenu(props: {
       </Tooltip>
       <DropdownMenuContent align="end" scrollable maxHeight={420} minWidth={280}>
         <DropdownMenuLabel>{label}</DropdownMenuLabel>
-        <DropdownMenuHint>{t("workspace.browser.portForward.hint")}</DropdownMenuHint>
+        <DropdownMenuHint>
+          {onPhone
+            ? t("workspace.browser.portForward.hintPhone")
+            : t("workspace.browser.portForward.hint")}
+        </DropdownMenuHint>
         {ports.map((port) => (
           <PortRow
             key={port}
             port={port}
             isMain={port === mainPort}
             forward={forwardByPort.get(port) ?? null}
+            onPhone={onPhone}
             onStop={stop}
           />
         ))}
@@ -237,9 +255,9 @@ export function BrowserPortForwardMenu(props: {
 }
 
 function mergeForwards(
-  current: DesktopPortForwardStatus[],
-  latest: DesktopPortForwardStatus[],
-): DesktopPortForwardStatus[] {
+  current: PortForwardStatus[],
+  latest: PortForwardStatus[],
+): PortForwardStatus[] {
   const byPort = new Map(current.map((forward) => [forward.remotePort, forward]));
   for (const forward of latest) {
     byPort.set(forward.remotePort, forward);
@@ -250,7 +268,8 @@ function mergeForwards(
 function PortRow(props: {
   port: number;
   isMain: boolean;
-  forward: DesktopPortForwardStatus | null;
+  forward: PortForwardStatus | null;
+  onPhone: boolean;
   onStop: (port: number) => Promise<void>;
 }): ReactElement {
   const { t } = useTranslation();
@@ -262,7 +281,9 @@ function PortRow(props: {
         ? t("workspace.browser.portForward.forwarded")
         : t("workspace.browser.portForward.forwardedTo", { port: forward.localPort });
   } else if (forward?.state === "port-in-use") {
-    description = t("workspace.browser.portForward.portInUse");
+    description = props.onPhone
+      ? t("workspace.browser.portForward.portInUsePhone")
+      : t("workspace.browser.portForward.portInUse");
   } else if (forward?.state === "failed") {
     description = forward.error;
   } else {

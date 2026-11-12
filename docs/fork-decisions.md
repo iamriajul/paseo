@@ -238,6 +238,20 @@ grep -q "stopForwardsOfEndedServerTabs(serverId, tabs)" packages/app/src/server-
 
 The page-traffic recording against a real Chromium is local-only: `npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.local.e2e.test.ts -t "loopback ports"`.
 
+## server-browser-open-on-this-phone
+
+**Android forwards a server tab's host ports to the phone, kept alive by a foreground service**
+
+The Android port-forward controller (`port-forward/controller.android.ts`, logic in `port-forward/mobile-port-forwards.ts`) binds listeners through the fork's `paseo-browser-proxy` module (`PortForwardListeners.kt`) and holds `PortForwardService.kt`, a `specialUse` foreground service, while any forward is open; the module's manifest adds the service and the `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE` and `POST_NOTIFICATIONS` permissions, and its `build.gradle` depends on `react-android` for the headless task that keeps JS timers running. `android-browser-native.yml` also runs on `controller.android.ts`. See [On a phone](browser-localhost-routing.md#on-a-phone).
+
+```bash
+npm test --workspace=@getpaseo/app -- src/port-forward/mobile-port-forwards.test.ts --bail=1
+grep -q "FOREGROUND_SERVICE_SPECIAL_USE" packages/app/modules/paseo-browser-proxy/android/src/main/AndroidManifest.xml
+grep -q "PortForwardService" packages/app/modules/paseo-browser-proxy/android/src/main/AndroidManifest.xml
+grep -q "PaseoPortForwardKeepAlive" packages/app/src/port-forward/controller.android.ts
+grep -q "src/port-forward/controller.android.ts" .github/workflows/android-browser-native.yml
+```
+
 ## code-server-tab
 
 **register Code Server as a workspace tab kind**

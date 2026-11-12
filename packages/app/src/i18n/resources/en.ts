@@ -746,6 +746,10 @@ export const en = {
         startAndOpen: "Start and open",
       },
       portForward: {
+        notificationTitle: "Forwarding ports to this phone",
+        notificationText:
+          "Paseo keeps running so the pages you opened in your browser keep loading. Stop ends every forward.",
+        notificationStop: "Stop",
         labelPhone: "Open on this phone",
         hintPhone:
           "Forwards these ports from the workspace host to this phone, then opens the page in your browser. Paseo stays running in the background while they are open.",

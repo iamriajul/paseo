@@ -754,6 +754,10 @@ export const ja: TranslationResources = {
         startAndOpen: "起動して開く",
       },
       portForward: {
+        notificationTitle: "このスマートフォンへポートを転送中",
+        notificationText:
+          "ブラウザで開いたページが読み込めるよう Paseo が動作し続けます。停止するとすべての転送が終了します。",
+        notificationStop: "停止",
         labelPhone: "このスマートフォンで開く",
         hintPhone:
           "ワークスペースのホストからこのスマートフォンへポートを転送し、ブラウザでページを開きます。転送中は Paseo がバックグラウンドで動作し続けます。",

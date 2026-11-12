@@ -5,6 +5,11 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewDatabase
 import androidx.core.content.ContextCompat
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.ReactContext
+import com.facebook.react.bridge.UiThreadUtil
+import com.facebook.react.jstasks.HeadlessJsTaskConfig
+import com.facebook.react.jstasks.HeadlessJsTaskContext
 import androidx.webkit.ProxyConfig
 import androidx.webkit.ProxyController
 import androidx.webkit.WebViewFeature
@@ -39,7 +44,15 @@ class PaseoBrowserProxyModule : Module() {
     private const val DATA_EVENT = "onProxyConnectionData"
     private const val CLOSE_EVENT = "onProxyConnectionClose"
     private const val ERROR_EVENT = "onProxyConnectionError"
+    private const val FORWARD_STOP_REQUESTED_EVENT = "onPortForwardStopRequested"
+    /** Registered in JS (port-forward/controller.android.ts); runs while forwards are open. */
+    private const val KEEP_ALIVE_TASK = "PaseoPortForwardKeepAlive"
   }
+
+  private val portForwards = PortForwardListeners { eventName, payload ->
+    sendEvent(eventName, payload)
+  }
+  private var keepAliveStarted = false
 
   private var proxyServer: BrowserLoopbackProxyServer? = null
   private var proxyGeneration = 0L
@@ -56,7 +69,54 @@ class PaseoBrowserProxyModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("PaseoBrowserProxy")
-    Events(OPEN_EVENT, DATA_EVENT, CLOSE_EVENT, ERROR_EVENT)
+    Events(
+      OPEN_EVENT,
+      DATA_EVENT,
+      CLOSE_EVENT,
+      ERROR_EVENT,
+      PortForwardListeners.OPEN_EVENT,
+      PortForwardListeners.DATA_EVENT,
+      PortForwardListeners.CLOSE_EVENT,
+      FORWARD_STOP_REQUESTED_EVENT,
+    )
+
+    AsyncFunction("startPortForward") { forwardId: String, port: Int, fallbackToAnyPort: Boolean ->
+      portForwards.start(forwardId, port, fallbackToAnyPort)
+    }
+
+    Function("stopPortForward") { forwardId: String ->
+      portForwards.stop(forwardId)
+    }
+
+    Function("acceptForwardConnection") { connectionId: String ->
+      portForwards.acceptConnection(connectionId)
+    }
+
+    Function("writeForwardConnection") { connectionId: String, binaryBase64: String ->
+      portForwards.writeConnection(connectionId, binaryBase64)
+    }
+
+    Function("closeForwardConnection") { connectionId: String, reason: String? ->
+      portForwards.closeConnection(connectionId, reason)
+    }
+
+    // Shown while any forward is open. Starting it needs the app in the foreground, which it is:
+    // the user just chose "Open on this phone".
+    AsyncFunction("showPortForwardService") { title: String, text: String, stopLabel: String ->
+      val context = appContext.reactContext
+        ?: throw IllegalStateException("Android application context is unavailable.")
+      PortForwardService.onStopRequested = {
+        portForwards.stopAll()
+        sendEvent(FORWARD_STOP_REQUESTED_EVENT, emptyMap<String, Any?>())
+      }
+      PortForwardService.show(context, title, text, stopLabel)
+      startKeepAliveTask(context)
+    }
+
+    Function("hidePortForwardService") {
+      appContext.reactContext?.let { PortForwardService.hide(it) }
+      keepAliveStarted = false
+    }
 
     Function("getSupportStatus") {
       mapOf(
@@ -186,6 +246,8 @@ class PaseoBrowserProxyModule : Module() {
     }
 
     OnDestroy {
+      portForwards.stopAll()
+      appContext.reactContext?.let { PortForwardService.hide(it) }
       nextProxyGeneration()
       proxyServer?.stop("Android Browser module was destroyed.")
       proxyServer = null
@@ -208,5 +270,26 @@ class PaseoBrowserProxyModule : Module() {
       return
     }
     ProxyController.getInstance().clearProxyOverride(executor, onCleared)
+  }
+
+  /**
+   * React Native stops JS timers once the app is paused, unless a headless JS task runs
+   * (JavaTimerManager). The daemon client's timers keep the forwards' WebSocket healthy, so a
+   * task runs while forwards are open; JS finishes it when the last forward stops.
+   */
+  private fun startKeepAliveTask(context: android.content.Context) {
+    val reactContext = context as? ReactContext ?: return
+    UiThreadUtil.runOnUiThread {
+      if (keepAliveStarted) return@runOnUiThread
+      try {
+        HeadlessJsTaskContext.getInstance(reactContext).startTask(
+          HeadlessJsTaskConfig(KEEP_ALIVE_TASK, Arguments.createMap(), 0, true),
+        )
+        keepAliveStarted = true
+      } catch (error: Exception) {
+        // Forwards still work while Paseo is in front; only background timers are affected.
+        android.util.Log.w("PaseoPortForward", "Keep-alive task failed to start", error)
+      }
+    }
   }
 }

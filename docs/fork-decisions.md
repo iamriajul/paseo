@@ -1972,3 +1972,13 @@ grep -q "loadDocument: (url) => this.loadDocument(url)" packages/server/src/serv
 grep -q "cpuResolutionMs" packages/server/src/test-utils/main-thread-work.ts
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/utils/paseo-config-file.test.ts --bail=1 -t "spreads a large config"
 ```
+
+## packaged-smoke-appimage-tmpdir
+
+**Each packaged-smoke launch extracts the AppImage into its own temporary folder**
+
+`packages/desktop/e2e/packaged-app-smoke.js` launches the same AppImage several times with `--appimage-extract-and-run`: the CLI shim's cold daemon start and stop, then the app itself. The AppImage runtime extracts to `$TMPDIR/appimage_extracted_<hash>`, where the hash comes from the image alone, so every launch shared one folder. On the v0.15.914 batch the app launch reused a folder the previous launch was deleting on exit ("File exists and file size matches, skipping") and exited with code 127 before opening its debugging endpoint. `createDefaultDaemonEnv` now gives every launch environment a fresh `TMPDIR`.
+
+```bash
+grep -q 'TMPDIR: createTempDir("paseo-smoke-tmp-")' packages/desktop/e2e/packaged-app-smoke.js
+```

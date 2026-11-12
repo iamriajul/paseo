@@ -150,6 +150,10 @@ function getShellCommand(script) {
 function createDefaultDaemonEnv(extraEnv) {
   return {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_"))),
+    // An AppImage run with --appimage-extract-and-run extracts to $TMPDIR/appimage_extracted_<hash>,
+    // named after the image alone. Every launch of one image shared that folder, so a launch could
+    // reuse the folder a previous launch was deleting on exit and fail with exit code 127.
+    TMPDIR: createTempDir("paseo-smoke-tmp-"),
     ...extraEnv,
   };
 }

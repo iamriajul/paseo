@@ -541,6 +541,8 @@ export function selectSheetTab(
     policy,
     parentTabId: resolveOpenParentTabId(state, workspaceKey, input.parentTabId),
     state: undefined,
+    // Shown in place of the list, not beside the sheets, and a selector's id must stay stable.
+    takenTabIds: new Set(),
   });
 }
 
@@ -819,15 +821,22 @@ function placeTargetInSheet(input: {
   policy: CompactSheetPolicy;
   parentTabId: string | null;
   state: JsonValue | undefined;
+  /** Ids the workspace's sheets and tabs already hold. */
+  takenTabIds: ReadonlySet<string>;
 }): SheetTab {
   if (input.kept) {
     return { ...input.kept, tab: { ...input.kept.tab, target: input.target } };
   }
+  // A same-kind retarget keeps the tab id, so the image gallery's sheet that opened on
+  // alpha.png still holds alpha's id while it shows beta.png. Revealing alpha again must not
+  // reuse it: sheets render keyed by tab id.
+  const revealTabId =
+    input.intent === "reveal" ? buildDeterministicWorkspaceTabId(input.target) : null;
   return {
     tab: {
       tabId:
-        input.intent === "reveal"
-          ? buildDeterministicWorkspaceTabId(input.target)
+        revealTabId && !input.takenTabIds.has(revealTabId)
+          ? revealTabId
           : createWorkspaceTabInstanceId(),
       target: input.target,
       createdAt: Date.now(),
@@ -1116,6 +1125,7 @@ export function createWorkspaceLayoutStore(
           if (sheetPlacement) {
             const sheets = getSheets(get(), normalizedWorkspaceKey);
             const { keptIndex } = sheetPlacement;
+            const layout = get().layoutByWorkspace[normalizedWorkspaceKey];
             const sheet = placeTargetInSheet({
               kept: keptIndex === null ? undefined : sheets[keptIndex],
               target: normalizedTarget,
@@ -1123,6 +1133,10 @@ export function createWorkspaceLayoutStore(
               policy: sheetPlacement.policy,
               parentTabId,
               state: input.state,
+              takenTabIds: new Set([
+                ...sheets.map((existing) => existing.tab.tabId),
+                ...(layout ? collectAllTabs(layout.root).map((tab) => tab.tabId) : []),
+              ]),
             });
             const next =
               keptIndex === null

@@ -41,6 +41,8 @@ class FakeChromium {
   public readonly closedTargets: string[] = [];
   /** The page's scroll position, as the suspend capture reads it. */
   public scroll: [number, number] = [0, 0];
+  /** How long a navigation takes to load; a busy host's page loads late. */
+  public navigateDelayMs = 0;
   /** Ends the running browser as a crash would. */
   public crash: () => void = () => {};
   /** Sends a CDP event from the running browser, as a page would cause one. */
@@ -87,7 +89,9 @@ class FakeChromium {
           const sessionId = message.sessionId;
           const frameId = this.targetOfSession.get(sessionId);
           const url = message.params.url as string;
-          setImmediate(() => {
+          const load = (task: () => void) =>
+            this.navigateDelayMs > 0 ? setTimeout(task, this.navigateDelayMs) : setImmediate(task);
+          load(() => {
             this.emit({ method: "Page.frameStartedLoading", params: { frameId }, sessionId });
             this.emit({
               method: "Page.frameNavigated",
@@ -508,6 +512,37 @@ describe("ServerBrowserHost lifecycle", () => {
     expect(chromium.pageCommands).toContainEqual(
       expect.objectContaining({ method: "Page.startScreencast" }),
     );
+  });
+
+  it("runs an agent's command on a tab a viewer is waking only after its scroll is restored", async () => {
+    const host = createHost();
+    chromium.scroll = [0, 900];
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.suspendTab(tab.browserId);
+    chromium.pageCommands.length = 0;
+    chromium.navigateDelayMs = 200;
+    // A viewer opens the tab: the wake runs on its own, and the tab stops reading as suspended
+    // as soon as it has a target, before its page has loaded or scrolled back.
+    const waking = host.wakeTab(tab);
+    await waitFor(() => !tab.isSuspended);
+
+    await host.execute({
+      type: "browser.automation.execute.request",
+      requestId: "r",
+      workspaceId: "ws",
+      command: {
+        command: "evaluate",
+        args: { browserId: tab.browserId, function: "() => [location.pathname, scrollY]" },
+      },
+    });
+    await waking;
+    const expressions = chromium.pageCommands.map((command) =>
+      String(command.params.expression ?? command.params.functionDeclaration ?? ""),
+    );
+    const restored = expressions.findIndex((text) => text.includes("window.scrollTo(0, 900)"));
+    const agentRead = expressions.findIndex((text) => text.includes("location.pathname"));
+    expect(restored).toBeGreaterThanOrEqual(0);
+    expect(agentRead).toBeGreaterThan(restored);
   });
 
   it("frees the workspace's context and the browser once its only tab is suspended", async () => {

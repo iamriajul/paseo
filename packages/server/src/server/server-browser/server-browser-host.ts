@@ -305,6 +305,12 @@ export class ServerBrowserHost {
       tab?.isSuspended && request.command.command !== "close_tab"
         ? await this.wakeForCommand(tab)
         : undefined;
+    // A viewer may have started the wake: the tab already has its target (so it no longer reads
+    // as suspended) while its page loads and scrolls back. A command run in that window saw the
+    // blank or unscrolled page.
+    if (tab && !notice && request.command.command !== "close_tab") {
+      await this.waking.get(tab.browserId)?.catch(() => {});
+    }
     const response =
       (await this.executeHostCommand(request)) ??
       (await executeAutomationCommand(request, this.registry, {

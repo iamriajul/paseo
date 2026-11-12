@@ -88,6 +88,10 @@ import { useToast } from "@/contexts/toast-context";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { normalizeWorkspaceBrowserUrl, useBrowserStore } from "@/desktop/browser/store";
+import { listMobileBrowserLoopbackPorts } from "@/desktop/browser/mobile-browser-loopback-traffic";
+import { rememberBrowserTabForward } from "@/port-forward/browser-tab-forwards";
+import { usePublicPageUrl } from "@/port-forward/use-public-page-url";
+import { BrowserPortForwardMenu, mainPortOfUrl } from "./port-forward-menu";
 import { BrowserServiceChip, BrowserServicesMenu } from "./services-menu";
 
 type WebViewRef = ComponentRef<typeof WebView>;
@@ -792,6 +796,17 @@ export function BrowserPane({
         : undefined,
     [proxySession],
   );
+  const pageUrl = browser?.url ?? "";
+  const forwardRoute = useMemo(() => ({ serverId, workspaceId }), [serverId, workspaceId]);
+  const loadObservedPorts = useCallback(async () => {
+    const pagePort = mainPortOfUrl(pageUrl);
+    return pagePort === null ? [] : listMobileBrowserLoopbackPorts(serverId, pagePort);
+  }, [pageUrl, serverId]);
+  const handleForwardsStarted = useCallback(
+    () => rememberBrowserTabForward(browserId),
+    [browserId],
+  );
+  const publicPage = usePublicPageUrl({ serverId, workspaceId, url: pageUrl });
   const webViewSource = useMemo(
     () => ({ uri: browser?.url ?? "https://example.com" }),
     [browser?.url],
@@ -880,6 +895,15 @@ export function BrowserPane({
             workspaceId={workspaceId}
             currentUrl={browser?.url ?? ""}
             onNavigate={navigate}
+            triggerStyle={serviceTriggerStyle}
+          />
+          <BrowserPortForwardMenu
+            browserId={browserId}
+            url={pageUrl}
+            route={forwardRoute}
+            loadObservedPorts={loadObservedPorts}
+            publicPage={publicPage}
+            onForwardsStarted={handleForwardsStarted}
             triggerStyle={serviceTriggerStyle}
           />
           <DeviceSizeMenu selectedId={deviceSizeId} onSelect={setDeviceSizeId} />

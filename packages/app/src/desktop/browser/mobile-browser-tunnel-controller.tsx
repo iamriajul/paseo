@@ -9,6 +9,7 @@ import {
   type MobileBrowserProxyConnectionOpenEvent,
 } from "@/native/mobile-browser-proxy";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
+import { recordMobileBrowserLoopbackRequest } from "./mobile-browser-loopback-traffic";
 import {
   setMobileBrowserTunnelFailure,
   setMobileBrowserTunnelIdle,
@@ -175,6 +176,11 @@ export function MobileBrowserTunnelController() {
           return;
         }
 
+        recordMobileBrowserLoopbackRequest({
+          serverId,
+          port: request.port,
+          requestHead: Buffer.from(request.initialDataBase64, "base64").toString("latin1"),
+        });
         canceledOpenConnections.delete(request.connectionId);
         pendingOpenConnections.add(request.connectionId);
         void openMobileBrowserTunnel({

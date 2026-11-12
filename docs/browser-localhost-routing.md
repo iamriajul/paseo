@@ -78,7 +78,7 @@ Whether a host is this machine is remembered per `serverId` once any registratio
 
 ## Open on this computer
 
-A Browser tab or [server browser](server-browser.md) tab showing a localhost URL on a remote host has an "Open on this computer" toolbar menu (Electron desktop). It forwards the tab's ports to the machine running the desktop app and opens the page in the system browser.
+A Browser tab or [server browser](server-browser.md) tab showing a localhost URL on a remote host has an "Open on this computer" toolbar menu (Electron desktop; "Open on this phone" on Android, see [On a phone](#on-a-phone)). It forwards the tab's ports to the machine running the desktop app and opens the page in the system browser.
 
 - The port set is the address bar's port, every loopback port the page's own traffic used (documents, scripts, fetch/XHR, WebSockets), and ports the user adds. Forwarding only the page port leaves an app half-working when it calls an API or HMR socket on another port. A Browser tab's traffic is recorded in Electron main by `browser-loopback-traffic.ts` from `session.webRequest.onSendHeaders`. A server tab's page runs on the host, so the daemon records it from CDP `Network` events (`server-browser/loopback-ports.ts`), on the page and on its workers and out-of-process frames (auto-attached, not paused): a request a service worker makes for the page is reported on the worker's target and the menu asks for it with `browser.server.tab.loopback_ports` (gated on `features.serverBrowserLoopbackPorts`; an older host gets the page port and hand-added ports only).
 - Each forward is a listener on `127.0.0.1:<same port>` in Electron main (`browser-port-forward.ts`). Every accepted connection rides the same renderer TCP tunnel as Browser localhost, so it needs no new protocol and works wherever the tab's localhost works. A Browser tab's route comes from its loopback proxy registration; a server tab has no webview on this machine, so the renderer names its host when it starts the forwards, and Electron main keeps that route until they stop.
@@ -87,13 +87,28 @@ A Browser tab or [server browser](server-browser.md) tab showing a localhost URL
 
 ### On a phone
 
-Android has it for server browser tabs, as "Open on this phone". Through v0.15.913 no phone had it: the user's browser is another app, and switching to it backgrounds Paseo, where Android froze the process and its WebSocket. A foreground service now keeps Paseo running exactly while a forward is open.
+Android has it for server browser tabs and for its own Browser tabs, as "Open on this phone". Through v0.15.913 no phone had it: the user's browser is another app, and switching to it backgrounds Paseo, where Android froze the process and its WebSocket. A foreground service now keeps Paseo running exactly while a forward is open. Through v0.15.915 only server tabs had the menu.
 
 - **Listeners.** `PortForwardListeners.kt` in the `paseo-browser-proxy` module binds each port on the phone's `127.0.0.1` at the same number (free-port fallback as on desktop) and hands every accepted socket to JS, reading nothing until JS has opened its daemon TCP tunnel. Ports, tunnels and lifetime live in `port-forward/mobile-port-forwards.ts`, which is unit-tested; the native layer only binds and moves bytes.
 - **Foreground service.** `PortForwardService.kt` runs while at least one forward is open, type `specialUse` (Android 14+ requires a type; no other type fits a local port relay, and `dataSync` is capped at 6 hours a day on Android 15), with an ongoing notification whose Stop ends every forward. It starts from the menu, while Paseo is in front, as Android 12+ requires. Without the notification permission (Android 13+) the forwards still run and the notification is hidden.
 - **JS timers.** React Native pauses JS timers when the app is paused unless a headless JS task runs (`JavaTimerManager`). The daemon client keeps its connection healthy on timers, so the module starts the `PaseoPortForwardKeepAlive` task with the service and JS finishes it when the last forward stops. The host runtime does not close sockets on background (`setAppVisible`); the OS was the only thing stopping them.
-- **Lifetime.** The same as desktop server tabs: forwards stop when the tab closes or suspends, from the menu, or from the notification. The Browser proxy for in-app Android Browser tabs still stops on background (see [Android lifecycle](#android-lifecycle)); forwards are a separate path and do not.
+- **A Browser tab's ports.** The WebView proxy override is process-wide, so a proxied connection names the host route, not the tab. `mobile-browser-loopback-traffic.ts` files each proxied request under the page that sent it, from its `Origin` or else `Referer` header (the proxy passes every request and WebSocket upgrade to JS with its headers, one connection each), and the menu offers every port reachable from the address bar's port: the page's API and HMR ports, and those of a localhost iframe it embeds. A request with neither header (a page with `Referrer-Policy: no-referrer` loading a script) is not counted; add its port by hand.
+- **Lifetime.** Server tabs as on desktop: forwards stop when the tab closes or suspends. A Browser tab's stop when it closes or navigates off localhost (`port-forward/browser-tab-forwards.ts` follows the browser store, since no webview registration ends with the tab as on Electron). Any forward also stops from the menu or the notification. The Browser proxy for in-app Android Browser tabs still stops on background (see [Android lifecycle](#android-lifecycle)); forwards are a separate path and do not.
+- **A host on this phone.** A host the app reaches on the phone's own loopback (a daemon in a terminal app) needs no forward, and the menu opens the URL itself (`port-forward/host-on-this-device.ts`). A laptop daemon reached through `adb reverse` reads as local too; its pages need their own `adb reverse`.
 - **Google Play.** A `specialUse` service needs a declaration in the Play Console; the manifest's `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` carries the reason.
+
+#### Device check
+
+None of this runs in the phone-width web build or in tests: the listeners, the service and the WebView proxy are native. Run it on an Android phone with the CI APK, against a remote host running a dev server whose page calls an API on a second port (for example Vite on 5173 with an API on 8080).
+
+1. **Server tab.** Open the page in a server browser tab, then Open on this phone > Forward and open. Chrome shows the page with its API data. The notification shows; leave Chrome for a minute and come back: the page still loads and HMR still updates.
+2. **Notification Stop.** Tap Stop in the notification. The forwards end and the notification goes. Forward again: Chrome loads the page, and keeps loading it after a minute behind Chrome (the keep-alive task restarted).
+3. **Browser tab.** Open the same URL in the Browser pane and let it load. Open on this phone lists `localhost:5173`, `localhost:8080` and the HMR port. Forward and open: Chrome shows the page with its API data and HMR.
+4. **Browser tab lifetime.** Navigate the Browser tab to `https://example.com`: the notification goes and Chrome's tab stops loading. Forward again from a localhost page, then close the Browser tab: the same.
+5. **Port taken.** Start something on the phone's port 5173 (a second forward from another tab does it) and forward: the row says the port is in use. Use free ports instead opens Chrome at another port.
+6. **Host on this phone.** With a daemon running on the phone itself and the app connected to it at `127.0.0.1`, the menu opens the URL in Chrome and no notification shows.
+
+Note the step, the phone model and Android version, and what you saw, with `adb logcat | grep -iE "paseo|PortForward"` from that minute.
 
 ### Public URLs
 

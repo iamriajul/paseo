@@ -10,6 +10,7 @@ import {
   type ForwardConnectionOpenEvent,
   type NativePortForwards,
 } from "./mobile-port-forwards";
+import { isHostOnThisDevice } from "./host-on-this-device";
 import type { PortForwardController } from "./types";
 
 /** The port-forward half of the PaseoBrowserProxy module (PortForwardListeners.kt). */
@@ -38,6 +39,8 @@ function createController(): MobilePortForwards | null {
       }
       return client.openTcpTunnel(port, { host: "ipv4" });
     },
+    isLocalHost: (serverId) =>
+      isHostOnThisDevice(getHostRuntimeStore().getSnapshot(serverId)?.activeConnection ?? null),
     service: {
       show: async () => {
         // Android 13+: without it the notification is hidden; the forwards still run.

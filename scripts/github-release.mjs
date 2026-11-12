@@ -1,4 +1,6 @@
 import { execFileSync as nodeExecFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import path from "node:path";
 import { isMainModule } from "./is-main-module.mjs";
 
 // Several release workflows start on the same tag push and each needs the release to
@@ -18,13 +20,49 @@ function gh(execFileSync, args) {
   return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
+function isNotFound(error) {
+  return String(error?.stderr ?? "").includes("HTTP 404");
+}
+
 // A draft's tag_name can read as its `untagged-…` slug, so a draft also matches by title.
-export function listTagReleases(repo, tag, execFileSync = nodeExecFileSync) {
-  const releases = JSON.parse(gh(execFileSync, ["api", `repos/${repo}/releases?per_page=100`]));
+function forTag(releases, tag) {
   return releases.filter(
     (release) =>
       release.tag_name === tag || (release.draft === true && release.name === `Paseo ${tag}`),
   );
+}
+
+// The newest page answers the tag being released. A rebuild of an older tag misses it, and
+// the repository has more than 100 releases, so a miss reads every page before it decides
+// the tag has none: deciding wrongly would create a second release for that tag.
+export function listTagReleases(repo, tag, execFileSync = nodeExecFileSync) {
+  const firstPage = JSON.parse(gh(execFileSync, ["api", `repos/${repo}/releases?per_page=100`]));
+  const found = forTag(firstPage, tag);
+  if (found.length > 0 || firstPage.length < 100) {
+    return found;
+  }
+  const everyRelease = gh(execFileSync, [
+    "api",
+    "--paginate",
+    `repos/${repo}/releases?per_page=100`,
+    "--jq",
+    ".[]",
+  ])
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line));
+  return forTag(everyRelease, tag);
+}
+
+// Concurrent creators run the same cleanup, so another one may already have deleted it.
+function deleteIgnoringMissing(execFileSync, endpoint) {
+  try {
+    gh(execFileSync, ["api", "--method", "DELETE", endpoint]);
+    return true;
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    return false;
+  }
 }
 
 // A published release already owns the tag, and publishing a second one fails with
@@ -62,8 +100,9 @@ export function removeDuplicateReleases(repo, tag, execFileSync = nodeExecFileSy
       );
       continue;
     }
-    gh(execFileSync, ["api", "--method", "DELETE", `repos/${repo}/releases/${release.id}`]);
-    console.error(`Deleted duplicate release ${release.id} for ${tag}`);
+    if (deleteIgnoringMissing(execFileSync, `repos/${repo}/releases/${release.id}`)) {
+      console.error(`Deleted duplicate release ${release.id} for ${tag}`);
+    }
   }
   return canonical;
 }
@@ -142,21 +181,100 @@ export function publishGitHubRelease(
   return { ...release, draft: false, tag_name: tag };
 }
 
+// Asset operations go by release id. A draft's `untagged-…` slug stops resolving the moment
+// npm Global Install Release publishes it, so a slug captured before that 404s after it.
+function requireRelease(repo, tag, execFileSync) {
+  const release = getGitHubRelease(repo, tag, execFileSync);
+  if (!release) {
+    throw new Error(`No release exists for ${tag}.`);
+  }
+  return release;
+}
+
+export function listReleaseAssetNames({ repo, tag }, { execFileSync = nodeExecFileSync } = {}) {
+  return (requireRelease(repo, tag, execFileSync).assets ?? []).map((asset) => asset.name);
+}
+
+export function downloadReleaseAsset(
+  { repo, tag, name, dir },
+  { execFileSync = nodeExecFileSync } = {},
+) {
+  const asset = (requireRelease(repo, tag, execFileSync).assets ?? []).find(
+    (candidate) => candidate.name === name,
+  );
+  if (!asset) {
+    throw new Error(`Release for ${tag} has no asset ${name}.`);
+  }
+  const body = execFileSync(
+    "gh",
+    ["api", "-H", "Accept: application/octet-stream", `repos/${repo}/releases/assets/${asset.id}`],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  writeFileSync(path.join(dir, name), body);
+}
+
+export function deleteReleaseAsset({ repo, tag, name }, { execFileSync = nodeExecFileSync } = {}) {
+  for (const asset of requireRelease(repo, tag, execFileSync).assets ?? []) {
+    if (asset.name === name) {
+      deleteIgnoringMissing(execFileSync, `repos/${repo}/releases/assets/${asset.id}`);
+    }
+  }
+}
+
+// Replaces same-named assets, like `gh release upload --clobber`.
+export function uploadReleaseAssets(
+  { repo, tag, files },
+  { execFileSync = nodeExecFileSync } = {},
+) {
+  const release = requireRelease(repo, tag, execFileSync);
+  for (const file of files) {
+    const name = path.basename(file);
+    for (const asset of release.assets ?? []) {
+      if (asset.name === name) {
+        deleteIgnoringMissing(execFileSync, `repos/${repo}/releases/assets/${asset.id}`);
+      }
+    }
+    gh(execFileSync, [
+      "api",
+      "--method",
+      "POST",
+      `https://uploads.github.com/repos/${repo}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`,
+      "-H",
+      "Content-Type: application/octet-stream",
+      "--input",
+      file,
+    ]);
+  }
+}
+
 function parseArgs(argv) {
   const args = {
     cleanupDuplicates: false,
     ensure: false,
     prerelease: false,
     publish: false,
+    assetNames: false,
+    deleteAsset: "",
+    downloadAsset: "",
+    dir: ".",
+    upload: [],
     repo: "",
     tag: "",
     target: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--repo" || arg === "--tag" || arg === "--target") {
+    if (arg === "--repo" || arg === "--tag" || arg === "--target" || arg === "--dir") {
       args[arg.slice(2)] = argv[index + 1] ?? "";
       index += 1;
+    } else if (arg === "--download-asset" || arg === "--delete-asset") {
+      args[arg === "--download-asset" ? "downloadAsset" : "deleteAsset"] = argv[index + 1] ?? "";
+      index += 1;
+    } else if (arg === "--asset-names") {
+      args.assetNames = true;
+    } else if (arg === "--upload") {
+      args.upload = argv.slice(index + 1);
+      index = argv.length;
     } else if (arg === "--cleanup-duplicates") {
       args.cleanupDuplicates = true;
     } else if (arg === "--ensure") {
@@ -171,7 +289,7 @@ function parseArgs(argv) {
   }
   if (!args.repo || !args.tag) {
     throw new Error(
-      "Usage: node scripts/github-release.mjs --repo <owner/repo> --tag <tag> [--ensure [--prerelease] [--target <ref>] | --publish [--prerelease] | --cleanup-duplicates]",
+      "Usage: node scripts/github-release.mjs --repo <owner/repo> --tag <tag> [--ensure [--prerelease] [--target <ref>] | --publish [--prerelease] | --cleanup-duplicates | --asset-names | --download-asset <name> [--dir <dir>] | --delete-asset <name> | --upload <file>...]",
     );
   }
   return args;
@@ -183,6 +301,21 @@ export function main(argv, deps = {}) {
   const execFileSync = deps.execFileSync ?? nodeExecFileSync;
   const sleep = deps.sleep ?? sleepSync;
   const args = parseArgs(argv);
+  if (args.assetNames) {
+    return listReleaseAssetNames(args, { execFileSync }).join("\n");
+  }
+  if (args.downloadAsset) {
+    downloadReleaseAsset({ ...args, name: args.downloadAsset }, { execFileSync });
+    return "";
+  }
+  if (args.deleteAsset) {
+    deleteReleaseAsset({ ...args, name: args.deleteAsset }, { execFileSync });
+    return "";
+  }
+  if (args.upload.length > 0) {
+    uploadReleaseAssets({ ...args, files: args.upload }, { execFileSync });
+    return "";
+  }
   let release = null;
   if (args.ensure) {
     release = ensureGitHubRelease(args, { execFileSync, sleep, settleMs: deps.settleMs });
@@ -206,10 +339,10 @@ export function main(argv, deps = {}) {
 }
 
 if (isMainModule(import.meta.url)) {
-  const lookup = main(process.argv.slice(2));
-  if (lookup) {
-    process.stdout.write(`${lookup}\n`);
-  } else {
+  const output = main(process.argv.slice(2));
+  if (output === null) {
     process.exitCode = 1;
+  } else if (output) {
+    process.stdout.write(`${output}\n`);
   }
 }

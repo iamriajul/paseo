@@ -892,7 +892,15 @@ const finalizeDraft = {
   assets: [],
 };
 
-function runFinalize({ enabled, results, manifests, releases = [finalizeDraft] }) {
+// `publishMidStep` models npm Global Install Release publishing the draft right after the
+// step's first lookup: from then on the draft's `untagged-…` slug 404s, like on GitHub.
+function runFinalize({
+  enabled,
+  results,
+  manifests,
+  releases = [finalizeDraft],
+  publishMidStep = false,
+}) {
   const workflow = readFileSync(desktopReleasePath, "utf8");
   const finalize = jobBlocks(workflow).get("finalize-rollout").join("\n");
   const step = finalize.match(
@@ -914,14 +922,29 @@ function runFinalize({ enabled, results, manifests, releases = [finalizeDraft] }
     const bin = join(directory, "bin");
     mkdirSync(bin);
     const log = join(directory, "gh.log");
+    const state = join(directory, "releases.json");
+    writeFileSync(state, JSON.stringify({ releases, lists: 0 }));
     writeFileSync(
       join(bin, "gh"),
-      `#!/bin/bash
-printf '%s\\n' "$*" >> "${log}"
-case "$1 $2" in
-  "api repos/owner/paseo/releases?per_page=100") echo '${JSON.stringify(releases)}' ;;
-esac
-exit 0
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n");
+const state = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, "utf8"));
+if (state.published && args.some((arg) => arg.includes("untagged-1"))) {
+  process.stderr.write("gh: Not Found (HTTP 404)");
+  process.exit(1);
+}
+if (args[0] === "api" && args[1] === "repos/owner/paseo/releases?per_page=100") {
+  process.stdout.write(JSON.stringify(state.releases));
+  state.lists += 1;
+  if (${publishMidStep} && state.lists === 1) {
+    state.published = true;
+    state.releases[0] = { ...state.releases[0], draft: false,
+      html_url: "https://github.com/owner/paseo/releases/tag/v1.2.3" };
+  }
+  fs.writeFileSync(${JSON.stringify(state)}, JSON.stringify(state));
+}
 `,
       { mode: 0o755 },
     );
@@ -976,6 +999,10 @@ exit 0
   }
 }
 
+// Uploads go to the release id, never a draft's slug, which stops resolving once published.
+const manifestUpload =
+  /^api --method POST https:\/\/uploads\.github\.com\/repos\/owner\/paseo\/releases\/1\/assets\?name=latest-mac\.yml .*--input .*final\/latest-mac\.yml$/;
+
 const published = (calls) =>
   calls.some((call) =>
     /^api --method PATCH repos\/owner\/paseo\/releases\/\d+ .*draft=false/.test(call),
@@ -990,7 +1017,7 @@ test("finalize publishes an arm64-only macOS release with its updater manifest",
   assert.equal(run.status, 0, run.output);
   assert.equal(run.mac, "mac-manifest-arm64/latest-mac.yml\n");
   assert.ok(
-    run.calls.some((call) => /^release upload untagged-1 .*final\/latest-mac\.yml/.test(call)),
+    run.calls.some((call) => manifestUpload.test(call)),
     run.calls.join("\n"),
   );
   assert.ok(published(run.calls), run.calls.join("\n"));
@@ -1023,6 +1050,30 @@ test("finalize deletes an empty duplicate release before it publishes the draft"
   assert.ok(deleted < publish, run.calls.join("\n"));
 });
 
+test("finalize still uploads the manifest when npm publishes the draft during the step", () => {
+  const run = runFinalize({
+    enabled: ["macos"],
+    results: { macos: "success", linux: "skipped", windows: "skipped" },
+    manifests: { arm64: ["Paseo-1.2.3-arm64-mac.zip"] },
+    releases: [{ ...finalizeDraft, assets: [{ id: 50, name: "latest-mac.yml" }] }],
+    publishMidStep: true,
+  });
+  assert.equal(run.status, 0, run.output);
+  assert.ok(
+    run.calls.includes(
+      "api -H Accept: application/octet-stream repos/owner/paseo/releases/assets/50",
+    ),
+    run.calls.join("\n"),
+  );
+  assert.ok(run.calls.includes("api --method DELETE repos/owner/paseo/releases/assets/50"));
+  assert.ok(
+    run.calls.some((call) => manifestUpload.test(call)),
+    run.calls.join("\n"),
+  );
+  assert.ok(!run.calls.some((call) => call.includes("untagged-")), run.calls.join("\n"));
+  assert.ok(!published(run.calls), "npm already published it");
+});
+
 test("finalize accepts a release npm already published: uploads the manifest, skips the publish", () => {
   const run = runFinalize({
     enabled: ["macos"],
@@ -1044,7 +1095,7 @@ test("finalize accepts a release npm already published: uploads the manifest, sk
   });
   assert.equal(run.status, 0, run.output);
   assert.ok(
-    run.calls.some((call) => /^release upload v1\.2\.3 .*final\/latest-mac\.yml/.test(call)),
+    run.calls.some((call) => manifestUpload.test(call)),
     run.calls.join("\n"),
   );
   assert.ok(
@@ -1063,7 +1114,7 @@ test("only finalize-rollout uploads updater manifests, after every desktop build
     // upload-release-assets.mjs skips *.yml; the manifest travels as an artifact instead.
     assert.match(
       job,
-      /node scripts\/upload-release-assets\.mjs "\$release_lookup" "\$release_dir"/,
+      /node scripts\/upload-release-assets\.mjs "\$RELEASE_TAG" "\$release_dir"/,
       jobId,
     );
     assert.doesNotMatch(job, /gh release upload/, jobId);
@@ -1075,7 +1126,9 @@ test("only finalize-rollout uploads updater manifests, after every desktop build
   )
     .get("package-npm-global-install")
     .join("\n");
-  const upload = npm.indexOf('gh release upload "$release_lookup" "$NPM_RELEASE_ASSETS"/*.tgz');
+  const upload = npm.indexOf(
+    'node scripts/upload-release-assets.mjs "$RELEASE_TAG" "$NPM_RELEASE_ASSETS"',
+  );
   assert.ok(upload > 0, "npm uploads its tarballs to the resolved release");
   assert.ok(
     npm.indexOf('publish_args=(--repo "${{ github.repository }}" --tag "$RELEASE_TAG" --publish)') >
@@ -1113,8 +1166,12 @@ test("every release workflow creates the release through the shared script, as a
   ]) {
     const source = readFileSync(new URL(`.github/workflows/${file}`, repoRoot), "utf8");
     assert.doesNotMatch(source, /release create/, `${file} creates a release outside the script`);
-    // `gh release upload <tag>` picks an arbitrary release when duplicates exist.
+    // `gh release upload <tag>` picks an arbitrary release when duplicates exist, and a lookup
+    // captured as a draft's slug 404s once the draft is published.
     assert.doesNotMatch(source, /release upload "\$RELEASE_TAG"/, `${file} uploads by tag`);
+    if (file !== "android-apk-release.yml") {
+      assert.doesNotMatch(source, /gh release (upload|download|delete-asset|view)/, file);
+    }
   }
   const fork = jobBlocks(
     readFileSync(new URL(".github/workflows/android-apk-release.yml", repoRoot), "utf8"),
@@ -1122,6 +1179,8 @@ test("every release workflow creates the release through the shared script, as a
     .get("publish-fork-android-apk")
     .join("\n");
   assert.match(fork, /needs: \[release-targets, ensure-release\]/);
+  assert.match(fork, /node scripts\/upload-release-assets\.mjs "\$RELEASE_TAG" "\$upload_dir"/);
+  assert.doesNotMatch(fork, /gh release upload/);
 });
 
 test("finalize merges both macOS arches when both are enabled", () => {
@@ -1142,7 +1201,7 @@ test("finalize publishes a release with no desktop targets and does not publish 
     manifests: {},
   });
   assert.equal(none.status, 0, none.output);
-  assert.ok(!none.calls.some((call) => call.startsWith("release upload")), none.calls.join("\n"));
+  assert.ok(!none.calls.some((call) => call.includes("uploads.github.com")), none.calls.join("\n"));
   assert.ok(published(none.calls), none.calls.join("\n"));
 
   const failed = runFinalize({

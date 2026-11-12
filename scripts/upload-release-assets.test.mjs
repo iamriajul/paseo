@@ -44,6 +44,24 @@ test("gives up after the attempt limit and reports failure", async () => {
   assert.equal(calls, 3);
 });
 
+test("resolves the release again for every attempt, so a draft published mid-upload is found by its tag", async () => {
+  // The draft's slug 404s once npm publishes it; the retry must not reuse it.
+  const lookups = ["untagged-7", "v1.2.3"];
+  const targets = [];
+  const exitCode = await uploadWithRetry(
+    { release: () => lookups.shift(), files: ["a.dmg"], repo: "owner/paseo" },
+    {
+      sleep: noSleep,
+      upload: ({ release }) => {
+        targets.push(release);
+        return release === "v1.2.3" ? 0 : 1;
+      },
+    },
+  );
+  assert.equal(exitCode, 0);
+  assert.deepEqual(targets, ["untagged-7", "v1.2.3"]);
+});
+
 test("collects release files and skips manifests", () => {
   const files = collectAssets("/release", {
     readDir: () => ["Paseo.dmg", "beta-mac.yml", "Paseo.zip", "nested"],

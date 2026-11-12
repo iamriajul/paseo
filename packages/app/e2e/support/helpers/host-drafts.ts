@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test";
 import type { SeedDaemonClient } from "./seed-client";
 
 const NAMESPACES = ["composer", "review"] as const;
@@ -17,4 +18,26 @@ export async function clearSavedHostDrafts(client: SeedDaemonClient): Promise<vo
       await client.clearUiState({ namespace, key, updatedAt });
     }
   }
+}
+
+/**
+ * Waits until the host has saved an agent composer's text. The composer saves it 300 ms after
+ * the last edit, so a test that pauses `page.clock` before then makes the paused clock fire the
+ * save at the frozen time.
+ */
+export async function expectSavedHostComposerText(
+  client: SeedDaemonClient,
+  agentId: string,
+  text: string,
+): Promise<void> {
+  await expect
+    .poll(async () => {
+      const { record, error } = await client.getUiState({
+        namespace: "composer",
+        key: `agent:${agentId}`,
+      });
+      if (error) throw new Error(`Reading the saved composer draft failed: ${error}`);
+      return record?.text ?? null;
+    })
+    .toBe(text);
 }

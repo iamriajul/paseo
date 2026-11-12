@@ -745,6 +745,13 @@ export const en = {
         unhealthy: "unhealthy",
         startAndOpen: "Start and open",
       },
+      openInBrowser: {
+        label: "Open in browser",
+        noPublicUrl:
+          "Port {{port}} has no public URL on this host. Set daemon.browserPreview.urlTemplate on the host, or serviceProxy.publicBaseUrl for a paseo.json service.",
+        publicUrl: "Open its public URL instead",
+        publicUrlHint: "Works from any device. Public URLs skip Paseo's sign-in.",
+      },
       portForward: {
         notificationTitle: "Forwarding ports to this phone",
         notificationText:

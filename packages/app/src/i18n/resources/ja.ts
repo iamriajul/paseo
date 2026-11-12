@@ -753,6 +753,13 @@ export const ja: TranslationResources = {
         unhealthy: "異常",
         startAndOpen: "起動して開く",
       },
+      openInBrowser: {
+        label: "ブラウザで開く",
+        noPublicUrl:
+          "このホストではポート {{port}} に公開 URL がありません。ホストで daemon.browserPreview.urlTemplate を設定するか、paseo.json のサービスには serviceProxy.publicBaseUrl を設定してください。",
+        publicUrl: "代わりに公開 URL を開く",
+        publicUrlHint: "どのデバイスからでも開けます。公開 URL は Paseo のサインインを通りません。",
+      },
       portForward: {
         notificationTitle: "このスマートフォンへポートを転送中",
         notificationText:

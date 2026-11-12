@@ -753,6 +753,14 @@ export const ptBR: TranslationResources = {
         unhealthy: "com falha",
         startAndOpen: "Iniciar e abrir",
       },
+      openInBrowser: {
+        label: "Abrir no navegador",
+        noPublicUrl:
+          "A porta {{port}} não tem URL pública neste host. Defina daemon.browserPreview.urlTemplate no host, ou serviceProxy.publicBaseUrl para um serviço do paseo.json.",
+        publicUrl: "Abrir a URL pública",
+        publicUrlHint:
+          "Funciona em qualquer dispositivo. URLs públicas não passam pelo login do Paseo.",
+      },
       portForward: {
         notificationTitle: "Encaminhando portas para este telefone",
         notificationText:

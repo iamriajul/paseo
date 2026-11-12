@@ -748,6 +748,13 @@ export const ko: TranslationResources = {
         unhealthy: "비정상",
         startAndOpen: "시작하고 열기",
       },
+      openInBrowser: {
+        label: "브라우저에서 열기",
+        noPublicUrl:
+          "이 호스트에서 포트 {{port}}에는 공개 URL이 없습니다. 호스트에 daemon.browserPreview.urlTemplate을 설정하거나 paseo.json 서비스에는 serviceProxy.publicBaseUrl을 설정하세요.",
+        publicUrl: "대신 공개 URL 열기",
+        publicUrlHint: "어느 기기에서나 열립니다. 공개 URL은 Paseo 로그인을 거치지 않습니다.",
+      },
       portForward: {
         notificationTitle: "이 휴대폰으로 포트 전달 중",
         notificationText:

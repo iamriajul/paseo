@@ -755,6 +755,14 @@ export const fr: TranslationResources = {
         unhealthy: "en échec",
         startAndOpen: "Démarrer et ouvrir",
       },
+      openInBrowser: {
+        label: "Ouvrir dans le navigateur",
+        noPublicUrl:
+          "Le port {{port}} n'a pas d'URL publique sur cet hôte. Définissez daemon.browserPreview.urlTemplate sur l'hôte, ou serviceProxy.publicBaseUrl pour un service paseo.json.",
+        publicUrl: "Ouvrir plutôt son URL publique",
+        publicUrlHint:
+          "Fonctionne depuis n'importe quel appareil. Les URL publiques contournent la connexion Paseo.",
+      },
       portForward: {
         notificationTitle: "Transfert de ports vers ce téléphone",
         notificationText:

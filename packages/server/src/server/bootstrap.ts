@@ -3,7 +3,7 @@ import { sendPreparedPromptToAgent, sendPromptToAgent } from "./agent/agent-prom
 import {
   createJsonWakeUpHoldStore,
   describeHeldWakeUp,
-  heldWakeUpRunOptions,
+  heldWakeUpSend,
   WakeUpHolds,
 } from "./agent/wake-up-hold.js";
 import { resolveAgentPromptCacheExpiresAtMs } from "./agent/prompt-cache-expiry.js";
@@ -1238,15 +1238,13 @@ export async function createPaseoDaemon(
     isBusy: (agentId) => agentManager.hasInFlightRun(agentId),
     store: createJsonWakeUpHoldStore(path.join(config.paseoHome, "wake-up-holds.json")),
     redeliver: async (entry) => {
-      if (!entry.redeliver) return;
+      const send = heldWakeUpSend(entry);
+      if (!send) return;
       await sendPreparedPromptToAgent({
         agentManager,
         agentStorage,
         agentId: entry.agentId,
-        prompt: entry.redeliver.text,
-        unarchive: false,
-        activeTurnBehavior: "steer",
-        runOptions: heldWakeUpRunOptions(entry),
+        ...send,
         logger,
       });
     },
@@ -1348,7 +1346,7 @@ export async function createPaseoDaemon(
       const held = await wakeUpHolds.hold({
         agentId,
         kind: "restart",
-        redeliver: { text: prompt },
+        redeliver: { text: prompt, unarchive: false },
       });
       if (held.status !== "send") return undefined;
       return sendPromptToAgent({

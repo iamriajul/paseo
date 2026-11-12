@@ -646,6 +646,84 @@ describe("ServerBrowserHost with a real Chromium", () => {
     }
   });
 
+  it("reports a page whose renderer crashed, fails its commands fast, and reloads it", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "user" });
+    const live = host.getTab(tab.browserId)!;
+    // Chromium never answers the command that crashed the page; the crash must end it.
+    const crash = live.contents.sendDebugCommand("Page.crash");
+    await expect(crash).rejects.toThrow(/crashed/);
+    expect(live.info().crashed).toBe(true);
+    expect(host.listTabs().map((info) => info.browserId)).toContain(tab.browserId);
+    // A command the dead renderer would handle fails at once instead of hanging.
+    await expect(evaluate(host, tab.browserId, "1 + 1")).rejects.toThrow(/Reload the tab/);
+
+    await live.reload();
+    await waitFor(() => live.info().crashed !== true);
+    let title = "";
+    for (let attempt = 0; attempt < 40 && title !== "Fixture"; attempt++) {
+      title = String(await evaluate(host, tab.browserId, "document.title"));
+      if (title !== "Fixture") await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(title).toBe("Fixture");
+    // Viewer input works on the reloaded page.
+    const at = { x: 0.1, y: 0.2 };
+    await live.dispatchInput([
+      { kind: "mouse", action: "move", ...at, button: "none", clickCount: 0 },
+      { kind: "mouse", action: "down", ...at, button: "left", clickCount: 1 },
+      { kind: "mouse", action: "up", ...at, button: "left", clickCount: 1 },
+    ]);
+    expect(await evaluate(host, tab.browserId, "document.getElementById('add').dataset.n")).toBe(
+      "1",
+    );
+  });
+
+  it("gives a Mac viewer's Cmd editing keys their Ctrl meaning on a Linux host", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    await evaluate(
+      host,
+      tab.browserId,
+      "document.body.insertAdjacentHTML('beforeend', '<input id=field value=hello>'); document.getElementById('field').focus()",
+    );
+    const cmd = (key: string, action: "down" | "up") => ({
+      kind: "key" as const,
+      action,
+      key,
+      code: `Key${key.toUpperCase()}`,
+      keyCode: key.toUpperCase().charCodeAt(0),
+      modifiers: ["Meta" as const],
+    });
+    // Cmd+A selects the field's text; typing then replaces it.
+    await tab.dispatchInput([cmd("a", "down"), cmd("a", "up")]);
+    await tab.dispatchInput([{ kind: "text", text: "x" }]);
+    expect(await evaluate(host, tab.browserId, "document.getElementById('field').value")).toBe("x");
+    // Cmd+Z undoes the typing.
+    await tab.dispatchInput([cmd("z", "down"), cmd("z", "up")]);
+    expect(await evaluate(host, tab.browserId, "document.getElementById('field').value")).toBe(
+      "hello",
+    );
+  });
+
+  it("reads the page's selection for a viewer to copy, from a field or the document", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "user" });
+    const live = host.getTab(tab.browserId)!;
+    expect(await live.readSelection()).toBe("");
+    await evaluate(
+      host,
+      tab.browserId,
+      "document.body.insertAdjacentHTML('beforeend', '<input id=field value=\"hello world\">'); const f = document.getElementById('field'); f.focus(); f.setSelectionRange(6, 11)",
+    );
+    expect(await live.readSelection()).toBe("world");
+    await evaluate(
+      host,
+      tab.browserId,
+      "document.activeElement.blur(); getSelection().selectAllChildren(document.querySelector('p'))",
+    );
+    expect(await live.readSelection()).toBe("fixture page");
+  });
+
   it("closes Chromium on shutdown", async () => {
     const host = createHost();
     await host.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });

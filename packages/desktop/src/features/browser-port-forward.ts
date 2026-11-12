@@ -44,6 +44,11 @@ const defaultDeps: ForwardDeps = {
 
 export class BrowserPortForwards {
   private readonly byBrowserId = new Map<string, Map<number, ActiveForward>>();
+  /**
+   * Routes of tabs with no webview here (server browser tabs), given by the renderer when it
+   * starts their forwards. A Browser tab's route comes from its loopback proxy registration.
+   */
+  private readonly givenRoutes = new Map<string, BrowserLoopbackRoute>();
 
   constructor(private readonly deps: ForwardDeps = defaultDeps) {}
 
@@ -56,12 +61,18 @@ export class BrowserPortForwards {
     browserId: string;
     ports: readonly number[];
     fallbackToAnyPort?: boolean;
+    /** The route of a tab this machine does not render; kept until its forwards stop. */
+    route?: BrowserLoopbackRoute;
   }): Promise<StartPortForwardResult> {
-    const route = this.deps.resolveRoute(input.browserId);
+    if (input.route) {
+      this.givenRoutes.set(input.browserId, input.route);
+    }
+    const route = this.resolveRoute(input.browserId);
     if (!route) {
       return { kind: "unavailable", reason: "This Browser tab is not connected to a host." };
     }
     if (route.directLoopback) {
+      this.forgetGivenRouteIfIdle(input.browserId);
       return { kind: "local-host" };
     }
     const forwards = this.forwardsFor(input.browserId);
@@ -100,17 +111,37 @@ export class BrowserPortForwards {
     forwards.delete(input.remotePort);
     if (forwards.size === 0) {
       this.byBrowserId.delete(input.browserId);
+      this.givenRoutes.delete(input.browserId);
     }
     await closeForward(forward);
   }
 
   async stopAll(browserId: string): Promise<void> {
+    this.givenRoutes.delete(browserId);
     const forwards = this.byBrowserId.get(browserId);
     if (!forwards) {
       return;
     }
     this.byBrowserId.delete(browserId);
     await Promise.all(Array.from(forwards.values(), closeForward));
+  }
+
+  /** Stops every forward whose route rides this renderer, e.g. when its window closes. */
+  async stopAllForRenderer(rendererWebContentsId: number): Promise<void> {
+    const browserIds = Array.from(this.givenRoutes)
+      .filter(([, route]) => route.rendererWebContentsId === rendererWebContentsId)
+      .map(([browserId]) => browserId);
+    await Promise.all(browserIds.map((browserId) => this.stopAll(browserId)));
+  }
+
+  private resolveRoute(browserId: string): BrowserLoopbackRoute | null {
+    return this.deps.resolveRoute(browserId) ?? this.givenRoutes.get(browserId) ?? null;
+  }
+
+  private forgetGivenRouteIfIdle(browserId: string): void {
+    if (!this.byBrowserId.has(browserId)) {
+      this.givenRoutes.delete(browserId);
+    }
   }
 
   private forwardsFor(browserId: string): Map<number, ActiveForward> {
@@ -134,7 +165,7 @@ export class BrowserPortForwards {
       socket.once("close", () => sockets.delete(socket));
       // Resolve the route per connection: the tab's host connection can change
       // (reconnect, renderer reload) while the forward stays up.
-      const route = this.deps.resolveRoute(browserId);
+      const route = this.resolveRoute(browserId);
       if (!route) {
         socket.destroy();
         return;

@@ -2339,6 +2339,8 @@ export class VoiceAssistantWebSocketServer {
         serverBrowserViewerControls: serverBrowserOf(this.browserToolsBroker) !== null,
         // COMPAT(serverBrowserSuspend): added in v0.15.x (fork), drop gate after 2027-05-01.
         serverBrowserSuspend: serverBrowserOf(this.browserToolsBroker) !== null,
+        // COMPAT(serverBrowserLoopbackPorts): added in v0.15.x (fork), drop gate after 2027-05-01.
+        serverBrowserLoopbackPorts: serverBrowserOf(this.browserToolsBroker) !== null,
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: true,
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

@@ -755,6 +755,10 @@ export const es: TranslationResources = {
         startAndOpen: "Iniciar y abrir",
       },
       portForward: {
+        labelPhone: "Abrir en este teléfono",
+        hintPhone:
+          "Reenvía estos puertos del host del espacio de trabajo a este teléfono y abre la página en tu navegador. Paseo sigue en segundo plano mientras estén abiertos.",
+        portInUsePhone: "Puerto ya en uso en este teléfono",
         label: "Abrir en este equipo",
         hint: "Reenvía estos puertos del host del espacio de trabajo a este equipo y abre la página en tu navegador.",
         addPort: "Añade un puerto, p. ej. 8080",

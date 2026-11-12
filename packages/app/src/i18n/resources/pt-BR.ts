@@ -754,6 +754,10 @@ export const ptBR: TranslationResources = {
         startAndOpen: "Iniciar e abrir",
       },
       portForward: {
+        labelPhone: "Abrir neste telefone",
+        hintPhone:
+          "Encaminha estas portas do host do espaço de trabalho para este telefone e abre a página no seu navegador. O Paseo continua em segundo plano enquanto elas estiverem abertas.",
+        portInUsePhone: "Porta já em uso neste telefone",
         label: "Abrir neste computador",
         hint: "Encaminha estas portas do host do workspace para este computador e abre a página no seu navegador.",
         addPort: "Adicione uma porta, ex. 8080",

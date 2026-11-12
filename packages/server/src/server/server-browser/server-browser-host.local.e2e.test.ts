@@ -613,6 +613,38 @@ describe("ServerBrowserHost with a real Chromium", () => {
 
     await expectOk("close_tab", { browserId }, 5_000);
   }, 120_000);
+  it("records the loopback ports a page's documents, fetches and WebSockets use", async () => {
+    const api = http.createServer((_req, res) => {
+      res.setHeader("access-control-allow-origin", "*");
+      res.end("{}");
+    });
+    // Accepts the upgrade request and stops there: the tab only has to have opened the socket.
+    const socketServer = http.createServer();
+    socketServer.on("upgrade", (_req, socket) => socket.destroy());
+    await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => socketServer.listen(0, "127.0.0.1", resolve));
+    const portOf = (server: http.Server) => (server.address() as { port: number }).port;
+    try {
+      const host = createHost();
+      const tab = await host.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "user" });
+      await evaluate(
+        host,
+        tab.browserId,
+        `fetch("http://localhost:${portOf(api)}/api").then((r) => r.text()).then(() => {
+           new WebSocket("ws://127.0.0.1:${portOf(socketServer)}/hmr");
+           return fetch("https://example.invalid/").catch(() => null);
+         })`,
+      );
+      const sitePort = Number(new URL(siteUrl).port);
+      const expected = [sitePort, portOf(api), portOf(socketServer)].sort((a, b) => a - b);
+      await waitFor(
+        () => host.getTab(tab.browserId)!.observedLoopbackPorts().join() === expected.join(),
+      );
+    } finally {
+      await new Promise<void>((resolve) => api.close(() => resolve()));
+      await new Promise<void>((resolve) => socketServer.close(() => resolve()));
+    }
+  });
 
   it("closes Chromium on shutdown", async () => {
     const host = createHost();

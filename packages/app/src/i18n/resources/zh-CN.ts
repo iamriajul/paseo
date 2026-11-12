@@ -748,6 +748,10 @@ export const zhCN: TranslationResources = {
         startAndOpen: "启动并打开",
       },
       portForward: {
+        labelPhone: "在此手机上打开",
+        hintPhone:
+          "将这些端口从工作区主机转发到此手机，然后在浏览器中打开页面。转发期间 Paseo 会在后台保持运行。",
+        portInUsePhone: "此手机上的端口已被占用",
         label: "在这台电脑上打开",
         hint: "将这些端口从工作区主机转发到这台电脑，然后在你的浏览器中打开页面。",
         addPort: "添加端口，例如 8080",

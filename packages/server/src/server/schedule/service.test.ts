@@ -39,6 +39,8 @@ import {
   type ScheduleServiceOptions,
 } from "./service.js";
 import { ScheduleStore } from "./store.js";
+import { WakeUpHolds } from "../agent/wake-up-hold.js";
+import type { WarmUpAccountBlock } from "../agent/gateway/warm-up-account.js";
 import type { ScheduleExecutionResult, StoredSchedule } from "@getpaseo/protocol/schedule/types";
 
 interface ScheduleServiceInternals {
@@ -906,6 +908,87 @@ describe("ScheduleService", () => {
     expect(steerOrReplace).not.toHaveBeenCalled();
     const inspected = await service.inspect(schedule.id);
     expect(inspected.runs[0].output).toBe("Skipped: the agent's prompt cache has expired");
+  });
+
+  test("agent-target heartbeat waits for a cooling-down serving account and does not pile up while it waits", async () => {
+    const steerOrReplace = vi.fn(async () => ({ status: "steered" as const }));
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    manager.steerOrReplaceActiveTurn = steerOrReplace as typeof manager.steerOrReplaceActiveTurn;
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    let block: WarmUpAccountBlock | null = {
+      reason: "cooldown",
+      account: "s***b",
+      until: new Date(now.getTime() + 5 * 60_000).toISOString(),
+    };
+    const timers: { at: number; fire: () => void }[] = [];
+    const holds = new WakeUpHolds({
+      readBlock: async () => block,
+      cacheExpiresAtMs: async () => null,
+      lastRequestAtMs: () => null,
+      isBusy: (agentId) => manager.hasInFlightRun(agentId),
+      store: { load: async () => [], save: async () => {} },
+      redeliver: async () => {},
+      onChange: (agentId, view) => manager.setWakeUpHold(agentId, view),
+      logger: createTestLogger(),
+      now: () => now.getTime(),
+      schedule: (delayMs, fire) => {
+        timers.push({ at: now.getTime() + delayMs, fire });
+        return () => {};
+      },
+    });
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      wakeUpHolds: holds,
+    });
+    const schedule = await service.create({
+      prompt: "Heartbeat check",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id },
+      skipWhileActive: true,
+    });
+    const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 20));
+
+    now = new Date(now.getTime() + 60_000);
+    const firstTick = service.tick();
+    await settle();
+    expect(steerOrReplace).not.toHaveBeenCalled();
+    expect(manager.getAgent(agent.id)?.wakeUpHold).toMatchObject({
+      kind: "heartbeat",
+      reason: "cooldown",
+      account: "s***b",
+      count: 1,
+    });
+
+    // Three more cadences pass while the account cools down: none of them queues another fire.
+    for (let minute = 0; minute < 3; minute += 1) {
+      now = new Date(now.getTime() + 60_000);
+      await service.tick();
+    }
+    expect(steerOrReplace).not.toHaveBeenCalled();
+    expect((await service.inspect(schedule.id)).runs).toHaveLength(1);
+
+    // The account is back: the one held heartbeat goes out.
+    block = null;
+    now = new Date(timers[0]!.at);
+    timers[0]!.fire();
+    await firstTick;
+    expect(steerOrReplace).toHaveBeenCalledTimes(1);
+    expect(manager.getAgent(agent.id)?.wakeUpHold).toBeUndefined();
+    const inspected = await service.inspect(schedule.id);
+    expect(inspected.runs).toHaveLength(1);
+    expect(inspected.runs[0].status).toBe("succeeded");
+    expect(new Date(inspected.nextRunAt!).getTime()).toBeGreaterThan(now.getTime());
   });
 
   test("titles scheduled new agents from the schedule prompt", async () => {

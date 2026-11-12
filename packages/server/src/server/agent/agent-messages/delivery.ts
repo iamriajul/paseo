@@ -25,9 +25,11 @@ interface Admitted extends Message {
   resolve(disposition: PromptDispatchDisposition): void;
   reject(error: unknown): void;
 }
-interface DispatchRequest {
+export interface AgentMessageDispatchRequest {
   recipientId: string;
   messageIds: readonly string[];
+  /** What each batched message is: another agent's message or a finish notification. */
+  sourceKinds: readonly AgentPromptSource["kind"][];
   prompt: AgentPromptInput;
   activeTurnBehavior: "steer" | "interrupt";
   sessionMode?: string;
@@ -44,8 +46,8 @@ interface DispatchRequest {
   onDispatch(disposition: PromptDispatchDisposition): void;
 }
 interface Dependencies {
-  dispatch(request: DispatchRequest): Promise<PromptDispatchDisposition>;
-  onError(error: unknown, request: DispatchRequest): void;
+  dispatch(request: AgentMessageDispatchRequest): Promise<PromptDispatchDisposition>;
+  onError(error: unknown, request: AgentMessageDispatchRequest): void;
   /** Return a cancellation function. Production uses the daemon's event loop. */
   schedule?: (delayMs: number, callback: () => void) => () => void;
 }
@@ -87,9 +89,10 @@ export function createAgentMessageDelivery(dependencies: Dependencies): AgentMes
       : prompts.flatMap((entry): AgentPromptContentBlock[] =>
           typeof entry === "string" ? [{ type: "text", text: entry }] : entry,
         );
-    const request: DispatchRequest = {
+    const request: AgentMessageDispatchRequest = {
       recipientId,
       messageIds: messages.map((message) => message.receipt.messageId),
+      sourceKinds: messages.map((message) => message.source.kind),
       prompt,
       activeTurnBehavior: messages[0]!.activeTurnBehavior ?? "steer",
       sessionMode: messages.find((message) => message.sessionMode)?.sessionMode,

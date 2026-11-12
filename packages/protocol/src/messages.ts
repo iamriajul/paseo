@@ -1119,6 +1119,30 @@ export const AgentCacheWarmPauseSchema = z.object({
 
 export type AgentCacheWarmPause = z.infer<typeof AgentCacheWarmPauseSchema>;
 
+/**
+ * Automated wake-ups (a heartbeat, an agent message or notification, a restart resume) waiting
+ * for the CLIProxyAPI account serving the agent, so they do not move the session to another
+ * account and re-read its whole context cold.
+ */
+export const AgentWakeUpHoldSchema = z.object({
+  /** "heartbeat" | "agent-message" | "agent-notification" | "restart", or a newer kind. */
+  kind: z.string(),
+  /** "quota" | "cooldown", or a newer reason a later daemon adds. */
+  reason: z.string(),
+  /** Masked account label, as `/v1/quota` shows it. */
+  account: z.string(),
+  /** When the account is due back; the wake-ups go out a few seconds after. */
+  until: z.string(),
+  /** The used-up quota window's name, for a quota hold. */
+  window: z.string().optional(),
+  /** When the first of them began waiting. */
+  heldAt: z.string(),
+  /** How many wake-ups wait, counting repeats of one heartbeat. */
+  count: z.number(),
+});
+
+export type AgentWakeUpHold = z.infer<typeof AgentWakeUpHoldSchema>;
+
 export const AgentSnapshotPayloadSchema = z.object({
   id: z.string(),
   provider: AgentProviderSchema,
@@ -1164,6 +1188,8 @@ export const AgentSnapshotPayloadSchema = z.object({
   gatewayAccounts: z.array(GatewayAccountChangeSchema).optional(),
   /** Present while warm-up is paused for the serving account; absent on older daemons. */
   cacheWarmPause: AgentCacheWarmPauseSchema.optional(),
+  /** Present while automated wake-ups wait for the serving account; absent on older daemons. */
+  wakeUpHold: AgentWakeUpHoldSchema.optional(),
   /** Explicit per-agent idle-cap compaction choice; absent follows the host's cacheAutoCompact. */
   cacheAutoCompact: z.boolean().optional(),
   /** Explicit per-agent warm-up cap per idle stretch; absent uses the window's maximum. */

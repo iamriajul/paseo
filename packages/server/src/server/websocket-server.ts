@@ -6,6 +6,7 @@ import { type WorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import { resolveCacheWarmMode, type CacheWarmMode } from "@getpaseo/protocol/agent-cache-warm";
 import {
   createAgentMessageDelivery,
+  type AgentMessageDispatchRequest,
   type AgentMessageDelivery,
 } from "./agent/agent-messages/index.js";
 import {
@@ -150,6 +151,7 @@ import type { WorkspaceLabelService } from "./workspace-labels/index.js";
 import { WorkspaceTodoStore } from "./workspace-todos/store.js";
 import { WorkspaceRecentFoldersStore } from "./workspace-recent-folders/store.js";
 import { ExplorerThumbnailService } from "./file-explorer/thumbnails/service.js";
+import { holdRequestForAgentMessages, type WakeUpHolds } from "./agent/wake-up-hold.js";
 import { ThumbnailRenderer } from "./file-explorer/thumbnails/renderer.js";
 import {
   APPLICATION_SOCKET_LEASE_CHECK_INTERVAL_MS,
@@ -605,6 +607,8 @@ export class VoiceAssistantWebSocketServer {
   private readonly agentStorage: AgentStorage;
   private readonly messageReceipts: MessageReceipts;
   readonly agentMessages: AgentMessageDelivery;
+  /** Holds agent messages while the recipient's serving account is blocked; set by bootstrap. */
+  wakeUpHolds: Pick<WakeUpHolds, "hold"> | null = null;
   private readonly creationService: CreationService;
   private readonly projectRegistry: ProjectRegistry;
   private readonly workspaceRegistry: WorkspaceRegistry;
@@ -675,6 +679,15 @@ export class VoiceAssistantWebSocketServer {
   private readonly directorySync = new DirectorySyncService();
   private readonly pluginRuntime: SessionOptions["pluginRuntime"];
   private readonly orchestrationSkills: SessionOptions["orchestrationSkills"];
+
+  /** Waits while the recipient's serving account is blocked and due back soon. */
+  private async holdAgentMessages(
+    batch: AgentMessageDispatchRequest,
+  ): Promise<"send" | "deferred"> {
+    if (!this.wakeUpHolds) return "send";
+    const outcome = await this.wakeUpHolds.hold(holdRequestForAgentMessages(batch));
+    return outcome.status === "deferred" ? "deferred" : "send";
+  }
 
   private async validateCompletedCreation(snapshot: CreationSnapshot): Promise<void> {
     if (snapshot.workspace && snapshot.kind === "workspace") {
@@ -766,6 +779,8 @@ export class VoiceAssistantWebSocketServer {
     this.agentStorage = agentStorage;
     this.agentMessages = createAgentMessageDelivery({
       dispatch: async (batch) => {
+        const held = await this.holdAgentMessages(batch);
+        if (held === "deferred") return "skipped";
         const send = {
           agentManager,
           agentStorage,

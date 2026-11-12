@@ -270,10 +270,10 @@ The rollout is driven by a `rolloutHours` field stamped into the GitHub Release 
 
 Desktop release builds now publish in two phases:
 
-- The GitHub Release stays a draft while platform build jobs upload the installers/packages (`.dmg`, `.zip`, `.exe`, `.AppImage`, etc.).
-- The final job merges and stamps every channel manifest, uploads them with the final `releaseDate` and `rolloutHours`, then publishes the GitHub Release.
+- Platform build jobs upload the installers/packages (`.dmg`, `.zip`, `.exe`, `.AppImage`, etc.) and never the channel manifests. Official keeps the GitHub Release a draft meanwhile; the fork's npm workflow publishes it once the npm tarballs are up ([fork-release.md](fork-release.md#release-targets)).
+- The final job merges and stamps every channel manifest, uploads them with the final `releaseDate` and `rolloutHours`, then publishes the GitHub Release if it is still a draft.
 
-Drafts do not appear in GitHub's releases feed. Updater clients continue to see the previous complete release until every built platform's manifest is available; the fork builds only its [release targets](fork-release.md#release-targets). If an enabled desktop build or manifest upload fails, the new release stays a draft.
+Updater clients see no new update until the release has their platform's channel manifest: a draft is absent from GitHub's releases feed, and a published release without the manifest reads as no update (the app ignores `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`). The fork builds only its [release targets](fork-release.md#release-targets). If an enabled desktop build or manifest upload fails, Desktop Release does not publish the release; on the fork, npm has usually published it already, without that platform's manifest.
 
 ### Default behavior
 
@@ -518,12 +518,12 @@ you want to build. Reusing the same tag name is expected: move it with
 `git tag -f ...` and push it with `--force` so the workflow rebuilds the commit
 you actually want.
 
-A failed desktop build leaves the GitHub Release as a draft. `finalize-rollout`
+A failed desktop build stops Desktop Release from publishing the GitHub Release (on the fork, npm has usually published it already). `finalize-rollout`
 uploads manifests from successful platforms before it fails. A later
 single-platform retry reuses those manifests, stamps the complete set with one
-release date, and publishes the draft. Use `desktop-vX.Y.Z` when more than one
+release date, and publishes the release if it is still a draft. Use `desktop-vX.Y.Z` when more than one
 platform failed. A `workflow_dispatch` rebuild with publishing enabled follows
-the same path against the existing draft.
+the same path against the existing release.
 
 Prefer a tag push over `workflow_dispatch` when rebuilding desktop or APK
 release assets. Prefer Docker workflow dispatch when rebuilding only the Docker

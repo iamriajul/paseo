@@ -174,4 +174,25 @@ describe("browser port forwards", () => {
       }),
     ).toEqual({ kind: "local-host" });
   });
+
+  test("closes a port still binding when the window that started it closes", async () => {
+    const forwards = new BrowserPortForwards({
+      resolveRoute: () => null,
+      relay: async () => undefined,
+    });
+    const [first, second] = [await freePort(), await freePort()];
+    const starting = forwards.start({
+      browserId: "server-tab",
+      ports: [first, second],
+      route: { ...remoteRoute, browserId: "server-tab", rendererWebContentsId: 9 },
+    });
+    // The renderer goes away before the listeners have bound.
+    await forwards.stopAllForRenderer(9);
+    await starting;
+
+    expect(forwards.list("server-tab")).toEqual([]);
+    for (const port of [first, second]) {
+      await expect(roundTrip(port, "orphan")).rejects.toThrow(/ECONNREFUSED/);
+    }
+  });
 });

@@ -205,6 +205,8 @@ export interface DesktopBrowserBridge {
   /** Fork: added with server-tab forwarding; an older desktop build lacks it. */
   stopAllPortForwards?: (browserId: string) => Promise<void>;
   listPortForwards?: (browserId: string) => Promise<PortForwardList>;
+  /** Fork: a server browser tab's pane is focused, so the menu's Reload goes to it. */
+  setServerTabFocus?: (input: { token: string; focused: boolean }) => void;
 }
 
 export interface DesktopInvokeBridge {

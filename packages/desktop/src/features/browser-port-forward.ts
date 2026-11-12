@@ -49,6 +49,11 @@ export class BrowserPortForwards {
    * starts their forwards. A Browser tab's route comes from its loopback proxy registration.
    */
   private readonly givenRoutes = new Map<string, BrowserLoopbackRoute>();
+  /**
+   * Bumped each time a tab's forwards are all stopped. A start still binding when that happens
+   * sees the bump and closes what it bound: registered after the stop, nothing could find it.
+   */
+  private readonly stopEpochs = new Map<string, number>();
 
   constructor(private readonly deps: ForwardDeps = defaultDeps) {}
 
@@ -75,10 +80,11 @@ export class BrowserPortForwards {
       this.forgetGivenRouteIfIdle(input.browserId);
       return { kind: "local-host" };
     }
-    const forwards = this.forwardsFor(input.browserId);
+    const epoch = this.epochOf(input.browserId);
     const results: PortForwardStatus[] = [];
     for (const remotePort of normalizePorts(input.ports)) {
-      const existing = forwards.get(remotePort);
+      if (this.epochOf(input.browserId) !== epoch) break;
+      const existing = this.byBrowserId.get(input.browserId)?.get(remotePort);
       if (existing) {
         results.push({ state: "forwarding", remotePort, localPort: existing.localPort });
         continue;
@@ -88,6 +94,7 @@ export class BrowserPortForwards {
           browserId: input.browserId,
           remotePort,
           fallbackToAnyPort: input.fallbackToAnyPort === true,
+          epoch,
         }),
       );
     }
@@ -117,6 +124,7 @@ export class BrowserPortForwards {
   }
 
   async stopAll(browserId: string): Promise<void> {
+    this.stopEpochs.set(browserId, this.epochOf(browserId) + 1);
     this.givenRoutes.delete(browserId);
     const forwards = this.byBrowserId.get(browserId);
     if (!forwards) {
@@ -132,6 +140,10 @@ export class BrowserPortForwards {
       .filter(([, route]) => route.rendererWebContentsId === rendererWebContentsId)
       .map(([browserId]) => browserId);
     await Promise.all(browserIds.map((browserId) => this.stopAll(browserId)));
+  }
+
+  private epochOf(browserId: string): number {
+    return this.stopEpochs.get(browserId) ?? 0;
   }
 
   private resolveRoute(browserId: string): BrowserLoopbackRoute | null {
@@ -157,6 +169,7 @@ export class BrowserPortForwards {
     browserId: string;
     remotePort: number;
     fallbackToAnyPort: boolean;
+    epoch: number;
   }): Promise<PortForwardStatus> {
     const { browserId, remotePort } = input;
     const sockets = new Set<Socket>();
@@ -189,6 +202,11 @@ export class BrowserPortForwards {
       } catch (fallbackError) {
         return { state: "failed", remotePort, error: errorMessage(fallbackError) };
       }
+    }
+    if (this.epochOf(browserId) !== input.epoch) {
+      // The tab's forwards were stopped (its window closed) while this port was binding.
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      return { state: "failed", remotePort, error: "The tab's forwards were stopped." };
     }
     this.forwardsFor(browserId).set(remotePort, { remotePort, localPort, server, sockets });
     return { state: "forwarding", remotePort, localPort };

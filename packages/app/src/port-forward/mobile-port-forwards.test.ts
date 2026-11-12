@@ -233,10 +233,11 @@ describe("MobilePortForwards", () => {
     forwards.handleStopRequested();
     expect(forwards.openForwardCount).toBe(0);
     expect((await forwards.list("tab-1")).forwards).toEqual([]);
-    // The service stopped itself; starting again shows it again.
+    // hide() resets the native keep-alive state, so the next start runs a new headless task.
+    expect(service.hidden).toBe(1);
     await forwards.start({ browserId: "tab-1", ports: [3000], fallbackToAnyPort: false, route });
     expect(service.shown).toBe(2);
-    expect(service.hidden).toBe(0);
+    expect(service.hidden).toBe(1);
   });
 
   it("closes the host tunnel when the phone's browser closes its socket", async () => {

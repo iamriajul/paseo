@@ -54,6 +54,10 @@ export interface SeedDaemonClient {
       updatedAt: string;
     };
   }): Promise<unknown>;
+  getUiState(input: {
+    namespace: "composer" | "review";
+    key: string;
+  }): Promise<{ record: { text?: string } | null; error: string | null }>;
   listUiState(input: {
     namespace: "composer" | "review";
   }): Promise<{ entries: Array<{ key: string }>; error: string | null }>;

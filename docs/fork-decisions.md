@@ -504,6 +504,8 @@ Live updates need two things official's owned-subscription model does not give a
 
 Saved drafts outlive the browser, and in e2e the worker daemon outlives each test's browser context. Official specs assume a fresh context means an empty composer, so the e2e fixture `hostDraftIsolation` (`packages/app/e2e/support/helpers/host-drafts.ts`) clears every saved composer and review draft on the worker daemon before each test. Without it, a test inherits the draft the previous test left under the global composer's fixed key `new-workspace`, and the host's answer can land between `Locator.fill`'s select-all and its text insert: the restored draft fills the empty composer, the caret moves to its end, and the insert appends. `new-workspace-composer-draft` "keeps the draft when the host changes" failed attempt 1 on CI this way, with its draft twice, after "keeps the draft when the project changes" saved the same text. A user hits the same append only if a saved draft arrives in the moment before their paste, because the composer stays editable while the host answers (the first guard above).
 
+The host save runs 300 ms after the last edit. A save still pending when an official spec pauses `page.clock` is stamped with the frozen time: `pauseAt` fires every clock timer due during its jump, and a timer set before `clock.install` fires on the real clock while `Date` is frozen. The remount's flush of a typed edit is stamped with that same time, and the remounted owner hydrates the save's older text because a tie goes to the host record. `composer-whitespace` "a caret inside an unpublished edit survives a breakpoint remount" lost its typed "X" this way on CI on both attempts. The spec waits for the host to hold the filled text (`expectSavedHostComposerText` in `host-drafts.ts`) before it pauses the clock. Users do not hit this: a real clock never stamps the save and a later edit with the same millisecond.
+
 Review drafts sync the same way (`ui-state/review-host-sync.ts`). Every path that removes comments locally must also write the host copy: the review surface hydrates from the host when it mounts, so a comment removed only locally comes back. v0.14.0's Send feedback clears sent comments through `clearSentReviewDraftComments`, so `review/feedback/use-feedback.ts` calls `syncReviewDraftToHost` after it; without that, official's `composer-diff-stat` spec sees the review pill return after a layout switch.
 
 ```bash
@@ -515,6 +517,7 @@ npm test --workspace=@getpaseo/app -- src/composer/draft/input-draft.live.test.t
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/ui-state/fork-session-events.e2e.test.ts --bail=1
 grep -q "publishTextReplacement(\"replace\", after)" packages/app/src/composer/draft/input-draft.ts
 grep -q 'await clearSavedHostDrafts(e2eWorkerClient)' packages/app/e2e/support/fixtures.ts
+grep -q 'await expectSavedHostComposerText(e2eWorkerClient, agent.agentId, "Short draft")' packages/app/e2e/browser/composer-whitespace.spec.ts
 ```
 
 ## mobile-push-diagnostics

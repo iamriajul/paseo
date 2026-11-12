@@ -1,4 +1,5 @@
 import { createMockIdleAgent, openWorkspaceWithAgents } from "../support/helpers/archive-tab";
+import { expectSavedHostComposerText } from "../support/helpers/host-drafts";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { expect, test, type Page } from "../support/fixtures";
 import {
@@ -298,7 +299,10 @@ test("compact fullscreen editing preserves the live draft and selection and retu
   }
 });
 
-test("a caret inside an unpublished edit survives a breakpoint remount", async ({ page }) => {
+test("a caret inside an unpublished edit survives a breakpoint remount", async ({
+  page,
+  e2eWorkerClient,
+}) => {
   const agent = await seedMockAgentWorkspace({
     repoPrefix: "composer-remount-caret-",
     title: "Remount caret",
@@ -308,6 +312,10 @@ test("a caret inside an unpublished edit survives a breakpoint remount", async (
     await openAgentRoute(page, agent);
     await expectComposerVisible(page);
     await writeCompactDraft(page, "Short draft");
+    // Fork composer-draft-sync: pausing the clock fires a pending host save at the frozen
+    // time, and the remount's flush of the typed edit gets that same time; the remounted
+    // owner then hydrates the older saved text, because a tie goes to the host.
+    await expectSavedHostComposerText(e2eWorkerClient, agent.agentId, "Short draft");
     await selectComposerDraftRange(page, 5, 5);
     // The draft owner publishes web edits after the next paint. A rotation inside that
     // window remounts the editor before the edit has reached the draft store; the paused

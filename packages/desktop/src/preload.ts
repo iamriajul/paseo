@@ -192,6 +192,8 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
       ipcRenderer.invoke("paseo:browser:port-forward:stop", input),
     stopAllPortForwards: (browserId: string) =>
       ipcRenderer.invoke("paseo:browser:port-forward:stop-all", browserId),
+    setServerTabFocus: (input: { token: string; focused: boolean }) =>
+      ipcRenderer.send("paseo:browser:server-tab-focus", input),
     listPortForwards: (browserId: string) =>
       ipcRenderer.invoke("paseo:browser:port-forward:list", browserId),
   },

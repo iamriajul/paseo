@@ -1,5 +1,6 @@
 import { app, Menu, BrowserWindow, ipcMain } from "electron";
 import { getActivePaseoBrowserWebContentsForHostWindow } from "./browser-webviews/index.js";
+import { hasFocusedServerBrowser, SERVER_BROWSER_RELOAD_EVENT } from "./server-browser-focus.js";
 
 interface ShowContextMenuInput {
   kind?: "terminal";
@@ -35,14 +36,23 @@ interface ReloadActiveBrowserOrWindowInput {
   getActiveBrowserContentsForHostWindow: (
     hostWebContentsId: number,
   ) => ReloadableWebContents | null;
+  /**
+   * Reloads the window's focused server browser tab, which has no webview here; false when no
+   * server tab is focused. Without it, Cmd/Ctrl+R on a server tab reloaded the whole app.
+   */
+  reloadFocusedServerTab?: (hostWebContentsId: number) => boolean;
   ignoreCache?: boolean;
 }
 
 export function reloadActiveBrowserOrWindow({
   win,
   getActiveBrowserContentsForHostWindow,
+  reloadFocusedServerTab,
   ignoreCache = false,
 }: ReloadActiveBrowserOrWindowInput): void {
+  if (reloadFocusedServerTab?.(win.webContents.id)) {
+    return;
+  }
   const browserContents = getActiveBrowserContentsForHostWindow(win.webContents.id);
   if (browserContents) {
     if (ignoreCache) {
@@ -62,6 +72,12 @@ export function reloadActiveBrowserOrWindow({
     return;
   }
   win.webContents.reload();
+}
+
+function sendReloadToFocusedServerTab(win: BrowserWindow, hostWebContentsId: number): boolean {
+  if (!hasFocusedServerBrowser(hostWebContentsId)) return false;
+  win.webContents.send(`paseo:event:${SERVER_BROWSER_RELOAD_EVENT}`, {});
+  return true;
 }
 
 function buildApplicationMenuTemplate(
@@ -149,6 +165,7 @@ function buildApplicationMenuTemplate(
             reloadActiveBrowserOrWindow({
               win,
               getActiveBrowserContentsForHostWindow: getActivePaseoBrowserWebContentsForHostWindow,
+              reloadFocusedServerTab: (id) => sendReloadToFocusedServerTab(win, id),
             });
           }),
         },
@@ -159,6 +176,7 @@ function buildApplicationMenuTemplate(
             reloadActiveBrowserOrWindow({
               win,
               getActiveBrowserContentsForHostWindow: getActivePaseoBrowserWebContentsForHostWindow,
+              reloadFocusedServerTab: (id) => sendReloadToFocusedServerTab(win, id),
               ignoreCache: true,
             });
           }),

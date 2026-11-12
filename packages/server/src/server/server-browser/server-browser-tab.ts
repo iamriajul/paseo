@@ -193,6 +193,11 @@ export class ServerBrowserTab {
   private visibleUntil = 0;
   private readonly consoleBudget = new ConsoleBudget();
   private readonly loopbackPorts = new LoopbackPortSet();
+  /**
+   * Sessions of the page's workers and out-of-process frames. A request a service worker makes
+   * for the page is reported on the worker's target, not the page's, so its port is read there.
+   */
+  private readonly childSessions = new Set<string>();
   /** Set while the tab is over its console budget and the Runtime domain is off. */
   private consolePause: {
     dropped: number;
@@ -284,7 +289,9 @@ export class ServerBrowserTab {
   }
 
   public owns(sessionId: string | undefined): boolean {
-    return sessionId === this.sessionId;
+    return (
+      sessionId === this.sessionId || (sessionId !== undefined && this.childSessions.has(sessionId))
+    );
   }
 
   public info(): ServerBrowserTabInfo {
@@ -320,6 +327,12 @@ export class ServerBrowserTab {
       maxResourceBufferSize: 0,
       maxPostDataSize: 0,
     });
+    // Attach to the page's workers and frames (not paused) to read their Network events too.
+    await this.send("Target.setAutoAttach", {
+      autoAttach: true,
+      waitForDebuggerOnStart: false,
+      flatten: true,
+    });
     await this.send("Page.setLifecycleEventsEnabled", { enabled: true });
     await this.send("Runtime.addBinding", {
       name: TITLE_BINDING,
@@ -344,8 +357,9 @@ export class ServerBrowserTab {
     this.connection = target.connection;
     this.closed = false;
     this.suspension = null;
-    // A new target has a new renderer.
+    // A new target has a new renderer, and its own workers.
     this.crashed = false;
+    this.childSessions.clear();
     this.documentPending = false;
     // The new target's initialize turns the Runtime domain on again.
     this.endConsolePause();
@@ -364,7 +378,7 @@ export class ServerBrowserTab {
   }
 
   public handleEvent(event: CdpEvent): void {
-    if (this.loopbackPorts.observe(event)) return;
+    if (this.handleTraffic(event)) return;
     if (this.handlePageRequest(event)) return;
     switch (event.method) {
       case "Page.frameNavigated":
@@ -457,6 +471,7 @@ export class ServerBrowserTab {
     this.sessionId = "";
     this.connection = null;
     this.crashed = false;
+    this.childSessions.clear();
     this.endConsolePause();
     this.loading = false;
     this.canGoBack = false;
@@ -606,6 +621,39 @@ export class ServerBrowserTab {
     this.touch();
     const text = await this.evaluate(SELECTION_SCRIPT);
     return typeof text === "string" ? text : "";
+  }
+
+  /** Events read only for the loopback ports: Network, child targets, a child's own session. */
+  private handleTraffic(event: CdpEvent): boolean {
+    if (event.sessionId !== undefined && event.sessionId !== this.sessionId) {
+      // A worker's or frame's session: only its traffic matters here.
+      this.loopbackPorts.observe(event);
+      return true;
+    }
+    return this.handleChildTarget(event) || this.loopbackPorts.observe(event);
+  }
+
+  private handleChildTarget(event: CdpEvent): boolean {
+    if (event.method === "Target.attachedToTarget") {
+      const childSession = stringParam(event.params, "sessionId");
+      const connection = this.connection;
+      if (!childSession || !connection) return true;
+      this.childSessions.add(childSession);
+      void connection
+        .send(
+          "Network.enable",
+          { maxTotalBufferSize: 0, maxResourceBufferSize: 0, maxPostDataSize: 0 },
+          childSession,
+        )
+        .catch(() => {});
+      return true;
+    }
+    if (event.method === "Target.detachedFromTarget") {
+      const childSession = stringParam(event.params, "sessionId");
+      if (childSession) this.childSessions.delete(childSession);
+      return true;
+    }
+    return false;
   }
 
   /** Every loopback port the page has used since the tab opened, ascending. */
@@ -1059,6 +1107,9 @@ export class ServerBrowserTab {
     this.loading = false;
     this.dialog = null;
     this.fileChooser = null;
+    // A crashed renderer sends no more Page events, so a load in progress never settles; without
+    // this, commands waited out the loading deadline instead of failing as crashed.
+    this.documentPending = false;
     const error = new Error(CRASHED_TAB_MESSAGE);
     for (const reject of Array.from(this.inFlight)) reject(error);
     this.inFlight.clear();

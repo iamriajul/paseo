@@ -1,5 +1,13 @@
 import { createRestartRecovery } from "./agent/restart-recovery/index.js";
-import { sendPromptToAgent } from "./agent/agent-prompt.js";
+import { sendPreparedPromptToAgent, sendPromptToAgent } from "./agent/agent-prompt.js";
+import {
+  createJsonWakeUpHoldStore,
+  describeHeldWakeUp,
+  heldWakeUpRunOptions,
+  WakeUpHolds,
+} from "./agent/wake-up-hold.js";
+import { resolveAgentPromptCacheExpiresAtMs } from "./agent/prompt-cache-expiry.js";
+import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import { createIdleRuntimeCleanup } from "./agent/idle-runtime-cleanup/index.js";
 import {
   createFinishSubscriptions,
@@ -1186,6 +1194,25 @@ export async function createPaseoDaemon(
     resolveChildReportExpiredCachePolicy(daemonConfigStore.get().childReportExpiredCache);
   // Finish subscriptions are built later; the warm-up manager reads them through this reference.
   let finishSubscriptionsRef: { hasPendingForCaller(agentId: string): boolean } | null = null;
+  /** Whether the CLIProxyAPI account serving an agent can take a request; see warm-up-account.ts. */
+  const readServingAccountBlock = async (agentId: string) => {
+    const agent = agentManager.getAgent(agentId) ?? (await agentStorage.get(agentId));
+    if (!agent) return null;
+    return readWarmUpAccountBlock({
+      agent: {
+        provider: agent.provider,
+        config: {
+          model: agent.config?.model ?? null,
+          providerOptions: agent.config?.providerOptions ?? undefined,
+        },
+        persistence: agent.persistence,
+      },
+      gateway: providerSnapshotManager.getGatewayConfig(),
+      isGatewayRouted: (provider, model) =>
+        providerSnapshotManager.isGatewayRoutedModel(provider, model),
+      lastRequestAtMs: resolvePromptCacheAnchorMs(agent),
+    });
+  };
   const cacheWarmManager = new AgentCacheWarmManager({
     agentManager,
     agentStorage,
@@ -1195,26 +1222,59 @@ export async function createPaseoDaemon(
     warmsPastCap: (agentId) =>
       childReportPolicy() === "keep-warm" &&
       (finishSubscriptionsRef?.hasPendingForCaller(agentId) ?? false),
-    readAccountBlock: async (agentId) => {
-      const agent = agentManager.getAgent(agentId) ?? (await agentStorage.get(agentId));
-      if (!agent) return null;
-      return readWarmUpAccountBlock({
-        agent: {
-          provider: agent.provider,
-          config: {
-            model: agent.config?.model ?? null,
-            providerOptions: agent.config?.providerOptions ?? undefined,
-          },
-          persistence: agent.persistence,
-        },
-        gateway: providerSnapshotManager.getGatewayConfig(),
-        isGatewayRouted: (provider, model) =>
-          providerSnapshotManager.isGatewayRoutedModel(provider, model),
-        lastRequestAtMs: resolvePromptCacheAnchorMs(agent),
-      });
-    },
+    readAccountBlock: readServingAccountBlock,
   });
   agentManager.setCacheWarmManager(cacheWarmManager);
+  const wakeUpHolds = new WakeUpHolds({
+    readBlock: readServingAccountBlock,
+    cacheExpiresAtMs: async (agentId) => {
+      const agent = agentManager.getAgent(agentId) ?? (await agentStorage.get(agentId));
+      return agent ? resolveAgentPromptCacheExpiresAtMs(agent) : null;
+    },
+    lastRequestAtMs: (agentId) => {
+      const agent = agentManager.getAgent(agentId);
+      return agent ? resolvePromptCacheAnchorMs(agent) : null;
+    },
+    isBusy: (agentId) => agentManager.hasInFlightRun(agentId),
+    store: createJsonWakeUpHoldStore(path.join(config.paseoHome, "wake-up-holds.json")),
+    redeliver: async (entry) => {
+      if (!entry.redeliver) return;
+      await sendPreparedPromptToAgent({
+        agentManager,
+        agentStorage,
+        agentId: entry.agentId,
+        prompt: entry.redeliver.text,
+        unarchive: false,
+        activeTurnBehavior: "steer",
+        runOptions: heldWakeUpRunOptions(entry),
+        logger,
+      });
+    },
+    onChange: (agentId, view, started) => {
+      agentManager.setWakeUpHold(agentId, view);
+      if (!started) return;
+      // A restart resume can be held for an agent not loaded yet; load it so the hold shows.
+      const show = async () => {
+        await ensureAgentLoaded(agentId, { agentManager, agentStorage, logger });
+        agentManager.setWakeUpHold(agentId, wakeUpHolds.view(agentId));
+        await agentManager.appendTimelineItem(agentId, {
+          type: "notification",
+          level: "info",
+          message: describeHeldWakeUp(started),
+        });
+      };
+      void show().catch((err: unknown) =>
+        logger.warn({ err, agentId }, "Could not show a held wake-up on the agent"),
+      );
+    },
+    logger,
+  });
+  const unsubscribeWakeUpHolds = agentManager.subscribe(
+    (event) => {
+      if (event.type === "agent_state") wakeUpHolds.noteActivity(event.agent.id);
+    },
+    { replayState: false, includeInternal: true },
+  );
   agentManager.setAgentCommandLog(
     new AgentCommandLog({ directory: path.join(config.paseoHome, "agent-commands"), logger }),
   );
@@ -1284,8 +1344,14 @@ export async function createPaseoDaemon(
         ),
         nowMs: Date.now(),
       }),
-    dispatch: (agentId, prompt) =>
-      sendPromptToAgent({
+    dispatch: async (agentId, prompt) => {
+      const held = await wakeUpHolds.hold({
+        agentId,
+        kind: "restart",
+        redeliver: { text: prompt },
+      });
+      if (held.status !== "send") return undefined;
+      return sendPromptToAgent({
         agentId,
         prompt,
         agentManager,
@@ -1293,7 +1359,8 @@ export async function createPaseoDaemon(
         logger,
         unarchive: false,
         runOptions: { resume: { reason: "restart" } },
-      }),
+      });
+    },
     report: (agentId, err) => logger.error({ agentId, err }, "Agent restart recovery failed"),
   });
   await restartRecovery.prepareStartup();
@@ -1702,6 +1769,7 @@ export async function createPaseoDaemon(
         activity: terminal.getActivity(),
       })),
     cacheExpiryStop: () => resolveCacheExpiryStopPolicy(daemonConfigStore.get().cacheExpiryStop),
+    wakeUpHolds,
   });
   cacheWarmManager.setIdleCapCompactionHandler(async (agentId) => {
     for (const schedule of await scheduleService.list()) {
@@ -2193,10 +2261,12 @@ export async function createPaseoDaemon(
               orchestrationSkills,
               workspaceLabelService,
             );
+            wsServer.wakeUpHolds = wakeUpHolds;
             pluginRuntime.bindPaseoSessionHost(wsServer);
             await pluginRuntime.start();
             providerSnapshotManager.settlePluginProviders();
             void bootCatalogWarmup
+              .then(() => wakeUpHolds.restore())
               .then(() => restartRecovery.resumePending())
               .then(() => rateLimitAutoResumeManager.bootstrap())
               .catch((error: unknown) => {
@@ -2300,6 +2370,9 @@ export async function createPaseoDaemon(
     wsServer?.prepareForShutdown();
     await stopServerBrowser();
     await finishSubscriptions.close();
+    // Held wake-ups are saved for the next start, so delivery's drain does not wait on them.
+    unsubscribeWakeUpHolds();
+    await wakeUpHolds.close();
     await wsServer?.agentMessages.close();
     agentManager.prepareForShutdown();
     await restartRecovery.captureRunningAgents();

@@ -3,7 +3,7 @@ import {
   type CacheWarmStop,
   type PromptCacheHistoryEntry,
 } from "@getpaseo/protocol/agent-cache-warm";
-import type { AgentCacheWarmPause } from "@getpaseo/protocol/messages";
+import type { AgentCacheWarmPause, AgentWakeUpHold } from "@getpaseo/protocol/messages";
 import { formatResetTime } from "@/usage/format";
 
 /** What a warm-up stop or an account pause says about the account; both share the vocabulary. */
@@ -72,6 +72,26 @@ export function describeWarmUpStop(stop: CacheWarmStop): string {
 export function describeAccountPause(pause: AgentCacheWarmPause, now = Date.now()): string {
   const next = pause.retryAt ? "checking again shortly" : "resumes on your next message";
   return `Paused · ${describeWarmUpReason(pause, now)} · ${next}`;
+}
+
+const WAKE_UP_KINDS: Record<string, string> = {
+  heartbeat: "Heartbeat",
+  "agent-message": "Agent message",
+  "agent-notification": "Agent notification",
+  restart: "Restart resume",
+};
+
+/**
+ * "Heartbeat held · s***b is cooling down (back 14:20) · goes out when it's back". Automated
+ * wake-ups wait for the serving account so the next request reads its cache there.
+ */
+export function describeWakeUpHold(hold: AgentWakeUpHold, now = Date.now()): string {
+  const what =
+    hold.count > 1
+      ? `${hold.count} wake-ups held`
+      : `${WAKE_UP_KINDS[hold.kind] ?? "Wake-up"} held`;
+  const goes = hold.count > 1 ? "they go out when it's back" : "goes out when it's back";
+  return `${what} · ${describeWarmUpReason(hold, now)} · ${goes}`;
 }
 
 /**

@@ -16,4 +16,8 @@ export {
   attributeReplayedCommands,
   type DeliveredAgentCommand,
 } from "./command-log.js";
-export { createAgentMessageDelivery, type AgentMessageDelivery } from "./delivery.js";
+export {
+  createAgentMessageDelivery,
+  type AgentMessageDelivery,
+  type AgentMessageDispatchRequest,
+} from "./delivery.js";

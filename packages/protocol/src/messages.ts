@@ -4565,6 +4565,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(serverBrowserViewerControls): added in v0.15.x (fork), drop the gate after 2027-05-01.
         // True when the viewer can stop a load (navigate action "stop").
         serverBrowserViewerControls: z.boolean().optional(),
+        // COMPAT(serverBrowserSuspend): added in v0.15.x (fork), drop the gate after 2027-05-01.
+        // True when an idle server tab is suspended (tab.suspended) instead of closed.
+        serverBrowserSuspend: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

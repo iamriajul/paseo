@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { loadConfig } from "../config.js";
 import { DaemonConfigStore } from "../daemon-config-store.js";
 import { loadPersistedConfig } from "../persisted-config.js";
+import { tabIdleFromEnv } from "./bootstrap.js";
 
 const homes: string[] = [];
 
@@ -66,5 +67,14 @@ describe("serverBrowser config", () => {
       engine: "existing",
       cdpUrl: "http://127.0.0.1:9333",
     });
+  });
+});
+
+describe("PASEO_SERVER_BROWSER_TAB_IDLE_MS", () => {
+  test("sets the idle time when it is a number of at least a second, and nothing otherwise", () => {
+    expect(tabIdleFromEnv("60000")).toEqual({ limits: { tabIdleMs: 60_000 } });
+    expect(tabIdleFromEnv(undefined)).toEqual({});
+    expect(tabIdleFromEnv("soon")).toEqual({});
+    expect(tabIdleFromEnv("10")).toEqual({});
   });
 });

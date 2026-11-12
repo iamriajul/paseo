@@ -19,7 +19,11 @@ export function createServerBrowser(params: {
     logger,
     isEnabled: () => read()?.enabled === true,
     getEngine: () => resolveServerBrowserEngine(read()),
+    ...tabIdleFromEnv(process.env.PASEO_SERVER_BROWSER_TAB_IDLE_MS),
     ...(params.resolveWorkspaceName ? { resolveWorkspaceName: params.resolveWorkspaceName } : {}),
+  });
+  void host.loadSuspendedTabs().catch((error) => {
+    logger.warn({ err: error }, "Server browser: suspended tabs not restored");
   });
   let wasEnabled = host.isEnabled();
   let engineKey = JSON.stringify(host.engineConfig());
@@ -44,6 +48,12 @@ export function createServerBrowser(params: {
       await host.shutdown();
     },
   };
+}
+
+/** `PASEO_SERVER_BROWSER_TAB_IDLE_MS` overrides how long an untouched tab stays loaded. */
+export function tabIdleFromEnv(value: string | undefined): { limits?: { tabIdleMs: number } } {
+  const ms = Number(value);
+  return value && Number.isFinite(ms) && ms >= 1_000 ? { limits: { tabIdleMs: ms } } : {};
 }
 
 /** The config row; the index signature matches the protocol schema's passthrough. */

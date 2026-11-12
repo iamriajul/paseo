@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Camera,
   Keyboard,
+  Moon,
   MoreHorizontal,
   MousePointer2,
   RotateCw,
@@ -81,18 +82,27 @@ function ServerBrowserTabIcon({ size, color }: PanelIconProps) {
   return <Server size={size} color={color} />;
 }
 
+/** An idle tab whose page the host unloaded; opening it reloads the page. */
+function SuspendedServerBrowserTabIcon({ size, color }: PanelIconProps) {
+  return <Moon size={size} color={color} />;
+}
+
 function useServerBrowserDescriptor(
   target: { kind: "server_browser"; browserId: string },
   context: { serverId: string },
 ): PanelDescriptor {
   const tab = useServerBrowserTab(context.serverId, target.browserId);
   const label = tabLabel(tab);
+  // Fork: server-browser-suspend-idle-tabs in docs/fork-decisions.md.
+  const suspended = tab?.suspended === true;
   return {
     label,
-    subtitle: tab?.url ?? "",
-    tooltip: tab ? `${tab.url} (server browser)` : label,
+    subtitle: suspended ? `Suspended · ${tab.url}` : (tab?.url ?? ""),
+    tooltip: tab
+      ? `${tab.url} (server browser${suspended ? ", suspended while idle: opening it reloads the page" : ""})`
+      : label,
     titleState: "ready",
-    icon: ServerBrowserTabIcon,
+    icon: suspended ? SuspendedServerBrowserTabIcon : ServerBrowserTabIcon,
     statusBucket: tab?.isLoading ? "running" : null,
   };
 }

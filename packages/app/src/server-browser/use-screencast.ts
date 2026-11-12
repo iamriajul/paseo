@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useRetainedPanelActive } from "@/components/retained-panel";
 import type {
   DaemonClient,
   ServerBrowserFrame,
@@ -31,7 +32,20 @@ export function quantizeScreencastViewport(
   };
 }
 
-/** Streams a server browser tab while mounted. onFrame must call frame.ack() once shown. */
+/**
+ * The size to stream at, or null for no stream. A tab kept mounted behind another (a retained
+ * panel, display: none) measures 0×0, which still rounds up to a stream; it must not watch: a
+ * watched tab is never suspended, and Chrome would keep painting it for nobody.
+ */
+export function streamingViewport(
+  viewport: ScreencastViewport | null,
+  visible: boolean,
+): ScreencastViewport | null {
+  if (!visible || !viewport || viewport.maxWidth <= 0 || viewport.maxHeight <= 0) return null;
+  return viewport;
+}
+
+/** Streams a server browser tab while it is on screen. onFrame must call frame.ack() once shown. */
 export function useServerBrowserScreencast(params: {
   client: DaemonClient;
   browserId: string;
@@ -45,7 +59,8 @@ export function useServerBrowserScreencast(params: {
   const onChunkRef = useRef(params.video?.onChunk);
   onChunkRef.current = params.video?.onChunk;
   const videoCodecs = params.video?.codecs.join(",") ?? "";
-  const { client, browserId, viewport } = params;
+  const { client, browserId } = params;
+  const viewport = streamingViewport(params.viewport, useRetainedPanelActive());
   const maxWidth = viewport?.maxWidth ?? 0;
   const maxHeight = viewport?.maxHeight ?? 0;
 

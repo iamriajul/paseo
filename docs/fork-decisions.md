@@ -1757,6 +1757,22 @@ The test floods a fake page with 3,000 messages; without the budget the tab neve
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "logs in a tight loop"
 ```
 
+## server-browser-suspend-idle-tabs
+
+**An idle server tab is suspended instead of closed, so the user comes back to the page the agent left**
+
+The user wanted to come back and see where the agent left a tab. Closing a tab after 30 minutes untouched freed its memory but lost the page; Chrome's Memory Saver cannot do it, because every Paseo tab is active and has a DevTools session (see [managed-chrome-memory-saver](#managed-chrome-memory-saver)). After 10 minutes untouched the tab now keeps its URL, title, size, scroll position and a JPEG of the page, and its target closes; a viewer or an agent's command reloads it (fork modules `server-browser-host.ts`, `server-browser-tab.ts`, `suspended-tab-store.ts`). Official files: `messages.ts` declares `features.serverBrowserSuspend` and `websocket-server.ts` reports it; `browser-automation/rpc-schemas.ts` adds the optional `suspended` tab field and the optional `notice` on the execute response; `browser-tools/tools.ts` prints both, so an agent learns that the page reloaded and its refs are stale. A new tab past the 8-tab limit suspends the live tab used longest ago that nobody watches instead of failing, and `browser_new_tab`'s answer names it; with every tab watched it fails as before. The app's viewer streams only while its tab is on screen (`use-screencast.ts`), because a tab retained behind another kept a stream open and so never counted as idle. The rules and the measurement are in [Server browser](server-browser.md).
+
+The host tests fail without the change: the idle sweep closes the tab, and nothing reloads, restores or marks it.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "suspend|wakes the tab|daemon restart|maxSuspendedTabs|waking tab|every tab is watched"
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/browser-tools/tools.test.ts --bail=1 -t "suspended server tab"
+npm test --workspace=@getpaseo/app -- src/server-browser/input.test.ts --bail=1 -t "streamingViewport"
+grep -q "serverBrowserSuspend: serverBrowserOf" packages/server/src/server/websocket-server.ts
+grep -q "serverBrowserSuspend: z.boolean().optional()" packages/protocol/src/messages.ts
+```
+
 ## managed-chrome-memory-saver
 
 **Managed Chrome runs with Memory Saver on, at Maximum**

@@ -35,6 +35,12 @@ export const ServerBrowserTabSchema = z.object({
     .optional(),
   /** The main frame's last load failed: the URL it tried and Chromium's error (net::ERR_…). */
   loadError: z.object({ url: z.string(), errorText: z.string().optional() }).optional(),
+  /**
+   * The tab sat idle and its page was unloaded to free memory; url, title and the last frame stay.
+   * Viewing or using it reloads the page at the same URL. Needs features.serverBrowserSuspend; an
+   * older app shows it as a normal tab, which reloads when used.
+   */
+  suspended: z.boolean().optional(),
 });
 export type ServerBrowserTab = z.infer<typeof ServerBrowserTabSchema>;
 

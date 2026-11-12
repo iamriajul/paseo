@@ -4593,6 +4593,24 @@ describe("compact workspace sheet", () => {
     expect(tabKinds(store)).toEqual(before);
   });
 
+  it("revealing an image a paged sheet used to show opens a sheet with its own id", () => {
+    const store = createCompactStore();
+    const alpha = { kind: "file" as const, path: "shots/alpha.png" };
+    const beta = { kind: "file" as const, path: "shots/beta.png" };
+    const paged = store.getState().openTab({ workspaceKey, target: alpha, intent: "reveal" })!;
+    // The image gallery pages the sheet from alpha to beta in place, keeping its tab id.
+    store.getState().replaceTab(workspaceKey, paged, beta);
+
+    store.getState().openTab({ workspaceKey, target: alpha, intent: "reveal" });
+
+    // Sheets render keyed by tab id and kind; a repeated id is React's duplicate-key warning.
+    const sheetIds = (store.getState().sheetsByWorkspace[workspaceKey] ?? []).map(
+      (sheet) => sheet.tab.tabId,
+    );
+    expect(new Set(sheetIds).size).toBe(sheetIds.length);
+    expect(sheetTargets(store)).toEqual([beta, alpha]);
+  });
+
   it("focuses a target that is already open as a tab instead of using the sheet", () => {
     const store = createCompactStore();
     store.getState().setLayoutMode("split-panes");

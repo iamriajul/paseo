@@ -13,6 +13,7 @@ import {
   type ScreencastViewport,
 } from "./use-screencast";
 import { ServerBrowserVideoPlayer, WEB_VIDEO_CODECS, webVideoSupported } from "./video-player";
+import { ServerBrowserVideoStream } from "./video-session";
 
 export interface ServerBrowserSurfaceHandle {
   focusKeyboard(): void;
@@ -64,13 +65,31 @@ export const ServerBrowserSurface = forwardRef<
   const [viewport, setViewport] = useState<ScreencastViewport | null>(null);
   const [hasFrame, setHasFrame] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const playerRef = useRef<ServerBrowserVideoPlayer | null>(null);
   // Which element shows the page: the last stream to paint wins (video, or JPEG as fallback).
   const [shown, setShown] = useState<"jpeg" | "video">("jpeg");
   // The decoder kept failing on this tab: watch it as JPEG instead.
   const [videoFailedFor, setVideoFailedFor] = useState<string | null>(null);
   const shownRef = useRef(shown);
   shownRef.current = shown;
+  const videoEnabledRef = useRef(false);
+  const browserIdRef = useRef(browserId);
+  const [videoStream] = useState(
+    () =>
+      new ServerBrowserVideoStream(() => {
+        const canvas = canvasRef.current;
+        if (!canvas || !videoEnabledRef.current) return null;
+        const failedFor = browserIdRef.current;
+        return new ServerBrowserVideoPlayer(
+          canvas,
+          () => {
+            if (shownRef.current !== "video") setShown("video");
+            setHasFrame(true);
+            probe(canvas);
+          },
+          () => setVideoFailedFor(failedFor),
+        );
+      }),
+  );
   const pageSizeRef = useRef({ width: pageWidth, height: pageHeight });
   pageSizeRef.current = { width: pageWidth, height: pageHeight };
   const annotatingRef = useRef(annotating);
@@ -117,32 +136,37 @@ export const ServerBrowserSurface = forwardRef<
     return () => observer.disconnect();
   }, []);
 
-  const handleFrame = useCallback((frame: ServerBrowserFrame) => {
-    const image = imageRef.current;
-    if (!image) {
-      frame.ack();
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([frame.jpeg as BlobPart], { type: "image/jpeg" }));
-    const onLoad = () => {
-      image.removeEventListener("error", onError);
-      const previous = objectUrlRef.current;
-      objectUrlRef.current = url;
-      if (previous) URL.revokeObjectURL(previous);
-      setHasFrame(true);
-      if (shownRef.current !== "jpeg") setShown("jpeg");
-      probe(image);
-      frame.ack();
-    };
-    const onError = () => {
-      image.removeEventListener("load", onLoad);
-      URL.revokeObjectURL(url);
-      frame.ack();
-    };
-    image.addEventListener("load", onLoad, { once: true });
-    image.addEventListener("error", onError, { once: true });
-    image.src = url;
-  }, []);
+  const handleFrame = useCallback(
+    (frame: ServerBrowserFrame) => {
+      // JPEG comes only once this viewer has no video stream (the daemon moved it to JPEG).
+      videoStream.stop();
+      const image = imageRef.current;
+      if (!image) {
+        frame.ack();
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([frame.jpeg as BlobPart], { type: "image/jpeg" }));
+      const onLoad = () => {
+        image.removeEventListener("error", onError);
+        const previous = objectUrlRef.current;
+        objectUrlRef.current = url;
+        if (previous) URL.revokeObjectURL(previous);
+        setHasFrame(true);
+        if (shownRef.current !== "jpeg") setShown("jpeg");
+        probe(image);
+        frame.ack();
+      };
+      const onError = () => {
+        image.removeEventListener("load", onLoad);
+        URL.revokeObjectURL(url);
+        frame.ack();
+      };
+      image.addEventListener("load", onLoad, { once: true });
+      image.addEventListener("error", onError, { once: true });
+      image.src = url;
+    },
+    [videoStream],
+  );
 
   useEffect(
     () => () => {
@@ -152,49 +176,27 @@ export const ServerBrowserSurface = forwardRef<
     [],
   );
 
-  const handleChunk = useCallback(
-    (chunk: ServerBrowserVideoChunk) => {
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        chunk.ack();
-        return;
-      }
-      if (!playerRef.current) {
-        playerRef.current = new ServerBrowserVideoPlayer(
-          canvas,
-          () => {
-            if (shownRef.current !== "video") setShown("video");
-            setHasFrame(true);
-            probe(canvas);
-          },
-          () => setVideoFailedFor(browserId),
-        );
-      }
-      playerRef.current.push(chunk);
-    },
-    [browserId],
-  );
-
-  useEffect(
-    () => () => {
-      playerRef.current?.dispose();
-      playerRef.current = null;
-    },
-    [browserId],
-  );
-
   const videoEnabled = video && webVideoSupported() && videoFailedFor !== browserId;
+  // Read when a chunk arrives: video may have been turned off since this render.
+  videoEnabledRef.current = videoEnabled;
+  browserIdRef.current = browserId;
+  const handleChunk = useCallback(
+    (chunk: ServerBrowserVideoChunk) => videoStream.push(chunk),
+    [videoStream],
+  );
+  const handleVideoStop = useCallback(() => videoStream.stop(), [videoStream]);
+  useEffect(() => () => videoStream.stop(), [browserId, videoStream]);
   useEffect(() => {
-    if (videoEnabled) return;
-    playerRef.current?.dispose();
-    playerRef.current = null;
-  }, [videoEnabled]);
+    if (!videoEnabled) videoStream.stop();
+  }, [videoEnabled, videoStream]);
   useServerBrowserScreencast({
     client,
     browserId,
     viewport,
     onFrame: handleFrame,
-    video: videoEnabled ? { codecs: WEB_VIDEO_CODECS, onChunk: handleChunk } : null,
+    video: videoEnabled
+      ? { codecs: WEB_VIDEO_CODECS, onChunk: handleChunk, onStop: handleVideoStop }
+      : null,
   });
 
   useEffect(() => {

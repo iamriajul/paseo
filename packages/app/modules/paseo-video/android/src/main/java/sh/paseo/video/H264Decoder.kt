@@ -20,7 +20,8 @@ import java.nio.ByteBuffer
  */
 class H264Decoder(
   private val onFrame: (id: Int) -> Unit,
-  private val onError: (message: String) -> Unit,
+  /** `interrupted`: the surface went away or changed, the stream itself decoded fine. */
+  private val onError: (message: String, interrupted: Boolean) -> Unit,
   private val onSize: (width: Int, height: Int) -> Unit,
 ) {
   private class Chunk(val id: Int, val data: ByteArray, val key: Boolean)
@@ -46,13 +47,21 @@ class H264Decoder(
     handler.post { releaseCodec() }
   }
 
-  /** A codec renders into one surface: a new one needs a new codec, built at the next keyframe. */
+  /**
+   * A codec renders into one surface: a new one needs a new codec, built at the next keyframe.
+   * Once a surface is back, JavaScript hears about it (interrupted) so it asks for that keyframe;
+   * while there is none, the keyframes that arrive are dropped without a word.
+   */
   fun setSurface(next: Surface?) {
     handler.post {
       val old = surface
       surface = next
-      if (codec != null) fail("The video surface changed")
-      // After the old codec's release task, which fail just queued: it renders into this surface.
+      if (codec != null || waitingForKeyframe) {
+        releaseCodec()
+        waitingForKeyframe = true
+        if (next != null) onError("The video surface changed", true)
+      }
+      // After the old codec's release task, which releaseCodec just queued: it renders into this surface.
       if (old != null && old != next) handler.post { old.release() }
     }
   }
@@ -74,7 +83,13 @@ class H264Decoder(
     if (key && sps != null && pps != null &&
       (codec == null || !sps.contentEquals(this.sps) || !pps.contentEquals(this.pps))
     ) {
-      val problem = configure(sps, pps)
+      val target = surface
+      if (target == null) {
+        // The view is off screen; setSurface reports when it is back.
+        fail("No video surface yet", interrupted = true)
+        return
+      }
+      val problem = configure(sps, pps, target)
       if (problem != null) {
         fail(problem)
         return
@@ -90,9 +105,10 @@ class H264Decoder(
   }
 
   /** Returns why the codec could not start, or null. */
-  private fun configure(sps: ByteArray, pps: ByteArray): String? {
-    val target = surface ?: return "No video surface yet"
+  private fun configure(sps: ByteArray, pps: ByteArray, target: Surface): String? {
     releaseCodec()
+    // Released below if it never starts: decoder instances are finite per process.
+    var created: MediaCodec? = null
     return try {
       // The size is a hint: the decoder takes the real one from the SPS (onOutputFormatChanged).
       val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1600, 1600)
@@ -105,6 +121,7 @@ class H264Decoder(
         format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
       }
       val next = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+      created = next
       val gen = ++generation
       next.setCallback(callback(gen), handler)
       next.configure(format, target, null, 0)
@@ -114,6 +131,12 @@ class H264Decoder(
       this.pps = pps
       null
     } catch (error: Exception) {
+      // Its callbacks, if setCallback registered them, see an old generation from here on.
+      generation++
+      try {
+        created?.release()
+      } catch (_: Exception) {
+      }
       "Could not start the H.264 decoder: ${error.message}"
     }
   }
@@ -180,11 +203,11 @@ class H264Decoder(
   }
 
   /** Reports once, then waits for a keyframe to build a new codec. */
-  private fun fail(message: String) {
+  private fun fail(message: String, interrupted: Boolean = false) {
     releaseCodec()
     if (waitingForKeyframe) return
     waitingForKeyframe = true
-    onError(message)
+    onError(message, interrupted)
   }
 
   /**

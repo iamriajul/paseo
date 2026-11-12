@@ -12,7 +12,9 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * "Open on this phone": one listener per forwarded port on the phone's 127.0.0.1. Each accepted
@@ -30,6 +32,13 @@ internal class PortForwardListeners(
     const val CLOSE_EVENT = "onForwardConnectionClose"
     private const val HOST = "127.0.0.1"
     private const val IO_BUFFER_BYTES = 32 * 1024
+    /**
+     * Bytes from the host waiting for this phone's browser to read them. Past this the browser
+     * has stopped reading (a throttled background tab), and the connection closes rather than
+     * buffer without bound.
+     */
+    internal const val MAX_QUEUED_WRITE_BYTES = 8L * 1024 * 1024
+    private val END_OF_WRITES = ByteArray(0)
   }
 
   private class Forward(val forwardId: String, val server: ServerSocket) {
@@ -40,6 +49,26 @@ internal class PortForwardListeners(
     val accepted = AtomicBoolean(false)
     val closed = AtomicBoolean(false)
     private val output: OutputStream = socket.getOutputStream()
+    private val pendingWrites = LinkedBlockingQueue<ByteArray>()
+    private val pendingBytes = AtomicLong(0)
+
+    /**
+     * Writes on its own thread. writeConnection is called on the JS thread, and a blocking write
+     * to a peer that stopped reading would freeze Paseo's whole JS runtime.
+     */
+    fun writeLoop() {
+      try {
+        while (true) {
+          val bytes = pendingWrites.take()
+          if (bytes === END_OF_WRITES || closed.get()) return
+          output.write(bytes)
+          output.flush()
+          pendingBytes.addAndGet(-bytes.size.toLong())
+        }
+      } catch (error: Exception) {
+        close(error.message ?: "Write failed.", true)
+      }
+    }
 
     fun readLoop() {
       val input: InputStream = socket.getInputStream()
@@ -63,19 +92,20 @@ internal class PortForwardListeners(
       }
     }
 
-    @Synchronized
+    /** Queues bytes for the writer thread; never blocks the caller. */
     fun write(bytes: ByteArray) {
-      if (closed.get()) return
-      try {
-        output.write(bytes)
-        output.flush()
-      } catch (error: Exception) {
-        close(error.message ?: "Write failed.", true)
+      if (closed.get() || bytes.isEmpty()) return
+      if (pendingBytes.addAndGet(bytes.size.toLong()) > MAX_QUEUED_WRITE_BYTES) {
+        close("This phone's browser stopped reading the response.", true)
+        return
       }
+      pendingWrites.offer(bytes)
     }
 
     fun close(reason: String, notify: Boolean) {
       if (!closed.compareAndSet(false, true)) return
+      pendingWrites.clear()
+      pendingWrites.offer(END_OF_WRITES)
       connections.remove(connectionId)
       forward.connections.remove(connectionId)
       runCatching { socket.close() }
@@ -132,7 +162,12 @@ internal class PortForwardListeners(
       connection.close("Invalid data from the host tunnel.", true)
       return
     }
-    connection.write(bytes)
+    writeBytes(connectionId, bytes)
+  }
+
+  /** Queues bytes for the phone's browser on the connection's writer thread. */
+  fun writeBytes(connectionId: String, bytes: ByteArray) {
+    connections[connectionId]?.write(bytes)
   }
 
   fun closeConnection(connectionId: String, reason: String?) {
@@ -185,6 +220,12 @@ internal class PortForwardListeners(
       }
       connections[connectionId] = connection
       forward.connections.add(connectionId)
+      try {
+        executor.execute { connection.writeLoop() }
+      } catch (error: Exception) {
+        connection.close(error.message ?: "Forward stopped.", false)
+        continue
+      }
       emitEvent(
         OPEN_EVENT,
         mapOf("forwardId" to forward.forwardId, "connectionId" to connectionId),

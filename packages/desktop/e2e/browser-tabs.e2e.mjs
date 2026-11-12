@@ -19,6 +19,10 @@ import { runSettingsScrollRegression } from "./settings-scroll.electron.mjs";
 import { runSettingsMemoryRegression } from "./settings-memory.electron.mjs";
 
 import { seedPluginLinks, runPluginLinksRegression } from "./plugin-links.electron.mjs";
+import {
+  runBrowserLoadingRegression,
+  startLoadingTargetServer,
+} from "./browser-loading.electron.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(scriptDir, "..");
@@ -1141,6 +1145,7 @@ async function main() {
   const listen = `127.0.0.1:${daemonPort}`;
   seedPaseoHome(paseoHome, listen, workspaceRoot);
   const target = await startTargetPage();
+  const loadingTarget = await startLoadingTargetServer();
   seedPluginLinks(paseoHome, workspaceIds[0], target.url, workspaceIds[1]);
   const remoteHome = path.join(runtimeDir, "remote-home");
   seedPaseoHome(remoteHome, `127.0.0.1:${remotePort}`, path.join(runtimeDir, "remote-workspaces"));
@@ -1249,6 +1254,36 @@ async function main() {
         artifactDir,
         externalOpenLog: process.platform === "linux" ? externalOpenLog : null,
       });
+    const createCallerClient = async (callerAgentId) => {
+      const transport = new StreamableHTTPClientTransport(
+        new URL(
+          `http://127.0.0.1:${daemonPort}/mcp/agents?callerAgentId=${encodeURIComponent(callerAgentId)}`,
+        ),
+      );
+      return await experimental_createMCPClient({ transport });
+    };
+    const checkLoadingPages = async () => {
+      const workspaceRow = page.getByTestId(
+        `sidebar-workspace-row-${status.serverId}:${workspaceIds[0]}`,
+      );
+      await workspaceRow.waitFor({ state: "visible", timeout: timeoutMs });
+      await workspaceRow.click();
+      const loadingClient = await createCallerClient(await createCallerAgent(daemonPort));
+      try {
+        return await runBrowserLoadingRegression({
+          client: loadingClient,
+          baseUrl: loadingTarget.url,
+        });
+      } finally {
+        await loadingClient.close().catch(() => undefined);
+      }
+    };
+    if (process.env.PASEO_DESKTOP_BROWSER_LOADING_ONLY === "1") {
+      const loadingPages = await checkLoadingPages();
+      writeJson(path.join(artifactDir, "result.json"), { loadingPages });
+      console.log("Desktop browser tools on loading pages passed.");
+      return;
+    }
     if (process.env.PASEO_DESKTOP_PLUGIN_LINKS_ONLY === "1") {
       const pluginLinks = await checkPluginLinks();
       writeJson(path.join(artifactDir, "result.json"), { pluginLinks });
@@ -1280,12 +1315,7 @@ async function main() {
       workspaceId: workspaceIds.at(-1),
       agentId: await createCallerAgent(daemonPort, workspaceIds.at(-1)),
     };
-    const transport = new StreamableHTTPClientTransport(
-      new URL(
-        `http://127.0.0.1:${daemonPort}/mcp/agents?callerAgentId=${encodeURIComponent(callerAgentId)}`,
-      ),
-    );
-    client = await experimental_createMCPClient({ transport });
+    client = await createCallerClient(callerAgentId);
     const report = await runRegression({
       page,
       client,
@@ -1297,8 +1327,10 @@ async function main() {
       artifactDir,
     });
     const pluginLinks = await checkPluginLinks();
+    const loadingPages = await checkLoadingPages();
     writeJson(path.join(artifactDir, "result.json"), {
       ...report,
+      loadingPages,
       settingsMemory,
       pluginLinks,
       adaptiveTheme,
@@ -1315,6 +1347,7 @@ async function main() {
     await browser?.close().catch(() => undefined);
     for (const child of children.toReversed()) stopProcess(child);
     await closeServer(target.server);
+    await loadingTarget.close();
     await delay(1_000);
     try {
       fs.rmSync(runtimeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

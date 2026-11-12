@@ -318,6 +318,37 @@ describe("resident browser webviews", () => {
     ]);
   });
 
+  it("registers a guest whose id becomes readable after did-attach before its page answers", async () => {
+    const webview = ensureTestBrowser({
+      browserId: "browser-slow-page",
+      workspaceId: "workspace-slow-page",
+      url: "http://localhost:3000/",
+    });
+    if (!webview) throw new Error("Expected resident webview");
+    let guestId: number | null = null;
+    Object.assign(webview, {
+      getWebContentsId: () => {
+        if (guestId === null) {
+          throw new Error(
+            "The WebView must be attached to the DOM and the dom-ready event emitted before this method can be called.",
+          );
+        }
+        return guestId;
+      },
+    });
+
+    // Electron exposes the guest id a moment after did-attach (one throttled timer tick in a
+    // hidden window). The next guest event waits for the server, which can take longer than
+    // browser_new_tab waits for the registration.
+    webview.dispatchEvent(new Event("did-attach"));
+    guestId = 404;
+    await expect
+      .poll(() => attachedBrowsers, { timeout: 1_000 })
+      .toEqual([
+        { browserId: "browser-slow-page", workspaceId: "workspace-slow-page", webContentsId: 404 },
+      ]);
+  });
+
   it("registers a guest whose id is not readable at did-attach on a later event", () => {
     const webview = ensureTestBrowser({
       browserId: "browser-late-id",

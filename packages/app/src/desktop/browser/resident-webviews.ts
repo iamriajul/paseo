@@ -59,6 +59,9 @@ function isAttachedBrowserBridge(
   );
 }
 
+const ATTACHED_ID_RETRY_INTERVAL_MS = 50;
+const ATTACHED_ID_RETRY_WINDOW_MS = 10_000;
+
 function getBrowserBridge(override?: BrowserWebviewProfileHost): BrowserWebviewProfileHost {
   if (override) {
     return override;
@@ -78,19 +81,28 @@ function registerBrowserWhenAttached(
   // Reparenting a webview can replace its guest WebContents without replacing
   // this DOM element, so every attachment needs a fresh main-process registration.
   // getWebContentsId() throws until Electron has the guest id, which can lag
-  // did-attach (seen when a remote tab's first load fails). An uncaught throw
-  // there left the tab unregistered: browser_new_tab timed out and the tab had
-  // no automation. Later lifecycle events retry until one registration lands.
+  // did-attach by a few hundred milliseconds (most often in a hidden window). An
+  // uncaught throw there left the tab unregistered: browser_new_tab timed out and
+  // the tab had no automation. Later lifecycle events retry, but the next one
+  // waits for the server to answer, which on a slow first page is after
+  // browser_new_tab gives up; so a did-attach without an id retries on a timer.
   let registeredWebContentsId: number | null = null;
-  const register = () => {
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryDeadline = 0;
+  const retryUntilReadable = () => {
+    retryTimer = null;
+    if (register() || !webview.isConnected || Date.now() > retryDeadline) return;
+    retryTimer = setTimeout(retryUntilReadable, ATTACHED_ID_RETRY_INTERVAL_MS);
+  };
+  const register = (): boolean => {
     let webContentsId: number;
     try {
       webContentsId = webview.getWebContentsId();
     } catch {
-      return;
+      return false;
     }
     if (webContentsId === registeredWebContentsId) {
-      return;
+      return true;
     }
     registeredWebContentsId = webContentsId;
     void browser
@@ -103,8 +115,14 @@ function registerBrowserWhenAttached(
         registeredWebContentsId = null;
         console.error("[browser-webview] attached registration failed", error);
       });
+    return true;
   };
-  for (const eventName of ["did-attach", "dom-ready", "did-stop-loading", "did-fail-load"]) {
+  webview.addEventListener("did-attach", () => {
+    if (register() || retryTimer !== null) return;
+    retryDeadline = Date.now() + ATTACHED_ID_RETRY_WINDOW_MS;
+    retryTimer = setTimeout(retryUntilReadable, ATTACHED_ID_RETRY_INTERVAL_MS);
+  });
+  for (const eventName of ["dom-ready", "did-stop-loading", "did-fail-load"]) {
     webview.addEventListener(eventName, register);
   }
 }

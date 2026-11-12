@@ -461,7 +461,11 @@ export class BrowserToolsBroker {
           browserToolsFailure({
             requestId: request.requestId,
             code: "browser_timeout",
-            message: `Browser automation timed out after ${timeoutMs}ms.`,
+            message: formatBrowserAutomationTimeout({
+              host,
+              commandName: request.command.command,
+              timeoutMs,
+            }),
             retryable: true,
           }),
         );
@@ -507,6 +511,15 @@ function getBrowserIdForCommand(command: BrowserAutomationCommand): string | nul
 function describeBrowserHost(host: RegisteredBrowserHost): string {
   const hostKind = host.client.hostKind.trim();
   return hostKind || "browser host";
+}
+
+function formatBrowserAutomationTimeout(params: {
+  host: RegisteredBrowserHost;
+  commandName: BrowserAutomationCommandName;
+  timeoutMs: number;
+}): string {
+  const seconds = Math.round(params.timeoutMs / 100) / 10;
+  return `The ${describeBrowserHost(params.host)} did not answer browser_${params.commandName} within ${seconds} s. The page may be blocking its main thread (a long script or an open dialog), or the app may be busy, asleep or disconnected. Call browser_list_tabs to check the tab, then retry.`;
 }
 
 function withBrowserToolsRequestId(

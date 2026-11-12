@@ -71,7 +71,7 @@ The webview surface paints above the app, so the pane parks it while the card is
 
 Two attach races also produced blank or broken agent tabs, and both are covered by tests:
 
-- `getWebContentsId()` can throw at `did-attach` when a remote tab's first load fails. The uncaught throw left the tab unregistered, so `browser_new_tab` timed out and the tab had no automation. Registration now retries on later lifecycle events.
+- `getWebContentsId()` can throw at `did-attach`, most often in a hidden or background window, and becomes readable a few hundred milliseconds later. A did-attach without an id retries on a 50 ms timer until registration lands. Retrying only at the next lifecycle event was the earlier fix, for the uncaught throw that left a tab unregistered. It was enough while those events came quickly. On a slow first page (a dev server compiling the route, a tunnel), the next event waits for the server, and `browser_new_tab` gave up after its 5 s registration wait. A retry then succeeded because the server had warmed up.
 - The guest's first proxied request can reach the proxy before the renderer's `register-attached` IPC maps its webContents. Proxy credentials are matched by the guest's session partition, not only by the registered browserId.
 
 Whether a host is this machine is remembered per `serverId` once any registration says so. The automation handler knows the connection and declares it; the pane registering the same tab does not, and the cached daemon status can be empty. Flipping that workspace's session from direct to the tunnel proxy ran `closeAllConnections()` mid-load.

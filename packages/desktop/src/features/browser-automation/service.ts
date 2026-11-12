@@ -29,8 +29,10 @@ export interface TabContents {
   canGoForward(): boolean;
   isLoading(): boolean;
   isDestroyed(): boolean;
+  /** Runs on the document showing now, even while it loads; rejects if the page navigates. */
   executeJavaScript(code: string): Promise<unknown>;
-  loadURL(url: string): Promise<void>;
+  /** Settles once the new document's DOM is ready; subresources may still be loading. */
+  loadDocument(url: string): Promise<void>;
   goBack(): void;
   goForward(): void;
   reload(): void;
@@ -66,6 +68,10 @@ type FailurePayload = Extract<AutomationCommandPayload, { ok: false }>;
 
 const defaultSnapshotEngine = new BrowserSnapshotEngine();
 const DEFAULT_WAIT_TIMEOUT_MS = 5_000;
+// Leaves room inside the daemon broker's 15 s budget to answer with what to do next.
+const NAVIGATION_DOCUMENT_TIMEOUT_MS = 10_000;
+const FIRST_DOCUMENT_TIMEOUT_MS = 10_000;
+const FIRST_DOCUMENT_POLL_INTERVAL_MS = 50;
 const WAIT_POLL_INTERVAL_MS = 25;
 const PIXEL_CAPTURE_TIMEOUT_MS = 5_000;
 const PIXEL_CAPTURE_RETRY_INTERVAL_MS = 200;
@@ -100,6 +106,15 @@ export class BrowserTabClosedError extends Error {
   public constructor() {
     super("Browser tab has been closed");
     this.name = "BrowserTabClosedError";
+  }
+}
+
+export class PageNavigatedError extends Error {
+  public constructor(url: string) {
+    super(
+      `The page navigated to ${url} while the script was running, so its result is lost. Run it again on the new page.`,
+    );
+    this.name = "PageNavigatedError";
   }
 }
 
@@ -557,6 +572,10 @@ async function executeSnapshot(
   if ("ok" in target) {
     return target;
   }
+  const notLoaded = await waitForFirstDocument(requestId, target);
+  if (notLoaded) {
+    return notLoaded;
+  }
 
   return withDialogCapture(target.contents, async () => {
     const snapshot = await snapshotEngine.snapshot({
@@ -836,6 +855,10 @@ async function executeEvaluate(
   if ("ok" in target) {
     return target;
   }
+  const notLoaded = await waitForFirstDocument(requestId, target);
+  if (notLoaded) {
+    return notLoaded;
+  }
   return withDialogCapture(target.contents, async () => {
     let elementExpression: string | undefined;
     if (ref) {
@@ -1010,7 +1033,7 @@ async function executeWait(
         };
       }
       if (condition.text) {
-        const pageText = await target.contents.executeJavaScript("document.body.innerText || ''");
+        const pageText = await readPageText(target.contents);
         if (typeof pageText === "string" && pageText.includes(condition.text)) {
           return {
             requestId,
@@ -1040,6 +1063,16 @@ async function executeWait(
     }
     return fail(requestId, "browser_unsupported", "browser_wait requires text or url");
   });
+}
+
+async function readPageText(contents: TabContents): Promise<unknown> {
+  try {
+    return await contents.executeJavaScript("document.body?.innerText || ''");
+  } catch (error) {
+    // The page the text was read from is gone; keep waiting on the new one.
+    if (error instanceof PageNavigatedError) return null;
+    throw error;
+  }
 }
 
 async function executeType(
@@ -1173,11 +1206,30 @@ async function executeNavigate(
       );
     }
     snapshotEngine.clearBrowser(browserId);
-    await target.contents.loadURL(url);
+    const loading = target.contents.loadDocument(url);
+    let documentReady: boolean;
+    try {
+      documentReady = await settlesWithin(loading, NAVIGATION_DOCUMENT_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof BrowserTabClosedError) {
+        return fail(requestId, "browser_tab_closed", `Browser tab ${browserId} has been closed`);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return fail(requestId, "browser_unknown_error", `Navigation to ${url} failed: ${message}`);
+    }
+    if (!documentReady) {
+      loading.catch(() => {});
+      return fail(
+        requestId,
+        "browser_timeout",
+        `${url} is still loading after ${NAVIGATION_DOCUMENT_TIMEOUT_MS / 1_000} s: the server has not sent the page yet. The tab keeps loading it. Call browser_wait with url or text to wait for the page, or browser_snapshot to see what the tab shows now.`,
+        true,
+      );
+    }
     return {
       requestId,
       ok: true,
-      result: { command: "navigate", browserId: target.browserId, url },
+      result: { command: "navigate", browserId: target.browserId, url: target.contents.getURL() },
     };
   });
 }
@@ -1231,6 +1283,10 @@ async function executeScreenshot(
   const target = resolveTabTarget({ requestId, workspaceId, browserId, registry });
   if ("ok" in target) {
     return target;
+  }
+  const notLoaded = await waitForFirstDocument(requestId, target);
+  if (notLoaded) {
+    return notLoaded;
   }
   return withDialogCapture(target.contents, async () => {
     let image: TabImage;
@@ -1328,6 +1384,10 @@ async function executeFullPageScreenshot(
   const target = resolveTabTarget({ requestId, workspaceId, browserId, registry });
   if ("ok" in target) {
     return target;
+  }
+  const notLoaded = await waitForFirstDocument(requestId, target);
+  if (notLoaded) {
+    return notLoaded;
   }
   return withDialogCapture(target.contents, async () => {
     if (!target.contents.sendDebugCommand) {
@@ -1471,6 +1531,19 @@ function isPathInsideDirectory(filePath: string, directory: string): boolean {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** True when the promise resolves within the budget, false when the budget runs out first. */
+async function settlesWithin(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<false>((resolve) => {
+    timeoutId = setTimeout(() => resolve(false), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise.then(() => true as const), expired]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function parseNetworkEntries(value: unknown): BrowserAutomationNetworkLogEntry[] {
@@ -1634,6 +1707,41 @@ const NETWORK_PERFORMANCE_SCRIPT = String.raw`(() => {
     }));
   return JSON.stringify(entries);
 })()`;
+
+function hasNoDocumentYet(contents: TabContents): boolean {
+  const url = contents.getURL();
+  return (url === "" || url === "about:blank") && contents.isLoading();
+}
+
+/**
+ * A new tab shows an empty initial document until its first page commits. Reading that
+ * document answers with a blank page, so wait for the first page within the budget.
+ */
+async function waitForFirstDocument(
+  requestId: string,
+  target: ResolvedTabTarget,
+): Promise<FailurePayload | null> {
+  const deadline = Date.now() + FIRST_DOCUMENT_TIMEOUT_MS;
+  while (hasNoDocumentYet(target.contents)) {
+    if (target.contents.isDestroyed()) {
+      return fail(
+        requestId,
+        "browser_tab_closed",
+        `Browser tab ${target.browserId} has been closed`,
+      );
+    }
+    if (Date.now() >= deadline) {
+      return fail(
+        requestId,
+        "browser_timeout",
+        `Browser tab ${target.browserId} is still loading its first page: the server has not answered after ${FIRST_DOCUMENT_TIMEOUT_MS / 1_000} s. Call browser_wait with url or text to wait for the page, then retry.`,
+        true,
+      );
+    }
+    await delay(FIRST_DOCUMENT_POLL_INTERVAL_MS);
+  }
+  return null;
+}
 
 function resolveTabTarget(input: {
   requestId: string;

@@ -36,6 +36,11 @@ export const ServerBrowserTabSchema = z.object({
   /** The main frame's last load failed: the URL it tried and Chromium's error (net::ERR_…). */
   loadError: z.object({ url: z.string(), errorText: z.string().optional() }).optional(),
   /**
+   * The page's renderer crashed; Reload (navigate "reload") brings it back. Older apps ignore it
+   * and keep showing the last frame.
+   */
+  crashed: z.boolean().optional(),
+  /**
    * The tab sat idle and its page was unloaded to free memory; url, title and the last frame stay.
    * Viewing or using it reloads the page at the same URL. Needs features.serverBrowserSuspend; an
    * older app shows it as a normal tab, which reloads when used.
@@ -369,6 +374,24 @@ export const ServerBrowserTabLoopbackPortsResponseSchema = z.object({
   }),
 });
 
+/**
+ * The text selected in the tab's page (an input's or textarea's selection, else the document's),
+ * for a viewer copying it to its own clipboard. Needs features.serverBrowserClipboard.
+ */
+export const ServerBrowserTabSelectionRequestSchema = z.object({
+  type: z.literal("browser.server.tab.selection.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+});
+export const ServerBrowserTabSelectionResponseSchema = z.object({
+  type: z.literal("browser.server.tab.selection.response"),
+  payload: z.object({
+    requestId: z.string(),
+    text: z.string().optional(),
+    error: ErrorField,
+  }),
+});
+
 export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabsSubscribeRequestSchema,
   ServerBrowserTabOpenRequestSchema,
@@ -384,6 +407,7 @@ export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabDialogAnswerRequestSchema,
   ServerBrowserTabFileChooserAnswerRequestSchema,
   ServerBrowserTabLoopbackPortsRequestSchema,
+  ServerBrowserTabSelectionRequestSchema,
 ] as const;
 
 export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
@@ -402,4 +426,5 @@ export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
   ServerBrowserTabDialogAnswerResponseSchema,
   ServerBrowserTabFileChooserAnswerResponseSchema,
   ServerBrowserTabLoopbackPortsResponseSchema,
+  ServerBrowserTabSelectionResponseSchema,
 ] as const;

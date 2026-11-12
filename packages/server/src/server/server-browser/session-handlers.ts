@@ -26,6 +26,7 @@ export const SERVER_BROWSER_REQUEST_TYPES = [
   "browser.server.tab.dialog.answer.request",
   "browser.server.tab.file_chooser.answer.request",
   "browser.server.tab.loopback_ports.request",
+  "browser.server.tab.selection.request",
 ] as const;
 
 type ServerBrowserRequest = Extract<
@@ -77,6 +78,8 @@ export class ServerBrowserSessionHandlers {
         return this.logs(msg);
       case "browser.server.tab.loopback_ports.request":
         return this.loopbackPorts(msg);
+      case "browser.server.tab.selection.request":
+        return this.selection(msg);
       default:
         return this.handleCommand(msg);
     }
@@ -261,6 +264,23 @@ export class ServerBrowserSessionHandlers {
     });
   }
 
+  private async selection(
+    msg: Extract<ServerBrowserRequest, { type: "browser.server.tab.selection.request" }>,
+  ): Promise<void> {
+    const tab = this.params.host.getTab(msg.browserId);
+    let payload: { requestId: string; text?: string; error?: string };
+    try {
+      if (!tab) throw new Error(`No server browser tab ${msg.browserId}`);
+      payload = { requestId: msg.requestId, text: await tab.readSelection() };
+    } catch (caught) {
+      payload = {
+        requestId: msg.requestId,
+        error: caught instanceof Error ? caught.message : String(caught),
+      };
+    }
+    this.params.emit({ type: "browser.server.tab.selection.response", payload });
+  }
+
   private async annotate(
     msg: Extract<ServerBrowserRequest, { type: "browser.server.tab.annotate.start.request" }>,
   ): Promise<void> {
@@ -303,7 +323,8 @@ export class ServerBrowserSessionHandlers {
           | "browser.server.screencast.start.request"
           | "browser.server.tab.annotate.start.request"
           | "browser.server.tab.logs.request"
-          | "browser.server.tab.loopback_ports.request";
+          | "browser.server.tab.loopback_ports.request"
+          | "browser.server.tab.selection.request";
       }
     >,
   ): Promise<void> {
@@ -359,7 +380,8 @@ export class ServerBrowserSessionHandlers {
           | "browser.server.screencast.start.request"
           | "browser.server.tab.annotate.start.request"
           | "browser.server.tab.logs.request"
-          | "browser.server.tab.loopback_ports.request";
+          | "browser.server.tab.loopback_ports.request"
+          | "browser.server.tab.selection.request";
       }
     >,
   ): Promise<string | undefined> {

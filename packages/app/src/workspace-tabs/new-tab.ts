@@ -7,6 +7,7 @@ export type NewTabSelection =
   | { kind: "agent" }
   | { kind: "terminal"; profile?: TerminalProfile }
   | { kind: "browser" }
+  | { kind: "serverBrowser" }
   | { kind: "codeServer" };
 
 export function createNewWorkspaceTab(): WorkspaceTab {

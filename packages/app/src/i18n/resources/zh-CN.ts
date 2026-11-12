@@ -747,6 +747,16 @@ export const zhCN: TranslationResources = {
         unhealthy: "异常",
         startAndOpen: "启动并打开",
       },
+      serverTab: {
+        clearData: "清除浏览器数据",
+        clearDataTitle: "清除此工作区的浏览器数据？",
+        clearDataMessage:
+          "将删除此工作区服务器浏览器标签页的 Cookie 和存储，这会让你退出此工作区的所有开发应用。标签页会重新加载。",
+        closeTab: "关闭标签页",
+        copySelection: "复制所选文本",
+        selectionCopied: "已复制页面中的所选内容",
+        nothingSelected: "页面中未选择任何内容",
+      },
       openInBrowser: {
         label: "在浏览器中打开",
         noPublicUrl:
@@ -818,6 +828,7 @@ export const zhCN: TranslationResources = {
         workspaceSetup: "Workspace setup",
         terminal: "Terminal",
         browser: "浏览器",
+        serverBrowser: "服务器浏览器",
         agent: "Agent",
         workspace: "Workspace",
       },
@@ -939,6 +950,7 @@ export const zhCN: TranslationResources = {
         newAgent: "新建 Agent",
         newTerminal: "新建 Terminal",
         newBrowser: "新建浏览器标签",
+        newServerBrowser: "新建服务器浏览器标签页",
         newCodeServer: "New Code Server",
         importSession: "导入会话",
         copyPath: "复制 workspace 路径",

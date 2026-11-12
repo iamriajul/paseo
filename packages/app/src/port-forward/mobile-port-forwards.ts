@@ -156,8 +156,11 @@ export class MobilePortForwards implements PortForwardController {
       this.stopForward(forwardId, "Stopped from the notification.");
     }
     this.lastProblems.clear();
-    // The service stopped itself; mark it hidden without asking again.
+    // The service stopped itself. hide() is still needed: it is idempotent, and it resets the
+    // native keep-alive flag, without which the next start would show the service but run no
+    // headless task, and the tunnels would die behind the browser.
     this.serviceShown = false;
+    this.deps.service.hide();
     this.resolveIdle();
   }
 

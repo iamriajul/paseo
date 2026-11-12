@@ -51,4 +51,25 @@ class PortForwardListenersTest {
     val refused = runCatching { Socket(InetAddress.getByName("127.0.0.1"), port).close() }
     assertTrue(refused.isFailure)
   }
+
+  @Test
+  fun `writes never block the caller when the browser stops reading, and close past the cap`() {
+    val port = freePort()
+    listeners.start("forward-1", port, false)
+    Socket(InetAddress.getByName("127.0.0.1"), port).use { browser ->
+      val (_, open) = events.poll(5, TimeUnit.SECONDS)!!
+      val connectionId = open["connectionId"] as String
+      // The browser never reads. Each call must return at once, however much is queued.
+      val chunk = ByteArray(1024 * 1024)
+      val started = System.nanoTime()
+      repeat(12) { listeners.writeBytes(connectionId, chunk) }
+      val elapsedMs = (System.nanoTime() - started) / 1_000_000
+      assertTrue("writes took ${elapsedMs} ms", elapsedMs < 1_000)
+      val (name, closed) = events.poll(5, TimeUnit.SECONDS)!!
+      assertEquals(PortForwardListeners.CLOSE_EVENT, name)
+      assertEquals(connectionId, closed["connectionId"])
+      browser.close()
+    }
+    listeners.stopAll()
+  }
 }

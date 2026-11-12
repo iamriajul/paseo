@@ -18,6 +18,8 @@ export {
 } from "./command-log.js";
 export {
   createAgentMessageDelivery,
+  joinAgentMessagePrompts,
   type AgentMessageDelivery,
+  type AgentMessagePart,
   type AgentMessageDispatchRequest,
 } from "./delivery.js";

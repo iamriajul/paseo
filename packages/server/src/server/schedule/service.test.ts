@@ -976,7 +976,8 @@ describe("ScheduleService", () => {
       await service.tick();
     }
     expect(steerOrReplace).not.toHaveBeenCalled();
-    expect((await service.inspect(schedule.id)).runs).toHaveLength(1);
+    // A fire waiting for the account has claimed no run, so a crash now leaves none to fail.
+    expect((await service.inspect(schedule.id)).runs).toHaveLength(0);
 
     // The account is back: the one held heartbeat goes out.
     block = null;
@@ -988,6 +989,64 @@ describe("ScheduleService", () => {
     const inspected = await service.inspect(schedule.id);
     expect(inspected.runs).toHaveLength(1);
     expect(inspected.runs[0].status).toBe("succeeded");
+    expect(new Date(inspected.nextRunAt!).getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  test("a heartbeat fire the daemon stopped while it waited for the account uses up no run", async () => {
+    const steerOrReplace = vi.fn(async () => ({ status: "steered" as const }));
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    manager.steerOrReplaceActiveTurn = steerOrReplace as typeof manager.steerOrReplaceActiveTurn;
+    const agent = await manager.createAgent({ provider: "claude", cwd: tempDir }, undefined, {
+      workspaceId: undefined,
+    });
+    const holds = new WakeUpHolds({
+      readBlock: async () => ({
+        reason: "cooldown",
+        account: "s***b",
+        until: new Date(now.getTime() + 5 * 60_000).toISOString(),
+      }),
+      cacheExpiresAtMs: async () => null,
+      lastRequestAtMs: () => null,
+      isBusy: () => false,
+      store: { load: async () => [], save: async () => {} },
+      redeliver: async () => {},
+      onChange: () => {},
+      logger: createTestLogger(),
+      now: () => now.getTime(),
+      schedule: () => () => {},
+    });
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      wakeUpHolds: holds,
+    });
+    const schedule = await service.create({
+      prompt: "Heartbeat check",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "agent", agentId: agent.id },
+      maxRuns: 1,
+    });
+
+    now = new Date(now.getTime() + 60_000);
+    const tick = service.tick();
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    await holds.close();
+    await tick;
+
+    expect(steerOrReplace).not.toHaveBeenCalled();
+    const inspected = await service.inspect(schedule.id);
+    expect(inspected.status).toBe("active");
+    expect(inspected.runs).toMatchObject([
+      { skipReason: "The daemon stopped while this fire waited for the serving account" },
+    ]);
     expect(new Date(inspected.nextRunAt!).getTime()).toBeGreaterThan(now.getTime());
   });
 

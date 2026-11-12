@@ -939,7 +939,9 @@ export class ScheduleService {
         };
         scheduleWithRun = await this.appendRunningRun(schedule.id, runningRun);
       } else {
-        const claimed = await this.claimDueRun(schedule.id, now);
+        // The fire waits before it claims a run, so a fire that never goes out records no run.
+        if (!(await this.holdForServingAccount(schedule))) return;
+        const claimed = await this.claimDueRun(schedule.id, this.now());
         if (!claimed) {
           return;
         }
@@ -1249,9 +1251,6 @@ export class ScheduleService {
       };
     }
 
-    const held = await this.holdForServingAccount(schedule);
-    if (held) return held;
-
     const agent = await ensureAgentLoaded(schedule.target.agentId, {
       agentManager: this.agentManager,
       agentStorage: this.agentStorage,
@@ -1293,36 +1292,42 @@ export class ScheduleService {
   }
 
   /**
-   * Waits while the target's serving account is blocked and due back soon. Returns the run's result
-   * when the fire must not go out: a repeat of a fire already waiting, or a daemon stopping.
+   * Waits while the target's serving account is blocked and due back soon; false when the fire
+   * must not go out (a repeat of a fire already waiting, or a daemon stopping). That fire is
+   * recorded as skipped, so it does not use up one of the schedule's runs, and a crash during the
+   * wait leaves no run behind to be recovered as failed. A manual run is never held: a person
+   * asked for it.
    */
-  private async holdForServingAccount(
-    schedule: StoredSchedule,
-  ): Promise<ScheduleExecutionResult | null> {
-    if (schedule.target.type !== "agent" || !this.wakeUpHolds) return null;
-    const agentId = schedule.target.agentId;
+  private async holdForServingAccount(schedule: StoredSchedule): Promise<boolean> {
+    if (schedule.target.type !== "agent" || !this.wakeUpHolds) return true;
     const held = await this.wakeUpHolds.hold({
-      agentId,
+      agentId: schedule.target.agentId,
       kind: "heartbeat",
       coalesceKey: `schedule:${schedule.id}`,
     });
-    if (held.status === "send") {
-      if (held.heldMs > 0 && (await this.agentStorage.get(agentId))?.archivedAt) {
-        throw new ScheduleTargetGoneError(`Agent ${agentId} is archived`);
-      }
-      return null;
-    }
-    return {
-      agentId,
-      output: buildRunOutput({
-        output: null,
-        timelineText: "",
-        finalText:
-          held.status === "coalesced"
-            ? "Skipped: an earlier fire is waiting for the serving account"
-            : "Skipped: the daemon stopped while this fire waited for the serving account",
-      }),
-    };
+    if (held.status === "send") return true;
+    const skipReason =
+      held.status === "coalesced"
+        ? "An earlier fire is waiting for the serving account"
+        : "The daemon stopped while this fire waited for the serving account";
+    const now = this.now();
+    await this.store.update(schedule.id, (current) => {
+      const scheduledFor = current.nextRunAt;
+      if (current.status !== "active" || !scheduledFor) return current;
+      return {
+        ...current,
+        nextRunAt: advanceNextRunAtPast(
+          current.cadence,
+          computeNextRunAt(current.cadence, new Date(scheduledFor)),
+          now,
+        ).toISOString(),
+        lastSkippedAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        runs: appendSkippedRun(current.runs, { scheduledFor, skipReason, now }),
+      };
+    });
+    this.logger.info({ scheduleId: schedule.id, skipReason }, "Skipped scheduled run");
+    return false;
   }
 
   private async executeNewAgentSchedule(

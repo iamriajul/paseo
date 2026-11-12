@@ -82,7 +82,7 @@ class FakeChromium {
         buffer = buffer.slice(end + 1);
         if (message.sessionId) this.pageCommands.push(message);
         const result = this.answer(message.method, message.params, message.sessionId);
-        // A navigation loads at once: the main frame starts, commits and stops loading.
+        // A navigation loads at once: the main frame starts, commits, has its DOM and stops loading.
         if (message.method === "Page.navigate" && message.sessionId) {
           const sessionId = message.sessionId;
           const frameId = this.targetOfSession.get(sessionId);
@@ -94,6 +94,7 @@ class FakeChromium {
               params: { frame: { id: frameId, url } },
               sessionId,
             });
+            this.emit({ method: "Page.domContentEventFired", params: {}, sessionId });
             this.emit({ method: "Page.frameStoppedLoading", params: { frameId }, sessionId });
           });
         }
@@ -153,7 +154,7 @@ class FakeChromium {
       }
       case "Page.navigate": {
         if (pageSession) this.urlOfSession.set(pageSession, params.url as string);
-        return {};
+        return { frameId: pageSession, loaderId: `loader-${++this.nextId}` };
       }
       case "Storage.getCookies":
         return { cookies: this.contexts.get(params.browserContextId as string) ?? [] };

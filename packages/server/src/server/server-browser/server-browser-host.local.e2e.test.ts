@@ -14,6 +14,7 @@ let siteUrl: string;
 let otherSite: http.Server;
 let otherUrl: string;
 const hosts: ServerBrowserHost[] = [];
+const heldResponses = new Set<http.ServerResponse>();
 
 beforeEach(async () => {
   paseoHome = mkdtempSync(join(tmpdir(), "server-browser-host-"));
@@ -29,6 +30,28 @@ beforeEach(async () => {
     }
     if (req.url === "/long") {
       res.end("<title>Long</title><div style='height:5000px'>long page</div>");
+      return;
+    }
+    const path = new URL(req.url ?? "/", "http://localhost");
+    if (path.pathname === "/hanging-image") {
+      // Never answered: the page's load event never fires.
+      heldResponses.add(res);
+      res.on("close", () => heldResponses.delete(res));
+      return;
+    }
+    if (path.pathname === "/hanging") {
+      res.end(
+        `<title>Hanging</title><button>Loaded DOM</button><img src="/hanging-image${path.search}">`,
+      );
+      return;
+    }
+    if (path.pathname === "/redirect") {
+      res.end(`<script>location.replace("/landing")</script><img src="/hanging-image?redirect">`);
+      return;
+    }
+    if (path.pathname === "/slow-document") {
+      const ms = Number(path.searchParams.get("ms") ?? 0);
+      setTimeout(() => res.end("<title>Slow document</title>"), ms);
       return;
     }
     if (req.url === "/slow") {
@@ -56,6 +79,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await Promise.all(hosts.splice(0).map((host) => host.shutdown()));
+  for (const response of heldResponses) response.destroy();
+  site.closeAllConnections();
   await new Promise<void>((resolve) => site.close(() => resolve()));
   await new Promise<void>((resolve) => otherSite.close(() => resolve()));
   rmSync(paseoHome, { recursive: true, force: true });
@@ -193,7 +218,7 @@ describe("ServerBrowserHost with a real Chromium", () => {
     const tab = await first.openTab({ workspaceId: "ws", url: siteUrl, openedBy: "agent" });
     await first.saveWorkspaceStorage("ws");
     await evaluate(first, tab.browserId, "localStorage.setItem('late', 'write')");
-    await first.getTab(tab.browserId)!.contents.loadURL(otherUrl);
+    await first.getTab(tab.browserId)!.contents.loadDocument(otherUrl);
     await first.shutdown();
 
     const second = createHost();
@@ -317,7 +342,7 @@ describe("ServerBrowserHost with a real Chromium", () => {
     expect(info()).toMatchObject({ url: siteUrl, canGoBack: false, canGoForward: false });
     expect(await evaluate(host, tab.browserId, "history.length")).toBe(1);
 
-    await tab.contents.loadURL(otherUrl);
+    await tab.contents.loadDocument(otherUrl);
     await waitFor(() => info().canGoBack && info().url === otherUrl);
     tab.contents.goBack();
     await waitFor(() => info().url === siteUrl);
@@ -333,6 +358,11 @@ describe("ServerBrowserHost with a real Chromium", () => {
     const info = () => host.listTabs().find((entry) => entry.browserId === tab.browserId)!;
     await tab.navigate(`${siteUrl}slow`);
     await waitFor(() => info().isLoading && info().url === `${siteUrl}slow`);
+    // The document commits on its first bytes; the parser reaches the paragraph after that.
+    let shown: unknown = null;
+    while (shown !== "slow page") {
+      shown = await evaluate(host, tab.browserId, "document.body?.innerText ?? null");
+    }
 
     await tab.stopLoading();
     await waitFor(() => !info().isLoading);
@@ -350,7 +380,7 @@ describe("ServerBrowserHost with a real Chromium", () => {
     await waitFor(() => info().url === refused);
     expect(info().loadError).toEqual({ url: refused, errorText: "net::ERR_CONNECTION_REFUSED" });
 
-    await tab.contents.loadURL(siteUrl);
+    await tab.contents.loadDocument(siteUrl);
     await waitFor(() => info().url === siteUrl && !info().loadError);
 
     // A load the page starts has no navigate answer. Chrome's error page names the error; the
@@ -503,6 +533,86 @@ describe("ServerBrowserHost with a real Chromium", () => {
       2,
     );
   });
+
+  it("answers agent tools on a page that is still loading, inside the broker's 15 s", async () => {
+    const host = createHost();
+    let requestId = 0;
+    const run = async (command: string, args: Record<string, unknown>) => {
+      const startedAt = Date.now();
+      const response = await host.execute({
+        type: "browser.automation.execute.request",
+        requestId: String(++requestId),
+        workspaceId: "ws",
+        command: { command, args } as never,
+      });
+      return { response, elapsedMs: Date.now() - startedAt };
+    };
+    const expectOk = async (
+      command: string,
+      args: Record<string, unknown>,
+      budgetMs: number,
+    ): Promise<Record<string, unknown>> => {
+      const call = await run(command, args);
+      expect(call.response, command).toMatchObject({ ok: true });
+      expect(call.elapsedMs, `${command} took ${call.elapsedMs} ms`).toBeLessThan(budgetMs);
+      return (call.response as { result: Record<string, unknown> }).result;
+    };
+
+    const created = await expectOk("new_tab", { url: `${siteUrl}hanging?first` }, 10_000);
+    const browserId = created.browserId as string;
+    const snapshot = await expectOk("snapshot", { browserId }, 5_000);
+    expect(snapshot.snapshot).toContain("Loaded DOM");
+    await expectOk("evaluate", { browserId, function: "() => document.title" }, 5_000);
+    await expectOk("wait", { browserId, text: "Loaded DOM" }, 5_000);
+    await expectOk("screenshot", { browserId }, 7_000);
+    await expectOk("navigate", { browserId, url: `${siteUrl}hanging?second` }, 5_000);
+
+    // A script redirect replaces the navigation; the replacement settles it.
+    await expectOk("navigate", { browserId, url: `${siteUrl}redirect` }, 5_000);
+    await expectOk("wait", { browserId, url: "/landing" }, 5_000);
+
+    // A document the server answers after 14 s: navigate says what to do next before the broker
+    // gives up. Chromium runs nothing on the page until that document commits, 4 s later.
+    const slow = await run("navigate", { browserId, url: `${siteUrl}slow-document?ms=14000` });
+    expect(slow.response).toMatchObject({
+      ok: false,
+      error: { code: "browser_timeout", message: expect.stringMatching(/still loading/) },
+    });
+    expect(slow.elapsedMs).toBeLessThan(15_000);
+    await expectOk("evaluate", { browserId, function: "() => location.pathname" }, 12_000);
+    await expectOk("wait", { browserId, url: "slow-document", timeoutMs: 10_000 }, 12_000);
+
+    // A script still awaiting when the page navigates fails, and says so.
+    const across = await run("evaluate", {
+      browserId,
+      function:
+        "() => { setTimeout(() => { location.href = '/landing?after-script'; }, 100); return new Promise(() => {}); }",
+    });
+    expect(across.response).toMatchObject({
+      ok: false,
+      error: { message: expect.stringMatching(/navigated/) },
+    });
+    expect(across.elapsedMs).toBeLessThan(5_000);
+
+    await expectOk("navigate", { browserId, url: `${siteUrl}slow-document?ms=6000` }, 10_000);
+    // Reload answers at once; the script runs once the reloaded document commits, 6 s later.
+    await expectOk("reload", { browserId }, 3_000);
+    await expectOk("evaluate", { browserId, function: "() => 1" }, 9_000);
+
+    // A document that takes longer than any budget: script calls fail inside the broker's 15 s,
+    // say what to do next, and the tab still navigates elsewhere.
+    await run("navigate", { browserId, url: `${siteUrl}slow-document?ms=60000` });
+    const pending = await run("evaluate", { browserId, function: "() => 1" });
+    expect(pending.response).toMatchObject({
+      ok: false,
+      error: { message: expect.stringMatching(/still loading.*browser_wait/) },
+    });
+    expect(pending.elapsedMs).toBeLessThan(15_000);
+    await expectOk("navigate", { browserId, url: `${siteUrl}landing` }, 5_000);
+    await expectOk("evaluate", { browserId, function: "() => location.pathname" }, 3_000);
+
+    await expectOk("close_tab", { browserId }, 5_000);
+  }, 120_000);
 
   it("closes Chromium on shutdown", async () => {
     const host = createHost();

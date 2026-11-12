@@ -6,7 +6,12 @@ import type {
 } from "@getpaseo/protocol/server-browser/rpc-schemas";
 import type { CdpConnection, CdpEvent, CdpParams } from "./cdp-connection.js";
 import { CdpSessionQueue } from "./engine/cdp-session-queue.js";
-import type { TabContents, TabImage } from "./engine/service.js";
+import {
+  BrowserTabClosedError,
+  PageNavigatedError,
+  type TabContents,
+  type TabImage,
+} from "./engine/service.js";
 import type { IsolatedKeyboardInputEvent } from "./engine/trusted-input.js";
 import { ScreencastHub, type ScreencastFrame, type ScreencastSize } from "./screencast-hub.js";
 import type { TabVideoCapture } from "./tab-video.js";
@@ -32,6 +37,15 @@ const CONSOLE_QUIET_MS = 500;
 /** A page over budget again this soon after a pause ended gets a longer pause. */
 const CONSOLE_REPEAT_WINDOW_MS = 30_000;
 const LOAD_WAIT_MS = 15_000;
+// A new tab answers within the daemon broker's 15 s even when its server is slow to send the page.
+const FIRST_PAGE_WAIT_MS = 10_000;
+// How long a script's lost context may come before its page reports the commit that lost it.
+const COMMIT_REPORT_WAIT_MS = 1_000;
+// Chromium holds every command bound for the page while a navigation waits for its document,
+// and runs it on the new document once that commits. Wait that long at most, then say so.
+const PENDING_DOCUMENT_WAIT_MS = 8_000;
+const PAGE_BOUND_COMMAND = /^(Runtime|DOM|Accessibility|CSS|Overlay|Input)\./;
+const LOST_CONTEXT = /Execution context was destroyed|Inspected target navigated or closed/;
 const STORAGE_READ_TIMEOUT_MS = 2_000;
 const HIDDEN_TAB_MESSAGE =
   "This tab's page is hidden in the browser (its window is minimized or on another desktop), so it cannot take input. Show its window.";
@@ -101,6 +115,14 @@ export interface ServerBrowserTabOptions {
   now?: () => number;
 }
 
+interface DocumentWaiter {
+  /** The navigation's document committed; its DOM-ready settles the wait. */
+  committed: boolean;
+  promise: Promise<void>;
+  settle: () => void;
+  fail: (error: Error) => void;
+}
+
 /**
  * One page target in a workspace's browser context. Implements the desktop engine's TabContents so the
  * vendored automation commands run unchanged, and owns the tab's screencast fan-out.
@@ -134,6 +156,11 @@ export class ServerBrowserTab {
   /** The seq of console[0]; the buffer drops its oldest line past MAX_CONSOLE_ENTRIES. */
   private consoleFirstSeq = 1;
   private loadWaiters: Array<() => void> = [];
+  private documentWaiters: DocumentWaiter[] = [];
+  /** Main-frame documents committed so far; a script that sees this change lost its page. */
+  private committedDocuments = 0;
+  /** A main-frame navigation started and its document has not committed yet. */
+  private documentPending = false;
   private url = "about:blank";
   private title = "";
   private loading = false;
@@ -292,6 +319,7 @@ export class ServerBrowserTab {
     this.connection = target.connection;
     this.closed = false;
     this.suspension = null;
+    this.documentPending = false;
     // The new target's initialize turns the Runtime domain on again.
     this.endConsolePause();
     this.screencast.resetLastFrame();
@@ -319,10 +347,19 @@ export class ServerBrowserTab {
         void this.refreshHistory();
         return;
       case "Page.frameStartedLoading":
-        if (this.isMainFrame(event.params)) this.setLoading(true);
+        if (this.isMainFrame(event.params)) {
+          this.documentPending = true;
+          this.setLoading(true);
+        }
         return;
       case "Page.frameStoppedLoading":
-        if (this.isMainFrame(event.params)) this.setLoading(false);
+        if (this.isMainFrame(event.params)) {
+          this.documentPending = false;
+          this.setLoading(false);
+        }
+        return;
+      case "Page.domContentEventFired":
+        this.onDomContentLoaded();
         return;
       case "Page.loadEventFired":
         this.setLoading(false);
@@ -399,7 +436,9 @@ export class ServerBrowserTab {
     this.fileChooser = null;
     this.pendingMove = null;
     this.visibleUntil = 0;
+    this.documentPending = false;
     for (const resolve of this.loadWaiters.splice(0)) resolve();
+    this.failDocumentWaiters(new Error("The tab was suspended before its page loaded."));
     this.onChange();
   }
 
@@ -430,6 +469,7 @@ export class ServerBrowserTab {
     this.endConsolePause();
     this.screencast.resetLastFrame();
     for (const resolve of this.loadWaiters.splice(0)) resolve();
+    this.failDocumentWaiters(new BrowserTabClosedError());
   }
 
   public dispose(): void {
@@ -461,7 +501,7 @@ export class ServerBrowserTab {
 
   public async navigate(url: string): Promise<void> {
     this.touch();
-    const result = await this.send("Page.navigate", { url });
+    const result = await this.navigationSend("Page.navigate", { url });
     const errorText = stringParam(result, "errorText");
     if (errorText && errorText !== "net::ERR_ABORTED") {
       this.setLoadError({ url, errorText });
@@ -476,12 +516,12 @@ export class ServerBrowserTab {
       entries: Array<{ id: number }>;
     };
     const entry = history.entries[history.currentIndex + delta];
-    if (entry) await this.send("Page.navigateToHistoryEntry", { entryId: entry.id });
+    if (entry) await this.navigationSend("Page.navigateToHistoryEntry", { entryId: entry.id });
   }
 
   public async reload(): Promise<void> {
     this.touch();
-    await this.send("Page.reload");
+    await this.navigationSend("Page.reload");
   }
 
   /** A viewer's answer to the page's open dialog. */
@@ -627,7 +667,7 @@ export class ServerBrowserTab {
       isLoading: () => this.loading,
       isDestroyed: () => this.closed,
       executeJavaScript: (code) => this.evaluate(code),
-      loadURL: (url) => this.loadUrl(url),
+      loadDocument: (url) => this.loadDocument(url),
       goBack: () => void this.goHistory(-1).catch(() => {}),
       goForward: () => void this.goHistory(1).catch(() => {}),
       reload: () => void this.reload().catch(() => {}),
@@ -643,17 +683,37 @@ export class ServerBrowserTab {
     };
   }
 
+  /**
+   * Runs on the document showing now, loading or not. Chromium fails a script still awaiting when
+   * its document goes; that failure is reported as the navigation it is.
+   */
   private async evaluate(code: string): Promise<unknown> {
     this.touch();
-    const result = (await this.send("Runtime.evaluate", {
-      expression: code,
-      awaitPromise: true,
-      returnByValue: true,
-      userGesture: true,
-    })) as {
+    const documents = this.committedDocuments;
+    let result: {
       result?: { value?: unknown };
       exceptionDetails?: { text?: string; exception?: { description?: string } };
     };
+    try {
+      result = await this.send("Runtime.evaluate", {
+        expression: code,
+        awaitPromise: true,
+        returnByValue: true,
+        userGesture: true,
+      });
+    } catch (error) {
+      if (this.closed) throw error;
+      if (this.committedDocuments !== documents) throw new PageNavigatedError(this.url);
+      if (error instanceof Error && LOST_CONTEXT.test(error.message)) {
+        // Chromium drops the old document's scripts before it reports the commit.
+        await this.waitForCommitAfter(documents);
+        throw new PageNavigatedError(this.url);
+      }
+      throw error;
+    }
+    if (result.exceptionDetails && this.committedDocuments !== documents) {
+      throw new PageNavigatedError(this.url);
+    }
     if (result.exceptionDetails) {
       const description =
         result.exceptionDetails.exception?.description ??
@@ -695,17 +755,90 @@ export class ServerBrowserTab {
    * in place before any page runs; that blank entry then leaves the history, so Back never leads
    * to an empty page.
    */
-  public async loadFirstPage(url: string): Promise<void> {
-    await this.loadUrl(url);
+  /**
+   * `untilLoad`: also wait for the load event (at most LOAD_WAIT_MS), for a woken tab whose scroll
+   * and video need the page laid out. Otherwise the first page's DOM is enough.
+   */
+  public async loadFirstPage(url: string, options: { untilLoad?: boolean } = {}): Promise<void> {
+    const loaded = options.untilLoad ? this.waitForLoad() : null;
+    const document = this.loadDocument(url);
+    document.catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      document,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, FIRST_PAGE_WAIT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    await loaded;
     await this.send("Page.resetNavigationHistory");
     await this.refreshHistory();
   }
 
-  private async loadUrl(url: string): Promise<void> {
-    const loaded = this.waitForLoad();
-    await this.navigate(url);
-    await loaded;
-    await this.refreshTitle();
+  /**
+   * Settles once the new document's DOM is ready, not at the load event a hanging subresource
+   * delays forever.
+   */
+  private async loadDocument(url: string): Promise<void> {
+    this.touch();
+    const waiter = this.waitForDocument();
+    try {
+      const result = await this.navigationSend("Page.navigate", { url });
+      const errorText = stringParam(result, "errorText");
+      if (errorText === "net::ERR_ABORTED") {
+        // Replaced by a newer navigation, whose DOM-ready settles this one; or by nothing.
+        if (!this.loading) waiter.settle();
+      } else if (errorText) {
+        this.setLoadError({ url, errorText });
+        throw new Error(`Navigation to ${url} failed: ${errorText}`);
+      } else if (stringParam(result, "loaderId") === undefined) {
+        // A same-document navigation (a fragment) commits no new document.
+        waiter.settle();
+      }
+      await waiter.promise;
+    } finally {
+      this.documentWaiters = this.documentWaiters.filter((entry) => entry !== waiter);
+    }
+    void this.refreshTitle();
+  }
+
+  private async waitForPendingDocument(): Promise<void> {
+    const deadline = this.now() + PENDING_DOCUMENT_WAIT_MS;
+    while (this.documentPending && !this.closed) {
+      if (this.now() >= deadline) {
+        throw new Error(
+          `The tab is still loading its next page (the server has not sent it after ${PENDING_DOCUMENT_WAIT_MS / 1_000} s), and Chromium runs nothing on the page until it arrives. Call browser_wait with url or text to wait for the page, then retry.`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  private async waitForCommitAfter(documents: number): Promise<void> {
+    const deadline = this.now() + COMMIT_REPORT_WAIT_MS;
+    while (this.committedDocuments === documents && !this.closed && this.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  private waitForDocument(): DocumentWaiter {
+    let settle = () => {};
+    let fail: (error: Error) => void = () => {};
+    const promise = new Promise<void>((resolve, reject) => {
+      settle = resolve;
+      fail = reject;
+    });
+    const waiter: DocumentWaiter = { committed: false, promise, settle, fail };
+    this.documentWaiters.push(waiter);
+    return waiter;
+  }
+
+  private onDomContentLoaded(): void {
+    for (const waiter of this.documentWaiters) if (waiter.committed) waiter.settle();
+  }
+
+  private failDocumentWaiters(error: Error): void {
+    for (const waiter of this.documentWaiters.splice(0)) waiter.fail(error);
   }
 
   /** Resolves on the next main-frame load, or after LOAD_WAIT_MS for a page that never finishes. */
@@ -751,12 +884,27 @@ export class ServerBrowserTab {
     );
   }
 
+  private async wake(): Promise<void> {
+    await this.onWake();
+    if (this.suspension) throw new Error("This tab is suspended and could not be reloaded.");
+  }
+
+  /**
+   * Navigation commands bypass the tab's queue: Chromium answers them only once the server sends
+   * the new document, and scripts and snapshots on the page showing meanwhile must not wait.
+   */
+  private async navigationSend(method: string, params: CdpParams = {}): Promise<CdpParams> {
+    if (this.suspension && !this.closed) await this.wake();
+    return this.rawSend(method, params);
+  }
+
   private send(method: string, params: CdpParams = {}): Promise<CdpParams> {
     if (this.suspension && !this.closed) {
-      return this.onWake().then(() => {
-        if (this.suspension) throw new Error("This tab is suspended and could not be reloaded.");
-        return this.send(method, params);
-      });
+      return this.wake().then(() => this.send(method, params));
+    }
+    if (this.documentPending && PAGE_BOUND_COMMAND.test(method)) {
+      // Waits outside the queue: held there, it would hold every later command too.
+      return this.waitForPendingDocument().then(() => this.send(method, params));
     }
     if (method.startsWith("Input.")) {
       this.assertNoDialog();
@@ -944,6 +1092,9 @@ export class ServerBrowserTab {
       | { parentId?: string; url?: string; urlFragment?: string; unreachableUrl?: string }
       | undefined;
     if (!frame || frame.parentId) return;
+    this.committedDocuments += 1;
+    this.documentPending = false;
+    for (const waiter of this.documentWaiters) waiter.committed = true;
     // A failed load commits Chromium's error page; the tab keeps the URL it tried.
     const unreachableUrl = typeof frame.unreachableUrl === "string" ? frame.unreachableUrl : null;
     this.url = unreachableUrl ?? `${frame.url ?? this.url}${frame.urlFragment ?? ""}`;

@@ -273,6 +273,8 @@ export const BrowserAutomationTabInfoSchema = z.object({
   isLoading: z.boolean().default(false),
   canGoBack: z.boolean().optional(),
   canGoForward: z.boolean().optional(),
+  /** Fork: a server browser tab whose idle page was unloaded; the next command reloads it. */
+  suspended: z.boolean().optional(),
 });
 
 export const BrowserAutomationListTabsResultSchema = z.object({
@@ -527,12 +529,16 @@ export const BrowserAutomationExecuteResponseSchema = z.object({
       ok: z.literal(true),
       result: BrowserAutomationResultSchema,
       dialogs: z.array(BrowserAutomationDialogEventSchema).optional(),
+      // Fork: something the agent must know about the tab, e.g. it was suspended and reloaded.
+      notice: z.string().optional(),
     }),
     z.object({
       requestId: z.string().min(1),
       ok: z.literal(false),
       error: BrowserAutomationErrorSchema,
       dialogs: z.array(BrowserAutomationDialogEventSchema).optional(),
+      // Fork: something the agent must know about the tab, e.g. it was suspended and reloaded.
+      notice: z.string().optional(),
     }),
   ]),
 });

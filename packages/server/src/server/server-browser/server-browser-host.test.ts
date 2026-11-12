@@ -37,11 +37,17 @@ class FakeChromium {
   public mouseAckMs = 0;
   /** Page commands this browser never answers. */
   public readonly unanswered = new Set<string>();
+  /** Targets the daemon closed (Target.closeTarget), in order. */
+  public readonly closedTargets: string[] = [];
+  /** The page's scroll position, as the suspend capture reads it. */
+  public scroll: [number, number] = [0, 0];
   /** Ends the running browser as a crash would. */
   public crash: () => void = () => {};
   /** Sends a CDP event from the running browser, as a page would cause one. */
   public emit: (event: { method: string; params: CdpParams; sessionId: string }) => void = () => {};
   private nextId = 0;
+  private readonly targetOfSession = new Map<string, string>();
+  private readonly urlOfSession = new Map<string, string>();
 
   public readonly launch: LaunchFn = async () => {
     this.launches++;
@@ -75,7 +81,22 @@ class FakeChromium {
         };
         buffer = buffer.slice(end + 1);
         if (message.sessionId) this.pageCommands.push(message);
-        const result = this.answer(message.method, message.params);
+        const result = this.answer(message.method, message.params, message.sessionId);
+        // A navigation loads at once: the main frame starts, commits and stops loading.
+        if (message.method === "Page.navigate" && message.sessionId) {
+          const sessionId = message.sessionId;
+          const frameId = this.targetOfSession.get(sessionId);
+          const url = message.params.url as string;
+          setImmediate(() => {
+            this.emit({ method: "Page.frameStartedLoading", params: { frameId }, sessionId });
+            this.emit({
+              method: "Page.frameNavigated",
+              params: { frame: { id: frameId, url } },
+              sessionId,
+            });
+            this.emit({ method: "Page.frameStoppedLoading", params: { frameId }, sessionId });
+          });
+        }
         const reply = () => fromBrowser.write(`${JSON.stringify({ id: message.id, result })}\0`);
         if (this.unanswered.has(message.method)) {
           // Never answered.
@@ -95,7 +116,7 @@ class FakeChromium {
     };
   };
 
-  private answer(method: string, params: CdpParams): CdpParams {
+  private answer(method: string, params: CdpParams, pageSession?: string): CdpParams {
     switch (method) {
       case "Target.getTargets":
         return { targetInfos: [] };
@@ -110,8 +131,30 @@ class FakeChromium {
         return {};
       case "Target.createTarget":
         return { targetId: `target-${++this.nextId}` };
-      case "Target.attachToTarget":
-        return { sessionId: `session-${++this.nextId}` };
+      case "Target.attachToTarget": {
+        const sessionId = `session-${++this.nextId}`;
+        this.targetOfSession.set(sessionId, params.targetId as string);
+        return { sessionId };
+      }
+      case "Target.closeTarget":
+        this.closedTargets.push(params.targetId as string);
+        return { success: true };
+      case "Page.captureScreenshot":
+        return { data: Buffer.from(`frame:${params.format as string}`).toString("base64") };
+      case "Runtime.evaluate": {
+        const expression = params.expression as string;
+        if (expression === "[window.scrollX, window.scrollY]")
+          return { result: { value: this.scroll } };
+        if (expression.includes("window.scrollTo(")) return { result: { value: true } };
+        const url = pageSession ? this.urlOfSession.get(pageSession) : undefined;
+        if (expression === "location.origin" && url)
+          return { result: { value: new URL(url).origin } };
+        return {};
+      }
+      case "Page.navigate": {
+        if (pageSession) this.urlOfSession.set(pageSession, params.url as string);
+        return {};
+      }
       case "Storage.getCookies":
         return { cookies: this.contexts.get(params.browserContextId as string) ?? [] };
       case "Storage.setCookies":
@@ -137,14 +180,18 @@ afterEach(async () => {
   rmSync(paseoHome, { recursive: true, force: true });
 });
 
-function createHost(limits: Partial<ServerBrowserLimits> = {}): ServerBrowserHost {
+function createHost(
+  limits: Partial<ServerBrowserLimits> = {},
+  now?: () => number,
+): ServerBrowserHost {
   const host = new ServerBrowserHost({
     paseoHome,
-    logger: pino({ level: "silent" }),
+    logger: pino({ level: process.env.SB_DEBUG ? "debug" : "silent" }),
     isEnabled: () => true,
     resolveExecutable: async () => ({ ok: true, path: "/fake/chromium", source: "config" }),
     launch: chromium.launch,
     limits,
+    ...(now ? { now } : {}),
   });
   hosts.push(host);
   return host;
@@ -158,6 +205,10 @@ async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<voi
   }
 }
 
+const PAGE = "http://localhost:4100/";
+const SIZE = { maxWidth: 1280, maxHeight: 800 };
+const suspendedFile = (browserId: string) =>
+  join(paseoHome, "server-browser", "suspended-tabs", `${browserId}.json`);
 const storageFile = (workspaceId: string) =>
   join(paseoHome, "server-browser", "storage", `${workspaceId}.json`);
 const sessionCookie = {
@@ -324,35 +375,231 @@ describe("ServerBrowserHost lifecycle", () => {
     expect(host.getTab(tab.browserId)).not.toBeNull();
   });
 
-  it("caps tabs across every workspace on the host", async () => {
+  it("caps live tabs across every workspace, refusing a new one when every tab is watched", async () => {
     const host = createHost({ maxTabs: 2 });
-    await host.openTab({ workspaceId: "ws-a", url: "about:blank", openedBy: "agent" });
-    await host.openTab({ workspaceId: "ws-b", url: "about:blank", openedBy: "agent" });
+    for (const workspaceId of ["ws-a", "ws-b"]) {
+      const tab = await host.openTab({ workspaceId, url: "about:blank", openedBy: "agent" });
+      tab.screencast.addViewer("v", { send: () => {}, isCongested: () => false }, SIZE);
+    }
     await expect(
       host.openTab({ workspaceId: "ws-c", url: "about:blank", openedBy: "agent" }),
     ).rejects.toThrow(/browser_close_tab/);
   });
 
-  it("closes a tab nobody touched within the idle window", async () => {
+  it("opens a new tab past the limit by suspending the idlest unwatched one, and says which", async () => {
     let now = 0;
-    const host = new ServerBrowserHost({
+    const host = createHost({ maxTabs: 2 }, () => now);
+    const idlest = await host.openTab({ workspaceId: "ws-a", url: PAGE, openedBy: "agent" });
+    now = 1_000;
+    const watched = await host.openTab({ workspaceId: "ws-b", url: PAGE, openedBy: "agent" });
+    watched.screencast.addViewer("v", { send: () => {}, isCongested: () => false }, SIZE);
+    now = 2_000;
+
+    const response = await host.execute({
+      type: "browser.automation.execute.request",
+      requestId: "r",
+      workspaceId: "ws-c",
+      command: { command: "new_tab", args: { url: PAGE } },
+    });
+
+    expect(response).toMatchObject({ ok: true, result: { command: "new_tab" } });
+    expect(response.notice).toContain(`suspended the one used longest ago`);
+    expect(response.notice).toContain(`browserId=${idlest.browserId} (${PAGE})`);
+    expect(idlest.isSuspended).toBe(true);
+    expect(watched.isSuspended).toBe(false);
+    expect(host.listTabs()).toHaveLength(3);
+  });
+
+  it("suspends a tab nobody touched within the idle window, keeping its URL and last frame", async () => {
+    let now = 0;
+    const host = createHost({ tabIdleMs: 10 * 60_000 }, () => now);
+    chromium.scroll = [0, 640];
+    const stale = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    const staleTarget = stale.cdpTargetId;
+    now = 5 * 60_000;
+    const fresh = await host.openTab({ workspaceId: "ws", url: "about:blank", openedBy: "agent" });
+    now = 11 * 60_000;
+
+    await host.sweepIdleTabs();
+
+    expect(chromium.closedTargets).toEqual([staleTarget]);
+    expect(host.listTabs()).toEqual([
+      expect.objectContaining({ browserId: stale.browserId, url: PAGE, suspended: true }),
+      expect.not.objectContaining({ suspended: true }),
+    ]);
+    expect(host.getTab(fresh.browserId)?.isSuspended).toBe(false);
+    expect(Buffer.from(stale.currentStillFrame!.jpeg).toString()).toBe("frame:jpeg");
+    expect(stale.suspendedState?.scroll).toEqual({ x: 0, y: 640 });
+    expect(existsSync(suspendedFile(stale.browserId))).toBe(true);
+  });
+
+  it("keeps a watched tab live however long nobody else touches it", async () => {
+    let now = 0;
+    const host = createHost({ tabIdleMs: 10 * 60_000 }, () => now);
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    tab.screencast.addViewer("v", { send: () => {}, isCongested: () => false }, SIZE);
+    now = 60 * 60_000;
+    await host.sweepIdleTabs();
+    expect(tab.isSuspended).toBe(false);
+    expect(chromium.closedTargets).toEqual([]);
+  });
+
+  it("reloads a suspended tab at its URL and scroll for an agent's command, and says so", async () => {
+    const host = createHost();
+    chromium.scroll = [0, 640];
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.suspendTab(tab.browserId);
+    const listed = await host.execute({
+      type: "browser.automation.execute.request",
+      requestId: "list",
+      workspaceId: "ws",
+      command: { command: "list_tabs", args: {} },
+    });
+    expect(listed).toMatchObject({
+      ok: true,
+      result: { tabs: [{ browserId: tab.browserId, suspended: true }] },
+    });
+    expect(listed).not.toHaveProperty("notice");
+    expect(tab.isSuspended).toBe(true);
+    chromium.pageCommands.length = 0;
+
+    const response = await host.execute({
+      type: "browser.automation.execute.request",
+      requestId: "r",
+      workspaceId: "ws",
+      command: { command: "reload", args: { browserId: tab.browserId } },
+    });
+
+    expect(response.notice).toMatch(/suspended it to free memory.*reloaded its page at http/);
+    expect(response.notice).toMatch(/take a new snapshot/);
+    expect(tab.isSuspended).toBe(false);
+    expect(tab.cdpTargetId).not.toBe("");
+    const methods = chromium.pageCommands.map((command) => command.method);
+    expect(chromium.pageCommands).toContainEqual(
+      expect.objectContaining({ method: "Page.navigate", params: { url: PAGE } }),
+    );
+    expect(
+      chromium.pageCommands.some(
+        (command) =>
+          command.method === "Runtime.evaluate" &&
+          String(command.params.expression).includes("window.scrollTo(0, 640)"),
+      ),
+    ).toBe(true);
+    expect(methods.indexOf("Page.navigate")).toBeLessThan(methods.lastIndexOf("Page.reload"));
+    expect(existsSync(suspendedFile(tab.browserId))).toBe(false);
+  });
+
+  it("shows a viewer the suspended page's frame, then wakes the tab for it", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.suspendTab(tab.browserId);
+    const frames: string[] = [];
+    tab.screencast.addViewer(
+      "v",
+      {
+        send: (frame) => frames.push(Buffer.from(frame.jpeg).toString()),
+        isCongested: () => false,
+      },
+      SIZE,
+    );
+    expect(frames).toEqual(["frame:jpeg"]);
+    await waitFor(() => !tab.isSuspended && tab.currentStillFrame === null);
+    expect(chromium.pageCommands).toContainEqual(
+      expect.objectContaining({ method: "Page.startScreencast" }),
+    );
+  });
+
+  it("frees the workspace's context and the browser once its only tab is suspended", async () => {
+    const host = createHost({ contextIdleMs: 50, browserIdleMs: 50 });
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.suspendTab(tab.browserId);
+    await waitFor(() => chromium.exited === 1);
+    expect(host.openContextIds()).toEqual([]);
+    expect(host.listTabs()).toEqual([expect.objectContaining({ suspended: true })]);
+
+    await host.wakeTab(tab);
+    expect(chromium.launches).toBe(2);
+    expect(tab.info()).toMatchObject({ url: PAGE });
+    expect(tab.isSuspended).toBe(false);
+  });
+
+  it("brings suspended and open tabs back suspended after a daemon restart, same ids", async () => {
+    const first = createHost();
+    const suspended = await first.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await first.suspendTab(suspended.browserId);
+    const open = await first.openTab({ workspaceId: "ws", url: `${PAGE}open`, openedBy: "user" });
+    await first.shutdown();
+
+    const second = createHost();
+    await second.loadSuspendedTabs();
+
+    expect(second.listTabs()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ browserId: suspended.browserId, url: PAGE, suspended: true }),
+        expect.objectContaining({ browserId: open.browserId, url: `${PAGE}open`, suspended: true }),
+      ]),
+    );
+    const restored = second.getTab(suspended.browserId)!;
+    expect(Buffer.from(restored.currentStillFrame!.jpeg).toString()).toBe("frame:jpeg");
+    await second.wakeTab(restored);
+    expect(restored.isSuspended).toBe(false);
+  });
+
+  it("drops saved suspended tabs when the server browser is off at startup", async () => {
+    const first = createHost();
+    const tab = await first.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await first.suspendTab(tab.browserId);
+    const off = new ServerBrowserHost({
       paseoHome,
       logger: pino({ level: "silent" }),
-      isEnabled: () => true,
-      resolveExecutable: async () => ({ ok: true, path: "/fake/chromium", source: "config" }),
-      launch: chromium.launch,
-      limits: { tabIdleMs: 30 * 60_000 },
-      now: () => now,
+      isEnabled: () => false,
     });
-    hosts.push(host);
-    const stale = await host.openTab({ workspaceId: "ws", url: "about:blank", openedBy: "agent" });
-    now = 20 * 60_000;
-    const fresh = await host.openTab({ workspaceId: "ws", url: "about:blank", openedBy: "agent" });
-    now = 31 * 60_000;
-    host.sweepIdleTabs();
+    await off.loadSuspendedTabs();
+    expect(off.listTabs()).toEqual([]);
+    expect(existsSync(suspendedFile(tab.browserId))).toBe(false);
+  });
+
+  it("keeps at most maxSuspendedTabs, closing the one used longest ago", async () => {
+    let now = 0;
+    const host = createHost({ maxSuspendedTabs: 1 }, () => now);
+    const older = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    now = 1_000;
+    const newer = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.suspendTab(older.browserId);
+    await host.suspendTab(newer.browserId);
     await waitFor(() => host.listTabs().length === 1);
-    expect(host.getTab(stale.browserId)).toBeNull();
-    expect(host.getTab(fresh.browserId)).not.toBeNull();
+    expect(host.listTabs()[0]?.browserId).toBe(newer.browserId);
+    await waitFor(() => !existsSync(suspendedFile(older.browserId)));
+  });
+
+  it("closes a suspended tab nobody used for suspendedTabTtlMs", async () => {
+    let now = 0;
+    const host = createHost({ tabIdleMs: 1_000, suspendedTabTtlMs: 10_000 }, () => now);
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    now = 2_000;
+    await host.sweepIdleTabs();
+    expect(tab.isSuspended).toBe(true);
+    now = 20_000;
+    await host.sweepIdleTabs();
+    expect(host.listTabs()).toEqual([]);
+  });
+
+  it("does not count suspended tabs toward the limit; a waking tab suspends the idlest live one", async () => {
+    let now = 0;
+    const host = createHost({ maxTabs: 2 }, () => now);
+    const a = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.suspendTab(a.browserId);
+    now = 1_000;
+    const b = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    now = 2_000;
+    const c = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    c.screencast.addViewer("v", { send: () => {}, isCongested: () => false }, SIZE);
+
+    await host.wakeTab(a);
+
+    expect(a.isSuspended).toBe(false);
+    expect(b.isSuspended).toBe(true);
+    expect(c.isSuspended).toBe(false);
   });
 
   it("tells an agent to retry when the browser is not there, not that something unknown failed", async () => {

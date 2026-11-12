@@ -788,6 +788,7 @@ function browserToolResult(params: {
         ok: true,
         result: browserToolStructuredResult(payload.result),
         ...(payload.dialogs ? { dialogs: payload.dialogs } : {}),
+        ...(payload.notice ? { notice: payload.notice } : {}),
         context,
       },
     };
@@ -797,13 +798,17 @@ function browserToolResult(params: {
     content: [
       {
         type: "text",
-        text: appendDialogSummary(summarizeBrowserError(payload.error), payload.dialogs),
+        text: withNotice(
+          appendDialogSummary(summarizeBrowserError(payload.error), payload.dialogs),
+          payload.notice,
+        ),
       },
     ],
     structuredContent: {
       ok: false,
       error: payload.error,
       ...(payload.dialogs ? { dialogs: payload.dialogs } : {}),
+      ...(payload.notice ? { notice: payload.notice } : {}),
       context,
     },
   };
@@ -823,7 +828,10 @@ function browserToolStructuredResult(
 function browserToolSuccessContent(
   payload: Extract<BrowserToolsResponsePayload, { ok: true }>,
 ): PaseoToolResult["content"] {
-  const textContent = { type: "text" as const, text: summarizeBrowserSuccess(payload) };
+  const textContent = {
+    type: "text" as const,
+    text: withNotice(summarizeBrowserSuccess(payload), payload.notice),
+  };
   const imageContent = browserToolImageContent(payload.result);
   return imageContent ? [textContent, imageContent] : [textContent];
 }
@@ -886,7 +894,9 @@ function summarizeBrowserSuccess(
     const tabLines = payload.result.tabs.map((tab) => {
       const active = tab.isActive ? " active" : "";
       const location = tab.location ? ` location=${tab.location}` : "";
-      return `- browserId=${tab.browserId}${active}${location} title=${JSON.stringify(tab.title || "Untitled")} url=${tab.url}`;
+      // Fork: an idle server tab whose page was unloaded (docs/server-browser.md).
+      const suspended = tab.suspended ? " suspended (the next command reloads its page)" : "";
+      return `- browserId=${tab.browserId}${active}${location}${suspended} title=${JSON.stringify(tab.title || "Untitled")} url=${tab.url}`;
     });
     return withDialogs(
       [
@@ -919,6 +929,11 @@ function summarizeBrowserSuccess(
   }
 
   return withDialogs(`Browser ${payload.result.command} complete.`);
+}
+
+/** Fork: a notice from the browser host (a suspended tab reloaded) leads the tool's text. */
+function withNotice(summary: string, notice: string | undefined): string {
+  return notice ? `${notice}\n${summary}` : summary;
 }
 
 function appendDialogSummary(

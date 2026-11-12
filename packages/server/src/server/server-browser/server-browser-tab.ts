@@ -8,7 +8,7 @@ import type { CdpConnection, CdpEvent, CdpParams } from "./cdp-connection.js";
 import { CdpSessionQueue } from "./engine/cdp-session-queue.js";
 import type { TabContents, TabImage } from "./engine/service.js";
 import type { IsolatedKeyboardInputEvent } from "./engine/trusted-input.js";
-import { ScreencastHub, type ScreencastSize } from "./screencast-hub.js";
+import { ScreencastHub, type ScreencastFrame, type ScreencastSize } from "./screencast-hub.js";
 import type { TabVideoCapture } from "./tab-video.js";
 import { TabVideoStream } from "./tab-video-stream.js";
 import { cancelPick } from "./element-picker.js";
@@ -40,6 +40,10 @@ const INPUT_ACK_TIMEOUT_MS = 5_000;
 // How long a page seen visible is trusted before input looks again; pointer moves come at 60 Hz.
 const VISIBILITY_TRUST_MS = 500;
 const RESTORE_WAIT_MS = 2_000;
+/** How long suspending waits for the page's scroll position and a final frame. */
+const SUSPEND_CAPTURE_TIMEOUT_MS = 3_000;
+/** A restored page's layout can grow after load (a SPA rendering); scrolling retries this long. */
+const SCROLL_RESTORE_MS = 3_000;
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800, mobile: false } as const;
 
 export interface ServerBrowserViewport {
@@ -48,13 +52,37 @@ export interface ServerBrowserViewport {
   mobile: boolean;
 }
 
+/** A page target the tab drives. */
+export interface ServerBrowserTabTarget {
+  targetId: string;
+  sessionId: string;
+  connection: CdpConnection;
+}
+
+/** What a suspended tab keeps of its page once the target is gone. */
+export interface TabSuspension {
+  suspendedAt: number;
+  scroll: { x: number; y: number };
+  /** The page as it was left; null when it could not be captured. */
+  frame: ScreencastFrame | null;
+}
+
+/** A suspended tab read back from disk after a daemon restart. */
+export interface SuspendedTabRecord {
+  url: string;
+  title: string;
+  createdAt: number;
+  lastUsedAt: number;
+  suspension: TabSuspension;
+}
+
 export interface ServerBrowserTabOptions {
   browserId: string;
   workspaceId: string;
   contentsId: number;
-  targetId: string;
-  sessionId: string;
-  connection: CdpConnection;
+  /** Null for a tab that starts suspended (read back from disk). */
+  target: ServerBrowserTabTarget | null;
+  suspended?: SuspendedTabRecord;
   openedBy: "agent" | "user";
   viewport?: ServerBrowserViewport;
   /** The tab whose page opened this one (window.open, a target=_blank link). */
@@ -68,6 +96,8 @@ export interface ServerBrowserTabOptions {
   videoCapture?: () => Promise<TabVideoCapture | null>;
   onVideoError?: (message: string) => void;
   onVideoPlan?: (encodes: string[]) => void;
+  /** Reloads a suspended tab's page; the tab calls it when a viewer or a command needs the page. */
+  onWake?: () => Promise<void>;
   now?: () => number;
 }
 
@@ -87,13 +117,18 @@ export class ServerBrowserTab {
 
   private targetId: string;
   private sessionId: string;
-  private connection: CdpConnection;
+  private connection: CdpConnection | null;
   private readonly contentsId: number;
   public readonly titleMark: WindowTitleMark | null;
   public readonly openerBrowserId: string | null;
   private readonly onChange: () => void;
   private readonly onNavigated: (url: string) => void;
+  private readonly onWake: () => Promise<void>;
   private readonly now: () => number;
+  /** Set while the tab is suspended: its target is closed and its page unloaded. */
+  private suspension: TabSuspension | null = null;
+  /** The suspended page's frame, shown to viewers until the restored page paints. */
+  private stillFrame: ScreencastFrame | null = null;
   private readonly queue = new CdpSessionQueue();
   private readonly console: BrowserAutomationConsoleLogEntry[] = [];
   /** The seq of console[0]; the buffer drops its oldest line past MAX_CONSOLE_ENTRIES. */
@@ -131,19 +166,27 @@ export class ServerBrowserTab {
     this.contentsId = options.contentsId;
     this.titleMark = options.titleMark ?? null;
     this.openerBrowserId = options.openerBrowserId ?? null;
-    this.targetId = options.targetId;
-    this.sessionId = options.sessionId;
-    this.connection = options.connection;
+    this.targetId = options.target?.targetId ?? "";
+    this.sessionId = options.target?.sessionId ?? "";
+    this.connection = options.target?.connection ?? null;
     this.onChange = options.onChange;
     this.onNavigated = options.onNavigated ?? (() => {});
+    this.onWake = options.onWake ?? (() => Promise.reject(new Error("This tab is suspended.")));
     this.now = options.now ?? Date.now;
-    this.createdAt = this.now();
-    this.lastUsedAt = this.createdAt;
+    this.createdAt = options.suspended?.createdAt ?? this.now();
+    this.lastUsedAt = options.suspended?.lastUsedAt ?? this.createdAt;
+    if (options.suspended) {
+      this.url = options.suspended.url;
+      this.title = options.suspended.title;
+      this.suspension = options.suspended.suspension;
+      this.stillFrame = this.suspension.frame;
+    }
     this.viewport = options.viewport ?? { ...DEFAULT_VIEWPORT };
     this.contents = this.createContents();
     this.screencast = new ScreencastHub({
       start: (size) => this.startScreencast(size),
       stop: () => this.stopScreencast(),
+      stillFrame: () => this.stillFrame,
     });
     const videoCapture = options.videoCapture;
     this.video = videoCapture
@@ -169,6 +212,19 @@ export class ServerBrowserTab {
 
   public get isClosed(): boolean {
     return this.closed;
+  }
+
+  public get isSuspended(): boolean {
+    return this.suspension !== null;
+  }
+
+  public get suspendedState(): TabSuspension | null {
+    return this.suspension;
+  }
+
+  /** The frame a suspended (or just restored) tab shows until its page paints. */
+  public get currentStillFrame(): ScreencastFrame | null {
+    return this.stillFrame;
   }
 
   public get cdpTargetId(): string {
@@ -199,6 +255,7 @@ export class ServerBrowserTab {
       viewport: { ...this.viewport },
       openedBy: this.openedBy,
       createdAt: this.createdAt,
+      ...(this.suspension ? { suspended: true } : {}),
       ...(this.loadError ? { loadError: { ...this.loadError } } : {}),
       ...(this.openerBrowserId ? { openerBrowserId: this.openerBrowserId } : {}),
       ...(this.dialog ? { dialog: { ...this.dialog } } : {}),
@@ -225,15 +282,25 @@ export class ServerBrowserTab {
   }
 
   /** Rebinds this browserId to a fresh target after the workspace's context was recreated. */
-  public rebind(target: { targetId: string; sessionId: string; connection: CdpConnection }): void {
+  /**
+   * `videoAfterLoad`: a woken tab's video starts once its page has loaded (startVideo), because a
+   * capture started on the new target's blank page can end with the load.
+   */
+  public rebind(target: ServerBrowserTabTarget, options: { videoAfterLoad?: boolean } = {}): void {
     this.targetId = target.targetId;
     this.sessionId = target.sessionId;
     this.connection = target.connection;
     this.closed = false;
+    this.suspension = null;
     // The new target's initialize turns the Runtime domain on again.
     this.endConsolePause();
     this.screencast.resetLastFrame();
     if (this.screencastSize) void this.startScreencast(this.screencastSize);
+    if (!options.videoAfterLoad) this.video?.refresh();
+  }
+
+  /** Starts (or restarts) video capture for this tab's current target. */
+  public startVideo(): void {
     this.video?.refresh();
   }
 
@@ -281,6 +348,79 @@ export class ServerBrowserTab {
         return;
       default:
         return;
+    }
+  }
+
+  /**
+   * Where the page is now, for suspending it: its scroll position and a frame of what it shows.
+   * A page too busy to answer keeps the last screencast frame, or none.
+   */
+  public async captureSuspension(): Promise<TabSuspension> {
+    const scroll = await withDeadline(
+      this.rawSend("Runtime.evaluate", {
+        expression: "[window.scrollX, window.scrollY]",
+        returnByValue: true,
+      }).then((result) => {
+        const value = (result.result as { value?: unknown } | undefined)?.value;
+        return Array.isArray(value) && value.every((n) => typeof n === "number")
+          ? { x: value[0] as number, y: value[1] as number }
+          : null;
+      }),
+      SUSPEND_CAPTURE_TIMEOUT_MS,
+    );
+    const shot = await withDeadline(
+      this.rawSend("Page.captureScreenshot", { format: "jpeg", quality: 60 }).then((result) =>
+        typeof result.data === "string" ? Buffer.from(result.data, "base64") : null,
+      ),
+      SUSPEND_CAPTURE_TIMEOUT_MS,
+    );
+    const frame = shot
+      ? { jpeg: shot, width: this.viewport.width, height: this.viewport.height }
+      : (this.screencast.currentFrame ?? this.stillFrame);
+    return { suspendedAt: this.now(), scroll: scroll ?? { x: 0, y: 0 }, frame };
+  }
+
+  /**
+   * The page goes away and the tab keeps its URL, title, size and last frame. Its target must be
+   * closed by the caller; the next viewer or command wakes it (onWake), which reloads the page.
+   */
+  public suspend(suspension: TabSuspension): void {
+    cancelPick(this.contents);
+    this.suspension = suspension;
+    this.stillFrame = suspension.frame;
+    this.targetId = "";
+    this.sessionId = "";
+    this.connection = null;
+    this.endConsolePause();
+    this.loading = false;
+    this.canGoBack = false;
+    this.canGoForward = false;
+    this.dialog = null;
+    this.fileChooser = null;
+    this.pendingMove = null;
+    this.visibleUntil = 0;
+    for (const resolve of this.loadWaiters.splice(0)) resolve();
+    this.onChange();
+  }
+
+  /** The restored page painted (or never will): viewers get live frames only from here on. */
+  public dropStillFrame(): void {
+    this.stillFrame = null;
+  }
+
+  /** Scrolls a restored page back to where it was suspended, waiting for its layout to grow. */
+  public async restoreScroll(scroll: { x: number; y: number }): Promise<void> {
+    if (scroll.x === 0 && scroll.y === 0) return;
+    const deadline = this.now() + SCROLL_RESTORE_MS;
+    const expression = `(() => { window.scrollTo(${scroll.x}, ${scroll.y}); return Math.abs(window.scrollY - ${scroll.y}) < 2 && Math.abs(window.scrollX - ${scroll.x}) < 2; })()`;
+    for (;;) {
+      const result = await this.rawSend("Runtime.evaluate", {
+        expression,
+        returnByValue: true,
+      }).catch(() => null);
+      const reached = (result?.result as { value?: unknown } | undefined)?.value === true;
+      if (reached || this.now() >= deadline || this.closed) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 
@@ -612,6 +752,12 @@ export class ServerBrowserTab {
   }
 
   private send(method: string, params: CdpParams = {}): Promise<CdpParams> {
+    if (this.suspension && !this.closed) {
+      return this.onWake().then(() => {
+        if (this.suspension) throw new Error("This tab is suspended and could not be reloaded.");
+        return this.send(method, params);
+      });
+    }
     if (method.startsWith("Input.")) {
       this.assertNoDialog();
       return this.queue.run(() => this.inputSend(method, params));
@@ -676,11 +822,13 @@ export class ServerBrowserTab {
    * A browser with no windows (headless) fails getWindowForTarget, and nothing changes.
    */
   private async restoreWindow(): Promise<void> {
-    const found = (await this.connection
+    const connection = this.connection;
+    if (!connection) return;
+    const found = (await connection
       .send("Browser.getWindowForTarget", { targetId: this.targetId })
       .catch(() => null)) as { windowId?: number; bounds?: { windowState?: string } } | null;
     if (typeof found?.windowId !== "number" || found.bounds?.windowState !== "minimized") return;
-    await this.connection
+    await connection
       .send("Browser.setWindowBounds", {
         windowId: found.windowId,
         bounds: { windowState: "normal" },
@@ -695,6 +843,7 @@ export class ServerBrowserTab {
 
   private rawSend(method: string, params: CdpParams = {}): Promise<CdpParams> {
     if (this.closed) return Promise.reject(new Error("Browser tab has been closed"));
+    if (!this.connection) return Promise.reject(new Error("Browser tab is suspended"));
     return this.connection.send(method, params, this.sessionId);
   }
 
@@ -731,6 +880,11 @@ export class ServerBrowserTab {
 
   /** A viewer started watching, on either stream. */
   private beginWatching(): void {
+    // A viewer wakes a suspended tab; it sees the still frame until the page paints.
+    if (this.suspension) {
+      void this.onWake().catch(() => {});
+      return;
+    }
     // A hidden page paints nothing, so a viewer of a minimized window would wait on a blank frame.
     void this.ensureVisible().catch(() => {});
     // A file input asks the viewer instead of opening Chromium's chooser, which no one sees.
@@ -1072,4 +1226,17 @@ function buttonMask(button: "left" | "right" | "middle"): number {
 function pngSize(png: Buffer): { width: number; height: number } {
   if (png.length < 24) return { width: 0, height: 0 };
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
+}
+
+/** The work's result, or null once `ms` pass or it fails. */
+async function withDeadline<T>(work: Promise<T | null>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  try {
+    return await Promise.race([work.catch(() => null), late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

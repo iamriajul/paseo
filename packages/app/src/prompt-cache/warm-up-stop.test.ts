@@ -1,8 +1,54 @@
 import { describe, expect, it } from "vitest";
 import type { CacheWarmStop, PromptCacheHistoryEntry } from "@getpaseo/protocol/agent-cache-warm";
-import { describeAccountPause, describeWarmUpStop, indexWarmUpStops } from "./warm-up-stop";
+import {
+  describeAccountPause,
+  describeWakeUpHold,
+  describeWarmUpStop,
+  indexWarmUpStops,
+} from "./warm-up-stop";
 
 const MINUTE = 60_000;
+
+describe("describeWakeUpHold", () => {
+  const now = new Date("2026-11-07T15:00:00Z").getTime();
+
+  it("names the held wake-up, the account and when it is back", () => {
+    expect(
+      describeWakeUpHold(
+        {
+          kind: "heartbeat",
+          reason: "cooldown",
+          account: "s***b",
+          until: "2026-11-07T15:20:00Z",
+          heldAt: "2026-11-07T14:58:00Z",
+          count: 1,
+        },
+        now,
+      ),
+    ).toMatch(
+      /^Heartbeat held · s\*\*\*b is cooling down \(back \S.*\) · goes out when it's back$/,
+    );
+  });
+
+  it("counts coalesced repeats and other held wake-ups together", () => {
+    expect(
+      describeWakeUpHold(
+        {
+          kind: "agent-message",
+          reason: "quota",
+          account: "s***b",
+          window: "5h",
+          until: "2026-11-07T15:10:00Z",
+          heldAt: "2026-11-07T14:58:00Z",
+          count: 3,
+        },
+        now,
+      ),
+    ).toMatch(
+      /^3 wake-ups held · s\*\*\*b used up its 5h quota \(back \S.*\) · they go out when it's back$/,
+    );
+  });
+});
 
 describe("describeAccountPause", () => {
   const now = new Date("2026-11-07T15:00:00Z").getTime();

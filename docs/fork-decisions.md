@@ -905,6 +905,33 @@ grep -q "lastRequestAtMs: resolvePromptCacheAnchorMs(agent)" packages/server/src
 cd packages/app && npx vitest run --project unit src/prompt-cache/warm-up-stop.test.ts src/prompt-cache/prompt-cache-explorer.test.ts src/prompt-cache/use-prompt-cache.test.ts -t "serving account is blocked|describeAccountPause|describeWarmUpStop|indexWarmUpStops|warm-up let an expired cache" --bail=1
 ```
 
+## wake-up-hold-blocked-account
+
+**an automated wake-up waits while the CLIProxyAPI account serving the agent is blocked and due back within 30 minutes**
+
+A request to a blocked account makes the Gateway move the session to another account, which re-reads the whole context cold. In the orchestrator's own analysis, 7 of 9 cache misses in 1,638 requests were automated wake-ups (heartbeats, agent messages, a restart resume, a tool step) that landed while its account was cooling down or out of quota, each re-reading about 200k tokens. Nothing waits on those wake-ups, so `WakeUpHolds` (`agent/wake-up-hold.ts`) holds them: right before a heartbeat fires (`ScheduleService.executeAgentSchedule`), a batch of agent messages or finish notifications is dispatched (the agent-message delivery in `websocket-server.ts`), or a restart resume is sent (`restartRecovery` in `bootstrap.ts`), it asks the same serving-account check warm-ups use (`readWarmUpAccountBlock`, see [cache-warm-blocked-account](#cache-warm-blocked-account)). It holds only for `quota` or `cooldown` with a return time, until 15 seconds past that time (the check's 10-second cache plus slack), then checks again: still blocked with a later return inside the horizon keeps waiting, anything else sends. Every other case sends at once: no return time, a return more than 30 minutes after the hold began, a return after the cache expires (less 30 seconds; the miss would happen anyway), `moved`, `untracked`, `unlisted`, `unsupported`, `unconfirmed`, a check that throws, an agent the Gateway does not route (`isGatewayRoutedModel`, so the check answers null), and an agent with a turn running, whose requests reach the Gateway anyway. 30 minutes: CLIProxyAPI cools an account down for seconds to minutes after a 429 and names the reset of a used-up quota window, so most blocks end inside it; a longer wait delays work an agent was asked to do by more than the miss is worth, and a 1h cache left idle that long is near expiry anyway. The miss is cheaper than a stranded agent.
+
+A message a person types never comes through here: the send path in `session.ts` dispatches it directly. It also releases the agent's holds, because its turn makes a request of its own (a request after the hold began, or a running turn, releases them through `noteActivity`). A heartbeat's repeats coalesce on `schedule:<id>`: while a fire waits, the schedule's run stays `running`, so later ticks skip it, and any repeat that does reach the hold is counted on the held one and recorded as "Skipped: an earlier fire is waiting for the serving account". The run's cursor moves past the hold when it finishes, so the schedule does not fire twice to catch up.
+
+Holds are saved to `$PASEO_HOME/wake-up-holds.json`. On start, `restore` re-checks a hold that saved its prompt (plain-text agent messages and restart resumes) against its original deadline and sends it when the account is back; the others are dropped because their source fires again: the heartbeat's schedule, and a notification's finish subscription. At shutdown the saved holds stay; a held message or heartbeat is deferred to the next start, and a held notification is sent as before, because its finish subscription counts it delivered once dispatched.
+
+Fork warm-up (v2) does not remove the need to hold. Since cache-warm-blocked-account, every warm-up, the fork included, is skipped while the serving account is blocked, so under either method the cache on a blocked account is left to expire at its TTL, and the hold is what keeps the next request on that account while the cache lasts. A fork does keep an agent warm while its _turn_ waits on a question or permission; that is a different block and needs no hold.
+
+The hold shows as one `notification` timeline row when a wake-up starts waiting ("Heartbeat held: s\*\*\*b is cooling down, back at 14:20 UTC. It goes out then, so the cache is not re-read on another account."; the daemon writes its own time zone) and, while any wait, as the snapshot's optional `wakeUpHold`, which Session insights show above the tiles ("Heartbeat held · s\*\*\*b is cooling down (back 14:20) · goes out when it's back"; several read "3 wake-ups held"). It needs no `server_info` gate: it is daemon-pushed state older daemons never send, like `cacheWarmPause`, and the timeline row is an existing item type.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/wake-up-hold.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/schedule/service.test.ts -t "cooling-down serving account" --bail=1
+grep -q "await this.holdAgentMessages(batch)" packages/server/src/server/websocket-server.ts
+grep -q "wsServer.wakeUpHolds = wakeUpHolds" packages/server/src/server/bootstrap.ts
+grep -q "then(() => wakeUpHolds.restore())" packages/server/src/server/bootstrap.ts
+grep -q 'kind: "restart",' packages/server/src/server/bootstrap.ts
+grep -q "await wakeUpHolds.close()" packages/server/src/server/bootstrap.ts
+grep -q "wakeUpHold: AgentWakeUpHoldSchema.optional()" packages/protocol/src/messages.ts
+grep -q "prompt-cache-insights-wake-up-hold" packages/app/src/prompt-cache/prompt-cache-insights-dialog.tsx
+cd packages/app && npx vitest run --project unit src/prompt-cache/warm-up-stop.test.ts -t "describeWakeUpHold" --bail=1
+```
+
 ## gateway-session-route
 
 **the context meter and the timeline name the CLIProxyAPI account serving the agent, and cache insights charge misses to account switches**

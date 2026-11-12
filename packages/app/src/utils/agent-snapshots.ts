@@ -1,4 +1,8 @@
-import type { AgentCacheWarmPause, AgentSnapshotPayload } from "@getpaseo/protocol/messages";
+import type {
+  AgentCacheWarmPause,
+  AgentSnapshotPayload,
+  AgentWakeUpHold,
+} from "@getpaseo/protocol/messages";
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { getParentAddressFromLabels } from "@getpaseo/protocol/agent-labels";
 import {
@@ -87,6 +91,13 @@ function pickCacheWarmPause(source: { cacheWarmPause?: AgentCacheWarmPause }): {
   return source.cacheWarmPause ? { cacheWarmPause: source.cacheWarmPause } : {};
 }
 
+/** Live only, like cacheWarmPause: a restarted daemon re-checks the account before it says so. */
+function pickWakeUpHold(source: { wakeUpHold?: AgentWakeUpHold }): {
+  wakeUpHold?: AgentWakeUpHold;
+} {
+  return source.wakeUpHold ? { wakeUpHold: source.wakeUpHold } : {};
+}
+
 /** Live only: never restored from the replica cache, where it would be stale. */
 function pickRuntimeActive(source: { runtimeActive?: boolean }): { runtimeActive?: boolean } {
   return source.runtimeActive === undefined ? {} : { runtimeActive: source.runtimeActive };
@@ -115,6 +126,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
     ...pickCacheAutoCompact(agent),
     ...pickRuntimeActive(agent),
     ...pickCacheWarmPause(agent),
+    ...pickWakeUpHold(agent),
     status: agent.status,
     ...projectActiveTurn(agent),
     capabilities: agent.capabilities,
@@ -171,6 +183,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     ...pickCacheAutoCompact(snapshot),
     ...pickRuntimeActive(snapshot),
     ...pickCacheWarmPause(snapshot),
+    ...pickWakeUpHold(snapshot),
     lastActivityAt: updatedAt,
     capabilities: snapshot.capabilities,
     currentModeId: snapshot.currentModeId,

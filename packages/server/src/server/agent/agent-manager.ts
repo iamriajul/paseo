@@ -12,6 +12,7 @@ import {
 } from "./providers/claude/feature-definitions.js";
 import type {
   AgentCacheWarmPause,
+  AgentWakeUpHold,
   AgentRateLimitCooldownPayload,
 } from "@getpaseo/protocol/messages";
 import { AGENT_LABEL_RATE_LIMIT_AUTO_RESUME } from "@getpaseo/protocol/agent-labels";
@@ -526,6 +527,8 @@ interface ManagedAgentBase {
   gatewayAccounts?: GatewayAccountChange[];
   /** Warm-up paused for the serving account, and why; persisted, so it survives a restart. */
   cacheWarmPause?: AgentCacheWarmPause;
+  /** Automated wake-ups waiting for the serving account (`WakeUpHolds`); live only. */
+  wakeUpHold?: AgentWakeUpHold;
   lastUsage?: AgentUsage;
   lastError?: string;
   attention: AttentionState;
@@ -2881,6 +2884,16 @@ export class AgentManager {
     if (pause) agent.cacheWarmPause = pause;
     else delete agent.cacheWarmPause;
     this.emitState(agent, { isWarmPing: true });
+  }
+
+  /** Publishes the automated wake-ups waiting for the serving account, or that none wait. */
+  setWakeUpHold(agentId: string, hold: AgentWakeUpHold | null): void {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+    if (hold) agent.wakeUpHold = hold;
+    else delete agent.wakeUpHold;
+    // Daemon state, like a warm-up pause: it raises no attention, and `WakeUpHolds` saves it.
+    this.emitState(agent, { persist: false, isWarmPing: true });
   }
 
   /**

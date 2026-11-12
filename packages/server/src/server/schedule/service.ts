@@ -1,3 +1,4 @@
+import type { WakeUpHolds } from "../agent/wake-up-hold.js";
 import { formatSystemNotificationPrompt } from "../agent/agent-messages/index.js";
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
@@ -348,6 +349,8 @@ export interface ScheduleServiceOptions {
   now?: () => Date;
   /** Host setting `cacheExpiryStop`; a heartbeat leaves an agent with an expired cache asleep. */
   cacheExpiryStop?: () => CacheExpiryStopPolicy;
+  /** Holds a heartbeat while the agent's serving account is blocked and due back soon. */
+  wakeUpHolds?: Pick<WakeUpHolds, "hold">;
   runner?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
 }
 
@@ -370,6 +373,7 @@ export class ScheduleService {
   }) => Promise<ScheduleRunTerminalSnapshot[]>;
   private readonly now: () => Date;
   private readonly cacheExpiryStop: () => CacheExpiryStopPolicy;
+  private readonly wakeUpHolds: Pick<WakeUpHolds, "hold"> | null;
   private readonly runner: (
     schedule: StoredSchedule,
     runId: string,
@@ -393,6 +397,7 @@ export class ScheduleService {
     this.listWorkspaceTerminals = options.listWorkspaceTerminals ?? (async () => []);
     this.now = options.now ?? (() => new Date());
     this.cacheExpiryStop = options.cacheExpiryStop ?? (() => "off");
+    this.wakeUpHolds = options.wakeUpHolds ?? null;
     this.runner = options.runner ?? ((schedule, runId) => this.executeSchedule(schedule, runId));
   }
 
@@ -1244,6 +1249,9 @@ export class ScheduleService {
       };
     }
 
+    const held = await this.holdForServingAccount(schedule);
+    if (held) return held;
+
     const agent = await ensureAgentLoaded(schedule.target.agentId, {
       agentManager: this.agentManager,
       agentStorage: this.agentStorage,
@@ -1280,6 +1288,39 @@ export class ScheduleService {
         output: null,
         timelineText: "",
         finalText: waitResult.lastMessage ?? "",
+      }),
+    };
+  }
+
+  /**
+   * Waits while the target's serving account is blocked and due back soon. Returns the run's result
+   * when the fire must not go out: a repeat of a fire already waiting, or a daemon stopping.
+   */
+  private async holdForServingAccount(
+    schedule: StoredSchedule,
+  ): Promise<ScheduleExecutionResult | null> {
+    if (schedule.target.type !== "agent" || !this.wakeUpHolds) return null;
+    const agentId = schedule.target.agentId;
+    const held = await this.wakeUpHolds.hold({
+      agentId,
+      kind: "heartbeat",
+      coalesceKey: `schedule:${schedule.id}`,
+    });
+    if (held.status === "send") {
+      if (held.heldMs > 0 && (await this.agentStorage.get(agentId))?.archivedAt) {
+        throw new ScheduleTargetGoneError(`Agent ${agentId} is archived`);
+      }
+      return null;
+    }
+    return {
+      agentId,
+      output: buildRunOutput({
+        output: null,
+        timelineText: "",
+        finalText:
+          held.status === "coalesced"
+            ? "Skipped: an earlier fire is waiting for the serving account"
+            : "Skipped: the daemon stopped while this fire waited for the serving account",
       }),
     };
   }

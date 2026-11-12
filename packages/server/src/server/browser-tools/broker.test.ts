@@ -800,7 +800,8 @@ describe("BrowserToolsBroker", () => {
       ok: false,
       error: {
         code: "browser_timeout",
-        message: "Browser automation timed out after 50ms.",
+        message:
+          "The desktop app did not answer browser_snapshot within 0.1 s. The page may be blocking its main thread (a long script or an open dialog), or the app may be busy, asleep or disconnected. Call browser_list_tabs to check the tab, then retry.",
         retryable: true,
       },
     });

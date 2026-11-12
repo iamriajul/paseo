@@ -1053,7 +1053,7 @@ function summarizeBrowserError(
     case "browser_no_host":
       return error.message;
     case "browser_timeout":
-      return "The browser did not respond before the timeout. Try again or check the browser host.";
+      return error.message;
     case "screenshot_no_frame":
       return error.message;
     case "browser_unsupported":

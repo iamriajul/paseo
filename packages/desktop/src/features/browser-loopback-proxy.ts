@@ -21,6 +21,8 @@ interface WorkspaceProxyRecord {
   rendererWebContentsId: number;
   directLoopback: boolean;
   server: Server | null;
+  /** Client sockets, which server.close() waits on. */
+  sockets: Set<Socket>;
   port: number;
   auth: BrowserProxyAuth;
   browsers: Set<string>;
@@ -170,6 +172,7 @@ export async function registerBrowserLoopbackProxy(
         rendererWebContentsId: input.rendererWebContentsId,
         directLoopback: true,
         server: null,
+        sockets: new Set(),
         port: 0,
         auth: createProxyAuth(),
         browsers: new Set([input.browserId]),
@@ -238,6 +241,9 @@ export async function unregisterBrowserLoopbackProxy(browserId: string): Promise
 
   recordsByWorkspaceKey.delete(workspaceKey);
   if (record.server) {
+    // server.close() waits for every connection to end. The guest is gone, but its session
+    // keeps pooled sockets and tunnels open, which held browser_close_tab past its budget.
+    for (const socket of record.sockets) socket.destroy();
     await new Promise<void>((resolve) => {
       record.server!.close(() => resolve());
     }).catch(() => undefined);
@@ -303,11 +309,14 @@ async function createWorkspaceProxyRecord(
     directLoopback: input.directLoopback === true,
     auth: createProxyAuth(),
     server,
+    sockets: new Set(),
     port: 0,
     browsers: new Set([input.browserId]),
     activeBrowserId: input.browserId,
   };
   server.on("connection", (socket) => {
+    record.sockets.add(socket);
+    socket.once("close", () => record.sockets.delete(socket));
     handleProxyConnection(record, socket);
   });
   record.port = await listenOnLoopback(server);

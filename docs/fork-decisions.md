@@ -1806,3 +1806,28 @@ On this box the target test went from a median of 44.5 s on main (56 s on the ba
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-manager.test.ts --bail=1 -t "probes once for callers that accept a recent answer"
 npm test --workspace=@getpaseo/app -- src/screens/settings/daemon-lifecycle.test.ts --bail=1
 ```
+
+## desktop-browser-loading-pages
+
+**agent browser tools answer on desktop tabs whose page is still loading**
+
+Over 2026-11-10 and 11, agents' browser tools on desktop-app tabs failed about 190 times: 133 broker timeouts ("Browser automation timed out after 15000ms", 7 of them `close_tab`), 45 `screenshot_no_frame`, 8 `new_tab` registration timeouts and 2 `ERR_ABORTED (-3)`. Of the other timeouts, 115 came while a `new_tab`, `navigate` or `reload` on a dev-server page was still loading. `browser-loading.electron.mjs` reproduces each cause in real Electron through `browser-tabs.e2e.mjs`:
+
+- **Electron's `webContents.executeJavaScript` does not run while the main frame is loading.** It waits for `did-stop-loading`, so one image or request that never finished stalled every snapshot, evaluate, wait and screenshot paint check until the broker gave up. `page-lifecycle.ts` runs page scripts with `mainFrame.executeJavaScript`, which runs on the current document at once.
+- **A script still awaiting when the page commits a new document never settles.** The commit now rejects it with "The page navigated to … while the script was running"; `browser_wait` keeps polling the new page.
+- **CDP `Runtime.evaluate` waits for a pending navigation to commit.** Dialog capture installed and drained its prompt shim through it on the per-tab CDP queue, so a reload or navigate to a slow server stalled every later command on the tab. The shim now runs as a page script.
+- **`loadURL` resolves at the load event and rejects with ERR_ABORTED when the page redirects by script.** `navigate` settles at the new document's DOM-ready, treats a replaced navigation as landing on its replacement, reports the URL the tab landed on, and after 10 s answers that the page is still loading and what to call next, inside the broker's 15 s.
+- **`snapshot`, `evaluate` and `screenshot` on a tab whose first page has not committed** wait for it within 10 s instead of reading the blank initial document.
+- **`getWebContentsId()` throws at `did-attach` in a hidden window** and becomes readable a few hundred milliseconds later. Registration waited for the next guest event, which on a slow first page came after `new_tab`'s 5 s wait. `resident-webviews.ts` retries on a timer after `did-attach`. See [Failures and recovery](browser-localhost-routing.md#failures-and-recovery).
+- **The loopback proxy's `server.close()` waited for pooled guest sockets**, which held the last `close_tab` of a remote workspace past the broker budget. The proxy destroys its client sockets first.
+- **The broker's own timeout names the host, the tool and the next step**, and `browser_*` tool text passes a host's `browser_timeout` message through instead of a generic line.
+
+Official files changed: `browser-automation/{service.ts,ipc.ts}` and their tests, `server/browser-tools/{broker.ts,tools.ts}` and their tests, `desktop/browser/resident-webviews.ts` and its test, and `desktop/e2e/browser-tabs.e2e.mjs`, which runs the loading regression (alone with `PASEO_DESKTOP_BROWSER_LOADING_ONLY=1`).
+
+```bash
+npx vitest run packages/desktop/src/features/browser-automation/ipc.test.ts packages/desktop/src/features/browser-automation/service.test.ts packages/desktop/src/features/browser-loopback-proxy.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/browser-tools/broker.test.ts packages/server/src/server/browser-tools/tools.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- --project browser src/desktop/browser/resident-webviews.browser.test.ts --bail=1
+grep -q "runBrowserLoadingRegression" packages/desktop/e2e/browser-tabs.e2e.mjs
+grep -q "loadDocument: (url: string) => loadDocument(contents, url)" packages/desktop/src/features/browser-automation/ipc.ts
+```

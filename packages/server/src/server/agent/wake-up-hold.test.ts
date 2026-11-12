@@ -1,11 +1,13 @@
 import pino from "pino";
 import { describe, expect, test } from "vitest";
+import type { AgentPromptInput } from "./agent-sdk-types.js";
 import type { WarmUpAccountBlock } from "./gateway/warm-up-account.js";
 import {
   WAKE_UP_HOLD_HORIZON_MS,
   WAKE_UP_HOLD_RETURN_SLACK_MS,
   WakeUpHolds,
-  holdRequestForAgentMessages,
+  heldWakeUpSend,
+  planAgentMessageHold,
   type HeldWakeUp,
   type WakeUpHoldOutcome,
   type WakeUpHoldView,
@@ -28,6 +30,8 @@ function createHarness(options?: { saved?: HeldWakeUp[] }) {
   const timers: { at: number; fire: () => void; cancelled: boolean }[] = [];
   const state = {
     block: null as WarmUpAccountBlock | null | Error,
+    /** While set, account reads wait for it. */
+    readGate: null as Promise<void> | null,
     reads: 0,
     busy: false,
     lastRequestAtMs: (START - 2 * MINUTE) as number | null,
@@ -35,11 +39,14 @@ function createHarness(options?: { saved?: HeldWakeUp[] }) {
   };
   const saved: HeldWakeUp[][] = [];
   const redelivered: HeldWakeUp[] = [];
+  /** The saved holds as they stood when each redelivery began. */
+  const savedAtRedelivery: (HeldWakeUp[] | undefined)[] = [];
   const views: (WakeUpHoldView | null)[] = [];
   const started: HeldWakeUp[] = [];
   const holds = new WakeUpHolds({
     readBlock: async () => {
       state.reads += 1;
+      if (state.readGate) await state.readGate;
       if (state.block instanceof Error) throw state.block;
       return state.block;
     },
@@ -49,10 +56,13 @@ function createHarness(options?: { saved?: HeldWakeUp[] }) {
     store: {
       load: async () => options?.saved ?? [],
       save: async (entries) => {
+        // A file write finishes on a later turn of the event loop, not in the same microtask run.
+        await new Promise<void>((resolve) => setImmediate(resolve));
         saved.push(entries.map((entry) => ({ ...entry })));
       },
     },
     redeliver: async (entry) => {
+      savedAtRedelivery.push(saved.at(-1));
       redelivered.push(entry);
     },
     onChange: (_agentId, view, entry) => {
@@ -93,9 +103,14 @@ function createHarness(options?: { saved?: HeldWakeUp[] }) {
 
   /** Starts a hold and tracks whether it has resolved yet. */
   function track(promise: Promise<WakeUpHoldOutcome>) {
-    const tracked = { outcome: null as WakeUpHoldOutcome | null };
+    const tracked = {
+      outcome: null as WakeUpHoldOutcome | null,
+      /** The saved holds as they stood when the hold resolved. */
+      savedThen: undefined as HeldWakeUp[] | undefined,
+    };
     void promise.then((outcome) => {
       tracked.outcome = outcome;
+      tracked.savedThen = saved.at(-1);
       return outcome;
     });
     return tracked;
@@ -106,6 +121,7 @@ function createHarness(options?: { saved?: HeldWakeUp[] }) {
     state,
     saved,
     redelivered,
+    savedAtRedelivery,
     views,
     started,
     advance,
@@ -346,7 +362,8 @@ describe("WakeUpHolds", () => {
     expect(h.redelivered.map((entry) => entry.redeliver)).toEqual([
       { text: "check the CI run", clientMessageId: "m1" },
     ]);
-    expect(h.saved.at(-1)).toEqual([]);
+    // The file dropped it before the send began: a crash during the send does not send it twice.
+    expect(h.savedAtRedelivery).toEqual([[]]);
   });
 
   test("after a restart, sends a held message at once when the account can serve", async () => {
@@ -397,41 +414,173 @@ describe("WakeUpHolds", () => {
         .sort(),
     ).toEqual(["agent-message", "agent-notification"]);
   });
+
+  test("a wake-up that starts holding while the daemon stops is saved before it is deferred", async () => {
+    const h = createHarness();
+    h.state.block = cooldown(START + 10 * MINUTE);
+    let readsDone!: () => void;
+    h.state.readGate = new Promise<void>((resolve) => {
+      readsDone = resolve;
+    });
+    const restart = h.track(
+      h.holds.hold({ agentId: "a1", kind: "restart", redeliver: { text: "Resume working." } }),
+    );
+    await h.settle();
+    // Shutdown saves the holds while this one is still reading the account.
+    await h.holds.close();
+    readsDone();
+    await h.settle();
+    expect(restart.outcome).toEqual({ status: "deferred" });
+    expect(h.saved.at(-1)?.map((entry) => [entry.kind, entry.redeliver?.text])).toEqual([
+      ["restart", "Resume working."],
+    ]);
+  });
+
+  test("a held wake-up goes out only once the saved holds no longer list it", async () => {
+    const h = createHarness();
+    h.state.block = cooldown(START + 2 * MINUTE);
+    const message = h.track(
+      h.holds.hold({ agentId: "a1", kind: "agent-message", redeliver: { text: "check the CI" } }),
+    );
+    await h.advance(MINUTE);
+    expect(h.saved.at(-1)?.map((entry) => entry.kind)).toEqual(["agent-message"]);
+    h.state.block = null;
+    await h.advance(2 * MINUTE);
+    expect(message.outcome).toMatchObject({ status: "send" });
+    expect(message.savedThen).toEqual([]);
+  });
 });
 
-describe("holdRequestForAgentMessages", () => {
-  const batch = { recipientId: "a1", messageIds: ["m1", "m2"], prompt: "envelopes" };
+describe("planAgentMessageHold", () => {
+  const options = {
+    recipientId: "a1",
+    unarchive: true,
+    activeTurnBehavior: "steer" as const,
+    clearPendingPermissions: true,
+  };
+  const message = (id: string, prompt: AgentPromptInput) => ({
+    kind: "agent-message" as const,
+    messageId: id,
+    prompt,
+  });
+  const notification = (id: string, prompt: string) => ({
+    kind: "agent-notification" as const,
+    messageId: id,
+    prompt,
+  });
 
-  test("saves a batch of plain-text agent messages for a restart", () => {
+  test("saves a batch of plain-text agent messages for a restart, with its send options", () => {
     expect(
-      holdRequestForAgentMessages({ ...batch, sourceKinds: ["agent-message", "agent-message"] }),
+      planAgentMessageHold({
+        ...options,
+        sessionMode: "plan",
+        parts: [message("m1", "<m1/>"), message("m2", "<m2/>")],
+      }),
     ).toEqual({
-      agentId: "a1",
-      kind: "agent-message",
-      redeliver: { text: "envelopes", clientMessageId: "m1" },
+      request: {
+        agentId: "a1",
+        kind: "agent-message",
+        redeliver: {
+          text: "<m1/>\n\n<m2/>",
+          clientMessageId: "m1",
+          unarchive: true,
+          activeTurnBehavior: "steer",
+          sessionMode: "plan",
+          clearPendingPermissions: true,
+        },
+      },
+      sendAtShutdown: null,
     });
   });
 
   test("never saves a notification, which its finish subscription re-sends", () => {
-    expect(holdRequestForAgentMessages({ ...batch, sourceKinds: ["agent-notification"] })).toEqual({
-      agentId: "a1",
-      kind: "agent-notification",
+    expect(planAgentMessageHold({ ...options, parts: [notification("n1", "<n1/>")] })).toEqual({
+      request: { agentId: "a1", kind: "agent-notification" },
+      sendAtShutdown: null,
     });
-    expect(
-      holdRequestForAgentMessages({
-        ...batch,
-        sourceKinds: ["agent-message", "agent-notification"],
-      }),
-    ).toEqual({ agentId: "a1", kind: "agent-message" });
   });
 
-  test("does not write a prompt with images to disk", () => {
+  test("saves the message half of a batch with a notification, and sends the notification at shutdown", () => {
+    const plan = planAgentMessageHold({
+      ...options,
+      parts: [message("m1", "<m1/>"), notification("n1", "<n1/>")],
+    });
+    expect(plan.request).toMatchObject({
+      kind: "agent-message",
+      redeliver: { text: "<m1/>", clientMessageId: "m1" },
+    });
+    expect(plan.request.unsavedMessageIds).toBeUndefined();
+    expect(plan.sendAtShutdown).toBe("<n1/>");
+  });
+
+  test("does not write a prompt with images to disk, and names it as unsaved", () => {
+    const image = [{ type: "image" as const, data: "aGk=", mimeType: "image/png" }];
+    expect(planAgentMessageHold({ ...options, parts: [message("m1", image)] })).toEqual({
+      request: { agentId: "a1", kind: "agent-message", unsavedMessageIds: ["m1"] },
+      sendAtShutdown: null,
+    });
+    const mixed = planAgentMessageHold({
+      ...options,
+      parts: [message("m1", "<m1/>"), message("m2", image)],
+    });
+    expect(mixed.request).toMatchObject({
+      redeliver: { text: "<m1/>" },
+      unsavedMessageIds: ["m2"],
+    });
+    expect(mixed.sendAtShutdown).toEqual(image);
+  });
+});
+
+describe("heldWakeUpSend", () => {
+  const entry: HeldWakeUp = {
+    id: "h1",
+    agentId: "a1",
+    kind: "agent-message",
+    coalesceKey: null,
+    reason: "cooldown",
+    account: "s***b",
+    until: iso(START),
+    heldAt: iso(START),
+    deadline: iso(START + WAKE_UP_HOLD_HORIZON_MS),
+    repeats: 0,
+  };
+
+  test("re-sends an agent message as the live path would: unarchiving, with its turn behaviour", () => {
     expect(
-      holdRequestForAgentMessages({
-        ...batch,
-        sourceKinds: ["agent-message"],
-        prompt: [{ type: "image", data: "aGk=", mimeType: "image/png" }],
+      heldWakeUpSend({
+        ...entry,
+        redeliver: {
+          text: "<m1/>",
+          clientMessageId: "m1",
+          unarchive: true,
+          activeTurnBehavior: "interrupt",
+          clearPendingPermissions: true,
+        },
       }),
-    ).toEqual({ agentId: "a1", kind: "agent-message" });
+    ).toEqual({
+      prompt: "<m1/>",
+      unarchive: true,
+      activeTurnBehavior: "interrupt",
+      clearPendingPermissions: true,
+      runOptions: { clientMessageId: "m1" },
+    });
+  });
+
+  test("re-sends a restart resume as the live restart dispatch does", () => {
+    expect(
+      heldWakeUpSend({
+        ...entry,
+        kind: "restart",
+        redeliver: { text: "Resume working.", unarchive: false },
+      }),
+    ).toEqual({
+      prompt: "Resume working.",
+      unarchive: false,
+      runOptions: { resume: { reason: "restart" } },
+    });
+  });
+
+  test("has nothing to send for a hold with no saved prompt", () => {
+    expect(heldWakeUpSend({ ...entry, kind: "heartbeat" })).toBeNull();
   });
 });

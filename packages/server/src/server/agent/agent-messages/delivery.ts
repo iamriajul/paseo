@@ -28,8 +28,11 @@ interface Admitted extends Message {
 export interface AgentMessageDispatchRequest {
   recipientId: string;
   messageIds: readonly string[];
-  /** What each batched message is: another agent's message or a finish notification. */
-  sourceKinds: readonly AgentPromptSource["kind"][];
+  /**
+   * Each batched message on its own, already wrapped, in batch order: `prompt` joins them. A
+   * message from another agent and a finish notification are re-sent differently after a crash.
+   */
+  parts: readonly AgentMessagePart[];
   prompt: AgentPromptInput;
   activeTurnBehavior: "steer" | "interrupt";
   sessionMode?: string;
@@ -45,6 +48,21 @@ export interface AgentMessageDispatchRequest {
   signal: AbortSignal;
   onDispatch(disposition: PromptDispatchDisposition): void;
 }
+export interface AgentMessagePart {
+  kind: AgentPromptSource["kind"];
+  messageId: string;
+  prompt: AgentPromptInput;
+}
+
+/** One prompt for several wrapped messages: text joined when all are text, else content blocks. */
+export function joinAgentMessagePrompts(prompts: readonly AgentPromptInput[]): AgentPromptInput {
+  return prompts.every((entry) => typeof entry === "string")
+    ? prompts.join("\n\n")
+    : prompts.flatMap((entry): AgentPromptContentBlock[] =>
+        typeof entry === "string" ? [{ type: "text", text: entry }] : entry,
+      );
+}
+
 interface Dependencies {
   dispatch(request: AgentMessageDispatchRequest): Promise<PromptDispatchDisposition>;
   onError(error: unknown, request: AgentMessageDispatchRequest): void;
@@ -80,20 +98,19 @@ export function createAgentMessageDelivery(dependencies: Dependencies): AgentMes
   let closing: Promise<void> | undefined;
 
   function dispatch(recipientId: string, messages: Admitted[]): void {
-    const prompts = messages.map(
-      (message) =>
-        prepareAgentMessage(message.prompt, message.source, message.receipt.messageId).prompt,
+    const parts = messages.map(
+      (message): AgentMessagePart => ({
+        kind: message.source.kind,
+        messageId: message.receipt.messageId,
+        prompt: prepareAgentMessage(message.prompt, message.source, message.receipt.messageId)
+          .prompt,
+      }),
     );
-    const prompt: AgentPromptInput = prompts.every((entry) => typeof entry === "string")
-      ? prompts.join("\n\n")
-      : prompts.flatMap((entry): AgentPromptContentBlock[] =>
-          typeof entry === "string" ? [{ type: "text", text: entry }] : entry,
-        );
     const request: AgentMessageDispatchRequest = {
       recipientId,
       messageIds: messages.map((message) => message.receipt.messageId),
-      sourceKinds: messages.map((message) => message.source.kind),
-      prompt,
+      parts,
+      prompt: joinAgentMessagePrompts(parts.map((part) => part.prompt)),
       activeTurnBehavior: messages[0]!.activeTurnBehavior ?? "steer",
       sessionMode: messages.find((message) => message.sessionMode)?.sessionMode,
       clearPendingPermissions: messages.some((message) => message.clearPendingPermissions),

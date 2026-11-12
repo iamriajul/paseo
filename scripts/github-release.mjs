@@ -16,8 +16,16 @@ function sleepSync(milliseconds) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
+// A page of 100 releases with their assets is several MB, well past execFileSync's 1 MB
+// default: v0.15.914's first lookup failed with `spawnSync gh ENOBUFS`.
+export const GH_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
+
 function gh(execFileSync, args) {
-  return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync("gh", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: GH_MAX_BUFFER_BYTES,
+  });
 }
 
 function isNotFound(error) {
@@ -208,7 +216,7 @@ export function downloadReleaseAsset(
   const body = execFileSync(
     "gh",
     ["api", "-H", "Accept: application/octet-stream", `repos/${repo}/releases/assets/${asset.id}`],
-    { stdio: ["ignore", "pipe", "pipe"] },
+    { stdio: ["ignore", "pipe", "pipe"], maxBuffer: GH_MAX_BUFFER_BYTES },
   );
   writeFileSync(path.join(dir, name), body);
 }

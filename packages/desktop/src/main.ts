@@ -89,6 +89,10 @@ import {
 import { PaseoBrowserCookieSync } from "./features/browser-cookies.js";
 import { BrowserPortForwards } from "./features/browser-port-forward.js";
 import {
+  forgetServerBrowserFocus,
+  setServerBrowserFocus,
+} from "./features/server-browser-focus.js";
+import {
   forgetObservedLoopbackPorts,
   listObservedLoopbackPorts,
   observeBrowserLoopbackTraffic,
@@ -634,6 +638,23 @@ ipcMain.handle("paseo:browser:port-forward:stop", async (_event, rawInput: unkno
       remotePort: record.remotePort,
     });
   }
+});
+
+const serverBrowserFocusHosts = new Set<number>();
+
+ipcMain.on("paseo:browser:server-tab-focus", (event, rawInput: unknown) => {
+  if (typeof rawInput !== "object" || rawInput === null) return;
+  const record = rawInput as Record<string, unknown>;
+  if (typeof record.token !== "string" || typeof record.focused !== "boolean") return;
+  const hostWebContentsId = event.sender.id;
+  if (!serverBrowserFocusHosts.has(hostWebContentsId)) {
+    serverBrowserFocusHosts.add(hostWebContentsId);
+    event.sender.once("destroyed", () => {
+      serverBrowserFocusHosts.delete(hostWebContentsId);
+      forgetServerBrowserFocus(hostWebContentsId);
+    });
+  }
+  setServerBrowserFocus({ hostWebContentsId, token: record.token, focused: record.focused });
 });
 
 ipcMain.handle("paseo:browser:port-forward:stop-all", async (_event, browserId: unknown) => {

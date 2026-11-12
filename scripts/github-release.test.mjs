@@ -6,6 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  GH_MAX_BUFFER_BYTES,
+  downloadReleaseAsset,
   ensureGitHubRelease,
   getGitHubRelease,
   main,
@@ -112,6 +114,50 @@ function fakeGitHub(initial = [], { newer = [] } = {}) {
 }
 
 const noSleep = () => {};
+
+test("every gh call can read a release list larger than execFileSync's 1 MB default", () => {
+  // v0.15.914's first lookup failed with `spawnSync gh ENOBUFS` on a real page of releases.
+  const github = fakeGitHub();
+  const buffers = [];
+  const execFileSync = (command, args, options) => {
+    buffers.push(options?.maxBuffer);
+    return github.execFileSync(command, args, options);
+  };
+  ensureGitHubRelease({ repo: REPO, tag: TAG }, { execFileSync, sleep: noSleep });
+  assert.ok(buffers.length > 0);
+  for (const maxBuffer of buffers) {
+    assert.ok(maxBuffer >= 64 * 1024 * 1024, `maxBuffer ${maxBuffer} is too small`);
+  }
+  assert.ok(GH_MAX_BUFFER_BYTES >= 64 * 1024 * 1024);
+});
+
+test("downloading a release asset reads past execFileSync's 1 MB default too", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "github-release-download-"));
+  const buffers = [];
+  const execFileSync = (_command, args, options) => {
+    buffers.push(options?.maxBuffer);
+    if (args.includes("Accept: application/octet-stream")) return Buffer.from("manifest");
+    return JSON.stringify([
+      {
+        id: 7,
+        tag_name: TAG,
+        draft: false,
+        name: `Paseo ${TAG}`,
+        assets: [{ id: 9, name: "latest-mac.yml" }],
+      },
+    ]);
+  };
+  try {
+    downloadReleaseAsset({ repo: REPO, tag: TAG, name: "latest-mac.yml", dir }, { execFileSync });
+    assert.equal(readFileSync(path.join(dir, "latest-mac.yml"), "utf8"), "manifest");
+    assert.equal(buffers.length, 2);
+    for (const maxBuffer of buffers) {
+      assert.ok(maxBuffer >= 64 * 1024 * 1024, `maxBuffer ${maxBuffer} is too small`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("creates a missing release as a draft with the requested flags", () => {
   const github = fakeGitHub();

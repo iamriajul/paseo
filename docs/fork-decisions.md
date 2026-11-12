@@ -1556,6 +1556,8 @@ A `vX.Y.Z` tag starts Desktop Release, Android APK Release (twice: `ensure-relea
 
 `publishGitHubRelease` (`--publish`) removes empty duplicates, then publishes the canonical release unless it already is. npm Global Install Release calls it right after uploading its tarballs, because the box's daemon and CLI install from them and macOS runner failures failed or cancelled the desktop publish twice in the week to 2026-11-12 (v0.15.910 needed reruns); leaving publication to `finalize-rollout` alone, as official does, would block those installs whenever desktop fails. `finalize-rollout` calls it last and only checks for duplicates when npm got there first. Publishing early exposes no half-ready desktop update: the desktop build jobs upload only non-`.yml` files, `finalize-rollout` uploads `latest-mac.yml` after them, and until it does the app reads the release as having no update. The APK job does not publish: npm is a default target that finishes well before the 50-minute APK, so a second publisher would never be the one that acts. The proof races three real `--ensure` processes against a fake `gh` that answers "no release" to all three and then publishes the survivor, and runs the real finalize step against a duplicate and against a release npm already published.
 
+Every `gh` call in the script reads with a 256 MB `maxBuffer`: a page of 100 releases with their assets is several MB, and at execFileSync's 1 MB default v0.15.914's first lookup failed with `spawnSync gh ENOBUFS`.
+
 ```bash
 node --test scripts/github-release.test.mjs scripts/sync-release-notes-from-changelog.test.mjs
 node --test scripts/upload-release-assets.test.mjs

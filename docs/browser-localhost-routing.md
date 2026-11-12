@@ -95,7 +95,20 @@ Android has it for server browser tabs, as "Open on this phone". Through v0.15.9
 - **Lifetime.** The same as desktop server tabs: forwards stop when the tab closes or suspends, from the menu, or from the notification. The Browser proxy for in-app Android Browser tabs still stops on background (see [Android lifecycle](#android-lifecycle)); forwards are a separate path and do not.
 - **Google Play.** A `specialUse` service needs a declaration in the Play Console; the manifest's `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` carries the reason.
 
-iOS does not get it. iOS suspends an app shortly after it leaves the screen and has no foreground-service equivalent: background modes cover audio, location, VoIP and similar, not a socket server, so the WebSocket every forward rides stops when the user's browser comes to the front. The web build cannot bind ports at all.
+### Public URLs
+
+Where nothing can forward (iOS, the web build, any device) a server tab's toolbar has Open in browser, which opens the page at a URL the host itself serves (`port-forward/public-page-url.ts`), in this order:
+
+1. A page off loopback opens at its own URL.
+2. With a [browser preview template](#configuration) on the host (`server_info.browserPreview.urlTemplate`), any loopback port opens at its preview hostname, with the path and query kept. The daemon forges `Host` to `localhost:<port>`, so dev-server host checks pass, and WebSocket upgrades are proxied, so HMR that connects to the page's own origin (Vite's default) works.
+3. Otherwise, when the port belongs to a running `paseo.json` service with a public alias (`serviceProxy.publicBaseUrl`), it opens at that alias. Only service ports have one, and the service sees the public `Host`.
+4. Otherwise the button says which port has no public URL and names both settings.
+
+On Android the forward menu offers the public URL as its last row, for a page another device should open too.
+
+What a public URL cannot do: a page that calls another port by an absolute `localhost:<port>` address (an API on `:8080`, HMR on its own port) reaches that port on the device, not the host, because the public origin covers one port. Same-origin calls, relative URLs and a dev-server proxy work. Cookies and OAuth redirects pinned to `localhost` also break. Forwarding is the route that keeps all of these. Public URLs skip daemon authentication (see the warning under [Configuration](#configuration) and [Service Proxy](service-proxy.md)), and the menu says so.
+
+iOS does not get forwarding. iOS suspends an app shortly after it leaves the screen and has no foreground-service equivalent: background modes cover audio, location, VoIP and similar, not a socket server, so the WebSocket every forward rides stops when the user's browser comes to the front. The web build cannot bind ports at all.
 
 ## Workspace services in the Browser
 

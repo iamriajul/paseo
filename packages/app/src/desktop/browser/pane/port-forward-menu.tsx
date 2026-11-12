@@ -16,6 +16,7 @@ import { MenuTextField } from "@/components/ui/menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getPortForwardController } from "@/port-forward/controller";
 import { rememberServerTabForward } from "@/port-forward/server-tab-forwards";
+import type { PublicPageUrl } from "@/port-forward/public-page-url";
 import type { PortForwardRoute, PortForwardStatus } from "@/port-forward/types";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { isLoopbackHttpUrl } from "@/utils/localhost-url";
@@ -84,6 +85,8 @@ export function BrowserPortForwardMenu(props: {
   route?: PortForwardRoute;
   /** The loopback ports the page used, when another machine renders it. */
   loadObservedPorts?: () => Promise<number[]>;
+  /** A public URL the host serves for the page, offered as the no-forward alternative. */
+  publicPage?: PublicPageUrl | null;
 }): ReactElement | null {
   const { t } = useTranslation();
   const controller = useMemo(() => getPortForwardController(), []);
@@ -249,8 +252,29 @@ export function BrowserPortForwardMenu(props: {
             {t("workspace.browser.portForward.useOtherPorts")}
           </DropdownMenuItem>
         ) : null}
+        {props.publicPage?.kind === "preview" || props.publicPage?.kind === "service" ? (
+          <PublicPageItem url={props.publicPage.url} />
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function PublicPageItem(props: { url: string }): ReactElement {
+  const { t } = useTranslation();
+  const { url } = props;
+  const handleSelect = useCallback(() => void openExternalUrl(url), [url]);
+  return (
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        onSelect={handleSelect}
+        description={t("workspace.browser.openInBrowser.publicUrlHint")}
+        testID="browser-port-forward-public-url"
+      >
+        {t("workspace.browser.openInBrowser.publicUrl")}
+      </DropdownMenuItem>
+    </>
   );
 }
 

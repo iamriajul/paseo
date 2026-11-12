@@ -747,6 +747,13 @@ export const zhCN: TranslationResources = {
         unhealthy: "异常",
         startAndOpen: "启动并打开",
       },
+      openInBrowser: {
+        label: "在浏览器中打开",
+        noPublicUrl:
+          "此主机上的端口 {{port}} 没有公共 URL。请在主机上设置 daemon.browserPreview.urlTemplate，或为 paseo.json 服务设置 serviceProxy.publicBaseUrl。",
+        publicUrl: "改为打开其公共 URL",
+        publicUrlHint: "可从任何设备打开。公共 URL 不经过 Paseo 登录。",
+      },
       portForward: {
         notificationTitle: "正在将端口转发到此手机",
         notificationText:

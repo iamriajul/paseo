@@ -748,6 +748,13 @@ export const ar: TranslationResources = {
         unhealthy: "غير سليمة",
         startAndOpen: "ابدأ وافتح",
       },
+      openInBrowser: {
+        label: "افتح في المتصفح",
+        noPublicUrl:
+          "لا يوجد عنوان URL عام للمنفذ {{port}} على هذا المضيف. اضبط daemon.browserPreview.urlTemplate على المضيف، أو serviceProxy.publicBaseUrl لخدمة paseo.json.",
+        publicUrl: "افتح عنوان URL العام بدلًا من ذلك",
+        publicUrlHint: "يعمل من أي جهاز. عناوين URL العامة لا تمر بتسجيل الدخول إلى Paseo.",
+      },
       portForward: {
         notificationTitle: "يعيد توجيه المنافذ إلى هذا الهاتف",
         notificationText:

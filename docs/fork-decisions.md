@@ -252,6 +252,18 @@ grep -q "PaseoPortForwardKeepAlive" packages/app/src/port-forward/controller.and
 grep -q "src/port-forward/controller.android.ts" .github/workflows/android-browser-native.yml
 ```
 
+## server-browser-open-public-url
+
+**a server tab opens at the host's public URL where nothing can forward its ports**
+
+`port-forward/public-page-url.ts` picks the page's own URL off loopback, the host's browser preview template, then a running service's public alias; `server-browser/open-in-browser-button.tsx` opens it on iOS and the web build, and `port-forward-menu.tsx` offers it as the forward menu's last row. App-only: no protocol change, since both URLs already reach the app on `server_info` and the workspace scripts. See [Public URLs](browser-localhost-routing.md#public-urls).
+
+```bash
+npm test --workspace=@getpaseo/app -- src/port-forward/public-page-url.test.ts --bail=1
+grep -q "ServerBrowserOpenInBrowserButton" packages/app/src/server-browser/panel.tsx
+grep -q "browser-port-forward-public-url" packages/app/src/desktop/browser/pane/port-forward-menu.tsx
+```
+
 ## code-server-tab
 
 **register Code Server as a workspace tab kind**

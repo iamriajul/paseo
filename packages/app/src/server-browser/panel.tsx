@@ -35,6 +35,9 @@ import { WebAnnotationComposer } from "@/desktop/browser/pane/web-annotation-com
 import { BrowserServiceChip, BrowserServicesMenu } from "@/desktop/browser/pane/services-menu";
 import { BrowserLoadFailure } from "@/desktop/browser/pane/load-failure";
 import { BrowserPortForwardMenu } from "@/desktop/browser/pane/port-forward-menu";
+import { getPortForwardController } from "@/port-forward/controller";
+import { usePublicPageUrl } from "@/port-forward/use-public-page-url";
+import { isLoopbackHttpUrl } from "@/utils/localhost-url";
 import type { BrowserDeviceSizeId } from "@/desktop/browser/device-presets";
 import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser/device-size-menu";
 import { useHostFeature } from "@/runtime/host-features";
@@ -50,6 +53,7 @@ import { useServerBrowserDeviceSize } from "./use-server-browser-device-size";
 import { ServerBrowserLogsPanel, useServerBrowserLogs } from "./logs-panel";
 import { ServerBrowserDialogCard } from "./dialog-card";
 import { ServerBrowserFileChooserCard } from "./file-chooser-card";
+import { ServerBrowserOpenInBrowserButton } from "./open-in-browser-button";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedArrowRight = withUnistyles(ArrowRight);
@@ -68,6 +72,47 @@ const muted = (theme: { colors: { foregroundMuted: string } }) => ({
 const accent = (theme: { colors: { accent: string } }) => ({
   color: theme.colors.accent,
 });
+
+/**
+ * Whether this device can forward the page's host ports to itself (Electron, Android). Elsewhere
+ * (iOS, the web build) and for a page off loopback, the page opens at a URL any browser reaches.
+ */
+function canForwardHere(url: string): boolean {
+  return getPortForwardController() !== null && isLoopbackHttpUrl(url);
+}
+
+/**
+ * Opens the page outside Paseo: forwards its host ports here where this device can (Electron,
+ * Android), else opens the host's public URL for it.
+ */
+function OpenElsewhere(props: {
+  client: DaemonClient;
+  serverId: string;
+  workspaceId: string;
+  browserId: string;
+  url: string;
+  triggerStyle: ReturnType<typeof useIconButtonChromeStyle>;
+}): ReactElement {
+  const { client, serverId, workspaceId, browserId, url } = props;
+  const supportsLoopbackPorts = useHostFeature(serverId, "serverBrowserLoopbackPorts");
+  const route = useMemo(() => ({ serverId, workspaceId }), [serverId, workspaceId]);
+  const loadObservedPorts = useMemo(
+    () => (supportsLoopbackPorts ? () => client.serverBrowserLoopbackPorts(browserId) : undefined),
+    [browserId, client, supportsLoopbackPorts],
+  );
+  const publicPage = usePublicPageUrl({ serverId, workspaceId, url });
+  if (!canForwardHere(url)) return <ServerBrowserOpenInBrowserButton publicPage={publicPage} />;
+  return (
+    <BrowserPortForwardMenu
+      browserId={browserId}
+      url={url}
+      route={route}
+      loadObservedPorts={loadObservedPorts}
+      publicPage={publicPage}
+      triggerStyle={props.triggerStyle}
+    />
+  );
+}
 
 function tabLabel(tab: ServerBrowserTab | null): string {
   if (!tab) return "Server browser";
@@ -308,15 +353,6 @@ function ServerBrowserPanel(): ReactElement {
   const supportsAnnotate = useHostFeature(serverId, "serverBrowserAnnotate");
   const supportsVideo = useHostFeature(serverId, "serverBrowserVideo");
   const supportsViewerControls = useHostFeature(serverId, "serverBrowserViewerControls");
-  const supportsLoopbackPorts = useHostFeature(serverId, "serverBrowserLoopbackPorts");
-  const forwardRoute = useMemo(() => ({ serverId, workspaceId }), [serverId, workspaceId]);
-  const loadObservedPorts = useMemo(
-    () =>
-      supportsLoopbackPorts && client
-        ? () => client.serverBrowserLoopbackPorts(browserId)
-        : undefined,
-    [browserId, client, supportsLoopbackPorts],
-  );
   const toast = useToast();
   const handleCopied = useCallback(
     (copied: "image" | "text") =>
@@ -449,11 +485,12 @@ function ServerBrowserPanel(): ReactElement {
             onNavigate={handleNavigateService}
             triggerStyle={menuTriggerStyle}
           />
-          <BrowserPortForwardMenu
+          <OpenElsewhere
+            client={client}
+            serverId={serverId}
+            workspaceId={workspaceId}
             browserId={browserId}
             url={tab.url}
-            route={forwardRoute}
-            loadObservedPorts={loadObservedPorts}
             triggerStyle={menuTriggerStyle}
           />
           {isNative ? (

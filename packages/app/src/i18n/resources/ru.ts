@@ -754,6 +754,13 @@ export const ru: TranslationResources = {
         unhealthy: "неисправен",
         startAndOpen: "Запустить и открыть",
       },
+      openInBrowser: {
+        label: "Открыть в браузере",
+        noPublicUrl:
+          "У порта {{port}} нет публичного URL на этом хосте. Задайте daemon.browserPreview.urlTemplate на хосте или serviceProxy.publicBaseUrl для сервиса из paseo.json.",
+        publicUrl: "Открыть его публичный URL",
+        publicUrlHint: "Работает с любого устройства. Публичные URL не требуют входа в Paseo.",
+      },
       portForward: {
         notificationTitle: "Перенаправление портов на этот телефон",
         notificationText:

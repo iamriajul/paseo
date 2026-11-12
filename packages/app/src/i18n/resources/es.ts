@@ -754,6 +754,14 @@ export const es: TranslationResources = {
         unhealthy: "con fallos",
         startAndOpen: "Iniciar y abrir",
       },
+      openInBrowser: {
+        label: "Abrir en el navegador",
+        noPublicUrl:
+          "El puerto {{port}} no tiene URL pública en este host. Configura daemon.browserPreview.urlTemplate en el host, o serviceProxy.publicBaseUrl para un servicio de paseo.json.",
+        publicUrl: "Abrir su URL pública",
+        publicUrlHint:
+          "Funciona desde cualquier dispositivo. Las URL públicas no pasan por el inicio de sesión de Paseo.",
+      },
       portForward: {
         notificationTitle: "Reenviando puertos a este teléfono",
         notificationText:

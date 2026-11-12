@@ -36,6 +36,7 @@ import { WebAnnotationComposer } from "@/desktop/browser/pane/web-annotation-com
 import { BrowserServiceChip, BrowserServicesMenu } from "@/desktop/browser/pane/services-menu";
 import { BrowserLoadFailure } from "@/desktop/browser/pane/load-failure";
 import { BrowserPortForwardMenu } from "@/desktop/browser/pane/port-forward-menu";
+import { rememberServerTabForward } from "@/port-forward/server-tab-forwards";
 import { getPortForwardController } from "@/port-forward/controller";
 import { usePublicPageUrl } from "@/port-forward/use-public-page-url";
 import { isLoopbackHttpUrl } from "@/utils/localhost-url";
@@ -109,6 +110,10 @@ function OpenElsewhere(props: {
     [browserId, client, supportsLoopbackPorts],
   );
   const publicPage = usePublicPageUrl({ serverId, workspaceId, url });
+  const handleForwardsStarted = useCallback(
+    () => rememberServerTabForward(serverId, browserId),
+    [browserId, serverId],
+  );
   if (!canForwardHere(url)) return <ServerBrowserOpenInBrowserButton publicPage={publicPage} />;
   return (
     <BrowserPortForwardMenu
@@ -117,6 +122,7 @@ function OpenElsewhere(props: {
       route={route}
       loadObservedPorts={loadObservedPorts}
       publicPage={publicPage}
+      onForwardsStarted={handleForwardsStarted}
       triggerStyle={props.triggerStyle}
     />
   );

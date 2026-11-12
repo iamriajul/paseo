@@ -284,8 +284,7 @@ jobs:
         run: |
           set -euo pipefail
           release_dir="${DESKTOP_PACKAGE_PATH}/release"
-          release_lookup="$(node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")"
-          node scripts/upload-release-assets.mjs "$release_lookup" "$release_dir" "${{ github.repository }}"
+          node scripts/upload-release-assets.mjs "$RELEASE_TAG" "$release_dir" "${{ github.repository }}"
 
       - name: Upload desktop artifacts to workflow
         if: env.SHOULD_PUBLISH != 'true'
@@ -383,8 +382,7 @@ jobs:
         run: |
           set -euo pipefail
           release_dir="${DESKTOP_PACKAGE_PATH}/release"
-          release_lookup="$(node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")"
-          node scripts/upload-release-assets.mjs "$release_lookup" "$release_dir" "${{ github.repository }}"
+          node scripts/upload-release-assets.mjs "$RELEASE_TAG" "$release_dir" "${{ github.repository }}"
 
       - name: Upload desktop artifacts to workflow
         if: env.SHOULD_PUBLISH != 'true'
@@ -479,8 +477,7 @@ jobs:
         run: |
           set -euo pipefail
           release_dir="${DESKTOP_PACKAGE_PATH}/release"
-          release_lookup="$(node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")"
-          node scripts/upload-release-assets.mjs "$release_lookup" "$release_dir" "${{ github.repository }}"
+          node scripts/upload-release-assets.mjs "$RELEASE_TAG" "$release_dir" "${{ github.repository }}"
 
       - name: Upload desktop artifacts to workflow
         if: env.SHOULD_PUBLISH != 'true'
@@ -576,8 +573,12 @@ jobs:
           if [[ "$MACOS_ENABLED" == "true" ]]; then expected_manifests+=("${RELEASE_CHANNEL}-mac.yml"); fi
           if [[ "$LINUX_ENABLED" == "true" ]]; then expected_manifests+=("${RELEASE_CHANNEL}-linux.yml"); fi
           if [[ "$WINDOWS_ENABLED" == "true" ]]; then expected_manifests+=("${RELEASE_CHANNEL}.yml"); fi
-          release_lookup="$(node ../scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG" --cleanup-duplicates)"
-          existing_assets="$(gh release view "$release_lookup" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
+          # Every release operation below goes by release id through github-release.mjs: npm
+          # Global Install Release can publish the draft during this step, and a draft's
+          # `untagged-…` slug 404s from then on. See docs/fork-decisions.md#release-single-creator.
+          release_script=(node ../scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")
+          "${release_script[@]}" --cleanup-duplicates > /dev/null
+          existing_assets="$("${release_script[@]}" --asset-names)"
           for manifest_name in "${expected_manifests[@]+"${expected_manifests[@]}"}"; do
             if grep -Fxq "$manifest_name" <<< "$existing_assets"; then
               case "$manifest_name" in
@@ -586,14 +587,9 @@ jobs:
                 "${RELEASE_CHANNEL}.yml") platform_result="${{ needs.publish-windows.result }}" ;;
               esac
               if [[ "$platform_result" =~ ^(success|skipped)$ ]]; then
-                gh release download "$release_lookup" \
-                  --repo "${{ github.repository }}" \
-                  --pattern "$manifest_name" \
-                  --dir "$manifests_dir"
+                "${release_script[@]}" --download-asset "$manifest_name" --dir "$manifests_dir"
               else
-                gh release delete-asset "$release_lookup" "$manifest_name" \
-                  --repo "${{ github.repository }}" \
-                  --yes
+                "${release_script[@]}" --delete-asset "$manifest_name"
               fi
             fi
           done
@@ -627,7 +623,7 @@ jobs:
               --release-date "$timestamp" \
               --rollout-hours "$ROLLOUT_HOURS" \
               "${files[@]}"
-            gh release upload "$release_lookup" "${files[@]}" --clobber --repo "${{ github.repository }}"
+            "${release_script[@]}" --upload "${files[@]}"
           else
             echo "No desktop release targets are enabled; publishing the release without updater manifests."
           fi
@@ -652,8 +648,8 @@ jobs:
 
           # npm Global Install Release may have published the release already; this then
           # only checks for duplicates. See docs/fork-decisions.md#release-single-creator.
-          publish_args=(--repo "${{ github.repository }}" --tag "$RELEASE_TAG" --publish)
+          publish_args=(--publish)
           if [[ "$IS_PRERELEASE" == "true" ]]; then
             publish_args+=(--prerelease)
           fi
-          node ../scripts/github-release.mjs "${publish_args[@]}"
+          "${release_script[@]}" "${publish_args[@]}"

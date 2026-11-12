@@ -2,11 +2,16 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
+import { getGitHubRelease, getReleaseLookupTag } from "./github-release.mjs";
 import { isMainModule } from "./is-main-module.mjs";
 
 // uploads.github.com returns HTTP 500 on large desktop binaries often enough that a
 // release regularly loses a ~50 minute build to one failed asset. Upload each file on
 // its own so a failure does not discard its siblings, and retry that file.
+//
+// `release` is resolved again for every attempt. While the release is a draft, `gh` knows it
+// by its `untagged-…` slug, and npm Global Install Release can publish it during a desktop
+// upload, after which the slug 404s. A retry then reaches the release by its tag.
 const DEFAULT_ATTEMPTS = 5;
 const DEFAULT_BACKOFF_MS = 15_000;
 
@@ -50,7 +55,16 @@ export async function uploadWithRetry(
     let exitCode = 1;
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      exitCode = await upload({ release, file, repo });
+      let target = release;
+      if (typeof release === "function") {
+        try {
+          target = release();
+        } catch (error) {
+          console.warn(`Resolving the release failed: ${error.message}`);
+          target = null;
+        }
+      }
+      exitCode = target ? await upload({ release: target, file, repo }) : 1;
       if (exitCode === 0) break;
 
       if (attempt < attempts) {
@@ -72,9 +86,9 @@ export async function uploadWithRetry(
 }
 
 if (isMainModule(import.meta.url)) {
-  const [release, releaseDir, repo] = process.argv.slice(2);
-  if (!release || !releaseDir || !repo) {
-    console.error("Usage: node scripts/upload-release-assets.mjs <release> <dir> <repo>");
+  const [tag, releaseDir, repo] = process.argv.slice(2);
+  if (!tag || !releaseDir || !repo) {
+    console.error("Usage: node scripts/upload-release-assets.mjs <tag> <dir> <repo>");
     process.exitCode = 2;
   } else {
     const files = collectAssets(releaseDir);
@@ -82,6 +96,11 @@ if (isMainModule(import.meta.url)) {
       console.error(`::error::No release artifacts found in ${releaseDir}`);
       process.exitCode = 1;
     } else {
+      const release = () => {
+        const found = getGitHubRelease(repo, tag);
+        if (!found) throw new Error(`No release exists for ${tag}.`);
+        return getReleaseLookupTag(found);
+      };
       process.exitCode = await uploadWithRetry({ release, files, repo });
     }
   }

@@ -52,6 +52,8 @@ async function measureConfigRead(directory: string) {
   return JSON.parse(stdout) as {
     result: Awaited<ReturnType<typeof readPaseoConfigForEdit>>;
     blockingMs: number;
+    totalCpuMs: number;
+    cpuResolutionMs: number;
     filesystemRequests: number;
     yields: number;
     workerMessages: number;
@@ -133,7 +135,7 @@ describe("paseo config file substrate", () => {
     expect(blockingMs).toBeLessThan(20);
   });
 
-  it("keeps main-thread work below 20ms while admitting large configs", async () => {
+  it("spreads a large config's main-thread work across many turns", async () => {
     const config = {
       scripts: Object.fromEntries(
         Array.from({ length: 7_000 }, (_, i) => [`script${i}`, { command: "echo hi" }]),
@@ -141,10 +143,22 @@ describe("paseo config file substrate", () => {
       worktree: { setup: "npm ci" },
     };
     await writeFile(join(tempDir, "paseo.json"), JSON.stringify(config));
-    const { result, blockingMs, filesystemRequests, yields, workerMessages } =
-      await measureConfigRead(tempDir);
+    const {
+      result,
+      blockingMs,
+      totalCpuMs,
+      cpuResolutionMs,
+      filesystemRequests,
+      yields,
+      workerMessages,
+    } = await measureConfigRead(tempDir);
     expect(result).toEqual({ ok: true, config, revision: await statPaseoConfigPath(tempDir) });
-    expect(blockingMs).toBeLessThan(20);
+    // A fixed millisecond budget measures the runner's speed: a slow Windows runner read 32 ms
+    // against 20. The longest turn's share of the read's total work does not depend on speed,
+    // and validating every script in one turn makes it about 1. Discount one counter step,
+    // because Windows counts thread CPU in ~15.6 ms ticks.
+    expect(totalCpuMs).toBeGreaterThan(4 * cpuResolutionMs);
+    expect(blockingMs - cpuResolutionMs).toBeLessThan(totalCpuMs / 4);
     expect(filesystemRequests).toBeGreaterThan(0);
     expect(yields).toBeGreaterThan(0);
     expect(workerMessages).toBe(0);

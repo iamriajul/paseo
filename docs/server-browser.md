@@ -161,9 +161,44 @@ JPEG, measured on the dev box (16 cores) with Playwright's headless shell 1208:
 - **Start:** about 0.4–1.1 s for the host's first tab (Chromium starts); a new workspace's first tab while Chromium runs opens in about 35 ms, or about 75 ms when it restores saved cookies and one origin's localStorage; later tabs open in 30–130 ms.
 - **CPU:** JPEG encoding runs in Chromium and only while a viewer watches. A relayed viewer adds per-frame encryption on the daemon's event loop. The window keeps that to about 15 fps.
 
+## Compared with the desktop Browser
+
+What the desktop Browser pane (`desktop/browser/pane/index.electron.tsx`, `packages/desktop/src/features/browser*`) offers, and what a server tab has, checked in the code on 2026-11-12. Size: S under half a day, M 1–3 days, L more.
+
+| Capability                                                 | Server tab | What is missing                                                                                                                                  | Value | Size | Next                 |
+| ---------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ---- | -------------------- |
+| Back, Forward, Reload, Stop, URL bar                       | Yes        | Stop needs `serverBrowserViewerControls`                                                                                                         |       |      |                      |
+| Load-failure card and Retry                                | Partial    | No automatic retry with backoff and none on host reconnect (`retryInSeconds={null}` in `panel.tsx`)                                              | High  | S    | Build                |
+| Crash card                                                 | No         | No `Target.targetCrashed` handling; a crashed page is not reported to viewers                                                                    | Med   | S–M  | Build after a repro  |
+| Page keys, paste, app shortcuts while focused              | Yes        |                                                                                                                                                  |       |      |                      |
+| Cmd/Ctrl+L, Cmd/Ctrl+R; select the URL on focus            | No         | Not registered; Electron's Reload menu item reloads the app window instead                                                                       | Med   | S    | Build                |
+| Mac editing keys (Cmd+A, Cmd+Z) on a Linux host            | Partial    | Meta is sent as Meta, which Linux Chromium does not map to editing commands (read in code, not run)                                              | Med   | S    | Build after a repro  |
+| Copy the page's selection to this device                   | No         | Ctrl+C copies on the host                                                                                                                        | High  | M    | Build                |
+| Context menu (copy link, open link in new tab, copy image) | No         | Right-click goes to the page; the viewer suppresses the browser's own menu                                                                       | Med   | M    | Later                |
+| DevTools                                                   | No         | The console panel covers logs; engines started over a pipe have no DevTools frontend to stream                                                   | Med   | L    | Later                |
+| Console panel                                              | Yes        | Server tabs only                                                                                                                                 |       |      |                      |
+| Popups and `target=_blank` as tabs                         | Yes        |                                                                                                                                                  |       |      |                      |
+| Dialogs (`alert`, `confirm`, `prompt`, leave page)         | Yes        |                                                                                                                                                  |       |      |                      |
+| File uploads                                               | Yes        | `showOpenFilePicker` is not offered; dropping a file from the OS onto the page is not either                                                     | Low   | M    | Later                |
+| Downloads                                                  | No         | Refused in every context                                                                                                                         | Med   | M    | Later                |
+| Device sizes and Responsive                                | Yes        | Adds the agents' 1280×800 default                                                                                                                |       |      |                      |
+| Annotate element                                           | Yes        | No numbered markers on annotated elements                                                                                                        | Med   | M    | Later                |
+| Screenshot element                                         | Yes        | Needs `serverBrowserViewerControls`                                                                                                              |       |      |                      |
+| Services menu and service chip                             | Yes        |                                                                                                                                                  |       |      |                      |
+| Open on this computer                                      | Yes        | Desktop; Android as Open on this phone; public URLs on iOS and web ([Open on this computer](browser-localhost-routing.md#open-on-this-computer)) |       |      |                      |
+| Tab title                                                  | Yes        | Favicon: server icon instead                                                                                                                     | Low   | M    | Later                |
+| Open a new tab from the launcher or header                 | No         | Server tabs open only from workspace URLs, agents and popups; `browser.server.tab.open` already takes any URL                                    | High  | S    | Build                |
+| Clear browser data                                         | Partial    | No confirmation, though it signs the user out of every dev app in the workspace; hidden on shared-profile engines                                | Med   | S    | Build                |
+| Video                                                      | Partial    | H.264 from Managed Chrome (WebCodecs, or the native view in the iOS and Android apps); JPEG on the other engines; no audio                       |       |      |                      |
+| IME composition (CJK) on desktop and web                   | Partial    | The phone's typing bar works; the web surface ignores composition events                                                                         | Low   | M    | Later                |
+| Idle suspend instead of close                              | Pending    | On its own branch (`feat/server-browser-suspend-idle-tabs`); main still closes an idle tab after 30 minutes                                      | High  |      | Land that branch     |
+| Toolbar strings translated                                 | Partial    | "Back", "Forward", "Keyboard", "Clear browser data", "Close tab" and the URL placeholder are English literals                                    | Low   | S    | With the next change |
+
+Neither Browser has find in page, page zoom, print, PDF viewing or URL suggestions. The rows marked Build and S are the next batch: auto-retry, the shortcuts, a launcher entry, and the Clear browser data confirmation.
+
 ## Known gaps
 
-- Electron runs the same web viewer as the browser build (`surface.web.tsx`), and the browser build is what was verified. The desktop app itself has not been run against it.
+- Electron runs the same web viewer as the browser build (`surface.web.tsx`). The desktop app was run against it for Open on this computer (toolbar, menus, the forwarded page); video performance was measured only in the browser build.
 - Video carries no audio: tab capture mutes the tab unless its audio is routed through an `AudioContext`, and the capture asks for none.
 - A phone viewer has no pinch zoom. Use a phone size, or Responsive, for mobile layouts.
 - New strings are English only.

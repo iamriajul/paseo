@@ -166,8 +166,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_lookup="$(node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")"
-          gh release upload "$release_lookup" "$NPM_RELEASE_ASSETS"/*.tgz --clobber --repo "${{ github.repository }}"
+          # Resolves the release on every attempt: finalize-rollout can publish the draft
+          # meanwhile. The directory holds only the tarballs.
+          node scripts/upload-release-assets.mjs "$RELEASE_TAG" "$NPM_RELEASE_ASSETS" "${{ github.repository }}"
 
           # Fork: the daemon and CLI install from these tarballs, so they must not wait on a
           # desktop build that can fail. Publishing early is safe for desktop updaters: they

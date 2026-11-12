@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { ensureGitHubRelease, getGitHubRelease, main } from "./github-release.mjs";
+import {
+  ensureGitHubRelease,
+  getGitHubRelease,
+  main,
+  removeDuplicateReleases,
+} from "./github-release.mjs";
 
 const REPO = "owner/paseo";
 const TAG = "v1.2.3";
@@ -23,46 +28,85 @@ function release(id, { draft = true, assets = 0, tag = TAG } = {}) {
 }
 
 // A GitHub releases API that, like the real one, lets any number of releases share a tag.
-function fakeGitHub(initial = []) {
-  const state = { releases: [...initial], nextId: 100, calls: [] };
-  const execFileSync = (command, args) => {
-    assert.equal(command, "gh");
-    state.calls.push(args.join(" "));
-    if (args[0] === "api" && args[1] === `repos/${REPO}/releases?per_page=100`) {
-      return JSON.stringify([...state.releases].sort((a, b) => b.id - a.id));
+// `newer` are releases for other tags, listed before the tag's own like GitHub's newest-first
+// order, so enough of them push an old tag's release off the first page.
+function fakeGitHub(initial = [], { newer = [] } = {}) {
+  const state = { releases: [...initial], nextId: 100, calls: [], stale: null };
+  const notFound = () =>
+    Object.assign(new Error("gh: Not Found (HTTP 404)"), { stderr: "gh: Not Found (HTTP 404)" });
+  const listing = () => [
+    ...newer,
+    ...(state.stale ?? [...state.releases].sort((a, b) => b.id - a.id)),
+  ];
+  const byId = (id) => state.releases.find((candidate) => candidate.id === id);
+  const lastId = (endpoint) => Number(endpoint.split("/").at(-1));
+
+  const createRelease = (args) => {
+    const field = (name) => args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
+    const created = release((state.nextId += 1), { draft: field("draft") === "true" });
+    created.tag_name = field("tag_name");
+    created.prerelease = field("prerelease") === "true";
+    created.target_commitish = field("target_commitish");
+    state.releases.push(created);
+    return JSON.stringify(created);
+  };
+  const uploadAsset = (endpoint) => {
+    const url = new URL(endpoint);
+    byId(Number(url.pathname.split("/").at(-2))).assets.push({
+      id: (state.nextId += 1),
+      name: url.searchParams.get("name"),
+    });
+    return "{}";
+  };
+  const publish = (endpoint, args) => {
+    const id = lastId(endpoint);
+    if (!args.includes("draft=false")) return "{}";
+    if (state.releases.some((other) => other.id !== id && other.draft === false)) {
+      throw new Error("HTTP 422: Release.tag_name already exists");
     }
-    if (args[0] === "api" && args[1] === `repos/${REPO}/git/ref/tags/${TAG}`) {
-      return "{}";
-    }
-    if (args[0] === "api" && args[1] === "--method" && args[2] === "POST") {
-      const field = (name) =>
-        args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
-      const created = release((state.nextId += 1), { draft: field("draft") === "true" });
-      created.tag_name = field("tag_name");
-      created.prerelease = field("prerelease") === "true";
-      created.target_commitish = field("target_commitish");
-      state.releases.push(created);
-      return JSON.stringify(created);
-    }
-    if (args[0] === "api" && args[1] === "--method" && args[2] === "PATCH") {
-      const id = Number(args[3].split("/").at(-1));
-      const target = state.releases.find((candidate) => candidate.id === id);
-      if (args.includes("draft=false")) {
-        if (state.releases.some((other) => other.id !== id && other.draft === false)) {
-          throw new Error("HTTP 422: Release.tag_name already exists");
-        }
-        target.draft = false;
-        target.tag_name = TAG;
-        target.html_url = `https://github.com/${REPO}/releases/tag/${TAG}`;
+    Object.assign(byId(id), {
+      draft: false,
+      tag_name: TAG,
+      html_url: `https://github.com/${REPO}/releases/tag/${TAG}`,
+    });
+    return "{}";
+  };
+  const remove = (endpoint) => {
+    const id = lastId(endpoint);
+    if (endpoint.includes("/releases/assets/")) {
+      for (const candidate of state.releases) {
+        candidate.assets = candidate.assets.filter((asset) => asset.id !== id);
       }
-      return "{}";
-    }
-    if (args[0] === "api" && args[1] === "--method" && args[2] === "DELETE") {
-      const id = Number(args[3].split("/").at(-1));
-      state.releases = state.releases.filter((candidate) => candidate.id !== id);
       return "";
     }
-    throw new Error(`Unexpected gh call: gh ${args.join(" ")}`);
+    if (!byId(id)) throw notFound();
+    state.releases = state.releases.filter((candidate) => candidate.id !== id);
+    return "";
+  };
+
+  const reads = {
+    [`repos/${REPO}/releases?per_page=100`]: () => JSON.stringify(listing().slice(0, 100)),
+    "--paginate": () =>
+      listing()
+        .map((entry) => JSON.stringify(entry))
+        .join("\n"),
+    [`repos/${REPO}/git/ref/tags/${TAG}`]: () => "{}",
+  };
+  const writes = {
+    POST: (endpoint, args) =>
+      endpoint.startsWith("https://uploads.github.com/")
+        ? uploadAsset(endpoint)
+        : createRelease(args),
+    PATCH: publish,
+    DELETE: remove,
+  };
+  const execFileSync = (command, args) => {
+    assert.equal(command, "gh");
+    assert.equal(args[0], "api");
+    state.calls.push(args.join(" "));
+    const handler = args[1] === "--method" ? writes[args[2]] : reads[args[1]];
+    if (!handler) throw new Error(`Unexpected gh call: gh ${args.join(" ")}`);
+    return args[1] === "--method" ? handler(args[3], args) : handler();
   };
   return { state, execFileSync };
 }
@@ -238,6 +282,67 @@ test("publish fails when the tag has no release", () => {
   );
 });
 
+test("a duplicate another creator already deleted counts as cleaned up", () => {
+  // Both creators list [7, 8]; the other one deletes 8 first, so this DELETE 404s.
+  const github = fakeGitHub([release(7)]);
+  github.state.stale = [release(8), release(7)];
+  assert.equal(removeDuplicateReleases(REPO, TAG, github.execFileSync).id, 7);
+  assert.ok(github.state.calls.includes(`api --method DELETE repos/${REPO}/releases/8`));
+});
+
+test("a release older than the newest 100 is still found", () => {
+  const newer = Array.from({ length: 120 }, (_, index) =>
+    release(1000 - index, { draft: false, tag: `v9.0.${index}` }),
+  );
+  const github = fakeGitHub([release(5, { draft: false, assets: 2 })], { newer });
+  assert.equal(getGitHubRelease(REPO, TAG, github.execFileSync).id, 5);
+  assert.ok(github.state.calls.some((call) => call.startsWith("api --paginate")));
+  // Ensuring that tag finds it rather than creating a second release.
+  ensureGitHubRelease(
+    { repo: REPO, tag: TAG },
+    { execFileSync: github.execFileSync, sleep: noSleep },
+  );
+  assert.equal(
+    github.state.calls.some((call) => call.startsWith(`api --method POST repos/${REPO}/releases `)),
+    false,
+  );
+});
+
+test("a tag with no release reads one page when the repository has fewer than 100", () => {
+  const github = fakeGitHub([], { newer: [release(1, { tag: "v0.0.1", draft: false })] });
+  assert.equal(getGitHubRelease(REPO, TAG, github.execFileSync), null);
+  assert.equal(github.state.calls.length, 1);
+});
+
+test("manifest uploads go to the release id and replace a same-named asset", () => {
+  const draft = release(7);
+  draft.assets = [
+    { id: 40, name: "latest-mac.yml" },
+    { id: 41, name: "Paseo.zip" },
+  ];
+  const github = fakeGitHub([draft]);
+  main(["--repo", REPO, "--tag", TAG, "--upload", "/tmp/final/latest-mac.yml"], {
+    execFileSync: github.execFileSync,
+  });
+  assert.ok(github.state.calls.includes(`api --method DELETE repos/${REPO}/releases/assets/40`));
+  assert.ok(
+    github.state.calls.some((call) =>
+      call.startsWith(
+        `api --method POST https://uploads.github.com/repos/${REPO}/releases/7/assets?name=latest-mac.yml `,
+      ),
+    ),
+    github.state.calls.join("\n"),
+  );
+  assert.deepEqual(github.state.releases[0].assets.map((asset) => asset.name).sort(), [
+    "Paseo.zip",
+    "latest-mac.yml",
+  ]);
+  assert.equal(
+    main(["--repo", REPO, "--tag", TAG, "--asset-names"], { execFileSync: github.execFileSync }),
+    "Paseo.zip\nlatest-mac.yml",
+  );
+});
+
 test("releases for other tags are never touched", () => {
   const github = fakeGitHub([
     release(1, { tag: "v1.2.2", draft: false }),
@@ -309,8 +414,17 @@ if (args[1] === "repos/${REPO}/releases?per_page=100") {
   });
   process.stdout.write("{}");
 } else if (args[2] === "DELETE") {
+  // Another creator's cleanup can delete it first; GitHub then answers 404.
   const id = Number(args[3].split("/").pop());
-  withState((state) => { state.releases = state.releases.filter((r) => r.id !== id); });
+  const found = withState((state) => {
+    const before = state.releases.length;
+    state.releases = state.releases.filter((r) => r.id !== id);
+    return state.releases.length < before;
+  });
+  if (!found) {
+    process.stderr.write("gh: Not Found (HTTP 404)");
+    process.exit(1);
+  }
 } else {
   process.stderr.write("unexpected gh " + args.join(" "));
   process.exit(1);

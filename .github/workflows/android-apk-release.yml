@@ -459,15 +459,18 @@ jobs:
             asset_name="paseo-${RELEASE_TAG}-android.apk"
           fi
 
-          asset_path="$RUNNER_TEMP/$asset_name"
+          upload_dir="$RUNNER_TEMP/apk-release-assets"
+          mkdir -p "$upload_dir"
+          asset_path="$upload_dir/$asset_name"
           cp "$apk_path" "$asset_path"
 
           if [[ "$PASEO_ANDROID_SIGNING_MODE" == "insecure-fallback" ]]; then
             warning_name="paseo-${RELEASE_TAG}-android-WARNING-INSECURE-PUBLIC-FALLBACK-KEY-see-docs-fork-release.txt"
-            warning_path="$RUNNER_TEMP/$warning_name"
+            warning_path="$upload_dir/$warning_name"
             warning_text="WARNING: This APK was signed with Paseo's public insecure fallback Android key because ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD were not configured. Do not distribute it as a trusted production build. Configure secure Android signing secrets using docs/fork-release.md#android-apks."
             printf '%s\n' "$warning_text" > "$warning_path"
           fi
 
-          release_lookup="$(node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG")"
-          gh release upload "$release_lookup" "$asset_path" ${warning_path:+"$warning_path"} --clobber --repo "${{ github.repository }}"
+          # Resolves the release on every attempt: npm or finalize-rollout can publish the
+          # draft meanwhile. See docs/fork-decisions.md#release-single-creator.
+          node scripts/upload-release-assets.mjs "$RELEASE_TAG" "$upload_dir" "${{ github.repository }}"

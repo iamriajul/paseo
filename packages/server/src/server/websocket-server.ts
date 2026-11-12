@@ -151,7 +151,7 @@ import type { WorkspaceLabelService } from "./workspace-labels/index.js";
 import { WorkspaceTodoStore } from "./workspace-todos/store.js";
 import { WorkspaceRecentFoldersStore } from "./workspace-recent-folders/store.js";
 import { ExplorerThumbnailService } from "./file-explorer/thumbnails/service.js";
-import { holdRequestForAgentMessages, type WakeUpHolds } from "./agent/wake-up-hold.js";
+import { planAgentMessageHold, type WakeUpHolds } from "./agent/wake-up-hold.js";
 import { ThumbnailRenderer } from "./file-explorer/thumbnails/renderer.js";
 import {
   APPLICATION_SOCKET_LEASE_CHECK_INTERVAL_MS,
@@ -680,13 +680,17 @@ export class VoiceAssistantWebSocketServer {
   private readonly pluginRuntime: SessionOptions["pluginRuntime"];
   private readonly orchestrationSkills: SessionOptions["orchestrationSkills"];
 
-  /** Waits while the recipient's serving account is blocked and due back soon. */
+  /**
+   * Waits while the recipient's serving account is blocked and due back soon. Returns the prompt
+   * to send now: the batch, the parts a stopping daemon did not save, or null for nothing.
+   */
   private async holdAgentMessages(
     batch: AgentMessageDispatchRequest,
-  ): Promise<"send" | "deferred"> {
-    if (!this.wakeUpHolds) return "send";
-    const outcome = await this.wakeUpHolds.hold(holdRequestForAgentMessages(batch));
-    return outcome.status === "deferred" ? "deferred" : "send";
+  ): Promise<AgentMessageDispatchRequest["prompt"] | null> {
+    if (!this.wakeUpHolds) return batch.prompt;
+    const plan = planAgentMessageHold(batch);
+    const outcome = await this.wakeUpHolds.hold(plan.request);
+    return outcome.status === "deferred" ? plan.sendAtShutdown : batch.prompt;
   }
 
   private async validateCompletedCreation(snapshot: CreationSnapshot): Promise<void> {
@@ -779,13 +783,13 @@ export class VoiceAssistantWebSocketServer {
     this.agentStorage = agentStorage;
     this.agentMessages = createAgentMessageDelivery({
       dispatch: async (batch) => {
-        const held = await this.holdAgentMessages(batch);
-        if (held === "deferred") return "skipped";
+        const prompt = await this.holdAgentMessages(batch);
+        if (prompt === null) return "skipped";
         const send = {
           agentManager,
           agentStorage,
           agentId: batch.recipientId,
-          prompt: batch.prompt,
+          prompt,
           sessionMode: batch.sessionMode,
           clearPendingPermissions: batch.clearPendingPermissions,
           unarchive: batch.unarchive,

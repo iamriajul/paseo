@@ -13,6 +13,11 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import { writeJsonFileAtomic } from "../atomic-file.js";
 import type { AgentPromptInput, AgentRunOptions } from "./agent-sdk-types.js";
+import {
+  joinAgentMessagePrompts,
+  type AgentMessageDispatchRequest,
+  type AgentMessagePart,
+} from "./agent-messages/index.js";
 import type { WarmUpAccountBlock } from "./gateway/warm-up-account.js";
 import { WARM_UP_ACCOUNT_CHECK_MAX_AGE_MS } from "./gateway/warm-up-account.js";
 
@@ -56,10 +61,20 @@ const heldWakeUpSchema = z.object({
   /** Later fires of the same wake-up that joined this hold instead of queuing. */
   repeats: z.number(),
   /**
-   * The prompt to send after a daemon restart, for a wake-up nothing else re-sends. Absent for a
-   * heartbeat (its schedule fires again) and a notification (its finish subscription re-sends).
+   * The prompt to send after a daemon restart, for a wake-up nothing else re-sends, with the send
+   * options of the path that held it. Absent for a heartbeat (its schedule fires again) and a
+   * notification (its finish subscription re-sends).
    */
-  redeliver: z.object({ text: z.string(), clientMessageId: z.string().optional() }).optional(),
+  redeliver: z
+    .object({
+      text: z.string(),
+      clientMessageId: z.string().optional(),
+      unarchive: z.boolean().optional(),
+      activeTurnBehavior: z.enum(["steer", "interrupt"]).optional(),
+      sessionMode: z.string().optional(),
+      clearPendingPermissions: z.boolean().optional(),
+    })
+    .optional(),
 });
 export type HeldWakeUp = z.infer<typeof heldWakeUpSchema>;
 
@@ -81,6 +96,8 @@ export interface WakeUpHoldRequest {
   /** Repeats of one wake-up (a heartbeat's schedule) join the hold already waiting. */
   coalesceKey?: string;
   redeliver?: HeldWakeUp["redeliver"];
+  /** Messages in this wake-up that are not saved, so a crash while it is held loses them. */
+  unsavedMessageIds?: readonly string[];
   signal?: AbortSignal;
 }
 
@@ -156,38 +173,91 @@ export function resolveWakeUpHoldRelease(input: {
   return { releaseMs, reason: block.reason, account: block.account, until: block.until };
 }
 
+export interface AgentMessageHold {
+  request: WakeUpHoldRequest;
+  /**
+   * The parts that still go out at once if the daemon stops during the hold, because the saved
+   * prompt does not carry them; null when the saved prompt is the whole batch.
+   */
+  sendAtShutdown: AgentPromptInput | null;
+}
+
 /**
- * The hold for one batch of agent messages. Only a batch of plain-text messages from other agents
- * is saved for a restart: a notification's finish subscription re-sends it itself, and a prompt
- * with images is not written to disk.
+ * The hold for one batch of agent messages. The plain-text messages from other agents are saved
+ * for a restart, on their own: a notification batched with them is re-sent by its finish
+ * subscription, which counts it delivered only once dispatched. A message with images is not
+ * written to disk; the hold logs that a crash would lose it, and a shutdown sends it.
  */
-export function holdRequestForAgentMessages(batch: {
-  recipientId: string;
-  sourceKinds: readonly ("agent-message" | "agent-notification")[];
-  messageIds: readonly string[];
-  prompt: AgentPromptInput;
-}): WakeUpHoldRequest {
-  const onlyMessages = batch.sourceKinds.every((kind) => kind === "agent-message");
-  const onlyNotifications = batch.sourceKinds.every((kind) => kind === "agent-notification");
+export function planAgentMessageHold(
+  batch: Pick<
+    AgentMessageDispatchRequest,
+    | "recipientId"
+    | "parts"
+    | "unarchive"
+    | "activeTurnBehavior"
+    | "sessionMode"
+    | "clearPendingPermissions"
+  >,
+): AgentMessageHold {
+  const saved: { messageId: string; text: string }[] = [];
+  const unsaved: AgentMessagePart[] = [];
+  for (const part of batch.parts) {
+    if (part.kind === "agent-message" && typeof part.prompt === "string") {
+      saved.push({ messageId: part.messageId, text: part.prompt });
+    } else {
+      unsaved.push(part);
+    }
+  }
+  const unsavedMessageIds = unsaved
+    .filter((part) => part.kind === "agent-message")
+    .map((part) => part.messageId);
+  const first = saved[0];
   return {
-    agentId: batch.recipientId,
-    kind: onlyNotifications ? "agent-notification" : "agent-message",
-    ...(onlyMessages && typeof batch.prompt === "string"
-      ? {
-          redeliver: {
-            text: batch.prompt,
-            ...(batch.messageIds[0] ? { clientMessageId: batch.messageIds[0] } : {}),
-          },
-        }
-      : {}),
+    request: {
+      agentId: batch.recipientId,
+      kind: batch.parts.every((part) => part.kind === "agent-notification")
+        ? "agent-notification"
+        : "agent-message",
+      ...(first
+        ? {
+            redeliver: {
+              text: saved.map((part) => part.text).join("\n\n"),
+              clientMessageId: first.messageId,
+              unarchive: batch.unarchive,
+              activeTurnBehavior: batch.activeTurnBehavior,
+              ...(batch.sessionMode ? { sessionMode: batch.sessionMode } : {}),
+              clearPendingPermissions: batch.clearPendingPermissions,
+            },
+          }
+        : {}),
+      ...(unsavedMessageIds.length ? { unsavedMessageIds } : {}),
+    },
+    sendAtShutdown:
+      first && unsaved.length ? joinAgentMessagePrompts(unsaved.map((part) => part.prompt)) : null,
   };
 }
 
-/** Run options for re-sending a restored hold: a restart resume says so, a message keeps its id. */
-export function heldWakeUpRunOptions(entry: HeldWakeUp): AgentRunOptions | undefined {
-  if (entry.kind === "restart") return { resume: { reason: "restart" } };
-  const clientMessageId = entry.redeliver?.clientMessageId;
-  return clientMessageId ? { clientMessageId } : undefined;
+export interface HeldWakeUpSend {
+  prompt: string;
+  unarchive?: boolean;
+  activeTurnBehavior?: "steer" | "interrupt";
+  sessionMode?: string;
+  clearPendingPermissions?: boolean;
+  runOptions?: AgentRunOptions;
+}
+
+/**
+ * How a restored hold is re-sent: with the options the path that held it would have sent it with,
+ * so an archived recipient of an agent message is unarchived as it would have been live. A
+ * restart resume says so, and a message keeps its id. Null when nothing is saved to re-send.
+ */
+export function heldWakeUpSend(entry: HeldWakeUp): HeldWakeUpSend | null {
+  if (!entry.redeliver) return null;
+  const { text, clientMessageId, ...options } = entry.redeliver;
+  let runOptions: AgentRunOptions | undefined;
+  if (entry.kind === "restart") runOptions = { resume: { reason: "restart" } };
+  else if (clientMessageId) runOptions = { clientMessageId };
+  return { prompt: text, ...options, ...(runOptions ? { runOptions } : {}) };
 }
 
 const KIND_LABELS: Record<WakeUpKind, string> = {
@@ -244,6 +314,8 @@ export class WakeUpHolds {
   private readonly waiters = new Map<string, Waiter>();
   private saving: Promise<void> = Promise.resolve();
   private closed = false;
+  /** What `close()` saved, plus wake-ups that began holding while it ran. */
+  private savedAtClose: HeldWakeUp[] = [];
 
   constructor(deps: WakeUpHoldDependencies) {
     this.deps = deps;
@@ -298,9 +370,19 @@ export class WakeUpHolds {
       },
       "Holding automated wake-up until the serving account is back",
     );
+    if (request.unsavedMessageIds?.length) {
+      this.deps.logger.warn(
+        { agentId, messageIds: request.unsavedMessageIds },
+        "Held agent messages with images are not saved; a crash before they go out loses them",
+      );
+    }
+    // The daemon began stopping during the reads above, after `close()` saved the holds.
+    if (this.closed) return this.holdAfterClose(entry);
     await this.waitForRelease(entry, release.releaseMs, request.signal);
     if (this.closed && (entry.redeliver || entry.kind === "heartbeat"))
       return { status: "deferred" };
+    // The wake-up goes out only once the file no longer lists it, so a crash cannot send it twice.
+    await this.saving;
     return { status: "send", heldMs: this.now() - nowMs };
   }
 
@@ -342,7 +424,8 @@ export class WakeUpHolds {
    */
   async close(): Promise<void> {
     if (this.closed) return;
-    const saved = this.persist();
+    this.savedAtClose = [...this.waiters.values()].map((waiter) => structuredClone(waiter.entry));
+    const saved = this.save(this.savedAtClose);
     this.closed = true;
     for (const waiter of this.waiters.values()) waiter.wake();
     await saved;
@@ -370,6 +453,19 @@ export class WakeUpHolds {
     };
   }
 
+  /**
+   * A wake-up that would have been held when the daemon was already stopping: one with a prompt
+   * to re-send is added to the saved holds before it is reported deferred.
+   */
+  private async holdAfterClose(entry: HeldWakeUp): Promise<WakeUpHoldOutcome> {
+    if (entry.redeliver) {
+      this.savedAtClose.push(structuredClone(entry));
+      await this.save(this.savedAtClose);
+      return { status: "deferred" };
+    }
+    return entry.kind === "heartbeat" ? { status: "deferred" } : { status: "send", heldMs: 0 };
+  }
+
   private async resume(entry: HeldWakeUp): Promise<void> {
     try {
       const block = this.deps.isBusy(entry.agentId) ? null : await this.readBlock(entry.agentId);
@@ -389,7 +485,10 @@ export class WakeUpHolds {
       this.waiters.delete(entry.id);
       this.changed(entry.agentId, null);
     }
-    if (!this.closed) await this.deps.redeliver(entry);
+    if (this.closed) return;
+    // Saved without this entry first: a crash during the send must not restore and send it again.
+    await this.saving;
+    await this.deps.redeliver(entry);
   }
 
   private async waitForRelease(
@@ -484,7 +583,11 @@ export class WakeUpHolds {
   }
 
   private persist(): Promise<void> {
-    const entries = [...this.waiters.values()].map((waiter) => structuredClone(waiter.entry));
+    return this.save([...this.waiters.values()].map((waiter) => structuredClone(waiter.entry)));
+  }
+
+  private save(snapshot: readonly HeldWakeUp[]): Promise<void> {
+    const entries = [...snapshot];
     this.saving = this.saving
       .catch(() => undefined)
       .then(() => this.deps.store.save(entries))

@@ -20,8 +20,6 @@ class FakeDebugger {
   public readonly blockedCommandNames = new Set<string>();
   public readonly failedCommandNames = new Set<string>();
   public readonly failedCommandErrors = new Map<string, Error>();
-  public readonly promptDialogs: unknown[] = [];
-  public failPromptDrain = false;
   public beforeCommand: ((command: string) => void) | null = null;
   private messageListener:
     | ((event: unknown, method: string, params?: Record<string, unknown>) => void)
@@ -51,15 +49,6 @@ class FakeDebugger {
       await new Promise<void>((resolve) => {
         this.blockedCommands.push(resolve);
       });
-    }
-    if (command === "Runtime.evaluate" && typeof params?.expression === "string") {
-      if (params.expression.includes("state.prompts.splice(0)")) {
-        if (this.failPromptDrain) {
-          throw new Error("execution context destroyed");
-        }
-        return { result: { value: this.promptDialogs.splice(0) } };
-      }
-      return { result: { value: true } };
     }
     return { ok: true };
   }
@@ -122,8 +111,18 @@ class FakeWebContents {
   public endedFrameSubscriptions = 0;
   public readonly invalidations: string[] = [];
   private consoleMessageListener: ConsoleMessageListener | null = null;
-  public readonly destroyedListeners = new Set<() => void>();
+  private readonly listeners = new Map<string, Set<(...args: never[]) => void>>();
+  public readonly destroyedListeners = this.listenersFor("destroyed");
   public destroyed = false;
+  public loadingMainFrame = false;
+  public readonly pageScripts: string[] = [];
+  public readonly promptDialogs: unknown[] = [];
+  public failPromptDrain = false;
+  public pageScript: ((code: string) => Promise<unknown>) | null = null;
+  public loadUrl: ((url: string) => Promise<void>) | null = null;
+  public readonly mainFrame = {
+    executeJavaScript: (code: string) => this.runMainFrameScript(code),
+  };
 
   public constructor(private readonly webContentsId: number) {}
 
@@ -158,12 +157,33 @@ class FakeWebContents {
     return this.destroyed;
   }
 
-  public async executeJavaScript(): Promise<unknown> {
-    return null;
+  public isLoadingMainFrame(): boolean {
+    return this.loadingMainFrame;
   }
 
-  public async loadURL(url: string): Promise<void> {
+  // Electron's webContents.executeJavaScript waits for did-stop-loading; while a subresource
+  // hangs it never runs. The adapter must not use it.
+  public executeJavaScript(): Promise<unknown> {
+    return new Promise(() => {});
+  }
+
+  private async runMainFrameScript(code: string): Promise<unknown> {
+    this.pageScripts.push(code);
+    if (this.pageScript) {
+      return this.pageScript(code);
+    }
+    if (code.includes("state.prompts.splice(0)")) {
+      if (this.failPromptDrain) {
+        throw new Error("execution context destroyed");
+      }
+      return this.promptDialogs.splice(0);
+    }
+    return code.includes("__PASEO_BROWSER_AUTOMATION_DIALOG_STATE__") ? true : null;
+  }
+
+  public loadURL(url: string): Promise<void> {
     this.loadedUrls.push(url);
+    return this.loadUrl ? this.loadUrl(url) : Promise.resolve();
   }
 
   public goBack(): void {}
@@ -192,9 +212,21 @@ class FakeWebContents {
 
   public async insertText(_text: string): Promise<void> {}
 
-  public on(event: "console-message", listener: ConsoleMessageListener): void {
-    expect(event).toBe("console-message");
-    this.consoleMessageListener = listener;
+  private listenersFor(event: string): Set<(...args: never[]) => void> {
+    let listeners = this.listeners.get(event);
+    if (!listeners) {
+      listeners = new Set();
+      this.listeners.set(event, listeners);
+    }
+    return listeners;
+  }
+
+  public on(event: string, listener: (...args: never[]) => void): void {
+    if (event === "console-message") {
+      this.consoleMessageListener = listener as unknown as ConsoleMessageListener;
+      return;
+    }
+    this.listenersFor(event).add(listener);
   }
 
   public once(event: "destroyed", listener: () => void): void {
@@ -202,9 +234,16 @@ class FakeWebContents {
     this.destroyedListeners.add(listener);
   }
 
-  public removeListener(event: "destroyed", listener: () => void): void {
-    expect(event).toBe("destroyed");
-    this.destroyedListeners.delete(listener);
+  public removeListener(event: string, listener: (...args: never[]) => void): void {
+    this.listenersFor(event).delete(listener);
+  }
+
+  public emit(event: "did-navigate", url: string): void;
+  public emit(event: "dom-ready" | "render-process-gone"): void;
+  public emit(event: string, url?: string): void {
+    for (const listener of this.listenersFor(event)) {
+      (listener as (event: unknown, url?: string) => void)({}, url);
+    }
   }
 
   public emitConsoleMessage(input: {
@@ -421,10 +460,6 @@ describe("browser automation IPC adapter", () => {
 
       expect(contents.debugger.commands).toEqual([
         { command: "Page.enable", params: {} },
-        {
-          command: "Runtime.evaluate",
-          params: { expression: expect.any(String), returnByValue: true },
-        },
         { command: "Input.dispatchMouseEvent", params: { type: "mouseReleased" } },
         { command: "Page.handleJavaScriptDialog", params: { accept: false } },
       ]);
@@ -449,20 +484,13 @@ describe("browser automation IPC adapter", () => {
     });
     expect(contents.debugger.commands).toEqual([
       { command: "Page.enable", params: {} },
-      {
-        command: "Runtime.evaluate",
-        params: { expression: expect.any(String), returnByValue: true },
-      },
       { command: "Input.dispatchMouseEvent", params: { type: "mouseReleased" } },
       { command: "Page.handleJavaScriptDialog", params: { accept: false } },
-      {
-        command: "Runtime.evaluate",
-        params: { expression: expect.any(String), returnByValue: true },
-      },
-      {
-        command: "Runtime.evaluate",
-        params: { expression: expect.any(String), returnByValue: true },
-      },
+    ]);
+    expect(contents.pageScripts).toEqual([
+      expect.stringContaining("window.prompt = promptShim"),
+      expect.stringContaining("state.prompts.splice(0)"),
+      expect.stringContaining("delete window[stateKey]"),
     ]);
   });
 
@@ -483,10 +511,6 @@ describe("browser automation IPC adapter", () => {
 
       expect(contents.debugger.commands).toEqual([
         { command: "Page.enable", params: {} },
-        {
-          command: "Runtime.evaluate",
-          params: { expression: expect.any(String), returnByValue: true },
-        },
         { command: "Input.dispatchMouseEvent", params: { type: "mousePressed" } },
         { command: "Page.handleJavaScriptDialog", params: { accept: true } },
       ]);
@@ -508,13 +532,7 @@ describe("browser automation IPC adapter", () => {
         },
       ],
     });
-    expect(contents.debugger.commands.at(-1)).toEqual({
-      command: "Runtime.evaluate",
-      params: {
-        expression: expect.stringContaining("delete window[stateKey]"),
-        returnByValue: true,
-      },
-    });
+    expect(contents.pageScripts.at(-1)).toContain("delete window[stateKey]");
   });
 
   test("keeps the prompt shim installed until overlapping captures finish", async () => {
@@ -539,7 +557,7 @@ describe("browser automation IPC adapter", () => {
     });
     await secondStarted.promise;
 
-    contents.debugger.promptDialogs.push(
+    contents.promptDialogs.push(
       {
         type: "prompt",
         message: "First?",
@@ -576,14 +594,9 @@ describe("browser automation IPC adapter", () => {
         },
       ],
     });
-    expect(
-      contents.debugger.commands.some(
-        (entry) =>
-          entry.command === "Runtime.evaluate" &&
-          typeof entry.params.expression === "string" &&
-          entry.params.expression.includes("delete window[stateKey]"),
-      ),
-    ).toBe(false);
+    expect(contents.pageScripts.some((script) => script.includes("delete window[stateKey]"))).toBe(
+      false,
+    );
 
     finishSecond.resolve();
     await expect(second).resolves.toEqual({
@@ -605,13 +618,7 @@ describe("browser automation IPC adapter", () => {
         },
       ],
     });
-    expect(contents.debugger.commands.at(-1)).toEqual({
-      command: "Runtime.evaluate",
-      params: {
-        expression: expect.stringContaining("delete window[stateKey]"),
-        returnByValue: true,
-      },
-    });
+    expect(contents.pageScripts.at(-1)).toContain("delete window[stateKey]");
   });
 
   test("leaves JavaScript dialogs alone when no capture is active", async () => {
@@ -636,7 +643,7 @@ describe("browser automation IPC adapter", () => {
 
   test("treats prompt shim drain failures after navigation as no dialogs", async () => {
     const contents = new FakeWebContents(29);
-    contents.debugger.failPromptDrain = true;
+    contents.failPromptDrain = true;
     const tab = adaptWebContents(contents);
 
     await expect(tab.captureDialogs?.(async () => "navigated")).resolves.toEqual({
@@ -644,23 +651,11 @@ describe("browser automation IPC adapter", () => {
       dialogs: [],
     });
 
-    expect(contents.debugger.commands).toEqual([
-      { command: "Page.enable", params: {} },
-      {
-        command: "Runtime.evaluate",
-        params: { expression: expect.any(String), returnByValue: true },
-      },
-      {
-        command: "Runtime.evaluate",
-        params: { expression: expect.any(String), returnByValue: true },
-      },
-      {
-        command: "Runtime.evaluate",
-        params: {
-          expression: expect.stringContaining("delete window[stateKey]"),
-          returnByValue: true,
-        },
-      },
+    expect(contents.debugger.commands).toEqual([{ command: "Page.enable", params: {} }]);
+    expect(contents.pageScripts).toEqual([
+      expect.stringContaining("window.prompt = promptShim"),
+      expect.stringContaining("state.prompts.splice(0)"),
+      expect.stringContaining("delete window[stateKey]"),
     ]);
   });
 
@@ -697,7 +692,7 @@ describe("browser automation IPC adapter", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(
-      tab.captureDialogs?.(() => tab.loadURL("https://replacement.example.com")),
+      tab.captureDialogs?.(() => tab.loadDocument("https://replacement.example.com")),
     ).rejects.toThrow("target closed while handling command");
     expect(contents.loadedUrls).toEqual([]);
     expect(warn).not.toHaveBeenCalled();
@@ -718,7 +713,7 @@ describe("browser automation IPC adapter", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(
-      tab.captureDialogs?.(() => tab.loadURL("https://replacement.example.com")),
+      tab.captureDialogs?.(() => tab.loadDocument("https://replacement.example.com")),
     ).resolves.toEqual({ result: undefined, dialogs: [] });
     expect(contents.loadedUrls).toEqual(["https://replacement.example.com"]);
     expect(contents.debugger.attachedProtocolVersions).toEqual(["1.3"]);
@@ -728,6 +723,117 @@ describe("browser automation IPC adapter", () => {
     );
 
     warn.mockRestore();
+  });
+});
+
+describe("browser automation on a page that is still loading", () => {
+  test("runs page scripts on the current document while a subresource is still loading", async () => {
+    const contents = new FakeWebContents(40);
+    contents.loadingMainFrame = true;
+    contents.pageScript = async () => "Loaded DOM";
+    const tab = adaptWebContents(contents);
+
+    await expect(tab.executeJavaScript("document.body.innerText")).resolves.toBe("Loaded DOM");
+  });
+
+  test("rejects a page script that is still running when the page commits a new document", async () => {
+    const contents = new FakeWebContents(41);
+    contents.pageScript = () => new Promise(() => {});
+    const tab = adaptWebContents(contents);
+    const destroyedListenersBefore = contents.destroyedListeners.size;
+
+    const script = tab.executeJavaScript("new Promise(() => {})");
+    await flushMicrotasks();
+    contents.emit("did-navigate", "https://example.com/next");
+
+    await expect(script).rejects.toThrow(
+      "The page navigated to https://example.com/next while the script was running",
+    );
+    expect(contents.destroyedListeners.size).toBe(destroyedListenersBefore);
+  });
+
+  test("dialog capture does not wait for a pending navigation to commit", async () => {
+    const contents = new FakeWebContents(42);
+    // CDP Runtime.evaluate waits for a pending navigation to commit.
+    contents.debugger.blockedCommandNames.add("Runtime.evaluate");
+    const tab = adaptWebContents(contents);
+
+    await expect(tab.captureDialogs?.(async () => "reloaded")).resolves.toEqual({
+      result: "reloaded",
+      dialogs: [],
+    });
+  });
+
+  test("a navigation settles at the new document's DOM-ready, before its load event", async () => {
+    const contents = new FakeWebContents(43);
+    contents.loadUrl = () => new Promise(() => {});
+    const tab = adaptWebContents(contents);
+    let settled = false;
+    const navigation = tab.loadDocument("https://example.com/hanging").then(() => {
+      settled = true;
+      return settled;
+    });
+
+    // The old document's DOM-ready does not count.
+    contents.emit("dom-ready");
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    contents.emit("did-navigate", "https://example.com/hanging");
+    contents.emit("dom-ready");
+    await navigation;
+    expect(contents.loadedUrls).toEqual(["https://example.com/hanging"]);
+  });
+
+  test("a navigation the page replaces by script settles at the replacement's DOM-ready", async () => {
+    const contents = new FakeWebContents(44);
+    const aborted = Object.assign(
+      new Error("ERR_ABORTED (-3) loading 'https://example.com/login'"),
+      { code: "ERR_ABORTED", errno: -3 },
+    );
+    contents.loadUrl = async () => {
+      contents.loadingMainFrame = true;
+      throw aborted;
+    };
+    const tab = adaptWebContents(contents);
+    let settled = false;
+    const navigation = tab.loadDocument("https://example.com/private").then(() => {
+      settled = true;
+      return settled;
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    contents.emit("did-navigate", "https://example.com/login");
+    contents.emit("dom-ready");
+    await expect(navigation).resolves.toBe(true);
+  });
+
+  test("an aborted navigation with nothing replacing it settles", async () => {
+    const contents = new FakeWebContents(45);
+    contents.loadUrl = async () => {
+      throw Object.assign(new Error("ERR_ABORTED (-3) loading 'https://example.com/file.zip'"), {
+        code: "ERR_ABORTED",
+      });
+    };
+    const tab = adaptWebContents(contents);
+
+    await expect(tab.loadDocument("https://example.com/file.zip")).resolves.toBeUndefined();
+  });
+
+  test("a navigation that fails to connect rejects with Electron's reason", async () => {
+    const contents = new FakeWebContents(46);
+    contents.loadUrl = async () => {
+      throw Object.assign(
+        new Error("ERR_CONNECTION_REFUSED (-102) loading 'http://localhost:3000/'"),
+        { code: "ERR_CONNECTION_REFUSED" },
+      );
+    };
+    const tab = adaptWebContents(contents);
+
+    await expect(tab.loadDocument("http://localhost:3000/")).rejects.toThrow(
+      "ERR_CONNECTION_REFUSED (-102)",
+    );
   });
 });
 

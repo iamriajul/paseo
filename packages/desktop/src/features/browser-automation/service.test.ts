@@ -9,7 +9,7 @@ import type {
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import { BrowserSnapshotEngine } from "./snapshot-engine.js";
 import type { BrowserRegistry, TabContents, TabImage } from "./service.js";
-import { executeAutomationCommand } from "./service.js";
+import { executeAutomationCommand, PageNavigatedError } from "./service.js";
 import type { IsolatedKeyboardInputEvent } from "./trusted-input.js";
 
 const BROWSER_A = "11111111-1111-4111-8111-111111111111";
@@ -86,6 +86,8 @@ class FakeTab implements TabContents {
   public canNavigateBack = true;
   public canNavigateForward = false;
   public keypressTargetEditable = false;
+  public loadDocumentImpl: ((url: string) => Promise<void>) | null = null;
+  public pageNavigationsDuringScripts = 0;
 
   public constructor(
     public readonly id: number,
@@ -109,8 +111,10 @@ class FakeTab implements TabContents {
     return this.canNavigateForward;
   }
 
+  public loading = false;
+
   public isLoading(): boolean {
-    return false;
+    return this.loading;
   }
 
   public isDestroyed(): boolean {
@@ -119,10 +123,14 @@ class FakeTab implements TabContents {
 
   public async executeJavaScript(code: string): Promise<unknown> {
     this.scripts.push(code);
+    if (this.pageNavigationsDuringScripts > 0) {
+      this.pageNavigationsDuringScripts -= 1;
+      throw new PageNavigatedError("https://a.test/next");
+    }
     if (code.includes("requestAnimationFrame") && this.paintDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.paintDelayMs));
     }
-    if (code.includes("document.body.innerText")) {
+    if (code.includes("document.body?.innerText")) {
       return this.bodyText;
     }
     if (code.includes("__PASEO_ARIA_SNAPSHOT__")) {
@@ -152,8 +160,9 @@ class FakeTab implements TabContents {
     return this.actionScriptResult;
   }
 
-  public async loadURL(url: string): Promise<void> {
+  public async loadDocument(url: string): Promise<void> {
     this.loadedUrls.push(url);
+    await this.loadDocumentImpl?.(url);
   }
 
   public goBack(): void {
@@ -1074,6 +1083,44 @@ describe("executeAutomationCommand", () => {
     });
   });
 
+  test("wait keeps polling the new page after the page it was reading navigates", async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.bodyText = "Ready";
+    browser.tab.pageNavigationsDuringScripts = 1;
+
+    const result = await browser.execute({
+      command: "wait",
+      args: { browserId: BROWSER_A, text: "Ready", timeoutMs: 1_000 },
+    });
+
+    expect(result).toEqual({
+      requestId: "req-wait",
+      ok: true,
+      result: { command: "wait", browserId: BROWSER_A, matched: "text" },
+    });
+  });
+
+  test("evaluate that the page interrupts by navigating says so", async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.pageNavigationsDuringScripts = 1;
+
+    const result = await browser.execute({
+      command: "evaluate",
+      args: { browserId: BROWSER_A, function: "() => new Promise(() => {})" },
+    });
+
+    expect(result).toEqual({
+      requestId: "req-evaluate",
+      ok: false,
+      error: {
+        code: "browser_unknown_error",
+        message:
+          "The page navigated to https://a.test/next while the script was running, so its result is lost. Run it again on the new page.",
+        retryable: false,
+      },
+    });
+  });
+
   test("wait returns a retryable timeout when text never appears", async () => {
     const browser = new BrowserAutomationHarness();
     browser.tab.bodyText = "Still loading";
@@ -1233,6 +1280,121 @@ describe("executeAutomationCommand", () => {
       result: { command: "navigate", browserId: BROWSER_A, url: "https://example.com/next" },
     });
     expect(browser.tab.loadedUrls).toEqual(["https://example.com/next"]);
+  });
+
+  test("snapshot of a new tab waits for its first page instead of reading the blank document", async () => {
+    vi.useFakeTimers();
+    try {
+      const browser = new BrowserAutomationHarness();
+      browser.tab.loadedUrls.push("about:blank");
+      browser.tab.loading = true;
+
+      const pending = browser.snapshot();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(browser.tab.scripts).toEqual([]);
+      browser.tab.loadedUrls.push("https://a.test/first");
+      await vi.advanceTimersByTimeAsync(100);
+
+      await expect(pending).resolves.toMatchObject({
+        ok: true,
+        result: { command: "snapshot", url: "https://a.test/first" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("snapshot of a new tab whose first page never arrives says it is still loading", async () => {
+    vi.useFakeTimers();
+    try {
+      const browser = new BrowserAutomationHarness();
+      browser.tab.loadedUrls.push("");
+      browser.tab.loading = true;
+
+      const pending = browser.snapshot();
+      await vi.advanceTimersByTimeAsync(10_100);
+
+      await expect(pending).resolves.toEqual({
+        requestId: "req-snapshot",
+        ok: false,
+        error: {
+          code: "browser_timeout",
+          message: `Browser tab ${BROWSER_A} is still loading its first page: the server has not answered after 10 s. Call browser_wait with url or text to wait for the page, then retry.`,
+          retryable: true,
+        },
+      });
+      expect(browser.tab.scripts).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("navigate reports the URL the tab landed on after a script redirect", async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.loadDocumentImpl = async () => {
+      browser.tab.loadedUrls.push("https://example.com/login");
+    };
+
+    const result = await browser.execute({
+      command: "navigate",
+      args: { browserId: BROWSER_A, url: "https://example.com/private" },
+    });
+
+    expect(result).toEqual({
+      requestId: "req-navigate",
+      ok: true,
+      result: { command: "navigate", browserId: BROWSER_A, url: "https://example.com/login" },
+    });
+  });
+
+  test("navigate to a server that has not answered says the tab keeps loading", async () => {
+    vi.useFakeTimers();
+    try {
+      const browser = new BrowserAutomationHarness();
+      browser.tab.loadDocumentImpl = () => new Promise(() => {});
+
+      const pending = browser.execute({
+        command: "navigate",
+        args: { browserId: BROWSER_A, url: "http://localhost:3000/slow" },
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await expect(pending).resolves.toEqual({
+        requestId: "req-navigate",
+        ok: false,
+        error: {
+          code: "browser_timeout",
+          message:
+            "http://localhost:3000/slow is still loading after 10 s: the server has not sent the page yet. The tab keeps loading it. Call browser_wait with url or text to wait for the page, or browser_snapshot to see what the tab shows now.",
+          retryable: true,
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("navigate that fails to connect says why", async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.loadDocumentImpl = async () => {
+      throw new Error("ERR_CONNECTION_REFUSED (-102) loading 'http://localhost:3000/'");
+    };
+
+    const result = await browser.execute({
+      command: "navigate",
+      args: { browserId: BROWSER_A, url: "http://localhost:3000/" },
+    });
+
+    expect(result).toEqual({
+      requestId: "req-navigate",
+      ok: false,
+      error: {
+        code: "browser_unknown_error",
+        message:
+          "Navigation to http://localhost:3000/ failed: ERR_CONNECTION_REFUSED (-102) loading 'http://localhost:3000/'",
+        retryable: false,
+      },
+    });
   });
 
   test("navigate denies non-http URLs before loading the explicit tab", async () => {

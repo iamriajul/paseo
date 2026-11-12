@@ -8,9 +8,9 @@ import VideoToolbox
  * All work runs on one serial queue; results reach the view on the main queue.
  *
  * iOS invalidates a decompression session when the app goes to the background
- * (kVTInvalidSessionErr on the next decode). That is reported like any other error: JavaScript
- * then waits for a keyframe, asks the daemon for one, and the keyframe's parameter sets build a
- * new session here.
+ * (kVTInvalidSessionErr on the next decode). That is reported as interrupted, not as a failure:
+ * JavaScript waits for a keyframe and asks the daemon for one without counting it towards giving
+ * up on video, and the keyframe's parameter sets build a new session here.
  */
 final class H264Decoder {
   private let queue = DispatchQueue(label: "sh.paseo.video.decode", qos: .userInteractive)
@@ -25,10 +25,11 @@ final class H264Decoder {
    */
   private var waitingForKeyframe = false
   private let onFrame: (Int, CVImageBuffer) -> Void
-  private let onError: (String) -> Void
+  /** The message, and whether the system took the session away rather than the stream failing. */
+  private let onError: (String, Bool) -> Void
 
   /** Both callbacks run on the main queue. */
-  init(onFrame: @escaping (Int, CVImageBuffer) -> Void, onError: @escaping (String) -> Void) {
+  init(onFrame: @escaping (Int, CVImageBuffer) -> Void, onError: @escaping (String, Bool) -> Void) {
     self.onFrame = onFrame
     self.onError = onError
   }
@@ -83,16 +84,17 @@ final class H264Decoder {
       DispatchQueue.main.async { self?.onFrame(id, image) }
     }
     if status != noErr || handlerStatus != noErr {
-      fail("H.264 decoding failed (\(status != noErr ? status : handlerStatus))")
+      let code = status != noErr ? status : handlerStatus
+      fail("H.264 decoding failed (\(code))", interrupted: code == kVTInvalidSessionErr)
     }
   }
 
   /** Reports once, then waits for a keyframe to build a new session. */
-  private func fail(_ message: String) {
+  private func fail(_ message: String, interrupted: Bool = false) {
     invalidate()
     if waitingForKeyframe { return }
     waitingForKeyframe = true
-    report(message)
+    report(message, interrupted: interrupted)
   }
 
   private func configure(sps: Data, pps: Data) -> OSStatus {
@@ -192,7 +194,7 @@ final class H264Decoder {
     return sampleStatus == noErr ? sample : nil
   }
 
-  private func report(_ message: String) {
-    DispatchQueue.main.async { self.onError(message) }
+  private func report(_ message: String, interrupted: Bool) {
+    DispatchQueue.main.async { self.onError(message, interrupted) }
   }
 }

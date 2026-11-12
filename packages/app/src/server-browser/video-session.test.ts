@@ -1,7 +1,11 @@
 import type { ServerBrowserVideoChunk } from "@getpaseo/client/internal/daemon-client";
 import { describe, expect, it } from "vitest";
 import { NativeVideoPort } from "./native-video-port";
-import { ServerBrowserVideoSession, type VideoDecoderPort } from "./video-session";
+import {
+  ServerBrowserVideoSession,
+  ServerBrowserVideoStream,
+  type VideoDecoderPort,
+} from "./video-session";
 
 interface FakeChunk extends ServerBrowserVideoChunk {
   acked: boolean;
@@ -176,5 +180,72 @@ describe("NativeVideoPort", () => {
     await Promise.resolve();
     expect(calls).toEqual([{ id: 4, key: true, sps: [0x67, 0x42] }]);
     expect(errors).toBe(1);
+  });
+});
+
+describe("ServerBrowserVideoSession interruptions", () => {
+  it("restarts at a keyframe after an interruption without ever giving up on video", () => {
+    const t = setup();
+    t.session.push(t.chunk(true));
+    for (let i = 0; i < 5; i++) {
+      t.advance(600);
+      t.session.decoderInterrupted();
+    }
+    expect(t.fatal).toBe(0);
+    expect(t.resets).toBe(5);
+    expect(t.keyframeRequests).toBe(5);
+    t.session.push(t.chunk(false));
+    t.session.push(t.chunk(true));
+    expect(t.decoded).toEqual([0, 1]);
+  });
+});
+
+describe("ServerBrowserVideoStream", () => {
+  function player() {
+    return {
+      pushed: 0,
+      disposed: 0,
+      push() {
+        this.pushed += 1;
+      },
+      dispose() {
+        this.disposed += 1;
+      },
+    };
+  }
+
+  it("creates the player at the first chunk and releases it on stop", () => {
+    const made: Array<ReturnType<typeof player>> = [];
+    const stream = new ServerBrowserVideoStream(() => {
+      const next = player();
+      made.push(next);
+      return next;
+    });
+    const t = setup();
+    stream.push(t.chunk(true));
+    stream.push(t.chunk(false));
+    stream.stop();
+    expect(made.map((p) => [p.pushed, p.disposed])).toEqual([[2, 1]]);
+    expect(stream.current).toBeNull();
+  });
+
+  it("acks a chunk that arrives once video is off, without bringing a player back", () => {
+    let enabled = true;
+    const made: Array<ReturnType<typeof player>> = [];
+    const stream = new ServerBrowserVideoStream(() => {
+      if (!enabled) return null;
+      const next = player();
+      made.push(next);
+      return next;
+    });
+    const t = setup();
+    stream.push(t.chunk(true));
+    enabled = false;
+    stream.stop();
+    const late = t.chunk(false);
+    stream.push(late);
+    expect(late.acked).toBe(true);
+    expect(made).toHaveLength(1);
+    expect(stream.current).toBeNull();
   });
 });

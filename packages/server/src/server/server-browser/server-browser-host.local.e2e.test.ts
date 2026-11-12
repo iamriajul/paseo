@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -54,6 +55,8 @@ beforeEach(async () => {
       setTimeout(() => res.end("<title>Slow document</title>"), ms);
       return;
     }
+    // A server that never answers: the next document never commits.
+    if (req.url === "/hang") return;
     if (req.url === "/slow") {
       // A page that starts and never finishes loading.
       res.write("<title>Slow</title><p>slow page</p>");
@@ -112,6 +115,29 @@ async function waitFor(condition: () => boolean, timeoutMs = 10_000): Promise<vo
     if (Date.now() > deadline) throw new Error("condition not met in time");
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+}
+
+/** The renderer processes under one Chromium (its zygotes' children). */
+function rendererPids(browserPid: number): number[] {
+  const rows = execFileSync("ps", ["-eo", "pid=,ppid=,args="], { encoding: "utf8" })
+    .trim()
+    .split("\n")
+    .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => ({ pid: Number(match[1]), ppid: Number(match[2]), args: match[3]! }));
+  const tree = new Set([browserPid]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const row of rows) {
+      if (tree.has(row.ppid) && !tree.has(row.pid)) {
+        tree.add(row.pid);
+        grew = true;
+      }
+    }
+  }
+  return rows
+    .filter((row) => tree.has(row.pid) && row.args.includes("--type=renderer"))
+    .map((row) => row.pid);
 }
 
 async function evaluate(host: ServerBrowserHost, browserId: string, script: string) {
@@ -722,6 +748,63 @@ describe("ServerBrowserHost with a real Chromium", () => {
       "document.activeElement.blur(); getSelection().selectAllChildren(document.querySelector('p'))",
     );
     expect(await live.readSelection()).toBe("fixture page");
+  });
+
+  it("fails a page's commands as crashed at once when it crashes while still loading", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws-a", url: siteUrl, openedBy: "user" });
+    const live = host.getTab(tab.browserId)!;
+    // /hang never answers, so the next document never commits.
+    void live.navigate(`${siteUrl}hang`).catch(() => {});
+    await waitFor(() => live.info().isLoading);
+    // Page.crash would queue behind the pending navigation; kill this host's renderer instead.
+    for (const pid of rendererPids(host.browserPid()!)) process.kill(pid, "SIGKILL");
+    await waitFor(() => live.info().crashed === true);
+    const started = Date.now();
+    await expect(evaluate(host, tab.browserId, "1 + 1")).rejects.toThrow(/Reload the tab/);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("records the loopback ports a page's service worker fetches on its behalf", async () => {
+    const api = http.createServer((_req, res) => {
+      res.setHeader("access-control-allow-origin", "*");
+      res.end("{}");
+    });
+    await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve));
+    const apiPort = (api.address() as { port: number }).port;
+    // The page asks its own origin for /api; the worker answers from the API on another port.
+    const app = http.createServer((req, res) => {
+      if (req.url === "/sw.js") {
+        res.setHeader("content-type", "text/javascript");
+        res.end(
+          "self.addEventListener('install', () => self.skipWaiting());" +
+            "self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));" +
+            "self.addEventListener('fetch', (e) => { if (new URL(e.request.url).pathname === '/api')" +
+            ` e.respondWith(fetch('http://localhost:${apiPort}/api')); });`,
+        );
+        return;
+      }
+      res.setHeader("content-type", "text/html");
+      res.end("<title>SW app</title><p>sw app</p>");
+    });
+    await new Promise<void>((resolve) => app.listen(0, "127.0.0.1", resolve));
+    const appUrl = `http://127.0.0.1:${(app.address() as { port: number }).port}/`;
+    try {
+      const host = createHost();
+      const tab = await host.openTab({ workspaceId: "ws-a", url: appUrl, openedBy: "user" });
+      await evaluate(
+        host,
+        tab.browserId,
+        `navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready)
+          .then(() => new Promise((resolve) => navigator.serviceWorker.controller
+            ? resolve() : navigator.serviceWorker.addEventListener("controllerchange", resolve)))
+          .then(() => fetch("/api")).then((r) => r.text())`,
+      );
+      await waitFor(() => host.getTab(tab.browserId)!.observedLoopbackPorts().includes(apiPort));
+    } finally {
+      await new Promise<void>((resolve) => api.close(() => resolve()));
+      await new Promise<void>((resolve) => app.close(() => resolve()));
+    }
   });
 
   it("closes Chromium on shutdown", async () => {

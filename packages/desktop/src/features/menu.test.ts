@@ -37,6 +37,25 @@ class BrowserReloads {
 }
 
 describe("reloadActiveBrowserOrWindow", () => {
+  it("reloads the window's focused server browser tab instead of the window or a webview", () => {
+    const browserReloads = new BrowserReloads();
+    const serverTabReloads: number[] = [];
+
+    reloadActiveBrowserOrWindow({
+      win: browserReloads.firstWindow,
+      getActiveBrowserContentsForHostWindow:
+        browserReloads.activeBrowserForHostWindow.bind(browserReloads),
+      reloadFocusedServerTab: (id) => {
+        serverTabReloads.push(id);
+        return true;
+      },
+    });
+
+    expect(serverTabReloads).toEqual([101]);
+    expect(browserReloads.firstBrowser.reloads).toEqual([]);
+    expect(browserReloads.firstWindow.webContents.reloads).toEqual([]);
+  });
+
   it("reloads only the active browser belonging to the supplied window", () => {
     const browserReloads = new BrowserReloads();
 

@@ -749,6 +749,10 @@ export const ko: TranslationResources = {
         startAndOpen: "시작하고 열기",
       },
       portForward: {
+        notificationTitle: "이 휴대폰으로 포트 전달 중",
+        notificationText:
+          "브라우저에서 연 페이지가 계속 로드되도록 Paseo가 실행 상태를 유지합니다. 중지하면 모든 전달이 끝납니다.",
+        notificationStop: "중지",
         labelPhone: "이 휴대폰에서 열기",
         hintPhone:
           "워크스페이스 호스트의 포트를 이 휴대폰으로 전달한 뒤 브라우저에서 페이지를 엽니다. 전달하는 동안 Paseo가 백그라운드에서 계속 실행됩니다.",

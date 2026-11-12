@@ -85,7 +85,17 @@ A Browser tab or [server browser](server-browser.md) tab showing a localhost URL
 - Same port numbers keep absolute URLs working. A port already taken on this machine is reported as in use; "Use free ports instead" binds a random port, and the menu says pages that hard-code a port may break.
 - Forwards belong to the tab. A Browser tab's stop when its webview unregisters. A server tab's stop when the host's tab list drops it (closed by anyone, crashed, the server browser turned off) or marks it `suspended` (`port-forward/server-tab-forwards.ts`, run on every tab update), and when the window that started them closes. A tab whose host is this machine needs no forward: the menu opens the URL directly.
 
-Mobile does not get this. The user's own browser on a phone is a different app, and switching to it backgrounds Paseo; Android stops the Browser proxy and every TCP stream on background (see [Android lifecycle](#android-lifecycle)), and iOS suspends the WebSocket the tunnel rides on. Keeping forwards alive would need an Android foreground service that keeps the JS daemon client and its sockets running, and iOS has no equivalent. The web build cannot bind ports at all.
+### On a phone
+
+Android has it for server browser tabs, as "Open on this phone". Through v0.15.912 no phone had it: the user's browser is another app, and switching to it backgrounds Paseo, where Android froze the process and its WebSocket. A foreground service now keeps Paseo running exactly while a forward is open.
+
+- **Listeners.** `PortForwardListeners.kt` in the `paseo-browser-proxy` module binds each port on the phone's `127.0.0.1` at the same number (free-port fallback as on desktop) and hands every accepted socket to JS, reading nothing until JS has opened its daemon TCP tunnel. Ports, tunnels and lifetime live in `port-forward/mobile-port-forwards.ts`, which is unit-tested; the native layer only binds and moves bytes.
+- **Foreground service.** `PortForwardService.kt` runs while at least one forward is open, type `specialUse` (Android 14+ requires a type; no other type fits a local port relay, and `dataSync` is capped at 6 hours a day on Android 15), with an ongoing notification whose Stop ends every forward. It starts from the menu, while Paseo is in front, as Android 12+ requires. Without the notification permission (Android 13+) the forwards still run and the notification is hidden.
+- **JS timers.** React Native pauses JS timers when the app is paused unless a headless JS task runs (`JavaTimerManager`). The daemon client keeps its connection healthy on timers, so the module starts the `PaseoPortForwardKeepAlive` task with the service and JS finishes it when the last forward stops. The host runtime does not close sockets on background (`setAppVisible`); the OS was the only thing stopping them.
+- **Lifetime.** The same as desktop server tabs: forwards stop when the tab closes or suspends, from the menu, or from the notification. The Browser proxy for in-app Android Browser tabs still stops on background (see [Android lifecycle](#android-lifecycle)); forwards are a separate path and do not.
+- **Google Play.** A `specialUse` service needs a declaration in the Play Console; the manifest's `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` carries the reason.
+
+iOS does not get it. iOS suspends an app shortly after it leaves the screen and has no foreground-service equivalent: background modes cover audio, location, VoIP and similar, not a socket server, so the WebSocket every forward rides stops when the user's browser comes to the front. The web build cannot bind ports at all.
 
 ## Workspace services in the Browser
 

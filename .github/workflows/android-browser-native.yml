@@ -20,6 +20,7 @@ on:
       - "packages/app/modules/paseo-browser-proxy/**"
       - "packages/app/src/components/browser-pane.android.tsx"
       - "packages/app/src/native/mobile-browser-proxy*"
+      - "packages/app/src/port-forward/controller.android.ts"
   pull_request:
     paths: *android_browser_paths
   workflow_dispatch:

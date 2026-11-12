@@ -60,6 +60,17 @@ const SUSPEND_CAPTURE_TIMEOUT_MS = 3_000;
 /** A restored page's layout can grow after load (a SPA rendering); scrolling retries this long. */
 const SCROLL_RESTORE_MS = 3_000;
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800, mobile: false } as const;
+export const CRASHED_TAB_MESSAGE =
+  "This tab's page crashed. Reload the tab (browser_reload, or Reload in the viewer) to bring it back.";
+// A crashed renderer answers nothing it would have handled: commands hang until the page reloads.
+// These run in the browser process and still answer, so a crashed tab can be reloaded or moved.
+const CRASH_SAFE_METHODS = new Set([
+  "Page.reload",
+  "Page.navigate",
+  "Page.getNavigationHistory",
+  "Page.navigateToHistoryEntry",
+  "Page.resetNavigationHistory",
+]);
 
 export interface ServerBrowserViewport {
   width: number;
@@ -169,6 +180,10 @@ export class ServerBrowserTab {
   private canGoForward = false;
   private viewport: ServerBrowserViewport;
   private closed = false;
+  /** The page's renderer crashed; it stays crashed until the page reloads or navigates. */
+  private crashed = false;
+  /** Rejecters of commands awaiting an answer, failed at once when the renderer crashes. */
+  private readonly inFlight = new Set<(error: Error) => void>();
   private screencastSize: ScreencastSize | null = null;
   private pendingMove: PendingMove | null = null;
   private loadError: { url: string; errorText?: string } | null = null;
@@ -286,6 +301,7 @@ export class ServerBrowserTab {
       createdAt: this.createdAt,
       ...(this.suspension ? { suspended: true } : {}),
       ...(this.loadError ? { loadError: { ...this.loadError } } : {}),
+      ...(this.crashed ? { crashed: true } : {}),
       ...(this.openerBrowserId ? { openerBrowserId: this.openerBrowserId } : {}),
       ...(this.dialog ? { dialog: { ...this.dialog } } : {}),
       ...(this.fileChooser
@@ -328,6 +344,8 @@ export class ServerBrowserTab {
     this.connection = target.connection;
     this.closed = false;
     this.suspension = null;
+    // A new target has a new renderer.
+    this.crashed = false;
     this.documentPending = false;
     // The new target's initialize turns the Runtime domain on again.
     this.endConsolePause();
@@ -438,6 +456,7 @@ export class ServerBrowserTab {
     this.targetId = "";
     this.sessionId = "";
     this.connection = null;
+    this.crashed = false;
     this.endConsolePause();
     this.loading = false;
     this.canGoBack = false;
@@ -579,6 +598,16 @@ export class ServerBrowserTab {
     return entries;
   }
 
+  /**
+   * The text the page has selected: a focused input's or textarea's selection, else the
+   * document's. A viewer copies it to its own clipboard; Ctrl+C in the page copies on the host.
+   */
+  public async readSelection(): Promise<string> {
+    this.touch();
+    const text = await this.evaluate(SELECTION_SCRIPT);
+    return typeof text === "string" ? text : "";
+  }
+
   /** Every loopback port the page has used since the tab opened, ascending. */
   public observedLoopbackPorts(): number[] {
     return this.loopbackPorts.list();
@@ -658,7 +687,7 @@ export class ServerBrowserTab {
           code: event.code,
           windowsVirtualKeyCode: event.keyCode,
           ...(event.action === "down" && event.text ? { text: event.text } : {}),
-          modifiers: modifierMask(event.modifiers),
+          modifiers: modifierMask(editingModifiers(event, HOST_PLATFORM)),
         });
         return;
       case "text":
@@ -1006,8 +1035,44 @@ export class ServerBrowserTab {
 
   private rawSend(method: string, params: CdpParams = {}): Promise<CdpParams> {
     if (this.closed) return Promise.reject(new Error("Browser tab has been closed"));
-    if (!this.connection) return Promise.reject(new Error("Browser tab is suspended"));
-    return this.connection.send(method, params, this.sessionId);
+    const connection = this.connection;
+    if (!connection) return Promise.reject(new Error("Browser tab is suspended"));
+    if (this.crashed && !CRASH_SAFE_METHODS.has(method)) {
+      return Promise.reject(new Error(CRASHED_TAB_MESSAGE));
+    }
+    return new Promise((resolve, reject) => {
+      this.inFlight.add(reject);
+      connection
+        .send(method, params, this.sessionId)
+        .then(resolve, reject)
+        .finally(() => this.inFlight.delete(reject));
+    });
+  }
+
+  /**
+   * Chromium keeps a crashed page's target and reports `Inspector.targetCrashed`; nothing else
+   * changes, so without this a viewer kept the last frame and an agent's next command hung.
+   */
+  private onCrashed(): void {
+    if (this.crashed) return;
+    this.crashed = true;
+    this.loading = false;
+    this.dialog = null;
+    this.fileChooser = null;
+    const error = new Error(CRASHED_TAB_MESSAGE);
+    for (const reject of Array.from(this.inFlight)) reject(error);
+    this.inFlight.clear();
+    for (const resolve of this.loadWaiters.splice(0)) resolve();
+    this.onChange();
+  }
+
+  /** The page reloaded after a crash: its domains and scripts are still set; streams restart. */
+  private onRecovered(): void {
+    if (!this.crashed) return;
+    this.crashed = false;
+    this.onChange();
+    if (this.screencastSize) this.startScreencast(this.screencastSize);
+    this.video?.refresh();
   }
 
   private async applyViewport(): Promise<void> {
@@ -1123,9 +1188,15 @@ export class ServerBrowserTab {
     void this.refreshHistory();
   }
 
-  /** What the page asks the user: a dialog to answer, files to pick. */
+  /** What the page asks the user (a dialog to answer, files to pick), and its renderer crashing. */
   private handlePageRequest(event: CdpEvent): boolean {
     switch (event.method) {
+      case "Inspector.targetCrashed":
+        this.onCrashed();
+        return true;
+      case "Inspector.targetReloadedAfterCrash":
+        this.onRecovered();
+        return true;
       case "Page.fileChooserOpened":
         this.onFileChooserOpened(event.params);
         return true;
@@ -1380,6 +1451,40 @@ function stringParam(params: CdpParams, key: string): string | undefined {
 }
 
 const MODIFIER_BITS = { Alt: 1, Control: 2, Meta: 4, Shift: 8 } as const;
+
+const SELECTION_SCRIPT = `(() => {
+  const field = document.activeElement;
+  if (field && (field.tagName === "INPUT" || field.tagName === "TEXTAREA") &&
+      typeof field.selectionStart === "number" && field.selectionEnd > field.selectionStart) {
+    return field.value.slice(field.selectionStart, field.selectionEnd);
+  }
+  return String(window.getSelection() ?? "");
+})()`;
+
+const HOST_PLATFORM = process.platform;
+// The editing shortcuts a Mac viewer presses with Cmd, which Chromium off macOS only knows by Ctrl.
+const EDITING_CODES = new Set(["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY"]);
+
+/**
+ * A Mac viewer's Cmd+A/C/V/X/Z/Y reaches a host that is not a Mac as Meta, which Chromium there
+ * ignores; it becomes Ctrl, what that host's Chromium edits with. Shift stays (Cmd+Shift+Z redoes).
+ */
+export function editingModifiers(
+  event: { code: string; modifiers?: Array<keyof typeof MODIFIER_BITS> },
+  platform: NodeJS.Platform,
+): Array<keyof typeof MODIFIER_BITS> | undefined {
+  const modifiers = event.modifiers;
+  if (
+    platform === "darwin" ||
+    !modifiers?.includes("Meta") ||
+    modifiers.includes("Control") ||
+    modifiers.includes("Alt") ||
+    !EDITING_CODES.has(event.code)
+  ) {
+    return modifiers;
+  }
+  return modifiers.map((modifier) => (modifier === "Meta" ? "Control" : modifier));
+}
 
 function modifierMask(modifiers: Array<keyof typeof MODIFIER_BITS> | undefined): number {
   return (modifiers ?? []).reduce((mask, modifier) => mask | MODIFIER_BITS[modifier], 0);

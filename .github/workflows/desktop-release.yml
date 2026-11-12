@@ -106,28 +106,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG" > /dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists, skipping creation"
-          else
-            prerelease_flag=""
-            if [[ "$IS_PRERELEASE" == "true" ]]; then
-              prerelease_flag="--prerelease"
-            fi
-            target_args=()
-            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-              target_args=(--target "$CHECKOUT_REF")
-            fi
-            gh release create "$RELEASE_TAG" \
-              --repo "${{ github.repository }}" \
-              --title "Paseo $RELEASE_TAG" \
-              --notes "" \
-              --draft \
-              $prerelease_flag \
-              "${target_args[@]}" || {
-                echo "Release creation raced with another workflow; continuing."
-                node scripts/github-release.mjs --repo "${{ github.repository }}" --tag "$RELEASE_TAG" > /dev/null
-              }
+          # Fork: every release workflow creates through this script. See docs/fork-decisions.md#release-single-creator.
+          ensure_args=(--repo "${{ github.repository }}" --tag "$RELEASE_TAG" --ensure)
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            ensure_args+=(--prerelease)
           fi
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ensure_args+=(--target "$CHECKOUT_REF")
+          fi
+          node scripts/github-release.mjs "${ensure_args[@]}"
 
   publish-macos:
     needs: [release-targets, create-release]
@@ -650,7 +637,7 @@ jobs:
           [[ "${{ needs.publish-linux.result }}" =~ ^(success|skipped)$ ]] || failed_builds+=(Linux)
           [[ "${{ needs.publish-windows.result }}" =~ ^(success|skipped)$ ]] || failed_builds+=(Windows)
           if (( ${#failed_builds[@]} > 0 )); then
-            echo "::error::Desktop builds did not complete for ${failed_builds[*]}; the release remains a draft"
+            echo "::error::Desktop builds did not complete for ${failed_builds[*]}; Desktop Release did not publish the release"
             exit 1
           fi
 
@@ -659,12 +646,14 @@ jobs:
             [[ -f "$manifests_dir/$manifest_name" ]] || missing_manifests+=("$manifest_name")
           done
           if (( ${#missing_manifests[@]} > 0 )); then
-            echo "::error::Missing updater manifests: ${missing_manifests[*]}; the release remains a draft"
+            echo "::error::Missing updater manifests: ${missing_manifests[*]}; Desktop Release did not publish the release"
             exit 1
           fi
 
-          publish_args=(release edit "$release_lookup" --tag "$RELEASE_TAG" --draft=false --repo "${{ github.repository }}")
+          # npm Global Install Release may have published the release already; this then
+          # only checks for duplicates. See docs/fork-decisions.md#release-single-creator.
+          publish_args=(--repo "${{ github.repository }}" --tag "$RELEASE_TAG" --publish)
           if [[ "$IS_PRERELEASE" == "true" ]]; then
             publish_args+=(--prerelease)
           fi
-          gh "${publish_args[@]}"
+          node ../scripts/github-release.mjs "${publish_args[@]}"

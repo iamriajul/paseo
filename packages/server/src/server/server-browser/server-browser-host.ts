@@ -147,6 +147,8 @@ function sessionCookiesKey(config: ServerBrowserEngineConfig | null): string {
  */
 export class ServerBrowserHost {
   private readonly tabs = new Map<string, ServerBrowserTab>();
+  /** The startup restore of suspended tabs, while it runs; see whenRestored. */
+  private restoring: Promise<void> | null = null;
   /** Tabs the browser took with it when it went away, by browserId. */
   private readonly lostTabs = new Set<string>();
   private browserLostAt: number | null = null;
@@ -722,7 +724,22 @@ export class ServerBrowserHost {
    * Suspended tabs saved before the daemon last stopped come back as suspended tabs, with the
    * same browserIds. Run once at startup; a host turned off drops them.
    */
-  public async loadSuspendedTabs(): Promise<void> {
+  public loadSuspendedTabs(): Promise<void> {
+    const work = this.restoreSuspendedTabs();
+    this.restoring = work.catch(() => {});
+    return work;
+  }
+
+  /**
+   * Resolves once the startup restore has finished, failed or never started. A client's tab list
+   * waits for it: a list missing the restored tabs reads to the client as those tabs having ended,
+   * and it would drop them, pins included, while the host keeps them.
+   */
+  public whenRestored(): Promise<void> {
+    return this.restoring ?? Promise.resolve();
+  }
+
+  private async restoreSuspendedTabs(): Promise<void> {
     if (!this.isEnabled()) {
       await this.suspendedStore.clear().catch(() => {});
       return;

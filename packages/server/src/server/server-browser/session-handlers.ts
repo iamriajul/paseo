@@ -116,6 +116,7 @@ export class ServerBrowserSessionHandlers {
     msg: Extract<ServerBrowserRequest, { type: "browser.server.tabs.subscribe.request" }>,
   ): Promise<void> {
     const { host, delivery, emit } = this.params;
+    await host.whenRestored();
     let unsubscribe: (() => void) | undefined;
     const owner = delivery.begin("server-browser-tabs", undefined, () => unsubscribe?.());
     unsubscribe = host.subscribe((tabs, status) => {

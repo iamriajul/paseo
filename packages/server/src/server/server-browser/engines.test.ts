@@ -6,6 +6,8 @@ import { resolveServerBrowserEngine } from "./bootstrap.js";
 import { resolveChromeExecutable } from "./chromium-executable.js";
 import {
   adoptLegacyChromeProfile,
+  chromeMajorVersion,
+  managedChromeHeadlessOnly,
   managedChromeProfileDir,
   prepareChromeProfile,
   reducedUserAgent,
@@ -33,7 +35,7 @@ describe("resolveServerBrowserEngine", () => {
     expect(
       resolveServerBrowserEngine({ engine: "existing", cdpUrl: "http://127.0.0.1:9333" }),
     ).toEqual({ kind: "existing", cdpUrl: "http://127.0.0.1:9333" });
-    expect(resolveServerBrowserEngine({ engine: "managed-chrome", cdpUrl: "x" })).toEqual({
+    expect(resolveServerBrowserEngine({ engine: "managed-chrome", cdpUrl: "x" }, "linux")).toEqual({
       kind: "managed-chrome",
       chromeMode: "window",
     });
@@ -41,11 +43,23 @@ describe("resolveServerBrowserEngine", () => {
 
   it("runs Managed Chrome in a window unless headless is asked for", () => {
     expect(
-      resolveServerBrowserEngine({ engine: "managed-chrome", chromeMode: "headless" }).chromeMode,
+      resolveServerBrowserEngine({ engine: "managed-chrome", chromeMode: "headless" }, "linux")
+        .chromeMode,
     ).toBe("headless");
     expect(
-      resolveServerBrowserEngine({ engine: "managed-chrome", chromeMode: "other" }).chromeMode,
+      resolveServerBrowserEngine({ engine: "managed-chrome", chromeMode: "other" }, "linux")
+        .chromeMode,
     ).toBe("window");
+  });
+
+  it("runs Managed Chrome headless on macOS and Windows, whatever mode is saved", () => {
+    for (const platform of ["darwin", "win32"] as const) {
+      expect(
+        resolveServerBrowserEngine({ engine: "managed-chrome", chromeMode: "window" }, platform),
+      ).toEqual({ kind: "managed-chrome", chromeMode: "headless" });
+      expect(managedChromeHeadlessOnly(platform)).toBe(true);
+    }
+    expect(managedChromeHeadlessOnly("linux")).toBe(false);
   });
 
   it("never lets the daemon close a browser it attached to", () => {
@@ -115,6 +129,34 @@ describe("resolveChromeExecutable", () => {
     expect(found).toEqual({ ok: true, path: "/b/google-chrome", source: "system" });
   });
 
+  it("finds Chrome where the Windows installers put it, which is never on PATH", async () => {
+    const env = {
+      PATH: "C:\\Windows",
+      ProgramFiles: "C:\\Program Files",
+      LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local",
+    };
+    const systemWide = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    const perUser = "C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe";
+    for (const installed of [systemWide, perUser]) {
+      const found = await resolveChromeExecutable({
+        env,
+        platform: "win32",
+        isExecutable: async (path) => path === installed,
+      });
+      expect(found).toEqual({ ok: true, path: installed, source: "system" });
+    }
+  });
+
+  it("finds a Chrome installed for one macOS user in ~/Applications", async () => {
+    const app = "/Users/me/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    const found = await resolveChromeExecutable({
+      env: { HOME: "/Users/me", PATH: "/usr/bin" },
+      platform: "darwin",
+      isExecutable: async (path) => path === app,
+    });
+    expect(found).toEqual({ ok: true, path: app, source: "system" });
+  });
+
   it("says what to install when no Chrome is found", async () => {
     const found = await resolveChromeExecutable({
       env: { PATH: "/a" },
@@ -147,6 +189,31 @@ describe("Managed Chrome profiles", () => {
     mkdirSync(legacy);
     await adoptLegacyChromeProfile(home, windowDir);
     expect(existsSync(legacy)).toBe(true);
+  });
+});
+
+describe("chromeMajorVersion", () => {
+  it("reads it on Windows from the newest version folder beside chrome.exe, without running it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "chrome-app-"));
+    dirs.push(dir);
+    for (const entry of [
+      "99.0.4844.51",
+      "153.0.7000.12",
+      "153.0.7000.9",
+      "Locales",
+      "SetupMetrics",
+    ]) {
+      mkdirSync(join(dir, entry));
+    }
+    expect(await chromeMajorVersion(join(dir, "chrome.exe"), "win32")).toBe("153");
+  });
+
+  it("fails plainly on Windows when there is no version folder", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "chrome-app-"));
+    dirs.push(dir);
+    await expect(chromeMajorVersion(join(dir, "chrome.exe"), "win32")).rejects.toThrow(
+      /no version folder/,
+    );
   });
 });
 

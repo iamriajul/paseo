@@ -9,6 +9,7 @@ import { CdpConnection, webSocketTransport } from "./cdp-connection.js";
 import { pickElement, type PickOutcome } from "./element-picker.js";
 import type { DisplayPreference, ServerBrowserEngineConfig } from "./engines.js";
 import { ServerBrowserHost } from "./server-browser-host.js";
+import { firstFrame, waitFor, watchVideo } from "./test-utils/viewers.js";
 
 // Local-only: needs google-chrome, Xvfb and xfwm4 on this machine. Managed Chrome runs on its own
 // Xvfb here, and the stand-in for a user's browser is a Chrome this file starts on a random port.
@@ -86,14 +87,6 @@ function isRunning(pid: number): boolean {
   }
 }
 
-async function waitFor(condition: () => boolean, timeoutMs = 10_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error("condition not met in time");
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
-
 function childPids(pid: number): number[] {
   try {
     return readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8")
@@ -114,54 +107,6 @@ function xvfbPids(): number[] {
     } catch {}
   }
   return pids;
-}
-
-async function firstFrame(host: ServerBrowserHost, browserId: string) {
-  const tab = host.getTab(browserId)!;
-  return new Promise<{ width: number; jpeg: Uint8Array }>((resolve) => {
-    tab.screencast.addViewer(
-      "test",
-      {
-        send: (frame) => resolve(frame),
-        isCongested: () => false,
-      },
-      { maxWidth: 640, maxHeight: 400 },
-    );
-  });
-}
-
-interface VideoWatch {
-  chunks: Array<{ key: boolean; bytes: number; at: number }>;
-  fellBack: boolean;
-  stop(): void;
-}
-
-/** Watches a tab as a video viewer that acks every chunk at once. */
-async function watchVideo(host: ServerBrowserHost, browserId: string, codecs: string[]) {
-  const tab = host.getTab(browserId)!;
-  const codec = await tab.video?.negotiate(codecs);
-  if (!codec || !tab.video) return null;
-  const video = tab.video;
-  const watch: VideoWatch = {
-    chunks: [],
-    fellBack: false,
-    stop: () => video.removeViewer("test"),
-  };
-  video.addViewer(
-    "test",
-    {
-      send: (chunk, seq) => {
-        watch.chunks.push({ key: chunk.key, bytes: chunk.data.byteLength, at: Date.now() });
-        video.hub.ack("test", seq);
-      },
-      isCongested: () => false,
-      fallback: () => {
-        watch.fellBack = true;
-      },
-    },
-    { maxWidth: 1280, maxHeight: 800, codec },
-  );
-  return { codec, watch };
 }
 
 describe("tab video", { timeout: 120_000 }, () => {

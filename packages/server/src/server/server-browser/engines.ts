@@ -2,7 +2,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import type { Readable } from "node:stream";
 import {
   CdpConnection,
@@ -144,13 +144,7 @@ async function startManagedChrome(params: StartEngineParams): Promise<SharedChro
       executablePath: resolution.path,
       userDataDir,
       noSandbox: params.noSandbox,
-      args: [
-        ...MANAGED_CHROME_ARGS,
-        "--headless=new",
-        // New headless says HeadlessChrome in its UA by design; report what this same Chrome
-        // reports in a window. Nothing else is disguised.
-        `--user-agent=${await headedUserAgent(resolution.path)}`,
-      ],
+      args: [...MANAGED_CHROME_ARGS, ...(await headlessArgs(resolution.path))],
       newWindowPerTab: true,
       events: params.events,
       ...(params.launch ? { launch: params.launch } : {}),
@@ -158,7 +152,9 @@ async function startManagedChrome(params: StartEngineParams): Promise<SharedChro
   }
   const display = await resolveDisplay(params.display ?? displayPreferenceFromEnv());
   if (!display.name) {
-    params.onWarning?.("Managed Chrome found no X display and no Xvfb; running it headless");
+    params.onWarning?.(
+      "Managed Chrome found no X display and could not start Xvfb, so Window mode runs headless. Install Xvfb, or set PASEO_SERVER_BROWSER_DISPLAY to a display.",
+    );
   }
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (display.name) {
@@ -171,7 +167,7 @@ async function startManagedChrome(params: StartEngineParams): Promise<SharedChro
       executablePath: resolution.path,
       userDataDir,
       noSandbox: params.noSandbox,
-      args: [...MANAGED_CHROME_ARGS, ...(display.name ? [] : ["--headless=new"])],
+      args: [...MANAGED_CHROME_ARGS, ...(display.name ? [] : await headlessArgs(resolution.path))],
       env,
       newWindowPerTab: display.name !== null,
       onGone: stopDisplay,
@@ -182,6 +178,29 @@ async function startManagedChrome(params: StartEngineParams): Promise<SharedChro
     stopDisplay();
     throw error;
   }
+}
+
+async function headlessArgs(executablePath: string): Promise<string[]> {
+  // New headless says HeadlessChrome in its UA by design; report what this same Chrome reports in
+  // a window. Nothing else is disguised.
+  return ["--headless=new", `--user-agent=${await headedUserAgent(executablePath)}`];
+}
+
+/**
+ * Window mode puts Chrome on an X display, which the daemon finds or starts only on Linux. macOS
+ * and Windows have no X server to give it, and a real window there would sit on the desktop of
+ * whoever is signed in, so Managed Chrome runs Headless there whatever mode is saved. The daemon
+ * tells clients with `server_info.features.serverBrowserChromeHeadlessOnly`.
+ */
+export function managedChromeHeadlessOnly(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === "darwin" || platform === "win32";
+}
+
+export function effectiveChromeMode(
+  requested: ManagedChromeMode,
+  platform: NodeJS.Platform = process.platform,
+): ManagedChromeMode {
+  return managedChromeHeadlessOnly(platform) ? "headless" : requested;
 }
 
 export function managedChromeProfileDir(paseoHome: string, mode: ManagedChromeMode): string {
@@ -214,17 +233,53 @@ const userAgents = new Map<string, Promise<string>>();
 export function headedUserAgent(executablePath: string): Promise<string> {
   let pending = userAgents.get(executablePath);
   if (!pending) {
-    pending = new Promise<string>((resolve, reject) => {
-      execFile(executablePath, ["--version"], { timeout: 10_000 }, (error, stdout) => {
-        const major = /(\d+)\.\d+\.\d+\.\d+/.exec(stdout)?.[1];
-        if (error || !major) reject(new Error(`Could not read the Chrome version: ${stdout}`));
-        else resolve(reducedUserAgent(major, process.platform));
-      });
-    });
+    pending = chromeMajorVersion(executablePath).then((major) =>
+      reducedUserAgent(major, process.platform),
+    );
     pending.catch(() => userAgents.delete(executablePath));
     userAgents.set(executablePath, pending);
   }
   return pending;
+}
+
+const CHROME_VERSION = /^(\d+)\.\d+\.\d+\.\d+$/;
+
+/**
+ * `chrome --version` prints the version on Linux and macOS. On Windows chrome.exe is a GUI program:
+ * it prints nothing and opens a browser window instead, so the version comes from the folder the
+ * installer puts beside it (`Application\153.0.7000.0\chrome.dll`).
+ */
+export async function chromeMajorVersion(
+  executablePath: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<string> {
+  if (platform === "win32") {
+    const folder = win32.dirname(executablePath);
+    const versions = (await readdir(folder).catch(() => [] as string[]))
+      .filter((entry) => CHROME_VERSION.test(entry))
+      .sort(compareVersions);
+    const newest = versions.at(-1);
+    if (!newest)
+      throw new Error(`Could not read the Chrome version: no version folder in ${folder}`);
+    return CHROME_VERSION.exec(newest)![1]!;
+  }
+  return new Promise<string>((resolve, reject) => {
+    execFile(executablePath, ["--version"], { timeout: 10_000 }, (error, stdout) => {
+      const major = /(\d+)\.\d+\.\d+\.\d+/.exec(stdout)?.[1];
+      if (error || !major) reject(new Error(`Could not read the Chrome version: ${stdout}`));
+      else resolve(major);
+    });
+  });
+}
+
+function compareVersions(a: string, b: string): number {
+  const left = a.split(".").map(Number);
+  const right = b.split(".").map(Number);
+  for (let i = 0; i < 4; i++) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
 }
 
 /** The fixed platform tokens of Chrome's reduced UA. */

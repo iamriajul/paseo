@@ -46,6 +46,12 @@ export const ServerBrowserTabSchema = z.object({
    * older app shows it as a normal tab, which reloads when used.
    */
   suspended: z.boolean().optional(),
+  /**
+   * A user pinned the tab (browser.server.tab.pin): it may suspend, but the host never closes it
+   * by itself, refuses a close request and refuses an agent's browser_close_tab. Needs
+   * features.serverBrowserTabPin; older apps ignore it.
+   */
+  pinned: z.boolean().optional(),
 });
 export type ServerBrowserTab = z.infer<typeof ServerBrowserTabSchema>;
 
@@ -392,6 +398,18 @@ export const ServerBrowserTabSelectionResponseSchema = z.object({
   }),
 });
 
+/** Pins or unpins a tab for every client. Needs features.serverBrowserTabPin. */
+export const ServerBrowserTabPinRequestSchema = z.object({
+  type: z.literal("browser.server.tab.pin.request"),
+  requestId: z.string(),
+  browserId: z.string(),
+  pinned: z.boolean(),
+});
+export const ServerBrowserTabPinResponseSchema = z.object({
+  type: z.literal("browser.server.tab.pin.response"),
+  payload: z.object({ requestId: z.string(), error: ErrorField }),
+});
+
 export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabsSubscribeRequestSchema,
   ServerBrowserTabOpenRequestSchema,
@@ -408,6 +426,7 @@ export const SERVER_BROWSER_INBOUND_SCHEMAS = [
   ServerBrowserTabFileChooserAnswerRequestSchema,
   ServerBrowserTabLoopbackPortsRequestSchema,
   ServerBrowserTabSelectionRequestSchema,
+  ServerBrowserTabPinRequestSchema,
 ] as const;
 
 export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
@@ -427,4 +446,5 @@ export const SERVER_BROWSER_OUTBOUND_SCHEMAS = [
   ServerBrowserTabFileChooserAnswerResponseSchema,
   ServerBrowserTabLoopbackPortsResponseSchema,
   ServerBrowserTabSelectionResponseSchema,
+  ServerBrowserTabPinResponseSchema,
 ] as const;

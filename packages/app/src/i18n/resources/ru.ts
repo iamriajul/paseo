@@ -829,6 +829,7 @@ export const ru: TranslationResources = {
     tabs: {
       loading: "Загрузка...",
       modified: "Несохранённые изменения",
+      pinned: "Закреплена",
       loadingAgentTitle: "Загрузка названия агента",
       fallback: {
         newAgent: "Новый агент",
@@ -866,6 +867,8 @@ export const ru: TranslationResources = {
         closeLeft: "Закрыть вкладки слева",
         closeRight: "Закрыть вкладки справа",
         closeOthers: "Закрыть другие вкладки",
+        pin: "Закрепить вкладку",
+        unpin: "Открепить вкладку",
         moveToMain: "Переместить на основную панель",
         reloadAgent: "Перезагрузить агента",
         reloadAgentTooltip: "Перезагрузите агента, чтобы обновить навыки, MCP или статус входа.",

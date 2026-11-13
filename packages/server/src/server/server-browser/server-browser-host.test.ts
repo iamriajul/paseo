@@ -620,6 +620,81 @@ describe("ServerBrowserHost lifecycle", () => {
     expect(host.listTabs()).toEqual([]);
   });
 
+  it("never closes a pinned suspended tab by the cap, and lets it suspend", async () => {
+    let now = 0;
+    const host = createHost({ maxSuspendedTabs: 1 }, () => now);
+    const pinned = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.setTabPinned(pinned.browserId, true);
+    now = 1_000;
+    const older = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    now = 2_000;
+    const newer = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.suspendTab(pinned.browserId);
+    await host.suspendTab(older.browserId);
+    await host.suspendTab(newer.browserId);
+    await waitFor(() => host.listTabs().length === 2);
+    expect(host.listTabs().map((tab) => tab.browserId)).toEqual(
+      expect.arrayContaining([pinned.browserId, newer.browserId]),
+    );
+    expect(host.listTabs().find((tab) => tab.browserId === pinned.browserId)).toMatchObject({
+      pinned: true,
+      suspended: true,
+    });
+  });
+
+  it("never closes a pinned suspended tab by age", async () => {
+    let now = 0;
+    const host = createHost({ tabIdleMs: 1_000, suspendedTabTtlMs: 10_000 }, () => now);
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.setTabPinned(tab.browserId, true);
+    now = 2_000;
+    await host.sweepIdleTabs();
+    now = 20_000;
+    await host.sweepIdleTabs();
+    expect(host.listTabs()).toEqual([
+      expect.objectContaining({ browserId: tab.browserId, suspended: true, pinned: true }),
+    ]);
+  });
+
+  it("brings a pinned tab back pinned after a restart, past the age and the cap", async () => {
+    let now = 0;
+    const first = createHost({}, () => now);
+    const tab = await first.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await first.setTabPinned(tab.browserId, true);
+    await first.shutdown();
+
+    now = 365 * 24 * 60 * 60_000;
+    const second = createHost({ maxSuspendedTabs: 0 }, () => now);
+    await second.loadSuspendedTabs();
+
+    expect(second.listTabs()).toEqual([
+      expect.objectContaining({ browserId: tab.browserId, suspended: true, pinned: true }),
+    ]);
+  });
+
+  it("refuses an agent's browser_close_tab on a pinned tab, saying the user pinned it", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "agent" });
+    await host.setTabPinned(tab.browserId, true);
+    const close = () =>
+      host.execute({
+        type: "browser.automation.execute.request",
+        requestId: "r",
+        workspaceId: "ws",
+        command: { command: "close_tab", args: { browserId: tab.browserId } },
+      });
+
+    expect(await close()).toMatchObject({
+      ok: false,
+      error: { code: "browser_denied", message: expect.stringMatching(/user pinned this tab/) },
+    });
+    expect(host.getTab(tab.browserId)).not.toBeNull();
+
+    await host.setTabPinned(tab.browserId, false);
+    expect(await close()).toMatchObject({ ok: true });
+    expect(host.getTab(tab.browserId)).toBeNull();
+  });
+
   it("does not count suspended tabs toward the limit; a waking tab suspends the idlest live one", async () => {
     let now = 0;
     const host = createHost({ maxTabs: 2 }, () => now);

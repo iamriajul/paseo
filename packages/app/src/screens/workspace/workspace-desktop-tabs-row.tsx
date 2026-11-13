@@ -28,6 +28,8 @@ import {
   Minimize,
   Plus,
   X,
+  Pin,
+  PinOff,
 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import Animated from "react-native-reanimated";
@@ -57,9 +59,11 @@ import { retainWorkspaceTabMeasuredWidth } from "@/screens/workspace/workspace-t
 import {
   WorkspaceTabPresentationResolver,
   WorkspaceTabIcon,
+  WorkspaceTabPinIndicator,
   type WorkspaceTabPresentation,
 } from "@/screens/workspace/workspace-tab-presentation";
 import { buildDeterministicWorkspaceTabId } from "@/workspace-tabs/identity";
+import { useCanPinWorkspaceTab, useSetWorkspaceTabPinned } from "@/workspace-tabs/use-pinned-tabs";
 import {
   buildWorkspaceDesktopTabActions,
   type WorkspaceDesktopTabActions,
@@ -128,6 +132,8 @@ const AGENT_TOOLTIP_TITLE_MAX_LENGTH = 80;
 
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const ThemedX = withUnistyles(X);
+const ThemedPin = withUnistyles(Pin);
+const ThemedPinOff = withUnistyles(PinOff);
 const ThemedCopy = withUnistyles(Copy);
 
 const ThemedRotateCw = withUnistyles(RotateCw);
@@ -464,6 +470,10 @@ function TabContextMenuItem({
         return <ThemedSettings size={16} uniProps={mutedColorMapping} />;
       case "x":
         return <ThemedX size={16} uniProps={mutedColorMapping} />;
+      case "pin":
+        return <ThemedPin size={16} uniProps={mutedColorMapping} />;
+      case "pin-off":
+        return <ThemedPinOff size={16} uniProps={mutedColorMapping} />;
       default:
         return undefined;
     }
@@ -741,6 +751,7 @@ function TabHandleContent({
           testID={modifiedTestId}
         />
       ) : null}
+      {presentation.pinned ? <WorkspaceTabPinIndicator size={12} /> : null}
     </View>
   );
 }
@@ -1183,6 +1194,8 @@ function ResolvedWorkspaceDesktopTabsRow({
       reloadAgent: t("workspace.tabs.menu.reloadAgent"),
       reloadAgentTooltip: t("workspace.tabs.menu.reloadAgentTooltip"),
       close: t("workspace.tabs.menu.close"),
+      pin: t("workspace.tabs.menu.pin"),
+      unpin: t("workspace.tabs.menu.unpin"),
     }),
     [t],
   );
@@ -1575,10 +1588,18 @@ function ResolvedDesktopTabChip({
 }) {
   const { t } = useTranslation();
   const presentation = item.presentation;
+  const canPin = useCanPinWorkspaceTab(serverId, item.tab.target);
+  const setTabPinned = useSetWorkspaceTabPinned({ serverId, workspaceId });
+  const onTogglePin = useMemo(
+    () => (canPin ? () => setTabPinned(item.tab, !presentation.pinned) : undefined),
+    [canPin, item.tab, presentation.pinned, setTabPinned],
+  );
   const resolvedTab = useMemo(
     () =>
       buildWorkspaceDesktopTabActions({
         tab: item.tab,
+        pinned: presentation.pinned,
+        onTogglePin,
         index,
         tabCount,
         onCopyResumeCommand,
@@ -1597,6 +1618,8 @@ function ResolvedDesktopTabChip({
     [
       index,
       item.tab,
+      onTogglePin,
+      presentation.pinned,
       onCloseOtherTabs,
       onCloseTab,
       onCloseTabsToLeft,

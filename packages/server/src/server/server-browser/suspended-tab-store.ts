@@ -10,6 +10,8 @@ export interface StoredSuspendedTab extends SuspendedTabRecord {
   openedBy: "agent" | "user";
   viewport: ServerBrowserViewport;
   openerBrowserId?: string;
+  /** A user pinned it: it never closes by the suspended-tab cap or age. */
+  pinned?: boolean;
 }
 
 interface SuspendedTabFile {
@@ -21,6 +23,7 @@ interface SuspendedTabFile {
   title: string;
   viewport: ServerBrowserViewport;
   openerBrowserId?: string;
+  pinned?: boolean;
   createdAt: number;
   lastUsedAt: number;
   suspendedAt: number;
@@ -49,6 +52,7 @@ export class SuspendedTabStore {
       title: tab.title,
       viewport: tab.viewport,
       ...(tab.openerBrowserId ? { openerBrowserId: tab.openerBrowserId } : {}),
+      ...(tab.pinned ? { pinned: true } : {}),
       createdAt: tab.createdAt,
       lastUsedAt: tab.lastUsedAt,
       suspendedAt: suspension.suspendedAt,
@@ -126,6 +130,7 @@ function parse(raw: string): StoredSuspendedTab | null {
     title: typeof file.title === "string" ? file.title : "",
     viewport: file.viewport,
     ...(file.openerBrowserId ? { openerBrowserId: file.openerBrowserId } : {}),
+    ...(file.pinned === true ? { pinned: true } : {}),
     createdAt: typeof file.createdAt === "number" ? file.createdAt : file.suspendedAt,
     lastUsedAt: file.lastUsedAt,
     suspension: {

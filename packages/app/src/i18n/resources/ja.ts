@@ -828,6 +828,7 @@ export const ja: TranslationResources = {
     tabs: {
       loading: "読み込み中...",
       modified: "未保存の変更",
+      pinned: "固定済み",
       loadingAgentTitle: "エージェントタイトルを読み込み中",
       fallback: {
         newAgent: "新しいエージェント",
@@ -865,6 +866,8 @@ export const ja: TranslationResources = {
         closeLeft: "左のタブを閉じる",
         closeRight: "右のタブを閉じる",
         closeOthers: "他のタブを閉じる",
+        pin: "タブを固定",
+        unpin: "タブの固定を解除",
         moveToMain: "メインパネルへ移動",
         reloadAgent: "エージェントを再読み込み",
         reloadAgentTooltip:

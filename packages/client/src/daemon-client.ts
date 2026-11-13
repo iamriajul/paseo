@@ -3143,6 +3143,14 @@ export class DaemonClient {
     return payload.entries ?? [];
   }
 
+  /** Pins or unpins a tab for every client. Gate on features.serverBrowserTabPin. */
+  async serverBrowserSetTabPinned(browserId: string, pinned: boolean): Promise<void> {
+    await this.serverBrowserCommand(
+      { type: "browser.server.tab.pin.request", browserId, pinned },
+      "browser.server.tab.pin.response",
+    );
+  }
+
   /** The text selected in the tab's page. Gate on features.serverBrowserClipboard. */
   async serverBrowserSelection(browserId: string): Promise<string> {
     const payload = await this.sendCorrelatedSessionRequest({
@@ -3209,7 +3217,8 @@ export class DaemonClient {
       | "browser.server.input.response"
       | "browser.server.tab.annotate.cancel.response"
       | "browser.server.tab.dialog.answer.response"
-      | "browser.server.tab.file_chooser.answer.response",
+      | "browser.server.tab.file_chooser.answer.response"
+      | "browser.server.tab.pin.response",
     timeout = 20_000,
   ): Promise<void> {
     const payload = await this.sendCorrelatedSessionRequest({ message, responseType, timeout });

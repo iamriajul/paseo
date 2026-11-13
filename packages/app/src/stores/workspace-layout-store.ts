@@ -67,6 +67,14 @@ import { isSheetTabModified, resolveCompactSheetPolicy } from "@/workspace-tabs/
 import { panelResourceKey, type CompactSheetPolicy } from "@/panels/panel-manifest";
 import { createValidatedPersistStorage } from "@/storage/validated-persist-storage";
 import { panelTargetSupportsHostForWorkspaceKey } from "@/plugins/workspace-panels/locations";
+import {
+  carryTabPin,
+  isTabPinned,
+  paneHoldsPinnedTab,
+  withTabPinned,
+  withWorkspacePins,
+  type PinnedTabIdsByWorkspace,
+} from "@/workspace-tabs/pinned-tabs";
 
 export {
   AMBIENT_PLACEMENT,
@@ -145,6 +153,8 @@ interface WorkspaceLayoutStore {
   splitSizesByWorkspace: Record<string, Record<string, number[]>>;
   explorerSidebarWidthByWorkspace: Record<string, number>;
   pinnedAgentIdsByWorkspace: Record<string, Set<string>>;
+  /** Fork: tabs the user pinned (packages/app/src/workspace-tabs/pinned-tabs.ts). */
+  pinnedTabIdsByWorkspace: PinnedTabIdsByWorkspace;
   hiddenAgentIdsByWorkspace: Record<string, Set<string>>;
   focusRestorationByWorkspace: Record<string, WorkspaceFocusRestorationState>;
   explorerSidebarPaneIdByWorkspace: Record<string, string | null>;
@@ -173,7 +183,10 @@ interface WorkspaceLayoutStore {
   hideExplorerSidebar: (workspaceKey: string) => void;
   /** Returns the ordinary right-side workspace pane, creating it when absent. */
   ensureSidePane: (workspaceKey: string, options?: { focus: boolean }) => string | null;
+  /** Refuses a pinned tab: it stays until it is unpinned. */
   closeTab: (workspaceKey: string, tabId: string) => void;
+  /** Pins or unpins a tab in the workspace's layout; a tab that is not there stays unpinned. */
+  setTabPinned: (workspaceKey: string, tabId: string, pinned: boolean) => void;
   getTabDestination: (workspaceKey: string, tabId: string) => WorkspaceTabDestination | null;
   focusTab: (workspaceKey: string, tabId: string) => void;
   selectTabInPane: (workspaceKey: string, paneId: string, tabId: string) => void;
@@ -451,6 +464,15 @@ function addAgentIdToWorkspaceSet(
     ...state,
     [workspaceKey]: nextAgentIds,
   };
+}
+
+function sameStringSet(
+  a: ReadonlySet<string> | undefined,
+  b: ReadonlySet<string> | undefined,
+): boolean {
+  const left = a ?? new Set<string>();
+  const right = b ?? new Set<string>();
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function removeAgentIdFromWorkspaceSet(
@@ -983,6 +1005,7 @@ function createExplorerSidebarPane(
 const PERSISTED_SLICES = [
   "layoutByWorkspace",
   "pinnedAgentIdsByWorkspace",
+  "pinnedTabIdsByWorkspace",
   "splitSizesByWorkspace",
   "explorerSidebarWidthByWorkspace",
   "explorerSidebarPaneIdByWorkspace",
@@ -1017,6 +1040,18 @@ function createPersistedStateProjection() {
           Array.from(agentIds),
         ]),
       ),
+      // Written only while a tab is pinned: the schema is strict, so an older build reading the
+      // key back would drop the whole layout.
+      ...(Object.keys(source.pinnedTabIdsByWorkspace).length > 0
+        ? {
+            pinnedTabIdsByWorkspace: Object.fromEntries(
+              Object.entries(source.pinnedTabIdsByWorkspace).map(([key, tabIds]) => [
+                key,
+                Array.from(tabIds),
+              ]),
+            ),
+          }
+        : {}),
       splitSizesByWorkspace: source.splitSizesByWorkspace,
       explorerSidebarWidthByWorkspace: source.explorerSidebarWidthByWorkspace,
       explorerPaneIdByWorkspace: source.explorerSidebarPaneIdByWorkspace,
@@ -1097,6 +1132,7 @@ export function createWorkspaceLayoutStore(
         splitSizesByWorkspace: {},
         explorerSidebarWidthByWorkspace: {},
         pinnedAgentIdsByWorkspace: {},
+        pinnedTabIdsByWorkspace: {},
         hiddenAgentIdsByWorkspace: {},
         focusRestorationByWorkspace: {},
         explorerSidebarPaneIdByWorkspace: {},
@@ -1400,6 +1436,11 @@ export function createWorkspaceLayoutStore(
             if (findSheet(state, normalizedWorkspaceKey, normalizedTabId)) {
               return withoutSheet(state, normalizedWorkspaceKey, normalizedTabId);
             }
+            if (
+              isTabPinned(state.pinnedTabIdsByWorkspace, normalizedWorkspaceKey, normalizedTabId)
+            ) {
+              return state;
+            }
             const layout = getWorkspaceLayout(state.layoutByWorkspace, normalizedWorkspaceKey);
             const explorerSidebarPaneId = resolveExplorerSidebarPaneId(
               layout,
@@ -1468,6 +1509,26 @@ export function createWorkspaceLayoutStore(
                 [normalizedWorkspaceKey]: nextLayout,
               },
             };
+          });
+        },
+        setTabPinned: (workspaceKey, tabId, pinned) => {
+          const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
+          const normalizedTabId = trimNonEmpty(tabId);
+          if (!normalizedWorkspaceKey || !normalizedTabId) return;
+          set((state) => {
+            const layout = state.layoutByWorkspace[normalizedWorkspaceKey];
+            if (pinned && (!layout || !findPaneContainingTab(layout.root, normalizedTabId))) {
+              return state;
+            }
+            const pinnedTabIdsByWorkspace = withTabPinned(
+              state.pinnedTabIdsByWorkspace,
+              normalizedWorkspaceKey,
+              normalizedTabId,
+              pinned,
+            );
+            return pinnedTabIdsByWorkspace === state.pinnedTabIdsByWorkspace
+              ? state
+              : { pinnedTabIdsByWorkspace };
           });
         },
         getTabDestination: (workspaceKey, tabId) => {
@@ -1612,6 +1673,12 @@ export function createWorkspaceLayoutStore(
           set((state) => ({
             ...withoutFocusRestoration(state, normalizedWorkspaceKey),
             ...advancePanelRevision(state, normalizedWorkspaceKey, result.tabId, normalizedTarget),
+            pinnedTabIdsByWorkspace: carryTabPin(
+              state.pinnedTabIdsByWorkspace,
+              normalizedWorkspaceKey,
+              normalizedTabId,
+              result.tabId,
+            ),
             hiddenAgentIdsByWorkspace:
               normalizedTarget.kind !== "agent"
                 ? state.hiddenAgentIdsByWorkspace
@@ -1686,6 +1753,12 @@ export function createWorkspaceLayoutStore(
               normalizedWorkspaceKey,
               normalizedAgentId,
             ),
+            pinnedTabIdsByWorkspace: carryTabPin(
+              state.pinnedTabIdsByWorkspace,
+              normalizedWorkspaceKey,
+              normalizedTabId,
+              result.tabId,
+            ),
             layoutByWorkspace: {
               ...state.layoutByWorkspace,
               [normalizedWorkspaceKey]: result.layout,
@@ -1716,10 +1789,20 @@ export function createWorkspaceLayoutStore(
                 layout: currentLayout,
                 pinnedAgentIds: state.pinnedAgentIdsByWorkspace[normalizedWorkspaceKey] ?? null,
                 hiddenAgentIds: state.hiddenAgentIdsByWorkspace[normalizedWorkspaceKey] ?? null,
+                pinnedTabIds: state.pinnedTabIdsByWorkspace[normalizedWorkspaceKey],
                 explorerSidebarPaneId,
               },
               snapshot,
             );
+            const currentPinnedTabIds = state.pinnedTabIdsByWorkspace[normalizedWorkspaceKey];
+            const nextPinnedTabIds = nextState.pinnedTabIds ?? new Set<string>();
+            const pinnedTabIdsByWorkspace = sameStringSet(currentPinnedTabIds, nextPinnedTabIds)
+              ? state.pinnedTabIdsByWorkspace
+              : withWorkspacePins(
+                  state.pinnedTabIdsByWorkspace,
+                  normalizedWorkspaceKey,
+                  nextPinnedTabIds,
+                );
             const nextLayout = keepWorkspaceFocusOutOfExplorerSidebar(
               nextState.layout,
               explorerSidebarPaneId,
@@ -1744,6 +1827,7 @@ export function createWorkspaceLayoutStore(
               state.layoutByWorkspace[normalizedWorkspaceKey] &&
               nextLayout === rawLayout &&
               pinnedAgentIdsByWorkspace === state.pinnedAgentIdsByWorkspace &&
+              pinnedTabIdsByWorkspace === state.pinnedTabIdsByWorkspace &&
               !sheetAgentGone
             ) {
               return state;
@@ -1752,6 +1836,7 @@ export function createWorkspaceLayoutStore(
             return {
               ...(sheetAgentGone ? withSheets(state, normalizedWorkspaceKey, fittingSheets) : {}),
               pinnedAgentIdsByWorkspace,
+              pinnedTabIdsByWorkspace,
               layoutByWorkspace: {
                 ...state.layoutByWorkspace,
                 [normalizedWorkspaceKey]: nextLayout,
@@ -1959,6 +2044,16 @@ export function createWorkspaceLayoutStore(
               state.explorerSidebarPaneIdByWorkspace[normalizedWorkspaceKey],
             );
             const isExplorerSidebar = explorerSidebarPaneId === normalizedPaneId;
+            // Closing a pane closes its tabs, so a pane holding a pinned tab stays open.
+            if (
+              !isExplorerSidebar &&
+              paneHoldsPinnedTab(
+                state.pinnedTabIdsByWorkspace[normalizedWorkspaceKey],
+                findPaneById(layout.root, normalizedPaneId),
+              )
+            ) {
+              return state;
+            }
             const nextLayout = isExplorerSidebar
               ? setPaneHiddenInLayout({ layout, paneId: normalizedPaneId, hidden: true })
               : closePaneInLayout({
@@ -2252,6 +2347,7 @@ export function createWorkspaceLayoutStore(
               normalizedWorkspaceKey in state.splitSizesByWorkspace ||
               normalizedWorkspaceKey in state.explorerSidebarWidthByWorkspace ||
               normalizedWorkspaceKey in state.pinnedAgentIdsByWorkspace ||
+              normalizedWorkspaceKey in state.pinnedTabIdsByWorkspace ||
               normalizedWorkspaceKey in state.hiddenAgentIdsByWorkspace ||
               normalizedWorkspaceKey in state.focusRestorationByWorkspace ||
               normalizedWorkspaceKey in state.explorerSidebarPaneIdByWorkspace ||
@@ -2279,6 +2375,8 @@ export function createWorkspaceLayoutStore(
               state.pinnedAgentIdsByWorkspace;
             const { [normalizedWorkspaceKey]: _hidden, ...hiddenAgentIdsByWorkspace } =
               state.hiddenAgentIdsByWorkspace;
+            const { [normalizedWorkspaceKey]: _pinnedTabs, ...pinnedTabIdsByWorkspace } =
+              state.pinnedTabIdsByWorkspace;
             const { [normalizedWorkspaceKey]: _restoration, ...focusRestorationByWorkspace } =
               state.focusRestorationByWorkspace;
             const {
@@ -2295,6 +2393,7 @@ export function createWorkspaceLayoutStore(
               splitSizesByWorkspace,
               explorerSidebarWidthByWorkspace,
               pinnedAgentIdsByWorkspace,
+              pinnedTabIdsByWorkspace,
               hiddenAgentIdsByWorkspace,
               focusRestorationByWorkspace,
               explorerSidebarPaneIdByWorkspace,
@@ -2350,6 +2449,12 @@ export function createWorkspaceLayoutStore(
               Object.entries(result.data.pinnedAgentIdsByWorkspace ?? {}).map(([key, agentIds]) => [
                 key,
                 new Set(agentIds),
+              ]),
+            ),
+            pinnedTabIdsByWorkspace: Object.fromEntries(
+              Object.entries(result.data.pinnedTabIdsByWorkspace ?? {}).map(([key, tabIds]) => [
+                key,
+                new Set(tabIds),
               ]),
             ),
             splitSizesByWorkspace: result.data.splitSizesByWorkspace ?? {},

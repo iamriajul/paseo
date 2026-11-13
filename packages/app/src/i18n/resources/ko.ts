@@ -822,6 +822,7 @@ export const ko: TranslationResources = {
     tabs: {
       loading: "불러오는 중...",
       modified: "저장되지 않은 변경사항",
+      pinned: "고정됨",
       loadingAgentTitle: "에이전트 제목 불러오는 중",
       fallback: {
         newAgent: "새 에이전트",
@@ -859,6 +860,8 @@ export const ko: TranslationResources = {
         closeLeft: "왼쪽 탭 닫기",
         closeRight: "오른쪽 탭 닫기",
         closeOthers: "다른 탭 닫기",
+        pin: "탭 고정",
+        unpin: "탭 고정 해제",
         moveToMain: "기본 패널로 이동",
         reloadAgent: "에이전트 다시 로드",
         reloadAgentTooltip:

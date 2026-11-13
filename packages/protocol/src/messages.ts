@@ -4600,6 +4600,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(serverBrowserClipboard): added in v0.15.x (fork), drop the gate after 2027-05-01.
         // True when browser.server.tab.selection answers (copying a page's selection to the viewer).
         serverBrowserClipboard: z.boolean().optional(),
+        // COMPAT(serverBrowserTabPin): added in v0.15.x (fork), drop the gate after 2027-05-13.
+        // True when browser.server.tab.pin answers and the host keeps pinned tabs open.
+        serverBrowserTabPin: z.boolean().optional(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: z.boolean().optional(),
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

@@ -325,6 +325,8 @@ function ActionsMenu(props: {
   consoleShown: boolean;
   onClearData: () => void;
   onToggleConsole: () => void;
+  /** A pinned tab has no Close tab: it closes only once unpinned. */
+  pinned: boolean;
   onCloseTab: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -352,9 +354,11 @@ function ActionsMenu(props: {
               : t("workspace.browser.console.show")}
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem onSelect={props.onCloseTab}>
-          {t("workspace.browser.serverTab.closeTab")}
-        </DropdownMenuItem>
+        {props.pinned ? null : (
+          <DropdownMenuItem onSelect={props.onCloseTab}>
+            {t("workspace.browser.serverTab.closeTab")}
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -621,6 +625,7 @@ function ServerBrowserPanel(): ReactElement {
             consoleShown={showConsole}
             onClearData={handleClearData}
             onToggleConsole={handleToggleConsole}
+            pinned={tab?.pinned === true}
             onCloseTab={handleCloseTab}
           />
         </View>

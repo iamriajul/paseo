@@ -285,6 +285,8 @@ Closing a tab on a **root agent** still archives — the tab is the agent's home
 
 Closing a tab on a **subagent** (any agent with `parentAgentId`) is **layout-only**. The app clears the current client's open-tab label before removing the tab. Another client's open tab remains protected. The agent stays unarchived and stays in its parent's track, so a later parent archive cascades to it when no client still has it open. The user can re-open the tab from the track at any time. Single and bulk tab close apply the same policy.
 
+A **pinned tab** cannot be closed until the user unpins it, so its close gesture never archives. Archiving its agent by any other route (the agent header, another client, a slash command, a parent's cascade) still archives: a pin is per-client layout and archive is a global lifecycle gesture, so one client's pin cannot veto it. The tab stays and shows the archived agent, which the user can unarchive or unpin and close.
+
 The asymmetry is intentional: a subagent's persistent relationship lives in the parent's track. Same-workspace subagents are not auto-opened as tabs; the user opens one from that track when needed. A cross-workspace subagent is also auto-opened as a tab in its own workspace so opening that workspace does not appear empty. It remains in the parent's track until it is actually detached.
 
 ## Workspace activity

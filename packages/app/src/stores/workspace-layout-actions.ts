@@ -11,6 +11,7 @@ import {
   workspaceTabTargetsEqual,
 } from "@/workspace-tabs/identity";
 import { createNewWorkspaceTab } from "@/workspace-tabs/new-tab";
+import { movePinsToKeeper, prunePinnedTabIds } from "@/workspace-tabs/pinned-tabs";
 
 export interface SplitPane {
   id: string;
@@ -263,6 +264,8 @@ export interface WorkspaceTabReconcileState {
   layout: WorkspaceLayout;
   pinnedAgentIds?: ReadonlySet<string> | null;
   hiddenAgentIds?: ReadonlySet<string> | null;
+  /** Fork: tabs the user pinned; reconcile never closes them (packages/app/src/workspace-tabs/pinned-tabs.ts). */
+  pinnedTabIds?: ReadonlySet<string>;
   explorerSidebarPaneId: string | null;
 }
 
@@ -2352,11 +2355,15 @@ function collapseStaleEntityTabs(input: {
   snapshot: WorkspaceTabSnapshot;
   visibleAgentIds: Set<string>;
   knownTerminalIds: Set<string>;
+  pinnedTabIds: ReadonlySet<string>;
   explorerSidebarPaneId: string | null;
 }): WorkspaceLayout {
   const { snapshot, visibleAgentIds, knownTerminalIds } = input;
   let nextLayout = input.layout;
   for (const tab of collectAllTabs(nextLayout.root)) {
+    // A pinned tab stays: an archived agent's tab shows the archived agent, a gone terminal's
+    // tab its exit state, until the user unpins and closes it.
+    if (input.pinnedTabIds.has(tab.tabId)) continue;
     if (isAgentTab(tab) && snapshot.agentsHydrated && !visibleAgentIds.has(tab.target.agentId)) {
       nextLayout =
         closeTabInLayout({
@@ -2483,12 +2490,14 @@ export function reconcileWorkspaceTabs(
   );
 
   const entityGroups = buildEntityTabGroups(initialTabs);
+  const pinnedTabIds = new Set<string>(state.pinnedTabIds);
 
   for (const [canonicalTabId, group] of entityGroups) {
     const keeper = group.tabs.find((tab) => tab.tabId === canonicalTabId) ?? group.tabs[0] ?? null;
     if (!keeper) {
       continue;
     }
+    movePinsToKeeper(pinnedTabIds, group.tabs, keeper.tabId);
     if (group.tabs.some((tab) => tab.tabId === originalFocusedTabId)) {
       reconciledFocusedTabId = keeper.tabId;
     }
@@ -2521,6 +2530,7 @@ export function reconcileWorkspaceTabs(
     snapshot,
     visibleAgentIds,
     knownTerminalIds,
+    pinnedTabIds,
     explorerSidebarPaneId: state.explorerSidebarPaneId,
   });
 
@@ -2546,5 +2556,6 @@ export function reconcileWorkspaceTabs(
     ...state,
     layout: nextLayout,
     pinnedAgentIds,
+    pinnedTabIds: prunePinnedTabIds(pinnedTabIds, nextLayout.root),
   };
 }

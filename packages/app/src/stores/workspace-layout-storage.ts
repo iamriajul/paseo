@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { SplitNode, WorkspaceLayout } from "./workspace-layout-actions";
+import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 
 const WorkspaceDraftTabSetupStorageSchema = z.strictObject({
   provider: z.string(),
@@ -24,6 +25,16 @@ const WorkspaceTabTargetStorageSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({ kind: z.literal("terminal"), terminalId: z.string() }),
   z.strictObject({ kind: z.literal("browser"), browserId: z.string() }),
+  // Every tab kind must be here: validated storage drops the whole blob, every workspace's
+  // layout and pins with it, when one tab fails to parse.
+  z.strictObject({
+    kind: z.literal("background_task"),
+    parentAgentId: z.string(),
+    taskId: z.string(),
+  }),
+  z.strictObject({ kind: z.literal("loop"), loopId: z.string() }),
+  z.strictObject({ kind: z.literal("server_browser"), browserId: z.string() }),
+  z.strictObject({ kind: z.literal("codeServer"), codeServerId: z.string() }),
   z.strictObject({ kind: z.literal("changes_tree") }),
   z.strictObject({ kind: z.literal("todo") }),
   z.strictObject({ kind: z.literal("ports") }),
@@ -62,6 +73,13 @@ const WorkspaceTabTargetStorageSchema = z.discriminatedUnion("kind", [
     }),
   ]),
 ]);
+// A tab kind missing from the schema fails to compile here instead of wiping stored layouts.
+type UnstoredTabKind = Exclude<
+  WorkspaceTabTarget["kind"],
+  z.infer<typeof WorkspaceTabTargetStorageSchema>["kind"]
+>;
+export const EVERY_TAB_KIND_IS_STORED: [UnstoredTabKind] extends [never] ? true : UnstoredTabKind =
+  true;
 const WorkspaceTabStorageSchema = z.strictObject({
   tabId: z.string(),
   target: WorkspaceTabTargetStorageSchema,
@@ -98,6 +116,8 @@ const WorkspaceLayoutStorageSchema: z.ZodType<WorkspaceLayout> = z.strictObject(
 });
 export const WorkspaceLayoutPersistedStateSchema = z.strictObject({
   pinnedAgentIdsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
+  // Fork: tabs the user pinned (packages/app/src/workspace-tabs/pinned-tabs.ts).
+  pinnedTabIdsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   layoutByWorkspace: z.record(z.string(), WorkspaceLayoutStorageSchema),
   splitSizesByWorkspace: z.record(z.string(), z.record(z.string(), z.array(z.number()))).optional(),
   explorerSidebarWidthByWorkspace: z.record(z.string(), z.number()).optional(),

@@ -1990,3 +1990,21 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/uti
 ```bash
 grep -q 'TMPDIR: createTempDir("paseo-smoke-tmp-")' packages/desktop/e2e/packaged-app-smoke.js
 ```
+
+## pin-workspace-tabs
+
+**A workspace tab can be pinned; a pinned tab cannot be closed until it is unpinned**
+
+The user wanted to pin tabs so they stay open. "Pin tab" / "Unpin tab" sit in every tab's menu (the context menu on desktop and web, the tab switcher's actions on phones). A pinned tab keeps its size, title and place, shows a pin (`WorkspaceTabPinIndicator`), and loses its close button. It stays where the user put it: the tab bar moves nothing to the left. Pins are `pinnedTabIdsByWorkspace` in the app-local layout store, persisted beside the layout and written only while a tab is pinned (fork module `packages/app/src/workspace-tabs/pinned-tabs.ts`). Official files: `workspace-layout-store.ts` refuses `closeTab` and `closePane` for a pinned tab, moves a pin when a draft becomes its agent or a tab is retargeted, and forgets pins on purge; `workspace-layout-actions.ts` keeps pinned tabs through reconcile, so a pinned agent tab outlives its archive and shows the archived agent, and a pin follows duplicate tabs into their keeper; `workspace-screen.tsx` ignores every close gesture on a pinned tab (button, middle-click, Cmd/Ctrl+W, menu) and drops pinned tabs from bulk closes; `workspace-tab-menu.ts`, `workspace-desktop-tabs-row.tsx`, `workspace-tab-presentation.tsx`, `workspace-tab-trailing-accessory.tsx` and `tab-switcher.tsx` render the entry, the pin and a disabled Close; `desktop/browser/automation/handler.ts` refuses an agent's `browser_close_tab` on a pinned desktop browser tab with `browser_denied`. A server browser tab's pin lives on the host, because its idle close runs there: `browser.server.tab.pin.request`, the tab's optional `pinned` and `features.serverBrowserTabPin` (`messages.ts`, `websocket-server.ts`, `operation-permissions.ts`, `daemon-client.ts`), with the rules in [Server browser](server-browser.md). Archiving is not blocked; [agent lifecycle](agent-lifecycle.md#tabs-vs-archive) says why.
+
+`workspace-layout-storage.ts` also lists every tab kind now. It lacked `server_browser`, `codeServer`, `loop` and `background_task`, and validated storage deletes the whole saved blob when one tab fails to parse, so one open server browser tab wiped every workspace's saved layout on the next write. `EVERY_TAB_KIND_IS_STORED` fails to compile when a kind is missing again.
+
+The tests fail without the change: the store closes a pinned tab, reconcile drops a pinned archived agent's tab, a layout holding a server browser tab does not come back after a reload, and the host closes a pinned suspended tab by cap or age and lets an agent close a pinned tab.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/workspace-tabs/pinned-tabs.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "pinned"
+grep -q "serverBrowserTabPin: serverBrowserOf" packages/server/src/server/websocket-server.ts
+grep -q "serverBrowserTabPin: z.boolean().optional()" packages/protocol/src/messages.ts
+grep -q '"browser.server.tab.pin.request": "workspace.write"' packages/server/src/server/authorization/operation-permissions.ts
+```

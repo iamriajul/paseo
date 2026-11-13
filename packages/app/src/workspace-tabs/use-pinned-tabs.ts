@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useHostFeature } from "@/runtime/host-features";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
+import { isEphemeralTabTarget } from "@/stores/workspace-layout-actions";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey, type WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { isTabPinned } from "@/workspace-tabs/pinned-tabs";
@@ -31,7 +32,19 @@ export function useIsWorkspaceTabPinned(input: {
  */
 export function useCanPinWorkspaceTab(serverId: string, target: WorkspaceTabTarget): boolean {
   const hostKeepsServerTabPins = useHostFeature(serverId, "serverBrowserTabPin");
-  return target.kind !== "server_browser" || hostKeepsServerTabPins;
+  return canPinWorkspaceTab(target, { hostKeepsServerTabPins });
+}
+
+/**
+ * A pin promises the tab stays, across reloads too, so kinds a saved layout drops (a commit
+ * diff, a New tab) offer no Pin.
+ */
+export function canPinWorkspaceTab(
+  target: WorkspaceTabTarget,
+  host: { hostKeepsServerTabPins: boolean },
+): boolean {
+  if (isEphemeralTabTarget(target)) return false;
+  return target.kind !== "server_browser" || host.hostKeepsServerTabPins;
 }
 
 export type SetWorkspaceTabPinned = (

@@ -1108,8 +1108,13 @@ export function collectAllPanes(root: SplitNode): SplitPane[] {
   return internalRoot.group.children.flatMap((child) => collectAllPanes(child));
 }
 
+/** Kinds a saved layout drops, so a reload never restores them (and no pin can outlive one). */
+export function isEphemeralTabTarget(target: WorkspaceTabTarget): boolean {
+  return target.kind === "commit_diff" || target.kind === "new_tab";
+}
+
 function isEphemeralTab(tab: WorkspaceTab): boolean {
-  return tab.target.kind === "commit_diff" || tab.target.kind === "new_tab";
+  return isEphemeralTabTarget(tab.target);
 }
 
 function stripEphemeralTabsFromNode(node: SplitNodeInternal): SplitNodeInternal {

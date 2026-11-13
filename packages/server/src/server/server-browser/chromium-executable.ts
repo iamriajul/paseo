@@ -280,9 +280,8 @@ export async function resolveChromeExecutable(
       ? { ok: true, path: fromEnv, source: "env" }
       : { ok: false, message: `PASEO_SERVER_BROWSER_CHROME is not an executable: ${fromEnv}` };
   }
-  if (host === "darwin") {
-    const app = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-    if (await isExecutable(app)) return { ok: true, path: app, source: "system" };
+  for (const installed of chromeInstallPaths(host, env)) {
+    if (await isExecutable(installed)) return { ok: true, path: installed, source: "system" };
   }
   const pathDirs = (env.PATH ?? env.Path ?? "").split(paths.delimiter).filter(Boolean);
   const names =
@@ -295,9 +294,39 @@ export async function resolveChromeExecutable(
       if (await isExecutable(candidate)) return { ok: true, path: candidate, source: "system" };
     }
   }
-  return {
-    ok: false,
-    message:
-      "Managed Chrome needs Google Chrome on this host (google-chrome on PATH, or PASEO_SERVER_BROWSER_CHROME).",
-  };
+  return { ok: false, message: CHROME_MISSING[host] };
+}
+
+const CHROME_MISSING: Record<ChromiumPlatform, string> = {
+  linux:
+    "Managed Chrome needs Google Chrome on this host (google-chrome on PATH, or PASEO_SERVER_BROWSER_CHROME).",
+  darwin:
+    "Managed Chrome needs Google Chrome on this host (Google Chrome.app in /Applications or ~/Applications, or PASEO_SERVER_BROWSER_CHROME).",
+  win32:
+    "Managed Chrome needs Google Chrome on this host (installed for all users or for this user, or PASEO_SERVER_BROWSER_CHROME).",
+};
+
+/**
+ * Where Google Chrome's installers put it. Windows never adds chrome.exe to PATH: a system-wide
+ * install goes under Program Files (Program Files (x86) for older 32-bit ones), a per-user one
+ * under LOCALAPPDATA. macOS installs the app bundle in /Applications, or ~/Applications for one user.
+ */
+function chromeInstallPaths(host: ChromiumPlatform, env: NodeJS.ProcessEnv): string[] {
+  if (host === "darwin") {
+    const bundle = "Google Chrome.app/Contents/MacOS/Google Chrome";
+    const home = env.HOME?.trim();
+    return [
+      `/Applications/${bundle}`,
+      ...(home ? [path.posix.join(home, "Applications", bundle)] : []),
+    ];
+  }
+  if (host === "win32") {
+    const roots = [env.ProgramFiles, env["ProgramFiles(x86)"], env.LOCALAPPDATA]
+      .map((root) => root?.trim())
+      .filter((root): root is string => Boolean(root));
+    return roots.map((root) =>
+      path.win32.join(root, "Google", "Chrome", "Application", "chrome.exe"),
+    );
+  }
+  return [];
 }

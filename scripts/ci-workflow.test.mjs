@@ -670,6 +670,21 @@ process.exit(code);
   }
 });
 
+test("Managed Chrome is checked on the macOS and Windows server runners", () => {
+  const jobs = jobBlocks(readFileSync(ciWorkflowPath, "utf8"));
+  const integration = jobs.get("server-integration-windows").join("\n");
+  const macos = jobs.get("server-tests-macos").join("\n");
+  assert.match(
+    integration,
+    /- &managed_chrome_check\n.*\n\s+run: npm run test:managed-chrome --workspace=@getpaseo\/server/,
+  );
+  assert.match(macos, /- \*managed_chrome_check\b/);
+  const scripts = JSON.parse(
+    readFileSync(new URL("packages/server/package.json", repoRoot), "utf8"),
+  ).scripts;
+  assert.match(scripts["test:managed-chrome"], /managed-chrome\.e2e\.test\.ts/);
+});
+
 // GitHub retires macOS 14 on 2026-11-02; brownouts already reject these jobs.
 test("workflows avoid retired macOS 14 runners", () => {
   for (const path of filesUnder(".github/workflows", (candidate) => /\.ya?ml$/.test(candidate))) {

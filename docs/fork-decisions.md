@@ -1903,6 +1903,22 @@ The test fails without the setting: the profile keeps Memory Saver off.
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/engines.test.ts --bail=1 -t "Memory Saver"
 ```
 
+## managed-chrome-headless-macos-windows
+
+**Managed Chrome runs headless on macOS and Windows, Settings says so, and CI runs it there**
+
+Window mode needs an X display, which only Linux hosts have. On macOS and Windows it fell back to `--headless=new` on the Window profile, with the `HeadlessChrome` user agent, while Settings still offered Window. The user chose Headless as the only mode on those hosts. `resolveServerBrowserEngine` (`bootstrap.ts`) maps a saved Window to Headless there, and the daemon reports `features.serverBrowserChromeHeadlessOnly`, so Settings drops the Window/Headless control and says Chrome runs headless on this host. The same unit fixed two bugs that would have stopped Managed Chrome on Windows: `chrome.exe` is never on `PATH`, so `resolveChromeExecutable` now looks where the installers put it (and in `~/Applications` on macOS), and `chrome.exe --version` prints nothing and opens a window, so the version for the user agent comes from the installer's version folder. Official files: `messages.ts` declares the flag, `websocket-server.ts` reports it, `ci.yml` runs `test:managed-chrome` (a step in `server-integration (windows-latest)` and `server-tests (macos-latest, file observation)`), `scripts/ci-workflow.test.mjs` pins both steps, and `packages/server/package.json` adds the script. [Server browser](server-browser.md) has the behaviour.
+
+The unit tests fail without the change: a saved Window stays Window on darwin and win32, Chrome is not found under Program Files, and the Windows version read runs `--version`.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/engines.test.ts --bail=1 -t "headless on macOS and Windows|Windows installers|~/Applications|version folder"
+npm test --workspace=@getpaseo/app -- src/server-browser/engine-mode.test.ts --bail=1 -t "macOS or Windows host"
+node --test --test-name-pattern "Managed Chrome is checked" scripts/ci-workflow.test.mjs
+grep -q "serverBrowserChromeHeadlessOnly: z.boolean().optional()" packages/protocol/src/messages.ts
+grep -q "serverBrowserChromeHeadlessOnly:" packages/server/src/server/websocket-server.ts
+```
+
 ## files-folder-download
 
 **download a folder from Files as a zip, and stream every session download to disk**

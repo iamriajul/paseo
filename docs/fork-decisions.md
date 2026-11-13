@@ -967,7 +967,7 @@ grep -q "providerSnapshotManager.isGatewayRoutedModel(provider, model)" packages
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-cache-warm.test.ts -t "serving account check|why the warm-up left the cache to expire" --bail=1
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/prompt-cache-journal.test.ts packages/server/src/server/agent/agent-projections.test.ts --bail=1
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-manager.test.ts -t "429 schedules no rate-limit" --bail=1
-grep -q "readAccountBlock: async (agentId)" packages/server/src/server/bootstrap.ts
+grep -q "readAccountBlock: readServingAccountBlock" packages/server/src/server/bootstrap.ts
 grep -q "lastRequestAtMs: resolvePromptCacheAnchorMs(agent)" packages/server/src/server/bootstrap.ts
 cd packages/app && npx vitest run --project unit src/prompt-cache/warm-up-stop.test.ts src/prompt-cache/prompt-cache-explorer.test.ts src/prompt-cache/use-prompt-cache.test.ts -t "serving account is blocked|describeAccountPause|describeWarmUpStop|indexWarmUpStops|warm-up let an expired cache" --bail=1
 ```

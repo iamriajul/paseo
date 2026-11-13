@@ -14,6 +14,7 @@ import {
 } from "@/desktop/browser/store";
 import { collectAllTabs, useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+import { isWorkspaceTabPinned } from "@/workspace-tabs/use-pinned-tabs";
 
 type BrowserAutomationExecuteRequest = Extract<
   SessionOutboundMessage,
@@ -286,6 +287,14 @@ async function closeBrowserTabForRequest(params: {
     });
   }
 
+  if (isWorkspaceTabPinned(workspaceTab.workspaceKey, workspaceTab.tabId)) {
+    return browserAutomationFailure({
+      requestId: request.requestId,
+      code: "browser_denied",
+      message:
+        "The user pinned this tab in Paseo, so it cannot be closed. Leave it open, or ask the user to unpin it.",
+    });
+  }
   useWorkspaceLayoutStore.getState().closeTab(workspaceTab.workspaceKey, workspaceTab.tabId);
   useBrowserStore.getState().removeBrowser(browserId);
   removeResidentBrowserWebview(browserId);

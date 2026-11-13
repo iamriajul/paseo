@@ -1,6 +1,7 @@
 import { planTimelineTailFetch } from "@/timeline/timeline-sync-plan";
 import { useWorkspaceLoopbackOpener } from "@/hooks/use-workspace-loopback-opener";
 import { closeServerBrowserTab } from "@/server-browser/close-tab";
+import { isWorkspaceTabPinned } from "@/workspace-tabs/use-pinned-tabs";
 import { useServerBrowserUrlOpener } from "@/server-browser/use-server-browser-opener";
 import { useServerBrowserSync } from "@/server-browser/use-server-browser-sync";
 import { openNewServerBrowserTab } from "@/server-browser/new-tab";
@@ -2180,6 +2181,10 @@ function WorkspaceScreenContent({
 
   const handleCloseTabById = useCallback(
     async (tabId: string) => {
+      // A pinned tab ignores every close gesture (button, middle-click, Cmd/Ctrl+W, menu).
+      if (persistenceKey && isWorkspaceTabPinned(persistenceKey, tabId)) {
+        return;
+      }
       if (persistenceKey && sheets.some((sheet) => sheet.tab.tabId === tabId)) {
         if (await confirmDiscardModifiedTab(tabId)) {
           closeWorkspaceTab(persistenceKey, tabId);
@@ -2366,7 +2371,11 @@ function WorkspaceScreenContent({
       title: string;
       logLabel: string;
     }): Promise<boolean> => {
-      const { tabsToClose, title, logLabel } = input;
+      const { title, logLabel } = input;
+      // Bulk closes (left, right, others, pane) skip pinned tabs.
+      const tabsToClose = persistenceKey
+        ? input.tabsToClose.filter((tab) => !isWorkspaceTabPinned(persistenceKey, tab.tabId))
+        : input.tabsToClose;
       if (tabsToClose.length === 0) {
         return true;
       }

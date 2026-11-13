@@ -829,6 +829,7 @@ export const es: TranslationResources = {
     tabs: {
       loading: "Cargando...",
       modified: "Cambios sin guardar",
+      pinned: "Fijada",
       loadingAgentTitle: "Título del agente de carga",
       fallback: {
         newAgent: "Nuevo agente",
@@ -866,6 +867,8 @@ export const es: TranslationResources = {
         closeLeft: "Cerrar pestañas a la izquierda",
         closeRight: "Cerrar pestañas a la derecha",
         closeOthers: "Cerrar otras pestañas",
+        pin: "Fijar pestaña",
+        unpin: "Desfijar pestaña",
         moveToMain: "Mover al panel principal",
         reloadAgent: "Recargar agente",
         reloadAgentTooltip:

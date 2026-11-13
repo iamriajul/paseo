@@ -19,6 +19,7 @@ import { runSettingsScrollRegression } from "./settings-scroll.electron.mjs";
 import { runSettingsMemoryRegression } from "./settings-memory.electron.mjs";
 
 import { seedPluginLinks, runPluginLinksRegression } from "./plugin-links.electron.mjs";
+import { runPinnedTabsRegression } from "./pinned-tabs.electron.mjs";
 import {
   runBrowserLoadingRegression,
   startLoadingTargetServer,
@@ -1284,6 +1285,28 @@ async function main() {
       console.log("Desktop browser tools on loading pages passed.");
       return;
     }
+    const checkPinnedTabs = async () => {
+      const pinnedClient = await createCallerClient(
+        await createCallerAgent(daemonPort, workspaceIds[2]),
+      );
+      try {
+        return await runPinnedTabsRegression({
+          page,
+          client: pinnedClient,
+          serverId: status.serverId,
+          workspaceId: workspaceIds[2],
+          targetUrl: target.url,
+        });
+      } finally {
+        await pinnedClient.close().catch(() => undefined);
+      }
+    };
+    if (process.env.PASEO_DESKTOP_PINNED_TABS_ONLY === "1") {
+      const pinnedTabs = await checkPinnedTabs();
+      writeJson(path.join(artifactDir, "result.json"), { pinnedTabs });
+      console.log("Pinned tabs survive Ctrl/Cmd+W, middle-click and browser_close_tab.");
+      return;
+    }
     if (process.env.PASEO_DESKTOP_PLUGIN_LINKS_ONLY === "1") {
       const pluginLinks = await checkPluginLinks();
       writeJson(path.join(artifactDir, "result.json"), { pluginLinks });
@@ -1328,9 +1351,11 @@ async function main() {
     });
     const pluginLinks = await checkPluginLinks();
     const loadingPages = await checkLoadingPages();
+    const pinnedTabs = await checkPinnedTabs();
     writeJson(path.join(artifactDir, "result.json"), {
       ...report,
       loadingPages,
+      pinnedTabs,
       settingsMemory,
       pluginLinks,
       adaptiveTheme,

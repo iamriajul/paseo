@@ -828,6 +828,7 @@ export const ptBR: TranslationResources = {
     tabs: {
       loading: "Carregando...",
       modified: "Alterações não salvas",
+      pinned: "Fixada",
       loadingAgentTitle: "Carregando título do agente",
       fallback: {
         newAgent: "Novo agente",
@@ -865,6 +866,8 @@ export const ptBR: TranslationResources = {
         closeLeft: "Fechar à esquerda",
         closeRight: "Fechar à direita",
         closeOthers: "Fechar outras abas",
+        pin: "Fixar aba",
+        unpin: "Desafixar aba",
         moveToMain: "Mover para o painel principal",
         reloadAgent: "Recarregar agente",
         reloadAgentTooltip: "Recarregue o agente para atualizar skills, MCPs ou status de login.",

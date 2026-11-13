@@ -63,6 +63,7 @@ function useRowPresentation(row: SubagentRow, serverId: string): WorkspaceTabPre
     ...data,
     tooltip: data.label,
     modified: false,
+    pinned: false,
     showCloseButton: getPanelManifest(data.kind).showCloseButton,
     icon,
   };

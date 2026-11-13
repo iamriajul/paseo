@@ -825,6 +825,7 @@ export const en = {
     tabs: {
       loading: "Loading...",
       modified: "Unsaved changes",
+      pinned: "Pinned",
       loadingAgentTitle: "Loading agent title",
       fallback: {
         newAgent: "New agent",
@@ -862,6 +863,8 @@ export const en = {
         closeLeft: "Close to the left",
         closeRight: "Close to the right",
         closeOthers: "Close other tabs",
+        pin: "Pin tab",
+        unpin: "Unpin tab",
         moveToMain: "Move to main panel",
         reloadAgent: "Reload agent",
         reloadAgentTooltip: "Reload agent to update skills, MCPs or login status.",

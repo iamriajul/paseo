@@ -27,6 +27,7 @@ export const SERVER_BROWSER_REQUEST_TYPES = [
   "browser.server.tab.file_chooser.answer.request",
   "browser.server.tab.loopback_ports.request",
   "browser.server.tab.selection.request",
+  "browser.server.tab.pin.request",
 ] as const;
 
 type ServerBrowserRequest = Extract<
@@ -368,6 +369,9 @@ export class ServerBrowserSessionHandlers {
       case "browser.server.tab.file_chooser.answer.request":
         this.params.emit({ type: "browser.server.tab.file_chooser.answer.response", payload });
         return;
+      case "browser.server.tab.pin.request":
+        this.params.emit({ type: "browser.server.tab.pin.response", payload });
+        return;
     }
   }
 
@@ -399,7 +403,15 @@ export class ServerBrowserSessionHandlers {
       return undefined;
     }
     if (msg.type === "browser.server.tab.close.request") {
+      // Older apps know nothing of pins, so the host refuses for them too.
+      if (host.getTab(msg.browserId)?.pinned) {
+        throw new Error("This tab is pinned. Unpin it before closing it.");
+      }
       await host.closeTab(msg.browserId);
+      return undefined;
+    }
+    if (msg.type === "browser.server.tab.pin.request") {
+      await host.setTabPinned(msg.browserId, msg.pinned);
       return undefined;
     }
     if (msg.type === "browser.server.tab.file_chooser.answer.request") {

@@ -21,6 +21,7 @@ const knownTabs = new Map<string, Map<string, string>>();
  */
 export function useServerBrowserSync(serverId: string): void {
   const supported = useHostFeature(serverId, "serverBrowser");
+  const keepsPins = useHostFeature(serverId, "serverBrowserTabPin");
   const client = useHostRuntimeClient(serverId);
 
   useEffect(() => {
@@ -29,6 +30,7 @@ export function useServerBrowserSync(serverId: string): void {
     const apply = (tabs: ServerBrowserTab[], status: { enabled: boolean }) => {
       useServerBrowserStore.getState().setHost(serverId, { tabs, status });
       placeAgentTabs(serverId, tabs);
+      if (keepsPins) mirrorHostPins(serverId, tabs);
       removeClosedTabs(serverId, tabs);
       stopForwardsOfEndedServerTabs(serverId, tabs);
     };
@@ -48,7 +50,24 @@ export function useServerBrowserSync(serverId: string): void {
       void subscription.release().catch(() => {});
       useServerBrowserStore.getState().clearHost(serverId);
     };
-  }, [client, serverId, supported]);
+  }, [client, keepsPins, serverId, supported]);
+}
+
+/** A server tab's pin lives on the host, so every client's tab bar shows the host's. */
+function mirrorHostPins(serverId: string, tabs: ServerBrowserTab[]): void {
+  const store = useWorkspaceLayoutStore.getState();
+  for (const tab of tabs) {
+    const workspaceKey = buildWorkspaceTabPersistenceKey({
+      serverId,
+      workspaceId: tab.workspaceId,
+    });
+    if (!workspaceKey) continue;
+    store.setTabPinned(
+      workspaceKey,
+      buildDeterministicWorkspaceTabId({ kind: "server_browser", browserId: tab.browserId }),
+      tab.pinned === true,
+    );
+  }
 }
 
 /**
@@ -108,12 +127,10 @@ function removeClosedTabs(serverId: string, tabs: ServerBrowserTab[]): void {
     if (current.has(browserId)) continue;
     const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
     if (workspaceKey) {
-      useWorkspaceLayoutStore
-        .getState()
-        .closeTab(
-          workspaceKey,
-          buildDeterministicWorkspaceTabId({ kind: "server_browser", browserId }),
-        );
+      closeEndedServerTab(
+        workspaceKey,
+        buildDeterministicWorkspaceTabId({ kind: "server_browser", browserId }),
+      );
     }
   }
 }
@@ -129,8 +146,18 @@ function removeStaleLayoutTabs(serverId: string, tabs: ServerBrowserTab[]): void
     if (!workspaceKey.startsWith(`${serverId}:`)) continue;
     for (const tab of collectAllTabs(layout.root)) {
       if (tab.target.kind === "server_browser" && !live.has(tab.target.browserId)) {
-        store.closeTab(workspaceKey, tab.tabId);
+        closeEndedServerTab(workspaceKey, tab.tabId);
       }
     }
   }
+}
+
+/**
+ * The host ended the tab (a browser crash, the server browser turned off), so a pin has nothing
+ * left to keep: it goes with the tab.
+ */
+function closeEndedServerTab(workspaceKey: string, tabId: string): void {
+  const store = useWorkspaceLayoutStore.getState();
+  store.setTabPinned(workspaceKey, tabId, false);
+  store.closeTab(workspaceKey, tabId);
 }

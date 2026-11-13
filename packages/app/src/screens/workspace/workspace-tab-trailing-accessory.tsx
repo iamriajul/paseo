@@ -12,6 +12,8 @@ import {
   RotateCw,
   Settings,
   X,
+  Pin,
+  PinOff,
 } from "lucide-react-native";
 import {
   DropdownMenu,
@@ -33,6 +35,8 @@ const ThemedCopyX = withUnistyles(CopyX);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedX = withUnistyles(X);
+const ThemedPin = withUnistyles(Pin);
+const ThemedPinOff = withUnistyles(PinOff);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
@@ -66,6 +70,10 @@ function MobileTabDropdownMenuItem({
         return <ThemedSettings size={16} uniProps={mutedColorMapping} />;
       case "x":
         return <ThemedX size={16} uniProps={mutedColorMapping} />;
+      case "pin":
+        return <ThemedPin size={16} uniProps={mutedColorMapping} />;
+      case "pin-off":
+        return <ThemedPinOff size={16} uniProps={mutedColorMapping} />;
       default:
         return undefined;
     }

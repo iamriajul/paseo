@@ -821,6 +821,7 @@ export const zhCN: TranslationResources = {
     tabs: {
       loading: "正在加载...",
       modified: "未保存的更改",
+      pinned: "已固定",
       loadingAgentTitle: "正在加载 Agent 标题",
       fallback: {
         newAgent: "新建 Agent",
@@ -858,6 +859,8 @@ export const zhCN: TranslationResources = {
         closeLeft: "关闭左侧标签",
         closeRight: "关闭右侧标签",
         closeOthers: "关闭其他标签",
+        pin: "固定标签页",
+        unpin: "取消固定标签页",
         moveToMain: "移至主面板",
         reloadAgent: "重新加载 Agent",
         reloadAgentTooltip: "重新加载 Agent 以更新 skills、MCPs 或登录状态。",

@@ -20,6 +20,8 @@ export interface WorkspaceTabMenuLabels {
   reloadAgent: string;
   reloadAgentTooltip: string;
   close: string;
+  pin: string;
+  unpin: string;
 }
 
 export const DEFAULT_WORKSPACE_TAB_MENU_LABELS: WorkspaceTabMenuLabels = {
@@ -37,6 +39,8 @@ export const DEFAULT_WORKSPACE_TAB_MENU_LABELS: WorkspaceTabMenuLabels = {
   reloadAgent: i18n.t("workspace.tabs.menu.reloadAgent"),
   reloadAgentTooltip: i18n.t("workspace.tabs.menu.reloadAgentTooltip"),
   close: i18n.t("workspace.tabs.menu.close"),
+  pin: i18n.t("workspace.tabs.menu.pin"),
+  unpin: i18n.t("workspace.tabs.menu.unpin"),
 };
 
 export type WorkspaceTabMenuEntry =
@@ -52,7 +56,9 @@ export type WorkspaceTabMenuEntry =
         | "copy-x"
         | "pencil"
         | "x"
-        | "settings";
+        | "settings"
+        | "pin"
+        | "pin-off";
       hint?: string;
       tooltip?: string;
       disabled?: boolean;
@@ -92,6 +98,10 @@ interface BuildWorkspaceTabMenuEntriesInput {
   onCloseTabsBefore: (tabId: string) => Promise<void> | void;
   onCloseTabsAfter: (tabId: string) => Promise<void> | void;
   onCloseOtherTabs: (tabId: string) => Promise<void> | void;
+  /** Fork: the tab is pinned, so its Close is off and the menu offers Unpin. */
+  pinned?: boolean;
+  /** Absent when the tab cannot be pinned (a server browser tab on a host that keeps no pins). */
+  onTogglePin?: () => void;
   labels?: WorkspaceTabMenuLabels;
 }
 
@@ -110,6 +120,8 @@ interface BuildWorkspaceDesktopTabActionsInput {
   onCloseTabsToLeft: (tabId: string) => Promise<void> | void;
   onCloseTabsToRight: (tabId: string) => Promise<void> | void;
   onCloseOtherTabs: (tabId: string) => Promise<void> | void;
+  pinned?: boolean;
+  onTogglePin?: () => void;
   labels?: WorkspaceTabMenuLabels;
 }
 
@@ -215,7 +227,9 @@ export function buildWorkspaceTabMenuEntries(
     onCloseTabsBefore,
     onCloseTabsAfter,
     onCloseOtherTabs,
+    onTogglePin,
   } = input;
+  const pinned = input.pinned === true;
   const labels = input.labels ?? DEFAULT_WORKSPACE_TAB_MENU_LABELS;
   const isFirstTab = index === 0;
   const isLastTab = index === tabCount - 1;
@@ -313,6 +327,16 @@ export function buildWorkspaceTabMenuEntries(
     });
   }
 
+  if (onTogglePin) {
+    entries.push({
+      kind: "item",
+      key: "pin",
+      label: pinned ? labels.unpin : labels.pin,
+      icon: pinned ? "pin-off" : "pin",
+      testID: `${menuTestIDBase}-${pinned ? "unpin" : "pin"}`,
+      onSelect: onTogglePin,
+    });
+  }
   entries.push({
     kind: "item",
     key: "close-before",
@@ -365,6 +389,7 @@ export function buildWorkspaceTabMenuEntries(
     key: "close",
     label: labels.close,
     icon: "x",
+    disabled: pinned,
     testID: `${menuTestIDBase}-close`,
     onSelect: () => {
       void onCloseTab(tab.tabId);
@@ -397,6 +422,8 @@ export function buildWorkspaceDesktopTabActions(
       onCloseTabsBefore: input.onCloseTabsToLeft,
       onCloseTabsAfter: input.onCloseTabsToRight,
       onCloseOtherTabs: input.onCloseOtherTabs,
+      pinned: input.pinned,
+      onTogglePin: input.onTogglePin,
       labels: input.labels,
     }),
     closeButtonTestId: getCloseButtonTestId(input.tab),

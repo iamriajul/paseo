@@ -8,6 +8,7 @@ import {
 } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabMenuEntries } from "@/screens/workspace/workspace-tab-menu";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
+import { canPinWorkspaceTab } from "@/workspace-tabs/use-pinned-tabs";
 
 const WORKSPACE = "server-1:ws-main";
 
@@ -147,6 +148,13 @@ describe("pinned workspace tabs", () => {
     expect(tabIds(restored)).toContain(file);
   });
 
+  it("does not pin a kind a saved layout drops", async () => {
+    const store = await createStore();
+    const commitDiff = open(store, { kind: "commit_diff", sha: "abc123" });
+    store.getState().setTabPinned(WORKSPACE, commitDiff, true);
+    expect(store.getState().pinnedTabIdsByWorkspace[WORKSPACE]).toBeUndefined();
+  });
+
   it("forgets a workspace's pins when the workspace is purged", async () => {
     const store = await createStore();
     const file = open(store, { kind: "file", path: "notes.md" });
@@ -201,5 +209,21 @@ describe("pinned tab menu", () => {
     expect(entries({ pinned: false, canPin: false }).some((item) => item.key === "pin")).toBe(
       false,
     );
+  });
+});
+
+describe("which tabs offer Pin", () => {
+  const host = { hostKeepsServerTabPins: true };
+
+  it("offers no Pin for kinds a saved layout drops", () => {
+    expect(canPinWorkspaceTab({ kind: "commit_diff", sha: "abc123" }, host)).toBe(false);
+    expect(canPinWorkspaceTab({ kind: "new_tab" }, host)).toBe(false);
+  });
+
+  it("offers Pin for kept kinds, and for server tabs only on a host that keeps pins", () => {
+    expect(canPinWorkspaceTab({ kind: "file", path: "notes.md" }, host)).toBe(true);
+    const serverTab: WorkspaceTabTarget = { kind: "server_browser", browserId: "b" };
+    expect(canPinWorkspaceTab(serverTab, host)).toBe(true);
+    expect(canPinWorkspaceTab(serverTab, { hostKeepsServerTabPins: false })).toBe(false);
   });
 });

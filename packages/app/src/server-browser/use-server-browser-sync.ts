@@ -6,6 +6,7 @@ import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildDeterministicWorkspaceTabId } from "@/workspace-tabs/identity";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { stopForwardsOfEndedServerTabs } from "@/port-forward/server-tab-forwards";
+import { keepHostPinnedTabs } from "./host-pins";
 import { useServerBrowserStore, type ServerBrowserTab } from "./store";
 
 // Agent tabs and popups already placed in a workspace this app session. A tab the user closed
@@ -30,7 +31,7 @@ export function useServerBrowserSync(serverId: string): void {
     const apply = (tabs: ServerBrowserTab[], status: { enabled: boolean }) => {
       useServerBrowserStore.getState().setHost(serverId, { tabs, status });
       placeAgentTabs(serverId, tabs);
-      if (keepsPins) mirrorHostPins(serverId, tabs);
+      if (keepsPins) keepHostPinnedTabs(serverId, tabs);
       removeClosedTabs(serverId, tabs);
       stopForwardsOfEndedServerTabs(serverId, tabs);
     };
@@ -51,23 +52,6 @@ export function useServerBrowserSync(serverId: string): void {
       useServerBrowserStore.getState().clearHost(serverId);
     };
   }, [client, keepsPins, serverId, supported]);
-}
-
-/** A server tab's pin lives on the host, so every client's tab bar shows the host's. */
-function mirrorHostPins(serverId: string, tabs: ServerBrowserTab[]): void {
-  const store = useWorkspaceLayoutStore.getState();
-  for (const tab of tabs) {
-    const workspaceKey = buildWorkspaceTabPersistenceKey({
-      serverId,
-      workspaceId: tab.workspaceId,
-    });
-    if (!workspaceKey) continue;
-    store.setTabPinned(
-      workspaceKey,
-      buildDeterministicWorkspaceTabId({ kind: "server_browser", browserId: tab.browserId }),
-      tab.pinned === true,
-    );
-  }
 }
 
 /**

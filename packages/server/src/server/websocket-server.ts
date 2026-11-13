@@ -52,6 +52,7 @@ import {
   wrapSessionMessage,
 } from "./messages.js";
 import { asUint8Array, decodeBinaryFrame } from "@getpaseo/protocol/binary-frames/index";
+import { managedChromeHeadlessOnly } from "./server-browser/engines.js";
 import { serverBrowserOf } from "./server-browser/routing-broker.js";
 import type { TerminalActivity } from "@getpaseo/protocol/terminal-activity";
 import { MAX_WEBSOCKET_MESSAGE_BYTES } from "@getpaseo/protocol/websocket-message-limit";
@@ -2343,6 +2344,9 @@ export class VoiceAssistantWebSocketServer {
         serverBrowserLoopbackPorts: serverBrowserOf(this.browserToolsBroker) !== null,
         // COMPAT(serverBrowserClipboard): added in v0.15.x (fork), drop gate after 2027-05-01.
         serverBrowserClipboard: serverBrowserOf(this.browserToolsBroker) !== null,
+        // COMPAT(serverBrowserChromeHeadlessOnly): added in v0.15.x (fork), drop gate after 2027-05-01.
+        serverBrowserChromeHeadlessOnly:
+          serverBrowserOf(this.browserToolsBroker) !== null && managedChromeHeadlessOnly(),
         // COMPAT(agentForkContextCursor): added in v0.1.108, remove gate after 2027-01-14.
         agentForkContextCursor: true,
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.

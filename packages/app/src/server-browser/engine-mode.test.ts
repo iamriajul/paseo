@@ -3,6 +3,7 @@ import {
   createManagedChromeModePatch,
   createNewTabTargetPatch,
   createServerBrowserModePatch,
+  describeManagedChromeMode,
   describeNewTabTarget,
   resolveNewTabTarget,
   resolveManagedChromeMode,
@@ -13,6 +14,17 @@ describe("Managed Chrome mode", () => {
   it("is a window unless headless was picked", () => {
     expect(resolveManagedChromeMode(undefined)).toBe("window");
     expect(resolveManagedChromeMode({ chromeMode: "headless" })).toBe("headless");
+  });
+
+  it("says a macOS or Windows host runs it headless, whichever mode was saved", () => {
+    for (const mode of ["window", "headless"] as const) {
+      expect(describeManagedChromeMode({ mode, headlessOnly: true })).toMatch(
+        /runs headless on this host.*only Linux hosts/,
+      );
+    }
+    expect(describeManagedChromeMode({ mode: "window", headlessOnly: false })).toMatch(
+      /^Chrome runs in a window/,
+    );
   });
 
   it("keeps Managed Chrome on while switching mode", () => {

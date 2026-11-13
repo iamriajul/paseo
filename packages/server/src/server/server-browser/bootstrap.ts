@@ -1,6 +1,6 @@
 import type { Logger } from "pino";
 import type { DaemonConfigStore } from "../daemon-config-store.js";
-import type { ServerBrowserEngineConfig } from "./engines.js";
+import { effectiveChromeMode, type ServerBrowserEngineConfig } from "./engines.js";
 import { resolveNewTabTargetSetting } from "./router.js";
 import { ServerBrowserRoutingBroker } from "./routing-broker.js";
 import { ServerBrowserHost } from "./server-browser-host.js";
@@ -83,10 +83,12 @@ export function resolveInitialServerBrowserConfig(
 /** A switch turned on before engines existed, or an engine this daemon does not know: Headless (light). */
 export function resolveServerBrowserEngine(
   setting: ServerBrowserSetting | undefined,
+  platform: NodeJS.Platform = process.platform,
 ): ServerBrowserEngineConfig {
   const kind = setting?.engine;
   if (kind === "managed-chrome") {
-    return { kind, chromeMode: setting?.chromeMode === "headless" ? "headless" : "window" };
+    const requested = setting?.chromeMode === "headless" ? "headless" : "window";
+    return { kind, chromeMode: effectiveChromeMode(requested, platform) };
   }
   if (kind === "existing") {
     return { kind, ...(setting?.cdpUrl ? { cdpUrl: setting.cdpUrl } : {}) };

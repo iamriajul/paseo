@@ -94,6 +94,7 @@
     "test:integration:all": "npm run test:e2e",
     "test:integration:real": "vitest run real.e2e.test.ts",
     "test:integration:local": "vitest run local.e2e.test.ts",
+    "test:managed-chrome": "vitest run src/server/server-browser/managed-chrome.e2e.test.ts --bail=1",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "vitest run e2e.test.ts --maxWorkers=1 --exclude \"**/*.real.e2e.test.ts\" --exclude \"**/*.local.e2e.test.ts\"",

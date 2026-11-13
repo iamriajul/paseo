@@ -295,10 +295,15 @@ jobs:
         run: npm run test:integration --workspace=@getpaseo/server
         env: *server_test_env
 
+      # Managed Chrome headless through the real engine; the image ships Google Chrome.
+      - &managed_chrome_check
+        name: Run Managed Chrome check
+        run: npm run test:managed-chrome --workspace=@getpaseo/server
+
   # native-recursive.ts serves darwin and win32, but windows-latest above is the only
   # runner that exercises it. macOS — the platform the reported watcher bug was on —
-  # otherwise has no server-test coverage. Scoped to the observer/watcher suites to
-  # bound runtime.
+  # otherwise has no server-test coverage. Scoped to the observer/watcher suites and the
+  # Managed Chrome check to bound runtime.
   server-tests-macos:
     name: server-tests (macos-latest, file observation)
     needs: changes
@@ -325,6 +330,8 @@ jobs:
             src/server/workspace-git-service.observation.test.ts \
             src/server/workspace-git-service.observation.integration.test.ts \
             --bail=1
+
+      - *managed_chrome_check
 
   desktop-tests-ubuntu:
     name: desktop-tests (ubuntu-latest)

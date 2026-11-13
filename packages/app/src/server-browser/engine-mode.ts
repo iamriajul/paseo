@@ -60,6 +60,22 @@ export const MANAGED_CHROME_MODES: ReadonlyArray<{
   },
 ];
 
+/**
+ * A macOS or Windows host has no X display for Window mode and runs Managed Chrome headless
+ * whatever is saved (`features.serverBrowserChromeHeadlessOnly`), so Settings offers no choice there.
+ */
+export const MANAGED_CHROME_HEADLESS_ONLY_HINT =
+  "Chrome runs headless on this host, without a window, and some sites may spot it. Window mode needs an X display, which only Linux hosts have.";
+
+/** The hint under Managed Chrome: the picked mode's, or why a macOS or Windows host has no choice. */
+export function describeManagedChromeMode(params: {
+  mode: ManagedChromeMode;
+  headlessOnly: boolean;
+}): string {
+  if (params.headlessOnly) return MANAGED_CHROME_HEADLESS_ONLY_HINT;
+  return MANAGED_CHROME_MODES.find((entry) => entry.mode === params.mode)?.description ?? "";
+}
+
 export function resolveManagedChromeMode(setting: { chromeMode?: string } | undefined) {
   return setting?.chromeMode === "headless" ? "headless" : "window";
 }

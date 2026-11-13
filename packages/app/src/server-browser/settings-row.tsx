@@ -14,6 +14,7 @@ import { settingsStyles } from "@/styles/settings";
 import {
   createManagedChromeModePatch,
   createNewTabTargetPatch,
+  describeManagedChromeMode,
   describeNewTabTarget,
   NEW_TAB_TARGET_TITLE,
   NEW_TAB_TARGETS,
@@ -143,8 +144,11 @@ function ServerBrowserEngineRow({ serverId }: { serverId: string }) {
     (next: ManagedChromeMode) => mutation.mutate(createManagedChromeModePatch(next)),
     [mutation],
   );
-  const chromeModeDescription =
-    MANAGED_CHROME_MODES.find((entry) => entry.mode === chromeMode)?.description ?? "";
+  const chromeHeadlessOnly = useHostFeature(serverId, "serverBrowserChromeHeadlessOnly");
+  const chromeModeDescription = describeManagedChromeMode({
+    mode: chromeMode,
+    headlessOnly: chromeHeadlessOnly,
+  });
   const handleSaveCdpUrl = useCallback(
     () => mutation.mutate({ serverBrowser: { enabled: true, cdpUrl: cdpUrl.trim() } }),
     [cdpUrl, mutation],
@@ -187,14 +191,18 @@ function ServerBrowserEngineRow({ serverId }: { serverId: string }) {
       </View>
       {mode === "managed-chrome" ? (
         <View style={styles.fields}>
-          <SegmentedControl
-            options={CHROME_MODE_OPTIONS}
-            value={chromeMode}
-            onValueChange={handleChromeModeChange}
-            size="sm"
-            testID="host-page-server-browser-chrome-mode"
-          />
-          <Text style={settingsStyles.rowHint}>{chromeModeDescription}</Text>
+          {chromeHeadlessOnly ? null : (
+            <SegmentedControl
+              options={CHROME_MODE_OPTIONS}
+              value={chromeMode}
+              onValueChange={handleChromeModeChange}
+              size="sm"
+              testID="host-page-server-browser-chrome-mode"
+            />
+          )}
+          <Text style={settingsStyles.rowHint} testID="host-page-server-browser-chrome-mode-hint">
+            {chromeModeDescription}
+          </Text>
         </View>
       ) : null}
       {mode === "existing" ? (

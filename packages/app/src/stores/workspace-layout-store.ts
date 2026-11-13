@@ -32,6 +32,7 @@ import {
   getFocusedBrowserId,
   getTreeDepth,
   insertSplit,
+  isEphemeralTabTarget,
   moveTabToPaneInLayout,
   normalizeLayout,
   openTabInLayoutBackground,
@@ -1517,7 +1518,11 @@ export function createWorkspaceLayoutStore(
           if (!normalizedWorkspaceKey || !normalizedTabId) return;
           set((state) => {
             const layout = state.layoutByWorkspace[normalizedWorkspaceKey];
-            if (pinned && (!layout || !findPaneContainingTab(layout.root, normalizedTabId))) {
+            const tab = layout
+              ? collectAllTabs(layout.root).find((entry) => entry.tabId === normalizedTabId)
+              : undefined;
+            // A saved layout drops ephemeral kinds, so their pin could not outlive a reload.
+            if (pinned && (!tab || isEphemeralTabTarget(tab.target))) {
               return state;
             }
             const pinnedTabIdsByWorkspace = withTabPinned(

@@ -21,6 +21,9 @@ import { CdpConnection, pipeTransport, type CdpParams } from "./cdp-connection.j
 import { pickElement } from "./element-picker.js";
 import { ServerBrowserHost, type ServerBrowserLimits } from "./server-browser-host.js";
 import type { LaunchFn } from "./shared-chromium.js";
+import type { SessionOutboundMessage } from "../messages.js";
+import { SessionDelivery } from "../session/owned-subscriptions/index.js";
+import { ServerBrowserSessionHandlers } from "./session-handlers.js";
 
 /**
  * A stand-in for Chromium's CDP pipe: enough of Target and Storage for the host's lifecycle, with
@@ -670,6 +673,42 @@ describe("ServerBrowserHost lifecycle", () => {
     expect(second.listTabs()).toEqual([
       expect.objectContaining({ browserId: tab.browserId, suspended: true, pinned: true }),
     ]);
+  });
+
+  it("serves a client's first tab list only once the restore has brought pinned tabs back", async () => {
+    const first = createHost();
+    const tab = await first.openTab({ workspaceId: "ws", url: PAGE, openedBy: "user" });
+    await first.setTabPinned(tab.browserId, true);
+    await first.shutdown();
+
+    const second = createHost();
+    const emitted: SessionOutboundMessage[] = [];
+    const delivery = new SessionDelivery(() => {});
+    const handlers = new ServerBrowserSessionHandlers({
+      host: second,
+      delivery,
+      emit: (message) => emitted.push(message),
+      logger: pino({ level: "silent" }),
+      sessionId: "session-1",
+    });
+    const socket = {};
+    delivery.attach(socket, true);
+    const subscribe = {
+      type: "browser.server.tabs.subscribe.request",
+      requestId: "r1",
+    } as const;
+
+    // The daemon starts the restore without waiting for it; a client can subscribe meanwhile.
+    const restoring = second.loadSuspendedTabs();
+    await delivery.request(socket, subscribe, () => handlers.handle(subscribe));
+    await restoring;
+
+    const snapshot = emitted.find(
+      (message) => message.type === "browser.server.tabs.subscribe.response",
+    );
+    expect(snapshot?.payload).toMatchObject({
+      tabs: [expect.objectContaining({ browserId: tab.browserId, pinned: true, suspended: true })],
+    });
   });
 
   it("refuses an agent's browser_close_tab on a pinned tab, saying the user pinned it", async () => {

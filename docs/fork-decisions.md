@@ -2015,11 +2015,13 @@ The user wanted to pin tabs so they stay open. "Pin tab" / "Unpin tab" sit in ev
 
 `workspace-layout-storage.ts` also lists every tab kind now. It lacked `server_browser`, `codeServer`, `loop` and `background_task`, and validated storage deletes the whole saved blob when one tab fails to parse, so one open server browser tab wiped every workspace's saved layout on the next write. `EVERY_TAB_KIND_IS_STORED` fails to compile when a kind is missing again.
 
-The tests fail without the change: the store closes a pinned tab, reconcile drops a pinned archived agent's tab, a layout holding a server browser tab does not come back after a reload, and the host closes a pinned suspended tab by cap or age and lets an agent close a pinned tab.
+Kinds a saved layout drops (`commit_diff`, `new_tab`, `isEphemeralTabTarget`) offer no Pin and the store refuses to pin them, since the pin could not outlive a reload. A pinned server tab stays reachable after a restart: the host serves no tab list before its restore finishes, and a client reopens a host-pinned tab its layout lacks.
+
+The tests fail without the change: the store closes a pinned tab, reconcile drops a pinned archived agent's tab, a layout holding a server browser tab does not come back after a reload, the host closes a pinned suspended tab by cap or age and lets an agent close a pinned tab, a client subscribing during the restore gets a list without the pinned tab and never gets it back, and a commit diff tab can be pinned.
 
 ```bash
-npm test --workspace=@getpaseo/app -- src/workspace-tabs/pinned-tabs.test.ts --bail=1
-npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "pinned"
+npm test --workspace=@getpaseo/app -- src/workspace-tabs/pinned-tabs.test.ts src/server-browser/host-pins.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "pinned|first tab list"
 grep -q "serverBrowserTabPin: serverBrowserOf" packages/server/src/server/websocket-server.ts
 grep -q "serverBrowserTabPin: z.boolean().optional()" packages/protocol/src/messages.ts
 grep -q '"browser.server.tab.pin.request": "workspace.write"' packages/server/src/server/authorization/operation-permissions.ts

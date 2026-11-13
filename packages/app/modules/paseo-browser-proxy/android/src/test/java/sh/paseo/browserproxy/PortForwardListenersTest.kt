@@ -48,8 +48,13 @@ class PortForwardListenersTest {
     assertEquals(1, listeners.forwardCount)
     listeners.stop("forward-1")
     assertEquals(0, listeners.forwardCount)
-    val refused = runCatching { Socket(InetAddress.getByName("127.0.0.1"), port).close() }
-    assertTrue(refused.isFailure)
+    // Binding the port again proves the listener let it go. A connect that expects a refusal
+    // does not: `freePort` is an ephemeral port, and Linux can connect a socket to itself when
+    // it picks that same port as the source, which failed CI once with nothing listening.
+    val rebound = runCatching {
+      ServerSocket(port, 50, InetAddress.getByName("127.0.0.1")).close()
+    }
+    assertTrue(rebound.isSuccess)
   }
 
   @Test

@@ -831,6 +831,7 @@ export const fr: TranslationResources = {
     tabs: {
       loading: "Chargement…",
       modified: "Modifications non enregistrées",
+      pinned: "Épinglé",
       loadingAgentTitle: "Chargement du titre de l’agent…",
       fallback: {
         newAgent: "Nouvel agent",
@@ -868,6 +869,8 @@ export const fr: TranslationResources = {
         closeLeft: "Fermer les onglets à gauche",
         closeRight: "Fermer les onglets à droite",
         closeOthers: "Fermer les autres onglets",
+        pin: "Épingler l'onglet",
+        unpin: "Désépingler l'onglet",
         moveToMain: "Déplacer vers le panneau principal",
         reloadAgent: "Recharger l’agent",
         reloadAgentTooltip:

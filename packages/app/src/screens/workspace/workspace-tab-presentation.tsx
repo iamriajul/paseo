@@ -2,7 +2,7 @@ import type { Theme } from "@/styles/theme";
 import { StatusIcon } from "@/components/status-icon";
 import { useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
-import { Check } from "lucide-react-native";
+import { Check, Pin } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import invariant from "tiny-invariant";
@@ -11,6 +11,7 @@ import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import type { SurfaceBackdrop } from "@/styles/surface-backdrop";
 import { usePanelInstanceAttributes } from "@/panels/panel-instance-attributes";
+import { useIsWorkspaceTabPinned } from "@/workspace-tabs/use-pinned-tabs";
 
 export interface WorkspaceTabPresentation {
   key: string;
@@ -19,6 +20,8 @@ export interface WorkspaceTabPresentation {
   subtitle: string;
   tooltip: string;
   modified: boolean;
+  /** Fork: the user pinned the tab; it shows a pin and has no close button. */
+  pinned: boolean;
   showCloseButton: boolean;
   titleState: "ready" | "loading";
   icon: React.ComponentType<PanelIconProps>;
@@ -71,6 +74,7 @@ function WorkspaceTabPresentationResolverInner({
     tabId: tab.tabId,
   });
   const attributes = usePanelInstanceAttributes({ serverId, workspaceId, tabId: tab.tabId });
+  const pinned = useIsWorkspaceTabPinned({ serverId, workspaceId, tabId: tab.tabId });
 
   const presentation = useMemo(
     () => ({
@@ -80,7 +84,8 @@ function WorkspaceTabPresentationResolverInner({
       subtitle: descriptor.subtitle,
       tooltip: descriptor.tooltip,
       modified: attributes.modified,
-      showCloseButton: registration.showCloseButton,
+      pinned,
+      showCloseButton: registration.showCloseButton && !pinned,
       titleState: descriptor.titleState,
       icon: descriptor.icon,
       statusBucket: descriptor.statusBucket,
@@ -95,6 +100,7 @@ function WorkspaceTabPresentationResolverInner({
       tab.key,
       tab.kind,
       attributes.modified,
+      pinned,
       registration.showCloseButton,
     ],
   );
@@ -118,6 +124,7 @@ interface WorkspaceTabIconProps {
 }
 
 const ThemedCheckIcon = withUnistyles(Check);
+const ThemedPinIcon = withUnistyles(Pin);
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 export function WorkspaceTabIcon({
   presentation,
@@ -138,6 +145,20 @@ export function WorkspaceTabIcon({
     >
       <Icon size={size} color={iconColor} strokeWidth={strokeWidth} />
     </StatusIcon>
+  );
+}
+
+/** The pin a pinned tab shows, in the tab strip and the tab switcher. */
+export function WorkspaceTabPinIndicator({ size }: { size: number }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <View
+      style={styles.pinIndicator}
+      accessibilityLabel={t("workspace.tabs.pinned")}
+      testID="workspace-tab-pinned-indicator"
+    >
+      <ThemedPinIcon size={size} uniProps={mutedColorMapping} />
+    </View>
   );
 }
 
@@ -201,6 +222,7 @@ export function WorkspaceTabOptionRow({
       {presentation.modified ? (
         <View style={styles.optionModifiedDot} accessibilityLabel={t("workspace.tabs.modified")} />
       ) : null}
+      {presentation.pinned ? <WorkspaceTabPinIndicator size={14} /> : null}
       {selected ? (
         <View style={styles.optionTrailingSlot}>
           <ThemedCheckIcon size={16} uniProps={mutedColorMapping} />
@@ -214,6 +236,11 @@ export function WorkspaceTabOptionRow({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  pinIndicator: {
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   iconActive: {
     color: theme.colors.foreground,
   },

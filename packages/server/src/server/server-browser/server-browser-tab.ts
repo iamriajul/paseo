@@ -161,6 +161,11 @@ export class ServerBrowserTab {
   private readonly now: () => number;
   /** Set while the tab is suspended: its target is closed and its page unloaded. */
   private suspension: TabSuspension | null = null;
+  /**
+   * A user pinned the tab in their tab bar: it may suspend, but nothing closes it automatically
+   * (the suspended-tab cap and age) and an agent's browser_close_tab is refused.
+   */
+  private pinnedByUser = false;
   /** The suspended page's frame, shown to viewers until the restored page paints. */
   private stillFrame: ScreencastFrame | null = null;
   private readonly queue = new CdpSessionQueue();
@@ -294,6 +299,16 @@ export class ServerBrowserTab {
     );
   }
 
+  public get pinned(): boolean {
+    return this.pinnedByUser;
+  }
+
+  public setPinned(pinned: boolean): void {
+    if (this.pinnedByUser === pinned) return;
+    this.pinnedByUser = pinned;
+    this.onChange();
+  }
+
   public info(): ServerBrowserTabInfo {
     return {
       browserId: this.browserId,
@@ -307,6 +322,7 @@ export class ServerBrowserTab {
       openedBy: this.openedBy,
       createdAt: this.createdAt,
       ...(this.suspension ? { suspended: true } : {}),
+      ...(this.pinnedByUser ? { pinned: true } : {}),
       ...(this.loadError ? { loadError: { ...this.loadError } } : {}),
       ...(this.crashed ? { crashed: true } : {}),
       ...(this.openerBrowserId ? { openerBrowserId: this.openerBrowserId } : {}),

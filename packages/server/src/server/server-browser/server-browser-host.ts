@@ -122,6 +122,10 @@ interface WorkspaceContext {
   disposed: boolean;
 }
 
+/** What an agent's browser_close_tab and a client's close get for a tab a user pinned. */
+export const PINNED_TAB_CLOSE_REFUSAL =
+  "The user pinned this tab in Paseo, so it cannot be closed. Leave it open, or ask the user to unpin it.";
+
 const SHUTDOWN_SAVE_BUDGET_MS = 5_000;
 /** How long shutdown spends suspending open tabs so they come back after the restart. */
 const SHUTDOWN_SUSPEND_BUDGET_MS = 3_000;
@@ -372,6 +376,13 @@ export class ServerBrowserHost {
       });
     }
     if (command.command === "close_tab") {
+      if (tab.pinned) {
+        return browserToolsFailure({
+          requestId,
+          code: "browser_denied",
+          message: PINNED_TAB_CLOSE_REFUSAL,
+        });
+      }
       await this.closeTab(tab.browserId);
       return { requestId, ok: true, result: { command: "close_tab", browserId: tab.browserId } };
     }
@@ -527,6 +538,18 @@ export class ServerBrowserHost {
     return join(this.rootDir(), "uploads");
   }
 
+  /**
+   * Pins or unpins a tab for every client. A pinned tab still suspends when idle, but the
+   * suspended-tab cap and age never close it and an agent cannot close it.
+   */
+  public async setTabPinned(browserId: string, pinned: boolean): Promise<void> {
+    const tab = this.tabs.get(browserId);
+    if (!tab) throw new Error(`No server browser tab ${browserId}`);
+    tab.setPinned(pinned);
+    if (tab.isSuspended) await this.persistSuspended(tab);
+    if (!pinned) this.trimSuspendedTabs();
+  }
+
   public async closeTab(browserId: string): Promise<void> {
     const tab = this.tabs.get(browserId);
     if (!tab) return;
@@ -604,6 +627,7 @@ export class ServerBrowserHost {
         title: tab.info().title,
         viewport: tab.currentViewport,
         ...(tab.openerBrowserId ? { openerBrowserId: tab.openerBrowserId } : {}),
+        ...(tab.pinned ? { pinned: true } : {}),
         createdAt: tab.createdAt,
         lastUsedAt: tab.lastUsedAt,
         suspension,
@@ -684,10 +708,10 @@ export class ServerBrowserHost {
     return suspended;
   }
 
-  /** Past the cap, the suspended tabs used longest ago close. */
+  /** Past the cap, the suspended tabs used longest ago close. Pinned tabs neither close nor count. */
   private trimSuspendedTabs(): void {
     const suspended = [...this.tabs.values()]
-      .filter((tab) => tab.isSuspended && !tab.isClosed)
+      .filter((tab) => tab.isSuspended && !tab.isClosed && !tab.pinned)
       .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
     for (const tab of suspended.slice(this.limits.maxSuspendedTabs)) {
       void this.closeTab(tab.browserId);
@@ -706,9 +730,10 @@ export class ServerBrowserHost {
     const cutoff = this.now() - this.limits.suspendedTabTtlMs;
     const stored = await this.suspendedStore.loadAll();
     const fresh = stored
-      .filter((tab) => tab.lastUsedAt >= cutoff && !this.tabs.has(tab.browserId))
+      .filter((tab) => !tab.pinned && tab.lastUsedAt >= cutoff && !this.tabs.has(tab.browserId))
       .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
-    const kept = fresh.slice(0, this.limits.maxSuspendedTabs);
+    const pinned = stored.filter((tab) => tab.pinned && !this.tabs.has(tab.browserId));
+    const kept = [...pinned, ...fresh.slice(0, this.limits.maxSuspendedTabs)];
     for (const dropped of stored.filter((tab) => !kept.includes(tab))) {
       if (!this.tabs.has(dropped.browserId)) await this.suspendedStore.remove(dropped.browserId);
     }
@@ -726,7 +751,7 @@ export class ServerBrowserHost {
   }
 
   private addSuspendedTab(record: StoredSuspendedTab, titleMark: WindowTitleMark | null): void {
-    this.addTab({
+    const tab = this.addTab({
       browserId: record.browserId,
       workspaceId: record.workspaceId,
       target: null,
@@ -736,6 +761,7 @@ export class ServerBrowserHost {
       ...(titleMark ? { titleMark } : {}),
       ...(record.openerBrowserId ? { openerBrowserId: record.openerBrowserId } : {}),
     });
+    if (record.pinned) tab.setPinned(true);
   }
 
   /**
@@ -1255,7 +1281,7 @@ export class ServerBrowserHost {
     const work: Promise<void>[] = [];
     for (const tab of this.tabs.values()) {
       if (tab.isSuspended) {
-        if (tab.lastUsedAt < now - this.limits.suspendedTabTtlMs)
+        if (!tab.pinned && tab.lastUsedAt < now - this.limits.suspendedTabTtlMs)
           work.push(this.closeTab(tab.browserId));
       } else if (tab.viewerCount > 0) tab.touch();
       else if (tab.lastUsedAt < now - this.limits.tabIdleMs)

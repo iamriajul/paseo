@@ -2,6 +2,11 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Keyboard, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { SquarePen, SquareTerminal } from "lucide-react-native";
+import {
+  useCanPinWorkspaceTab,
+  useIsWorkspaceTabPinned,
+  useSetWorkspaceTabPinned,
+} from "@/workspace-tabs/use-pinned-tabs";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
@@ -203,13 +208,27 @@ function MobileWorkspaceTabOption({
       reloadAgent: t("workspace.tabs.menu.reloadAgent"),
       reloadAgentTooltip: t("workspace.tabs.menu.reloadAgentTooltip"),
       close: t("workspace.tabs.menu.close"),
+      pin: t("workspace.tabs.menu.pin"),
+      unpin: t("workspace.tabs.menu.unpin"),
     }),
     [t],
   );
   const menuTestIDBase = `workspace-tab-menu-${tab.tabId}`;
+  const pinned = useIsWorkspaceTabPinned({
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
+    tabId: tab.tabId,
+  });
+  const canPin = useCanPinWorkspaceTab(normalizedServerId, tab.target);
+  const setTabPinned = useSetWorkspaceTabPinned({
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
+  });
   const menuEntries = buildWorkspaceTabMenuEntries({
     surface: "mobile",
     tab,
+    pinned,
+    onTogglePin: canPin ? () => setTabPinned(tab, !pinned) : undefined,
     index: tabIndex,
     tabCount,
     menuTestIDBase,

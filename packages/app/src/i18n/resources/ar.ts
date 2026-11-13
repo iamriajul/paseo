@@ -822,6 +822,7 @@ export const ar: TranslationResources = {
     tabs: {
       loading: "تحميل...",
       modified: "تغييرات غير محفوظة",
+      pinned: "مثبتة",
       loadingAgentTitle: "جارٍ تحميل عنوان الوكيل",
       fallback: {
         newAgent: "وكيل جديد",
@@ -859,6 +860,8 @@ export const ar: TranslationResources = {
         closeLeft: "بالقرب من اليسار",
         closeRight: "قريب من اليمين",
         closeOthers: "أغلق علامات التبويب الأخرى",
+        pin: "تثبيت علامة التبويب",
+        unpin: "إلغاء تثبيت علامة التبويب",
         moveToMain: "Move to main panel",
         reloadAgent: "إعادة تحميل الوكيل",
         reloadAgentTooltip: "قم بإعادة تحميل الوكيل لتحديث المهارات أو MCPs أو حالة تسجيل الدخول.",

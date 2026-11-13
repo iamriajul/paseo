@@ -156,8 +156,9 @@ describe("paseo config file substrate", () => {
     // A fixed millisecond budget measures the runner's speed: a slow Windows runner read 32 ms
     // against 20. The longest turn's share of the read's total work does not depend on speed,
     // and validating every script in one turn makes it about 1. Discount one counter step,
-    // because Windows counts thread CPU in ~15.6 ms ticks.
-    expect(totalCpuMs).toBeGreaterThan(4 * cpuResolutionMs);
+    // because Windows counts thread CPU in ~15.6 ms ticks. There is no floor on the total: the
+    // config is near MAX_PASEO_CONFIG_BYTES already, and a fast Windows runner read it in 46 ms,
+    // under a 4-tick floor. A chunked read still passes there, and `yields` shows it chunked.
     expect(blockingMs - cpuResolutionMs).toBeLessThan(totalCpuMs / 4);
     expect(filesystemRequests).toBeGreaterThan(0);
     expect(yields).toBeGreaterThan(0);

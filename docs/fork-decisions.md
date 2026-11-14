@@ -67,6 +67,22 @@ node -e 'const d=require("./packages/app/package.json").devDependencies;process.
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-explorer/service.test.ts --bail=1 -t "advertises Office document types"
 ```
 
+## media-file-preview
+
+**audio and video files play in the file pane, with seeking, over every connection**
+
+Upstream's file panel catalog has no media panel, so every `.mp4`, `.webm`, `.mov` or `.mp3` showed "Binary preview unavailable". The fork adds `builtin:media` (`file-panels/media/`), a fallback panel like `pdf-file-preview`, for the formats in `media/formats.ts`. It does not read the file whole: `fs.download.open` takes an optional `offset` and `length` for a file (`messages.ts`, `workspace-files-session.ts`), advertised as `server_info.features.downloadRange`, and the panel reads only the ranges the player asks for. Web and Electron play through a service worker scoped to `/media-stream/` (`packages/app/public/media-stream/`), which turns the player's Range requests into those reads. Electron's `paseo://` scheme needs `allowServiceWorkers` in `packages/desktop/src/main.ts` for that; without it registration fails with "The URL protocol of the current origin ('paseo://app') is not supported". iOS and Android stream the file into the app cache and play it with `expo-video`, a new native dependency. How it fits together, and why, is in [File preview](file-preview.md#audio-and-video).
+
+```bash
+npm test --workspace=@getpaseo/app -- src/file-panels/fork-builtin-panels.test.ts src/file-panels/media/range.test.ts src/file-panels/media/range-reader.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/session/files/workspace-files-session.test.ts -t "byte range" --bail=1
+grep -q '"builtin:media": MediaPanel' packages/app/src/file-panels/builtin.tsx
+grep -q "downloadRange: true" packages/server/src/server/websocket-server.ts
+grep -q "allowServiceWorkers: true" packages/desktop/src/main.ts
+grep -q '"expo-video"' packages/app/package.json
+test -f packages/app/public/media-stream/sw.js
+```
+
 ## attention-window-focus
 
 **heartbeat appVisible follows window focus, not document visibility**

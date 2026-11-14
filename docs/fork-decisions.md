@@ -83,6 +83,61 @@ grep -q '"expo-video"' packages/app/package.json
 test -f packages/app/public/media-stream/sw.js
 ```
 
+## file-tab-actions
+
+**a file tab shows its changes, downloads or shares its file, and caps whole-file previews**
+
+Upstream's file tab has no actions of its own: seeing what an agent changed in an open file meant finding it in Changes, and downloading it meant finding it in Files. Every file tab now ends its toolbar with Show changes, when Changes lists the file (with its added and removed lines, from the diff subscription Changes uses), and Download, which is Share on iOS and Android (`file-panels/actions.tsx`, `file-pane/actions.ts`). Text panels put them in `TextFileToolbar`; the tab draws a toolbar above every other panel (`file-pane/pane.tsx`). Image, PDF and Office read the whole file into memory before showing anything, so past 64 MB on web and 32 MB on phones they show "too large to preview here" and Download instead (`file-panels/whole-file-limit.ts`). Details are in [File preview](file-preview.md#the-file-tabs-toolbar).
+
+```bash
+npm test --workspace=@getpaseo/app -- src/file-pane/actions.test.ts src/file-panels/whole-file-limit.test.ts --bail=1
+grep -q "<FileTabActionButtons />" packages/app/src/file-panels/source/toolbar.tsx
+grep -q "useFileTabActions" packages/app/src/file-pane/pane.tsx
+```
+
+## highlight-more-languages
+
+**Source and diffs highlight shell, SQL, TOML, Dockerfile, Kotlin, Ruby and Lua**
+
+`packages/highlight/src/parsers.ts` upstream has no grammar for those languages, so scripts, Dockerfiles, `Cargo.toml` and SQL showed as plain text in Source and in diffs. The fork maps them to `@codemirror/legacy-modes` through `StreamLanguage`, the way upstream already handles Swift and Dart, and matches `Dockerfile`, `Containerfile`, `Gemfile`, `Rakefile` and their kin by name. The package is already a dependency, so nothing new ships.
+
+```bash
+npm test --workspace=@getpaseo/highlight -- src/__tests__/parsers.test.ts src/__tests__/highlighter.test.ts --bail=1
+```
+
+## table-json-file-preview
+
+**CSV and TSV open as a table, JSON as a foldable tree**
+
+Upstream shows `.csv`, `.tsv` and `.json` only as source, which is unreadable for a minified JSON file or a wide CSV, on a phone above all. The fork adds `builtin:table` and `builtin:json` (`file-panels/table/`, `file-panels/json/`), text panels with a preview beside Source like Markdown. Both are fallback panels like `pdf-file-preview`, but Source, the floor for every text file, used to count as a claim in `withoutFallbacks` (`file-panels/resolve.ts`), so a text fallback could never open. Source no longer counts; a plugin that claims `.json` still gets the plugin-or-Source question it got before. `file-editing.spec.ts` opens a large `package-lock.json` to test Source, so it switches to Source first.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/file-panels/fork-builtin-panels.test.ts src/file-panels/table/parse.test.ts src/file-panels/json/model.test.ts --bail=1
+```
+
+## log-file-tail
+
+**a `.log` file opens on its end and follows it as it grows**
+
+Upstream opens a log in Source, which reads the whole file and shows its start, and refuses it past 50 MB on web and 10 MB on phones. The fork adds `builtin:log` (`file-panels/log/`), a fallback text panel that reads the last 256 KB with the byte-range read from `media-file-preview`, then only the bytes appended since, and earlier chunks on request. Source stays a tap away when the file fits its budget: `TextFilePanel` takes an `onShowTail` view and `TextFileToolbar` a list of views (`source/panel.tsx`, `source/toolbar.tsx`). How the tail reads, and why lines do not wrap, is in [File preview](file-preview.md#log-files).
+
+```bash
+npm test --workspace=@getpaseo/app -- src/file-panels/log/tail.test.ts src/file-panels/fork-builtin-panels.test.ts --bail=1
+grep -q '"builtin:log": LogPanel' packages/app/src/file-panels/builtin.tsx
+```
+
+## image-formats-and-utf16-text
+
+**SVG and AVIF show on phones, BMP, ICO and AVIF open as images, UTF-16 files open as text**
+
+React Native's `Image` decodes no SVG on iOS or Android and no AVIF before iOS 16 and Android 12, so the image panel showed nothing for them on phones. `ZoomableImage` draws through `zoomable-viewport/platform-image.tsx`, which uses `expo-image` on phones (already a dependency) and React Native's `Image` on web. The daemon now types `.bmp`, `.ico` and `.avif` as images and the image panel claims them. UTF-16 files showed "Binary preview unavailable" because their NUL bytes fail every UTF-8 check: the daemon reads the BOM and names the encoding in the file version's optional `textEncoding`, keeping `kind: "binary"` for apps that would decode it as UTF-8 (`COMPAT(utf16Text)` in `file-explorer/service.ts`), and the app decodes and saves it in that encoding (`file-panels/file/text-encoding.ts`).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-explorer/service.test.ts -t "UTF-16" --bail=1
+npm test --workspace=@getpaseo/app -- src/file-panels/file/text-encoding.test.ts src/file-panels/file/handle.test.ts --bail=1
+grep -q 'from "expo-image"' packages/app/src/components/zoomable-viewport/platform-image.tsx
+```
+
 ## attention-window-focus
 
 **heartbeat appVisible follows window focus, not document visibility**

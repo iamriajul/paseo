@@ -15,6 +15,39 @@ export function firstFrame(host: ServerBrowserHost, browserId: string) {
   });
 }
 
+/** Watches a tab's JPEG screencast at `size`, acking every frame: each frame's pixel width. */
+export function watchJpeg(
+  host: ServerBrowserHost,
+  browserId: string,
+  viewerId: string,
+  size: { maxWidth: number; maxHeight: number },
+) {
+  const tab = host.getTab(browserId)!;
+  const widths: number[] = [];
+  tab.screencast.addViewer(
+    viewerId,
+    {
+      send: (frame, seq) => {
+        widths.push(jpegWidth(frame.jpeg));
+        tab.screencast.ack(viewerId, seq);
+      },
+      isCongested: () => false,
+    },
+    size,
+  );
+  return { widths, stop: () => tab.screencast.removeViewer(viewerId) };
+}
+
+/** A JPEG's width in pixels, from its start-of-frame segment. */
+function jpegWidth(jpeg: Uint8Array): number {
+  const bytes = Buffer.from(jpeg.buffer, jpeg.byteOffset, jpeg.byteLength);
+  for (let at = 2; at + 9 < bytes.length; at += 2 + bytes.readUInt16BE(at + 2)) {
+    const marker = bytes[at + 1]!;
+    if (marker >= 0xc0 && marker <= 0xc3) return bytes.readUInt16BE(at + 7);
+  }
+  throw new Error("Not a JPEG");
+}
+
 export interface VideoWatch {
   chunks: Array<{ key: boolean; bytes: number; at: number }>;
   fellBack: boolean;

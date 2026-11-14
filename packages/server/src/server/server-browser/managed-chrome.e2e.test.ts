@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveServerBrowserEngine } from "./bootstrap.js";
 import { managedChromeHeadlessOnly } from "./engines.js";
 import { ServerBrowserHost } from "./server-browser-host.js";
-import { firstFrame, waitFor, watchVideo } from "./test-utils/viewers.js";
+import { firstFrame, waitFor, watchJpeg, watchVideo } from "./test-utils/viewers.js";
 
 // Managed Chrome through the real engine on whatever host runs it. CI runs it on its macOS and
 // Windows server-test runners, whose images ship Google Chrome; Linux has the fuller local suite
@@ -172,6 +172,24 @@ describe("Managed Chrome on this host", { timeout: 90_000 }, () => {
     expect(host.getTab(browserId)).toBeNull();
     await host.shutdown();
     await waitForExit(tree);
+  });
+
+  it("streams JPEG at the size of a larger viewer that replaces a smaller one", async () => {
+    const host = createHost();
+    const { browserId } = await host.openTab({
+      workspaceId: "ws",
+      url: siteUrl,
+      openedBy: "agent",
+    });
+    const small = watchJpeg(host, browserId, "small", { maxWidth: 320, maxHeight: 200 });
+    await waitFor(() => small.widths.length > 0, 30_000);
+    expect(small.widths[0]).toBe(320);
+    // A viewer resizing: its client asks for the new stream before the old one's release lands.
+    const large = watchJpeg(host, browserId, "large", { maxWidth: 1280, maxHeight: 800 });
+    small.stop();
+    await waitFor(() => large.widths.length >= 30, 30_000);
+    expect(large.widths.at(-1)).toBe(1280);
+    large.stop();
   });
 
   it("goes down with a killed daemon", async () => {

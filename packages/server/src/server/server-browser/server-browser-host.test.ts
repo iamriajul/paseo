@@ -44,6 +44,8 @@ class FakeChromium {
   public readonly closedTargets: string[] = [];
   /** The page's scroll position, as the suspend capture reads it. */
   public scroll: [number, number] = [0, 0];
+  /** The running screencast of each target, by its Page.startScreencast params. */
+  public readonly screencasts = new Map<string, CdpParams>();
   /** How long a navigation takes to load; a busy host's page loads late. */
   public navigateDelayMs = 0;
   /** Ends the running browser as a crash would. */
@@ -86,6 +88,12 @@ class FakeChromium {
         };
         buffer = buffer.slice(end + 1);
         if (message.sessionId) this.pageCommands.push(message);
+        if (this.refusesScreencast(message.method, message.params, message.sessionId)) {
+          const error = { code: -32000, message: "Screencast is already active" };
+          fromBrowser.write(`${JSON.stringify({ id: message.id, error })}\0`);
+          end = buffer.indexOf("\0");
+          continue;
+        }
         const result = this.answer(message.method, message.params, message.sessionId);
         // A navigation loads at once: the main frame starts, commits, has its DOM and stops loading.
         if (message.method === "Page.navigate" && message.sessionId) {
@@ -123,6 +131,20 @@ class FakeChromium {
       sandboxed: true,
     };
   };
+
+  /**
+   * Keeps each target's running screencast. Chrome 153 refuses a start while one runs (true);
+   * Playwright's headless shell restarts in place instead.
+   */
+  private refusesScreencast(method: string, params: CdpParams, pageSession?: string): boolean {
+    const target = pageSession ? this.targetOfSession.get(pageSession) : undefined;
+    if (!target) return false;
+    if (method === "Page.stopScreencast") this.screencasts.delete(target);
+    if (method !== "Page.startScreencast") return false;
+    if (this.screencasts.has(target)) return true;
+    this.screencasts.set(target, params);
+    return false;
+  }
 
   private answer(method: string, params: CdpParams, pageSession?: string): CdpParams {
     switch (method) {
@@ -254,6 +276,35 @@ describe("an element pick on a tab that goes away", () => {
       new Promise((resolve) => setTimeout(() => resolve("still polling"), 2_000)),
     ]);
     expect(outcome).toEqual({ outcome: "cancelled" });
+  });
+});
+
+describe("a tab's JPEG screencast", () => {
+  const viewer = { send: () => {}, isCongested: () => false };
+  const starts = () => chromium.pageCommands.filter((c) => c.method === "Page.startScreencast");
+
+  it("grows to a larger viewer that replaces a smaller one, though Chrome refuses a second start", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "user" });
+    // A viewer resizing: its client asks for the new stream before the old one's release lands.
+    tab.screencast.addViewer("small", viewer, { maxWidth: 100, maxHeight: 100 });
+    tab.screencast.addViewer("large", viewer, SIZE);
+    tab.screencast.removeViewer("small");
+    await waitFor(() => starts().length === 2);
+    expect(chromium.screencasts.get(tab.cdpTargetId)).toMatchObject(SIZE);
+  });
+
+  it("shrinks once the larger viewer leaves", async () => {
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "user" });
+    tab.screencast.addViewer("large", viewer, SIZE);
+    tab.screencast.addViewer("small", viewer, { maxWidth: 400, maxHeight: 300 });
+    tab.screencast.removeViewer("large");
+    await waitFor(() => starts().length === 2);
+    expect(chromium.screencasts.get(tab.cdpTargetId)).toMatchObject({
+      maxWidth: 400,
+      maxHeight: 300,
+    });
   });
 });
 

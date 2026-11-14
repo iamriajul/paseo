@@ -18,7 +18,10 @@ const RESIZE_THRESHOLD = 0.25;
 export function quantizeScreencastViewport(
   previous: ScreencastViewport | null,
   next: ScreencastViewport,
-): ScreencastViewport {
+): ScreencastViewport | null {
+  // A surface kept mounted behind another tab (display: none) measures 0×0. It has no size: a
+  // rounded-up one would be what the tab streams at when it shows again, until its next measure.
+  if (next.maxWidth <= 0 || next.maxHeight <= 0) return null;
   if (
     previous &&
     Math.abs(previous.maxWidth - next.maxWidth) / previous.maxWidth < RESIZE_THRESHOLD &&
@@ -34,8 +37,8 @@ export function quantizeScreencastViewport(
 
 /**
  * The size to stream at, or null for no stream. A tab kept mounted behind another (a retained
- * panel, display: none) measures 0×0, which still rounds up to a stream; it must not watch: a
- * watched tab is never suspended, and Chrome would keep painting it for nobody.
+ * panel) must not watch: a watched tab is never suspended, and Chrome would keep painting it for
+ * nobody.
  */
 export function streamingViewport(
   viewport: ScreencastViewport | null,

@@ -3441,6 +3441,10 @@ export const FileVersionSchema = z.discriminatedUnion("status", [
     // file before reading it.
     kind: z.enum(["text", "image", "binary"]).optional(),
     mimeType: z.string().optional(),
+    // A text file in an encoding other than UTF-8, named by its byte order mark. Its kind stays
+    // "binary" because older clients decode text as UTF-8; a client that reads this opens it as
+    // text and decodes the bytes itself.
+    textEncoding: z.enum(["utf-16le", "utf-16be"]).optional(),
   }),
   z.object({
     status: z.literal("missing"),

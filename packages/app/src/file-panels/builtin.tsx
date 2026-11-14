@@ -10,6 +10,11 @@ import { useSessionStore } from "@/stores/session-store";
 import { FileHtmlPreview } from "./html-preview";
 import { FilePanelLoading } from "./loading";
 import { FileMarkdownPreview } from "./markdown-preview";
+import { isJsonLinesPath } from "./json/model";
+import { LogPanel } from "./log/panel";
+import { JsonTreeView } from "./json/view";
+import { tableDelimiter } from "./table/parse";
+import { TableView } from "./table/view";
 import { MediaPanel } from "./media/panel";
 import { TextFilePanel, type TextFilePreviewProps } from "./source/panel";
 import type { RenderingFilePanel, SourceFilePanel } from "./catalog";
@@ -27,6 +32,32 @@ function MarkdownPanel(props: PluginFilePanelProps) {
 /** HTML: the text file panel with the sandboxed page as its Preview. */
 function HtmlPanel(props: PluginFilePanelProps) {
   return <TextFilePanel {...props} preview={HtmlPreview} />;
+}
+
+/** Table: the text file panel with CSV and TSV rows as a table for its Preview. */
+function TablePanel(props: PluginFilePanelProps) {
+  return <TextFilePanel {...props} preview={TablePreview} />;
+}
+
+/** JSON: the text file panel with a foldable tree for its Preview. */
+function JsonPanel(props: PluginFilePanelProps) {
+  return <TextFilePanel {...props} preview={JsonPreview} />;
+}
+
+function TablePreview({ text, params }: TextFilePreviewProps) {
+  return (
+    <View style={styles.container}>
+      <TableView text={text} delimiter={tableDelimiter(params.path) ?? ","} />
+    </View>
+  );
+}
+
+function JsonPreview({ text, params }: TextFilePreviewProps) {
+  return (
+    <View style={styles.container}>
+      <JsonTreeView text={text} jsonLines={isJsonLinesPath(params.path)} />
+    </View>
+  );
 }
 
 /** Shows Loading until the rendered Markdown has laid out once; later edits keep the content. */
@@ -100,12 +131,29 @@ function FilePanelError({ message }: { message: string }) {
 const components = {
   "builtin:markdown": MarkdownPanel,
   "builtin:html": HtmlPanel,
+  "builtin:log": LogPanel,
+  "builtin:table": TablePanel,
+  "builtin:json": JsonPanel,
   "builtin:image": ImagePanel,
   "builtin:pdf": PdfPanel,
   "builtin:media": MediaPanel,
   "builtin:office": OfficePanel,
   "builtin:source": SourcePanel,
 };
+
+/** Panels that head the file tab with their own toolbar; the tab heads every other panel. */
+const PANELS_WITH_TOOLBAR: ReadonlySet<string> = new Set([
+  "builtin:markdown",
+  "builtin:html",
+  "builtin:table",
+  "builtin:json",
+  "builtin:log",
+  "builtin:source",
+]);
+
+export function ownsFileTabToolbar(panel: { id: string; builtin: boolean }): boolean {
+  return panel.builtin && PANELS_WITH_TOOLBAR.has(panel.id);
+}
 
 export function BuiltinFilePanelView({
   panel,

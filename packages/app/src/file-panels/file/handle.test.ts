@@ -94,6 +94,16 @@ describe("FileHandle", () => {
     expect(session.text("notes.md")).toBe("﻿saved\r\n");
   });
 
+  it("reads UTF-16 by its byte order mark and saves it as UTF-16", async () => {
+    const utf16 = (text: string) => new Uint8Array([0xff, 0xfe, ...Buffer.from(text, "utf16le")]);
+    const { session, file } = await openFile(utf16("Größe\r\n"));
+
+    expect(await file.readText()).toBe("Größe\r\n");
+    await file.writeText("Grüße\r\n");
+
+    expect(session.bytes("notes.md")).toEqual(utf16("Grüße\r\n"));
+  });
+
   it("tells watchers about each external version once, and about deletion", async () => {
     const { session, file, events } = await openFile();
 

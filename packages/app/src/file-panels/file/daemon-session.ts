@@ -33,7 +33,8 @@ export function createDaemonFileSession(
       const classify = (version: FileVersion): FileObservation => {
         if (version.status !== "ready") return version;
         if (version.kind && version.mimeType) {
-          kind = { kind: version.kind, mimeType: version.mimeType };
+          // A UTF-16 file is "binary" to apps that cannot decode it; this one can.
+          kind = { kind: version.textEncoding ? "text" : version.kind, mimeType: version.mimeType };
         }
         // COMPAT(fileVersionKind): added in v0.13.0, remove after 2027-04-20. Older daemons
         // classify a file only when reading it; the first read's kind stands for later versions.

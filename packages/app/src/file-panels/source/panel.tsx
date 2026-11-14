@@ -21,6 +21,7 @@ import { useAppSettings } from "@/hooks/use-settings";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { formatFileSize } from "@/utils/format-file-size";
 import type { Theme } from "@/styles/theme";
+import { FileTabToolbar } from "../actions";
 import { FilePanelLoading } from "../loading";
 import type { FileConflictAlertState } from "./conflict-alert";
 import { FileEditorModel, getFileConflictCallout } from "./editor/model";
@@ -62,7 +63,31 @@ export interface TextFilePreviewProps {
 type TextFilePanelProps = PluginFilePanelProps & {
   /** The panel's Preview; with one, the toolbar switches between Preview and Source. */
   preview?: ComponentType<TextFilePreviewProps>;
+  /** A log's Tail, offered before Source; choosing it leaves this panel. */
+  onShowTail?: () => void;
 };
+
+/** The views a text panel's toolbar offers, and what choosing one does. */
+function useTextFileViews(
+  props: Pick<TextFilePanelProps, "preview" | "onShowTail">,
+  view: TextFileView,
+  setView: (view: TextFileView) => void,
+) {
+  const { preview, onShowTail } = props;
+  const views = useMemo<TextFileView[]>(
+    () => [
+      ...(onShowTail ? ["tail" as const] : []),
+      ...(preview ? ["preview" as const] : []),
+      "source",
+    ],
+    [onShowTail, preview],
+  );
+  const select = useCallback(
+    (next: TextFileView) => (next === "tail" ? onShowTail?.() : setView(next)),
+    [onShowTail, setView],
+  );
+  return { views, shown: preview ? view : ("source" as const), select };
+}
 
 /**
  * What the Markdown, HTML and Source panels share: a toolbar over the file's Source view and, when
@@ -100,9 +125,12 @@ function useTextFileView(
 function TooLargeTextFile({ size }: { size: number }) {
   const { t } = useTranslation();
   return (
-    <View style={styles.centerState} testID="file-source-too-large">
-      <Text style={styles.mutedText}>{t("panels.file.tooLargeToDisplay")}</Text>
-      <Text style={styles.mutedText}>{formatFileSize(size)}</Text>
+    <View style={styles.container}>
+      <FileTabToolbar size={size} />
+      <View style={styles.centerState} testID="file-source-too-large">
+        <Text style={styles.mutedText}>{t("panels.file.tooLargeToDisplay")}</Text>
+        <Text style={styles.mutedText}>{formatFileSize(size)}</Text>
+      </View>
     </View>
   );
 }
@@ -114,11 +142,13 @@ function ReadonlyTextFile({
   workspaceId,
   host,
   preview: Preview,
+  onShowTail,
   presentation,
 }: TextFilePanelProps & { presentation: "highlighted" | "plain" }) {
   const text = useFileText(file);
   const { t } = useTranslation();
   const [view, setView] = useTextFileView(params, revision);
+  const views = useTextFileViews({ preview: Preview, onShowTail }, view, setView);
   const sourceLocation = useMemo(
     () => ({ path: params.path, lineStart: params.lineStart, lineEnd: params.lineEnd }),
     [params.lineEnd, params.lineStart, params.path],
@@ -137,8 +167,9 @@ function ReadonlyTextFile({
       <TextFileToolbar
         size={file.size}
         lineCount={text.text.split("\n").length}
-        view={Preview ? view : undefined}
-        onViewChange={Preview ? setView : undefined}
+        views={views.views}
+        view={views.shown}
+        onViewChange={views.select}
       />
       {showPreview ? (
         <Preview text={text.text} params={params} workspaceId={workspaceId} host={host} />
@@ -163,11 +194,13 @@ function EditableTextFile({
   workspaceId,
   host,
   preview: Preview,
+  onShowTail,
 }: TextFilePanelProps) {
   const { settings } = useAppSettings();
   const { t } = useTranslation();
   const [model] = useState(() => new FileEditorModel({ file }));
   const [view, setView] = useTextFileView(params, revision);
+  const views = useTextFileViews({ preview: Preview, onShowTail }, view, setView);
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [vimMode, setVimMode] = useState<string | null>(settings.vimKeybindings ? "NORMAL" : null);
   const snapshot = useSyncExternalStore(model.subscribe, model.getSnapshot, model.getSnapshot);
@@ -231,8 +264,9 @@ function EditableTextFile({
       <TextFileToolbar
         size={file.size}
         lineCount={snapshot.content.split("\n").length}
-        view={Preview ? view : undefined}
-        onViewChange={Preview ? setView : undefined}
+        views={views.views}
+        view={views.shown}
+        onViewChange={views.select}
         editorStatus={snapshot.status}
         cursor={showPreview ? undefined : cursor}
         vimMode={showPreview ? null : vimMode}

@@ -109,12 +109,16 @@ function isBuiltinFloor(candidate: FilePanelCandidate): boolean {
   return candidate.builtin && candidate.files === "all";
 }
 
-/** Fork: fallback built-ins drop out as soon as any other panel claims the file. */
+/**
+ * Fork: fallback built-ins drop out as soon as another panel claims the file. Source is the floor
+ * for every text file, so it claims nothing here: a text file opens in a fallback (JSON, Table)
+ * unless a plugin panel claims it.
+ */
 function withoutFallbacks<Candidate extends FilePanelCandidate>(
   candidates: readonly Candidate[],
 ): readonly Candidate[] {
-  const claimed = candidates.filter((candidate) => !candidate.fallback);
-  return claimed.length > 0 ? claimed : candidates;
+  const claimed = candidates.some((candidate) => !candidate.fallback && !isBuiltinFloor(candidate));
+  return claimed ? candidates.filter((candidate) => !candidate.fallback) : candidates;
 }
 
 /** Paseo asks which panel opens a file only when a plugin panel is one of several candidates. */

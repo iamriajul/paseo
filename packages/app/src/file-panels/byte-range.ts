@@ -3,10 +3,16 @@ import type { DownloadStreamOptions } from "@getpaseo/client/internal/daemon-cli
 import { resolveFilePreviewReadTarget } from "@/file-explorer/preview-target";
 import { useSessionStore } from "@/stores/session-store";
 import { useWorkspaceDirectory } from "@/stores/session-store-hooks";
-import type { OpenByteRange } from "./range-reader";
+import type { ByteRange } from "./media/range";
+
+/** Streams one byte range of the file, a chunk at a time, until the signal aborts. */
+export type OpenByteRange = (
+  range: ByteRange,
+  signal: AbortSignal,
+) => Promise<AsyncIterable<Uint8Array>>;
 
 /** Whether this host can stream the file's bytes in ranges, and the opener when it can. */
-export type MediaAccess =
+export type ByteRangeAccess =
   | { status: "ready"; open: OpenByteRange }
   | { status: "update-host" }
   | { status: "unavailable" };
@@ -16,12 +22,12 @@ export type MediaAccess =
  * so relay, SSH and socket hosts stream like direct ones. `readAhead` sets how much each open
  * download keeps in flight: a seek discards it, a whole-file load wants more of it.
  */
-export function useMediaAccess(input: {
+export function useByteRangeAccess(input: {
   serverId: string;
   workspaceId: string;
   path: string;
   readAhead: Pick<DownloadStreamOptions, "sliceBytes" | "depth">;
-}): MediaAccess {
+}): ByteRangeAccess {
   const { serverId, workspaceId, path } = input;
   const { sliceBytes, depth } = input.readAhead;
   const client = useSessionStore((state) => state.sessions[serverId]?.client ?? null);

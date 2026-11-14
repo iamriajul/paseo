@@ -17,7 +17,7 @@ const renderingPanels = [
   {
     id: "builtin:image",
     builtin: true,
-    files: { extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] },
+    files: { extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"] },
     fileKind: "image",
   },
   {
@@ -56,6 +56,27 @@ const renderingPanels = [
       ],
     },
     fileKind: "binary",
+  },
+  {
+    id: "builtin:log",
+    builtin: true,
+    fallback: true,
+    files: { extensions: ["log"] },
+    fileKind: "text",
+  },
+  {
+    id: "builtin:table",
+    builtin: true,
+    fallback: true,
+    files: { extensions: ["csv", "tsv", "tab"] },
+    fileKind: "text",
+  },
+  {
+    id: "builtin:json",
+    builtin: true,
+    fallback: true,
+    files: { extensions: ["json", "jsonc", "jsonl", "ndjson"] },
+    fileKind: "text",
   },
 ] as const satisfies readonly FilePanelCandidate[];
 

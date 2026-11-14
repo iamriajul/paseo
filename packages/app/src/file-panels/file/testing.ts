@@ -40,6 +40,10 @@ export class InMemoryFileSession implements FileSession {
     this.notify(path);
   }
 
+  bytes(path: string): Uint8Array | null {
+    return this.files.get(path)?.bytes ?? null;
+  }
+
   text(path: string): string | null {
     const file = this.files.get(path);
     return file ? new TextDecoder("utf-8", { ignoreBOM: true }).decode(file.bytes) : null;

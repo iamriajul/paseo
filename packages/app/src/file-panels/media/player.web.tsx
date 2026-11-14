@@ -3,10 +3,9 @@ import { useFileUrl } from "@getpaseo/plugin/client";
 import { useTranslation } from "react-i18next";
 import { FilePanelLoading } from "../loading";
 import { formatFileSize } from "@/utils/format-file-size";
-import { useMediaAccess } from "./access";
+import { useByteRangeAccess, type OpenByteRange } from "../byte-range";
 import type { MediaFormat } from "./formats";
 import { MediaMessage } from "./message";
-import type { OpenByteRange } from "./range-reader";
 import { canStreamMedia, publishMediaStream, type PublishedMediaStream } from "./stream-server.web";
 import type { MediaPlayerProps } from "./types";
 
@@ -21,7 +20,7 @@ const MEMORY_PLAYBACK_MAX_BYTES = 64 * 1024 * 1024;
 
 export function MediaPlayer(props: MediaPlayerProps) {
   const { t } = useTranslation();
-  const access = useMediaAccess({ ...props, readAhead: READ_AHEAD });
+  const access = useByteRangeAccess({ ...props, readAhead: READ_AHEAD });
   if (!canStreamMedia()) {
     if (props.size <= MEMORY_PLAYBACK_MAX_BYTES) return <MemoryPlayer {...props} />;
     return (

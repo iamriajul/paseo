@@ -6,6 +6,9 @@ import { parseFilePanelSelectorKey } from "../resolve";
 const BUILTIN_PRESENTATION = {
   "builtin:markdown": { title: "markdown", icon: "FileText" },
   "builtin:html": { title: "html", icon: "FileCode" },
+  "builtin:log": { title: "log", icon: "ScrollText" },
+  "builtin:table": { title: "table", icon: "Sheet" },
+  "builtin:json": { title: "json", icon: "Braces" },
   "builtin:image": { title: "image", icon: "Image" },
   "builtin:pdf": { title: "pdf", icon: "FileText" },
   "builtin:media": { title: "media", icon: "FilePlay" },

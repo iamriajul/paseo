@@ -10,17 +10,21 @@ import { useFileHandle, useFileHandleSnapshot, type FileHandleSnapshot } from "@
 import type { FilePanelFileKind } from "@/file-panels/resolve";
 import { FilePanelLoading } from "@/file-panels/loading";
 import { FilePanelPicker, FilePanelView, useFilePanelChoice, type FilePanel } from "@/file-panels";
+import { FileTabActionsProvider, FileTabToolbar } from "@/file-panels/actions";
+import { ownsFileTabToolbar } from "@/file-panels/builtin";
+import { exceedsWholeFilePreview } from "@/file-panels/whole-file-limit";
+import { isNative } from "@/constants/platform";
 import { resolveFilePreviewReadTarget } from "@/file-explorer/preview-target";
 import { useAppActivelyVisible } from "@/hooks/use-app-visible";
 import { usePublishPanelInstanceAttributes } from "@/panels/panel-instance-attributes";
 import { useSessionStore } from "@/stores/session-store";
 import { buildAbsoluteExplorerPath } from "@/utils/explorer-paths";
-import { formatFileSize } from "@/utils/format-file-size";
 import type { WorkspaceFileLocation } from "@/workspace/file-open";
 import { OutsideFileBar } from "@/file-explorer/folders/outside-file-bar";
 import { useImageGallery } from "@/file-explorer/gallery/hooks";
 import { ImageGalleryView } from "@/file-explorer/gallery/view";
 import type { ImageGallery } from "@/file-explorer/gallery/model";
+import { useFileTabActions } from "./actions";
 
 /**
  * The file tab: stats the file, picks its panel and mounts it. The panel reads, saves and shows
@@ -72,6 +76,13 @@ export function FilePane({
     presentable: isActive,
     lineNavigation: location.lineStart ? navigationRevision : null,
   });
+  const actions = useFileTabActions({
+    serverId,
+    workspaceRoot: root,
+    path,
+    target: connected ? target : null,
+    active: isActive,
+  });
   const [modified, setModified] = useState(false);
   usePublishPanelInstanceAttributes({ modified, suspendPendingSave: handle?.holdWrites });
   const panelLocation = useMemo(
@@ -92,12 +103,17 @@ export function FilePane({
     />
   );
 
+  const tooLarge = previewTooLarge(snapshot, panel);
+
   let body;
-  if (connected && isGalleryImage(gallery, panel)) {
+  if (connected && !tooLarge && isGalleryImage(gallery, panel)) {
     return (
       <View style={styles.container} testID="workspace-file-pane">
         {outsideBar}
         <FilePanelPicker choice={choice} />
+        <FileTabActionsProvider value={actions}>
+          <TabToolbar snapshot={snapshot} panel={panel} />
+        </FileTabActionsProvider>
         <ImageGalleryView
           serverId={serverId}
           workspaceRoot={root}
@@ -126,26 +142,32 @@ export function FilePane({
         </Button>
       </>
     );
-  } else if (!panel) {
-    body = (
-      <>
-        <Text style={styles.mutedText}>{t("panels.file.binaryPreviewUnavailable")}</Text>
-        <Text style={styles.mutedText}>{formatFileSize(snapshot.size)}</Text>
-      </>
+  } else if (!panel || tooLarge) {
+    return (
+      <View style={styles.container} testID="workspace-file-pane">
+        {outsideBar}
+        <FilePanelPicker choice={choice} />
+        <FileTabActionsProvider value={actions}>
+          <NoPreview size={snapshot.size} tooLarge={tooLarge} download={actions.download} />
+        </FileTabActionsProvider>
+      </View>
     );
   } else {
     return (
       <View style={styles.container} testID="workspace-file-pane">
         {outsideBar}
         <FilePanelPicker choice={choice} />
-        <MountedFilePanel
-          key={`${panel.id}:${targetKey}`}
-          panel={panel}
-          file={handle.file}
-          params={panelLocation}
-          revision={navigationRevision}
-          onModifiedChange={setModified}
-        />
+        <FileTabActionsProvider value={actions}>
+          <TabToolbar snapshot={snapshot} panel={panel} />
+          <MountedFilePanel
+            key={`${panel.id}:${targetKey}`}
+            panel={panel}
+            file={handle.file}
+            params={panelLocation}
+            revision={navigationRevision}
+            onModifiedChange={setModified}
+          />
+        </FileTabActionsProvider>
       </View>
     );
   }
@@ -155,6 +177,54 @@ export function FilePane({
       <View style={styles.centerState}>{body}</View>
     </View>
   );
+}
+
+/** The tab's toolbar, above a panel without one of its own, once the file has a stat. */
+function TabToolbar({
+  snapshot,
+  panel,
+}: {
+  snapshot: FileHandleSnapshot;
+  panel: FilePanel | null;
+}) {
+  if (snapshot.status !== "ready" || (panel && ownsFileTabToolbar(panel))) return null;
+  return <FileTabToolbar size={snapshot.size} />;
+}
+
+/** A file no panel shows, or one too large for its panel to read whole: its size and Download. */
+function NoPreview({
+  size,
+  tooLarge,
+  download,
+}: {
+  size: number;
+  tooLarge: boolean;
+  download: (() => void) | null;
+}) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <FileTabToolbar size={size} />
+      <View style={styles.centerState} testID={tooLarge ? "file-too-large-to-preview" : undefined}>
+        <Text style={styles.mutedText}>
+          {tooLarge
+            ? t("panels.file.tooLargeToPreview")
+            : t("panels.file.binaryPreviewUnavailable")}
+        </Text>
+        {download ? (
+          <Button variant="outline" onPress={download} testID="file-download-instead">
+            {isNative ? t("panels.file.actions.share") : t("panels.file.actions.download")}
+          </Button>
+        ) : null}
+      </View>
+    </>
+  );
+}
+
+function previewTooLarge(snapshot: FileHandleSnapshot, panel: FilePanel | null): boolean {
+  if (snapshot.status !== "ready" || !panel) return false;
+  const platform = isNative ? "native" : "web";
+  return exceedsWholeFilePreview({ panelId: panel.id, size: snapshot.size, platform });
 }
 
 /** Before its stat lands, a gallery image is taken at its extension, so a page shows at once. */

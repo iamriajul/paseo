@@ -6,21 +6,24 @@ import { PaneContentToolbar } from "@/components/ui/pane-content-toolbar";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { Theme } from "@/styles/theme";
 import { formatFileSize } from "@/utils/format-file-size";
+import { FileTabActionButtons } from "../actions";
 import { FileConflictAlert, type FileConflictAlertState } from "./conflict-alert";
 import type { FileEditorStatus } from "./editor/model";
 
 const ThemedSpinner = withUnistyles(LoadingSpinner);
 const spinnerMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
-export type TextFileView = "preview" | "source";
+export type TextFileView = "tail" | "preview" | "source";
 
 /**
  * The text file panel's toolbar: the file's size and lines, the save state, the vim mode and the
- * cursor, the Preview|Source control when the panel has a preview, and a conflict under it.
+ * cursor, the control between the panel's views when it has more than one, the file tab's
+ * actions, and a conflict under it.
  */
 export function TextFileToolbar({
   size,
   lineCount,
+  views = [],
   view,
   onViewChange,
   editorStatus,
@@ -29,7 +32,9 @@ export function TextFileToolbar({
   conflict,
 }: {
   size: number;
-  lineCount: number;
+  /** Unknown for a log's tail, which shows only the end of the file. */
+  lineCount?: number;
+  views?: readonly TextFileView[];
   view?: TextFileView;
   onViewChange?(view: TextFileView): void;
   editorStatus?: FileEditorStatus;
@@ -38,14 +43,16 @@ export function TextFileToolbar({
   conflict?: FileConflictAlertState | null;
 }) {
   const { t } = useTranslation();
-  const views = [
-    {
-      value: "preview" as const,
-      label: t("panels.file.editor.preview"),
-      testID: "file-mode-preview",
-    },
-    { value: "source" as const, label: t("panels.file.editor.source"), testID: "file-mode-source" },
-  ];
+  const labels: Record<TextFileView, string> = {
+    tail: t("panels.file.log.tail"),
+    preview: t("panels.file.editor.preview"),
+    source: t("panels.file.editor.source"),
+  };
+  const options = views.map((value) => ({
+    value,
+    label: labels[value],
+    testID: `file-mode-${value}`,
+  }));
   return (
     <View style={styles.chrome}>
       <PaneContentToolbar testID="file-panel-bar">
@@ -58,13 +65,15 @@ export function TextFileToolbar({
             >
               {formatFileSize(size)}
             </Text>
-            <Text
-              style={styles.whisper}
-              numberOfLines={1}
-              accessibilityLabel={t("panels.file.editor.lines", { count: lineCount })}
-            >
-              {t("panels.file.editor.lines", { count: lineCount })}
-            </Text>
+            {lineCount === undefined ? null : (
+              <Text
+                style={styles.whisper}
+                numberOfLines={1}
+                accessibilityLabel={t("panels.file.editor.lines", { count: lineCount })}
+              >
+                {t("panels.file.editor.lines", { count: lineCount })}
+              </Text>
+            )}
           </View>
           <View
             style={styles.status}
@@ -106,15 +115,16 @@ export function TextFileToolbar({
               </Text>
             ) : null}
           </View>
-          {view && onViewChange ? (
+          {options.length > 1 && view && onViewChange ? (
             <SegmentedControl
               size="sm"
               value={view}
               onValueChange={onViewChange}
               testID="file-preview-mode"
-              options={views}
+              options={options}
             />
           ) : null}
+          <FileTabActionButtons />
         </View>
       </PaneContentToolbar>
       {conflict ? <FileConflictAlert state={conflict} /> : null}

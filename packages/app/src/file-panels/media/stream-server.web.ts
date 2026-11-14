@@ -1,5 +1,6 @@
 import { planRangeResponse } from "./range";
-import { RangeReader, type OpenByteRange } from "./range-reader";
+import type { OpenByteRange } from "../byte-range";
+import { RangeReader } from "./range-reader";
 
 const SCOPE = "/media-stream/";
 const WORKER_URL = `${SCOPE}sw.js`;

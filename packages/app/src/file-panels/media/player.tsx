@@ -7,9 +7,8 @@ import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { formatFileSize } from "@/utils/format-file-size";
 import { filePanelExtension } from "../resolve";
-import { useMediaAccess } from "./access";
+import { useByteRangeAccess, type OpenByteRange } from "../byte-range";
 import { MediaMessage } from "./message";
-import type { OpenByteRange } from "./range-reader";
 import type { MediaPlayerProps } from "./types";
 
 /** A whole-file load: as much in flight as a session download. */
@@ -27,7 +26,7 @@ const hasVideoModule = requireOptionalNativeModule("ExpoVideo") !== null;
  */
 export function MediaPlayer(props: MediaPlayerProps) {
   const { t } = useTranslation();
-  const access = useMediaAccess({ ...props, readAhead: READ_AHEAD });
+  const access = useByteRangeAccess({ ...props, readAhead: READ_AHEAD });
   if (access.status === "update-host") {
     return <MediaMessage message={t("panels.file.media.updateHost")} />;
   }

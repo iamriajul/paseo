@@ -29,6 +29,37 @@ describe("fork built-in document and media panels", () => {
     expect(panelId(path)).toBe(id);
   });
 
+  it.each([
+    ["data/People.csv", "builtin:table"],
+    ["out.tsv", "builtin:table"],
+    ["package.json", "builtin:json"],
+    ["tsconfig.jsonc", "builtin:json"],
+    ["runs/session.jsonl", "builtin:json"],
+    ["logs/daemon.log", "builtin:log"],
+    ["notes.txt", "builtin:source"],
+  ])("opens the text file %s with %s", (path, id) => {
+    const resolution = resolveFilePanel({
+      file: { path, kind: "text" },
+      candidates: builtins,
+      associations: {},
+    });
+    expect(resolution.panel?.id).toBe(id);
+    expect(resolution.candidates).toHaveLength(1);
+  });
+
+  it("leaves a JSON file a plugin claims to that plugin and Source, as before", () => {
+    const plugin = { id: "plugin:json/viewer", builtin: false, files: { extensions: ["json"] } };
+    const resolution = resolveFilePanel({
+      file: { path: "package.json", kind: "text" },
+      candidates: filePanelCatalog([plugin]),
+      associations: {},
+    });
+    expect(resolution.candidates.map(({ id }) => id)).toEqual([
+      "plugin:json/viewer",
+      "builtin:source",
+    ]);
+  });
+
   it("yields to a plugin panel that claims the file, without asking", () => {
     const plugin = { id: "plugin:pdf/viewer", builtin: false, files: { extensions: ["pdf"] } };
     const resolution = resolveFilePanel({

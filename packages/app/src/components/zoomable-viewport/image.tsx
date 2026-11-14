@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { Image, View, type StyleProp, type ViewStyle } from "react-native";
+import { useEffect, useState } from "react";
+import { View, type StyleProp, type ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { ViewportFitOptions, ViewportSize } from "./geometry";
+import { measureImage, PlatformImage } from "./platform-image";
 import { ZoomableViewport } from "./index";
 import type { ZoomableViewportAction } from "./types";
 
@@ -38,13 +39,11 @@ export function ZoomableImage({
 }: ZoomableImageProps) {
   const [loadedSize, setLoadedSize] = useState<ViewportSize | null>(null);
   const resolvedSize = contentSize ?? loadedSize;
-  const source = useMemo(() => ({ uri }), [uri]);
-
   useEffect(() => {
     if (contentSize) return;
     let active = true;
     setLoadedSize(null);
-    Image.getSize(
+    measureImage(
       uri,
       (width, height) => {
         if (active && width > 0 && height > 0) setLoadedSize({ width, height });
@@ -61,12 +60,10 @@ export function ZoomableImage({
   if (!resolvedSize) {
     return (
       <View style={[styles.root, style]} testID={testID}>
-        <Image
+        <PlatformImage
           accessibilityLabel={accessibilityLabel}
-          accessibilityRole="image"
           onError={onError}
-          resizeMode="contain"
-          source={source}
+          uri={uri}
           style={styles.image}
           testID={`${testID}-image`}
         />
@@ -88,13 +85,7 @@ export function ZoomableImage({
       testID={testID}
       wheelActivation={wheelActivation}
     >
-      <Image
-        onError={onError}
-        resizeMode="contain"
-        source={source}
-        style={styles.image}
-        testID={`${testID}-image`}
-      />
+      <PlatformImage onError={onError} uri={uri} style={styles.image} testID={`${testID}-image`} />
     </ZoomableViewport>
   );
 }

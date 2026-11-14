@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { RangeReader, type OpenByteRange } from "./range-reader";
+import type { OpenByteRange } from "../byte-range";
+import { RangeReader } from "./range-reader";
 
 const FILE = Uint8Array.from({ length: 100 }, (_, index) => index);
 

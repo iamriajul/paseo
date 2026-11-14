@@ -6,7 +6,7 @@ import {
   type PluginFileWriteOptions,
 } from "@getpaseo/plugin/client";
 import type { FileVersion, FileWriteResult } from "@getpaseo/protocol/messages";
-import { decodeUtf8 } from "@/utils/decode-utf8";
+import { decodeText, encodeText, type TextEncodingName } from "./text-encoding";
 
 export interface FileTarget {
   cwd: string;
@@ -93,7 +93,8 @@ export class FileHandle {
   private readonly seen = new Set<string>();
   private deleted = false;
   private confirmingDeletion = false;
-  private hasBom = false;
+  /** How the last text read was encoded; text writes use it again. */
+  private encoding: TextEncodingName = "utf-8";
   private writes: Promise<unknown> = Promise.resolve();
   private writing = 0;
   private holds = 0;
@@ -293,8 +294,9 @@ export class FileHandle {
 
   private async readText(): Promise<string> {
     const { bytes } = await this.readContents();
-    this.hasBom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
-    return decodeUtf8(bytes);
+    const { text, encoding } = decodeText(bytes);
+    this.encoding = encoding;
+    return text;
   }
 
   private async readBytes(): Promise<Uint8Array> {
@@ -326,7 +328,7 @@ export class FileHandle {
   }
 
   private writeText(text: string, options?: PluginFileWriteOptions): Promise<void> {
-    return this.write(this.hasBom ? `﻿${text}` : text, options);
+    return this.write(encodeText(text, this.encoding), options);
   }
 
   private write(content: string | Uint8Array, options?: PluginFileWriteOptions): Promise<void> {

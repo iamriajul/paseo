@@ -1,10 +1,5 @@
+import type { OpenByteRange } from "../byte-range";
 import type { ByteRange } from "./range";
-
-/** Streams one byte range of the file, a chunk at a time, until the signal aborts. */
-export type OpenByteRange = (
-  range: ByteRange,
-  signal: AbortSignal,
-) => Promise<AsyncIterable<Uint8Array>>;
 
 interface OpenRead {
   iterator: AsyncIterator<Uint8Array>;

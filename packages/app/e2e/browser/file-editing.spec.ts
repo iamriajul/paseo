@@ -290,6 +290,8 @@ test.describe("CodeMirror workspace file editing", () => {
     try {
       await openAgentRoute(page, session);
       await openWorkspaceFile(page, "package-lock.json");
+      // Fork: JSON opens on its tree (table-json-file-preview); this test is about Source.
+      await page.getByTestId("file-mode-source").filter({ visible: true }).click();
 
       await expect(page.getByTestId("file-source-editor")).toBeVisible();
       await expect(editor(page)).toContainText('"package-0"');

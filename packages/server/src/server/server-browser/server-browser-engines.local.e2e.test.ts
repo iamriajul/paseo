@@ -9,7 +9,7 @@ import { CdpConnection, webSocketTransport } from "./cdp-connection.js";
 import { pickElement, type PickOutcome } from "./element-picker.js";
 import type { DisplayPreference, ServerBrowserEngineConfig } from "./engines.js";
 import { ServerBrowserHost } from "./server-browser-host.js";
-import { firstFrame, waitFor, watchVideo } from "./test-utils/viewers.js";
+import { firstFrame, waitFor, watchJpeg, watchVideo } from "./test-utils/viewers.js";
 
 // Local-only: needs google-chrome, Xvfb and xfwm4 on this machine. Managed Chrome runs on its own
 // Xvfb here, and the stand-in for a user's browser is a Chrome this file starts on a random port.
@@ -428,6 +428,22 @@ async function minimizeWindowOf(host: ServerBrowserHost, browserId: string): Pro
   );
 }
 
+/** Resizes the window of the host's tab as its owner or a window manager would. */
+async function resizeWindowOf(
+  host: ServerBrowserHost,
+  browserId: string,
+  size: { width: number; height: number },
+): Promise<void> {
+  const tab = host.getTab(browserId)!;
+  const window = (await tab.contents.sendDebugCommand!("Browser.getWindowForTarget", {})) as {
+    windowId: number;
+  };
+  await tab.contents.sendDebugCommand!("Browser.setWindowBounds", {
+    windowId: window.windowId,
+    bounds: { windowState: "normal", ...size },
+  });
+}
+
 async function waitForAsync(condition: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await condition())) {
@@ -631,6 +647,21 @@ describe("Existing browser", { timeout: 120_000 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(host.listTabs()).toHaveLength(1);
     expect(host.listTabs()[0]!.url).toBe(siteUrl);
+    users.cdp.disconnect();
+  });
+
+  it("keeps streaming its tab's size when the owner's desktop resizes its window", async () => {
+    const users = await startUsersChrome({ display: await startDesktop() });
+    const host = createHost({ kind: "existing", cdpUrl: users.url });
+    const tab = await host.openTab({ workspaceId: "ws", url: `${siteUrl}anim`, openedBy: "user" });
+    const viewer = watchJpeg(host, tab.browserId, "v", { maxWidth: 1280, maxHeight: 800 });
+    await waitFor(() => viewer.widths.length > 0, 30_000);
+
+    await resizeWindowOf(host, tab.browserId, { width: 700, height: 450 });
+    const resizedAt = viewer.widths.length;
+    await waitFor(() => viewer.widths.length >= resizedAt + 30, 15_000);
+    expect(viewer.widths.at(-1)).toBe(1280);
+    viewer.stop();
     users.cdp.disconnect();
   });
 

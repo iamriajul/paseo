@@ -55,6 +55,8 @@ const INPUT_ACK_TIMEOUT_MS = 5_000;
 // How long a page seen visible is trusted before input looks again; pointer moves come at 60 Hz.
 const VISIBILITY_TRUST_MS = 500;
 const RESTORE_WAIT_MS = 2_000;
+/** While a viewer watches, how often the tab checks that its window kept its size. */
+const WINDOW_CHECK_MS = 500;
 /** How long suspending waits for the page's scroll position and a final frame. */
 const SUSPEND_CAPTURE_TIMEOUT_MS = 3_000;
 /** A restored page's layout can grow after load (a SPA rendering); scrolling retries this long. */
@@ -196,6 +198,12 @@ export class ServerBrowserTab {
   private fileChooser: { id: string; multiple: boolean; backendNodeId: number } | null = null;
   private nextDialogId = 1;
   private visibleUntil = 0;
+  /** The window's size when the tab last applied its own; null until a check reads it. */
+  private windowSize: string | null = null;
+  private windowCheck: ReturnType<typeof setInterval> | null = null;
+  private windowChecking = false;
+  /** A browser with no windows (headless) has none to resize. */
+  private windowless = false;
   private readonly consoleBudget = new ConsoleBudget();
   private readonly loopbackPorts = new LoopbackPortSet();
   /**
@@ -380,6 +388,8 @@ export class ServerBrowserTab {
     // The new target's initialize turns the Runtime domain on again.
     this.endConsolePause();
     this.screencast.resetLastFrame();
+    this.windowSize = null;
+    this.windowless = false;
     if (this.screencastSize) void this.startScreencast(this.screencastSize);
     if (!options.videoAfterLoad) this.video?.refresh();
   }
@@ -526,6 +536,7 @@ export class ServerBrowserTab {
   public markClosed(): void {
     if (this.closed) return;
     this.closed = true;
+    this.stopWindowCheck();
     this.endConsolePause();
     this.screencast.resetLastFrame();
     for (const resolve of this.loadWaiters.splice(0)) resolve();
@@ -1142,13 +1153,17 @@ export class ServerBrowserTab {
     this.video?.refresh();
   }
 
-  private async applyViewport(): Promise<void> {
-    await this.send("Emulation.setDeviceMetricsOverride", {
+  private deviceMetrics(): CdpParams {
+    return {
       width: this.viewport.width,
       height: this.viewport.height,
       deviceScaleFactor: this.viewport.mobile ? 2 : 1,
       mobile: this.viewport.mobile,
-    });
+    };
+  }
+
+  private async applyViewport(): Promise<void> {
+    await this.send("Emulation.setDeviceMetricsOverride", this.deviceMetrics());
     await this.send("Emulation.setTouchEmulationEnabled", {
       enabled: this.viewport.mobile,
       ...(this.viewport.mobile ? { maxTouchPoints: 5 } : {}),
@@ -1179,6 +1194,7 @@ export class ServerBrowserTab {
 
   /** A viewer started watching, on either stream. */
   private beginWatching(): void {
+    this.startWindowCheck();
     // A viewer wakes a suspended tab; it sees the still frame until the page paints.
     if (this.suspension) {
       void this.onWake().catch(() => {});
@@ -1190,9 +1206,54 @@ export class ServerBrowserTab {
     void this.rawSend("Page.setInterceptFileChooserDialog", { enabled: true }).catch(() => {});
   }
 
+  private startWindowCheck(): void {
+    if (this.windowCheck || this.windowless) return;
+    this.windowCheck = setInterval(() => void this.keepViewSize(), WINDOW_CHECK_MS);
+    this.windowCheck.unref?.();
+    void this.keepViewSize();
+  }
+
+  private stopWindowCheck(): void {
+    if (this.windowCheck) clearInterval(this.windowCheck);
+    this.windowCheck = null;
+  }
+
+  /**
+   * A headed Chrome gives the tab's view its window's size whenever the window is resized (by its
+   * owner, a window manager, a VNC session changing the screen), and drops the tab's own: the page
+   * keeps its layout and screenshots their size, but the screencast and tab capture then show the
+   * window's picture, which the tab drops as the wrong size or video letterboxes. Chrome reports
+   * none of it, so a watched tab reads its window's size and applies its own again when it moved.
+   */
+  private async keepViewSize(): Promise<void> {
+    const connection = this.connection;
+    if (this.windowChecking || !connection || this.suspension || this.closed) return;
+    this.windowChecking = true;
+    try {
+      const found = (await connection
+        .send("Browser.getWindowForTarget", { targetId: this.targetId })
+        .catch(() => null)) as { bounds?: { width?: number; height?: number } } | null;
+      const { width, height } = found?.bounds ?? {};
+      if (typeof width !== "number" || typeof height !== "number") {
+        this.windowless = true;
+        this.stopWindowCheck();
+        return;
+      }
+      const size = `${width}x${height}`;
+      if (size === this.windowSize) return;
+      await this.rawSend("Emulation.setDeviceMetricsOverride", this.deviceMetrics());
+      this.windowSize = size;
+    } catch {
+      // The tab closed or crashed under the check; the next one, or the next target, tries again.
+    } finally {
+      this.windowChecking = false;
+    }
+  }
+
   /** Called when a stream lost its last viewer; acts only once neither stream has one. */
   private endWatching(): void {
     if (this.viewerCount > 0) return;
+    this.stopWindowCheck();
     // With no viewer the page keeps Chromium's own chooser (an Existing browser's owner sees it).
     void this.rawSend("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => {});
     if (this.fileChooser) {
@@ -1225,6 +1286,8 @@ export class ServerBrowserTab {
       (Math.abs(metadata.deviceWidth - this.viewport.width) > 1 ||
         Math.abs(metadata.deviceHeight - this.viewport.height) > 1)
     ) {
+      // Or the window was resized: look now rather than at the next check.
+      void this.keepViewSize();
       ack();
       return;
     }

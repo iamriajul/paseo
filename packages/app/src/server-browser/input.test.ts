@@ -98,6 +98,13 @@ describe("quantizeScreencastViewport", () => {
       maxHeight: 800,
     });
   });
+
+  it("has no size for a hidden surface, so showing it again streams at its next measure", () => {
+    const shown = quantizeScreencastViewport(null, { maxWidth: 1280, maxHeight: 890 });
+    const hidden = quantizeScreencastViewport(shown, { maxWidth: 0, maxHeight: 0 });
+    expect(hidden).toBeNull();
+    expect(quantizeScreencastViewport(hidden, { maxWidth: 1280, maxHeight: 890 })).toEqual(shown);
+  });
 });
 
 // Fork: server-browser-suspend-idle-tabs in docs/fork-decisions.md.

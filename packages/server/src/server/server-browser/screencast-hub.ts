@@ -17,6 +17,7 @@ export interface ScreencastSize {
 }
 
 export interface ScreencastSource {
+  /** Starts the stream, or moves the running one to a new size. */
   start(size: ScreencastSize): void;
   stop(): void;
   /** A frame for a joiner while the source has painted none (a suspended tab's last page). */

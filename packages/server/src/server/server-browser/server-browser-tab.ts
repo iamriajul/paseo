@@ -1156,8 +1156,12 @@ export class ServerBrowserTab {
   }
 
   private startScreencast(size: ScreencastSize): void {
+    const running = this.screencastSize !== null;
     this.screencastSize = size;
     this.beginWatching();
+    // Chrome refuses a start while a screencast runs ("Screencast is already active"), so a new
+    // size needs a stop first; Playwright's headless shell restarts instead, which hid this.
+    if (running) void this.rawSend("Page.stopScreencast").catch(() => {});
     void this.rawSend("Page.startScreencast", {
       format: "jpeg",
       quality: 60,

@@ -51,10 +51,10 @@ export function CacheWindowConfirm({
   const footer = useMemo(
     () => (
       <View style={styles.actions}>
-        <Button size="sm" variant="outline" testID="cache-window-cancel" onPress={onCancel}>
+        <Button variant="outline" testID="cache-window-cancel" onPress={onCancel}>
           Cancel
         </Button>
-        <Button size="sm" variant="default" testID="cache-window-confirm" onPress={onConfirm}>
+        <Button variant="default" testID="cache-window-confirm" onPress={onConfirm}>
           Change window
         </Button>
       </View>

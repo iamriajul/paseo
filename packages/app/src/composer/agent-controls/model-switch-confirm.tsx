@@ -57,15 +57,15 @@ export function ModelSwitchConfirm({
   const footer = useMemo(
     () => (
       <View style={styles.actions}>
-        <Button size="sm" variant="ghost" testID="model-switch-cancel" onPress={onCancel}>
+        <Button variant="ghost" testID="model-switch-cancel" onPress={onCancel}>
           Cancel
         </Button>
         {onFork ? (
-          <Button size="sm" variant="outline" testID="model-switch-fork" onPress={onFork}>
+          <Button variant="outline" testID="model-switch-fork" onPress={onFork}>
             {`Fork on ${nextModelLabel}`}
           </Button>
         ) : null}
-        <Button size="sm" variant="default" testID="model-switch-confirm" onPress={onConfirm}>
+        <Button variant="default" testID="model-switch-confirm" onPress={onConfirm}>
           Switch anyway
         </Button>
       </View>

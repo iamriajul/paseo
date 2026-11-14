@@ -100,7 +100,6 @@ function NewTabTargetRow({ serverId }: { serverId: string }) {
         options={options}
         value={target}
         onValueChange={handleChange}
-        size="sm"
         testID="host-page-new-tab-target-control"
       />
     </View>
@@ -183,7 +182,6 @@ function ServerBrowserEngineRow({ serverId }: { serverId: string }) {
             emptyText="No engines"
             disabled={mutation.isPending}
             title="Server-side browser"
-            size="sm"
             testID="host-page-server-browser-mode"
             triggerTestID="host-page-server-browser-mode-trigger"
           />
@@ -196,7 +194,6 @@ function ServerBrowserEngineRow({ serverId }: { serverId: string }) {
               options={CHROME_MODE_OPTIONS}
               value={chromeMode}
               onValueChange={handleChromeModeChange}
-              size="sm"
               testID="host-page-server-browser-chrome-mode"
             />
           )}
@@ -224,7 +221,7 @@ function ServerBrowserEngineRow({ serverId }: { serverId: string }) {
             />
           </Field>
           {cdpUrl.trim() !== savedCdpUrl ? (
-            <Button onPress={handleSaveCdpUrl} disabled={mutation.isPending} size="sm">
+            <Button onPress={handleSaveCdpUrl} disabled={mutation.isPending}>
               Save
             </Button>
           ) : null}

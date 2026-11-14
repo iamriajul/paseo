@@ -69,7 +69,6 @@ export function ServerBrowserFileChooserCard(props: {
         <Text style={styles.detail}>{t("workspace.browser.fileChooser.detail")}</Text>
         <View style={styles.actions}>
           <Button
-            size="sm"
             variant="secondary"
             onPress={cancel}
             disabled={uploading}
@@ -77,12 +76,7 @@ export function ServerBrowserFileChooserCard(props: {
           >
             {t("workspace.browser.fileChooser.cancel")}
           </Button>
-          <Button
-            size="sm"
-            onPress={choose}
-            disabled={uploading}
-            testID="server-browser-file-chooser-choose"
-          >
+          <Button onPress={choose} disabled={uploading} testID="server-browser-file-chooser-choose">
             {uploading ? t("workspace.browser.fileChooser.uploading") : chooseLabel}
           </Button>
         </View>

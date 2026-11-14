@@ -149,7 +149,7 @@ function DiscoveredModelRow({
             </Tooltip>
             <Button
               variant="secondary"
-              size="xs"
+              size="sm"
               onPress={handleConfigure}
               testID={`capacity-configure-${model.id}`}
             >

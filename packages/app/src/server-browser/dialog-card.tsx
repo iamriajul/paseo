@@ -74,16 +74,11 @@ export function ServerBrowserDialogCard(props: {
         ) : null}
         <View style={styles.actions}>
           {dialog.type === "alert" ? null : (
-            <Button
-              size="sm"
-              variant="secondary"
-              onPress={dismiss}
-              testID="server-browser-dialog-cancel"
-            >
+            <Button variant="secondary" onPress={dismiss} testID="server-browser-dialog-cancel">
               {leaving ? t("workspace.browser.dialog.stay") : t("workspace.browser.dialog.cancel")}
             </Button>
           )}
-          <Button size="sm" onPress={accept} testID="server-browser-dialog-ok">
+          <Button onPress={accept} testID="server-browser-dialog-ok">
             {leaving ? t("workspace.browser.dialog.leave") : t("workspace.browser.dialog.ok")}
           </Button>
         </View>

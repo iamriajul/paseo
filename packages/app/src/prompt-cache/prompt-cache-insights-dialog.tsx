@@ -453,7 +453,7 @@ function InsightsExplorer({
           options={METRIC_OPTIONS}
           value={metric}
           onValueChange={setMetric}
-          size="xs"
+          size="sm"
           testID="prompt-cache-insights-metric"
         />
       </View>
@@ -480,7 +480,7 @@ function InsightsExplorer({
             options={FILTER_OPTIONS}
             value={filter}
             onValueChange={changeFilter}
-            size="xs"
+            size="sm"
             testID="prompt-cache-insights-filter"
           />
         </View>
@@ -498,12 +498,7 @@ function InsightsExplorer({
           />
         ))}
         {filtered.length > limit ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onPress={showMore}
-            testID="prompt-cache-insights-show-more"
-          >
+          <Button variant="ghost" onPress={showMore} testID="prompt-cache-insights-show-more">
             {`Show ${Math.min(LIST_PAGE, filtered.length - limit)} more of ${filtered.length - limit}`}
           </Button>
         ) : null}
@@ -558,21 +553,11 @@ function RangeBar({
       {zoomed ? (
         <View style={styles.rangeActions}>
           {depth > 1 ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onPress={onZoomOut}
-              testID="prompt-cache-insights-zoom-out"
-            >
+            <Button variant="ghost" onPress={onZoomOut} testID="prompt-cache-insights-zoom-out">
               Zoom out
             </Button>
           ) : null}
-          <Button
-            size="sm"
-            variant="outline"
-            onPress={onReset}
-            testID="prompt-cache-insights-zoom-reset"
-          >
+          <Button variant="outline" onPress={onReset} testID="prompt-cache-insights-zoom-reset">
             Whole session
           </Button>
         </View>
@@ -855,16 +840,11 @@ function ColumnDetail({
       </View>
       <View style={styles.rangeActions}>
         {column.requests > 1 ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onPress={onZoomIn}
-            testID="prompt-cache-insights-zoom-in"
-          >
+          <Button variant="outline" onPress={onZoomIn} testID="prompt-cache-insights-zoom-in">
             Zoom in
           </Button>
         ) : null}
-        <Button size="sm" variant="ghost" onPress={onClear} testID="prompt-cache-insights-clear">
+        <Button variant="ghost" onPress={onClear} testID="prompt-cache-insights-clear">
           Clear
         </Button>
       </View>

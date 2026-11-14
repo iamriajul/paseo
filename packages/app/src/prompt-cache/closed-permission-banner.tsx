@@ -85,7 +85,6 @@ export const ClosedPermissionBanner = memo(function ClosedPermissionBanner({
       {readOnly ? null : (
         <View style={styles.actions}>
           <Button
-            size="sm"
             variant="secondary"
             testID="closed-permission-run-now"
             onPress={handleRunNow}

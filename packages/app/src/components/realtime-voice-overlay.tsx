@@ -170,7 +170,7 @@ export function RealtimeVoiceOverlay({
           options={modeOptions}
           value={inputMode}
           onValueChange={handleInputModeChange}
-          size="xs"
+          size="sm"
         />
       </View>
       <View style={styles.bottomRow}>

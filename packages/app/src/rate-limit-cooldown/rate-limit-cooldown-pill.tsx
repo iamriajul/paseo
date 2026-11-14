@@ -111,7 +111,6 @@ export const RateLimitCooldownPill = memo(function RateLimitCooldownPill({
         {supportsControls ? (
           <View style={styles.actionsRow}>
             <Button
-              size="sm"
               variant="secondary"
               testID="rate-limit-pill-resume-button"
               onPress={handleResume}
@@ -122,7 +121,6 @@ export const RateLimitCooldownPill = memo(function RateLimitCooldownPill({
               {t("rateLimitCooldown.resumeNow")}
             </Button>
             <Button
-              size="sm"
               variant="ghost"
               testID="rate-limit-pill-cancel-button"
               onPress={handleCancel}

@@ -1002,7 +1002,7 @@ function SchedulePromptCacheField({
 }: {
   model: ScheduleFormModel;
   state: ScheduleFormState;
-  size: FieldControlSize;
+  size: ControlSize;
 }): ReactElement {
   const selected = PROMPT_CACHE_TTL_OPTIONS.find(
     (option) => option.value === state.promptCache.ttl,

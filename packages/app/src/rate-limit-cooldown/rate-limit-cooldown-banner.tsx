@@ -100,7 +100,6 @@ export const RateLimitCooldownBanner = memo(function RateLimitCooldownBanner({
       {supportsControls ? (
         <View style={styles.actions}>
           <Button
-            size="sm"
             variant="secondary"
             testID="rate-limit-cooldown-resume-button"
             onPress={handleResumeNow}
@@ -111,7 +110,6 @@ export const RateLimitCooldownBanner = memo(function RateLimitCooldownBanner({
             {t("rateLimitCooldown.resumeNow")}
           </Button>
           <Button
-            size="sm"
             variant="ghost"
             testID="rate-limit-cooldown-cancel-button"
             onPress={handleCancel}

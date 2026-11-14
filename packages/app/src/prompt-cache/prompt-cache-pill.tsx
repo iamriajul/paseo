@@ -224,7 +224,6 @@ function RequestHistory({
         <View style={styles.missesRow}>
           {missesText}
           <Button
-            size="sm"
             variant="outline"
             onPress={clearMisses}
             accessibilityLabel="Clear the miss count"
@@ -310,7 +309,6 @@ function AutoCompactDefault({
       </Text>
       {differs ? (
         <Button
-          size="sm"
           variant="ghost"
           testID="prompt-cache-auto-compact-make-default"
           onPress={onMakeDefault}

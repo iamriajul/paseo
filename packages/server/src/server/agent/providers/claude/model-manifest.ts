@@ -123,6 +123,7 @@ export const CLAUDE_MODEL_MANIFEST = [
   },
   {
     id: "claude-fable-5-2",
+    effortChangeKeepsCache: true,
     label: "Fable 5.2",
     description: "Fable 5.2 · Most powerful model",
     minimumClaudeCodeVersion: "2.1.321",

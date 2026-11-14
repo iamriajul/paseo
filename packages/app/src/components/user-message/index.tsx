@@ -98,7 +98,6 @@ export function MessageSender({
       {senderButton}
       <Button
         variant="ghost"
-        size="sm"
         leftIcon={ChevronsDownUp}
         style={styles.collapse}
         accessibilityLabel={t("agentMessages.collapseOne")}

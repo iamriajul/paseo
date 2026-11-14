@@ -65,12 +65,7 @@ export function ServerBrowserLogsPanel(props: {
     <View style={styles.panel} testID="server-browser-console">
       <View style={styles.header}>
         <Text style={styles.title}>{t("workspace.browser.console.title")}</Text>
-        <Button
-          size="sm"
-          variant="ghost"
-          onPress={props.onClear}
-          testID="server-browser-console-clear"
-        >
+        <Button variant="ghost" onPress={props.onClear} testID="server-browser-console-clear">
           {t("workspace.browser.console.clear")}
         </Button>
       </View>

@@ -752,11 +752,14 @@ export async function installDaemonWebSocketGate(page: Page, options: { port?: n
         heldServerMessage.browser.send(follower);
       }
     },
-    async waitForHeldAgentStreamItem(type: string, options: { timeoutMs: number }): Promise<void> {
+    async waitForHeldAgentStreamItem(
+      type: string,
+      waitOptions: { timeoutMs: number },
+    ): Promise<void> {
       const key = agentStreamItemKey(type);
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timedOut = new Promise<"timed-out">((resolve) => {
-        timer = setTimeout(() => resolve("timed-out"), options.timeoutMs);
+        timer = setTimeout(() => resolve("timed-out"), waitOptions.timeoutMs);
       });
       try {
         while (!heldServerMessages.some((message) => message.key === key)) {
@@ -766,7 +769,7 @@ export async function installDaemonWebSocketGate(page: Page, options: { port?: n
           if ((await Promise.race([arrival, timedOut])) === "timed-out") {
             const traffic = agentStreamItemHoldTraffic.get(key)?.entries ?? [];
             throw new Error(
-              `No ${type} agent stream item arrived within ${options.timeoutMs} ms of the hold. ` +
+              `No ${type} agent stream item arrived within ${waitOptions.timeoutMs} ms of the hold. ` +
                 `Traffic since the hold:\n${traffic.join("\n") || "(none)"}`,
             );
           }

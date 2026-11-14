@@ -44,7 +44,7 @@ export function OutsideFileBar({
       <Text style={styles.path} numberOfLines={1}>
         {shortenPath(folder)}
       </Text>
-      <Button variant="ghost" size="sm" onPress={handlePress} testID="file-show-in-folder">
+      <Button variant="ghost" onPress={handlePress} testID="file-show-in-folder">
         {t("workspace.fileExplorer.folders.showInFolder")}
       </Button>
     </View>

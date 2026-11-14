@@ -53,7 +53,7 @@ export function SidebarGroupModeControl({ visible = true, style }: SidebarGroupM
         options={options}
         value={groupMode}
         onValueChange={handleChange}
-        size="xs"
+        size="sm"
         testID="sidebar-group-mode-segmented"
       />
     </View>

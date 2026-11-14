@@ -334,7 +334,6 @@ export function MobileNotificationsSection() {
           </View>
           <Button
             variant="secondary"
-            size="sm"
             onPress={onPressRequestPermission}
             disabled={state.isBusy || state.permission === "granted"}
             testID="mobile-notifications-request-permission"
@@ -369,7 +368,6 @@ export function MobileNotificationsSection() {
           <View style={styles.actionColumn}>
             <Button
               variant="secondary"
-              size="sm"
               onPress={onPressCopyToken}
               disabled={state.isBusy || !state.token}
               testID="mobile-notifications-copy-token"
@@ -397,7 +395,6 @@ export function MobileNotificationsSection() {
           <View style={styles.actionColumn}>
             <Button
               variant="secondary"
-              size="sm"
               onPress={onPressRegister}
               disabled={state.isBusy}
               testID="mobile-notifications-register"
@@ -406,7 +403,6 @@ export function MobileNotificationsSection() {
             </Button>
             <Button
               variant="secondary"
-              size="sm"
               onPress={onPressTestLocal}
               disabled={state.isBusy}
               testID="mobile-notifications-test-local"
@@ -415,7 +411,6 @@ export function MobileNotificationsSection() {
             </Button>
             <Button
               variant="ghost"
-              size="sm"
               onPress={onPressRefresh}
               disabled={state.isBusy}
               testID="mobile-notifications-refresh"

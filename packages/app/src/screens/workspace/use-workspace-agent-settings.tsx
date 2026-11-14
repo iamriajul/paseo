@@ -197,7 +197,6 @@ export function WorkspaceAgentSettingsModal({
         <View style={styles.actions}>
           <Button
             variant="secondary"
-            size="sm"
             style={styles.actionButton}
             onPress={onClose}
             testID="agent-settings-close-button"

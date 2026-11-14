@@ -582,7 +582,6 @@ function ProjectBacklogScreen({
     () =>
       canUseBacklog ? (
         <Button
-          size="sm"
           variant="default"
           leftIcon={Plus}
           onPress={handleOpenCreate}
@@ -675,7 +674,6 @@ function ProjectBacklogScreen({
               ) : null}
             </View>
             <SegmentedControl
-              size="sm"
               value={viewMode}
               onValueChange={handleViewModeChange}
               options={VIEW_MODE_OPTIONS}
@@ -1151,7 +1149,6 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
   const headerRight = useMemo(
     () => (
       <Button
-        size="sm"
         variant="default"
         leftIcon={Plus}
         onPress={handleOpenCreate}
@@ -1265,7 +1262,6 @@ function MasterBacklogScreen({ openCreate = false }: { openCreate?: boolean }) {
               </Text>
             </View>
             <SegmentedControl
-              size="sm"
               value={viewMode}
               onValueChange={handleViewModeChange}
               options={VIEW_MODE_OPTIONS}
@@ -1520,7 +1516,7 @@ function TaskCardView<TTask extends TaskCard>({
         </Text>
         <View style={styles.taskCardActions}>
           <Button
-            size="xs"
+            size="sm"
             variant="ghost"
             leftIcon={FolderPlus}
             onPress={handleCreateWorkspacePress}
@@ -1528,7 +1524,7 @@ function TaskCardView<TTask extends TaskCard>({
             accessibilityLabel="Create workspace from task"
           />
           <Button
-            size="xs"
+            size="sm"
             variant="ghost"
             leftIcon={isCompleted ? RotateCcw : Check}
             onPress={handleStatusPress}
@@ -1916,7 +1912,6 @@ export function TaskFormSheet({
         {isEdit ? (
           <View style={styles.sheetFooterLeft}>
             <Button
-              size="sm"
               variant="outline"
               leftIcon={FolderPlus}
               onPress={handleCreateWorkspace}
@@ -1926,7 +1921,6 @@ export function TaskFormSheet({
               Create workspace
             </Button>
             <Button
-              size="sm"
               variant="ghost"
               leftIcon={Trash2}
               onPress={handleDelete}
@@ -1940,11 +1934,10 @@ export function TaskFormSheet({
           <View />
         )}
         <View style={styles.sheetFooterRight}>
-          <Button size="sm" variant="ghost" onPress={onClose} disabled={isSubmitting || isDeleting}>
+          <Button variant="ghost" onPress={onClose} disabled={isSubmitting || isDeleting}>
             Cancel
           </Button>
           <Button
-            size="sm"
             variant="default"
             onPress={handleSubmit}
             loading={isSubmitting}
@@ -2010,10 +2003,10 @@ export function TaskFormSheet({
         <View style={styles.labelRow}>
           <Text style={styles.label}>Description</Text>
           <View style={styles.formatToolbar}>
-            <Button size="xs" variant="ghost" leftIcon={Bold} onPress={insertBold} />
-            <Button size="xs" variant="ghost" leftIcon={Italic} onPress={insertItalic} />
-            <Button size="xs" variant="ghost" leftIcon={List} onPress={insertUnorderedList} />
-            <Button size="xs" variant="ghost" leftIcon={ListOrdered} onPress={insertOrderedList} />
+            <Button size="sm" variant="ghost" leftIcon={Bold} onPress={insertBold} />
+            <Button size="sm" variant="ghost" leftIcon={Italic} onPress={insertItalic} />
+            <Button size="sm" variant="ghost" leftIcon={List} onPress={insertUnorderedList} />
+            <Button size="sm" variant="ghost" leftIcon={ListOrdered} onPress={insertOrderedList} />
           </View>
         </View>
         <AdaptiveTextInput
@@ -2029,7 +2022,7 @@ export function TaskFormSheet({
       </View>
       {!isEdit ? (
         <View style={styles.field}>
-          <Button size="sm" variant="outline" leftIcon={Paperclip} onPress={handlePickFiles}>
+          <Button variant="outline" leftIcon={Paperclip} onPress={handlePickFiles}>
             Attach
           </Button>
           {attachments.length > 0 ? (
@@ -2189,7 +2182,7 @@ function TaskAttachmentPreviewSheet({
     () => ({
       title: preview?.attachment.fileName ?? "Attachment",
       actions: onDownload ? (
-        <Button size="xs" variant="ghost" leftIcon={Download} onPress={onDownload}>
+        <Button size="sm" variant="ghost" leftIcon={Download} onPress={onDownload}>
           Download
         </Button>
       ) : undefined,

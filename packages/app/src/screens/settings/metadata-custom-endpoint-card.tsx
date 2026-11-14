@@ -276,7 +276,6 @@ export function MetadataCustomEndpointCard({ serverId }: { serverId: string }) {
           <View style={styles.actions}>
             <Button
               variant="outline"
-              size="sm"
               onPress={handleRefreshModels}
               disabled={
                 isSaving || discoveryStatus === "loading" || draft.baseUrl.trim().length === 0
@@ -289,7 +288,6 @@ export function MetadataCustomEndpointCard({ serverId }: { serverId: string }) {
             </Button>
             <Button
               variant="default"
-              size="sm"
               onPress={handleSave}
               disabled={!hasChanges || isSaving}
               testID="host-page-metadata-custom-endpoint-save"

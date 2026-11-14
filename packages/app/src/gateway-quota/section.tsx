@@ -80,12 +80,7 @@ export function GatewayAccountSection({
             <View />
           )}
           {quotaSupported && onOpenAllAccounts ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={onOpenAllAccounts}
-              testID="gateway-open-all-accounts"
-            >
+            <Button variant="ghost" onPress={onOpenAllAccounts} testID="gateway-open-all-accounts">
               {gatewayQuotaCopy.allAccounts}
             </Button>
           ) : null}

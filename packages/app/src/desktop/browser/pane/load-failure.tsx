@@ -44,7 +44,7 @@ export function BrowserLoadFailure(props: {
           {props.message}
         </Text>
         <View style={styles.actions}>
-          <Button size="sm" variant="secondary" onPress={props.onRetry} testID="browser-load-retry">
+          <Button variant="secondary" onPress={props.onRetry} testID="browser-load-retry">
             {t("workspace.browser.errors.retry")}
           </Button>
           {remaining !== null ? (

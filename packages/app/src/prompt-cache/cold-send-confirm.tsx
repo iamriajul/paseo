@@ -43,15 +43,15 @@ export function ColdSendConfirm({
   const footer = useMemo(
     () => (
       <View style={styles.actions}>
-        <Button size="sm" variant="ghost" testID="cold-send-cancel" onPress={onCancel}>
+        <Button variant="ghost" testID="cold-send-cancel" onPress={onCancel}>
           Cancel
         </Button>
         {onCompactFirst ? (
-          <Button size="sm" variant="outline" testID="cold-send-compact" onPress={onCompactFirst}>
+          <Button variant="outline" testID="cold-send-compact" onPress={onCompactFirst}>
             {`Compact on ${COLD_SEND_COMPACT_MODEL_LABEL}, then send`}
           </Button>
         ) : null}
-        <Button size="sm" variant="default" testID="cold-send-confirm" onPress={onSend}>
+        <Button variant="default" testID="cold-send-confirm" onPress={onSend}>
           Send anyway
         </Button>
       </View>

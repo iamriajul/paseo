@@ -1122,7 +1122,6 @@ function CacheExpiryStopCard({ serverId }: { serverId: string }) {
           options={options}
           value={value}
           onValueChange={handleValueChange}
-          size="sm"
           testID="host-page-cache-expiry-stop"
         />
       </PolicyRow>
@@ -1172,7 +1171,6 @@ function CacheWarmModeCard({ serverId }: { serverId: string }) {
           options={options}
           value={value}
           onValueChange={handleValueChange}
-          size="sm"
           testID="host-page-cache-warm-mode"
         />
       </PolicyRow>
@@ -1226,7 +1224,6 @@ function ClearCacheMissesCard({ serverId }: { serverId: string }) {
           </Text>
         </View>
         <Button
-          size="sm"
           variant="outline"
           disabled={clearing || agentIds.length === 0}
           onPress={handleClear}
@@ -1281,7 +1278,6 @@ function ChildReportExpiredCacheCard({ serverId }: { serverId: string }) {
           options={options}
           value={value}
           onValueChange={handleValueChange}
-          size="sm"
           testID="host-page-child-report-expired-cache"
         />
       </PolicyRow>

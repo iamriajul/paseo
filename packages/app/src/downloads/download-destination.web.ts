@@ -18,9 +18,9 @@ export type {
 /**
  * Browsers stream a download to disk three ways, tried in order:
  *
- * 1. File System Access (`showSaveFilePicker`): Chrome and Edge on desktop, and Electron, whose
- *    `paseo://` scheme cannot host a service worker. Chrome writes to a swap file and moves it
- *    into place on close, so an aborted download leaves nothing behind.
+ * 1. File System Access (`showSaveFilePicker`): Chrome and Edge on desktop, and Electron. Chrome
+ *    writes to a swap file and moves it into place on close, so an aborted download leaves
+ *    nothing behind.
  * 2. A service worker scoped to /download-stream/ answers a hidden iframe's navigation with a
  *    streamed attachment, so the browser's own download manager writes the file: Chrome on
  *    Android, Firefox and Safari. It needs a secure context (HTTPS or localhost). The browser

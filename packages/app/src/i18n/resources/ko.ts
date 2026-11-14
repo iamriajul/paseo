@@ -2365,6 +2365,7 @@ export const ko: TranslationResources = {
           source: "소스",
           pdf: "PDF",
           office: "Office 문서",
+          media: "미디어",
         },
       },
       directoryMissing: "워크스페이스 디렉터리를 찾을 수 없습니다.",
@@ -2376,6 +2377,17 @@ export const ko: TranslationResources = {
       failedToLoad: "파일을 불러오지 못했습니다",
       notFound: "파일을 찾을 수 없습니다",
       failedToLoadPreview: "파일 미리보기를 불러오지 못했습니다",
+      media: {
+        unsupported: "이 기기에서는 이 파일을 재생할 수 없습니다.",
+        failed: "파일 로드가 중단되었습니다.",
+        updateHost: "오디오 및 동영상 파일을 재생하려면 호스트를 업데이트하세요.",
+        updateApp: "오디오 및 동영상 파일을 재생하려면 앱을 업데이트하세요.",
+        needsSecureContext:
+          "{{size}}보다 큰 파일을 재생하려면 HTTPS 또는 localhost에서 Paseo를 여세요.",
+        confirmLoad: "이 파일은 {{size}}입니다. 재생하기 전에 이 기기로 다운로드됩니다.",
+        loadAndPlay: "다운로드 후 재생",
+        loading: "{{total}} 중 {{received}} 로드 중",
+      },
       editor: {
         preview: "미리보기",
         source: "소스",

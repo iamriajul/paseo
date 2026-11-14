@@ -2389,6 +2389,7 @@ export const ru: TranslationResources = {
           source: "Исходный текст",
           pdf: "PDF",
           office: "Документ Office",
+          media: "Медиа",
         },
       },
       directoryMissing: "Каталог рабочего пространства не найден.",
@@ -2400,6 +2401,18 @@ export const ru: TranslationResources = {
       failedToLoad: "Не удалось загрузить файл",
       notFound: "Файл не найден",
       failedToLoadPreview: "Не удалось загрузить предварительный просмотр файла.",
+      media: {
+        unsupported: "Этот файл нельзя воспроизвести на этом устройстве.",
+        failed: "Загрузка файла прервалась.",
+        updateHost: "Обновите хост, чтобы воспроизводить аудио- и видеофайлы.",
+        updateApp: "Обновите приложение, чтобы воспроизводить аудио- и видеофайлы.",
+        needsSecureContext:
+          "Откройте Paseo по HTTPS или на localhost, чтобы воспроизводить файлы больше {{size}}.",
+        confirmLoad:
+          "Размер файла — {{size}}. Перед воспроизведением он скачивается на это устройство.",
+        loadAndPlay: "Скачать и воспроизвести",
+        loading: "Загружено {{received}} из {{total}}",
+      },
       editor: {
         preview: "Предпросмотр",
         source: "Исходный текст",

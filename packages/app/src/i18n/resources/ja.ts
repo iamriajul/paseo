@@ -2376,6 +2376,7 @@ export const ja: TranslationResources = {
           source: "ソース",
           pdf: "PDF",
           office: "Office 文書",
+          media: "メディア",
         },
       },
       directoryMissing: "ワークスペースディレクトリが見つかりません。",
@@ -2387,6 +2388,17 @@ export const ja: TranslationResources = {
       failedToLoad: "ファイルの読み込みに失敗しました",
       notFound: "ファイルが見つかりません",
       failedToLoadPreview: "ファイルプレビューの読み込みに失敗しました",
+      media: {
+        unsupported: "このファイルはこのデバイスでは再生できません。",
+        failed: "ファイルの読み込みが止まりました。",
+        updateHost: "音声と動画のファイルを再生するには、ホストを更新してください。",
+        updateApp: "音声と動画のファイルを再生するには、アプリを更新してください。",
+        needsSecureContext:
+          "{{size}} を超えるファイルを再生するには、HTTPS または localhost で Paseo を開いてください。",
+        confirmLoad: "このファイルは {{size}} です。再生前にこのデバイスにダウンロードされます。",
+        loadAndPlay: "ダウンロードして再生",
+        loading: "{{total}} 中 {{received}} を読み込み中",
+      },
       editor: {
         preview: "プレビュー",
         source: "ソース",

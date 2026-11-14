@@ -8,6 +8,7 @@ const BUILTIN_PRESENTATION = {
   "builtin:html": { title: "html", icon: "FileCode" },
   "builtin:image": { title: "image", icon: "Image" },
   "builtin:pdf": { title: "pdf", icon: "FileText" },
+  "builtin:media": { title: "media", icon: "FilePlay" },
   "builtin:office": { title: "office", icon: "File" },
   "builtin:source": { title: "source", icon: "Code" },
 } as const;

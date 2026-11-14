@@ -821,7 +821,8 @@ ipcMain.handle("paseo:browser:copy-element", (_event, payload: unknown) =>
 protocol.registerSchemesAsPrivileged([
   {
     scheme: APP_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true },
+    // Service workers: the file preview streams audio and video through one, with seeking.
+    privileges: { standard: true, secure: true, supportFetchAPI: true, allowServiceWorkers: true },
   },
 ]);
 

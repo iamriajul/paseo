@@ -2387,6 +2387,7 @@ export const ptBR: TranslationResources = {
           source: "Fonte",
           pdf: "PDF",
           office: "Documento do Office",
+          media: "Mídia",
         },
       },
       directoryMissing: "Diretório do workspace não encontrado.",
@@ -2398,6 +2399,18 @@ export const ptBR: TranslationResources = {
       failedToLoad: "Falha ao carregar arquivo",
       notFound: "Arquivo não encontrado",
       failedToLoadPreview: "Falha ao carregar prévia do arquivo",
+      media: {
+        unsupported: "Este arquivo não pode ser reproduzido neste dispositivo.",
+        failed: "O arquivo parou de carregar.",
+        updateHost: "Atualize o host para reproduzir arquivos de áudio e vídeo.",
+        updateApp: "Atualize o app para reproduzir arquivos de áudio e vídeo.",
+        needsSecureContext:
+          "Abra o Paseo por HTTPS ou em localhost para reproduzir arquivos acima de {{size}}.",
+        confirmLoad:
+          "Este arquivo tem {{size}}. Ele é baixado para este dispositivo antes de tocar.",
+        loadAndPlay: "Baixar e reproduzir",
+        loading: "Carregando {{received}} de {{total}}",
+      },
       editor: {
         preview: "Prévia",
         source: "Fonte",

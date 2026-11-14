@@ -10,6 +10,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { FileHtmlPreview } from "./html-preview";
 import { FilePanelLoading } from "./loading";
 import { FileMarkdownPreview } from "./markdown-preview";
+import { MediaPanel } from "./media/panel";
 import { TextFilePanel, type TextFilePreviewProps } from "./source/panel";
 import type { RenderingFilePanel, SourceFilePanel } from "./catalog";
 
@@ -101,6 +102,7 @@ const components = {
   "builtin:html": HtmlPanel,
   "builtin:image": ImagePanel,
   "builtin:pdf": PdfPanel,
+  "builtin:media": MediaPanel,
   "builtin:office": OfficePanel,
   "builtin:source": SourcePanel,
 };

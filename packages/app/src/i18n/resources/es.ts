@@ -2402,6 +2402,7 @@ export const es: TranslationResources = {
           source: "Código fuente",
           pdf: "PDF",
           office: "Documento de Office",
+          media: "Multimedia",
         },
       },
       directoryMissing: "No se encontró el directorio de Workspace.",
@@ -2413,6 +2414,18 @@ export const es: TranslationResources = {
       failedToLoad: "No se pudo cargar el archivo",
       notFound: "No se encontró el archivo",
       failedToLoadPreview: "No se pudo cargar la vista previa del archivo",
+      media: {
+        unsupported: "Este archivo no se puede reproducir en este dispositivo.",
+        failed: "El archivo dejó de cargarse.",
+        updateHost: "Actualiza el host para reproducir archivos de audio y vídeo.",
+        updateApp: "Actualiza la app para reproducir archivos de audio y vídeo.",
+        needsSecureContext:
+          "Abre Paseo por HTTPS o en localhost para reproducir archivos de más de {{size}}.",
+        confirmLoad:
+          "Este archivo ocupa {{size}}. Se descarga en este dispositivo antes de reproducirse.",
+        loadAndPlay: "Descargar y reproducir",
+        loading: "Cargando {{received}} de {{total}}",
+      },
       editor: {
         preview: "Vista previa",
         source: "Código fuente",

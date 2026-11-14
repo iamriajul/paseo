@@ -2355,6 +2355,7 @@ export const ar: TranslationResources = {
           source: "المصدر",
           pdf: "PDF",
           office: "مستندات Office",
+          media: "وسائط",
         },
       },
       directoryMissing: "لم يتم العثور على دليل Workspace.",
@@ -2366,6 +2367,17 @@ export const ar: TranslationResources = {
       failedToLoad: "فشل تحميل الملف",
       notFound: "الملف غير موجود",
       failedToLoadPreview: "فشل تحميل معاينة الملف",
+      media: {
+        unsupported: "لا يمكن تشغيل هذا الملف على هذا الجهاز.",
+        failed: "توقف تحميل الملف.",
+        updateHost: "حدّث المضيف لتشغيل ملفات الصوت والفيديو.",
+        updateApp: "حدّث التطبيق لتشغيل ملفات الصوت والفيديو.",
+        needsSecureContext:
+          "افتح Paseo عبر HTTPS أو على localhost لتشغيل الملفات الأكبر من {{size}}.",
+        confirmLoad: "حجم هذا الملف {{size}}. يُنزَّل إلى هذا الجهاز قبل تشغيله.",
+        loadAndPlay: "تنزيل وتشغيل",
+        loading: "جارٍ تحميل {{received}} من {{total}}",
+      },
       editor: {
         preview: "معاينة",
         source: "المصدر",

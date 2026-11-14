@@ -2403,6 +2403,7 @@ export const fr: TranslationResources = {
           source: "Source",
           pdf: "PDF",
           office: "Document Office",
+          media: "Média",
         },
       },
       directoryMissing: "Répertoire de l’espace de travail introuvable.",
@@ -2414,6 +2415,18 @@ export const fr: TranslationResources = {
       failedToLoad: "Impossible de charger le fichier",
       notFound: "Fichier introuvable",
       failedToLoadPreview: "Impossible de charger l’aperçu du fichier",
+      media: {
+        unsupported: "Ce fichier ne peut pas être lu sur cet appareil.",
+        failed: "Le chargement du fichier s’est interrompu.",
+        updateHost: "Mettez à jour l’hôte pour lire les fichiers audio et vidéo.",
+        updateApp: "Mettez à jour l’app pour lire les fichiers audio et vidéo.",
+        needsSecureContext:
+          "Ouvrez Paseo en HTTPS ou sur localhost pour lire les fichiers de plus de {{size}}.",
+        confirmLoad:
+          "Ce fichier fait {{size}}. Il est téléchargé sur cet appareil avant la lecture.",
+        loadAndPlay: "Télécharger et lire",
+        loading: "Chargement : {{received}} sur {{total}}",
+      },
       editor: {
         preview: "Aperçu",
         source: "Source",

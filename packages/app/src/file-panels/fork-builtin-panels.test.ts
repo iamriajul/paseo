@@ -12,13 +12,19 @@ function panelId(path: string): string | null {
   );
 }
 
-describe("fork built-in document panels", () => {
+describe("fork built-in document and media panels", () => {
   it.each([
     ["docs/report.pdf", "builtin:pdf"],
     ["slides/deck.pptx", "builtin:office"],
     ["data/SHEET.XLSX", "builtin:office"],
     ["notes.docm", "builtin:office"],
     ["template.potx", "builtin:office"],
+    ["clips/demo.mp4", "builtin:media"],
+    ["test-results/video.webm", "builtin:media"],
+    ["Screen Recording.MOV", "builtin:media"],
+    ["voice/memo.m4a", "builtin:media"],
+    ["beep.wav", "builtin:media"],
+    ["track.mp3", "builtin:media"],
   ])("opens %s with %s", (path, id) => {
     expect(panelId(path)).toBe(id);
   });
@@ -43,8 +49,9 @@ describe("fork built-in document panels", () => {
     expect(rows[0].candidates.map(({ id }) => id)).toEqual(["builtin:source"]);
   });
 
-  it("leaves legacy Word and PowerPoint files without a preview panel", () => {
+  it("leaves legacy Word and PowerPoint files and AVI video without a preview panel", () => {
     expect(panelId("old.doc")).toBeNull();
     expect(panelId("old.ppt")).toBeNull();
+    expect(panelId("capture.avi")).toBeNull();
   });
 });

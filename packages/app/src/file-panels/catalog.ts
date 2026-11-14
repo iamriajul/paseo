@@ -1,3 +1,4 @@
+import { MEDIA_EXTENSIONS } from "./media/formats";
 import type { FilePanelCandidate } from "./resolve";
 
 const renderingPanels = [
@@ -24,6 +25,13 @@ const renderingPanels = [
     builtin: true,
     fallback: true,
     files: { extensions: ["pdf"] },
+    fileKind: "binary",
+  },
+  {
+    id: "builtin:media",
+    builtin: true,
+    fallback: true,
+    files: { extensions: MEDIA_EXTENSIONS },
     fileKind: "binary",
   },
   {

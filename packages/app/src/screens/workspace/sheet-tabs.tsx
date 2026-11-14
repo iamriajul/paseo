@@ -8,6 +8,7 @@ import {
 import {
   IsolatedBottomSheetModal,
   type IsolatedBottomSheetModalRef,
+  SheetVisibleFrame,
   systemBackPress,
 } from "@/components/ui/isolated-bottom-sheet-modal";
 import {
@@ -128,6 +129,10 @@ function SheetTabSheet({ sheet, isTop, onClose }: SheetTabSheetProps) {
       enablePanDownToClose
       // The pane scrolls on its own; the sheet drags from its handle and header.
       enableContentPanningGesture={false}
+      // Fork (native-file-editor): a file sheet edits on phones, so like the app's other sheets with
+      // text fields it keeps its snap while the keyboard is up and its frame ends above the keyboard.
+      keyboardBehavior="extend"
+      keyboardBlurBehavior="restore"
       enableDismissOnClose={false}
       backgroundComponent={SheetBackground}
       handleComponent={SheetHandle}
@@ -135,7 +140,9 @@ function SheetTabSheet({ sheet, isTop, onClose }: SheetTabSheetProps) {
       onChange={handleChange}
       accessible={false}
     >
-      <SheetPane sheet={sheet} onClose={close} isTop={isTop} />
+      <SheetVisibleFrame>
+        <SheetPane sheet={sheet} onClose={close} isTop={isTop} />
+      </SheetVisibleFrame>
     </IsolatedBottomSheetModal>
   );
 }

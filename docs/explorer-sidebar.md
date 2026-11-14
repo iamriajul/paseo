@@ -60,7 +60,8 @@ container owns Android Back; the pane never subscribes to it.
 
 Sheets are modal and cover both compact sidebars as well as the workspace. The header drags the
 sheet through `SheetDragArea`, because the panel scrolls on its own and content panning would fight
-it. Its trailing rail holds icon buttons only (`SheetHeaderIconButton`): Open as tab is the
+it. While the soft keyboard is up a sheet keeps its snap and its frame ends above the keyboard, so
+a file being edited stays in view. Its trailing rail holds icon buttons only (`SheetHeaderIconButton`): Open as tab is the
 full-screen glyph beside Close, so the title keeps its width. Compact sheets use the app overlay
 host: a workspace-local host sits behind the app-level left sidebar. The sheet pane bridge
 (`useSheetPaneBridge`) preserves existing editing sessions, caches, file-link resolution and

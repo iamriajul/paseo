@@ -2033,7 +2033,7 @@ grep -q '"browser.server.tab.pin.request": "workspace.write"' packages/server/sr
 
 Before upstream v0.12.0, every file a phone opened became a tab. Upstream's #6827 moved files into a closable bottom sheet so the phone's tab strip holds only agents and terminals, and gave the sheet's Open as tab button to Paseo subagents only. The sheet is modal, so on a phone a file could no longer stay open beside its chat or be switched back to, and the user reported that files could not be opened as tabs any more. The fork keeps upstream's sheet as the default and lets a file sheet offer Open as tab too: the same `openTabInFront` move a subagent sheet uses, keeping the tab's id and state. Revealing a file that is already a tab focuses the tab, as upstream does for every target.
 
-Moving a tab remounts its panel, and the web file editor keeps unsaved text in the mounted view, so the sheet hides Open as tab while its tab is modified and shows it again once the autosave lands. Native file panels are read-only, so on a phone the button is always there.
+Moving a tab remounts its panel, and the file editor keeps unsaved text in the mounted view (the web editor and the [native WebView editor](#native-file-editor) alike), so the sheet hides Open as tab while its tab is modified and shows it again once the autosave lands.
 
 Official files changed: `panels/panel-manifest.ts` sets `file`'s `compactSheet` to `{ openAsTab: true }`. `screens/workspace/sheet-pane/sheet-pane.tsx` reads the tab's `modified` attribute and offers the button only when the policy allows it and the tab is not modified. `e2e/browser/compact-workspace-sheet.spec.ts` expects the button on a file sheet instead of its absence. The fork spec `compact-file-open-as-tab.spec.ts` covers the phone flow: the button, its absence while a save is held, the move into the switcher, and a later chat link focusing the tab.
 
@@ -2041,4 +2041,31 @@ Official files changed: `panels/panel-manifest.ts` sets `file`'s `compactSheet` 
 npm test --workspace=@getpaseo/app -- src/panels/fork-file-sheet-open-as-tab.test.ts --bail=1
 grep -q "const canOpenAsTab = sheet.policy.openAsTab && !modified;" packages/app/src/screens/workspace/sheet-pane/sheet-pane.tsx
 test -f packages/app/e2e/browser/compact-file-open-as-tab.spec.ts
+```
+
+## native-file-editor
+
+**a phone edits files in the same CodeMirror editor as web and desktop**
+
+Official Paseo shows every file read-only on iOS and Android: its native editor is a placeholder reading "Source editing is available on web and desktop", and upstream's mobile editor (#3884, a CodeMirror page in a WebView) has been an open, unmerged pull request since 26 August 2026. The user asked to edit files from the phone. The fork ports #3884's approach onto the current file panels: `source/editor/view.tsx`, the native variant of `FileEditorView`, re-exports `source/editor/native/host.tsx`, which runs the web editor's CodeMirror from a bundled page in a WebView. Files up to 1 MiB open in Source as on web; larger files keep the read-only view.
+
+- **One buffer, the web's model.** `EditableTextFile` and `FileEditorModel` are shared with web, so autosave, Save, conflicts, Reload and Overwrite behave the same. The page holds only the editor; `native/session.ts` mirrors its text on the host and turns its changes back into the file's own line separator, as the web editor does with `sliceString(…, lineSeparator)`.
+- **Small messages.** A keystroke crosses the bridge as a change range in LF coordinates, not the whole file. The whole text crosses only on mount and when the file changed on disk.
+- **A change carries its revision.** A reload from disk and a keystroke can cross the bridge in opposite directions. Each replacement bumps the revision, each change names the revision it was typed against, and the host drops a change for an older one. Upstream's PR applies such a change to the new text, and the result autosaves.
+- **Configuration crosses by value.** The themed wrapper builds a new theme object on every render, and the toolbar re-renders on every cursor move. The host compares the serialized filename, vim setting and theme, so it reconfigures the page only when one of them changed; reconfiguring per keystroke reset vim to Normal mode after every key.
+- **The same editor.** `native/runtime.ts` uses the web editor's `editorBaseExtensions` and `editorTheme` from `extensions.web.ts`, its Markdown-only wrapping and its vim mode. The page adds `monospace` after the app's mono font, which the WebView may not have. Find in file stays web-only.
+- **The page is generated and committed.** `npm --prefix packages/app run build:source-editor-webview` bundles `native/webview-entry.ts` into `native/webview-html.ts` (about 1.4 MB, mostly Lezer grammars), and EAS post-install rebuilds it. `webview-html.test.ts` fails when the committed page is stale or its policy allows any network. The page loads nothing: `default-src 'none'`, and the host refuses every navigation after the first.
+- **The keyboard.** The workspace sheet now keeps its snap while the soft keyboard is up and ends its frame above the keyboard (`keyboardBehavior="extend"`, `keyboardBlurBehavior="restore"`, `SheetVisibleFrame`), the settings the app's other sheets with text fields use.
+
+Official files changed: `source/editor/view.tsx` re-exports the native host instead of the placeholder. `source/panel.tsx` edits files up to `MAX_EDITABLE_BYTES` on every platform, not only on web. `screens/workspace/sheet-tabs.tsx` gets the keyboard settings above. `packages/app/package.json` adds `build:source-editor-webview` and runs it in `eas-build-post-install`.
+
+`host.browser.test.tsx` runs `host.tsx` against the committed page in Chromium, with a test double for `react-native-webview` that loads the page in an iframe: a keystroke saves the file with its CRLF endings, a change on disk shows in the editor, a line target selects its line, and vim stays in Insert mode while the panel re-renders (it fails when the configuration is compared by identity). `session.test.ts` drops a change typed against a replaced revision, and fails without that check.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/file-panels/source/editor/native --bail=1
+npm test --workspace=@getpaseo/app -- --project=browser src/file-panels/source/editor/native/host.browser.test.tsx --bail=1
+grep -q 'export { FileEditorView } from "./native/host";' packages/app/src/file-panels/source/editor/view.tsx
+grep -q "if (size <= MAX_EDITABLE_BYTES) return <EditableTextFile" packages/app/src/file-panels/source/panel.tsx
+grep -q 'keyboardBehavior="extend"' packages/app/src/screens/workspace/sheet-tabs.tsx
+grep -q "build:source-editor-webview" packages/app/package.json
 ```

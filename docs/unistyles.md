@@ -46,6 +46,11 @@ const ThemedBlur = withUnistyles(BlurView);
 <ThemedBlur tint={theme.colors.surface0} />;
 ```
 
+The mapping runs on every render of the wrapper, so an object it returns (such as a theme it
+assembles) is a new object each time. A wrapped component that keys an effect or a memo on that prop
+reruns it on every render; compare by value instead, as
+`packages/app/src/file-panels/source/editor/native/host.tsx` does with its theme.
+
 (Mind the `> *` child-selector leak documented further down.)
 
 ### 4. There is no "last resort"

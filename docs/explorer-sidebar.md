@@ -29,9 +29,14 @@ can remount. Native retained content stays live, while web chat uses its existin
 ## Sheets
 
 On compact layouts, files and subagents open in a sheet over the workspace, so the tab switcher
-keeps only agents and terminals. A panel kind opts in with `compactSheet` in its manifest
-(`packages/app/src/panels/panel-manifest.ts`), and the layout store's `openTab` decides between
-sheet and tab, so callers open targets the same way on every layout. Each such sheet holds one
+keeps only agents and terminals until the user opens a sheet as a tab. A panel kind opts in with
+`compactSheet` in its manifest (`packages/app/src/panels/panel-manifest.ts`), and the layout store's
+`openTab` decides between sheet and tab, so callers open targets the same way on every layout. The
+same rule says whether the sheet offers Open as tab, which moves its tab, id and state included,
+into the tab switcher: file and Paseo subagent sheets offer it, provider subagent sheets do not.
+Upstream offers it only for Paseo subagents; files are a
+[fork decision](fork-decisions.md#file-sheet-open-as-tab). Once a target is a tab, revealing it
+again focuses that tab instead of opening a sheet. Each sheet holds one
 ordinary `WorkspaceTab` (`SheetTab` in the store) and is an `IsolatedBottomSheetModal` like every
 other sheet in the app, so it sits on the one app-wide stack: a sheet opened from any sheet lands on
 top of it, and closing the top sheet (drag, Close, backdrop, or Android Back) uncovers the one below.
@@ -68,7 +73,9 @@ See
 A sheet holding unsaved work is never implicitly displaced; only its guarded close removes it.
 Moving its tab to another host remounts the panel, and the file editor keeps unsaved text in the
 mounted view, so the move would drop it. Widening the layout is the known exception: it still moves
-the sheet's tab into a pane, and edits the autosave has not started writing are lost.
+the sheet's tab into a pane, and edits the autosave has not started writing are lost. For the same
+reason a sheet hides Open as tab while its tab is modified, and shows it again once the autosave
+lands.
 
 ## Explorer sidebar
 

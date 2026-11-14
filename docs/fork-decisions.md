@@ -2026,3 +2026,19 @@ grep -q "serverBrowserTabPin: serverBrowserOf" packages/server/src/server/websoc
 grep -q "serverBrowserTabPin: z.boolean().optional()" packages/protocol/src/messages.ts
 grep -q '"browser.server.tab.pin.request": "workspace.write"' packages/server/src/server/authorization/operation-permissions.ts
 ```
+
+## file-sheet-open-as-tab
+
+**a file opened on a phone can be moved from its sheet into a tab**
+
+Before upstream v0.12.0, every file a phone opened became a tab. Upstream's #6827 moved files into a closable bottom sheet so the phone's tab strip holds only agents and terminals, and gave the sheet's Open as tab button to Paseo subagents only. The sheet is modal, so on a phone a file could no longer stay open beside its chat or be switched back to, and the user reported that files could not be opened as tabs any more. The fork keeps upstream's sheet as the default and lets a file sheet offer Open as tab too: the same `openTabInFront` move a subagent sheet uses, keeping the tab's id and state. Revealing a file that is already a tab focuses the tab, as upstream does for every target.
+
+Moving a tab remounts its panel, and the web file editor keeps unsaved text in the mounted view, so the sheet hides Open as tab while its tab is modified and shows it again once the autosave lands. Native file panels are read-only, so on a phone the button is always there.
+
+Official files changed: `panels/panel-manifest.ts` sets `file`'s `compactSheet` to `{ openAsTab: true }`. `screens/workspace/sheet-pane/sheet-pane.tsx` reads the tab's `modified` attribute and offers the button only when the policy allows it and the tab is not modified. `e2e/browser/compact-workspace-sheet.spec.ts` expects the button on a file sheet instead of its absence. The fork spec `compact-file-open-as-tab.spec.ts` covers the phone flow: the button, its absence while a save is held, the move into the switcher, and a later chat link focusing the tab.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/panels/fork-file-sheet-open-as-tab.test.ts --bail=1
+grep -q "const canOpenAsTab = sheet.policy.openAsTab && !modified;" packages/app/src/screens/workspace/sheet-pane/sheet-pane.tsx
+test -f packages/app/e2e/browser/compact-file-open-as-tab.spec.ts
+```

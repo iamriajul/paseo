@@ -18,6 +18,7 @@ import {
   SheetHeaderView,
   type SheetHeader,
 } from "@/components/adaptive-modal-sheet";
+import { usePanelInstanceAttributes } from "@/panels/panel-instance-attributes";
 import type { PanelIconProps } from "@/panels/panel-registry";
 import { getPanelRegistration } from "@/panels/panel-registry";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -84,6 +85,14 @@ export function SheetPane({ sheet, onClose, onBack, opener = null, isTop }: Shee
     () => openTabInFront(workspaceKey, sheet),
     [openTabInFront, sheet, workspaceKey],
   );
+  // Fork: moving a tab remounts its panel, and the file editor keeps unsaved text in the mounted
+  // view, so a sheet offers Open as tab only once its edits are saved.
+  const { modified } = usePanelInstanceAttributes({
+    serverId: host.serverId,
+    workspaceId: host.workspaceId,
+    tabId: tab.tabId,
+  });
+  const canOpenAsTab = sheet.policy.openAsTab && !modified;
   const header = useMemo<SheetHeader>(
     () => ({
       title: descriptor.label,
@@ -91,7 +100,7 @@ export function SheetPane({ sheet, onClose, onBack, opener = null, isTop }: Shee
       back: onBack ? { onPress: onBack } : undefined,
       // The sheet is for looking; the full-screen glyph takes the tab out of the sheet and into
       // the switcher, where it gets its composer back.
-      actions: sheet.policy.openAsTab ? (
+      actions: canOpenAsTab ? (
         <SheetHeaderIconButton
           icon={Maximize2}
           accessibilityLabel={t("workspace.sheet.openAsTab")}
@@ -100,7 +109,7 @@ export function SheetPane({ sheet, onClose, onBack, opener = null, isTop }: Shee
         />
       ) : undefined,
     }),
-    [descriptor.icon, descriptor.label, handleOpenAsTab, onBack, sheet.policy.openAsTab, t],
+    [canOpenAsTab, descriptor.icon, descriptor.label, handleOpenAsTab, onBack, t],
   );
 
   const tabDescriptor = useMemo<WorkspaceTabDescriptor>(

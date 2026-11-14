@@ -72,9 +72,10 @@ test("compact opens files and subagents in a sheet, leaving the tabs for agents"
       await expect(fileSheet).toBeVisible();
       await expect(fileSheet.getByText("three")).toBeVisible();
       await expectSheetAtSnap(page, "linked.ts");
+      // Fork: a file sheet offers Open as tab (compact-file-open-as-tab.spec.ts).
       await expect(
         sheetHeader(page, "linked.ts").getByRole("button", { name: "Open as tab" }),
-      ).toHaveCount(0);
+      ).toBeVisible();
       await expectOpenTabCount(page, 1);
       await closeSheet(page, "linked.ts");
     });

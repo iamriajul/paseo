@@ -1,3 +1,5 @@
+import { decodeUtf8 } from "@/utils/decode-utf8";
+
 /** Reads `length` bytes of the file from `offset`. */
 export type ReadBytes = (offset: number, length: number) => Promise<Uint8Array>;
 
@@ -28,7 +30,8 @@ export class LogTail {
   private open = false;
   private start = 0;
   private end = 0;
-  private decoder = new TextDecoder();
+  /** The start of a character the last read cut off, prepended to the next read. */
+  private carry = new Uint8Array(0);
   private snapshot: LogTailSnapshot = { status: "loading", lines: [], start: 0, error: null };
   private readonly listeners = new Set<() => void>();
   private queue: Promise<void> = Promise.resolve();
@@ -74,7 +77,7 @@ export class LogTail {
       const from = Math.max(0, this.start - this.chunkBytes);
       const bytes = await this.read(from, this.start - from);
       const kept = from > 0 ? afterFirstNewline(bytes) : bytes;
-      const earlier = new TextDecoder().decode(kept).split("\n");
+      const earlier = decodeUtf8(kept).split("\n");
       const joined = earlier.pop() ?? "";
       this.lines = [...earlier, `${joined}${this.lines[0] ?? ""}`, ...this.lines.slice(1)];
       this.start = from + (bytes.length - kept.length);
@@ -91,21 +94,34 @@ export class LogTail {
     const from = Math.max(0, size - this.chunkBytes);
     const bytes = await this.read(from, size - from);
     const kept = from > 0 ? afterFirstNewline(bytes) : bytes;
-    this.decoder = new TextDecoder();
+    this.carry = new Uint8Array(0);
     this.lines = [];
     this.open = false;
     this.start = from + (bytes.length - kept.length);
     this.end = size;
-    this.push(this.decoder.decode(kept, { stream: true }));
+    this.push(this.decodeForward(kept));
     this.publish("ready", null);
   }
 
   private async append(size: number): Promise<void> {
     const bytes = await this.read(this.end, size - this.end);
     this.end += bytes.length;
-    this.push(this.decoder.decode(bytes, { stream: true }));
+    this.push(this.decodeForward(bytes));
     this.trim();
     this.publish("ready", null);
+  }
+
+  /**
+   * Decodes bytes read past the end, holding back a character the read cut in two. Not
+   * TextDecoder's `stream`: the phones' polyfill ignores it and would show U+FFFD for good.
+   */
+  private decodeForward(bytes: Uint8Array): string {
+    const joined = new Uint8Array(this.carry.length + bytes.length);
+    joined.set(this.carry);
+    joined.set(bytes, this.carry.length);
+    const complete = joined.length - incompleteUtf8Tail(joined);
+    this.carry = joined.slice(complete);
+    return decodeUtf8(joined.subarray(0, complete));
   }
 
   /** Builds a new lines array: a published snapshot never changes under its reader. */
@@ -147,6 +163,20 @@ export class LogTail {
     this.snapshot = { status, lines: this.lines, start: this.start, error };
     for (const listener of this.listeners) listener();
   }
+}
+
+/** How many bytes at the end begin a UTF-8 character whose remaining bytes have not arrived. */
+export function incompleteUtf8Tail(bytes: Uint8Array): number {
+  for (let back = 1; back <= Math.min(3, bytes.length); back += 1) {
+    const byte = bytes[bytes.length - back];
+    if ((byte & 0xc0) === 0x80) continue;
+    let length = 1;
+    if (byte >= 0xf0) length = 4;
+    else if (byte >= 0xe0) length = 3;
+    else if (byte >= 0xc0) length = 2;
+    return length > back ? back : 0;
+  }
+  return 0;
 }
 
 /** A chunk read from mid-file starts mid-line, and maybe mid-character: skip to the next line. */

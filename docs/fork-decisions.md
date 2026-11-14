@@ -112,7 +112,7 @@ npm test --workspace=@getpaseo/highlight -- src/__tests__/parsers.test.ts src/__
 Upstream shows `.csv`, `.tsv` and `.json` only as source, which is unreadable for a minified JSON file or a wide CSV, on a phone above all. The fork adds `builtin:table` and `builtin:json` (`file-panels/table/`, `file-panels/json/`), text panels with a preview beside Source like Markdown. Both are fallback panels like `pdf-file-preview`, but Source, the floor for every text file, used to count as a claim in `withoutFallbacks` (`file-panels/resolve.ts`), so a text fallback could never open. Source no longer counts; a plugin that claims `.json` still gets the plugin-or-Source question it got before. `file-editing.spec.ts` opens a large `package-lock.json` to test Source, so it switches to Source first.
 
 ```bash
-npm test --workspace=@getpaseo/app -- src/file-panels/fork-builtin-panels.test.ts src/file-panels/table/parse.test.ts src/file-panels/json/model.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/file-panels/fork-builtin-panels.test.ts src/file-panels/table/parse.test.ts src/file-panels/json/model.test.ts src/file-panels/json/plurals.test.ts --bail=1
 ```
 
 ## log-file-tail
@@ -122,7 +122,7 @@ npm test --workspace=@getpaseo/app -- src/file-panels/fork-builtin-panels.test.t
 Upstream opens a log in Source, which reads the whole file and shows its start, and refuses it past 50 MB on web and 10 MB on phones. The fork adds `builtin:log` (`file-panels/log/`), a fallback text panel that reads the last 256 KB with the byte-range read from `media-file-preview`, then only the bytes appended since, and earlier chunks on request. Source stays a tap away when the file fits its budget: `TextFilePanel` takes an `onShowTail` view and `TextFileToolbar` a list of views (`source/panel.tsx`, `source/toolbar.tsx`). How the tail reads, and why lines do not wrap, is in [File preview](file-preview.md#log-files).
 
 ```bash
-npm test --workspace=@getpaseo/app -- src/file-panels/log/tail.test.ts src/file-panels/fork-builtin-panels.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/file-panels/log/tail.test.ts src/file-panels/native-text-decoding.test.ts src/file-panels/fork-builtin-panels.test.ts --bail=1
 grep -q '"builtin:log": LogPanel' packages/app/src/file-panels/builtin.tsx
 ```
 
@@ -134,7 +134,7 @@ React Native's `Image` decodes no SVG on iOS or Android and no AVIF before iOS 1
 
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/file-explorer/service.test.ts -t "UTF-16" --bail=1
-npm test --workspace=@getpaseo/app -- src/file-panels/file/text-encoding.test.ts src/file-panels/file/handle.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/file-panels/file/text-encoding.test.ts src/file-panels/file/handle.test.ts src/file-panels/native-text-decoding.test.ts --bail=1
 grep -q 'from "expo-image"' packages/app/src/components/zoomable-viewport/platform-image.tsx
 ```
 

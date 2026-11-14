@@ -42,7 +42,7 @@ On iOS and Android the image panel draws with `expo-image` (`components/zoomable
 
 A log panel reads the last 256 KB of the file with a byte-range read, then, each time the file changes, only the bytes past what it has read (`file-panels/log/tail.ts`). It never reads the whole file, so a log of any size opens at once over a relay. Load earlier reads the 256 KB before the first line on screen.
 
-- A read that starts mid-file starts mid-line and maybe mid-character, so the tail skips to the first newline. Bytes appended later go through one streaming `TextDecoder`, so a character split between two writes stays whole.
+- A read that starts mid-file starts mid-line and maybe mid-character, so the tail skips to the first newline. A read that ends inside a character holds its first bytes back for the next read, so a character split between two writes stays whole. `TextDecoder`'s `stream` option would not do it: on phones `TextDecoder` is a Buffer polyfill that ignores it, so text decodes through `@/utils/decode-utf8`, whose native variant also skips that polyfill's slow path.
 - A file that shrinks was truncated or rotated, and the tail starts over at its new end.
 - Changes reported while a read runs collapse into one read after it, so a chatty log costs one read per round trip.
 - The tail keeps 50,000 lines and drops the oldest past that; Load earlier reads them again.

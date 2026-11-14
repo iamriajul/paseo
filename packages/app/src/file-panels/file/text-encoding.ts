@@ -1,3 +1,5 @@
+import { decodeUtf8 } from "@/utils/decode-utf8";
+
 /** How a text file's bytes encode its text, so saving writes them back the same way. */
 export type TextEncodingName = "utf-8" | "utf-8-bom" | "utf-16le" | "utf-16be";
 
@@ -13,8 +15,9 @@ export function decodeText(bytes: Uint8Array): { text: string; encoding: TextEnc
     return { text: decodeUtf16(bytes.subarray(2), false), encoding: "utf-16be" };
   }
   const bom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
-  // TextDecoder drops a leading UTF-8 BOM.
-  return { text: new TextDecoder().decode(bytes), encoding: bom ? "utf-8-bom" : "utf-8" };
+  // Not the runtime's TextDecoder: on phones that is a slow polyfill that keeps the BOM, so each
+  // save would add another. decodeUtf8 drops it, on the engine's fast path.
+  return { text: decodeUtf8(bytes), encoding: bom ? "utf-8-bom" : "utf-8" };
 }
 
 /** The text as `encoding` writes it: UTF-8 as a string, the others as bytes with their BOM. */

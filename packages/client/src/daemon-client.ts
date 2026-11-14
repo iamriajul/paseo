@@ -630,6 +630,10 @@ export interface DownloadStreamInput {
   kind: "file" | "folder";
   /** Folders only. Absent means true, matching Files' default of showing hidden files. */
   includeHidden?: boolean;
+  /** Files only, and requires `server_info.features.downloadRange`: the first byte to send. */
+  offset?: number;
+  /** Files only, with `offset`: how many bytes to send. Absent means to the end of the file. */
+  length?: number;
 }
 export interface DownloadStreamOptions {
   signal?: AbortSignal;

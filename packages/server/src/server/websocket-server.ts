@@ -2267,6 +2267,8 @@ export class VoiceAssistantWebSocketServer {
         fileByteWrites: true,
         // COMPAT(downloadStream): added in v0.15.911, drop gate after 2027-05-11.
         downloadStream: true,
+        // COMPAT(downloadRange): added in v0.15.919, drop gate after 2027-05-14.
+        downloadRange: true,
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
         providerUsageList: true,
         // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.

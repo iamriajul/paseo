@@ -3,6 +3,7 @@ import type { OwnedOperation, SessionDelivery } from "../owned-subscriptions/ind
 import type { FileVersion } from "@getpaseo/protocol/messages";
 import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { getErrorMessage } from "@getpaseo/protocol/error-utils";
 import {
   encodeFileTransferFrame,
@@ -746,10 +747,16 @@ export class WorkspaceFilesSession {
       if (!cwd) throw new Error("cwd is required");
       if (!this.host.hasBinaryChannel())
         throw new Error("Update the app to download over this connection.");
+      const ranged = request.offset !== undefined || request.length !== undefined;
+      if (ranged && request.kind === "folder")
+        throw new Error("A byte range applies to a file only.");
       const stream =
         request.kind === "folder"
           ? await openFolderDownload(cwd, request.path, request.includeHidden ?? true)
-          : await openFileDownload(cwd, request.path);
+          : await openFileDownload(cwd, request.path, {
+              offset: request.offset ?? 0,
+              length: request.length ?? null,
+            });
       const downloadId = this.downloads.open(stream);
       this.host.emit({
         type: "fs.download.open.response",
@@ -836,7 +843,17 @@ const FILE_OPEN_FLAGS =
     ? fsConstants.O_RDONLY
     : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
 
-async function openFileDownload(cwd: string, relativePath: string): Promise<SessionDownloadStream> {
+interface FileByteRange {
+  offset: number;
+  /** `null` reads to the end of the file. */
+  length: number | null;
+}
+
+async function openFileDownload(
+  cwd: string,
+  relativePath: string,
+  range: FileByteRange,
+): Promise<SessionDownloadStream> {
   // Same path safety and canonical target as the HTTP token route.
   const info = await getDownloadableFileInfo({ root: cwd, relativePath });
   const handle = await fs.open(info.absolutePath, FILE_OPEN_FLAGS);
@@ -848,15 +865,26 @@ async function openFileDownload(cwd: string, relativePath: string): Promise<Sess
     await handle.close();
     throw new Error("Requested path is not a file");
   }
+  if (range.offset > stats.size) {
+    await handle.close();
+    throw new Error("The range starts past the end of the file.");
+  }
+  // Stop at the size sent in the open response, so a file that grows meanwhile still matches.
+  const end = Math.min(stats.size, range.offset + (range.length ?? stats.size));
+  const size = end - range.offset;
+  if (size === 0) await handle.close();
   return {
     fileName: info.fileName,
     mimeType: info.mimeType,
-    size: stats.size,
-    // Stop at the size sent in the open response, so a file that grows meanwhile still matches.
-    readable: handle.createReadStream({
-      highWaterMark: DOWNLOAD_CHUNK_BYTES,
-      ...(stats.size > 0 ? { end: stats.size - 1 } : {}),
-    }),
+    size,
+    readable:
+      size === 0
+        ? Readable.from([])
+        : handle.createReadStream({
+            highWaterMark: DOWNLOAD_CHUNK_BYTES,
+            start: range.offset,
+            end: end - 1,
+          }),
     abort: new AbortController(),
   };
 }

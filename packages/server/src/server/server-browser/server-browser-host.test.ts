@@ -44,6 +44,8 @@ class FakeChromium {
   public readonly closedTargets: string[] = [];
   /** The page's scroll position, as the suspend capture reads it. */
   public scroll: [number, number] = [0, 0];
+  /** Every target's window, as Browser.getWindowForTarget reports it; null for a headless one. */
+  public windowBounds: { width: number; height: number } | null = null;
   /** The running screencast of each target, by its Page.startScreencast params. */
   public readonly screencasts = new Map<string, CdpParams>();
   /** How long a navigation takes to load; a busy host's page loads late. */
@@ -94,7 +96,10 @@ class FakeChromium {
           end = buffer.indexOf("\0");
           continue;
         }
-        const result = this.answer(message.method, message.params, message.sessionId);
+        const result =
+          message.method === "Browser.getWindowForTarget"
+            ? this.window()
+            : this.answer(message.method, message.params, message.sessionId);
         // A navigation loads at once: the main frame starts, commits, has its DOM and stops loading.
         if (message.method === "Page.navigate" && message.sessionId) {
           const sessionId = message.sessionId;
@@ -144,6 +149,11 @@ class FakeChromium {
     if (this.screencasts.has(target)) return true;
     this.screencasts.set(target, params);
     return false;
+  }
+
+  private window(): CdpParams {
+    if (!this.windowBounds) return {};
+    return { windowId: 1, bounds: { ...this.windowBounds, windowState: "normal" } };
   }
 
   private answer(method: string, params: CdpParams, pageSession?: string): CdpParams {
@@ -292,6 +302,24 @@ describe("a tab's JPEG screencast", () => {
     tab.screencast.removeViewer("small");
     await waitFor(() => starts().length === 2);
     expect(chromium.screencasts.get(tab.cdpTargetId)).toMatchObject(SIZE);
+  });
+
+  it("applies its size again when its window is resized while a viewer watches", async () => {
+    chromium.windowBounds = { width: 941, height: 940 };
+    const host = createHost();
+    const tab = await host.openTab({ workspaceId: "ws", url: PAGE, openedBy: "user" });
+    const overrides = () =>
+      chromium.pageCommands.filter((c) => c.method === "Emulation.setDeviceMetricsOverride");
+    tab.screencast.addViewer("v", viewer, SIZE);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const settled = overrides().length;
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(overrides()).toHaveLength(settled);
+
+    // No frame arrives to say so: a video viewer gets none, and Chrome reports no resize.
+    chromium.windowBounds = { width: 700, height: 450 };
+    await waitFor(() => overrides().length === settled + 1, 2_000);
+    expect(overrides().at(-1)?.params).toMatchObject({ width: 1280, height: 800 });
   });
 
   it("shrinks once the larger viewer leaves", async () => {

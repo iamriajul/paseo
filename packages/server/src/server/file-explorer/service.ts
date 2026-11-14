@@ -7,6 +7,8 @@ import { runGitCommand } from "../../utils/run-git-command.js";
 
 export type ExplorerEntryKind = "file" | "directory";
 export type ExplorerFileKind = "text" | "image" | "binary";
+/** A text encoding other than UTF-8 that a client decodes itself, named by the file's BOM. */
+export type ExplorerTextEncoding = "utf-16le" | "utf-16be";
 export type ExplorerEncoding = "utf-8" | "base64" | "none";
 
 export interface ListDirectoryParams {
@@ -37,6 +39,7 @@ export type ExplorerFileVersion =
       revision: string;
       kind?: ExplorerFileKind;
       mimeType?: string;
+      textEncoding?: ExplorerTextEncoding;
     }
   | { status: "missing"; cwd: string; path: string }
   | { status: "error"; cwd: string; path: string; error: string };
@@ -148,6 +151,9 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+  ".ico": "image/x-icon",
+  ".avif": "image/avif",
 };
 
 interface ScopedPathParams {
@@ -445,6 +451,7 @@ export async function getExplorerFileVersion({
         revision: fileRevision(stats),
         kind: type.kind,
         mimeType: type.mimeType,
+        ...(type.textEncoding ? { textEncoding: type.textEncoding } : {}),
       };
     } finally {
       await handle.close();
@@ -1009,7 +1016,7 @@ function isLikelyBinary(buffer: Buffer): boolean {
 async function sniffFileType(
   handle: FileHandle,
   ext: string,
-): Promise<{ kind: ExplorerFileKind; mimeType: string }> {
+): Promise<{ kind: ExplorerFileKind; mimeType: string; textEncoding?: ExplorerTextEncoding }> {
   if (ext in IMAGE_MIME_TYPES) return { kind: "image", mimeType: IMAGE_MIME_TYPES[ext] };
   const binary = {
     kind: "binary" as const,
@@ -1019,8 +1026,34 @@ async function sniffFileType(
   const sample = Buffer.alloc(FILE_TYPE_SAMPLE_BYTES);
   const { bytesRead } = await handle.read(sample, 0, sample.length, 0);
   const chunk = sample.subarray(0, bytesRead);
+  const textEncoding = utf16TextEncoding(chunk);
+  // COMPAT(utf16Text): added in v0.15.919. Older apps decode every text file as UTF-8, so a
+  // UTF-16 file stays "binary" for them; apps that know `textEncoding` open it as text.
+  if (textEncoding) {
+    return { kind: "binary", mimeType: textMimeTypeForExtension(ext), textEncoding };
+  }
   if (isLikelyBinary(chunk) || !isValidUtf8Prefix(chunk)) return binary;
   return { kind: "text", mimeType: textMimeTypeForExtension(ext) };
+}
+
+/**
+ * UTF-16 text names its byte order with a BOM. Windows tools write it (PowerShell redirects,
+ * Visual Studio, regedit exports), and its NUL bytes look binary to every UTF-8 check.
+ */
+function utf16TextEncoding(sample: Buffer): ExplorerTextEncoding | null {
+  let encoding: ExplorerTextEncoding;
+  if (sample[0] === 0xff && sample[1] === 0xfe) encoding = "utf-16le";
+  else if (sample[0] === 0xfe && sample[1] === 0xff) encoding = "utf-16be";
+  else return null;
+  const units = Buffer.from(sample.subarray(2, sample.length - (sample.length % 2)));
+  if (encoding === "utf-16be") units.swap16();
+  let control = 0;
+  for (let index = 0; index < units.length; index += 2) {
+    const unit = units.readUInt16LE(index);
+    if (unit === 0) return null;
+    if ((unit < 32 && unit !== 9 && unit !== 10 && unit !== 13) || unit === 127) control += 1;
+  }
+  return control / Math.max(1, units.length / 2) > 0.3 ? null : encoding;
 }
 
 /** A sample can end inside a multi-byte character, so only a complete invalid sequence fails. */

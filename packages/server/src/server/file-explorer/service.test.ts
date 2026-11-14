@@ -166,6 +166,45 @@ describe("file explorer service", () => {
     }
   });
 
+  it("names the encoding of UTF-16 text, which stays binary for older clients", async () => {
+    const root = await createTempDir("paseo-file-version-utf16-");
+    try {
+      const utf16le = Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from("Größe\r\n", "utf16le"),
+      ]);
+      const utf16be = Buffer.from(
+        Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hi\n", "utf16le")]),
+      ).swap16();
+      await writeFile(path.join(root, "le.txt"), utf16le);
+      await writeFile(path.join(root, "be.reg"), utf16be);
+      // A BOM followed by NUL code units is not text.
+      await writeFile(
+        path.join(root, "blob.bin"),
+        Buffer.from([0xff, 0xfe, 0x00, 0x00, 0x01, 0x02]),
+      );
+      await writeFile(path.join(root, "image.bmp"), Buffer.from([0x42, 0x4d, 0x00]));
+
+      const versions = await Promise.all(
+        ["le.txt", "be.reg", "blob.bin", "image.bmp"].map(async (relativePath) => {
+          const version = await getExplorerFileVersion({ root, relativePath });
+          return version.status === "ready"
+            ? [version.kind, version.mimeType, version.textEncoding ?? null]
+            : version.status;
+        }),
+      );
+
+      expect(versions).toEqual([
+        ["binary", "text/plain", "utf-16le"],
+        ["binary", "text/plain", "utf-16be"],
+        ["binary", "application/octet-stream", null],
+        ["image", "image/bmp", null],
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("writes base64 content as bytes, including over a binary file", async () => {
     const root = await createTempDir("paseo-file-write-bytes-");
     try {

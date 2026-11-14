@@ -3,8 +3,8 @@
  */
 import React, { type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentFeature, AgentSessionConfig } from "@getpaseo/protocol/agent-types";
 import { useDraftAgentFeatures } from "./use-draft-agent-features";
 
@@ -59,6 +59,12 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe("useDraftAgentFeatures", () => {
+  // No global auto-cleanup in this app: unmount each hook so a feature fetch the last test
+  // started cannot render after the file's jsdom window is torn down.
+  afterEach(() => {
+    cleanup();
+  });
+
   it("lists the features the chosen values unlock and keeps the choice", async () => {
     listProviderFeatures.mockImplementation(async (config: AgentSessionConfig) => ({
       features: claudeFeatures(config),

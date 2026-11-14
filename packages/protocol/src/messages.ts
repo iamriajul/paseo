@@ -3567,6 +3567,12 @@ export const DownloadOpenRequestSchema = z.object({
   kind: z.enum(["file", "folder"]),
   // Folders only. Absent means true, matching Files' default of showing hidden files.
   includeHidden: z.boolean().optional(),
+  // COMPAT(downloadRange): added in v0.15.919, drop gate after 2027-05-14.
+  // Files only: stream `length` bytes from `offset` (to the end when `length` is absent), so a
+  // media player can seek. The response's `size` is the byte count of that range. A daemon
+  // without `server_info.features.downloadRange` ignores both and streams the whole file.
+  offset: z.number().int().nonnegative().optional(),
+  length: z.number().int().positive().optional(),
   requestId: z.string(),
 });
 
@@ -4517,6 +4523,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(downloadStream): added in v0.15.911, drop gate after 2027-05-11.
         // Folder download (fs.folder.get_download_token) and session downloads (fs.download.*).
         downloadStream: z.boolean().optional(),
+        // COMPAT(downloadRange): added in v0.15.919, drop gate after 2027-05-14.
+        // fs.download.open takes a byte range for a file (`offset`, `length`).
+        downloadRange: z.boolean().optional(),
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
         providerUsageList: z.boolean().optional(),
         // COMPAT(providerUsageResetQuota): added in v0.1.105, drop the gate when daemon floor >= v0.1.105.

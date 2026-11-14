@@ -286,9 +286,38 @@ describe("daemon E2E", () => {
       return { ...stream, bytes: new Uint8Array(Buffer.concat(parts)) };
     }
 
-    test("advertises the downloadStream feature", () => {
-      expect(ctx.client.getLastServerInfoMessage()?.features?.downloadStream).toBe(true);
+    test("advertises the downloadStream and downloadRange features", () => {
+      expect(ctx.client.getLastServerInfoMessage()?.features).toMatchObject({
+        downloadStream: true,
+        downloadRange: true,
+      });
     });
+
+    test("streams a byte range of a file over the session socket", async () => {
+      const { cwd } = makeFolderFixture();
+      try {
+        const content = Buffer.alloc(3 * 1024 * 1024);
+        for (let index = 0; index < content.byteLength; index += 1) content[index] = index % 251;
+        writeFileSync(path.join(cwd, "clip.mp4"), content);
+        const tail = await readStream(
+          { cwd, path: "clip.mp4", kind: "file", offset: 2 * 1024 * 1024 + 5 },
+          { sliceBytes: 256 * 1024, depth: 2 },
+        );
+        expect(tail.size).toBe(1024 * 1024 - 5);
+        expect(Buffer.from(tail.bytes).equals(content.subarray(2 * 1024 * 1024 + 5))).toBe(true);
+
+        const middle = await readStream({
+          cwd,
+          path: "clip.mp4",
+          kind: "file",
+          offset: 1000,
+          length: 2,
+        });
+        expect(Array.from(middle.bytes)).toEqual([1000 % 251, 1001 % 251]);
+      } finally {
+        rmSync(path.dirname(cwd), { recursive: true, force: true });
+      }
+    }, 30000);
 
     test("downloads a folder zip over HTTP with a token", async () => {
       const { cwd, expected } = makeFolderFixture();

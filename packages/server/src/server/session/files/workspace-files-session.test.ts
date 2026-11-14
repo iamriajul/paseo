@@ -1177,6 +1177,71 @@ describe("WorkspaceFilesSession", () => {
     expect(bytes.equals(content)).toBe(true);
   });
 
+  test("pulls a byte range of a file, clamped to its end", async () => {
+    const { subsystem, emitted, binary } = makeSubsystem({ hasBinaryChannel: true });
+    const cwd = makeDir("workspace-files-download-");
+    const content = randomBytes(1000);
+    writeFileSync(join(cwd, "clip.mp4"), content);
+
+    async function pullRange(range: { offset?: number; length?: number }) {
+      emitted.length = 0;
+      await subsystem.handleDownloadOpenRequest({
+        type: "fs.download.open.request",
+        cwd,
+        path: "clip.mp4",
+        kind: "file",
+        ...range,
+        requestId: "open-range",
+      });
+      const opened = emitted[0];
+      if (opened?.type !== "fs.download.open.response") throw new Error("expected an open");
+      if (!opened.payload.downloadId) return { size: null, error: opened.payload.error };
+      const { bytes } = await pullDownload(
+        subsystem,
+        emitted,
+        binary,
+        opened.payload.downloadId,
+        64,
+      );
+      return { size: opened.payload.size, bytes };
+    }
+
+    expect(await pullRange({ offset: 100, length: 50 })).toEqual({
+      size: 50,
+      bytes: content.subarray(100, 150),
+    });
+    expect(await pullRange({ offset: 900 })).toEqual({ size: 100, bytes: content.subarray(900) });
+    expect(await pullRange({ offset: 990, length: 500 })).toEqual({
+      size: 10,
+      bytes: content.subarray(990),
+    });
+    expect(await pullRange({ offset: 1000 })).toEqual({ size: 0, bytes: Buffer.alloc(0) });
+    expect(await pullRange({ offset: 1001 })).toEqual({
+      size: null,
+      error: "The range starts past the end of the file.",
+    });
+  });
+
+  test("refuses a byte range on a folder", async () => {
+    const { subsystem, emitted } = makeSubsystem({ hasBinaryChannel: true });
+    const cwd = makeDir("workspace-files-zip-");
+    createDirSync(join(cwd, "docs"));
+
+    await subsystem.handleDownloadOpenRequest({
+      type: "fs.download.open.request",
+      cwd,
+      path: "docs",
+      kind: "folder",
+      offset: 10,
+      requestId: "open-folder-range",
+    });
+
+    expect(emitted[0]).toMatchObject({
+      type: "fs.download.open.response",
+      payload: { downloadId: null, error: "A byte range applies to a file only." },
+    });
+  });
+
   test("refuses to open a download outside the workspace", async () => {
     const { subsystem, emitted } = makeSubsystem({ hasBinaryChannel: true });
     const cwd = makeDir("workspace-files-download-");

@@ -2412,9 +2412,13 @@ export const ptBR: TranslationResources = {
       json: {
         invalid: "Este arquivo não é um JSON válido",
         invalidAtLine: "Este arquivo não é um JSON válido (linha {{line}})",
+        items: "{{count}} itens",
         items_one: "{{count}} item",
+        items_many: "{{count}} de itens",
         items_other: "{{count}} itens",
+        keys: "{{count}} chaves",
         keys_one: "{{count}} chave",
+        keys_many: "{{count}} de chaves",
         keys_other: "{{count}} chaves",
       },
       actions: {

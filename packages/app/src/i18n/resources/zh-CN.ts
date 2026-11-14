@@ -2356,8 +2356,10 @@ export const zhCN: TranslationResources = {
       json: {
         invalid: "此文件不是有效的 JSON",
         invalidAtLine: "此文件不是有效的 JSON（第 {{line}} 行）",
+        items: "{{count}} 项",
         items_one: "{{count}} 项",
         items_other: "{{count}} 项",
+        keys: "{{count}} 个键",
         keys_one: "{{count}} 个键",
         keys_other: "{{count}} 个键",
       },

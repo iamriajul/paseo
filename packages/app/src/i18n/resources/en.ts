@@ -2408,8 +2408,10 @@ export const en = {
       json: {
         invalid: "This file isn't valid JSON",
         invalidAtLine: "This file isn't valid JSON (line {{line}})",
+        items: "{{count}} items",
         items_one: "{{count}} item",
         items_other: "{{count}} items",
+        keys: "{{count}} keys",
         keys_one: "{{count}} key",
         keys_other: "{{count}} keys",
       },
@@ -3907,6 +3909,8 @@ type TranslationResourcesBase = WidenStringLeaves<typeof en>;
 type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
 type DurationPluralKey = `${"days" | "hours" | "minutes"}_${PluralCategory}`;
 type AgoPluralKey = `${"daysAgo" | "hoursAgo" | "minutesAgo"}_${PluralCategory}`;
+type JsonCountPluralKey = `${"items" | "keys"}_${PluralCategory}`;
+type FileResources = TranslationResourcesBase["panels"]["file"];
 
 // i18next plural categories differ by locale, so locale catalogs may add the
 // explicit v4 suffixes they need while retaining the canonical fallback keys.
@@ -3916,5 +3920,10 @@ export type TranslationResources = TranslationResourcesBase & {
       Partial<Record<DurationPluralKey, string>>;
     timing: TranslationResourcesBase["providerUsage"]["timing"] &
       Partial<Record<AgoPluralKey, string>>;
+  };
+  panels: TranslationResourcesBase["panels"] & {
+    file: FileResources & {
+      json: FileResources["json"] & Partial<Record<JsonCountPluralKey, string>>;
+    };
   };
 };

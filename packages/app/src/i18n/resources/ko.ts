@@ -2390,8 +2390,10 @@ export const ko: TranslationResources = {
       json: {
         invalid: "이 파일은 올바른 JSON이 아닙니다",
         invalidAtLine: "이 파일은 올바른 JSON이 아닙니다({{line}}번째 줄)",
+        items: "항목 {{count}}개",
         items_one: "항목 {{count}}개",
         items_other: "항목 {{count}}개",
+        keys: "키 {{count}}개",
         keys_one: "키 {{count}}개",
         keys_other: "키 {{count}}개",
       },

@@ -2414,10 +2414,16 @@ export const ru: TranslationResources = {
       json: {
         invalid: "Этот файл не является корректным JSON",
         invalidAtLine: "Этот файл не является корректным JSON (строка {{line}})",
+        items: "{{count}} элемента",
         items_one: "{{count}} элемент",
-        items_other: "элементов: {{count}}",
+        items_few: "{{count}} элемента",
+        items_many: "{{count}} элементов",
+        items_other: "{{count}} элемента",
+        keys: "{{count}} ключа",
         keys_one: "{{count}} ключ",
-        keys_other: "ключей: {{count}}",
+        keys_few: "{{count}} ключа",
+        keys_many: "{{count}} ключей",
+        keys_other: "{{count}} ключа",
       },
       actions: {
         showChanges: "Показать изменения",

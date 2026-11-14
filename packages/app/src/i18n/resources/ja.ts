@@ -2401,8 +2401,10 @@ export const ja: TranslationResources = {
       json: {
         invalid: "このファイルは有効な JSON ではありません",
         invalidAtLine: "このファイルは有効な JSON ではありません（{{line}} 行目）",
+        items: "{{count}} 個の要素",
         items_one: "{{count}} 個の要素",
         items_other: "{{count}} 個の要素",
+        keys: "{{count}} 個のキー",
         keys_one: "{{count}} 個のキー",
         keys_other: "{{count}} 個のキー",
       },

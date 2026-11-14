@@ -2427,9 +2427,13 @@ export const es: TranslationResources = {
       json: {
         invalid: "Este archivo no es JSON válido",
         invalidAtLine: "Este archivo no es JSON válido (línea {{line}})",
+        items: "{{count}} elementos",
         items_one: "{{count}} elemento",
+        items_many: "{{count}} de elementos",
         items_other: "{{count}} elementos",
+        keys: "{{count}} claves",
         keys_one: "{{count}} clave",
+        keys_many: "{{count}} de claves",
         keys_other: "{{count}} claves",
       },
       actions: {

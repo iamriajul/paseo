@@ -934,7 +934,12 @@ async function returnToAssistant(page: Page, agentId: string): Promise<void> {
 }
 
 async function openAssistantInlinePath(page: Page, token: string): Promise<void> {
-  await page.getByText(token, { exact: true }).click();
+  // Fork: the Changes tree can list the same filename (file-tab-actions), so look in the reply.
+  await page
+    .getByTestId("assistant-message")
+    .filter({ visible: true })
+    .getByText(token, { exact: true })
+    .click();
 }
 
 async function expectPreviewText(page: Page, text: string): Promise<void> {

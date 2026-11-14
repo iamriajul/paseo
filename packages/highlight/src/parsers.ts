@@ -1,6 +1,12 @@
 import { defineLanguageFacet, Language, StreamLanguage } from "@codemirror/language";
-import { dart } from "@codemirror/legacy-modes/mode/clike";
+import { dart, kotlin } from "@codemirror/legacy-modes/mode/clike";
+import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+import { lua } from "@codemirror/legacy-modes/mode/lua";
+import { ruby } from "@codemirror/legacy-modes/mode/ruby";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { standardSQL } from "@codemirror/legacy-modes/mode/sql";
 import { swift } from "@codemirror/legacy-modes/mode/swift";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { parser as jsParser } from "@lezer/javascript";
 import { parser as jsonParser } from "@lezer/json";
 import { parser as cssParser } from "@lezer/css";
@@ -26,6 +32,10 @@ import { configureNesting, defaultNesting } from "./svelte/nesting.js";
 function language(parser: Parser): Language {
   return new Language(defineLanguageFacet(), parser);
 }
+
+const shellLanguage = StreamLanguage.define(shell);
+const rubyLanguage = StreamLanguage.define(ruby);
+const dockerfileLanguage = StreamLanguage.define(dockerFile);
 
 const languagesByExtension: Record<string, Language> = {
   // JavaScript/TypeScript
@@ -78,6 +88,32 @@ const languagesByExtension: Record<string, Language> = {
   swift: StreamLanguage.define(swift),
   // Dart
   dart: StreamLanguage.define(dart),
+  // Kotlin
+  kt: StreamLanguage.define(kotlin),
+  kts: StreamLanguage.define(kotlin),
+  // Shell, including dotfiles whose name is their extension
+  sh: shellLanguage,
+  bash: shellLanguage,
+  zsh: shellLanguage,
+  ksh: shellLanguage,
+  bashrc: shellLanguage,
+  bash_profile: shellLanguage,
+  zshrc: shellLanguage,
+  zprofile: shellLanguage,
+  profile: shellLanguage,
+  // SQL
+  sql: StreamLanguage.define(standardSQL),
+  // TOML
+  toml: StreamLanguage.define(toml),
+  // Dockerfile (`Dockerfile` itself is matched by name)
+  dockerfile: dockerfileLanguage,
+  // Ruby
+  rb: rubyLanguage,
+  rake: rubyLanguage,
+  gemspec: rubyLanguage,
+  ru: rubyLanguage,
+  // Lua
+  lua: StreamLanguage.define(lua),
   // C#
   cs: csharpLanguage,
   // Nix
@@ -90,8 +126,23 @@ const languagesByExtension: Record<string, Language> = {
   mdx: language(markdownParser),
 };
 
+/** Files known by their name rather than an extension. */
+const languagesByFilename: Record<string, Language> = {
+  dockerfile: dockerfileLanguage,
+  containerfile: dockerfileLanguage,
+  gemfile: rubyLanguage,
+  rakefile: rubyLanguage,
+  podfile: rubyLanguage,
+  vagrantfile: rubyLanguage,
+  brewfile: rubyLanguage,
+};
+
 export function getLanguageForFile(filename: string): Language | null {
-  const ext = filename.split(".").pop()?.toLowerCase();
+  const name = filename.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  const byName = languagesByFilename[name.split(".")[0]];
+  // `Dockerfile.dev` and `Gemfile.lock`: only the Dockerfile family keeps its name with a suffix.
+  if (byName && (name.split(".").length === 1 || byName === dockerfileLanguage)) return byName;
+  const ext = name.split(".").pop();
   if (!ext) return null;
   return languagesByExtension[ext] ?? null;
 }

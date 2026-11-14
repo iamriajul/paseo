@@ -65,6 +65,31 @@ describe("highlightCode", () => {
     expect(stringToken?.style).toBe("string");
   });
 
+  it.each([
+    [
+      "deploy.sh",
+      'if [ -n "$HOME" ]; then\n  echo "hi" # note\nfi',
+      ["if", "keyword"],
+      ["# note", "comment"],
+    ],
+    [
+      "query.sql",
+      "SELECT name FROM users WHERE id = 42; -- one",
+      ["SELECT", "keyword"],
+      ["42", "number"],
+    ],
+    ["Cargo.toml", '[package]\nname = "paseo"', ["name", "property"], ['"paseo"', "string"]],
+    ["Dockerfile", "FROM node:22\n# build", ["FROM", "keyword"], ["# build", "comment"]],
+    ["Main.kt", 'fun main() {\n  val greeting = "hi"\n}', ["fun", "keyword"], ['"hi"', "string"]],
+    ["app.rb", 'def greet(name)\n  puts "hi" # say\nend', ["def", "keyword"], ["# say", "comment"]],
+    ["init.lua", 'local x = "hi" -- say', ["local", "keyword"], ["-- say", "comment"]],
+  ])("highlights %s", (filename, code, ...expected) => {
+    const tokens = highlightCode(code, filename).flat();
+    for (const [text, style] of expected) {
+      expect(tokens.find((token) => token.text === text)?.style).toBe(style);
+    }
+  });
+
   it("highlights C# code", () => {
     const code = 'class Greeter {\n    string message = "hello";\n}';
     const result = highlightCode(code, "test.cs");

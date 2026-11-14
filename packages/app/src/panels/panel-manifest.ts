@@ -170,7 +170,8 @@ const manifests = {
     supportedHosts: ["main", "explorer"],
     showCloseButton: true,
     singleton: false,
-    compactSheet: { openAsTab: false },
+    // Fork: a file sheet offers Open as tab, so a phone can keep a file beside its chat.
+    compactSheet: { openAsTab: true },
     resourceKey: (target) => target.path,
   },
   working_diff: {

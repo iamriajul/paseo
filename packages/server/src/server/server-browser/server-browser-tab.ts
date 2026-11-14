@@ -4,7 +4,7 @@ import type {
   ServerBrowserInputEvent,
   ServerBrowserTab as ServerBrowserTabInfo,
 } from "@getpaseo/protocol/server-browser/rpc-schemas";
-import type { CdpConnection, CdpEvent, CdpParams } from "./cdp-connection.js";
+import { CdpError, type CdpConnection, type CdpEvent, type CdpParams } from "./cdp-connection.js";
 import { CdpSessionQueue } from "./engine/cdp-session-queue.js";
 import {
   BrowserTabClosedError,
@@ -390,6 +390,8 @@ export class ServerBrowserTab {
     this.screencast.resetLastFrame();
     this.windowSize = null;
     this.windowless = false;
+    // A video viewer gets no new screencast to start the check, so the new target starts it here.
+    if (this.viewerCount > 0) this.startWindowCheck();
     if (this.screencastSize) void this.startScreencast(this.screencastSize);
     if (!options.videoAfterLoad) this.video?.refresh();
   }
@@ -1227,12 +1229,20 @@ export class ServerBrowserTab {
    */
   private async keepViewSize(): Promise<void> {
     const connection = this.connection;
+    const targetId = this.targetId;
     if (this.windowChecking || !connection || this.suspension || this.closed) return;
     this.windowChecking = true;
     try {
-      const found = (await connection
-        .send("Browser.getWindowForTarget", { targetId: this.targetId })
-        .catch(() => null)) as { bounds?: { width?: number; height?: number } } | null;
+      let found: { bounds?: { width?: number; height?: number } } | null;
+      try {
+        found = await connection.send("Browser.getWindowForTarget", { targetId });
+      } catch (error) {
+        // Only Chrome's own answer says the tab has no window; a closed connection says nothing.
+        if (!(error instanceof CdpError)) return;
+        found = null;
+      }
+      // A rebind replaced the target while the lookup ran; the new target's check answers for it.
+      if (connection !== this.connection || targetId !== this.targetId) return;
       const { width, height } = found?.bounds ?? {};
       if (typeof width !== "number" || typeof height !== "number") {
         this.windowless = true;

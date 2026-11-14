@@ -28,6 +28,31 @@ describe("isLanguageSupported", () => {
     expect(isLanguageSupported("App.vue")).toBe(true);
   });
 
+  it("knows shell, SQL, TOML, Dockerfile, Kotlin, Ruby and Lua files", () => {
+    for (const file of [
+      "build.sh",
+      "x.bash",
+      "x.zsh",
+      ".bashrc",
+      ".zshrc",
+      "schema.sql",
+      "pyproject.toml",
+      "Dockerfile",
+      "Dockerfile.dev",
+      "Containerfile",
+      "api.dockerfile",
+      "Main.kt",
+      "build.gradle.kts",
+      "app.rb",
+      "Gemfile",
+      "Rakefile",
+      "init.lua",
+    ]) {
+      expect(isLanguageSupported(file), file).toBe(true);
+    }
+    expect(isLanguageSupported("Gemfile.lock")).toBe(false);
+  });
+
   it("returns false for unsupported file extensions", () => {
     expect(isLanguageSupported("test.xyz")).toBe(false);
     expect(isLanguageSupported("test.txt")).toBe(false);

@@ -56,6 +56,8 @@ function createHost(): ServerBrowserHost {
 interface HostProcess {
   pid: number;
   ppid: number;
+  /** Creation time in ms since the epoch on Windows; 0 on POSIX, where `ps` has no cheap equivalent. */
+  startedAt: number;
   command: string;
 }
 
@@ -68,18 +70,25 @@ function listProcesses(): Promise<HostProcess[]> {
           [
             "-NoProfile",
             "-Command",
-            'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" }',
+            'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $(if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }) $($_.CommandLine)" }',
           ],
         ]
       : ["ps", ["-A", "-o", "pid=,ppid=,command="]];
+  const startedAtColumn = process.platform === "win32" ? "\\s+(\\d+)" : "()";
+  const line = new RegExp(`^\\s*(\\d+)\\s+(\\d+)${startedAtColumn}\\s?(.*)$`);
   return new Promise((resolve, reject) => {
     execFile(file, args, { maxBuffer: 64 * 1024 * 1024 }, (error, stdout) => {
       if (error) return reject(error);
       const processes: HostProcess[] = [];
-      for (const line of stdout.split(/\r?\n/)) {
-        const match = /^\s*(\d+)\s+(\d+)\s?(.*)$/.exec(line);
+      for (const entry of stdout.split(/\r?\n/)) {
+        const match = line.exec(entry);
         if (match) {
-          processes.push({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3]! });
+          processes.push({
+            pid: Number(match[1]),
+            ppid: Number(match[2]),
+            startedAt: Number(match[3] || 0),
+            command: match[4]!,
+          });
         }
       }
       resolve(processes);
@@ -90,11 +99,19 @@ function listProcesses(): Promise<HostProcess[]> {
 /** The browser process and everything it started (renderers, GPU, network, helpers). */
 async function chromeTree(browserPid: number): Promise<HostProcess[]> {
   const processes = await listProcesses();
+  const startedAt = new Map(processes.map((entry) => [entry.pid, entry.startedAt]));
   const tree = new Set([browserPid]);
   for (let grew = true; grew; ) {
     grew = false;
     for (const entry of processes) {
-      if (tree.has(entry.ppid) && !tree.has(entry.pid)) {
+      // Windows never reparents an orphan and reuses pids, so a process can still name a long-dead
+      // parent whose pid Chrome now holds (wininit, lsass and every svchost once did). Only a
+      // process started after its parent is that parent's child.
+      if (
+        tree.has(entry.ppid) &&
+        !tree.has(entry.pid) &&
+        entry.startedAt >= (startedAt.get(entry.ppid) ?? 0)
+      ) {
         tree.add(entry.pid);
         grew = true;
       }

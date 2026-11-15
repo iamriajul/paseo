@@ -814,6 +814,17 @@ grep -q 'resume: z.object({ reason: z.string() }).optional()' packages/protocol/
 grep -q 'runOptions: { resume: { reason: "restart" } }' packages/server/src/server/bootstrap.ts
 ```
 
+## restart-e2e-preloads-daemons
+
+**the restart e2e loads each daemon process before its test starts**
+
+`daemon-restart-resume.e2e.test.ts` restarts the daemon into two or three fresh processes per test, and each process loads the daemon from TypeScript source through tsx: about 9 s of CPU, 20-33 s on a 16-core dev box at load 45-55. Upstream forked each process at its restart, inside the test's 60 s, and polled for the background resume with vitest's 1 s default. On a busy box that poll ran out before the restarted daemon resumed the agent, and with a longer poll the 60 s ran out instead. The product was right: the restarted daemon resumed the agent 1.5 s after it started listening. `beforeEach` now forks three processes and waits until they have loaded, and a process creates its daemon on `start`. The fixture reports each prompt over IPC, and the tests wait for the resume prompt instead of polling files with a deadline. Under 24 busy loops on 16 cores, upstream's version failed all six process tests at their time limits (load 40-70). This one passed five; the sixth ran out of time in `beforeEach`, loading its processes at load 99.
+
+```bash
+npx vitest run packages/server/src/server/daemon-e2e/daemon-restart-resume.e2e.test.ts --config packages/server/vitest.config.ts --bail=1
+grep -q 'fixtures = \[forkFixture(root), forkFixture(root), forkFixture(root)\]' packages/server/src/server/daemon-e2e/daemon-restart-resume.e2e.test.ts
+```
+
 ## schedule-run-live-work
 
 **a scheduled run keeps its workspace while the work it started is still running**

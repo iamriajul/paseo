@@ -75,15 +75,20 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { DaemonClient } from "../test-utils/daemon-client.js";
+import type { FinishSubscriptionDaemonStart } from "../test-utils/finish-subscription-daemon.js";
 
-async function restartFixture(
-  root: string,
-  settings: { resumeOnStartup?: boolean; resumePrompt?: string } = {},
-  fixture: { holdResume?: boolean } = {},
-) {
+interface FixtureDaemon {
+  port: number;
+  paseoHome: string;
+  cwd: string;
+}
+type FixtureMessage = { loaded: true } | { prompt: string } | FixtureDaemon;
+
+/** Forks a fixture process. It loads the daemon's modules at once and creates its daemon on `start`. */
+function forkFixture(root: string) {
   const child = fork(
     fileURLToPath(new URL("../test-utils/finish-subscription-daemon.ts", import.meta.url)),
-    [root, JSON.stringify(settings), JSON.stringify(fixture)],
+    [root],
     {
       execArgv: ["--conditions=source", "--import", "tsx"],
       stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -96,16 +101,50 @@ async function restartFixture(
   child.stderr?.on("data", (data) => {
     output += data;
   });
-  const ready = await Promise.race([
-    once(child, "message").then(
-      ([message]) => message as { port: number; paseoHome: string; cwd: string },
-    ),
-    once(child, "exit").then(([code]) => {
-      throw new Error(`Fixture exited ${code}: ${output}`);
-    }),
-  ]);
-  return { child, ...ready };
+  const exited = once(child, "exit").then(([code]): never => {
+    throw new Error(`Fixture exited ${code}: ${output}`);
+  });
+  exited.catch(() => undefined);
+  const loaded = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<FixtureDaemon>();
+  const prompts: string[] = [];
+  const promptWaiters = new Set<{
+    matches(prompt: string): boolean;
+    resolve(prompt: string): void;
+  }>();
+  child.on("message", (message: FixtureMessage) => {
+    if ("loaded" in message) loaded.resolve();
+    else if ("prompt" in message) {
+      prompts.push(message.prompt);
+      for (const waiter of promptWaiters) {
+        if (!waiter.matches(message.prompt)) continue;
+        promptWaiters.delete(waiter);
+        waiter.resolve(message.prompt);
+      }
+    } else ready.resolve(message);
+  });
+  /** Resolves once an agent of this process's daemon starts a turn with a matching prompt. */
+  async function prompt(matches: (prompt: string) => boolean): Promise<string> {
+    const seen = prompts.find(matches);
+    if (seen !== undefined) return seen;
+    const waiter = Promise.withResolvers<string>();
+    promptWaiters.add({ matches, resolve: waiter.resolve });
+    return Promise.race([waiter.promise, exited]);
+  }
+  return {
+    child,
+    loaded: Promise.race([loaded.promise, exited]),
+    async start(
+      settings: FinishSubscriptionDaemonStart["settings"] = {},
+      fixture: FinishSubscriptionDaemonStart["fixture"] = {},
+    ) {
+      await Promise.race([loaded.promise, exited]);
+      child.send({ start: { settings, fixture } satisfies FinishSubscriptionDaemonStart });
+      return { child, prompt, ...(await Promise.race([ready.promise, exited])) };
+    },
+  };
 }
+type Fixture = ReturnType<typeof forkFixture>;
 async function stopFixture(child: ChildProcess, abrupt: boolean) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = once(child, "exit");
@@ -126,16 +165,28 @@ async function readPrompts(root: string): Promise<string[]> {
   }
 }
 
+// Each test below restarts the daemon into up to three processes, forked and loaded before it
+// starts. Loading the daemon from source takes 20-30 s on a busy machine; paid at each restart
+// inside a test, it used up the test's time before the restarted daemon had resumed anything.
+let root: string;
+let fixtures: [Fixture, Fixture, Fixture];
+beforeEach(async () => {
+  root = await mkdtemp(path.join(tmpdir(), "daemon-restart-process-"));
+  fixtures = [forkFixture(root), forkFixture(root), forkFixture(root)];
+  await Promise.all(fixtures.map((fixture) => fixture.loaded));
+});
+afterEach(async () => {
+  for (const fixture of fixtures.toReversed()) await stopFixture(fixture.child, true);
+  await rm(root, { recursive: true, force: true });
+});
+
 test.each([false, true])(
   "durable finish subscriptions recover a running child after restart (abrupt=%s)",
   async (abrupt) => {
-    const root = await mkdtemp(path.join(tmpdir(), "durable-finish-process-"));
-    const processes: ChildProcess[] = [];
     let client: DaemonClient | undefined;
     let mcp: Client | undefined;
     try {
-      const first = await restartFixture(root, { resumeOnStartup: true });
-      processes.push(first.child);
+      const first = await fixtures[0].start({ resumeOnStartup: true });
       client = new DaemonClient({ url: `ws://127.0.0.1:${first.port}/ws`, appVersion: "0.13.0" });
       await client.connect();
       await client.fetchAgents({ subscribe: {} });
@@ -182,10 +233,10 @@ test.each([false, true])(
       await client.close();
       client = undefined;
       await stopFixture(first.child, abrupt);
-      const second = await restartFixture(root, { resumeOnStartup: true });
-      processes.push(second.child);
-      await expect.poll(() => readPrompts(root), { timeout: 15000 }).toHaveLength(1);
+      const second = await fixtures[1].start({ resumeOnStartup: true });
+      await second.prompt((prompt) => prompt.includes('kind="agent-notification"'));
       const prompts = await readPrompts(root);
+      expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain(`Agent ${childId}`);
       expect(prompts[0]).not.toContain("was closed");
       const recoveredPrompts = (await readFile(path.join(root, "all-prompts.jsonl"), "utf8"))
@@ -222,8 +273,7 @@ test.each([false, true])(
       await client.close();
       client = undefined;
       await stopFixture(second.child, false);
-      const third = await restartFixture(root, { resumeOnStartup: true });
-      processes.push(third.child);
+      const third = await fixtures[2].start({ resumeOnStartup: true });
       expect(await readPrompts(root)).toHaveLength(1);
       expect(
         JSON.parse(await readFile(path.join(third.paseoHome, "finish-subscriptions.json"), "utf8")),
@@ -236,8 +286,6 @@ test.each([false, true])(
     } finally {
       await mcp?.close();
       await client?.close();
-      for (const child of processes.toReversed()) await stopFixture(child, true);
-      await rm(root, { recursive: true, force: true });
     }
   },
   60000,
@@ -246,13 +294,10 @@ test.each([false, true])(
 test.each([undefined, false, true])(
   "host restart recovery settings (enabled=%s)",
   async (enabled) => {
-    const root = await mkdtemp(path.join(tmpdir(), "resume-settings-process-"));
-    const processes: ChildProcess[] = [];
     let client: DaemonClient | undefined;
     const settings = { resumeOnStartup: enabled, resumePrompt: "Continue exactly.\n" };
     try {
-      const first = await restartFixture(root, settings);
-      processes.push(first.child);
+      const first = await fixtures[0].start(settings);
       client = new DaemonClient({ url: `ws://127.0.0.1:${first.port}/ws`, appVersion: "0.13.0" });
       await client.connect();
       const working = await client.createAgent({
@@ -283,39 +328,34 @@ test.each([undefined, false, true])(
       await client.close();
       client = undefined;
       await stopFixture(first.child, false);
-      const second = await restartFixture(root, settings);
-      processes.push(second.child);
+      const second = await fixtures[1].start(settings);
       client = new DaemonClient({ url: `ws://127.0.0.1:${second.port}/ws`, appVersion: "0.13.0" });
       await client.connect();
       const storage = new AgentStorage(path.join(second.paseoHome, "agents"), createTestLogger());
-      // Resume runs in the background; it is done once the saved intent is consumed.
-      await expect.poll(async () => (await storage.get(working.id))?.resumeOnStartup).toBe(false);
-      const resumePrompts = async () =>
-        (await readFile(path.join(root, "all-prompts.jsonl"), "utf8"))
-          .trim()
-          .split("\n")
-          .map((line) => JSON.parse(line))
-          .filter((entry) => entry.prompt === settings.resumePrompt);
-      await expect.poll(resumePrompts).toHaveLength(enabled ? 1 : 0);
+      // Startup consumes the saved intent before the daemon listens, and a resume it keeps runs
+      // in the background: that one is done once its prompt starts.
+      if (enabled) await second.prompt((prompt) => prompt === settings.resumePrompt);
+      expect((await storage.get(working.id))?.resumeOnStartup).toBe(false);
+      const resumePrompts = (await readFile(path.join(root, "all-prompts.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .filter((entry) => entry.prompt === settings.resumePrompt);
+      expect(resumePrompts).toHaveLength(enabled ? 1 : 0);
       expect((await client.fetchAgent(idle.id))?.agent.status).toBe("closed");
       const restored = await storage.get(working.id);
       expect(restored?.persistence?.sessionId).toBe(original?.persistence?.sessionId);
     } finally {
       await client?.close();
-      for (const child of processes.toReversed()) await stopFixture(child, true);
-      await rm(root, { recursive: true, force: true });
     }
   },
   60000,
 );
 
 test("a provider that is slow to reopen does not hold daemon startup", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "resume-background-process-"));
-  const processes: ChildProcess[] = [];
   let client: DaemonClient | undefined;
   try {
-    const first = await restartFixture(root, { resumeOnStartup: true });
-    processes.push(first.child);
+    const first = await fixtures[0].start({ resumeOnStartup: true });
     client = new DaemonClient({ url: `ws://127.0.0.1:${first.port}/ws`, appVersion: "0.13.0" });
     await client.connect();
     const working = await client.createAgent({
@@ -338,24 +378,20 @@ test("a provider that is slow to reopen does not hold daemon startup", async () 
     client = undefined;
     await stopFixture(first.child, false);
 
-    const second = await restartFixture(root, { resumeOnStartup: true }, { holdResume: true });
-    processes.push(second.child);
+    const second = await fixtures[1].start({ resumeOnStartup: true }, { holdResume: true });
     client = new DaemonClient({ url: `ws://127.0.0.1:${second.port}/ws`, appVersion: "0.13.0" });
     await client.connect();
     expect((await client.fetchAgent(working.id))?.agent.id).toBe(working.id);
     second.child.send("release-resume");
-    await expect
-      .poll(async () =>
-        (await readFile(path.join(root, "all-prompts.jsonl"), "utf8"))
-          .trim()
-          .split("\n")
-          .map((line) => JSON.parse(line).prompt)
-          .filter((prompt) => prompt === "Resume working."),
-      )
-      .toHaveLength(1);
+    await second.prompt((prompt) => prompt === "Resume working.");
+    expect(
+      (await readFile(path.join(root, "all-prompts.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).prompt)
+        .filter((prompt) => prompt === "Resume working."),
+    ).toHaveLength(1);
   } finally {
     await client?.close();
-    for (const child of processes.toReversed()) await stopFixture(child, true);
-    await rm(root, { recursive: true, force: true });
   }
 }, 30000);

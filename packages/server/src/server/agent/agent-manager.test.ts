@@ -960,6 +960,269 @@ test("unavailable steer interrupts once and starts one replacement turn", async 
   }
 });
 
+/** Refuses a steer while compacting, as Claude does, so the manager's fallback would replace. */
+class CompactingSteeringSession extends SteeringTestSession {
+  compacting = false;
+  /** Starts a compaction when the next steer arrives, as one beginning during its admission. */
+  compactOnNextSteer = false;
+
+  compact(status: "loading" | "completed"): void {
+    this.compacting = status === "loading";
+    this.pushEvent({
+      type: "timeline",
+      provider: this.provider,
+      item: { type: "compaction", status, trigger: "auto" },
+    });
+  }
+
+  /** The turn ends without a boundary, as when a compaction gives up. */
+  endTurn(): void {
+    this.compacting = false;
+    this.pushEvent({
+      type: "turn_completed",
+      provider: this.provider,
+      turnId: `active-turn-${this.startCount}`,
+    });
+  }
+
+  override async steerActiveTurn(
+    prompt: AgentPromptInput,
+    options: import("./agent-sdk-types.js").SteerActiveTurnOptions,
+  ): Promise<import("./agent-sdk-types.js").SteerResult> {
+    if (this.compactOnNextSteer) {
+      this.compactOnNextSteer = false;
+      this.compact("loading");
+    }
+    if (this.compacting) {
+      this.steerCount += 1;
+      return { status: "unavailable" };
+    }
+    return await super.steerActiveTurn(prompt, options);
+  }
+}
+
+async function startCompactingAgent(
+  session: CompactingSteeringSession,
+): Promise<{ manager: AgentManager; agentId: string; workdir: string }> {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-compaction-"));
+  const manager = new AgentManager({
+    clients: {
+      codex: new (class extends TestAgentClient {
+        override async createSession(): Promise<AgentSession> {
+          return session;
+        }
+      })(),
+    },
+    logger,
+  });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  void (async () => {
+    for await (const _event of manager.streamAgent(agent.id, "initial")) {
+    }
+  })();
+  await manager.waitForAgentRunStart(agent.id);
+  return { manager, agentId: agent.id, workdir };
+}
+
+async function startCompaction(
+  manager: AgentManager,
+  agentId: string,
+  session: CompactingSteeringSession,
+): Promise<void> {
+  session.compact("loading");
+  await vi.waitFor(() =>
+    expect(manager.getTimeline(agentId)).toContainEqual(
+      expect.objectContaining({ type: "compaction", status: "loading" }),
+    ),
+  );
+}
+
+function compactionTimeline(manager: AgentManager, agentId: string): string[] {
+  return manager.fetchTimeline(agentId, { limit: 0 }).rows.flatMap((row) => {
+    if (row.item.type === "user_message") return [`${row.turnId}: ${row.item.text}`];
+    if (row.item.type === "compaction") return [`${row.turnId}: compaction ${row.item.status}`];
+    return [];
+  });
+}
+
+/** Send options with `onHold`, which reports a send that waits for the compaction. */
+function heldSendOptions(
+  activeTurnBehavior: "steer" | "interrupt",
+  clientMessageId: string,
+  holds: string[],
+) {
+  const options = {
+    replaceRunning: true,
+    activeTurnBehavior,
+    runOptions: { clientMessageId },
+    onHold: () => holds.push(clientMessageId),
+  };
+  return options;
+}
+
+test("a steer sent while the agent compacts waits for the compaction, then joins its turn", async () => {
+  const session = new CompactingSteeringSession({ provider: "codex", cwd: process.cwd() });
+  const { manager, agentId, workdir } = await startCompactingAgent(session);
+  try {
+    await startCompaction(manager, agentId, session);
+    const holds: string[] = [];
+    const send = startAgentRun(
+      manager,
+      agentId,
+      "Agent finished",
+      logger,
+      heldSendOptions("steer", "finished", holds),
+    );
+    await vi.waitFor(() => expect(holds.length + session.interruptCount).toBeGreaterThan(0));
+    expect(session.interruptCount).toBe(0);
+    expect(holds).toEqual(["finished"]);
+    expect(session.steerCount).toBe(0);
+
+    session.compact("completed");
+    await expect(send).resolves.toEqual({ disposition: "steered" });
+    expect(session.interruptCount).toBe(0);
+    expect(session.startPrompts).toEqual(["initial"]);
+    expect(compactionTimeline(manager, agentId)).toEqual([
+      "active-turn-1: compaction loading",
+      "active-turn-1: compaction completed",
+      "active-turn-1: Agent finished",
+    ]);
+  } finally {
+    await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("an interrupt sent while the agent compacts waits for the compaction instead of cancelling it", async () => {
+  const session = new CompactingSteeringSession({ provider: "codex", cwd: process.cwd() });
+  const { manager, agentId, workdir } = await startCompactingAgent(session);
+  try {
+    await startCompaction(manager, agentId, session);
+    const holds: string[] = [];
+    const send = startAgentRun(
+      manager,
+      agentId,
+      "Do this instead",
+      logger,
+      heldSendOptions("interrupt", "person", holds),
+    );
+    await vi.waitFor(() => expect(holds.length + session.interruptCount).toBeGreaterThan(0));
+    expect(session.interruptCount).toBe(0);
+    expect(holds).toEqual(["person"]);
+
+    session.compact("completed");
+    await expect(send).resolves.toEqual({ disposition: "turn_started" });
+    expect(session.interruptCount).toBe(1);
+    expect(session.startPrompts).toEqual(["initial", "Do this instead"]);
+  } finally {
+    await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("sends held by a compaction that ends its turn go out once, in arrival order", async () => {
+  const session = new CompactingSteeringSession({ provider: "codex", cwd: process.cwd() });
+  const { manager, agentId, workdir } = await startCompactingAgent(session);
+  try {
+    await startCompaction(manager, agentId, session);
+    const holds: string[] = [];
+    const sends = ["first", "second", "third"].map((name) =>
+      startAgentRun(manager, agentId, name, logger, heldSendOptions("steer", name, holds)),
+    );
+    await vi.waitFor(() => expect(holds.length + session.interruptCount).toBeGreaterThan(2));
+    expect(session.interruptCount).toBe(0);
+
+    session.endTurn();
+    await expect(Promise.all(sends)).resolves.toEqual([
+      { disposition: "turn_started" },
+      { disposition: "steered" },
+      { disposition: "steered" },
+    ]);
+    expect(session.interruptCount).toBe(0);
+    expect(session.startPrompts).toEqual(["initial", "first"]);
+    expect(compactionTimeline(manager, agentId)).toEqual([
+      "active-turn-1: compaction loading",
+      "active-turn-2: first",
+      "active-turn-2: second",
+      "active-turn-2: third",
+    ]);
+  } finally {
+    await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("a steer refused by a compaction that began during its admission waits for that compaction", async () => {
+  const session = new CompactingSteeringSession({ provider: "codex", cwd: process.cwd() });
+  const { manager, agentId, workdir } = await startCompactingAgent(session);
+  try {
+    session.compactOnNextSteer = true;
+    const holds: string[] = [];
+    const send = startAgentRun(
+      manager,
+      agentId,
+      "Agent finished",
+      logger,
+      heldSendOptions("steer", "finished", holds),
+    );
+    await vi.waitFor(() => expect(holds.length + session.interruptCount).toBeGreaterThan(0));
+    expect(session.interruptCount).toBe(0);
+    expect(holds).toEqual(["finished"]);
+
+    session.compact("completed");
+    await expect(send).resolves.toEqual({ disposition: "steered" });
+    expect(session.interruptCount).toBe(0);
+    expect(session.startPrompts).toEqual(["initial"]);
+  } finally {
+    await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("an interrupt overtaken by a compaction during its admission waits for that compaction", async () => {
+  const session = new CompactingSteeringSession({ provider: "codex", cwd: process.cwd() });
+  const { manager, agentId, workdir } = await startCompactingAgent(session);
+  try {
+    let interruptsWhileCompacting = 0;
+    const interrupt = session.interrupt.bind(session);
+    vi.spyOn(session, "interrupt").mockImplementation(async () => {
+      if (session.compacting) interruptsWhileCompacting += 1;
+      await interrupt();
+    });
+    // The gate admits the send, then the compaction begins before the send reaches the turn.
+    const pastAdmission = deferred<void>();
+    const reload = manager.reloadStalePluginSession.bind(manager);
+    vi.spyOn(manager, "reloadStalePluginSession").mockImplementationOnce(async (id) => {
+      await startCompaction(manager, agentId, session);
+      await reload(id);
+      pastAdmission.resolve();
+    });
+    const holds: string[] = [];
+    const send = startAgentRun(
+      manager,
+      agentId,
+      "Do this instead",
+      logger,
+      heldSendOptions("interrupt", "person", holds),
+    );
+    await pastAdmission.promise;
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(interruptsWhileCompacting).toBe(0);
+    expect(holds).toEqual(["person"]);
+
+    session.compact("completed");
+    await expect(send).resolves.toEqual({ disposition: "turn_started" });
+    expect(interruptsWhileCompacting).toBe(0);
+    expect(session.interruptCount).toBe(1);
+    expect(session.startPrompts).toEqual(["initial", "Do this instead"]);
+  } finally {
+    await manager.closeAgent(agentId);
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("steers a send that arrives while the previous turn is still starting", async () => {
   const startHeld = deferred<void>();
   class SlowStartSteeringSession extends SteeringTestSession {

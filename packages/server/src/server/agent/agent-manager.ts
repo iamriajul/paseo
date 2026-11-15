@@ -116,6 +116,7 @@ import {
   type ForegroundTurnWaiter,
   type PendingForegroundRun,
 } from "./agent-run-state.js";
+import { PromptDispatchGate, type PromptDispatchAdmission } from "./prompt-dispatch-gate.js";
 import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
 import {
   attributeReplayedCommands,
@@ -917,6 +918,7 @@ export class AgentManager {
   private readonly steerEventBarriers = new Map<string, SteerEventBarrier>();
   private readonly foregroundMutationTails = new Map<string, Promise<void>>();
   private readonly runs = new AgentRunState();
+  private readonly promptDispatchGate = new PromptDispatchGate();
   private readonly subscribers = new Set<SubscriptionRecord>();
   private readonly idFactory: () => string;
   private readonly registry?: AgentStorage;
@@ -3629,6 +3631,9 @@ export class AgentManager {
     prompt: AgentPromptInput,
     options?: AgentRunOptions,
   ): Promise<AsyncGenerator<AgentStreamEvent>> {
+    // A compaction that began after the prompt was admitted would be cancelled by the interrupt
+    // below, so the prompt waits for it to end, as a refused steer does.
+    await this.promptDispatchGate.untilCompactionEnds(agentId);
     const snapshot = this.requireAgent(agentId);
     if (
       snapshot.lifecycle !== "running" &&
@@ -3654,6 +3659,17 @@ export class AgentManager {
       }
       throw error;
     }
+  }
+
+  /**
+   * Waits until this prompt may reach the agent: after the prompts that arrived before it, and
+   * never while the agent compacts. Release the admission once the prompt has been dispatched.
+   */
+  admitPromptDispatch(
+    agentId: string,
+    options?: { onHold?: () => void },
+  ): Promise<PromptDispatchAdmission> {
+    return this.promptDispatchGate.admit(agentId, options);
   }
 
   async steerAgentRun(
@@ -3724,6 +3740,12 @@ export class AgentManager {
       : { status: "unavailable" as const };
     if (result.status === "accepted") {
       return { status: "steered" };
+    }
+    // A compaction that began after the prompt was admitted refuses the steer; replacing the
+    // turn would cancel the compaction, so the steer waits for it to end and tries again.
+    if (this.promptDispatchGate.isCompacting(agentId)) {
+      await this.promptDispatchGate.untilCompactionEnds(agentId);
+      return await this.steerOrReplaceActiveTurn(agentId, prompt, options);
     }
 
     // Providers without autonomous steering keep their existing dispatch behavior. The shared
@@ -4877,6 +4899,7 @@ export class AgentManager {
   ): ManagedAgentClosed {
     this.agentStreamCoalescer.flushAndDiscard(agent.id);
     this.cacheWarmManager?.cancel(agent.id);
+    this.promptDispatchGate.compactionEnded(agent.id);
     this.agents.delete(agent.id);
     this.previousStatuses.delete(agent.id);
     if (agent.unsubscribeSession) {
@@ -5470,6 +5493,8 @@ export class AgentManager {
           // so cache warm-up saw an in-flight run and declined. Ask again now it has settled.
           this.cacheWarmManager?.schedule(agent.id);
         }
+        // A compaction that gave up with its turn sends no completed marker.
+        if (terminalDisposition !== "stale") this.promptDispatchGate.compactionEnded(agent.id);
       }
 
       if (flags.shouldDispatchEvent) {
@@ -5688,8 +5713,12 @@ export class AgentManager {
       }
 
       this.recordAndDispatchTimelineItem(agent.id, item, event.provider, event.turnId);
+      if (item.type === "compaction" && item.status === "loading") {
+        this.promptDispatchGate.compactionStarted(agent.id);
+      }
       if (item.type === "compaction" && item.status === "completed") {
         this.recordPromptCacheCompaction(agent, item);
+        this.promptDispatchGate.compactionEnded(agent.id);
       }
       if (item.type === "user_message" && !isCacheWarmPrompt(item.text)) {
         this.noteUserMessage(agent);

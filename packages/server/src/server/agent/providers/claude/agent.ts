@@ -2852,7 +2852,9 @@ class ClaudeAgentSession implements AgentSession {
   private cachedRuntimeInfo: AgentRuntimeInfo | null = null;
   private lastOptionsModel: string | null = null;
   private lastRuntimeModel: string | null = null;
-  private compacting = false;
+  /** Set when a compaction starts; the next user message Claude sends is its summary. */
+  private compactSummaryPending = false;
+  /** From the first `compacting` status to the compact boundary or the end of the turn. */
   private compactionMarkerOpen = false;
   private queryPumpPromise: Promise<void> | null = null;
   private queryRestartNeeded = false;
@@ -3110,7 +3112,9 @@ class ClaudeAgentSession implements AgentSession {
     }
     const sdkPrompt = await this.prepareClaudePrompt(prompt);
     const activeTurnId = this.activeForegroundTurnId ?? this.autonomousTurn?.id;
-    if (this.compacting || activeTurnId !== options.expectedTurnId) {
+    // Paseo holds a prompt while the agent compacts and lets it go at the boundary, which can be
+    // before the summary arrives, so only the open marker refuses a steer.
+    if (this.compactionMarkerOpen || activeTurnId !== options.expectedTurnId) {
       return { status: "unavailable" };
     }
 
@@ -5733,7 +5737,7 @@ class ClaudeAgentSession implements AgentSession {
       }
       const status = toObjectRecord(message)?.status;
       if (status === "compacting") {
-        this.compacting = true;
+        this.compactSummaryPending = true;
         // Claude Code repeats this status every 30 seconds until the compaction
         // finishes. Each repeat used to open its own marker, and the app only ever
         // resolves one of them, so the rest stayed on "Compacting..." forever.
@@ -5836,8 +5840,8 @@ class ClaudeAgentSession implements AgentSession {
     if (isSyntheticUserEntry(message)) {
       return;
     }
-    if (this.compacting) {
-      this.compacting = false;
+    if (this.compactSummaryPending) {
+      this.compactSummaryPending = false;
       return;
     }
     const messageId =

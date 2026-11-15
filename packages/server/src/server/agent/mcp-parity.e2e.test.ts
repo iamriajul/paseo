@@ -1495,3 +1495,113 @@ describe("Suite F: Slash commands from agents", () => {
     }
   }, 30000);
 });
+
+describe("Suite G: Wake-ups during a compaction", () => {
+  test("a person's and an agent's message sent during an auto-compaction wait for it, then go out once, in order", async () => {
+    let compactionStarted!: () => void;
+    const compacting = new Promise<void>((resolve) => {
+      compactionStarted = resolve;
+    });
+    let finishCompaction!: () => void;
+    const compactionFinished = new Promise<void>((resolve) => {
+      finishCompaction = resolve;
+    });
+    let steeredBoth!: () => void;
+    const bothSteered = new Promise<void>((resolve) => {
+      steeredBoth = resolve;
+    });
+    let inCompaction = false;
+    const steered: string[] = [];
+    const interrupts: string[] = [];
+    const recipientPrompts: string[] = [];
+    const daemon = await createTestPaseoDaemon({
+      agentClients: createTestAgentClients({
+        onInterrupt() {
+          interrupts.push("interrupt");
+        },
+        onStartTurn(prompt, config) {
+          if (config.title === "Compacting recipient" && typeof prompt === "string")
+            recipientPrompts.push(prompt);
+        },
+        // Like Claude, a compaction takes no steer, so the old fallback replaced the turn.
+        async steerActiveTurn(prompt) {
+          if (inCompaction) return { status: "unavailable" };
+          steered.push(typeof prompt === "string" ? prompt : JSON.stringify(prompt));
+          if (steered.length === 2) steeredBoth();
+          return { status: "accepted" };
+        },
+        async beforeTurnComplete(prompt, turn) {
+          if (prompt !== "Work until the context fills") return;
+          inCompaction = true;
+          await turn.emit({ type: "compaction", status: "loading", trigger: "auto" });
+          compactionStarted();
+          await compactionFinished;
+          inCompaction = false;
+          await turn.emit({ type: "compaction", status: "completed", trigger: "auto" });
+          // The turn goes on after an auto-compaction, so the held messages steer into it.
+          await bothSteered;
+        },
+      }),
+    });
+    const client = new DaemonClient({
+      url: `ws://127.0.0.1:${daemon.port}/ws`,
+      appVersion: "0.15.0",
+    });
+    try {
+      await client.connect();
+      await client.fetchAgents({ subscribe: {} });
+      const worker = await client.createAgent({
+        provider: "claude",
+        cwd: daemon.paseoHome,
+        title: "Worker",
+        modeId: "bypassPermissions",
+      });
+      const recipient = await client.createAgent({
+        provider: "claude",
+        cwd: daemon.paseoHome,
+        title: "Compacting recipient",
+        modeId: "bypassPermissions",
+        initialPrompt: "Work until the context fills",
+      });
+      await compacting;
+
+      await expect(
+        client.sendAgentMessage(recipient.id, "What is left?", { activeTurnBehavior: "steer" }),
+      ).resolves.toEqual({ deliveryStatus: "queued" });
+      await client.sendAgentMessage(recipient.id, "Worker finished", { sourceAgentId: worker.id });
+      // Past the two quiet seconds the delivery queue waits before dispatching.
+      await sleep(3000);
+      expect(interrupts).toEqual([]);
+      expect(steered).toEqual([]);
+
+      finishCompaction();
+      await waitFor({
+        timeoutMs: 10000,
+        label: "recipient idle after the compaction",
+        check: () =>
+          steered.length === 2 &&
+          daemon.daemon.agentManager.getAgent(recipient.id)?.lifecycle === "idle"
+            ? true
+            : null,
+      });
+      expect(steered[0]).toBe("What is left?");
+      expect(parseAgentMessage(steered[1]!)?.text).toBe("Worker finished");
+      expect(interrupts).toEqual([]);
+      expect(recipientPrompts).toEqual(["Work until the context fills"]);
+      const timeline = daemon.daemon.agentManager.getTimeline(recipient.id);
+      const compactionAt = timeline.findIndex(
+        (item) => item.type === "compaction" && item.status === "completed",
+      );
+      const personAt = timeline.findIndex(
+        (item) => item.type === "user_message" && item.text === "What is left?",
+      );
+      expect(compactionAt).toBeGreaterThan(-1);
+      expect(personAt).toBeGreaterThan(compactionAt);
+    } finally {
+      finishCompaction();
+      steeredBoth();
+      await client.close();
+      await daemon.close();
+    }
+  }, 30000);
+});

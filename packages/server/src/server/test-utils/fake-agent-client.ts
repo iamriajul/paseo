@@ -18,6 +18,7 @@ import type {
   AgentSessionConfig,
   AgentStreamEvent,
   AgentSlashCommand,
+  AgentTimelineItem,
   AgentUsage,
   FetchCatalogOptions,
 } from "../agent/agent-sdk-types.js";
@@ -51,6 +52,12 @@ interface Deferred<T> {
   reject: (err: unknown) => void;
 }
 
+/** Holds a turn before it completes; `emit` adds timeline items to it meanwhile. */
+type BeforeTurnComplete = (
+  prompt: AgentPromptInput,
+  turn: { emit(item: AgentTimelineItem): Promise<void> },
+) => Promise<void>;
+
 interface FakeAgentSessionOptions {
   providerName: string;
   config: AgentSessionConfig;
@@ -59,7 +66,7 @@ interface FakeAgentSessionOptions {
   memoryMarker?: string | null;
   closeSession?: () => Promise<void>;
   onStartTurn?: (prompt: AgentPromptInput, config: AgentSessionConfig) => void;
-  beforeTurnComplete?: (prompt: AgentPromptInput) => Promise<void>;
+  beforeTurnComplete?: BeforeTurnComplete;
   steerActiveTurn?: AgentSession["steerActiveTurn"];
   onInterrupt?: () => void;
   historyEvents?: readonly AgentStreamEvent[];
@@ -70,7 +77,7 @@ export interface TestAgentClientOptions {
   beforeResumeSession?: (handle: AgentPersistenceHandle) => Promise<void>;
   closeSession?: () => Promise<void>;
   onStartTurn?: (prompt: AgentPromptInput, config: AgentSessionConfig) => void;
-  beforeTurnComplete?: (prompt: AgentPromptInput) => Promise<void>;
+  beforeTurnComplete?: BeforeTurnComplete;
   steerActiveTurn?: AgentSession["steerActiveTurn"];
   onInterrupt?: () => void;
   supportsMcpServers?: boolean;
@@ -349,7 +356,7 @@ class FakeAgentSession implements AgentSession {
   private readonly onInterrupt: (() => void) | undefined;
   private readonly closeSession: (() => Promise<void>) | undefined;
   private readonly onStartTurn: TestAgentClientOptions["onStartTurn"];
-  private readonly beforeTurnComplete: ((prompt: AgentPromptInput) => Promise<void>) | undefined;
+  private readonly beforeTurnComplete: BeforeTurnComplete | undefined;
   private readonly historyEvents: readonly AgentStreamEvent[] | undefined;
 
   constructor(options: FakeAgentSessionOptions) {
@@ -491,6 +498,14 @@ class FakeAgentSession implements AgentSession {
     }
   }
 
+  private readonly turnControls = {
+    emit: async (item: AgentTimelineItem): Promise<void> => {
+      const event: AgentStreamEvent = { type: "timeline", provider: this.providerName, item };
+      await this.appendHistoryEvent(event);
+      this.notifySubscribers(event);
+    },
+  };
+
   private async emitSlashCommandTurn(
     slashCommand: { commandName: string; args?: string },
     clientMessageId?: string,
@@ -528,6 +543,7 @@ class FakeAgentSession implements AgentSession {
     // A held command turn stands in for a compaction that is still running.
     await this.beforeTurnComplete?.(
       ["/" + slashCommand.commandName, slashCommand.args].filter(Boolean).join(" "),
+      this.turnControls,
     );
     const result = await this.runSlashCommand(slashCommand.commandName, slashCommand.args);
     for (const item of result.timeline) {
@@ -843,7 +859,7 @@ class FakeAgentSession implements AgentSession {
         this.notifySubscribers(assistantChunkB);
       }
 
-      await this.beforeTurnComplete?.(prompt);
+      await this.beforeTurnComplete?.(prompt, this.turnControls);
       const completed: AgentStreamEvent = {
         type: "turn_completed",
         provider: this.providerName,

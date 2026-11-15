@@ -68,6 +68,7 @@ test("session create forwards clientMessageId to the initial prompt run options"
       createAgent: vi.fn(async () => snapshot),
       getAgent: vi.fn(() => snapshot),
       tryRunOutOfBand: vi.fn(() => false),
+      admitPromptDispatch: async () => ({ release: () => {} }),
       hasInFlightRun: vi.fn(() => false),
       reloadStalePluginSession: async () => {},
       streamAgent,

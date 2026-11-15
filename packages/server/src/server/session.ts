@@ -9677,8 +9677,13 @@ export class Session {
           sessionMode: msg.sessionMode,
           clearPendingPermissions: true,
           logger: this.sessionLogger,
+          // A compaction can take minutes: a send that waits for one is answered as queued now.
+          onHold: () => {
+            deliveryStatus = "queued";
+            queued();
+          },
         });
-        if (result.disposition === "turn_started" && !msg.compactFirst) {
+        if (result.disposition === "turn_started" && deliveryStatus !== "queued") {
           await waitForAgentRunStartWithTimeout(
             this.agentManager,
             agentId,

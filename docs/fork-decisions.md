@@ -1451,6 +1451,16 @@ Test 11 of `04-agent-ls` passes two `--host` selectors that must differ. Upstrea
 grep -q 'getAvailablePorts(2)' packages/cli/tests/04-agent-ls.test.ts
 ```
 
+## zombie-after-exec
+
+**the terminal-survival CLI test makes its zombie only after the shell has exec'd**
+
+Test 8 of `45-daemon-terminals-survive` needs a zombie, a child whose parent never waits. Upstream ran `sleep 0 & echo $!; exec sleep 600`. When `sleep 0` exits before the shell reaches `exec`, which a busy machine allows, the shell reaps it and the test fails with "never became a zombie"; with a 0.3 s step injected before `exec`, dash and bash both reap it every time. The child now reads fd 3 and exits on its EOF, which the test sends only once `ps` shows the parent is `sleep`.
+
+```bash
+grep -q 'exec sleep 600 3<&-' packages/cli/tests/45-daemon-terminals-survive.test.ts
+```
+
 ## no-to-sorted-in-app
 
 **app and protocol code may not call `Array.prototype.toSorted`**

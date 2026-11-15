@@ -143,15 +143,22 @@ async function expectClosed(pid: number, trigger: string) {
 }
 
 // A zombie: a real process with a birth time that SIGKILL cannot remove while its parent (an
-// exec'd `sleep` that never waits) lives. Cleanup can only report it as still alive.
+// exec'd `sleep` that never waits) lives. Cleanup can only report it as still alive. The child
+// reads fd 3 and exits on its EOF, which comes only once the shell has exec'd: a shell reaps a
+// child that exits before then.
 async function startZombie(): Promise<{ zombiePid: number; parentPid: number }> {
-  const parent = spawn("/bin/sh", ["-c", "sleep 0 & echo $!; exec sleep 600"], {
-    stdio: ["ignore", "pipe", "ignore"],
+  const parent = spawn("/bin/sh", ["-c", "cat <&3 >/dev/null & echo $!; exec sleep 600 3<&-"], {
+    stdio: ["ignore", "pipe", "ignore", "pipe"],
   });
   const zombiePid = await new Promise<number>((resolve) => {
     parent.stdout!.once("data", (chunk: Buffer) => resolve(Number(chunk.toString().trim())));
   });
   parent.unref();
+  await waitFor(
+    async () => (await psField(parent.pid!, "comm")).endsWith("sleep"),
+    `shell ${parent.pid} never exec'd sleep`,
+  );
+  parent.stdio[3]!.destroy();
   await waitFor(
     async () => (await psField(zombiePid, "stat")).startsWith("Z"),
     `process ${zombiePid} never became a zombie`,
@@ -159,7 +166,7 @@ async function startZombie(): Promise<{ zombiePid: number; parentPid: number }> 
   return { zombiePid, parentPid: parent.pid! };
 }
 
-async function psField(pid: number, field: "stat" | "lstart"): Promise<string> {
+async function psField(pid: number, field: "stat" | "lstart" | "comm"): Promise<string> {
   const child = spawn("ps", ["-o", `${field}=`, "-p", String(pid)], {
     env: { ...process.env, LC_ALL: "C" },
     stdio: ["ignore", "pipe", "ignore"],

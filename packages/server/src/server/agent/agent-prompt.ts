@@ -12,6 +12,7 @@ export type AgentUnarchiveController = Pick<AgentManager, "notifyAgentState" | "
 
 export type AgentRunController = Pick<
   AgentManager,
+  | "admitPromptDispatch"
   | "getAgent"
   | "tryRunOutOfBand"
   | "hasInFlightRun"
@@ -31,6 +32,8 @@ export interface StartAgentRunOptions {
   runOptions?: AgentRunOptions;
   /** Ask the provider to deny permissions blocking this steer. */
   clearPendingPermissions?: boolean;
+  /** Runs when the prompt has to wait for the agent's compaction to end before it goes out. */
+  onHold?: () => void;
 }
 
 export type PromptDispatchDisposition = "out_of_band" | "steered" | "turn_started" | "skipped";
@@ -115,6 +118,7 @@ export async function startAgentRun(
     options?.onDispatch?.("out_of_band");
     return { disposition: "out_of_band" };
   }
+  const admission = await agentManager.admitPromptDispatch(agentId, { onHold: options?.onHold });
   try {
     await agentManager.reloadStalePluginSession(agentId);
     return await startAgentRunInner(agentManager, agentId, prompt, logger, options);
@@ -125,6 +129,8 @@ export async function startAgentRun(
     // fresh session on the current runtime while preserving history and labels.
     await agentManager.reloadAgentSession(agentId);
     return await startAgentRunInner(agentManager, agentId, prompt, logger, options);
+  } finally {
+    admission.release();
   }
 }
 
@@ -240,6 +246,8 @@ export interface SendPromptToAgentParams {
   unarchive?: boolean;
   /** See {@link StartAgentRunOptions.clearPendingPermissions}. */
   clearPendingPermissions?: boolean;
+  /** See {@link StartAgentRunOptions.onHold}. */
+  onHold?: () => void;
   logger: Logger;
 }
 
@@ -392,6 +400,7 @@ export async function sendPreparedPromptToAgent(
     activeTurnBehavior: params.activeTurnBehavior ?? (params.steer === true ? "steer" : undefined),
     clearPendingPermissions: params.clearPendingPermissions,
     runOptions: params.runOptions,
+    onHold: params.onHold,
   });
 }
 

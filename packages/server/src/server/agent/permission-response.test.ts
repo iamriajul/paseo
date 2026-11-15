@@ -36,6 +36,10 @@ class FakePermissionAgentManager {
     return this.outOfBandHandled;
   }
 
+  async admitPromptDispatch() {
+    return { release: () => {} };
+  }
+
   getAgent() {
     return undefined;
   }

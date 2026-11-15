@@ -1074,6 +1074,18 @@ grep -q "prompt-cache-insights-wake-up-hold" packages/app/src/prompt-cache/promp
 cd packages/app && npx vitest run --project unit src/prompt-cache/warm-up-stop.test.ts -t "describeWakeUpHold" --bail=1
 ```
 
+## compaction-holds-prompts
+
+**no prompt reaches an agent while it compacts; held prompts go out one at a time, in arrival order**
+
+Official Claude refuses a steer while it compacts, and the manager's fallback for a refused steer replaces the turn. So an agent message, a finish notification or a person's steered message that arrived during an auto-compaction interrupted it and started as a new turn, which compacted again on top of it; a message sent to interrupt cancelled the compaction outright. The fork passes every prompt in `startAgentRun` through `PromptDispatchGate` (`agent/prompt-dispatch-gate.ts`). It admits one prompt per agent at a time, in arrival order, and none between the provider's `compaction` row with status `loading` and the `completed` row or the turn's end. `steerOrReplaceActiveTurn` waits out a compaction that began after admission instead of replacing. The Claude adapter refuses a steer only while its compaction marker is open (status `compacting` to `compact_boundary`), because the gate lets prompts go at the boundary, before Claude's summary message arrives; the summary is still hidden (`compactSummaryPending`). A person's held message is answered with `deliveryStatus: "queued"`, an optional response field compact-then-send already sends, so it needs no capability gate. The lifecycle rule lives in [Prompts while an agent compacts](agent-lifecycle.md#prompts-while-an-agent-compacts).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-manager.test.ts -t "agent compacts|held by a compaction|during its admission" --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/agent.test.ts -t "compact boundary on" --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/mcp-parity.e2e.test.ts -t "Wake-ups during a compaction" --bail=1
+```
+
 ## gateway-session-route
 
 **the context meter and the timeline name the CLIProxyAPI account serving the agent, and cache insights charge misses to account switches**

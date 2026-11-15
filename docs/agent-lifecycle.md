@@ -12,6 +12,14 @@ initializing → idle → running → idle (or error → closed)
 
 Each live agent in `AgentManager` carries a `lastStatus` of `initializing`, `idle`, `running`, or `error`. `closed` is the persisted, resumable state for an agent record that has no live provider runtime. State transitions persist to disk and stream to subscribed clients via WebSocket.
 
+### Prompts while an agent compacts
+
+A compaction runs inside a turn: an auto-compaction partway through one, or a `/compact` turn of its own, the warm-up idle-cap compaction included. No prompt reaches the agent until it ends. That covers a person's message, another agent's message or finish notification, a heartbeat, and a restart or rate-limit resume. `startAgentRun` passes every prompt through `PromptDispatchGate` (`packages/server/src/server/agent/prompt-dispatch-gate.ts`), so a new prompt path that uses it gets the same rule. The gate closes on the provider's `compaction` row with status `loading` and opens on the `completed` row, or at the end of the turn when the compaction gives up without one. The held prompts then go out one at a time, in arrival order. They steer into the turn when it goes on after the compaction; when the compaction ended its turn, the first starts a new turn and the rest steer into it. The gate admits one prompt per agent at a time even with no compaction, because prompts released together would each find the agent idle and the later ones would replace the turn the first one started.
+
+Through v0.15.919 nothing held them. The provider refused a steer during a compaction, and the manager's fallback for a refused steer replaced the turn. That fallback is right for a steer the provider can never take, such as a slash command, but here it cancelled the compaction and started the prompt as a new turn, which compacted again on top of it.
+
+A person's message that has to wait is answered at once with `deliveryStatus: "queued"`, as compact-then-send answers, and the app shows it in the timeline as sent. Stop is not held, so it still cancels a compaction. Heartbeats with `skipWhileActive`, warm-up pings and the idle-cap compaction need nothing more: they skip an agent with a turn in flight, and a compaction always runs in one.
+
 ## Daemon restart recovery
 
 Restart recovery is off by default. Enable `agents.resumeOnStartup` in host config or

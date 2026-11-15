@@ -23,13 +23,14 @@ import assert from "node:assert";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { getAvailablePort } from "./helpers/network.ts";
+import { getAvailablePorts } from "./helpers/network.ts";
 import { runLocalPaseo } from "./helpers/local-cli.ts";
 
 console.log("=== LS Command Tests ===\n");
 
-// Allocate an unused endpoint for connection-error and argument-validation checks.
-const port = await getAvailablePort();
+// Unused endpoints for connection-error and argument-validation checks. Test 11 needs two that
+// differ, so both are reserved at once.
+const [port, otherPort] = await getAvailablePorts(2);
 const paseoHome = await mkdtemp(join(tmpdir(), "paseo-test-home-"));
 
 try {
@@ -183,7 +184,7 @@ try {
   {
     console.log("Test 11: conflicting explicit --host selectors are rejected");
     const firstHost = `localhost:${port}`;
-    const lastHost = `localhost:${await getAvailablePort()}`;
+    const lastHost = `localhost:${otherPort}`;
     const result = await runLocalPaseo(["--host", firstHost, "ls", "--host", lastHost]);
     const output = result.stdout + result.stderr;
     assert.notStrictEqual(result.exitCode, 0, "should reject conflicting explicit selectors");

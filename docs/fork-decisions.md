@@ -1441,6 +1441,16 @@ npx vitest run packages/server/src/server/workspace-git-service.test.ts -t "stru
 grep -q "realSetTimeout(resolve, 50)" packages/server/src/server/workspace-git-service.test.ts
 ```
 
+## ls-test-reserves-distinct-ports
+
+**the ls CLI test reserves both of its ports at once**
+
+Test 11 of `04-agent-ls` passes two `--host` selectors that must differ. Upstream took the second port from a fresh `getAvailablePort()` call after the first port was released, and the kernel can hand out the same port again: 2 of 20,000 back-to-back pairs did on a dev box. The CLI then sees one host and connects, and all three of the test's assertions fail. `getAvailablePorts(count)` keeps every port bound until the last one is, so the ports it returns always differ.
+
+```bash
+grep -q 'getAvailablePorts(2)' packages/cli/tests/04-agent-ls.test.ts
+```
+
 ## no-to-sorted-in-app
 
 **app and protocol code may not call `Array.prototype.toSorted`**

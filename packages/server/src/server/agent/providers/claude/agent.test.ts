@@ -1783,6 +1783,55 @@ describe("ClaudeAgentSession features", () => {
     }
   });
 
+  test("refuses a steer while compacting and takes one from the compact boundary on", async () => {
+    const { queryFactory } = createQueryMock();
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+    const internal = session as unknown as {
+      translateMessageToEvents(message: SDKMessage): Promise<AgentStreamEvent[]>;
+    };
+    try {
+      const { turnId } = await session.startTurn("first turn");
+      await internal.translateMessageToEvents({
+        type: "system",
+        subtype: "status",
+        status: "compacting",
+        session_id: "session-1",
+      } as unknown as SDKMessage);
+      await expect(
+        session.steerActiveTurn?.("Agent finished", { expectedTurnId: turnId }),
+      ).resolves.toEqual({ status: "unavailable" });
+
+      await internal.translateMessageToEvents({
+        type: "system",
+        subtype: "compact_boundary",
+        compact_metadata: { trigger: "auto", pre_tokens: 150_000, post_tokens: 9_000 },
+        uuid: "compact-boundary-1",
+        session_id: "session-1",
+      } as unknown as SDKMessage);
+      // The paused wake-up goes out as soon as Paseo sees the compaction completed, which can be
+      // before Claude's summary message arrives.
+      await expect(
+        session.steerActiveTurn?.("Agent finished", { expectedTurnId: turnId }),
+      ).resolves.toEqual({ status: "accepted", providerMessageId: expect.any(String) });
+
+      const summary = await internal.translateMessageToEvents({
+        type: "user",
+        message: { role: "user", content: "This session is being continued from a summary." },
+        parent_tool_use_id: null,
+        uuid: "compact-summary-1",
+        session_id: "session-1",
+      } as unknown as SDKMessage);
+      expect(summary.filter((event) => event.type === "timeline")).toEqual([]);
+    } finally {
+      await session.close();
+    }
+  });
+
   test("a human steer supersedes blocking permissions until Claude reads it", async () => {
     const { queryFactory } = createQueryMock();
     const client = new ClaudeAgentClient({

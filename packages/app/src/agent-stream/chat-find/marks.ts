@@ -30,13 +30,18 @@ export function findSourceMatches(text: string, query: string): SourceMatch[] {
 export function splitPlainMatch(
   text: string,
   mark: ChatFindMark,
+  source: string = text,
 ): { before: string; match: string; after: string } | null {
-  const found = findSourceMatches(text, mark.query)[mark.occurrence];
-  if (!found) return null;
+  const whole = source.endsWith(text) ? source : text;
+  const offset = whole.length - text.length;
+  const found = findSourceMatches(whole, mark.query)[mark.occurrence];
+  if (!found || found.start < offset) return null;
+  const start = found.start - offset;
+  const end = found.end - offset;
   return {
-    before: text.slice(0, found.start),
-    match: text.slice(found.start, found.end),
-    after: text.slice(found.end),
+    before: text.slice(0, start),
+    match: text.slice(start, end),
+    after: text.slice(end),
   };
 }
 

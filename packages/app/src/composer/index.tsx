@@ -147,6 +147,7 @@ import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
 import { useWorkspaceAttachmentsForScopes } from "@/attachments/workspace-attachments-store";
 import { droppedItemsToSelectedFiles } from "@/composer/attachments/drop";
 import { getFileTypeLabel } from "@/attachments/file-types";
+import { QuoteAttachmentCard } from "@/quotes/quote-attachment-card";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import {
   AttachmentFrame,
@@ -429,6 +430,16 @@ function renderComposerAttachmentPill(args: RenderComposerAttachmentPillArgs): R
         onRemove={onRemove}
         openLabel={labels.openImage}
         removeLabel={labels.removeImage}
+      />
+    );
+  }
+  if (attachment.kind === "quote") {
+    return (
+      <QuoteAttachmentCard
+        key={`quote:${attachment.quote.id}`}
+        quote={attachment.quote}
+        index={index}
+        onRemove={onRemove}
       />
     );
   }

@@ -18,6 +18,7 @@ import {
 } from "@/components/message";
 import type { TurnFooterHost } from "./layout";
 import { AssistantForkMenu } from "@/components/assistant-fork-menu";
+import { useChatQuoteActions } from "@/quotes/chat-quote-context";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { usePromptCacheMoney } from "@/prompt-cache/money-stats-context";
@@ -222,6 +223,11 @@ function CompletedTurnFooter({
     },
     [boundary, onForkAssistantTurn],
   );
+  const addQuote = useChatQuoteActions()?.addQuote;
+  const quoteMessageId = items[startIndex]?.id;
+  const handleQuote = useCallback(() => {
+    addQuote?.({ origin: "assistant", text: turnText, partial: false, messageId: quoteMessageId });
+  }, [addQuote, quoteMessageId, turnText]);
   const readAloud = useMemo(
     () => (turnText.trim() ? { text: turnText, serverId, client } : null),
     [turnText, serverId, client],
@@ -246,6 +252,7 @@ function CompletedTurnFooter({
         showNativeForkOption={supportsNativeFork}
         readAloud={readAloud}
         costLabel={costLabel}
+        onQuote={addQuote && turnText.trim() ? handleQuote : undefined}
       />
     </View>
   );

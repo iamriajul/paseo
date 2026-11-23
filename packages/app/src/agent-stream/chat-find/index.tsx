@@ -42,9 +42,12 @@ export function ChatFindExpansion({ messageId, children }: ChatFindExpansionProp
 }
 
 /** A prompt's text, with the occurrence chat find landed on highlighted. */
-export function ChatFindPlainText({ messageId, text }: ChatFindPlainTextProps) {
+export function ChatFindPlainText({ messageId, text, source }: ChatFindPlainTextProps) {
   const mark = useChatFindMark(messageId);
-  const parts = useMemo(() => (mark ? splitPlainMatch(text, mark) : null), [mark, text]);
+  const parts = useMemo(
+    () => (mark ? splitPlainMatch(text, mark, source) : null),
+    [mark, text, source],
+  );
   if (!parts) return text;
   return (
     <>

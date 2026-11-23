@@ -354,6 +354,18 @@ export const ar: TranslationResources = {
       archive: "أرشيف",
     },
   },
+  quotes: {
+    sourceAssistant: "الوكيل",
+    sourceUser: "أنت",
+    sourceSideQuestion: "سؤال جانبي",
+    selection: "التحديد",
+    remove: "إزالة الاقتباس",
+    jumpToSource: "انتقل إلى الرسالة المقتبسة",
+    quoteMessage: "اقتباس الرسالة",
+    quote: "اقتباس",
+    askAside: "اسأل جانبيًا",
+    quoteInMainChat: "اقتبس في المحادثة الرئيسية",
+  },
   message: {
     diagram: {
       diagram: "مخطط",

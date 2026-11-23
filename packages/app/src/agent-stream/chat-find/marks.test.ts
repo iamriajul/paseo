@@ -27,6 +27,16 @@ describe("splitPlainMatch", () => {
     });
     expect(splitPlainMatch("no match", mark("needle"))).toBeNull();
   });
+
+  it("counts occurrences over the whole prompt when it shows only the prompt's end", () => {
+    const source = "> needle in a quote\n\nmy needle";
+    expect(splitPlainMatch("my needle", mark("needle", 1), source)).toEqual({
+      before: "my ",
+      match: "needle",
+      after: "",
+    });
+    expect(splitPlainMatch("my needle", mark("needle", 0), source)).toBeNull();
+  });
 });
 
 describe("markMarkdownMatch", () => {

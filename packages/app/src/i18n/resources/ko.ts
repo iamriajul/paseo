@@ -355,6 +355,18 @@ export const ko: TranslationResources = {
       archive: "보관",
     },
   },
+  quotes: {
+    sourceAssistant: "에이전트",
+    sourceUser: "나",
+    sourceSideQuestion: "사이드 질문",
+    selection: "선택 영역",
+    remove: "인용 제거",
+    jumpToSource: "인용한 메시지로 이동",
+    quoteMessage: "메시지 인용",
+    quote: "인용",
+    askAside: "따로 질문",
+    quoteInMainChat: "메인 채팅에 인용",
+  },
   message: {
     diagram: {
       diagram: "다이어그램",

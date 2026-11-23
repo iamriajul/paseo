@@ -27,4 +27,9 @@ export interface ChatFindExpansionProps {
 export interface ChatFindPlainTextProps {
   messageId: string | undefined;
   text: string;
+  /**
+   * The whole prompt, when `text` is only its end (a quoted prompt shows the typed text apart
+   * from its quote cards). Chat find counts occurrences over the whole prompt.
+   */
+  source?: string;
 }

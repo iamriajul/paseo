@@ -684,3 +684,54 @@ function hasUsableTableColumnContract(table: Element): boolean {
     )
   );
 }
+
+const USER_MESSAGE_TEXT_SELECTOR = '[data-message-text="true"]';
+const USER_MESSAGE_SELECTOR = '[data-testid="user-message"]';
+
+export interface QuoteSelection {
+  origin: "assistant" | "user";
+  text: string;
+  messageId: string;
+  /** Where the selection sits on screen, for the toolbar that offers to quote it. */
+  rect: DOMRect;
+}
+
+function closestUserMessageText(node: Node): Element | null {
+  const element = node instanceof Element ? node : node.parentElement;
+  const text = element?.closest(USER_MESSAGE_TEXT_SELECTOR) ?? null;
+  return text?.closest(USER_MESSAGE_SELECTOR) ? text : null;
+}
+
+/**
+ * What a selection inside the chat would quote: the selected part of one assistant message
+ * (as the Markdown a copy would produce) or of one user message's own text. A selection across
+ * messages, or outside the chat's transcript, quotes nothing.
+ */
+export function readQuoteSelection(selection: Selection | null): QuoteSelection | null {
+  if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) {
+    return null;
+  }
+  const range = selection.getRangeAt(0);
+  const ancestor = range.commonAncestorContainer;
+  const ancestorElement = ancestor instanceof Element ? ancestor : ancestor.parentElement;
+  if (!ancestorElement?.closest(CHAT_SCROLL_SELECTOR)) {
+    return null;
+  }
+  const rect = range.getBoundingClientRect();
+  const assistantStart = closestAssistantMessage(range.startContainer);
+  if (assistantStart) {
+    const messageId = messageIdOf(assistantStart);
+    const end = closestAssistantMessage(range.endContainer);
+    const text = createAssistantSelectionClipboardContent(selection)?.plainText.trim();
+    if (!messageId || !end || messageIdOf(end) !== messageId || !text) return null;
+    return { origin: "assistant", text, messageId, rect };
+  }
+  const userStart = closestUserMessageText(range.startContainer);
+  if (userStart && userStart === closestUserMessageText(range.endContainer)) {
+    const messageId = messageIdOf(userStart);
+    const text = selection.toString().trim();
+    if (!messageId || !text) return null;
+    return { origin: "user", text, messageId, rect };
+  }
+  return null;
+}

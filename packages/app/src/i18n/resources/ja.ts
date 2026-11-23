@@ -359,6 +359,18 @@ export const ja: TranslationResources = {
       archive: "アーカイブ",
     },
   },
+  quotes: {
+    sourceAssistant: "エージェント",
+    sourceUser: "あなた",
+    sourceSideQuestion: "サイド質問",
+    selection: "選択範囲",
+    remove: "引用を削除",
+    jumpToSource: "引用元のメッセージへ移動",
+    quoteMessage: "メッセージを引用",
+    quote: "引用",
+    askAside: "別に質問",
+    quoteInMainChat: "メインのチャットに引用",
+  },
   message: {
     diagram: {
       diagram: "図",

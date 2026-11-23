@@ -97,6 +97,10 @@ import { ReadAloudButton, ReadAloudButtons } from "@/components/read-aloud-butto
 import { useHostFeature } from "@/runtime/host-features";
 import { usePromptCacheMoney } from "@/prompt-cache/money-stats-context";
 import { formatUsdEstimate } from "@/prompt-cache/prompt-cache-cost";
+import { parseQuotedPrompt } from "@/quotes/quote-format";
+import { QuoteCard, type QuoteCardQuote } from "@/quotes/quote-card";
+import { TurnQuoteButton } from "@/quotes/turn-quote-button";
+import { useChatQuoteActions } from "@/quotes/chat-quote-context";
 export type { InlinePathTarget } from "@/assistant-file-links";
 export type { AssistantForkTarget };
 
@@ -350,6 +354,12 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     flexWrap: "wrap",
   },
+  quoteStack: {
+    gap: theme.spacing[2],
+  },
+  quoteStackSpaced: {
+    marginBottom: theme.spacing[2],
+  },
   attachmentPreviewContainer: {
     flexDirection: "row",
     gap: theme.spacing[2],
@@ -372,6 +382,12 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     height: 24,
     gap: theme.spacing[2],
     marginTop: theme.spacing[2],
+  },
+  // A button in the row is as tall as the row: a taller one overflows the row, and with it the
+  // bubble, which then scrolls by the difference.
+  trailingAction: {
+    width: 24,
+    height: 24,
   },
   trailingRowHidden: {
     opacity: 0,
@@ -401,6 +417,66 @@ function UserMessageImagePill({ image, onOpen, accessibilityLabel }: UserMessage
     </AttachmentFrame>
   );
 }
+
+function useParsedUserMessage(message: string): { quotes: QuoteCardQuote[]; typedText: string } {
+  return useMemo(() => {
+    const parsed = parseQuotedPrompt(message);
+    return {
+      quotes: parsed.quotes.map((quote) => ({ ...quote, partial: false })),
+      typedText: parsed.text,
+    };
+  }, [message]);
+}
+
+const UserMessageQuoteAction = memo(function UserMessageQuoteAction({
+  message,
+  typedText,
+  messageId,
+}: {
+  message: string;
+  typedText: string;
+  messageId?: string;
+}) {
+  const addQuote = useChatQuoteActions()?.addQuote;
+  const handleQuote = useCallback(() => {
+    // Quoting a message that itself quotes keeps only what the user typed.
+    const text = typedText.trim() || message.trim();
+    addQuote?.({ origin: "user", text, partial: false, messageId });
+  }, [addQuote, message, messageId, typedText]);
+  return addQuote ? (
+    <TurnQuoteButton onPress={handleQuote} style={userMessageStylesheet.trailingAction} />
+  ) : null;
+});
+
+const UserMessageQuotes = memo(function UserMessageQuotes({
+  quotes,
+  spaced,
+}: {
+  quotes: QuoteCardQuote[];
+  spaced: boolean;
+}) {
+  const onPressSource = useChatQuoteActions()?.scrollToMessage;
+  const style = useMemo(
+    () =>
+      spaced
+        ? [userMessageStylesheet.quoteStack, userMessageStylesheet.quoteStackSpaced]
+        : userMessageStylesheet.quoteStack,
+    [spaced],
+  );
+  if (quotes.length === 0) return null;
+  return (
+    <View style={style} testID="user-message-quotes">
+      {quotes.map((quote) => (
+        <QuoteCard
+          key={`${quote.origin}:${quote.text}`}
+          quote={quote}
+          onPressSource={onPressSource}
+          testID="user-message-quote"
+        />
+      ))}
+    </View>
+  );
+});
 
 const MESSAGE_TEXT_DATASET = { messageText: "true" };
 
@@ -433,6 +509,8 @@ export const UserMessage = memo(function UserMessage({
   );
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
   const hasText = message.trim().length > 0;
+  const { quotes, typedText } = useParsedUserMessage(message);
+  const hasTypedText = typedText.trim().length > 0;
   const hasImages = images.length > 0;
   const hasAttachments = attachments.length > 0;
   const showTrailingRow = !isPending && hasText && (isCompact || isNative || isHovered);
@@ -536,9 +614,10 @@ export const UserMessage = memo(function UserMessage({
                 })}
               </View>
             ) : null}
-            {hasText ? (
+            <UserMessageQuotes quotes={quotes} spaced={hasTypedText} />
+            {hasTypedText ? (
               <Text selectable style={userMessageStylesheet.text} dataSet={MESSAGE_TEXT_DATASET}>
-                <ChatFindPlainText messageId={messageRowId} text={message} />
+                <ChatFindPlainText messageId={messageRowId} text={typedText} source={message} />
               </Text>
             ) : null}
           </MessagePreview>
@@ -552,6 +631,7 @@ export const UserMessage = memo(function UserMessage({
             <Text style={userMessageStylesheet.timestampText} testID="user-message-timestamp">
               {formattedTimestamp}
             </Text>
+            <UserMessageQuoteAction message={message} typedText={typedText} messageId={messageId} />
             {capabilities && messageId ? (
               <RewindMenu
                 capabilities={capabilities}
@@ -587,6 +667,8 @@ interface AssistantTurnFooterProps {
   } | null;
   /** The turn's ≈ $ estimate while money stats are on; drawn after the duration. */
   costLabel?: string | null;
+  /** Quotes the whole turn into the composer. */
+  onQuote?: () => void;
 }
 
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
@@ -657,6 +739,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   showNativeForkOption = false,
   readAloud = null,
   costLabel = null,
+  onQuote,
 }: AssistantTurnFooterProps) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
@@ -722,6 +805,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
           containerStyle={assistantTurnFooterStylesheet.copyButton}
         />
       ) : null}
+      {onQuote ? <TurnQuoteButton onPress={onQuote} /> : null}
       {canFork ? (
         <AssistantForkMenu onFork={handleFork} showNativeTabOption={showNativeForkOption} />
       ) : null}
@@ -870,6 +954,8 @@ interface AssistantMessageProps {
   /** The chat find occurrence to highlight in this message; native only. */
   findMark?: ChatFindMark | null;
   occurrenceKey: string;
+  /** The stream item id, so a selection quoted from it can scroll back here. */
+  messageId?: string;
   message: string;
   timestamp: number;
   workspaceRoot?: string;
@@ -1303,6 +1389,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   renderFullContent = false,
   findMark = null,
   occurrenceKey,
+  messageId,
   message,
   timestamp: _timestamp,
   workspaceRoot,
@@ -1371,6 +1458,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         client={client}
         workspaceRoot={workspaceRoot}
         serverId={serverId}
+        quoteMessageId={messageId}
       />
       {fullMessageByteLength !== null ? (
         <Text

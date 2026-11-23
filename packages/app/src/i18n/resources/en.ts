@@ -351,6 +351,18 @@ export const en = {
       archive: "Archive",
     },
   },
+  quotes: {
+    sourceAssistant: "Agent",
+    sourceUser: "You",
+    sourceSideQuestion: "Side question",
+    selection: "selection",
+    remove: "Remove quote",
+    jumpToSource: "Scroll to the quoted message",
+    quoteMessage: "Quote message",
+    quote: "Quote",
+    askAside: "Ask aside",
+    quoteInMainChat: "Quote in main chat",
+  },
   message: {
     diagram: {
       diagram: "Diagram",

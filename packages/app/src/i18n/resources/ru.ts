@@ -358,6 +358,18 @@ export const ru: TranslationResources = {
       archive: "Архивировать",
     },
   },
+  quotes: {
+    sourceAssistant: "Агент",
+    sourceUser: "Вы",
+    sourceSideQuestion: "Побочный вопрос",
+    selection: "выделенное",
+    remove: "Убрать цитату",
+    jumpToSource: "Перейти к цитируемому сообщению",
+    quoteMessage: "Цитировать сообщение",
+    quote: "Цитировать",
+    askAside: "Спросить отдельно",
+    quoteInMainChat: "Цитировать в основном чате",
+  },
   message: {
     diagram: {
       diagram: "Диаграмма",

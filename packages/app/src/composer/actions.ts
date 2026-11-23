@@ -19,6 +19,8 @@ import { createUserMessage, generateMessageId, type UserMessageItem } from "@/ty
 import type { MessageSubmissionRejectionOutcome } from "@/composer/submission/model";
 import type { PickedImageAttachmentInput } from "@/hooks/image-attachment-picker";
 import { i18n } from "@/i18n/i18next";
+import { collectComposerQuotes } from "@/quotes/composer-quotes";
+import { serializeQuotedPrompt } from "@/quotes/quote-format";
 
 export interface QueuedComposerMessage {
   id: string;
@@ -213,10 +215,14 @@ export async function dispatchComposerAgentMessage(
   const wirePayload = splitComposerAttachmentsForSubmit(input.attachments, {
     format: input.attachmentSubmitFormat,
   });
+  const text = serializeQuotedPrompt({
+    quotes: collectComposerQuotes(input.attachments),
+    text: input.text,
+  });
   const clientMessageId = generateMessageId();
   const userMessage = createUserMessage({
     clientMessageId,
-    text: input.text,
+    text,
     timestamp: new Date(),
     images: wirePayload.images,
     attachments: wirePayload.attachments,
@@ -227,7 +233,7 @@ export async function dispatchComposerAgentMessage(
   input.submission.begin(input.agentId, userMessage);
   try {
     const imagesData = await input.encodeImages(wirePayload.images);
-    await input.client.sendAgentMessage(input.agentId, input.text, {
+    await input.client.sendAgentMessage(input.agentId, text, {
       messageId: clientMessageId,
       ...(input.activeTurnBehavior ? { activeTurnBehavior: input.activeTurnBehavior } : {}),
       images: imagesData ?? [],
@@ -357,7 +363,11 @@ export function openComposerAttachment(input: OpenComposerAttachmentInput): void
     input.setLightboxMetadata(input.attachment.metadata);
     return;
   }
-  if (input.attachment.kind === "file" || input.attachment.kind === "workspace_file") {
+  if (
+    input.attachment.kind === "file" ||
+    input.attachment.kind === "workspace_file" ||
+    input.attachment.kind === "quote"
+  ) {
     return;
   }
   if (isWorkspaceAttachment(input.attachment)) {

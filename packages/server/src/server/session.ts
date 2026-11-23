@@ -3406,6 +3406,10 @@ export class Session {
         return this.handleAgentForkContextRequest(msg);
       case "agent.native_fork.request":
         return this.handleAgentNativeForkRequest(msg);
+      case "agent.side_question.open.request":
+        return this.handleAgentSideQuestionOpenRequest(msg);
+      case "agent.side_question.estimate.request":
+        return this.handleAgentSideQuestionEstimateRequest(msg);
       default:
         return undefined;
     }
@@ -9587,6 +9591,70 @@ export class Session {
           requestId: msg.requestId,
           sourceAgentId: msg.agentId,
           accepted: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleAgentSideQuestionOpenRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.side_question.open.request" }>,
+  ): Promise<void> {
+    try {
+      await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const result = await this.agentManager.openSideQuestion({
+        sourceAgentId: msg.agentId,
+        boundaryMessageId: msg.boundaryMessageId,
+        boundaryCursor: msg.boundaryCursor,
+      });
+      this.emit({
+        type: "agent.side_question.open.response",
+        payload: {
+          requestId: msg.requestId,
+          sourceAgentId: msg.agentId,
+          accepted: true,
+          error: null,
+          agentId: result.agentId,
+          workspaceId: result.workspaceId,
+        },
+      });
+    } catch (error) {
+      this.sessionLogger.error(
+        { err: error, agentId: msg.agentId },
+        "Failed to handle agent.side_question.open.request",
+      );
+      this.emit({
+        type: "agent.side_question.open.response",
+        payload: {
+          requestId: msg.requestId,
+          sourceAgentId: msg.agentId,
+          accepted: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleAgentSideQuestionEstimateRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.side_question.estimate.request" }>,
+  ): Promise<void> {
+    try {
+      const estimate = await this.agentManager.estimateSideQuestionCache(msg.agentId);
+      this.emit({
+        type: "agent.side_question.estimate.response",
+        payload: { requestId: msg.requestId, agentId: msg.agentId, estimate, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "agent.side_question.estimate.response",
+        payload: {
+          requestId: msg.requestId,
+          agentId: msg.agentId,
+          estimate: null,
           error: error instanceof Error ? error.message : String(error),
         },
       });

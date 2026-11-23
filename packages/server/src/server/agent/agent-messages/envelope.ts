@@ -1,4 +1,5 @@
 import { renderPromptAttachmentAsText } from "../prompt-attachments.js";
+import { stripSideQuestionNotice } from "./side-question-notice.js";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type {
@@ -208,6 +209,8 @@ export function projectAgentMessages(item: AgentTimelineItem): AgentTimelineItem
 
 function projectAgentMessage(item: AgentTimelineItem): AgentTimelineItem | null {
   if (item.type !== "user_message") return item;
+  const question = stripSideQuestionNotice(item.text);
+  if (question !== null) return { ...item, text: question };
   const message = parseAgentMessage(item.text);
   if (!message) {
     // Schedule bodies include their run ID, keeping identity stable across acceptance

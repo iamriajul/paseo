@@ -2307,6 +2307,8 @@ export class VoiceAssistantWebSocketServer {
         forkSessionEvents: true,
         // COMPAT(nativeForkModel): added in v0.14.903, drop gate after 2027-05-01.
         nativeForkModel: true,
+        // COMPAT(sideQuestions): added in v0.15.x (fork), drop gate after 2027-05-01.
+        sideQuestions: true,
         // COMPAT(compactThenSend): added in v0.14.903, drop gate after 2027-05-01.
         compactThenSend: true,
         // COMPAT(cacheExpiryStop): added in v0.14.903, drop gate after 2027-05-01.

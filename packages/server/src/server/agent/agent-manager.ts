@@ -49,11 +49,25 @@ import {
 } from "@getpaseo/protocol/agent-lifecycle";
 import {
   getParentAgentIdFromLabels,
+  getSideQuestionSourceId,
   hasOpenAgentTab,
   isDelegatedAgent,
   isOpenAgentTabLabel,
+  isSideQuestionAgent,
   PARENT_AGENT_ID_LABEL,
+  SIDE_QUESTION_OF_LABEL,
 } from "@getpaseo/protocol/agent-labels";
+import type { SideQuestionCacheEstimate } from "@getpaseo/protocol/messages";
+import {
+  assertSideQuestionOverridesAllowed,
+  assertSideQuestionUnlocked,
+  buildSideQuestionConfig,
+  estimateSideQuestionCache,
+  SIDE_QUESTION_BOUNDARY_AT_LABEL,
+  SIDE_QUESTION_IDLE_STOP_MS,
+  SIDE_QUESTION_POINT_LABEL,
+  sideQuestionPointLabels,
+} from "./side-question.js";
 import type { Logger } from "pino";
 import type { ToolPolicy } from "@getpaseo/protocol/agent-types";
 import type { ProviderPaseoToolsPolicy } from "@getpaseo/protocol/provider-config";
@@ -159,7 +173,7 @@ import {
   forkClaudeSessionAtMessage,
   resolveNativeForkTarget,
 } from "./providers/claude/native-fork.js";
-import { realClaudeRewindSdk } from "./providers/claude/rewind.js";
+import { realClaudeRewindSdk, type ClaudeRewindSdk } from "./providers/claude/rewind.js";
 import { gatewayRoutedSessionId } from "./gateway/session-route.js";
 const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
 const INTERRUPT_SESSION_TIMEOUT_MS = 2_000;
@@ -425,6 +439,8 @@ export interface AgentManagerOptions {
   }) => Promise<void>;
   rateLimitAutoResumeManager?: AgentRateLimitAutoResumeManager | null;
   cacheWarmManager?: AgentCacheWarmManager | null;
+  /** Forks Claude transcripts for native forks and side questions. Tests inject a fake. */
+  claudeForkSdk?: ClaudeRewindSdk;
   logger: Logger;
 }
 
@@ -951,6 +967,7 @@ export class AgentManager {
   private logger: Logger;
   private rateLimitAutoResumeManager: AgentRateLimitAutoResumeManager | null = null;
   private cacheWarmManager: AgentCacheWarmManager | null = null;
+  private readonly claudeForkSdk: ClaudeRewindSdk;
   private promptCacheJournal: PromptCacheJournal | null = null;
   private agentCommandLog: AgentCommandLog | null = null;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
@@ -974,6 +991,7 @@ export class AgentManager {
     this.logger = options.logger.child({ module: "agent", component: "agent-manager" });
     this.rateLimitAutoResumeManager = options.rateLimitAutoResumeManager ?? null;
     this.cacheWarmManager = options.cacheWarmManager ?? null;
+    this.claudeForkSdk = options.claudeForkSdk ?? realClaudeRewindSdk;
     this.rescueTimeouts = resolveRescueTimeouts(options.rescueTimeouts);
     this.beforeSteerUnavailableFallback = options.beforeSteerUnavailableFallback;
     this.agentStreamCoalescer = new AgentStreamCoalescer({
@@ -2054,6 +2072,7 @@ export class AgentManager {
   ): Promise<ManagedAgent> {
     this.assertAcceptingAgentRegistrations();
     let existing = this.requireSessionAgent(agentId);
+    assertSideQuestionOverridesAllowed(existing, overrides);
     if (this.hasInFlightRun(agentId)) {
       await this.cancelAgentRunBefore(agentId, "reload");
       existing = this.requireSessionAgent(agentId);
@@ -2290,6 +2309,7 @@ export class AgentManager {
         sessionId: agent.persistence?.sessionId ?? null,
         lastActivityAt: updatedAt.getTime(),
         cacheExpiresAt: resolveAgentPromptCacheExpiresAtMs(agent),
+        ...(isSideQuestionAgent(agent) ? { idleAfterMs: SIDE_QUESTION_IDLE_STOP_MS } : {}),
         isEligible,
         canStopRuntime: agent.session.canStopRuntime?.bind(agent.session),
         closeIfEligible: async (revalidate) => {
@@ -2473,23 +2493,23 @@ export class AgentManager {
       if (record.archivedAt) {
         continue;
       }
-      if (record.labels?.[PARENT_AGENT_ID_LABEL] !== parentAgentId) {
+      if (!isChildOf(record, parentAgentId)) {
         continue;
       }
       const child = await registry.get(record.id);
-      if (!child || child.archivedAt || child.labels?.[PARENT_AGENT_ID_LABEL] !== parentAgentId) {
+      if (!child || child.archivedAt || !isChildOf(child, parentAgentId)) {
         continue;
       }
       await this.runLifecycleMutation(child.id, async () => {
         const currentChild = await registry.get(child.id);
-        if (
-          !currentChild ||
-          currentChild.archivedAt ||
-          currentChild.labels?.[PARENT_AGENT_ID_LABEL] !== parentAgentId
-        ) {
+        if (!currentChild || currentChild.archivedAt || !isChildOf(currentChild, parentAgentId)) {
           return;
         }
-        if (shouldDetachFromArchivedParent(parent, currentChild)) {
+        // A side question has no tab to keep and nothing to detach into: it goes with its chat.
+        if (
+          !isSideQuestionAgent(currentChild) &&
+          shouldDetachFromArchivedParent(parent, currentChild)
+        ) {
           await this.detachAgentUnlocked(currentChild.id);
         } else if (this.agents.has(currentChild.id)) {
           await this.archiveAgentUnlocked(currentChild.id);
@@ -2643,6 +2663,7 @@ export class AgentManager {
 
   async setAgentMode(agentId: string, modeId: string): Promise<AgentProviderNotice | null> {
     const agent = this.requireSessionAgent(agentId);
+    assertSideQuestionUnlocked(agent, "mode");
     const notice = (await agent.session.setMode(modeId)) ?? null;
     await this.drainSessionEvents(agentId);
     const currentMode = (await agent.session.getCurrentMode()) ?? modeId;
@@ -2659,6 +2680,7 @@ export class AgentManager {
 
   async setAgentModel(agentId: string, modelId: string | null): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
+    assertSideQuestionUnlocked(agent, "model");
     const normalizedModelId =
       typeof modelId === "string" && modelId.trim().length > 0 ? modelId : null;
 
@@ -2681,6 +2703,7 @@ export class AgentManager {
     thinkingOptionId: string | null,
   ): Promise<AgentProviderNotice | null> {
     const agent = this.requireSessionAgent(agentId);
+    assertSideQuestionUnlocked(agent, "thinking option");
     const normalizedThinkingOptionId =
       typeof thinkingOptionId === "string" && thinkingOptionId.trim().length > 0
         ? thinkingOptionId
@@ -2712,6 +2735,7 @@ export class AgentManager {
 
   async setAgentFeature(agentId: string, featureId: string, value: unknown): Promise<void> {
     const agent = this.requireAgent(agentId);
+    assertSideQuestionUnlocked(agent, "feature");
 
     if (
       featureId === CACHE_AUTO_COMPACT_FEATURE_ID ||
@@ -4251,7 +4275,7 @@ export class AgentManager {
       throw new Error("Source Claude agent has no transcript to fork");
     }
     const { forkedSessionId } = await forkClaudeSessionAtMessage({
-      sdk: realClaudeRewindSdk,
+      sdk: this.claudeForkSdk,
       sessionId: sourceSessionId,
       upToMessageId,
       transcriptPath,
@@ -4305,6 +4329,133 @@ export class AgentManager {
     }
 
     return { agentId: forked.id, workspaceId };
+  }
+
+  /**
+   * Opens a read-only side question: a native fork of the source's Claude session, registered as
+   * its own agent in the same workspace. With no boundary it forks at the latest point, which
+   * reads the transcript on disk, so it works while the source's turn is running or waiting on a
+   * permission. See docs/quotes-and-side-questions.md.
+   */
+  async openSideQuestion(input: {
+    sourceAgentId: string;
+    boundaryMessageId?: string;
+    boundaryCursor?: { epoch: string; seq: number };
+  }): Promise<{ agentId: string; workspaceId: string }> {
+    const source = this.requireSessionAgent(input.sourceAgentId);
+    const { sourceSessionId, workspaceId, transcriptPath } =
+      await this.requireSideQuestionSource(source);
+    const earlier = Boolean(input.boundaryMessageId || input.boundaryCursor);
+    const { upToMessageId, boundaryAt } = earlier
+      ? await this.resolveSideQuestionBoundary(source, input)
+      : { upToMessageId: undefined, boundaryAt: null };
+    const { forkedSessionId } = await forkClaudeSessionAtMessage({
+      sdk: this.claudeForkSdk,
+      sessionId: sourceSessionId,
+      ...(upToMessageId ? { upToMessageId } : {}),
+      transcriptPath,
+    });
+    if (source.persistence?.sessionId === forkedSessionId) {
+      throw new Error("Side question fork produced the same session id as the source agent");
+    }
+
+    const config = buildSideQuestionConfig({
+      source: source.config,
+      sourceCwd: source.cwd,
+      sessionAffinityId: gatewayRoutedSessionId(source) ?? sourceSessionId,
+    });
+    const forked = await this.resumeAgentFromPersistence(
+      { provider: "claude", sessionId: forkedSessionId, metadata: { ...config } },
+      config,
+      undefined,
+      {
+        workspaceId,
+        // Only its own labels: the source's would make it a subagent or open its tab.
+        labels: {
+          [SIDE_QUESTION_OF_LABEL]: source.id,
+          ...sideQuestionPointLabels({ point: earlier ? "earlier" : "latest", boundaryAt }),
+        },
+      },
+    );
+    return { agentId: forked.id, workspaceId };
+  }
+
+  private async requireSideQuestionSource(source: ActiveManagedAgent): Promise<{
+    sourceSessionId: string;
+    workspaceId: string;
+    transcriptPath: string;
+  }> {
+    if (source.provider !== "claude" || source.capabilities.supportsNativeFork !== true) {
+      throw new Error("Side questions are only supported for Claude agents");
+    }
+    if (isSideQuestionAgent(source)) {
+      throw new Error("A side question cannot have side questions of its own");
+    }
+    const sourceSessionId =
+      source.persistence?.sessionId?.trim() || source.runtimeInfo?.sessionId?.trim() || "";
+    if (!sourceSessionId) {
+      throw new Error("Source Claude agent has no provider session id to fork");
+    }
+    const workspaceId = source.workspaceId?.trim();
+    if (!workspaceId) {
+      throw new Error("Source agent has no workspace; cannot open a side question");
+    }
+    const transcriptPath = await source.session.resolveNativeForkTranscriptPath?.(sourceSessionId);
+    if (!transcriptPath) {
+      throw new Error("Source Claude agent has no transcript to fork");
+    }
+    return { sourceSessionId, workspaceId, transcriptPath };
+  }
+
+  /** The transcript entry an earlier reply ends at, and when that reply was written. */
+  private async resolveSideQuestionBoundary(
+    source: ActiveManagedAgent,
+    input: { boundaryMessageId?: string; boundaryCursor?: { epoch: string; seq: number } },
+  ): Promise<{ upToMessageId: string; boundaryAt: string | null }> {
+    const timeline = this.fetchTimeline(source.id, { direction: "tail", limit: 0 });
+    const boundaryMessageId = resolveNativeForkBoundaryMessageId({
+      rows: timeline.rows,
+      timelineEpoch: timeline.epoch,
+      boundaryMessageId: input.boundaryMessageId,
+      boundaryCursor: input.boundaryCursor,
+    });
+    const upToMessageId = await resolveNativeForkTarget({
+      session: source.session,
+      boundaryMessageId,
+    });
+    return {
+      upToMessageId,
+      boundaryAt: this.resolveTimelineMessageTimestamp(source.id, boundaryMessageId),
+    };
+  }
+
+  /** What the next question in this side question does to the prompt cache. */
+  async estimateSideQuestionCache(sideAgentId: string): Promise<SideQuestionCacheEstimate> {
+    const side = this.agents.get(sideAgentId) ?? (await this.registry?.get(sideAgentId)) ?? null;
+    const sourceId = side ? getSideQuestionSourceId(side.labels) : null;
+    if (!side || !sourceId) {
+      throw new Error(`Agent ${sideAgentId} is not a side question`);
+    }
+    const source = this.agents.get(sourceId) ?? (await this.registry?.get(sourceId)) ?? null;
+    const boundaryAt = side.labels?.[SIDE_QUESTION_BOUNDARY_AT_LABEL];
+    return estimateSideQuestionCache({
+      nowMs: Date.now(),
+      point: side.labels?.[SIDE_QUESTION_POINT_LABEL] === "earlier" ? "earlier" : "latest",
+      boundaryAtMs: boundaryAt ? Date.parse(boundaryAt) : null,
+      source,
+      side,
+    });
+  }
+
+  private resolveTimelineMessageTimestamp(agentId: string, messageId: string): string | null {
+    const rows = this.fetchTimeline(agentId, { direction: "tail", limit: 0 }).rows;
+    const row = rows.find(
+      (candidate) =>
+        candidate.item.type === "assistant_message" &&
+        "messageId" in candidate.item &&
+        candidate.item.messageId === messageId,
+    );
+    return row?.timestamp ?? null;
   }
 
   async deleteAgentState(agentId: string): Promise<void> {
@@ -5756,7 +5907,7 @@ export class AgentManager {
    * is counted as a fresh session's first request.
    */
   private inheritedPromptCache(agent: ActiveManagedAgent): PromptCacheInheritance | undefined {
-    const parentId = agent.labels.nativeForkOf;
+    const parentId = agent.labels.nativeForkOf ?? getSideQuestionSourceId(agent.labels);
     if (!parentId) return undefined;
     const parent = this.agents.get(parentId);
     // The cache belongs to one model: a fork started on another model has nothing to inherit,
@@ -6469,7 +6620,9 @@ export class AgentManager {
     agent: ManagedAgent,
     reason: "finished" | "error" | "permission",
   ): void {
-    if (isDelegatedAgent(agent)) {
+    // A side question keeps its attention state, which marks an answer that arrived while its
+    // pane was closed, but it never sends a notification.
+    if (isDelegatedAgent(agent) || isSideQuestionAgent(agent)) {
       return;
     }
 
@@ -6907,6 +7060,14 @@ export function commandMayHaveChangedExternalState(command: string): boolean {
     // Fetches update refs/remotes/ which our watchers do not watch, so
     // ahead/behind counts can drift stale until the next refresh.
     /\bgit\s+fetch\b/.test(normalized)
+  );
+}
+
+/** A subagent created by this agent, or a side question forked from it. */
+function isChildOf(record: Pick<StoredAgentRecord, "labels">, parentAgentId: string): boolean {
+  return (
+    record.labels?.[PARENT_AGENT_ID_LABEL] === parentAgentId ||
+    getSideQuestionSourceId(record.labels) === parentAgentId
   );
 }
 

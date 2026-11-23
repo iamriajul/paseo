@@ -1,3 +1,4 @@
+import { isSideQuestionAgent } from "@getpaseo/protocol/agent-labels";
 import type {
   DaemonClient,
   FetchAgentHistoryOptions,
@@ -95,26 +96,29 @@ export async function fetchAgentHistoryPage(input: {
   });
   return {
     isSearchTruncated: payload.searchTruncated === true,
-    agents: Array.from(agents.values(), (agent) => ({
-      id: agent.id,
-      serverId: input.serverId,
-      serverLabel: input.serverId,
-      title: agent.title ?? null,
-      status: agent.status,
-      turn: agent.turn,
-      lastActivityAt: agent.lastActivityAt,
-      cwd: agent.cwd,
-      workspaceId: agent.workspaceId,
-      provider: agent.provider,
-      pendingPermissionCount: agent.pendingPermissions.length,
-      requiresAttention: agent.requiresAttention,
-      attentionReason: agent.attentionReason,
-      attentionTimestamp: agent.attentionTimestamp ?? null,
-      archivedAt: agent.archivedAt ?? null,
-      createdAt: agent.createdAt,
-      labels: agent.labels,
-      projectPlacement: agent.projectPlacement,
-    })),
+    agents: Array.from(
+      agents.values().filter((agent) => !isSideQuestionAgent(agent)),
+      (agent) => ({
+        id: agent.id,
+        serverId: input.serverId,
+        serverLabel: input.serverId,
+        title: agent.title ?? null,
+        status: agent.status,
+        turn: agent.turn,
+        lastActivityAt: agent.lastActivityAt,
+        cwd: agent.cwd,
+        workspaceId: agent.workspaceId,
+        provider: agent.provider,
+        pendingPermissionCount: agent.pendingPermissions.length,
+        requiresAttention: agent.requiresAttention,
+        attentionReason: agent.attentionReason,
+        attentionTimestamp: agent.attentionTimestamp ?? null,
+        archivedAt: agent.archivedAt ?? null,
+        createdAt: agent.createdAt,
+        labels: agent.labels,
+        projectPlacement: agent.projectPlacement,
+      }),
+    ),
     pageInfo: payload.pageInfo,
   };
 }

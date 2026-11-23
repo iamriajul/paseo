@@ -62,6 +62,7 @@ export function QuoteSelectionToolbar() {
   }, []);
   const addQuote = actions?.addQuote;
   const askAside = actions?.askAside;
+  const quoteInMainChat = actions?.quoteInMainChat;
   const handleQuote = useCallback(() => {
     if (!selection) return;
     addQuote?.({
@@ -83,12 +84,24 @@ export function QuoteSelectionToolbar() {
     finish();
   }, [askAside, finish, selection]);
 
+  const handleQuoteInMainChat = useCallback(() => {
+    if (!selection) return;
+    quoteInMainChat?.({
+      origin: "side_question",
+      text: selection.text,
+      partial: true,
+      messageId: selection.messageId,
+    });
+    finish();
+  }, [finish, quoteInMainChat, selection]);
+
   if (!actions || !selection) return null;
   return createPortal(
     <ToolbarBody
       selection={selection}
       onQuote={handleQuote}
       onAskAside={askAside ? handleAskAside : undefined}
+      onQuoteInMainChat={quoteInMainChat ? handleQuoteInMainChat : undefined}
     />,
     document.body,
   );
@@ -104,10 +117,12 @@ function ToolbarBody({
   selection,
   onQuote,
   onAskAside,
+  onQuoteInMainChat,
 }: {
   selection: QuoteSelection;
   onQuote: () => void;
   onAskAside?: () => void;
+  onQuoteInMainChat?: () => void;
 }) {
   const { t } = useTranslation();
   const { rect } = selection;
@@ -136,6 +151,16 @@ function ToolbarBody({
         <Button variant="ghost" size="sm" onPress={onQuote} testID="quote-selection-quote">
           {t("quotes.quote")}
         </Button>
+        {onQuoteInMainChat ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={onQuoteInMainChat}
+            testID="quote-selection-quote-main"
+          >
+            {t("quotes.quoteInMainChat")}
+          </Button>
+        ) : null}
         {onAskAside ? (
           <Button variant="ghost" size="sm" onPress={onAskAside} testID="quote-selection-ask-aside">
             {t("quotes.askAside")}

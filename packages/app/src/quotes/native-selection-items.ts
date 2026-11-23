@@ -19,6 +19,7 @@ export function useNativeQuoteMenuItems(
   const actions = useChatQuoteActions();
   const addQuote = actions?.addQuote;
   const askAside = actions?.askAside;
+  const quoteInMainChat = actions?.quoteInMainChat;
   return useMemo(() => {
     if (!isNative || !messageId || !addQuote) return undefined;
     const items: NativeMenuItem[] = [
@@ -27,6 +28,13 @@ export function useNativeQuoteMenuItems(
         onPress: ({ text }) => addQuote({ origin: "assistant", text, partial: true, messageId }),
       },
     ];
+    if (quoteInMainChat) {
+      items.push({
+        text: t("quotes.quoteInMainChat"),
+        onPress: ({ text }) =>
+          quoteInMainChat({ origin: "side_question", text, partial: true, messageId }),
+      });
+    }
     if (askAside) {
       items.push({
         text: t("quotes.askAside"),
@@ -34,5 +42,5 @@ export function useNativeQuoteMenuItems(
       });
     }
     return items;
-  }, [addQuote, askAside, messageId, t]);
+  }, [addQuote, askAside, messageId, quoteInMainChat, t]);
 }

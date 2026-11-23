@@ -357,6 +357,18 @@ export const ptBR: TranslationResources = {
       archive: "Arquivar",
     },
   },
+  quotes: {
+    sourceAssistant: "Agente",
+    sourceUser: "Você",
+    sourceSideQuestion: "Pergunta paralela",
+    selection: "seleção",
+    remove: "Remover citação",
+    jumpToSource: "Ir para a mensagem citada",
+    quoteMessage: "Citar mensagem",
+    quote: "Citar",
+    askAside: "Perguntar à parte",
+    quoteInMainChat: "Citar no chat principal",
+  },
   message: {
     diagram: {
       diagram: "Diagrama",

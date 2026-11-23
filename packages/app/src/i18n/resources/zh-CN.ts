@@ -353,6 +353,18 @@ export const zhCN: TranslationResources = {
       archive: "归档",
     },
   },
+  quotes: {
+    sourceAssistant: "智能体",
+    sourceUser: "你",
+    sourceSideQuestion: "旁白提问",
+    selection: "选中内容",
+    remove: "移除引用",
+    jumpToSource: "滚动到被引用的消息",
+    quoteMessage: "引用消息",
+    quote: "引用",
+    askAside: "另问",
+    quoteInMainChat: "引用到主对话",
+  },
   message: {
     diagram: {
       diagram: "图表",

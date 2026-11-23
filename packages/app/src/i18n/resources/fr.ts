@@ -358,6 +358,18 @@ export const fr: TranslationResources = {
       archive: "Archiver",
     },
   },
+  quotes: {
+    sourceAssistant: "Agent",
+    sourceUser: "Vous",
+    sourceSideQuestion: "Question annexe",
+    selection: "sélection",
+    remove: "Retirer la citation",
+    jumpToSource: "Aller au message cité",
+    quoteMessage: "Citer le message",
+    quote: "Citer",
+    askAside: "Poser à part",
+    quoteInMainChat: "Citer dans la discussion principale",
+  },
   message: {
     diagram: {
       diagram: "Diagramme",

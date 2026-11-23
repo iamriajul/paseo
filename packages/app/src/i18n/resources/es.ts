@@ -358,6 +358,18 @@ export const es: TranslationResources = {
       archive: "Archivo",
     },
   },
+  quotes: {
+    sourceAssistant: "Agente",
+    sourceUser: "Tú",
+    sourceSideQuestion: "Pregunta aparte",
+    selection: "selección",
+    remove: "Quitar cita",
+    jumpToSource: "Ir al mensaje citado",
+    quoteMessage: "Citar mensaje",
+    quote: "Citar",
+    askAside: "Preguntar aparte",
+    quoteInMainChat: "Citar en el chat principal",
+  },
   message: {
     diagram: {
       diagram: "Diagrama",

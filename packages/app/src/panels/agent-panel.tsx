@@ -28,6 +28,9 @@ import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { RetainedChatContent } from "./retained-chat-content";
 import { Composer } from "@/composer";
+import { ChatQuoteProvider, type ChatQuoteActions } from "@/quotes/chat-quote-context";
+import { QuoteSelectionToolbar } from "@/quotes/selection-toolbar";
+import { useChatQuoteActionsForAgent } from "@/quotes/use-chat-quote-actions";
 import { AgentCommandsProvider } from "@/agent-commands";
 import {
   useComposerEditingSession,
@@ -1287,6 +1290,11 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
     </ChatSurface>
   );
 
+  const quoteActions = useChatQuoteActionsForAgent({
+    serverId,
+    agentId,
+    scrollTarget: streamViewRef,
+  });
   const content = (
     <RewindComposerRestoreProvider
       textSource={agentInputDraft.textSource}
@@ -1295,6 +1303,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
     >
       <View style={styles.root}>
         {dock}
+        <QuoteSelectionToolbar />
 
         {isArchivingCurrentAgent ? (
           <View style={styles.archivingOverlay} testID="agent-archiving-overlay">
@@ -1306,14 +1315,19 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
       </View>
     </RewindComposerRestoreProvider>
   );
+  const quotable = showsComposer && hasActiveComposer;
   return wrapAgentCommandProvider({
-    enabled: showsComposer && hasActiveComposer,
+    enabled: quotable,
     serverId,
     agentId,
     editingSession: composerEditingSession,
-    children: content,
+    children: wrapChatQuoteProvider(quotable ? quoteActions : null, content),
   });
 });
+
+function wrapChatQuoteProvider(actions: ChatQuoteActions | null, children: ReactNode) {
+  return <ChatQuoteProvider value={actions}>{children}</ChatQuoteProvider>;
+}
 
 function wrapAgentCommandProvider({
   enabled,

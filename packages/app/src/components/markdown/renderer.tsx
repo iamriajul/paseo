@@ -19,6 +19,7 @@ import { PENDING_MARKDOWN_IMAGE } from "./source";
 import { splitStreamingMarkdown } from "./streaming";
 import { useMarkdownSource, type MarkdownImageContext } from "./images";
 
+import { useNativeQuoteMenuItems } from "@/quotes/native-selection-items";
 import { MermaidFence, MermaidStreamingContext, splitMermaidFences } from "./fence/mermaid";
 
 const ThemedMarkdown = withUnistyles(EnrichedMarkdownText);
@@ -51,6 +52,8 @@ export interface MarkdownRendererProps extends MarkdownImageContext {
   streaming?: boolean;
   onLinkPress?: (url: string) => unknown;
   agentCommands?: boolean;
+  /** The assistant message this text belongs to. Native selection menus offer Quote for it. */
+  quoteMessageId?: string;
 }
 
 /** All Markdown surfaces share the same engine and source adaptation. */
@@ -86,6 +89,7 @@ const MarkdownPart = memo(function MarkdownPart({
   onLinkPress,
   agentCommands: _agentCommands,
   commandHints = null,
+  quoteMessageId,
   ...imageContext
 }: MarkdownRendererProps & { commandHints?: CommandHints | null }) {
   const environment = useAssistantFileLinkEnvironment();
@@ -105,6 +109,7 @@ const MarkdownPart = memo(function MarkdownPart({
     },
     commandHints?.names,
   );
+  const contextMenuItems = useNativeQuoteMenuItems(quoteMessageId);
   const [image, setImage] = useState<ImageLightboxSource | null>(null);
   const openWorkspaceLink = useWorkspaceLinkOpener();
   const pressLink = useStableEvent(({ url, sourceType }: LinkPressEvent) => {
@@ -145,6 +150,7 @@ const MarkdownPart = memo(function MarkdownPart({
               enableTaskListItemToggle={false}
               enableLinkPreview={false}
               enableBlockContextMenu={false}
+              contextMenuItems={contextMenuItems}
               // JS reveal owns pacing; native fade animation is a separate experiment.
               streamingAnimation={false}
               onLinkPress={pressLink}

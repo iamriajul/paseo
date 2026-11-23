@@ -1407,6 +1407,7 @@ export const ko: TranslationResources = {
     },
     display: {
       showBackground: "백그라운드 표시",
+      warmCacheOnly: "웜 캐시만",
       trigger: "표시 설정",
       heading: "표시",
       sort: {

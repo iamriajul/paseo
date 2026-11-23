@@ -30,6 +30,7 @@ test("project and workspace kebabs open action sheets on compact layouts", async
       "Show",
       "Project",
       "Show background",
+      "Warm cache only",
     ]);
     await closeMenuSheet(page);
 

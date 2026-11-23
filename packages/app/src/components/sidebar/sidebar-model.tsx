@@ -21,6 +21,10 @@ import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model
 import { filterWorkspacesByLabels, type SidebarWorkspaceGroup } from "./sidebar-labels";
 import { filterWorkspacesByProjects, resolveActiveProjectFilters } from "./sidebar-project-filter";
 import {
+  useWarmCacheWorkspaces,
+  warmCacheWorkspaceKey,
+} from "@/prompt-cache/warm-cache-workspaces";
+import {
   hasAuthoritativeWorkspaceLabelCatalog,
   useWorkspaceLabelProjection,
 } from "@/workspace-labels";
@@ -58,6 +62,8 @@ export function SidebarModelProvider({
   const { t } = useTranslation();
   const list = useSidebarWorkspacesList({ enabled: active });
   const showBackground = useSidebarViewStore((state) => state.showBackground);
+  const warmCacheOnly = useSidebarViewStore((state) => state.warmCacheOnly);
+  const warmCache = useWarmCacheWorkspaces(warmCacheOnly);
   const groupMode = useSidebarViewStore((state) => state.groupMode);
   const labelFilter = useSidebarViewStore((state) => state.labelFilter);
   const projectFilters = useSidebarViewStore((state) => state.projectFilters);
@@ -109,11 +115,23 @@ export function SidebarModelProvider({
       projectFilters: resolvedProjectFilters,
     });
     const filtered = filterWorkspacesByLabels({
-      workspaces: byProject.filter((workspace) => showBackground || !workspace.background),
+      workspaces: byProject.filter(
+        (workspace) =>
+          (showBackground || !workspace.background) &&
+          (!warmCacheOnly ||
+            warmCache.keys.has(warmCacheWorkspaceKey(workspace.serverId, workspace.workspaceId))),
+      ),
       ...labelFilter,
     });
     return new Map(filtered.map((workspace) => [workspace.workspaceKey, workspace]));
-  }, [showBackground, labelFilter, resolvedProjectFilters, workspaceEntriesByKey]);
+  }, [
+    showBackground,
+    warmCacheOnly,
+    warmCache,
+    labelFilter,
+    resolvedProjectFilters,
+    workspaceEntriesByKey,
+  ]);
   const visibleWorkspaceKeys = useMemo(
     () => new Set(filteredWorkspaceEntriesByKey.keys()),
     [filteredWorkspaceEntriesByKey],
@@ -121,19 +139,21 @@ export function SidebarModelProvider({
   // The two filters prune differently on purpose. The project filter is a membership test on the
   // project itself, so a project you filtered TO survives even with no workspaces — it still owns
   // a header row you can create your first workspace under. The label filter can only ask about
-  // workspaces, so a project it empties has nothing left to show.
+  // workspaces, so a project it empties has nothing left to show. The warm-cache filter is a
+  // workspace filter too.
   const filteredProjects = useMemo(() => {
     let projects = list.projects;
     if (hasActiveProjectFilter) {
       const included = new Set(resolvedProjectFilters);
       projects = projects.filter((project) => included.has(project.viewKey));
     }
-    if (hasActiveLabelFilter || !showBackground) {
+    const workspaceFilter = hasActiveLabelFilter || warmCacheOnly;
+    if (workspaceFilter || !showBackground) {
       projects = projects.flatMap((project) => {
         const workspaces = project.workspaces.filter((workspace) =>
           visibleWorkspaceKeys.has(workspace.workspaceKey),
         );
-        return workspaces.length > 0 || (!hasActiveLabelFilter && project.workspaces.length === 0)
+        return workspaces.length > 0 || (!workspaceFilter && project.workspaces.length === 0)
           ? [workspaces.length === project.workspaces.length ? project : { ...project, workspaces }]
           : [];
       });
@@ -141,6 +161,7 @@ export function SidebarModelProvider({
     return projects;
   }, [
     showBackground,
+    warmCacheOnly,
     hasActiveLabelFilter,
     hasActiveProjectFilter,
     resolvedProjectFilters,

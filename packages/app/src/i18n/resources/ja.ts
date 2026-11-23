@@ -1414,6 +1414,7 @@ export const ja: TranslationResources = {
     },
     display: {
       showBackground: "バックグラウンドを表示",
+      warmCacheOnly: "キャッシュが有効なものだけ",
       trigger: "表示設定",
       heading: "表示",
       sort: {

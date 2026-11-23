@@ -20,6 +20,8 @@ export type SidebarTrailingChoice = Exclude<SidebarWorkspaceTrailing, "none">;
 export interface SidebarDisplayPreferences {
   showBackground: boolean;
   toggleBackground: () => void;
+  warmCacheOnly: boolean;
+  toggleWarmCacheOnly: () => void;
   grouping: SidebarGroupMode;
   workspaceSort: WorkspaceSort;
   setWorkspaceSort: (sort: WorkspaceSort) => void;
@@ -60,6 +62,8 @@ export interface SidebarDisplayPreferences {
 export function useSidebarDisplayPreferences(): SidebarDisplayPreferences {
   const showBackground = useSidebarViewStore((state) => state.showBackground);
   const toggleBackground = useSidebarViewStore((state) => state.toggleBackground);
+  const warmCacheOnly = useSidebarViewStore((state) => state.warmCacheOnly);
+  const toggleWarmCacheOnly = useSidebarViewStore((state) => state.toggleWarmCacheOnly);
   const workspaceSort = useSidebarViewStore((state) => state.workspaceSort);
   const setWorkspaceSort = useSidebarViewStore((state) => state.setWorkspaceSort);
   const grouping = useSidebarViewStore((state) => state.groupMode);
@@ -136,6 +140,8 @@ export function useSidebarDisplayPreferences(): SidebarDisplayPreferences {
     () => ({
       showBackground,
       toggleBackground,
+      warmCacheOnly,
+      toggleWarmCacheOnly,
       grouping,
       workspaceSort,
       setWorkspaceSort,
@@ -165,6 +171,8 @@ export function useSidebarDisplayPreferences(): SidebarDisplayPreferences {
     [
       showBackground,
       toggleBackground,
+      warmCacheOnly,
+      toggleWarmCacheOnly,
       grouping,
       workspaceSort,
       setWorkspaceSort,

@@ -1435,6 +1435,7 @@ export const es: TranslationResources = {
     },
     display: {
       showBackground: "Mostrar espacios en segundo plano",
+      warmCacheOnly: "Solo con caché activa",
       trigger: "Preferencias de visualización",
       heading: "Visualización",
       sort: {

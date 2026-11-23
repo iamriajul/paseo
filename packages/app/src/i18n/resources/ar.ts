@@ -1401,6 +1401,7 @@ export const ar: TranslationResources = {
     },
     display: {
       showBackground: "إظهار مساحات العمل في الخلفية",
+      warmCacheOnly: "ذاكرة التخزين المؤقت النشطة فقط",
       trigger: "تفضيلات العرض",
       heading: "العرض",
       sort: {

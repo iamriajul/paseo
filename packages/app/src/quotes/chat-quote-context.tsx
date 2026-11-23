@@ -18,6 +18,8 @@ export interface ChatQuoteActions {
   scrollToMessage: (messageId: string) => void;
   /** Opens a side question with this passage quoted. Absent when side questions are unavailable. */
   askAside?: (request: QuoteRequest) => void;
+  /** In a side question: puts this passage in the main chat's composer. */
+  quoteInMainChat?: (request: QuoteRequest) => void;
 }
 
 const ChatQuoteContext = createContext<ChatQuoteActions | null>(null);

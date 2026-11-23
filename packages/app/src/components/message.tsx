@@ -669,6 +669,8 @@ interface AssistantTurnFooterProps {
   costLabel?: string | null;
   /** Quotes the whole turn into the composer. */
   onQuote?: () => void;
+  /** The side-question action: ask about this chat, or (in a side question) bring this answer back. */
+  sideQuestionActions?: ReactNode;
 }
 
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
@@ -740,6 +742,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   readAloud = null,
   costLabel = null,
   onQuote,
+  sideQuestionActions,
 }: AssistantTurnFooterProps) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
@@ -806,6 +809,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
         />
       ) : null}
       {onQuote ? <TurnQuoteButton onPress={onQuote} /> : null}
+      {sideQuestionActions}
       {canFork ? (
         <AssistantForkMenu onFork={handleFork} showNativeTabOption={showNativeForkOption} />
       ) : null}

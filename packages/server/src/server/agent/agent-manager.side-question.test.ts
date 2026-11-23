@@ -272,6 +272,26 @@ describe("a side question's settings are locked", () => {
   });
 });
 
+describe("continuing a side question as a full session", () => {
+  test("forks it with the main chat's mode and tools and none of the side question's limits", async () => {
+    const source = await createSource();
+    const { agentId } = await manager.openSideQuestion({ sourceAgentId: source.id });
+    await manager.runAgent(agentId, "what happened?");
+
+    const forked = await manager.nativeForkAgent({ sourceAgentId: agentId });
+    const full = manager.getAgent(forked.agentId);
+
+    expect(full?.config.modeId).toBe("bypassPermissions");
+    expect(full?.config.mcpServers).toEqual({
+      paseo: { type: "http", url: "http://127.0.0.1:1/mcp" },
+    });
+    expect(full?.config.sideQuestion).toBeUndefined();
+    expect(full?.labels).not.toHaveProperty(SIDE_QUESTION_OF_LABEL);
+    expect(full?.labels.nativeForkOf).toBe(agentId);
+    await expect(manager.setAgentMode(forked.agentId, "default")).resolves.not.toThrow();
+  });
+});
+
 describe("a side question's life", () => {
   test("is archived with its chat", async () => {
     const source = await createSource();

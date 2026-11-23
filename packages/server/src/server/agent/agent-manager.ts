@@ -4275,23 +4275,10 @@ export class AgentManager {
       throw new Error("Source agent has no workspace; cannot native-fork into a tab");
     }
 
-    const forkConfig = {
-      ...source.config,
-      provider: source.provider,
-      cwd: source.cwd,
-      ...(input.model ? { model: input.model } : {}),
-      // The fork's own session id would land it on another gateway account, away from the cache
-      // holding the context it shares with its source; a fork of a fork keeps the root's account.
-      // Only Claude sends an affinity id; Codex keys the gateway route by the new thread's id.
-      ...(source.provider === "claude"
-        ? {
-            providerOptions: {
-              ...source.config.providerOptions,
-              sessionAffinityId: gatewayRoutedSessionId(source) ?? sourceSessionId,
-            },
-          }
-        : {}),
-    };
+    const { forkConfig, labels } = this.buildNativeForkLaunch(source, {
+      sourceSessionId,
+      model: input.model,
+    });
     const forked = await this.resumeAgentFromPersistence(
       {
         provider: source.provider,
@@ -4302,10 +4289,7 @@ export class AgentManager {
       undefined,
       {
         workspaceId,
-        labels: {
-          ...source.labels,
-          nativeForkOf: source.id,
-        },
+        labels,
       },
     );
 
@@ -4471,6 +4455,51 @@ export class AgentManager {
         candidate.item.messageId === messageId,
     );
     return row?.timestamp ?? null;
+  }
+
+  /**
+   * The launch config and labels of a native fork. Continuing a side question as a full session
+   * forks its context with the main chat's mode, tools and launch options and none of the side
+   * question's restrictions.
+   */
+  private buildNativeForkLaunch(
+    source: ActiveManagedAgent,
+    input: { sourceSessionId: string; model?: string },
+  ): { forkConfig: Record<string, unknown>; labels: Record<string, string> } {
+    const sideQuestionMain = this.resolveSideQuestionMain(source);
+    const baseConfig = sideQuestionMain?.config ?? source.config;
+    const forkConfig = {
+      ...baseConfig,
+      provider: source.provider,
+      cwd: source.cwd,
+      ...(input.model ? { model: input.model } : {}),
+      // The fork's own session id would land it on another gateway account, away from the cache
+      // holding the context it shares with its source; a fork of a fork keeps the root's account.
+      // Only Claude sends an affinity id; Codex keys the gateway route by the new thread's id.
+      ...(source.provider === "claude"
+        ? {
+            providerOptions: {
+              ...baseConfig.providerOptions,
+              sessionAffinityId: gatewayRoutedSessionId(source) ?? input.sourceSessionId,
+            },
+          }
+        : {}),
+    };
+    return {
+      forkConfig,
+      labels: { ...(sideQuestionMain ?? source).labels, nativeForkOf: source.id },
+    };
+  }
+
+  /** The chat a side question was asked in, when it is loaded. Null for any other agent. */
+  private resolveSideQuestionMain(side: ActiveManagedAgent): ActiveManagedAgent | null {
+    const mainId = getSideQuestionSourceId(side.labels);
+    if (!mainId) return null;
+    const main = this.agents.get(mainId);
+    if (!main || main.session === null) {
+      throw new Error("The main chat is not loaded; open it and try again");
+    }
+    return main;
   }
 
   async deleteAgentState(agentId: string): Promise<void> {

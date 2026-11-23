@@ -93,7 +93,10 @@ import type { DaemonConfigStore } from "./daemon-config-store.js";
 import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
 import { getErrorMessage, getErrorMessageOr } from "@getpaseo/protocol/error-utils";
 import { getAgentStatusPriority } from "@getpaseo/protocol/agent-state-bucket";
-import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
+import {
+  getParentAgentIdFromLabels,
+  getSideQuestionSourceId,
+} from "@getpaseo/protocol/agent-labels";
 import type { WorkspaceGitRuntimeSnapshot, WorkspaceGitService } from "./workspace-git-service.js";
 import type { ProjectUpdate } from "./workspace-reconciliation-service.js";
 import {
@@ -9557,11 +9560,15 @@ export class Session {
     msg: Extract<SessionInboundMessage, { type: "agent.native_fork.request" }>,
   ): Promise<void> {
     try {
-      await ensureAgentLoaded(msg.agentId, {
+      const deps = {
         agentManager: this.agentManager,
         agentStorage: this.agentStorage,
         logger: this.sessionLogger,
-      });
+      };
+      await ensureAgentLoaded(msg.agentId, deps);
+      // Continuing a side question needs the chat it was asked in.
+      const mainChatId = getSideQuestionSourceId(this.agentManager.getAgent(msg.agentId)?.labels);
+      if (mainChatId) await ensureAgentLoaded(mainChatId, deps);
       const result = await this.agentManager.nativeForkAgent({
         sourceAgentId: msg.agentId,
         boundaryMessageId: msg.boundaryMessageId,

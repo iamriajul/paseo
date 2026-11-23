@@ -2194,3 +2194,14 @@ On every attach and reconnect the daemon replays the screen, and the browser xte
 npm test --workspace=@getpaseo/app -- --project=browser src/terminal/runtime/terminal-emulator-runtime.browser.test.ts -t "replay" --bail=1
 grep -q "withRepliesSuppressed(data)" packages/app/src/terminal/runtime/terminal-emulator-runtime.ts
 ```
+
+## website-e2e-github-fixture
+
+**the website e2e serves GitHub from a local fixture**
+
+The root route's loader reads the latest release and the star count from `api.github.com` on every page, and with a cold KV cache it blocks on that fetch, so a GitHub failure is a 500 on every SSR page. CI's preview starts with an empty cache and an unauthenticated runner, and the website mockups step failed on its first SSR requests (`/agents`, `/download`, `/docs/cli` all 500 while `/logo.svg` was 200) until a GitHub fetch got through. `GITHUB_API_URL` (default `https://api.github.com`) now sets the base, and `playwright.config.ts` points it at `e2e/github-server.mjs`. To reproduce the old failure, run the suite in a network namespace with no route out (`sudo unshare -n`): every SSR page is a 500 without the fixture and a 200 with it.
+
+```bash
+npx vitest run packages/website/src/latest-release.test.ts --bail=1 -t "configured GitHub API"
+grep -q 'GITHUB_API_URL: "http://127.0.0.1:8189"' packages/website/playwright.config.ts
+```

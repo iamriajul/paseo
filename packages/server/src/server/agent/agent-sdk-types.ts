@@ -790,6 +790,13 @@ export interface AgentSession {
   /** Where Claude Code wrote the session transcript, which the SDK forks from. */
   resolveNativeForkTranscriptPath?(sessionId: string): Promise<string | null>;
   /**
+   * Forks the provider session through the reply `boundaryMessageId` (a timeline assistant
+   * message id) into a new provider session, leaving this one untouched. A provider with
+   * `supportsNativeFork` that forks on its own implements this (Codex: `thread/fork`); Claude
+   * forks through the SDK in `AgentManager.nativeForkAgent` instead.
+   */
+  forkNativeSession?(input: { boundaryMessageId: string }): Promise<{ sessionId: string }>;
+  /**
    * Out-of-band prompt handler. When non-null, the manager runs the returned
    * handler instead of allocating a turn. The handler emits stream events
    * directly via the provided `emit` callback, which routes through the

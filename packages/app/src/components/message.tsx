@@ -576,7 +576,7 @@ interface AssistantTurnFooterProps {
   completedAt?: Date;
   durationMs?: number | null;
   onFork?: (target: AssistantForkTarget) => Promise<void> | void;
-  /** Offer experimental Claude native fork in the fork menu. */
+  /** Offer the experimental native fork (Claude, Codex) in the fork menu. */
   showNativeForkOption?: boolean;
   readAloud?: {
     text: string;

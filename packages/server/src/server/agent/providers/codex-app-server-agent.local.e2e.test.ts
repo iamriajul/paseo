@@ -265,6 +265,93 @@ describe("Codex app-server provider (local e2e)", () => {
   );
 
   test.runIf(isCodexInstalled())(
+    "natively forks a thread through an earlier reply, leaving later turns out",
+    async () => {
+      const cwd = mkdtempSync(path.join(os.tmpdir(), "codex-native-fork-cwd-"));
+      const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-native-fork-home-"));
+      const reply = (id: string, text: string) =>
+        sse([
+          responseCreated(`resp-${id}`),
+          assistantMessageEvent(id, text),
+          responseCompleted(`resp-${id}`),
+        ]);
+      const mockServer = await startMockResponsesServer([
+        reply("msg-first", "first answer"),
+        reply("msg-second", "second answer"),
+        reply("msg-fork", "fork answer"),
+      ]);
+      const logger = createTestLogger();
+      const storage = new AgentStorage(path.join(cwd, "agents"), logger);
+      const manager = new AgentManager({
+        clients: { codex: new CodexAppServerAgentClient(logger) },
+        registry: storage,
+        logger,
+      });
+      const agentIds: string[] = [];
+      const replies = (agentId: string) =>
+        manager
+          .fetchTimeline(agentId, { direction: "tail", limit: 0 })
+          .rows.flatMap((row) =>
+            row.item.type === "assistant_message"
+              ? [{ messageId: row.item.messageId, text: row.item.text }]
+              : [],
+          );
+      try {
+        writeMockCodexConfig(codexHome, mockServer.url);
+        vi.stubEnv("CODEX_HOME", codexHome);
+        const source = await manager.createAgent(
+          { provider: "codex", cwd, modeId: "auto", model: "mock-model" },
+          undefined,
+          { workspaceId: "wks-native-fork" },
+        );
+        agentIds.push(source.id);
+        expect(source.capabilities.supportsNativeFork).toBe(true);
+        await manager.runAgent(source.id, "first question");
+        await manager.runAgent(source.id, "second question");
+        const [first] = replies(source.id);
+        expect(first?.text).toBe("first answer");
+        expect(first?.messageId).toBeTruthy();
+
+        const { agentId: forkId } = await manager.nativeForkAgent({
+          sourceAgentId: source.id,
+          boundaryMessageId: first?.messageId ?? "",
+        });
+        agentIds.push(forkId);
+        const fork = manager.getAgent(forkId);
+        expect(fork?.provider).toBe("codex");
+        expect(fork?.labels.nativeForkOf).toBe(source.id);
+        const sourceThreadId = manager.getAgent(source.id)?.persistence?.sessionId;
+        expect(fork?.persistence?.sessionId).toBeTruthy();
+        expect(fork?.persistence?.sessionId).not.toBe(sourceThreadId);
+        expect(replies(forkId).map((entry) => entry.text)).toEqual(["first answer"]);
+
+        await manager.runAgent(forkId, "question in the fork");
+        expect(replies(forkId).map((entry) => entry.text)).toEqual(["first answer", "fork answer"]);
+        // The fork's request carried turn one and its own prompt, not the source's second turn.
+        const forkRequest = mockServer.requestBodies.at(-1) ?? "";
+        expect(forkRequest).toContain("first question");
+        expect(forkRequest).toContain("question in the fork");
+        expect(forkRequest).not.toContain("second question");
+        // The source is untouched.
+        expect(replies(source.id).map((entry) => entry.text)).toEqual([
+          "first answer",
+          "second answer",
+        ]);
+      } finally {
+        for (const agentId of agentIds) {
+          if (manager.getAgent(agentId)) await manager.closeAgent(agentId);
+        }
+        await storage.flush();
+        vi.unstubAllEnvs();
+        await mockServer.close();
+        rmSync(cwd, { recursive: true, force: true });
+        rmSync(codexHome, { recursive: true, force: true });
+      }
+    },
+    60_000,
+  );
+
+  test.runIf(isCodexInstalled())(
     "reopens a promptless agent repeatedly before its first model request",
     async () => {
       const cwd = mkdtempSync(path.join(os.tmpdir(), "codex-promptless-cwd-"));

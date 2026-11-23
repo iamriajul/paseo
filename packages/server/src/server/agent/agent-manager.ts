@@ -4201,9 +4201,9 @@ export class AgentManager {
   }
 
   /**
-   * Create a new agent whose provider session is a Claude SDK fork of the source
-   * agent's session at the given boundary. Does not mutate the source agent.
-   * v1 supports tab target only (same workspace).
+   * Create a new agent whose provider session is a fork of the source agent's session at the
+   * given boundary: a Claude SDK fork, or the provider's own (`forkNativeSession`, Codex). Does
+   * not mutate the source agent. v1 supports tab target only (same workspace).
    */
   async nativeForkAgent(input: {
     sourceAgentId: string;
@@ -4214,9 +4214,6 @@ export class AgentManager {
     model?: string;
   }): Promise<{ agentId: string; workspaceId: string }> {
     const source = this.requireSessionAgent(input.sourceAgentId);
-    if (source.provider !== "claude") {
-      throw new Error("Native fork is only supported for Claude agents");
-    }
     if (source.capabilities.supportsNativeFork !== true) {
       throw new Error("Provider does not support native fork");
     }
@@ -4227,7 +4224,7 @@ export class AgentManager {
     const sourceSessionId =
       source.persistence?.sessionId?.trim() || source.runtimeInfo?.sessionId?.trim() || "";
     if (!sourceSessionId) {
-      throw new Error("Source Claude agent has no provider session id to fork");
+      throw new Error("Source agent has no provider session id to fork");
     }
 
     const timeline = this.fetchTimeline(input.sourceAgentId, {
@@ -4241,21 +4238,9 @@ export class AgentManager {
       boundaryCursor: input.boundaryCursor,
     });
 
-    const upToMessageId = await resolveNativeForkTarget({
-      session: source.session,
-      boundaryMessageId,
-    });
-
-    const transcriptPath = await source.session.resolveNativeForkTranscriptPath?.(sourceSessionId);
-    if (!transcriptPath) {
-      throw new Error("Source Claude agent has no transcript to fork");
-    }
-    const { forkedSessionId } = await forkClaudeSessionAtMessage({
-      sdk: realClaudeRewindSdk,
-      sessionId: sourceSessionId,
-      upToMessageId,
-      transcriptPath,
-    });
+    const forkedSessionId = source.session.forkNativeSession
+      ? (await source.session.forkNativeSession({ boundaryMessageId })).sessionId
+      : await this.forkClaudeSession(source, sourceSessionId, boundaryMessageId);
 
     if (source.persistence?.sessionId === forkedSessionId) {
       throw new Error("Native fork produced the same session id as the source agent");
@@ -4268,19 +4253,24 @@ export class AgentManager {
 
     const forkConfig = {
       ...source.config,
-      provider: "claude",
+      provider: source.provider,
       cwd: source.cwd,
       ...(input.model ? { model: input.model } : {}),
       // The fork's own session id would land it on another gateway account, away from the cache
       // holding the context it shares with its source; a fork of a fork keeps the root's account.
-      providerOptions: {
-        ...source.config.providerOptions,
-        sessionAffinityId: gatewayRoutedSessionId(source) ?? sourceSessionId,
-      },
+      // Only Claude sends an affinity id; Codex keys the gateway route by the new thread's id.
+      ...(source.provider === "claude"
+        ? {
+            providerOptions: {
+              ...source.config.providerOptions,
+              sessionAffinityId: gatewayRoutedSessionId(source) ?? sourceSessionId,
+            },
+          }
+        : {}),
     };
     const forked = await this.resumeAgentFromPersistence(
       {
-        provider: "claude",
+        provider: source.provider,
         sessionId: forkedSessionId,
         metadata: forkConfig,
       },
@@ -4305,6 +4295,31 @@ export class AgentManager {
     }
 
     return { agentId: forked.id, workspaceId };
+  }
+
+  private async forkClaudeSession(
+    source: ActiveManagedAgent,
+    sourceSessionId: string,
+    boundaryMessageId: string,
+  ): Promise<string> {
+    if (source.provider !== "claude") {
+      throw new Error(`Native fork is not supported for ${source.provider} agents`);
+    }
+    const upToMessageId = await resolveNativeForkTarget({
+      session: source.session,
+      boundaryMessageId,
+    });
+    const transcriptPath = await source.session.resolveNativeForkTranscriptPath?.(sourceSessionId);
+    if (!transcriptPath) {
+      throw new Error("Source Claude agent has no transcript to fork");
+    }
+    const { forkedSessionId } = await forkClaudeSessionAtMessage({
+      sdk: realClaudeRewindSdk,
+      sessionId: sourceSessionId,
+      upToMessageId,
+      transcriptPath,
+    });
+    return forkedSessionId;
   }
 
   async deleteAgentState(agentId: string): Promise<void> {

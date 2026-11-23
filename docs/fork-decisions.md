@@ -197,7 +197,7 @@ npm test --workspace=@getpaseo/app -- src/components/markdown/fence/mermaid/segm
 
 **Claude native fork from a chat message**
 
-assistant stream/footer/menu can native-fork a Claude session at a boundary; wrapSessionProvider forwards resolveNativeForkUpToMessageId so the live session still resolves transcript UUIDs. AgentStreamView's memo must still compare turnPresentation and pendingMessageSubmissions — dropping those freezes the working footer after a disconnect. A fork names its root session in `X-Claude-Code-Session-Id` on every request, warm-ups included (Claude provider option `sessionAffinityId`, set by `nativeForkAgent` and inherited by a fork of a fork). Claude Code would send the fork's own new id, and CLIProxyAPI session-affinity would then bind the fork to a fresh account, so its first request rewrites the whole context it shares with its source instead of reading it from that account's cache. The "Served by" lookup and the timeline's account lines follow the same id. A `create_agent` child or schedule target of a fork does not inherit the id (`inheritableProviderOptions`): a fresh session shares no cached prefix, so the pin would only stack the family on one account and repeat every account switch in each agent's timeline.
+assistant stream/footer/menu can native-fork a Claude session at a boundary (Codex forks its own way, see [codex-native-fork](#codex-native-fork)); wrapSessionProvider forwards resolveNativeForkUpToMessageId so the live session still resolves transcript UUIDs. AgentStreamView's memo must still compare turnPresentation and pendingMessageSubmissions — dropping those freezes the working footer after a disconnect. A fork names its root session in `X-Claude-Code-Session-Id` on every request, warm-ups included (Claude provider option `sessionAffinityId`, set by `nativeForkAgent` and inherited by a fork of a fork). Claude Code would send the fork's own new id, and CLIProxyAPI session-affinity would then bind the fork to a fresh account, so its first request rewrites the whole context it shares with its source instead of reading it from that account's cache. The "Served by" lookup and the timeline's account lines follow the same id. A `create_agent` child or schedule target of a fork does not inherit the id (`inheritableProviderOptions`): a fresh session shares no cached prefix, so the pin would only stack the family on one account and repeat every account switch in each agent's timeline.
 
 ```bash
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/provider-registry-wrap.test.ts packages/server/src/server/agent/providers/claude/native-fork.test.ts packages/server/src/server/agent/gateway/session-route.test.ts --bail=1
@@ -208,6 +208,25 @@ npx vitest run packages/app/src/agent-stream/fork-strategy.test.ts packages/prot
 grep -q "left.turnPresentation !== right.turnPresentation" packages/app/src/agent-stream/view.tsx
 grep -q "left.pendingMessageSubmissions !== right.pendingMessageSubmissions" packages/app/src/agent-stream/view.tsx
 ```
+
+## codex-native-fork
+
+**Codex native fork from a chat message, through `thread/fork`**
+
+Codex sessions report `supportsNativeFork`, so the fork menu's native fork (and anything else gated on that capability) works on them. `AgentManager.nativeForkAgent` asks the session to fork when it implements `forkNativeSession`, and keeps the Claude SDK route otherwise; the fork is resumed as an agent of the source's provider. `forkCodexThreadAtMessage` (`providers/codex/native-fork.ts`) finds the turn holding the boundary reply in the thread's history and calls `thread/fork` with `lastTurnId` (inclusive), or without it when the reply is in the latest turn. A Codex that ignores `lastTurnId` would hand back the whole thread, so after an earlier-point fork the fork's turn count is checked and a longer fork is refused with "update Codex".
+
+The fork runs in a second, short-lived `codex app-server` on the session's own launch (`openSideClient`), not in the source's. An app-server that forks a thread stays that thread's writer until it exits: on Codex 0.167 `thread/unsubscribe` answers `notSubscribed` and `thread/loaded/list` still lists the fork ten seconds later, and the fork's own agent then fails to resume it with "already has an active writer". The side process forks from the rollout on disk, so the source may be mid-turn, and exits before the fork's agent resumes it.
+
+Unlike a Claude fork, a Codex fork sets no `sessionAffinityId`: Codex sends its own thread id to the gateway, so the fork's "Served by" is its own route. A fork on another model keeps the source process's model provider when the fork is made; a model the gateway routes differently is refused by Codex on the fork's first turn ([Claude launch contract](cliproxyapi.md#claude-launch-contract)).
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/codex/native-fork.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-manager.test.ts -t "native fork of a non-Claude" --bail=1
+grep -q "supportsNativeFork: true" packages/server/src/server/agent/providers/codex-app-server-agent.ts
+grep -q "forkNativeSession: inner.forkNativeSession" packages/server/src/server/agent/provider-registry.ts
+```
+
+The real-binary proof is the local e2e "natively forks a thread through an earlier reply" in `codex-app-server-agent.local.e2e.test.ts`, which needs `codex` on PATH and a fake upstream it starts itself.
 
 ## browser-localhost-tunnel
 

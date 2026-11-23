@@ -6169,6 +6169,65 @@ test("a failed turn schedules the auto-resume at the reset time its provider rep
   }
 });
 
+test("a native fork of a non-Claude agent goes through its provider's own fork", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-native-fork-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const forkRequests: Array<{ boundaryMessageId: string }> = [];
+  class ForkingSession extends TestAgentSession {
+    override readonly capabilities = { ...TEST_CAPABILITIES, supportsNativeFork: true };
+    async forkNativeSession(input: { boundaryMessageId: string }) {
+      forkRequests.push(input);
+      return { sessionId: "forked-thread" };
+    }
+  }
+  class ForkingClient extends TestAgentClient {
+    readonly resumedHandles: AgentPersistenceHandle[] = [];
+    override async createSession(config: AgentSessionConfig) {
+      return new ForkingSession(config);
+    }
+    override async resumeSession(
+      handle: AgentPersistenceHandle,
+      config?: Partial<AgentSessionConfig>,
+      launchContext?: AgentLaunchContext,
+    ) {
+      this.resumedHandles.push(handle);
+      return super.resumeSession(handle, config, launchContext);
+    }
+  }
+  const client = new ForkingClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  try {
+    const source = await manager.createAgent(
+      { provider: "codex", cwd: workdir, model: "gpt-5.4" },
+      undefined,
+      { workspaceId: "wks-fork" },
+    );
+    await manager.runAgent(source.id, "first question");
+    await manager.flush();
+
+    const { agentId, workspaceId } = await manager.nativeForkAgent({
+      sourceAgentId: source.id,
+      boundaryMessageId: "reply-1",
+    });
+
+    expect(forkRequests).toEqual([{ boundaryMessageId: "reply-1" }]);
+    expect(client.resumedHandles.at(-1)).toMatchObject({
+      provider: "codex",
+      sessionId: "forked-thread",
+    });
+    expect(workspaceId).toBe("wks-fork");
+    const fork = manager.getAgent(agentId);
+    expect(fork?.provider).toBe("codex");
+    expect(fork?.labels.nativeForkOf).toBe(source.id);
+    // Only Claude routes a fork to its source's gateway account; Codex keys it by the new thread.
+    expect(fork?.config.providerOptions?.sessionAffinityId).toBeUndefined();
+    await manager.closeAgent(agentId);
+    await manager.closeAgent(source.id);
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("a cache warm-up turn keeps the warm-up count through its own start", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-warm-turn-order-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

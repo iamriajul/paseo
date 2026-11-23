@@ -138,6 +138,7 @@ import {
 import { resolvePaseoHome } from "../../paseo-home.js";
 import type { PromptCacheRequestTokens } from "@getpaseo/protocol/agent-cache-warm";
 import { readCodexRequestCache } from "./codex/request-cache.js";
+import { forkCodexThreadAtMessage } from "./codex/native-fork.js";
 import {
   type CodexRateLimitState,
   type CodexRateLimitWindow,
@@ -280,6 +281,8 @@ const CODEX_APP_SERVER_CAPABILITIES: AgentCapabilityFlags = {
   supportsRewindBoth: false,
   // COMPAT(supportsSteer): added in v0.2.916 — native app-server turn/steer.
   supportsSteer: true,
+  // COMPAT(supportsNativeFork): added in v0.2.916 — `thread/fork` through a reply's turn.
+  supportsNativeFork: true,
 };
 
 const CODEX_MODES: AgentMode[] = [
@@ -5096,6 +5099,54 @@ export class CodexAppServerAgentSession implements AgentSession {
     return this.currentThreadId !== null && this.currentThreadId === this.savedThreadId
       ? this.currentThreadId
       : null;
+  }
+
+  async forkNativeSession(input: { boundaryMessageId: string }): Promise<{ sessionId: string }> {
+    // The side app-server forks from the rollout on disk, which exists once Codex saved the thread.
+    const threadId = this.savedThreadId;
+    if (!threadId) {
+      throw new Error("Codex thread has no saved turn to fork yet");
+    }
+    // Forks in an app-server of its own; see forkCodexThreadAtMessage.
+    const forkClient = await this.openSideClient();
+    try {
+      const sessionId = await forkCodexThreadAtMessage({
+        client: {
+          request: (method, params) => forkClient.request(method, params),
+          forkThread: (params) => forkClient.forkThread(params),
+        },
+        threadId,
+        boundaryMessageId: input.boundaryMessageId,
+        // Codex does not carry the parent thread's config into a fork; without it the forked
+        // thread falls back to the default model provider.
+        base: {
+          cwd: this.config.cwd ?? null,
+          model: this.config.model ?? null,
+          serviceTier: this.serviceTier,
+          config: this.buildCodexInnerConfig(),
+          excludeTurns: true,
+          persistExtendedHistory: true,
+        },
+      });
+      return { sessionId };
+    } finally {
+      await forkClient.dispose();
+    }
+  }
+
+  /** A second app-server on this session's launch, for work that must not hold its threads. */
+  private async openSideClient(): Promise<CodexAppServerClient> {
+    const client = new CodexAppServerClient(await this.spawnAppServer(), this.logger, () =>
+      this.traceContext(),
+    );
+    try {
+      await client.request("initialize", buildCodexAppServerInitializeParams());
+      client.notify("initialized", {});
+      return client;
+    } catch (error) {
+      await client.dispose();
+      throw error;
+    }
   }
 
   async revertConversation(input: { messageId: string }): Promise<void> {

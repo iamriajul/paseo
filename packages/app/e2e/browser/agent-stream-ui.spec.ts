@@ -50,13 +50,22 @@ test.describe("Agent stream UI", () => {
 
   test("auto-scroll sticks to bottom across token bursts", async ({ page }) => {
     test.setTimeout(120_000);
-    const agent = await startRunningMockAgent(page, {
-      prefix: "stream-scroll-",
+    // The chat overflows before the stream starts, so the first streamed tokens already have to
+    // move the bottom. A stream into an empty chat needs most of a screen of text before there is
+    // anything to follow, and how long that takes depends on the runner.
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "stream-scroll-",
+      title: "Auto-scroll",
       model: "one-minute-stream",
-      prompt: "Stream for auto-scroll test.",
+      initialPrompt: "emit 120 agent stream updates for auto-scroll setup.",
     });
     try {
-      await awaitAssistantMessage(page);
+      await agent.client.waitForFinish(agent.agentId, 30_000);
+      await openAgentRoute(page, { workspaceId: agent.workspaceId, agentId: agent.agentId });
+      await expectComposerVisible(page);
+      await waitForScrollableChat(page, { minScrollableDistance: 0 });
+      await agent.client.sendAgentMessage(agent.agentId, "Stream for auto-scroll test.");
+      await awaitAssistantMessage(page, "Cycle 1");
       await expectScrollFollowsNewContent(page);
     } finally {
       await agent.cleanup();

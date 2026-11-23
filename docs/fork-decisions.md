@@ -2183,3 +2183,13 @@ grep -q "if (size <= MAX_EDITABLE_BYTES) return <EditableTextFile" packages/app/
 grep -q 'keyboardBehavior="extend"' packages/app/src/screens/workspace/sheet-tabs.tsx
 grep -q "build:source-editor-webview" packages/app/package.json
 ```
+
+## auto-scroll-e2e-overflowing-history
+
+**the auto-scroll e2e streams below a history that already overflows the chat**
+
+`agent-stream-ui.spec.ts` "auto-scroll sticks to bottom across token bursts" streamed `one-minute-stream` into an empty chat and waited up to 10 s for the content to grow. `readScrollMetrics` measures the element that overflows most, so until a screen of text has arrived it measures a small inner element whose height never changes. On a runner that streams slower than about a screen in 10 s, the wait reads one height for the whole poll (CI: "Expected > 88, Received 88", about 1 run in 6 on main). The test now seeds the agent with `emit 120 agent stream updates`, which is what the scroll-away test beside it does, and checks the chat is scrollable before the stream starts. The first streamed tokens then move the bottom. On a 1280x1600 window the old shape fails every time ("Expected > 1396, Received 1396") and the new one passes.
+
+```bash
+grep -q 'initialPrompt: "emit 120 agent stream updates for auto-scroll setup."' packages/app/e2e/browser/agent-stream-ui.spec.ts
+```

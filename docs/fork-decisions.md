@@ -1966,12 +1966,12 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/ser
 
 **Every client shows the same server tabs in a workspace, with the page's icon**
 
-The user wanted server tabs synced across devices. The host's tab list decides which server tabs a workspace has on every client (`packages/app/src/server-browser/host-tabs.ts`): a tab any client opens appears in the background on the others, a tab the host ends leaves every client, and pins follow. Before, only agents' tabs and popups reached other clients. Order, pane and the front tab stay per client. The opener places its own new tab in front, so the sync skips user tabs in a workspace while this client has an open in flight there, and skips a tab this client is closing until the host answers. The only official file touched is `workspace-screen.tsx`, which passes the server id to `openNewServerBrowserTab`. The host reads each page's icon (`server-browser/favicon.ts`) into the tab's optional `favicon`. See [Server browser](server-browser.md), "Viewing".
+The user wanted server tabs synced across devices. The host's tab list decides which server tabs a workspace has on every client (`packages/app/src/server-browser/host-tabs.ts`): a tab any client opens appears in the background on the others, a tab the host ends leaves every client, and pins follow. Before, only agents' tabs and popups reached other clients. Order, pane and the front tab stay per client. The opener places its own new tab in front, so the sync skips user tabs in a workspace while this client has an open in flight there, and skips a tab this client is closing until the host answers. The only official file touched is `workspace-screen.tsx`, which passes the server id to `openNewServerBrowserTab`. The host reads each page's icon (`server-browser/favicon.ts`) into the tab's optional `favicon`, kept with a suspended tab; phones draw it with expo-image, so an SVG icon shows there too. See [Server browser](server-browser.md), "Viewing".
 
 The tests fail without the change: another client's tab never opens here, the second device of the Playwright spec never shows the tab the first one opened, and the host reports no `favicon`.
 
 ```bash
-npm test --workspace=@getpaseo/app -- src/server-browser/host-tabs.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/server-browser/host-tabs.test.ts src/server-browser/favicon-icon.test.tsx --bail=1
 grep -A2 "openNewServerBrowserTab({" packages/app/src/screens/workspace/workspace-screen.tsx | grep -q "serverId: normalizedServerId"
 grep -q "favicon: z.string().optional()" packages/protocol/src/server-browser/rpc-schemas.ts
 ```

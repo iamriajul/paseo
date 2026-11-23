@@ -620,13 +620,15 @@ export class ServerBrowserHost {
   private async persistSuspended(tab: ServerBrowserTab): Promise<void> {
     const suspension = tab.suspendedState;
     if (!suspension) return;
+    const { title, favicon } = tab.info();
     await this.suspendedStore
       .save({
         browserId: tab.browserId,
         workspaceId: tab.workspaceId,
         openedBy: tab.openedBy,
         url: tab.currentUrl,
-        title: tab.info().title,
+        title,
+        ...(favicon ? { favicon } : {}),
         viewport: tab.currentViewport,
         ...(tab.openerBrowserId ? { openerBrowserId: tab.openerBrowserId } : {}),
         ...(tab.pinned ? { pinned: true } : {}),

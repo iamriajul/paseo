@@ -391,9 +391,18 @@ describe("ServerBrowserHost with a real Chromium", () => {
     await waitFor(() => favicon()?.startsWith("data:image/png") === true);
     expect(favicon()).toBe(`data:image/png;base64,${ICON_PNG.toString("base64")}`);
 
+    // A suspended tab keeps its icon through a restart.
+    const icon = favicon();
+    await host.suspendTab(tab.browserId);
+    await host.shutdown();
+    const restarted = createHost();
+    await restarted.loadSuspendedTabs();
+    expect(restarted.listTabs()[0]).toMatchObject({ suspended: true, favicon: icon });
+
     // The fixture names no icon, and its /favicon.ico answers with HTML.
-    await tab.navigate(siteUrl);
-    await waitFor(() => favicon() === undefined);
+    const woken = restarted.getTab(tab.browserId)!;
+    await woken.navigate(siteUrl);
+    await waitFor(() => restarted.listTabs()[0]?.favicon === undefined);
   });
 
   it("opens a tab with no blank page behind it, and keeps Back in step with the history", async () => {

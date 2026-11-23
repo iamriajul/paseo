@@ -1,0 +1,1333 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype: quotes and side questions</title>
+    <style>
+      :root {
+        --s0: #18181b;
+        --s1: #1f1f23;
+        --s2: #27272a;
+        --s3: #323238;
+        --s4: #3f3f46;
+        --fg: #fafafa;
+        --fg2: #a1a1aa;
+        --fg3: #71717a;
+        --bd: #2e2e33;
+        --accent: #20744a;
+        --accentb: #7ccba0;
+        --warn: #e0a84a;
+        --warnbg: #3a2e16;
+        --danger: #e5786d;
+        --r: 10px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: #0c0c0e;
+        color: var(--fg);
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Inter,
+          Roboto,
+          sans-serif;
+        display: flex;
+        flex-direction: column;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        cursor: pointer;
+        padding: 0;
+      }
+      /* prototype chrome */
+      #proto {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        align-items: center;
+        padding: 8px 14px;
+        background: #101013;
+        border-bottom: 1px solid var(--bd);
+        font-size: 12px;
+        color: var(--fg2);
+      }
+      #proto b {
+        color: var(--fg);
+        font-weight: 600;
+      }
+      .seg {
+        display: inline-flex;
+        border: 1px solid var(--bd);
+        border-radius: 7px;
+        overflow: hidden;
+        margin-left: 6px;
+      }
+      .seg button {
+        padding: 3px 9px;
+        color: var(--fg2);
+      }
+      .seg button.on {
+        background: var(--s3);
+        color: var(--fg);
+      }
+      #stage {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        justify-content: center;
+        align-items: stretch;
+        padding: 0;
+      }
+      body.phone #stage {
+        padding: 14px;
+        align-items: center;
+      }
+      /* app */
+      #app {
+        flex: 1;
+        display: flex;
+        min-width: 0;
+        background: var(--s0);
+        position: relative;
+        overflow: hidden;
+      }
+      body.phone #app {
+        flex: none;
+        width: 390px;
+        height: 780px;
+        max-height: 100%;
+        border: 1px solid var(--s4);
+        border-radius: 26px;
+      }
+      #sidebar {
+        width: 220px;
+        background: #141416;
+        border-right: 1px solid var(--bd);
+        padding: 12px 8px;
+        flex: none;
+      }
+      body.phone #sidebar {
+        display: none;
+      }
+      #sidebar .h {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--fg3);
+        padding: 6px 8px;
+      }
+      #sidebar .w {
+        padding: 6px 8px;
+        border-radius: 7px;
+        color: var(--fg2);
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      #sidebar .w.on {
+        background: var(--s2);
+        color: var(--fg);
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--fg3);
+        flex: none;
+      }
+      .dot.run {
+        background: var(--accentb);
+      }
+      #main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      .tabbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 38px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--bd);
+        color: var(--fg2);
+        font-size: 13px;
+        flex: none;
+      }
+      .tabbar .tab {
+        color: var(--fg);
+        display: flex;
+        gap: 7px;
+        align-items: center;
+      }
+      .tabbar .sp {
+        flex: 1;
+      }
+      .scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 18px 0;
+      }
+      .col {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 18px;
+      }
+      .user {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        margin: 14px 0 6px;
+      }
+      .bubble {
+        background: var(--s2);
+        border-radius: 14px;
+        padding: 9px 13px;
+        max-width: 85%;
+        white-space: pre-wrap;
+      }
+      .uactions {
+        display: flex;
+        gap: 2px;
+        margin-top: 3px;
+        opacity: 0;
+        transition: opacity 0.12s;
+      }
+      .user:hover .uactions,
+      body.phone .uactions {
+        opacity: 1;
+      }
+      .asst {
+        margin: 8px 0 4px;
+      }
+      .asst p {
+        margin: 0 0 10px;
+      }
+      .asst code,
+      .bubble code {
+        background: var(--s2);
+        padding: 1px 5px;
+        border-radius: 5px;
+        font:
+          12.5px ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .tool {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: var(--fg2);
+        font-size: 13px;
+        padding: 5px 9px;
+        border: 1px solid var(--bd);
+        border-radius: 8px;
+        margin: 0 0 8px;
+        width: fit-content;
+        max-width: 100%;
+      }
+      .tool.denied {
+        border-color: #5a2f2b;
+        color: var(--danger);
+        background: #2a1917;
+      }
+      .footer {
+        display: flex;
+        gap: 2px;
+        align-items: center;
+        margin: 2px 0 6px -5px;
+        color: var(--fg3);
+        font-size: 12px;
+      }
+      .ib {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px;
+        border-radius: 6px;
+        color: var(--fg2);
+      }
+      .ib:hover {
+        background: var(--s2);
+        color: var(--fg);
+      }
+      .ib svg {
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .ib.txt {
+        padding: 4px 8px;
+        font-size: 12px;
+      }
+      .usage {
+        margin-left: 8px;
+        color: var(--fg3);
+        font-size: 11.5px;
+      }
+      /* quote card */
+      .q {
+        border-left: 3px solid var(--s4);
+        background: rgba(255, 255, 255, 0.035);
+        border-radius: 0 8px 8px 0;
+        padding: 6px 10px;
+        margin: 0 0 6px;
+        font-size: 13px;
+        color: var(--fg2);
+        max-width: 100%;
+      }
+      .q .who {
+        font-size: 11px;
+        color: var(--fg3);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        margin-bottom: 1px;
+      }
+      .q .who svg {
+        width: 11px;
+        height: 11px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+      }
+      .q .tx {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        white-space: pre-wrap;
+      }
+      .q.side {
+        border-left-color: var(--accentb);
+      }
+      .bubble .q {
+        background: rgba(0, 0, 0, 0.22);
+      }
+      /* composer */
+      .dock {
+        flex: none;
+        padding: 0 18px 14px;
+      }
+      .dockin {
+        max-width: 760px;
+        margin: 0 auto;
+      }
+      .tracks {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 6px;
+        min-height: 0;
+      }
+      .pill {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        border: 1px solid var(--bd);
+        background: var(--s1);
+        border-radius: 999px;
+        padding: 3px 10px;
+        font-size: 12px;
+        color: var(--fg2);
+      }
+      .pill:hover {
+        color: var(--fg);
+        background: var(--s2);
+      }
+      .pill svg {
+        width: 13px;
+        height: 13px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+      }
+      .pill .n {
+        background: var(--s3);
+        border-radius: 999px;
+        padding: 0 6px;
+        color: var(--fg);
+        font-size: 11px;
+      }
+      .composer {
+        border: 1px solid var(--s4);
+        background: var(--s1);
+        border-radius: 14px;
+        padding: 8px;
+      }
+      .composer .quotes .q {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+      }
+      .composer .quotes .q > div {
+        flex: 1;
+        min-width: 0;
+      }
+      .composer .quotes .q .tx {
+        -webkit-line-clamp: 2;
+      }
+      .composer .x {
+        color: var(--fg3);
+        padding: 2px 5px;
+        border-radius: 5px;
+      }
+      .composer .x:hover {
+        background: var(--s3);
+        color: var(--fg);
+      }
+      .composer textarea {
+        width: 100%;
+        background: none;
+        border: 0;
+        outline: 0;
+        color: var(--fg);
+        font: inherit;
+        resize: none;
+        padding: 4px 6px;
+        min-height: 24px;
+      }
+      .crow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--fg3);
+        font-size: 12px;
+        padding: 2px 4px 0;
+      }
+      .crow .sp {
+        flex: 1;
+      }
+      .send {
+        background: var(--fg);
+        color: #111;
+        border-radius: 999px;
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+      }
+      .send.wide {
+        width: auto;
+        padding: 0 12px;
+        font-size: 12px;
+        background: var(--warn);
+      }
+      .chip {
+        border: 1px solid var(--bd);
+        border-radius: 6px;
+        padding: 1px 7px;
+        color: var(--fg2);
+      }
+      /* selection toolbar */
+      #seltb {
+        position: fixed;
+        z-index: 50;
+        display: none;
+        background: var(--s3);
+        border: 1px solid var(--s4);
+        border-radius: 9px;
+        padding: 3px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        font-size: 12.5px;
+      }
+      #seltb button {
+        padding: 5px 10px;
+        border-radius: 6px;
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+      }
+      #seltb button:hover {
+        background: var(--s4);
+      }
+      #seltb svg {
+        width: 13px;
+        height: 13px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+      }
+      body.phone #seltb {
+        background: #e9e9ee;
+        color: #111;
+        border: 0;
+        border-radius: 12px;
+      }
+      body.phone #seltb button:hover {
+        background: #d2d2d8;
+      }
+      /* menus */
+      .menu {
+        position: fixed;
+        z-index: 60;
+        background: var(--s2);
+        border: 1px solid var(--s4);
+        border-radius: 10px;
+        padding: 4px;
+        min-width: 270px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+      }
+      .menu .mi {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 7px 10px;
+        border-radius: 7px;
+      }
+      .menu .mi:hover {
+        background: var(--s3);
+      }
+      .menu .mi small {
+        display: block;
+        color: var(--fg3);
+        font-size: 11.5px;
+      }
+      .menu .mh {
+        padding: 6px 10px 4px;
+        font-size: 11px;
+        color: var(--fg3);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      /* side pane */
+      #side {
+        width: 420px;
+        flex: none;
+        border-left: 1px solid var(--bd);
+        display: none;
+        flex-direction: column;
+        background: var(--s0);
+        min-width: 0;
+      }
+      #side.open {
+        display: flex;
+      }
+      body.phone #side {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        top: 70px;
+        width: auto;
+        border: 0;
+        border-top: 1px solid var(--s4);
+        border-radius: 18px 18px 0 0;
+        background: var(--s1);
+        box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.6);
+        z-index: 20;
+      }
+      body.phone #side::before {
+        content: "";
+        display: block;
+        width: 38px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--s4);
+        margin: 7px auto 0;
+      }
+      #scrim {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 19;
+      }
+      body.phone #scrim.open {
+        display: block;
+      }
+      body.overlay:not(.phone) #side {
+        position: absolute;
+        right: 26px;
+        bottom: 150px;
+        width: 460px;
+        max-height: 62%;
+        border: 1px solid var(--s4);
+        border-radius: 14px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        background: var(--s1);
+        z-index: 20;
+      }
+      .shead {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--bd);
+        flex: none;
+      }
+      .shead .t {
+        font-weight: 600;
+      }
+      .ro {
+        display: inline-flex;
+        gap: 5px;
+        align-items: center;
+        font-size: 11.5px;
+        color: var(--accentb);
+        border: 1px solid #2c5a43;
+        background: #16261e;
+        border-radius: 999px;
+        padding: 1px 8px;
+      }
+      .ro svg {
+        width: 11px;
+        height: 11px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2.2;
+      }
+      .sfrom {
+        padding: 7px 12px;
+        border-bottom: 1px solid var(--bd);
+        font-size: 12px;
+        color: var(--fg2);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex: none;
+      }
+      .sfrom a {
+        color: var(--fg);
+        text-decoration: underline;
+        text-decoration-color: var(--s4);
+        cursor: pointer;
+      }
+      #sbody {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+      }
+      #sbody .empty {
+        color: var(--fg3);
+        font-size: 13px;
+        padding: 18px 6px;
+        text-align: center;
+      }
+      .sdock {
+        padding: 0 12px 12px;
+        flex: none;
+      }
+      .cache {
+        font-size: 11.5px;
+        color: var(--fg3);
+        padding: 5px 4px 0;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .cache.warn {
+        color: var(--warn);
+      }
+      .cache .d {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accentb);
+      }
+      .cache.warn .d {
+        background: var(--warn);
+      }
+      .typing {
+        color: var(--fg3);
+        font-size: 13px;
+      }
+      .note {
+        font-size: 12px;
+        color: var(--fg2);
+        background: var(--s2);
+        border-radius: 8px;
+        padding: 8px 10px;
+        margin: 6px 0;
+      }
+      .note button {
+        color: var(--accentb);
+        text-decoration: underline;
+      }
+      pre.wire {
+        background: #101013;
+        border: 1px solid var(--bd);
+        border-radius: 8px;
+        padding: 9px;
+        font:
+          12px/1.45 ui-monospace,
+          Menlo,
+          monospace;
+        white-space: pre-wrap;
+        color: #c9c9d1;
+        margin: 0 0 8px;
+      }
+      .toast {
+        position: fixed;
+        bottom: 22px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--s3);
+        border: 1px solid var(--s4);
+        border-radius: 9px;
+        padding: 7px 14px;
+        font-size: 12.5px;
+        z-index: 80;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="proto">
+      <span><b>Prototype</b> · throwaway, canned answers, illustrative prices</span>
+      <span
+        >Layout<span class="seg" data-k="layout"
+          ><button data-v="desktop" class="on">Desktop</button
+          ><button data-v="phone">Phone</button></span
+        ></span
+      >
+      <span
+        >Side question opens in<span class="seg" data-k="surface"
+          ><button data-v="pane" class="on">A · Side pane</button
+          ><button data-v="overlay">B · Overlay</button></span
+        ></span
+      >
+      <span
+        >Cache<span class="seg" data-k="cache"
+          ><button data-v="warm" class="on">Warm</button
+          ><button data-v="cold">Expired</button></span
+        ></span
+      >
+      <span
+        >Agent<span class="seg" data-k="agent"
+          ><button data-v="idle" class="on">Idle</button
+          ><button data-v="busy">Working</button></span
+        ></span
+      >
+      <span style="color: var(--fg3)"
+        >Try: select text in a reply · hover a message · footer icons · the “Side questions” pill ·
+        ask “fix it” in a side question</span
+      >
+    </div>
+    <div id="stage">
+      <div id="app">
+        <div id="sidebar">
+          <div class="h">paseo</div>
+          <div class="w on"><span class="dot run" id="sdot"></span>Fix relay reconnect</div>
+          <div class="w"><span class="dot"></span>Docs cleanup</div>
+          <div class="w"><span class="dot"></span>Release v0.15.921</div>
+        </div>
+        <div id="main">
+          <div class="tabbar">
+            <span class="tab"><span class="dot run" id="tdot"></span>Fix relay reconnect</span
+            ><span class="sp"></span><span>Opus 5.5 · 412k / 1M</span>
+          </div>
+          <div class="scroll" id="mscroll"><div class="col" id="chat"></div></div>
+          <div class="dock">
+            <div class="dockin">
+              <div class="tracks" id="tracks"></div>
+              <div class="composer" id="mcomp">
+                <div class="quotes"></div>
+                <textarea rows="1" placeholder="Message the agent…"></textarea>
+                <div class="crow">
+                  <span class="chip">Opus 5.5</span><span class="chip">Bypass</span
+                  ><span class="sp"></span>
+                  <button class="ib" id="askbtn" title="Ask a side question (⌘⇧A)">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+                      <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 16.5v.1" />
+                    </svg>
+                  </button>
+                  <button class="send" id="msend">↑</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="scrim"></div>
+        <div id="side">
+          <div class="shead">
+            <span class="t">Side question</span
+            ><span class="ro"
+              ><svg viewBox="0 0 24 24">
+                <rect x="5" y="11" width="14" height="9" rx="2" />
+                <path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg
+              >Read-only</span
+            ><span style="flex: 1"></span>
+            <button class="ib" id="smore" title="More">
+              <svg viewBox="0 0 24 24">
+                <circle cx="5" cy="12" r="1" />
+                <circle cx="12" cy="12" r="1" />
+                <circle cx="19" cy="12" r="1" />
+              </svg>
+            </button>
+            <button class="ib" id="sclose" title="Close">
+              <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          </div>
+          <div class="sfrom" id="sfrom"></div>
+          <div id="sbody"></div>
+          <div class="sdock">
+            <div class="composer" id="scomp">
+              <div class="quotes"></div>
+              <textarea rows="1" placeholder="Ask without changing anything…"></textarea>
+              <div class="crow">
+                <span id="smodel">Same model · Opus 5.5</span><span class="sp"></span
+                ><button class="send" id="ssend">↑</button>
+              </div>
+            </div>
+            <div class="cache" id="cacheline"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="seltb"></div>
+    <div class="toast" id="toast"></div>
+    <script>
+      const I = {
+        copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
+        fork: '<svg viewBox="0 0 24 24"><path d="M12 21v-7M12 14c0-4-6-3-6-9M12 14c0-4 6-3 6-9M4 5l2-2 2 2M16 5l2-2 2 2"/></svg>',
+        quote:
+          '<svg viewBox="0 0 24 24"><path d="M10 7H6a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3v1a3 3 0 0 1-3 3M19 7h-4a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3v1a3 3 0 0 1-3 3"/></svg>',
+        ask: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 16.5v.1"/></svg>',
+        rewind: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v5h5"/></svg>',
+        back: '<svg viewBox="0 0 24 24"><path d="M9 14l-5-5 5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg>',
+      };
+      const S = {
+        layout: "desktop",
+        surface: "pane",
+        cache: "warm",
+        agent: "idle",
+        threads: [],
+        cur: null,
+      };
+      const msgs = [
+        {
+          id: "u1",
+          role: "user",
+          text: "The relay drops phones after the laptop sleeps. Find out why and fix it.",
+        },
+        {
+          id: "a1",
+          role: "assistant",
+          tools: [
+            "Read relay-transport.ts",
+            'Grep "reconnect" · 14 matches',
+            "Edit relay-transport.ts",
+          ],
+          text: [
+            "The relay socket is closed by the OS during sleep, but <code>RelayTransport</code> only schedules a reconnect from its <code>close</code> handler, and that handler never fires when the process is frozen mid-handshake.",
+            "I added a wake watchdog: a 15 s heartbeat that compares wall-clock drift. A gap above 45 s means the machine slept, so the transport tears the socket down and reconnects with a fresh Noise handshake instead of resuming the old one.",
+            "The old session keys are discarded on purpose. Reusing them after a long gap would let a replayed handshake message through.",
+          ],
+        },
+        {
+          id: "u2",
+          role: "user",
+          text: "Good. Add a test and make the drift threshold configurable.",
+        },
+        {
+          id: "a2",
+          role: "assistant",
+          tools: [
+            "Edit relay-transport.test.ts",
+            "Edit config-schema.ts",
+            "Bash npx vitest run relay-transport.test.ts · 6 passed",
+          ],
+          text: [
+            "Done. The threshold is now <code>relay.wakeDriftMs</code> in the host config, default 45000, minimum 5000.",
+            "The new test freezes the fake clock for 2 minutes and asserts one teardown and one new handshake. All 6 tests pass.",
+          ],
+        },
+      ];
+      const $ = (s) => document.querySelector(s);
+      const el = (h) => {
+        const t = document.createElement("template");
+        t.innerHTML = h.trim();
+        return t.content.firstChild;
+      };
+      const esc = (s) =>
+        s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+      function toast(t) {
+        const e = $("#toast");
+        e.textContent = t;
+        e.style.display = "block";
+        clearTimeout(toast.t);
+        toast.t = setTimeout(() => (e.style.display = "none"), 2200);
+      }
+      function plain(m) {
+        const d = document.createElement("div");
+        d.innerHTML = Array.isArray(m.text) ? m.text.join("\n\n") : esc(m.text);
+        return d.textContent;
+      }
+      const whoLabel = (q) =>
+        q.from === "side" ? "From a side question" : q.role === "assistant" ? "Claude" : "You";
+      function qCard(q, removable) {
+        return `<div class="q ${q.from === "side" ? "side" : ""}"><div><div class="who">${I.quote}${whoLabel(q)}${q.part ? " · selection" : ""}</div><div class="tx">${esc(q.text)}</div></div>${removable ? '<button class="x" title="Remove quote">✕</button>' : ""}</div>`;
+      }
+      function wire(quotes, text) {
+        const head = (q) =>
+          q.from === "side"
+            ? "[Quoted from your answer to a side question. That exchange is not in this conversation.]"
+            : q.role === "assistant"
+              ? "[Quoted from your earlier reply]"
+              : "[Quoted from my earlier message]";
+        return (
+          quotes
+            .map(
+              (q) =>
+                "> " +
+                head(q) +
+                "\n" +
+                q.text
+                  .split("\n")
+                  .map((l) => "> " + l)
+                  .join("\n"),
+            )
+            .join("\n\n") +
+          (quotes.length ? "\n\n" : "") +
+          text
+        );
+      }
+      function renderMsg(m, target, opts = {}) {
+        let n;
+        if (m.role === "user") {
+          n =
+            el(`<div class="user" data-id="${m.id}"><div class="bubble">${(m.quotes || []).map((q) => qCard(q)).join("")}<span class="msg-text" data-role="user">${esc(m.text)}</span></div>
+      <div class="uactions">${opts.side ? "" : `<button class="ib" data-a="rewind" title="Rewind">${I.rewind}</button>`}<button class="ib" data-a="copy" title="Copy">${I.copy}</button><button class="ib" data-a="quote" title="Quote">${I.quote}</button></div></div>`);
+        } else {
+          n =
+            el(`<div class="asst" data-id="${m.id}">${(m.tools || []).map((t) => `<div class="tool ${t.denied ? "denied" : ""}">${t.denied ? "⛔" : "▸"} ${esc(t.t || t)}</div>`).join("")}
+      <div class="msg-text" data-role="assistant">${m.text.map((p) => `<p>${p}</p>`).join("")}</div>${m.extra || ""}
+      <div class="footer"><button class="ib" data-a="copy" title="Copy">${I.copy}</button>
+      ${
+        opts.side
+          ? `<button class="ib txt" data-a="bring" title="Quote this answer in the main chat">${I.back} Quote in main chat</button><span class="usage">${m.usage || ""}</span>`
+          : `<button class="ib" data-a="fork" title="Fork">${I.fork}</button><button class="ib" data-a="quote" title="Quote">${I.quote}</button><button class="ib" data-a="ask" title="Ask a side question">${I.ask}</button>`
+      }</div></div>`);
+        }
+        n.addEventListener("click", (e) => {
+          const b = e.target.closest("[data-a]");
+          if (!b) return;
+          act(b.dataset.a, m, b, opts);
+        });
+        target.appendChild(n);
+        n.scrollIntoView({ block: "nearest" });
+        return n;
+      }
+      function act(a, m, btn, opts) {
+        if (a === "copy") return toast("Copied");
+        if (a === "rewind" || a === "fork") return toast("Existing action, unchanged");
+        if (a === "quote")
+          return addQuote(opts.side ? "#scomp" : "#mcomp", {
+            role: m.role,
+            text: plain(m),
+            from: opts.side && m.role === "assistant" ? null : null,
+          });
+        if (a === "bring") {
+          addQuote("#mcomp", { role: "assistant", from: "side", text: plain(m) });
+          toast("Quoted in the main chat composer");
+          if (S.layout === "phone" || S.surface === "overlay") closeSide();
+          return;
+        }
+        if (a === "ask") {
+          const last = msgs.filter((x) => x.role === "assistant").at(-1).id === m.id;
+          if (last) return openSide({ point: "latest" });
+          const r = btn.getBoundingClientRect();
+          menu(r.left, r.bottom + 4, [
+            {
+              t: "Ask about this reply",
+              s: "Quotes it. The agent keeps the whole conversation, and the cache is reused.",
+              f: () => openSide({ point: "latest", quote: { role: "assistant", text: plain(m) } }),
+            },
+            {
+              t: "Ask from this point",
+              s: "The agent sees nothing after this reply. Reuses the cache only if this reply is inside the cache window.",
+              f: () => openSide({ point: m.id }),
+            },
+          ]);
+        }
+      }
+      /* composer */
+      const quotes = { "#mcomp": [], "#scomp": [] };
+      function addQuote(sel, q) {
+        quotes[sel].push(q);
+        drawQuotes(sel);
+        $(sel + " textarea").focus();
+      }
+      function drawQuotes(sel) {
+        const box = $(sel + " .quotes");
+        box.innerHTML = quotes[sel].map((q) => qCard(q, true)).join("");
+        box.querySelectorAll(".x").forEach(
+          (x, i) =>
+            (x.onclick = () => {
+              quotes[sel].splice(i, 1);
+              drawQuotes(sel);
+            }),
+        );
+      }
+      function take(sel) {
+        const ta = $(sel + " textarea");
+        const text = ta.value.trim();
+        const qs = quotes[sel];
+        if (!text && !qs.length) return null;
+        ta.value = "";
+        quotes[sel] = [];
+        drawQuotes(sel);
+        return { text, quotes: qs };
+      }
+      /* main send */
+      let uid = 10;
+      function sendMain() {
+        const v = take("#mcomp");
+        if (!v) return;
+        const m = { id: "u" + ++uid, role: "user", text: v.text, quotes: v.quotes };
+        msgs.push(m);
+        renderMsg(m, $("#chat"));
+        setTimeout(() => {
+          const a = {
+            id: "a" + ++uid,
+            role: "assistant",
+            text: [
+              v.quotes.length
+                ? "(Canned.) I can see exactly which passage you mean. This is the prompt I received:"
+                : "(Canned answer.)",
+            ],
+            extra: v.quotes.length ? `<pre class="wire">${esc(wire(v.quotes, v.text))}</pre>` : "",
+          };
+          msgs.push(a);
+          renderMsg(a, $("#chat"));
+        }, 500);
+      }
+      /* side question */
+      function cacheLine() {
+        const c = $("#cacheline");
+        const pt = S.cur && S.cur.point !== "latest";
+        if (S.cache === "cold") {
+          c.className = "cache warn";
+          c.innerHTML =
+            '<span class="d"></span>Cache expired 12 min ago. This question rewrites 412k tokens, about $2.60.';
+          $("#ssend").className = "send wide";
+          $("#ssend").textContent = "Ask anyway";
+        } else if (pt) {
+          c.className = "cache warn";
+          c.innerHTML =
+            '<span class="d"></span>Earlier point, 48 min old, outside the 5 min cache window. Rewrites about 180k tokens, about $1.10.';
+          $("#ssend").className = "send wide";
+          $("#ssend").textContent = "Ask anyway";
+        } else {
+          c.className = "cache";
+          c.innerHTML =
+            '<span class="d"></span>Cache warm. Reads 412k cached tokens, about $0.21 plus the answer.';
+          $("#ssend").className = "send";
+          $("#ssend").textContent = "↑";
+        }
+      }
+      function openSide(o) {
+        let th = o.thread;
+        if (!th) {
+          th = { id: Date.now(), point: o.point, items: [], cost: 0, title: "New side question" };
+          S.threads.unshift(th);
+        }
+        S.cur = th;
+        $("#side").classList.add("open");
+        $("#scrim").classList.add("open");
+        const src = th.point === "latest" ? "latest reply" : "an earlier reply";
+        $("#sfrom").innerHTML =
+          `${I.fork.replace("<svg", '<svg width="13" height="13" stroke="currentColor" fill="none" stroke-width="2"')} Sees <a id="jump">Fix relay reconnect</a> up to the ${src}${S.agent === "busy" && th.point === "latest" ? " · the agent keeps working" : ""}`;
+        $("#jump").onclick = () => toast("Scrolls the main chat to that reply");
+        const b = $("#sbody");
+        b.innerHTML = "";
+        if (!th.items.length)
+          b.innerHTML =
+            '<div class="empty">Ask anything about this conversation.<br>The agent can read files and search, but cannot edit, run commands or message other agents.<br>Nothing here reaches the main chat unless you quote it there.</div>';
+        th.items.forEach((m) => renderMsg(m, b, { side: true }));
+        quotes["#scomp"] = [];
+        drawQuotes("#scomp");
+        if (o.quote) addQuote("#scomp", o.quote);
+        cacheLine();
+        drawTracks();
+        $("#scomp textarea").focus();
+      }
+      function closeSide() {
+        $("#side").classList.remove("open");
+        $("#scrim").classList.remove("open");
+        S.threads = S.threads.filter((t) => t.items.length);
+        S.cur = null;
+        drawTracks();
+      }
+      function sendSide() {
+        const v = take("#scomp");
+        if (!v || !S.cur) return;
+        const th = S.cur,
+          b = $("#sbody");
+        if (!th.items.length) {
+          b.innerHTML = "";
+          th.title = v.text || v.quotes[0].text.slice(0, 60);
+        }
+        const u = { id: "s" + ++uid, role: "user", text: v.text, quotes: v.quotes };
+        th.items.push(u);
+        renderMsg(u, b, { side: true });
+        const t = el('<div class="typing">Answering…</div>');
+        b.appendChild(t);
+        t.scrollIntoView();
+        const wantsEdit = /\b(fix|edit|change|write|commit|run|delete|rename)\b/i.test(v.text);
+        const cold = S.cache === "cold",
+          early = th.point !== "latest";
+        const cost = cold ? 2.63 : early ? 1.12 : th.items.length > 1 ? 0.05 : 0.22;
+        setTimeout(() => {
+          t.remove();
+          const a = {
+            id: "s" + ++uid,
+            role: "assistant",
+            tools: wantsEdit
+              ? [
+                  "Read relay-transport.ts",
+                  {
+                    t: "Edit relay-transport.ts · blocked, side questions are read-only",
+                    denied: true,
+                  },
+                ]
+              : ["Read relay-transport.ts"],
+            text: wantsEdit
+              ? [
+                  "I can’t change files from a side question. The change would be one line in <code>scheduleWakeCheck()</code>: read the threshold from <code>config.relay.wakeDriftMs</code> at call time instead of at construction.",
+                ]
+              : [
+                  "(Canned.) The 45 s threshold is three missed 15 s heartbeats. One or two missed beats happen under normal load when the event loop stalls; three in a row has only been seen after a real sleep.",
+                  "Lowering it makes the transport reconnect during long GC pauses, which costs a full Noise handshake each time.",
+                ],
+            extra: wantsEdit
+              ? '<div class="note">To act on this, <button data-full>continue as a full session</button> (a normal fork with tools), or quote the answer into the main chat.</div>'
+              : "",
+            usage: cold
+              ? "412k written · $2.63"
+              : early
+                ? "232k read · 180k written · $1.12"
+                : th.items.length > 1
+                  ? "414k read · 0.4k written · $0.05"
+                  : "412k read · 0.9k written · $0.22",
+          };
+          th.items.push(a);
+          th.cost += cost;
+          const n = renderMsg(a, b, { side: true });
+          const f = n.querySelector("[data-full]");
+          if (f)
+            f.onclick = () =>
+              toast("Opens a normal fork tab that starts from this side question, with tools on");
+          if (cold) {
+            S.cache = "warm";
+            syncSeg();
+            cacheLine();
+          }
+          drawTracks();
+        }, 900);
+      }
+      /* tracks pill + list */
+      function drawTracks() {
+        const n = S.threads.filter((t) => t.items.length).length;
+        const tr = $("#tracks");
+        tr.innerHTML = n
+          ? `<button class="pill" id="sqpill">${I.ask.replace("<svg", "<svg")}Side questions <span class="n">${n}</span></button>`
+          : "";
+        if (n)
+          $("#sqpill").onclick = (e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            menu(r.left, Math.max(60, r.top - 52 * n - 70), [
+              { h: "Side questions on this chat" },
+              ...S.threads
+                .filter((t) => t.items.length)
+                .map((t) => ({
+                  t: t.title.slice(0, 46) || "Quote",
+                  s: `${(t.items.length / 2) | 0} answer${t.items.length > 3 ? "s" : ""} · $${t.cost.toFixed(2)} · ${t.point === "latest" ? "from latest reply" : "from earlier point"}`,
+                  f: () => openSide({ thread: t }),
+                })),
+              {
+                t: "Archive all",
+                s: "They are also archived with this chat.",
+                f: () => {
+                  S.threads = [];
+                  closeSide();
+                  toast("Archived");
+                },
+              },
+            ]);
+          };
+      }
+      function menu(x, y, items) {
+        document.querySelectorAll(".menu").forEach((m) => m.remove());
+        const m = el('<div class="menu"></div>');
+        items.forEach((i) => {
+          if (i.h) {
+            m.appendChild(el(`<div class="mh">${i.h}</div>`));
+            return;
+          }
+          const b = el(`<button class="mi">${esc(i.t)}<small>${esc(i.s || "")}</small></button>`);
+          b.onclick = () => {
+            m.remove();
+            i.f();
+          };
+          m.appendChild(b);
+        });
+        document.body.appendChild(m);
+        const w = m.offsetWidth;
+        m.style.left = Math.min(x, innerWidth - w - 8) + "px";
+        m.style.top = y + "px";
+        setTimeout(
+          () =>
+            document.addEventListener("mousedown", function h(e) {
+              if (!m.contains(e.target)) {
+                m.remove();
+                document.removeEventListener("mousedown", h);
+              }
+            }),
+          0,
+        );
+      }
+      /* selection toolbar */
+      document.addEventListener("mouseup", (e) => {
+        if (e.target.closest("#seltb")) return;
+        setTimeout(() => {
+          const s = getSelection(),
+            tb = $("#seltb");
+          const t = s.toString().trim();
+          const host =
+            s.anchorNode &&
+            (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement).closest(
+              ".msg-text",
+            );
+          if (!t || !host) {
+            tb.style.display = "none";
+            return;
+          }
+          const inSide = !!host.closest("#side");
+          const role = host.dataset.role;
+          const r = s.getRangeAt(0).getBoundingClientRect();
+          const q = { role, text: t, part: true };
+          const btns = inSide
+            ? [
+                ["Quote", I.quote, () => addQuote("#scomp", q)],
+                [
+                  "Quote in main chat",
+                  I.back,
+                  () => {
+                    addQuote("#mcomp", { ...q, from: "side" });
+                    toast("Quoted in the main chat composer");
+                  },
+                ],
+              ]
+            : [
+                ["Quote", I.quote, () => addQuote("#mcomp", q)],
+                ["Ask aside", I.ask, () => openSide({ point: "latest", quote: q })],
+              ];
+          tb.innerHTML =
+            (S.layout === "phone" ? "<button>Copy</button>" : "") +
+            btns
+              .map(
+                (b, i) =>
+                  `<button data-i="${i}">${S.layout === "phone" ? "" : b[1]}${b[0]}</button>`,
+              )
+              .join("");
+          tb.querySelectorAll("[data-i]").forEach(
+            (b) =>
+              (b.onclick = () => {
+                btns[b.dataset.i][2]();
+                s.removeAllRanges();
+                tb.style.display = "none";
+              }),
+          );
+          tb.style.display = "block";
+          tb.style.left =
+            Math.max(
+              8,
+              Math.min(r.left + r.width / 2 - tb.offsetWidth / 2, innerWidth - tb.offsetWidth - 8),
+            ) + "px";
+          tb.style.top = Math.max(8, r.top - tb.offsetHeight - 8) + "px";
+        }, 0);
+      });
+      /* chrome */
+      function syncSeg() {
+        document
+          .querySelectorAll(".seg")
+          .forEach((g) =>
+            g
+              .querySelectorAll("button")
+              .forEach((b) => b.classList.toggle("on", S[g.dataset.k] === b.dataset.v)),
+          );
+        document.body.classList.toggle("phone", S.layout === "phone");
+        document.body.classList.toggle("overlay", S.surface === "overlay");
+        ["#sdot", "#tdot"].forEach((d) => $(d).classList.toggle("run", S.agent === "busy"));
+        if (S.cur) cacheLine();
+      }
+      document.querySelectorAll(".seg button").forEach(
+        (b) =>
+          (b.onclick = () => {
+            S[b.parentElement.dataset.k] = b.dataset.v;
+            syncSeg();
+          }),
+      );
+      $("#msend").onclick = sendMain;
+      $("#ssend").onclick = sendSide;
+      $("#sclose").onclick = closeSide;
+      $("#scrim").onclick = closeSide;
+      $("#askbtn").onclick = () => openSide({ point: "latest" });
+      $("#smore").onclick = (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        menu(r.right - 270, r.bottom + 4, [
+          {
+            t: "Continue as a full session",
+            s: "A normal fork tab from this side question, with tools on.",
+            f: () => toast("Opens a normal fork tab"),
+          },
+          {
+            t: "Archive",
+            s: "Removes it from the Side questions list.",
+            f: () => {
+              S.threads = S.threads.filter((t) => t !== S.cur);
+              closeSide();
+            },
+          },
+        ]);
+      };
+      document.querySelectorAll("textarea").forEach((t) =>
+        t.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            (t.closest("#scomp") ? sendSide : sendMain)();
+          }
+        }),
+      );
+      document.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "a") {
+          e.preventDefault();
+          openSide({ point: "latest" });
+        }
+        if (e.key === "Escape" && S.cur) closeSide();
+      });
+      const p = new URLSearchParams(location.search);
+      ["layout", "surface", "cache", "agent"].forEach((k) => {
+        if (p.get(k)) S[k] = p.get(k);
+      });
+      msgs.forEach((m) => renderMsg(m, $("#chat")));
+      syncSeg();
+      drawTracks();
+      $("#mscroll").scrollTop = 1e6;
+    </script>
+  </body>
+</html>

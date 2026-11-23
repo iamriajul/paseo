@@ -83,6 +83,7 @@ import { lookupModelsDevModel } from "../../models-dev/catalog.js";
 import { withTimeout } from "../../../utils/promise-timeout.js";
 import { execCommand } from "../../../utils/spawn.js";
 import { mapOpencodeToolCall } from "./opencode/tool-call-mapper.js";
+import { resolveOpenCodeQuotaResetAt } from "./opencode/quota-reset.js";
 import {
   OPENCODE_EVENT_STREAM_READY_TIMEOUT_MS,
   OpenCodeServerManager,
@@ -3280,10 +3281,12 @@ function appendOpenCodeSessionError(
       reason: "interrupted",
     });
   } else {
+    const resetsAt = resolveOpenCodeQuotaResetAt(error, new Date());
     events.push({
       type: "turn_failed",
       provider: "opencode",
       error: toDiagnosticErrorMessage(error),
+      ...(resetsAt ? { rateLimitResetsAt: resetsAt.toISOString() } : {}),
     });
   }
 }

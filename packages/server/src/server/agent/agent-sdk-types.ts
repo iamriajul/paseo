@@ -456,6 +456,12 @@ export type AgentStreamEvent =
       code?: string;
       diagnostic?: string;
       turnId?: string;
+      /**
+       * ISO time the account's quota resets, when the turn failed on a used-up quota and the
+       * provider knows when it comes back. Each provider fills it from its own error shape; the
+       * daemon's rate-limit auto-resume schedules from it. Not sent to clients.
+       */
+      rateLimitResetsAt?: string;
     }
   | { type: "turn_canceled"; provider: AgentProvider; reason: string; turnId?: string }
   | {

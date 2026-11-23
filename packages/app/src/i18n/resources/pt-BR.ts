@@ -3341,7 +3341,7 @@ export const ptBR: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "Retomada automática em limites de taxa",
-        hint: "Retoma um agente quando termina o resfriamento por limite de uso. Só funciona se as requisições passarem pelo iamriajul/CLIProxyAPI, o fork que escreve no erro o horário de fim do resfriamento (RETRY_AFTER). Os erros da Anthropic, da OpenAI e do CLIProxyAPI original não trazem esse horário, então sem esse fork nada é retomado.",
+        hint: "Retoma um agente quando termina o resfriamento por limite de taxa ou o limite de uso. O Codex informa quando um limite do ChatGPT esgotado é redefinido, e o OpenCode também, quando o erro do provedor traz o horário. Claude e os outros agentes precisam que as requisições passem pelo iamriajul/CLIProxyAPI, o fork que escreve no erro o horário de fim do resfriamento (RETRY_AFTER); sem ele, não retomam.",
         accessibilityLabel: "Retomada automática em limites de taxa",
         error: "Não foi possível atualizar a configuração de retomada automática",
       },

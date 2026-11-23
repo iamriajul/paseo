@@ -6106,6 +6106,69 @@ test("a warm-up turn that meets a 429 schedules no rate-limit auto-resume", asyn
   }
 });
 
+test("a failed turn schedules the auto-resume at the reset time its provider reported", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-reset-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const resetsAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+  // As Codex reports a ChatGPT usage limit: no RETRY_AFTER marker, the reset comes from the provider.
+  const usageLimit =
+    "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 4:45 PM.";
+  class UsageLimitedSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = "turn-usage-limit";
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "turn_failed",
+          provider: this.provider,
+          turnId,
+          error: usageLimit,
+          rateLimitResetsAt: resetsAt,
+        });
+      }, 0);
+      return { turnId };
+    }
+  }
+  class UsageLimitedClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new UsageLimitedSession(config);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new UsageLimitedClient() },
+    registry: storage,
+    logger,
+  });
+  const { AgentRateLimitAutoResumeManager } = await import("./agent-rate-limit-auto-resume.js");
+  const autoResume = new AgentRateLimitAutoResumeManager({
+    paseoHome: workdir,
+    agentManager: manager,
+    agentStorage: storage,
+    daemonConfigStore: { get: () => ({}) as never },
+    logger,
+    sendPrompt: vi.fn(),
+  });
+  manager.setRateLimitAutoResumeManager(autoResume);
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    await expect(manager.runAgent(snapshot.id, "build the MCP")).rejects.toThrow(/usage limit/);
+    await manager.flush();
+    await vi.waitFor(() =>
+      expect(autoResume.getPending(snapshot.id)?.scheduledFor.toISOString()).toBe(resetsAt),
+    );
+    expect(manager.getAgent(snapshot.id)?.rateLimitCooldown).toMatchObject({
+      scheduledFor: resetsAt,
+    });
+    await manager.closeAgent(snapshot.id);
+  } finally {
+    autoResume.cancelAll();
+    await autoResume.waitForPersistence();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("a cache warm-up turn keeps the warm-up count through its own start", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-warm-turn-order-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

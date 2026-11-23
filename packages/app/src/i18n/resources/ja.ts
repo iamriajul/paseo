@@ -3327,7 +3327,7 @@ export const ja: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "レート制限時の自動再開",
-        hint: "レート制限のクールダウンが終わったらエージェントを再開します。リクエストが iamriajul/CLIProxyAPI を経由する場合にのみ動作します。このフォークはクールダウンの終了時刻 (RETRY_AFTER) をエラーに書き込みます。Anthropic、OpenAI、オリジナルの CLIProxyAPI のエラーには含まれないため、このフォークがないと再開されません。",
+        hint: "レート制限のクールダウンや使用量の上限が終わったらエージェントを再開します。Codex は使い切った ChatGPT の上限がリセットされる時刻を伝え、OpenCode もプロバイダーのエラーに時刻が含まれていれば伝えます。Claude などほかのエージェントは、リクエストが iamriajul/CLIProxyAPI を経由する必要があります。このフォークはクールダウンの終了時刻 (RETRY_AFTER) をエラーに書き込みます。経由しない場合は再開されません。",
         accessibilityLabel: "レート制限時の自動再開",
         error: "自動再開設定を更新できませんでした",
       },

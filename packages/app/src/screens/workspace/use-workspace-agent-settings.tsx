@@ -177,7 +177,7 @@ export function WorkspaceAgentSettingsModal({
                     )
                   : t(
                       "workspace.agentSettings.rateLimitAutoResumeHint",
-                      "Resume this agent once its rate-limit cooldown ends. Needs iamriajul/CLIProxyAPI, which reports when the cooldown ends.",
+                      "Resume this agent once its rate-limit cooldown ends. Codex reports when its limit resets; other agents need iamriajul/CLIProxyAPI, which reports when the cooldown ends.",
                     )}
               </Text>
             </View>

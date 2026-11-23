@@ -5728,6 +5728,23 @@ export class AgentManager {
     }
   }
 
+  // The provider's own reset time wins; the gateway's RETRY_AFTER marker in the text covers a
+  // provider that cannot read one from its error.
+  private scheduleRateLimitResumeAfterFailure(
+    agentId: string,
+    event: Extract<AgentStreamEvent, { type: "turn_failed" }>,
+    failureMessage: string,
+  ): void {
+    const manager = this.rateLimitAutoResumeManager;
+    if (!manager) return;
+    if (event.rateLimitResetsAt && manager.scheduleAt(agentId, new Date(event.rateLimitResetsAt))) {
+      return;
+    }
+    for (const text of [event.error, event.diagnostic, failureMessage]) {
+      if (text && manager.scheduleIfNeeded(agentId, text)) return;
+    }
+  }
+
   private async checkRateLimitAutoResumeOnIdle(agentId: string): Promise<void> {
     if (!this.rateLimitAutoResumeManager) return;
     try {
@@ -5954,14 +5971,8 @@ export class AgentManager {
     const failureMessage = this.formatTurnFailedMessage(event);
     await this.appendSystemErrorTimelineMessage(agent, event.provider, failureMessage, options);
     // A failed warm ping has no work to resume; auto-resume would send a real "continue".
-    const failureCandidates = agent.activeTurnIsWarmPing
-      ? []
-      : [event.error, event.diagnostic, failureMessage];
-    for (const text of failureCandidates) {
-      if (text && this.rateLimitAutoResumeManager?.scheduleIfNeeded(agent.id, text)) {
-        break;
-      }
-    }
+    if (!agent.activeTurnIsWarmPing)
+      this.scheduleRateLimitResumeAfterFailure(agent.id, event, failureMessage);
     this.resolvePendingPermissionsForAgent(agent, event.provider, options, "Turn failed");
     if (!isForegroundEvent && !agent.activeForegroundTurnId) {
       this.emitState(agent);

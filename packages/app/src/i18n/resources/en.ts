@@ -819,7 +819,7 @@ export const en = {
       title: "Agent settings",
       rateLimitAutoResume: "Auto-resume on rate limits",
       rateLimitAutoResumeHint:
-        "Resume this agent once its rate-limit cooldown ends. Needs iamriajul/CLIProxyAPI, which reports when the cooldown ends.",
+        "Resume this agent once its rate-limit cooldown ends. Codex reports when its limit resets; other agents need iamriajul/CLIProxyAPI, which reports when the cooldown ends.",
       disabledGloballyHint: "Disabled globally in Host Settings",
     },
     tabs: {
@@ -3427,7 +3427,7 @@ export const en = {
       },
       rateLimitAutoResume: {
         title: "Auto-resume on rate limits",
-        hint: "Resume an agent once its rate-limit cooldown ends. Works only when its requests go through iamriajul/CLIProxyAPI, the fork that writes the cooldown's end time (RETRY_AFTER) into the error. Anthropic, OpenAI and upstream CLIProxyAPI errors don't include it, so without that fork nothing resumes.",
+        hint: "Resume an agent once its rate-limit cooldown or usage limit ends. Codex says when a used-up ChatGPT limit resets, and OpenCode does when the provider's error carries the time. Claude and other agents need their requests to go through iamriajul/CLIProxyAPI, the fork that writes the cooldown's end time (RETRY_AFTER) into the error; without it they don't resume.",
         accessibilityLabel: "Auto-resume on rate limits",
         error: "Unable to update auto-resume setting",
       },

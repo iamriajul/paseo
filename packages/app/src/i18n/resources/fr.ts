@@ -1429,6 +1429,7 @@ export const fr: TranslationResources = {
     },
     display: {
       showBackground: "Afficher les espaces en arrière-plan",
+      warmCacheOnly: "Cache chaud uniquement",
       trigger: "Préférences d’affichage",
       heading: "Affichage",
       sort: {

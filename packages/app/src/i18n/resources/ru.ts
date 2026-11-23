@@ -1417,6 +1417,7 @@ export const ru: TranslationResources = {
     },
     display: {
       showBackground: "Показать фоновые пространства",
+      warmCacheOnly: "Только с тёплым кэшем",
       trigger: "Настройки отображения",
       heading: "Отображение",
       sort: {

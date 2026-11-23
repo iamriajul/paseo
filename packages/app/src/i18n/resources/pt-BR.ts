@@ -1424,6 +1424,7 @@ export const ptBR: TranslationResources = {
     },
     display: {
       showBackground: "Mostrar espaços em segundo plano",
+      warmCacheOnly: "Somente com cache ativo",
       trigger: "Preferências de exibição",
       heading: "Exibição",
       sort: {

@@ -338,6 +338,20 @@ export function resolvePromptCacheView(
 }
 
 /**
+ * When the agent's prompt cache expires: its last request plus the cache window it wrote at. Null
+ * for an agent with no cache to judge (not Claude, no request yet, or Automatic with no TTL seen).
+ * A running turn counts like an idle agent: its cache is warm until this instant whatever it does.
+ */
+export function resolvePromptCacheExpiresAtMs(agent: Agent): number | null {
+  if (agent.provider !== "claude" || !isClaudeModel(agent.model ?? agent.runtimeInfo?.model)) {
+    return null;
+  }
+  const facts = readAgentCacheFacts(agent);
+  if (!facts.windows || facts.anchorMs === null) return null;
+  return facts.anchorMs + facts.windows.cacheWindowMs;
+}
+
+/**
  * The current time, re-rendering once a second while `active` so a countdown can show seconds.
  * It reads the clock on every render rather than holding the last tick: a value held while
  * nothing ticked goes stale, and the next state change would be judged against it.

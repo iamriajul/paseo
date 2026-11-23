@@ -50,6 +50,8 @@ interface SidebarViewStoreState {
   groupMode: SidebarGroupMode;
   workspaceSort: WorkspaceSort;
   showBackground: boolean;
+  /** Only workspaces with an agent whose prompt cache is still inside its window. */
+  warmCacheOnly: boolean;
   // Empty means "all hosts". A non-empty list pins the sidebar to those hosts.
   hostFilters: string[];
   /**
@@ -65,6 +67,8 @@ interface SidebarViewStoreState {
   projectFilters: string[];
   labelFilter: SidebarLabelFilter;
   toggleBackground: () => void;
+  toggleWarmCacheOnly: () => void;
+  clearWarmCacheOnly: () => void;
   setGroupMode: (mode: SidebarGroupMode) => void;
   setWorkspaceSort: (sort: WorkspaceSort) => void;
   toggleHostFilter: (serverId: string) => void;
@@ -81,6 +85,7 @@ interface SidebarViewPersistedState {
   groupMode: SidebarGroupMode;
   workspaceSort: WorkspaceSort;
   showBackground: boolean;
+  warmCacheOnly: boolean;
   hostFilters: string[];
   projectFilters: string[];
   labelFilter: SidebarLabelFilter;
@@ -93,6 +98,7 @@ const SidebarLabelFilterSchema = z.object({
 const SidebarViewPersistedStateSchema = z.strictObject({
   workspaceSort: z.enum(["manual", "created", "lastPrompt"]).optional(),
   showBackground: z.boolean().optional(),
+  warmCacheOnly: z.boolean().optional(),
   groupMode: PersistedSidebarGroupModeSchema.optional(),
   hostFilters: z.array(z.string()).optional(),
   hostFilter: z.string().nullable().optional(),
@@ -132,6 +138,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
   if (!result.success) {
     return {
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: "project",
       workspaceSort: "created",
       hostFilters: [],
@@ -145,6 +152,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
   if (legacyGroupMode) {
     return {
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: legacyGroupMode,
       workspaceSort: "created",
       hostFilters: [],
@@ -155,6 +163,7 @@ export function migrateSidebarViewState(persistedState: unknown): SidebarViewPer
 
   return {
     showBackground: state.showBackground ?? false,
+    warmCacheOnly: state.warmCacheOnly ?? false,
     groupMode: state.groupMode === "status" ? "status" : "project",
     workspaceSort: state.workspaceSort ?? "created",
     hostFilters: readHostFilters(state),
@@ -194,12 +203,15 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
   persist(
     (set) => ({
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: "project",
       workspaceSort: "created",
       hostFilters: [],
       projectFilters: [],
       labelFilter: emptyLabelFilter(),
       toggleBackground: () => set((state) => ({ showBackground: !state.showBackground })),
+      toggleWarmCacheOnly: () => set((state) => ({ warmCacheOnly: !state.warmCacheOnly })),
+      clearWarmCacheOnly: () => set({ warmCacheOnly: false }),
       setGroupMode: (mode) => set({ groupMode: mode }),
       setWorkspaceSort: (workspaceSort) => set({ workspaceSort }),
       toggleHostFilter: (serverId) =>
@@ -248,6 +260,7 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       ),
       partialize: (state) => ({
         showBackground: state.showBackground ?? false,
+        warmCacheOnly: state.warmCacheOnly,
         groupMode: state.groupMode,
         workspaceSort: state.workspaceSort,
         hostFilters: state.hostFilters,

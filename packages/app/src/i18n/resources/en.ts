@@ -1411,6 +1411,7 @@ export const en = {
     },
     display: {
       showBackground: "Show background",
+      warmCacheOnly: "Warm cache only",
       trigger: "Display preferences",
       heading: "Display",
       sort: {

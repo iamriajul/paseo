@@ -2193,3 +2193,13 @@ grep -q "build:source-editor-webview" packages/app/package.json
 ```bash
 grep -q 'initialPrompt: "emit 120 agent stream updates for auto-scroll setup."' packages/app/e2e/browser/agent-stream-ui.spec.ts
 ```
+
+## autocomplete-e2e-empty-host
+
+**the "before a project is chosen" autocomplete e2e empties the worker's host first**
+
+New workspace selects a host project by itself (`resolveInitialWorkspaceProject` falls back to the first project), so "Choose project" lasts only while the project list loads on a host that has any. `composer-autocomplete.spec.ts` "keeps New workspace off the running-agent command list before a project is chosen" asserted "Choose project", typed `/`, and expected "Choose a project to see commands". It passed only when no earlier test on the same worker had left a project behind. `projectOwnership` in `e2e/support/fixtures.ts` diffs the projects of live workspaces, so a project whose workspace is gone is not caught as a leak. The test now removes every project on the worker's host before it opens New workspace. With one project seeded first, the old shape fails every time (the popover lists that project's commands) and the new one passes.
+
+```bash
+grep -q "for (const project of projects) await e2eWorkerClient.removeProject(project.projectId);" packages/app/e2e/browser/composer-autocomplete.spec.ts
+```

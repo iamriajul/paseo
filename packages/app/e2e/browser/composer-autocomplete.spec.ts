@@ -421,7 +421,13 @@ test.describe("Composer autocomplete", () => {
 
   test("keeps New workspace off the running-agent command list before a project is chosen", async ({
     page,
+    e2eWorkerClient,
   }) => {
+    // New workspace picks a host project by itself, so "Choose project" lasts only while the
+    // project list loads on a host that has any. The worker's host is shared with the tests
+    // before this one; empty it so the screen stays on "Choose project".
+    const { projects } = await e2eWorkerClient.listProjects();
+    for (const project of projects) await e2eWorkerClient.removeProject(project.projectId);
     const commandRequestsByAgentId = recordCommandRequestsByAgentId(page);
 
     await page.goto("/new");

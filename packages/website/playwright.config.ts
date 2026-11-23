@@ -18,13 +18,19 @@ export default defineConfig({
           url: "http://127.0.0.1:8188/index.json",
         },
         {
+          command: "node e2e/github-server.mjs",
+          url: "http://127.0.0.1:8189/repos/getpaseo/paseo",
+        },
+        {
           command: "npm run build && npm run preview -- --host 127.0.0.1 --port 8187 --strictPort",
-          // Probe the server without running the homepage loader's live GitHub requests.
+          // Probe a static file so readiness never waits on an SSR loader.
           url: new URL("/logo.svg", baseURL).href,
           stdout: "pipe",
           env: {
             CLOUDFLARE_INCLUDE_PROCESS_ENV: "true",
             PLUGINS_REGISTRY_URL: "http://127.0.0.1:8188",
+            // Every page's root loader reads GitHub: a live GitHub failure is a 500 on every page.
+            GITHUB_API_URL: "http://127.0.0.1:8189",
           },
         },
       ],

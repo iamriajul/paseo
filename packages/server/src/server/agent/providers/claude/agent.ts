@@ -1256,6 +1256,13 @@ function claudeModeCatalog(env: NodeJS.ProcessEnv): {
   return { modes: DEFAULT_MODES, defaultModeId: "auto" };
 }
 
+const EARLIER_SESSIONS_COST_METADATA_KEY = "earlierSessionsCostUsd";
+
+function readEarlierSessionsCostUsd(metadata: AgentMetadata | undefined): number {
+  const value = isMetadata(metadata) ? metadata[EARLIER_SESSIONS_COST_METADATA_KEY] : undefined;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 function coerceSessionMetadata(metadata: AgentMetadata | undefined): Partial<AgentSessionConfig> {
   if (!isMetadata(metadata)) {
     return {};
@@ -2857,6 +2864,15 @@ class ClaudeAgentSession implements AgentSession {
   /** From the first `compacting` status to the compact boundary or the end of the turn. */
   private compactionMarkerOpen = false;
   private queryPumpPromise: Promise<void> | null = null;
+  private queryEnsure: Promise<Query> | null = null;
+  /**
+   * Claude Code's running cost lives in its session's transcript, so a rewind or a fresh session,
+   * which moves the agent to a new session id, restarts it at zero. This holds what the sessions
+   * the agent left had cost, persisted in the handle's metadata, and every reported total adds it.
+   */
+  private earlierSessionsCostUsd = 0;
+  /** The current Claude session's own total, as its latest result reported it. */
+  private sessionCostUsd = 0;
   private queryRestartNeeded = false;
   private pendingInterruptAbort = false;
   /**
@@ -2920,6 +2936,7 @@ class ClaudeAgentSession implements AgentSession {
       this.claudeSessionId = handle.sessionId;
       this.persistence = handle;
       this.historySessionId = handle.sessionId;
+      this.earlierSessionsCostUsd = readEarlierSessionsCostUsd(handle.metadata);
     } else {
       this.claudeSessionId = null;
       this.persistence = null;
@@ -3594,7 +3611,12 @@ class ClaudeAgentSession implements AgentSession {
       provider: "claude",
       sessionId: this.claudeSessionId,
       nativeHandle: this.claudeSessionId,
-      metadata: { ...persistedConfig },
+      metadata: {
+        ...persistedConfig,
+        ...(this.earlierSessionsCostUsd > 0
+          ? { [EARLIER_SESSIONS_COST_METADATA_KEY]: this.earlierSessionsCostUsd }
+          : {}),
+      },
     };
     return this.persistence;
   }
@@ -3989,7 +4011,14 @@ class ClaudeAgentSession implements AgentSession {
     return candidates;
   }
 
+  /** The session the agent is leaving keeps what it cost in the agent's total. */
+  private carrySessionCost(): void {
+    this.earlierSessionsCostUsd += this.sessionCostUsd;
+    this.sessionCostUsd = 0;
+  }
+
   private rebindConversationSession(sessionId: string): Promise<void> {
+    if (sessionId !== this.claudeSessionId) this.carrySessionCost();
     const previousReady = this.ensureHistoryReady();
     const rebind = (async () => {
       await previousReady;
@@ -4034,6 +4063,7 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private startFreshConversationSession(): void {
+    this.carrySessionCost();
     this.historySessionId = null;
     this.historyReady = Promise.resolve();
     const sessionId = randomUUID();
@@ -4300,7 +4330,29 @@ class ClaudeAgentSession implements AgentSession {
     }
   }
 
-  private async ensureQuery(launchMode: PermissionMode = this.currentMode): Promise<Query> {
+  /**
+   * One caller at a time decides whether to start the Claude process. The check below waits on
+   * history and options before it sets `this.query`, so two callers arriving together (the app's
+   * command list and a turn, right after a resume) each started a process, and the overwritten
+   * one idled until the daemon stopped. Both wrote Claude Code's running cost on exit, the idle
+   * one last with the total it restored at launch, so the next resume dropped what the turn spent.
+   */
+  private ensureQuery(launchMode: PermissionMode = this.currentMode): Promise<Query> {
+    const pending = this.queryEnsure;
+    if (pending) {
+      return pending.then(
+        () => this.ensureQuery(launchMode),
+        () => this.ensureQuery(launchMode),
+      );
+    }
+    const ensure = this.ensureQueryNow(launchMode).finally(() => {
+      if (this.queryEnsure === ensure) this.queryEnsure = null;
+    });
+    this.queryEnsure = ensure;
+    return ensure;
+  }
+
+  private async ensureQueryNow(launchMode: PermissionMode): Promise<Query> {
     await this.ensureHistoryReady();
     // Controls use the running turn's query. Pending launch settings take effect
     // after that turn finishes, when its active query handle has been cleared.
@@ -6135,7 +6187,13 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private convertUsage(message: SDKResultMessage): AgentUsage | undefined {
-    return this.contextUsage.buildResultUsage(message, this.lastRuntimeModel ?? this.config.model);
+    const usage = this.contextUsage.buildResultUsage(
+      message,
+      this.lastRuntimeModel ?? this.config.model,
+    );
+    if (usage?.totalCostUsd === undefined) return usage;
+    this.sessionCostUsd = usage.totalCostUsd;
+    return { ...usage, totalCostUsd: this.earlierSessionsCostUsd + usage.totalCostUsd };
   }
 
   private handlePermissionRequest: CanUseTool = async (

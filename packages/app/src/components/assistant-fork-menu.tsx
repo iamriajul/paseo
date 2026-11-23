@@ -16,7 +16,7 @@ export type AssistantForkTarget = "tab" | "workspace" | "native-tab";
 
 interface AssistantForkMenuProps {
   onFork: (target: AssistantForkTarget) => Promise<void> | void;
-  /** When true, offer Claude SDK native fork as an experimental menu item. */
+  /** When true, offer the provider's native fork (Claude, Codex) as an experimental menu item. */
   showNativeTabOption?: boolean;
   testID?: string;
 }

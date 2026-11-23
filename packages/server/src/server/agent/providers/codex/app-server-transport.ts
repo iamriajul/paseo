@@ -71,6 +71,8 @@ type UnexpectedTerminationHandler = (error: Error) => void;
 export interface CodexThreadForkParams {
   threadId: string;
   beforeTurnId?: string | null;
+  /** Fork through this turn, inclusive; later turns stay out of the fork. */
+  lastTurnId?: string | null;
   path?: string | null;
   model?: string | null;
   modelProvider?: string | null;

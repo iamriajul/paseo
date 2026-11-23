@@ -755,6 +755,72 @@ describe("ClaudeAgentClient binary resolution", () => {
     await session.close();
   });
 
+  // The PA session (2026-11-16 to 19): the app's command list and a turn reached a resumed session
+  // together, each started its own Claude process, and the idle one outlived the turn. Both wrote
+  // their running cost on exit, the idle one last, so the next resume restored a total $484 short.
+  test("starts one Claude process when callers ask for the query at the same time", async () => {
+    const queryFactory = vi.fn(() => ({
+      close: vi.fn(),
+      return: vi.fn().mockResolvedValue(undefined),
+    }));
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession({ provider: "claude", cwd: process.cwd() });
+    const ensureQuery = (
+      session as unknown as { ensureQuery(): Promise<unknown> }
+    ).ensureQuery.bind(session);
+
+    const [first, second, third] = await Promise.all([ensureQuery(), ensureQuery(), ensureQuery()]);
+
+    expect(queryFactory).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    await session.close();
+  });
+
+  // The PA session: a rewind on 2026-11-19 and another on 2026-11-23 each moved it to a fork whose
+  // Claude Code total started at zero, so the reported cost fell from $1,378 to $7.
+  test("keeps the cost of the Claude sessions a rewind or fresh session left, across a resume", async () => {
+    interface CostInternals {
+      convertUsage(message: unknown): { totalCostUsd?: number } | undefined;
+      startFreshConversationSession(): void;
+    }
+    const result = (totalCostUsd: number) => ({
+      type: "result",
+      subtype: "success",
+      total_cost_usd: totalCostUsd,
+      usage: { input_tokens: 1, cache_read_input_tokens: 0, output_tokens: 1 },
+      modelUsage: {},
+    });
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory: vi.fn(),
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.resumeSession({
+      provider: "claude",
+      sessionId: "session-before-rewind",
+      metadata: { provider: "claude", cwd: process.cwd() },
+    });
+    const internals = session as unknown as CostInternals;
+    expect(internals.convertUsage(result(1378.95))?.totalCostUsd).toBe(1378.95);
+
+    internals.startFreshConversationSession();
+    expect(internals.convertUsage(result(7.21))?.totalCostUsd).toBeCloseTo(1386.16, 2);
+    const handle = session.describePersistence();
+    expect(handle?.metadata?.earlierSessionsCostUsd).toBe(1378.95);
+    await session.close();
+
+    const resumed = await client.resumeSession(handle!);
+    expect(
+      (resumed as unknown as CostInternals).convertUsage(result(44.09))?.totalCostUsd,
+    ).toBeCloseTo(1423.04, 2);
+    await resumed.close();
+  });
+
   test("uses the replace-command override binary when claude is not on PATH", async () => {
     const customClaudePath = "/path/to/custom-claude";
     vi.spyOn(executableUtils, "findExecutable").mockImplementation(async (name: string) => {

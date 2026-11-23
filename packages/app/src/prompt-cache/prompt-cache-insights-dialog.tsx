@@ -279,6 +279,33 @@ export function describeCompaction(compaction: PromptCacheCompaction): string {
     : `${source} · ${formatTokenCount(compaction.preTokens)} before`;
 }
 
+/** The bar the selection points at, and the requests the list shows under it. */
+function selectListRequests(input: {
+  columns: InsightsColumn[];
+  requests: PromptCacheHistoryEntry[];
+  selection: ColumnKey | null;
+  filter: RequestFilter;
+}): {
+  selected: number | null;
+  selectedColumn: InsightsColumn | null;
+  listRequests: PromptCacheHistoryEntry[];
+  filtered: PromptCacheHistoryEntry[];
+} {
+  const { columns, requests, selection, filter } = input;
+  const index = selection
+    ? columns.findIndex(
+        (column) => column.at === selection.at && column.requests === selection.requests,
+      )
+    : -1;
+  const selected = index === -1 ? null : index;
+  const selectedColumn = selected === null ? null : (columns[selected] ?? null);
+  const listRequests = selectedColumn
+    ? requests.slice(selectedColumn.startIndex, selectedColumn.endIndex)
+    : requests;
+  const filtered = listRequests.filter((entry) => matchesRequestFilter(entry, filter)).toReversed();
+  return { selected, selectedColumn, listRequests, filtered };
+}
+
 /**
  * The session as something to explore: every figure describes the range on screen, a bar opens
  * its requests below the chart, and zooming into a bar redraws the chart over just those
@@ -341,17 +368,12 @@ function InsightsExplorer({
     [zoomStack.length, data, cacheWindowMs, price, insights.cost],
   );
 
-  const selectedIndex = selection
-    ? insights.columns.findIndex(
-        (column) => column.at === selection.at && column.requests === selection.requests,
-      )
-    : -1;
-  const selected = selectedIndex === -1 ? null : selectedIndex;
-  const selectedColumn = selected === null ? null : (insights.columns[selected] ?? null);
-  const listRequests = selectedColumn
-    ? slice.requests.slice(selectedColumn.startIndex, selectedColumn.endIndex)
-    : slice.requests;
-  const filtered = listRequests.filter((entry) => matchesRequestFilter(entry, filter)).toReversed();
+  const { selected, selectedColumn, listRequests, filtered } = selectListRequests({
+    columns: insights.columns,
+    requests: slice.requests,
+    selection,
+    filter,
+  });
   const datedList = spansSeveralDays(filtered.map((entry) => entry.at));
   const datedCompactions = spansSeveralDays(insights.compactions.map((entry) => entry.at));
 
@@ -401,6 +423,10 @@ function InsightsExplorer({
     [data.requests, data.warmUpStops, cacheWindowMs],
   );
   const withoutCache = useMemo(() => summarizeRequestsWithoutCache(data.requests), [data.requests]);
+  const inferred = useMemo(
+    () => data.requests.some((request) => request.writeInferred === true),
+    [data.requests],
+  );
   return (
     <View style={styles.content}>
       <RangeBar
@@ -418,6 +444,12 @@ function InsightsExplorer({
       {withoutCache ? (
         <Text style={styles.note} testID="prompt-cache-insights-without-cache">
           {describeRequestsWithoutCache(withoutCache)}
+        </Text>
+      ) : null}
+      {inferred ? (
+        <Text style={styles.note} testID="prompt-cache-insights-inferred">
+          Inferred: Codex reports only the input each request read from the cache. Input it did not
+          read counts as written, and hits and misses follow from the reads.
         </Text>
       ) : null}
       <View style={styles.tiles}>

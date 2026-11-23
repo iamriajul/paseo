@@ -579,6 +579,34 @@ describe("agent-cache-warm protocol utilities", () => {
   });
 });
 
+describe("inferred cache writes (Codex)", () => {
+  function inferred(at: string, readTokens: number, writeTokens: number): PromptCacheRequestSample {
+    return {
+      at,
+      turnId: at,
+      isWarmPing: false,
+      readTokens,
+      writeTokens,
+      uncachedTokens: 0,
+      writeInferred: true,
+    };
+  }
+
+  it("keeps the inferred flag on the entry and judges a cold request a miss", () => {
+    let state = recordPromptCacheRequest(undefined, inferred("2026-11-23T10:00:00Z", 0, 80_000));
+    state = recordPromptCacheRequest(state, inferred("2026-11-23T10:02:00Z", 79_900, 600));
+    state = recordPromptCacheRequest(state, inferred("2026-11-23T11:00:00Z", 0, 81_000));
+
+    expect(state.history?.map((entry) => entry.writeInferred)).toEqual([true, true, true]);
+    expect(state.history?.map((entry) => isAvoidablePromptCacheMiss(entry))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(state.totals).toEqual({ requests: 2, hits: 1, misses: 1 });
+  });
+});
+
 describe("findGatewaySwitchMiss", () => {
   const FIVE_MINUTES_MS = 5 * 60 * 1000;
   function entry(at: string, hit: boolean): GatewaySwitchEntry {

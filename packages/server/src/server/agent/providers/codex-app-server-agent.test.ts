@@ -8329,3 +8329,71 @@ describe("Codex usage-limit reset", () => {
     expect(failed?.rateLimitResetsAt).toBeUndefined();
   });
 });
+
+describe("Codex prompt-cache requests", () => {
+  function tokenUsage(input: { total: number; inputTokens: number; cached: number }) {
+    const breakdown = (totalTokens: number) => ({
+      totalTokens,
+      inputTokens: input.inputTokens,
+      cachedInputTokens: input.cached,
+      cacheWriteInputTokens: 0,
+      outputTokens: 200,
+      reasoningOutputTokens: 0,
+    });
+    return {
+      threadId: "test-thread",
+      turnId: "native-turn",
+      tokenUsage: {
+        total: breakdown(input.total),
+        last: breakdown(input.inputTokens + 200),
+        modelContextWindow: 400_000,
+      },
+    };
+  }
+
+  function requestCaches(events: AgentStreamEvent[]) {
+    return events.flatMap((event) =>
+      event.type === "usage_updated" && event.usage.requestCache ? [event.usage.requestCache] : [],
+    );
+  }
+
+  test("reports each model request's reads, with the unread input inferred as written", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+
+    await asInternals(session).handleNotification(
+      "thread/tokenUsage/updated",
+      tokenUsage({ total: 80_000, inputTokens: 78_303, cached: 77_952 }),
+    );
+    // The same totals again (a resend) is no new request.
+    await asInternals(session).handleNotification(
+      "thread/tokenUsage/updated",
+      tokenUsage({ total: 80_000, inputTokens: 78_303, cached: 77_952 }),
+    );
+    await asInternals(session).handleNotification(
+      "thread/tokenUsage/updated",
+      tokenUsage({ total: 160_000, inputTokens: 79_000, cached: 0 }),
+    );
+
+    expect(requestCaches(events)).toEqual([
+      { readTokens: 77_952, writeTokens: 351, uncachedTokens: 0, writeInferred: true },
+      { readTokens: 0, writeTokens: 79_000, uncachedTokens: 0, writeInferred: true },
+    ]);
+  });
+
+  test("usage restored outside a turn is not a request", async () => {
+    const session = createSession();
+    session.activeForegroundTurnId = null;
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+
+    await asInternals(session).handleNotification(
+      "thread/tokenUsage/updated",
+      tokenUsage({ total: 80_000, inputTokens: 78_303, cached: 77_952 }),
+    );
+
+    expect(events.some((event) => event.type === "usage_updated")).toBe(true);
+    expect(requestCaches(events)).toEqual([]);
+  });
+});

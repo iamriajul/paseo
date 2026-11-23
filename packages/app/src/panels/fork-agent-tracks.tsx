@@ -16,7 +16,7 @@ import { refreshProviderHeartbeats } from "@/heartbeats/provider-store";
 import { useHeartbeatActions } from "@/heartbeats/use-heartbeat-actions";
 import { ProviderHeartbeatDetailSheet } from "@/heartbeats/provider-detail-sheet";
 import { PromptCachePill } from "@/prompt-cache/prompt-cache-pill";
-import { isClaudeModel } from "@getpaseo/protocol/agent-cache-warm";
+import { isPromptCacheTracked } from "@/prompt-cache/use-prompt-cache";
 import { ScheduleFormSheet } from "@/components/schedules/schedule-form-sheet";
 import { useSchedules } from "@/hooks/use-schedules";
 import type { AggregatedSchedule } from "@/schedules/aggregated-schedules";
@@ -56,14 +56,14 @@ export function useForkAgentTrackPresence({
   const supportsBackgroundTasks = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.backgroundTasks === true,
   );
-  const isClaude = useSessionStore((state) => {
+  const showsCachePill = useSessionStore((state) => {
     const session = state.sessions[serverId];
-    const agent = session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId);
-    const modelId = agent?.model ?? agent?.runtimeInfo?.model;
-    return agent?.provider === "claude" && isClaudeModel(modelId);
+    return isPromptCacheTracked(
+      session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId),
+    );
   });
   return (
-    isClaude ||
+    showsCachePill ||
     paseoHeartbeatRows.length > 0 ||
     providerHeartbeatRows.length > 0 ||
     (supportsBackgroundTasks && backgroundTaskRows.length > 0)
@@ -178,20 +178,20 @@ export const ForkAgentTracks = memo(function ForkAgentTracks({
     void refreshProviderHeartbeats(sessionClient, serverId, agentId).catch(() => undefined);
   }, [agentId, serverId, sessionClient, supportsProviderHeartbeats]);
 
-  const isClaude = useSessionStore((state) => {
+  const showsCachePill = useSessionStore((state) => {
     const session = state.sessions[serverId];
-    const agent = session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId);
-    const modelId = agent?.model ?? agent?.runtimeInfo?.model;
-    return agent?.provider === "claude" && isClaudeModel(modelId);
+    return isPromptCacheTracked(
+      session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId),
+    );
   });
 
-  if (!isClaude && heartbeatRows.length === 0 && backgroundTaskRows.length === 0) {
+  if (!showsCachePill && heartbeatRows.length === 0 && backgroundTaskRows.length === 0) {
     return null;
   }
 
   return (
     <>
-      {isClaude ? <PromptCachePill serverId={serverId} agentId={agentId} /> : null}
+      {showsCachePill ? <PromptCachePill serverId={serverId} agentId={agentId} /> : null}
       <HeartbeatsTrack
         rows={heartbeatRows}
         onOpenRow={handleOpenHeartbeat}

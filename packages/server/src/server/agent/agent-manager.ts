@@ -5582,17 +5582,9 @@ export class AgentManager {
       case "thread_started":
         this.onStreamThreadStarted(agent);
         return undefined;
-      case "usage_updated": {
-        // Merge, so the session cost from the last completed turn stays shown mid-turn; a
-        // per-request update carries the context size, not the cost.
-        const { requestCache: _requestCache, ...usage } = event.usage;
-        agent.lastUsage = { ...agent.lastUsage, ...usage };
-        if (event.usage.requestCache) {
-          this.recordPromptCacheRequest(agent, event.usage.requestCache);
-        }
-        this.emitState(agent);
+      case "usage_updated":
+        this.onStreamUsageUpdated(agent, event, options);
         return undefined;
-      }
       case "mode_changed":
         this.applyObservedMode(agent, event.currentModeId);
         agent.availableModes = event.availableModes;
@@ -5743,6 +5735,22 @@ export class AgentManager {
     for (const text of [event.error, event.diagnostic, failureMessage]) {
       if (text && manager.scheduleIfNeeded(agentId, text)) return;
     }
+  }
+
+  private onStreamUsageUpdated(
+    agent: ActiveManagedAgent,
+    event: Extract<AgentStreamEvent, { type: "usage_updated" }>,
+    options: HandleStreamEventOptions | undefined,
+  ): void {
+    // Merge, so the session cost from the last completed turn stays shown mid-turn; a
+    // per-request update carries the context size, not the cost.
+    const { requestCache, ...usage } = event.usage;
+    agent.lastUsage = { ...agent.lastUsage, ...usage };
+    // A request replayed from history was journalled when it ran.
+    if (requestCache && !options?.fromHistory) {
+      this.recordPromptCacheRequest(agent, requestCache);
+    }
+    this.emitState(agent);
   }
 
   private async checkRateLimitAutoResumeOnIdle(agentId: string): Promise<void> {

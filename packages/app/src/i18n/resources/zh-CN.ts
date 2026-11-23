@@ -390,7 +390,6 @@ export const zhCN: TranslationResources = {
     cacheExpired: "缓存已在 {{minutes}} 分钟前过期。这次提问将重写 {{tokens}} 个令牌。",
     earlierExpired: "较早的节点，超出缓存窗口。将重写约 {{tokens}} 个令牌。",
     usage: "读取 {{read}} · 写入 {{written}} 个令牌",
-    blockedTool: "已拦截。旁白提问为只读。",
     needsFullSession: "这条回答需要旁白提问无法使用的工具。",
     mainChatMissing: "主对话不可用。",
     menu: "旁白提问选项",

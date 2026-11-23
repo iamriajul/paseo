@@ -396,7 +396,6 @@ export const fr: TranslationResources = {
     earlierExpired:
       "Point antérieur, hors de la fenêtre du cache. Réécrit environ {{tokens}} jetons.",
     usage: "Lu {{read}} · écrit {{written}} jetons",
-    blockedTool: "Bloqué. Les questions annexes sont en lecture seule.",
     needsFullSession:
       "Cette réponse avait besoin d'un outil que les questions annexes ne peuvent pas utiliser.",
     mainChatMissing: "La discussion principale n'est pas disponible.",

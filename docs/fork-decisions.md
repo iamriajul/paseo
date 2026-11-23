@@ -2183,3 +2183,40 @@ grep -q "if (size <= MAX_EDITABLE_BYTES) return <EditableTextFile" packages/app/
 grep -q 'keyboardBehavior="extend"' packages/app/src/screens/workspace/sheet-tabs.tsx
 grep -q "build:source-editor-webview" packages/app/package.json
 ```
+
+## quotes
+
+**a quote reaches the agent as prompt text, not as an attachment**
+
+Quote puts a message, or a selection, in the composer as a card (`quotes/`, a `quote` kind of `UserComposerAttachment`) and `dispatchComposerAgentMessage` writes it ahead of what the user typed (`serializeQuotedPrompt`). The protocol gets no quote attachment: provider history is the durable transcript, and every provider hands attachments back as plain text after a restart or an import, so a structured quote would survive only until the first rehydration. `splitComposerAttachmentsForSubmit` skips the kind, `parseQuotedPrompt` turns the text back into cards in the user bubble, and the three header strings are wire format kept out of i18n.
+
+Official files changed: `components/message.tsx` (the Quote buttons, the user bubble's cards), `agent-stream/turn-footer.tsx`, `composer/actions.ts` and `composer/index.tsx`, `stores/draft-store/` (a `quote` draft attachment and `attachQuote`), `panels/agent-panel.tsx` (the `ChatQuoteProvider`), `components/markdown/renderer.tsx` and `assistant-selection-copy/content.web.ts` (the selection menus).
+
+```bash
+npm test --workspace=@getpaseo/app -- src/quotes src/composer/actions.test.ts src/stores/draft-store --bail=1
+grep -q 'if (attachment.kind === "quote") {' packages/app/src/composer/attachments/submit.ts
+grep -q "serializeQuotedPrompt" packages/app/src/composer/actions.ts
+```
+
+## side-questions
+
+**a side question is a read-only native fork the daemon enforces, and it keeps the source's prompt cache**
+
+A side question is a native fork of a Claude session registered as its own agent under the label `paseo.side-question-of`, opened by `agent.side_question.open.request` and gated on `server_info.features.sideQuestions`. The behaviours worth a command:
+
+- **Read-only whatever the source allows.** A `PreToolUse` hook denies every tool outside `Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch` and `ToolSearch`, and `canUseTool` denies the same set. A hook runs before permission rules, so a source in `bypassPermissions` with `Bash(*)` allowed cannot let a call through. The acceptance test runs real Claude Code against a stub of the Messages API: the source's write and `touch` change the disk, the side question's identical calls fail with "Side questions are read-only." and change nothing. Removing the hook makes it fail.
+- **The cache is reused.** The side question's first request starts with the source's whole last request (system, tools, history) and names the source's session in `X-Claude-Code-Session-Id`. The latest point forks the transcript through the SDK's `forkSession` with no boundary, not the CLI's `resume` with `forkSession: true`, because registering an agent needs a real session id; the same test proves the prefix is the same. Tools are denied at call time, never removed, because removing one rewrites the tool definitions at the front of the prompt. The notice that says "this is a side question" rides in the first prompt, not the system prompt, for the same reason, and `projectAgentMessages` strips it from the timeline.
+- **Locked and quiet.** `AgentManager` rejects mode, model, thinking, feature and reload-with-overrides changes for the label. The session starts no MCP servers and no user or project hooks, and has no cache warm-up, auto-compaction or restart recovery. It never sends a push notification, is archived with its chat, and stops its process after five idle minutes whatever `agents.idleRuntimeCleanup` says.
+- **Hidden by the label, not `internal`.** The sidebar, History, the workspace status, the attention picker and auto-opened tabs skip it (`isWorkspaceRootAgent`, `useAggregatedAgents`, `useAgentHistory`, `pickAttentionAgent`); the Side questions pill lists it. An internal agent would be hidden from the listing the pill needs.
+- **Continue as a full session** is `nativeForkAgent` on the side question with the main chat's config (`buildNativeForkLaunch`), so the new tab gets its mode and tools and none of the limits.
+
+Official files changed: `agent-manager.ts`, `agent-prompt.ts`, `agent-messages/envelope.ts`, `agent-storage.ts`, `agent-sdk-types.ts`, `providers/claude/agent.ts`, `providers/claude/native-fork.ts` and `rewind.ts`, `idle-runtime-cleanup/index.ts`, `restart-recovery/index.ts`, `session.ts`, `websocket-server.ts` and `authorization/operation-permissions.ts`, protocol `messages.ts` and `agent-labels.ts`, the client's `daemon-client.ts`; in the app `panels/agent-panel.tsx`, `panels/panel-manifest.ts`, `composer/` (the `side_question` input mode), `agent-stream/turn-footer.tsx`, `agent-stream/view.tsx` and `subagents/workspace-root-policy.ts`.
+
+```bash
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/providers/claude/agent.side-question.local.e2e.test.ts --bail=1
+npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/agent/agent-manager.side-question.test.ts packages/server/src/server/agent/side-question.test.ts packages/server/src/server/agent/providers/claude/side-question-policy.test.ts packages/server/src/server/agent/agent-messages/side-question-notice.test.ts --bail=1
+npx vitest run packages/protocol/src/messages.side-question.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/side-questions src/panels/fork-file-sheet-open-as-tab.test.ts src/subagents/workspace-root-policy.test.ts --bail=1
+grep -q "sideQuestionPreToolUseHook" packages/server/src/server/agent/providers/claude/agent.ts
+grep -q "idleAfterMs: SIDE_QUESTION_IDLE_STOP_MS" packages/server/src/server/agent/agent-manager.ts
+```

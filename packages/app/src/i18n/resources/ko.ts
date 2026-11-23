@@ -392,7 +392,6 @@ export const ko: TranslationResources = {
       "캐시가 {{minutes}}분 전에 만료되었습니다. 이 질문은 토큰 {{tokens}}개를 다시 씁니다.",
     earlierExpired: "이전 시점, 캐시 기간 밖입니다. 약 {{tokens}}개의 토큰을 다시 씁니다.",
     usage: "읽음 {{read}} · 씀 {{written}} 토큰",
-    blockedTool: "차단됨. 사이드 질문은 읽기 전용입니다.",
     needsFullSession: "이 답변에는 사이드 질문이 사용할 수 없는 도구가 필요했습니다.",
     mainChatMissing: "메인 채팅을 사용할 수 없습니다.",
     menu: "사이드 질문 옵션",

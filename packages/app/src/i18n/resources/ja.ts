@@ -396,7 +396,6 @@ export const ja: TranslationResources = {
       "キャッシュは {{minutes}} 分前に期限切れです。この質問はトークン {{tokens}} を書き直します。",
     earlierExpired: "以前の時点で、キャッシュ期間外です。約 {{tokens}} トークンを書き直します。",
     usage: "読み取り {{read}} · 書き込み {{written}} トークン",
-    blockedTool: "ブロックされました。サイド質問は読み取り専用です。",
     needsFullSession: "この回答にはサイド質問で使えないツールが必要でした。",
     mainChatMissing: "メインのチャットは利用できません。",
     menu: "サイド質問のオプション",

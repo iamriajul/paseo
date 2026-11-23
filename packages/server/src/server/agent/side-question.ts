@@ -39,6 +39,8 @@ export function buildSideQuestionConfig(input: {
     ...rest,
     provider: "claude",
     cwd: input.sourceCwd,
+    // Not the chat's title: the question's first line names it.
+    title: null,
     modeId: "default",
     sideQuestion: true,
     mcpServers: {},

@@ -397,7 +397,6 @@ export const es: TranslationResources = {
     earlierExpired:
       "Punto anterior, fuera de la ventana de caché. Reescribe unos {{tokens}} tokens.",
     usage: "Leídos {{read}} · escritos {{written}} tokens",
-    blockedTool: "Bloqueado. Las preguntas aparte son de solo lectura.",
     needsFullSession:
       "Esta respuesta necesitaba una herramienta que las preguntas aparte no pueden usar.",
     mainChatMissing: "El chat principal no está disponible.",

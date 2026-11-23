@@ -387,7 +387,6 @@ export const en = {
     cacheExpired: "Cache expired {{minutes}} min ago. This question rewrites {{tokens}} tokens.",
     earlierExpired: "Earlier point, outside the cache window. Rewrites about {{tokens}} tokens.",
     usage: "Read {{read}} · wrote {{written}} tokens",
-    blockedTool: "Blocked. Side questions are read-only.",
     needsFullSession: "This answer needed a tool that side questions cannot use.",
     mainChatMissing: "The main chat is not available.",
     menu: "Side question options",

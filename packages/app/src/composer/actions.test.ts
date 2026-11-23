@@ -464,6 +464,59 @@ describe("dispatchComposerAgentMessage", () => {
     expect(legacy.tail.get("legacy")?.[0]?.turnId).toBeUndefined();
   });
 
+  it("sends a quote as text ahead of the typed message, and never as an attachment", async () => {
+    const client = createFakeSendClient();
+    const stream = createFakeStream();
+
+    await dispatchComposerAgentMessage({
+      client,
+      agentId: "agent",
+      text: "Why discard them?",
+      attachments: [
+        {
+          kind: "quote",
+          quote: {
+            id: "q1",
+            origin: "assistant",
+            text: "The old session keys are discarded on purpose.",
+            partial: true,
+          },
+        },
+        {
+          kind: "quote",
+          quote: { id: "q2", origin: "side_question", text: "aside answer", partial: false },
+        },
+      ],
+      encodeImages: async () => [],
+      submission: stream,
+    });
+
+    const expected =
+      "> [Quoted from your earlier reply]\n" +
+      "> The old session keys are discarded on purpose.\n\n" +
+      "> [Quoted from your answer to a side question. That exchange is not in this conversation.]\n" +
+      "> aside answer\n\n" +
+      "Why discard them?";
+    expect(client.calls[0]?.text).toBe(expected);
+    expect(client.calls[0]?.options.attachments).toEqual([]);
+    expect(stream.tail.get("agent")?.[0]).toMatchObject({ text: expected });
+  });
+
+  it("sends a prompt that is quotes alone", async () => {
+    const client = createFakeSendClient();
+    await dispatchComposerAgentMessage({
+      client,
+      agentId: "agent",
+      text: "",
+      attachments: [
+        { kind: "quote", quote: { id: "q1", origin: "user", text: "do X", partial: false } },
+      ],
+      encodeImages: async () => [],
+      submission: createFakeStream(),
+    });
+    expect(client.calls[0]?.text).toBe("> [Quoted from my earlier message]\n> do X");
+  });
+
   it("removes the submitted prompt when the host rejects it", async () => {
     const rejection = new Error("Host rejected prompt");
     const client = createFakeSendClient({ rejection });

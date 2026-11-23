@@ -395,7 +395,6 @@ export const ptBR: TranslationResources = {
     earlierExpired:
       "Ponto anterior, fora da janela de cache. Reescreve cerca de {{tokens}} tokens.",
     usage: "Lidos {{read}} · gravados {{written}} tokens",
-    blockedTool: "Bloqueado. Perguntas paralelas são somente leitura.",
     needsFullSession:
       "Esta resposta precisava de uma ferramenta que perguntas paralelas não podem usar.",
     mainChatMissing: "O chat principal não está disponível.",

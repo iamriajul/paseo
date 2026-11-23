@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { isSideQuestionAgent } from "@getpaseo/protocol/agent-labels";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 import { resolvePromptCacheExpiresAtMs } from "./use-prompt-cache";
 
@@ -15,7 +16,8 @@ export function warmCacheWorkspaceKey(serverId: string, workspaceId: string): st
 
 /**
  * When each workspace's warmest cache expires. Any agent counts, not only the workspace's active
- * one: a child or a second chat holds a cache that costs as much to lose. Archived agents do not.
+ * one: a child or a second chat holds a cache that costs as much to lose. Archived agents and side
+ * questions do not; a side question has no warm-up and reads the main chat's cache.
  */
 export function indexWorkspaceCacheExpiry(
   hosts: ReadonlyArray<{ serverId: string; agents: Iterable<Agent> }>,
@@ -23,7 +25,7 @@ export function indexWorkspaceCacheExpiry(
   const expiry = new Map<string, number>();
   for (const host of hosts) {
     for (const agent of host.agents) {
-      if (agent.archivedAt || !agent.workspaceId) continue;
+      if (agent.archivedAt || !agent.workspaceId || isSideQuestionAgent(agent)) continue;
       const expiresAtMs = resolvePromptCacheExpiresAtMs(agent);
       if (expiresAtMs === null) continue;
       const key = warmCacheWorkspaceKey(host.serverId, agent.workspaceId);

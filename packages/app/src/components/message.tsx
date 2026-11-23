@@ -676,6 +676,7 @@ interface AssistantTurnFooterProps {
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
   container: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     gap: theme.spacing[2],
   },

@@ -64,6 +64,13 @@ describe("warm-cache workspaces", () => {
             minutesAgo: 1,
             overrides: { provider: "codex" } as Partial<Agent>,
           }),
+          // A side question's cache is the main chat's, read once; it keeps no workspace warm.
+          agent({
+            id: "side",
+            workspaceId: "ws-side",
+            minutesAgo: 1,
+            overrides: { labels: { "paseo.side-question-of": "main" } } as Partial<Agent>,
+          }),
         ],
       },
       // The same workspace id on another host is another workspace.

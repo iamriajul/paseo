@@ -15,6 +15,21 @@ export function readSideQuestionPoint(
   return labels?.[SIDE_QUESTION_POINT_LABEL] === "earlier" ? "earlier" : "latest";
 }
 
+/**
+ * Whether a chat can open a side question. The daemon forks only Claude sessions for one, since
+ * the read-only enforcement is a Claude Code hook; Codex can native-fork, but not into a side
+ * question.
+ */
+export function canAskSideQuestions(
+  agent: Pick<Agent, "provider" | "capabilities" | "labels"> | undefined,
+): boolean {
+  return (
+    agent?.provider === "claude" &&
+    agent.capabilities?.supportsNativeFork === true &&
+    getSideQuestionSourceId(agent.labels) === null
+  );
+}
+
 /** The live, unarchived side questions of one chat, in the order they were asked. */
 export function selectSideQuestionsOf(
   agents: ReadonlyMap<string, Agent> | undefined,

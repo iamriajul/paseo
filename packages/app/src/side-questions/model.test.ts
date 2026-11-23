@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Agent } from "@/stores/session-store";
 import {
+  canAskSideQuestions,
   describeSideQuestionCost,
   minutesAgo,
   parseBtwCommand,
@@ -111,5 +112,24 @@ describe("minutesAgo", () => {
   it("rounds, and never says zero", () => {
     expect(minutesAgo(12 * 60_000)).toBe(12);
     expect(minutesAgo(10_000)).toBe(1);
+  });
+});
+
+describe("canAskSideQuestions", () => {
+  const capabilities = { supportsNativeFork: true } as Agent["capabilities"];
+  it("offers side questions on a Claude chat that can fork", () => {
+    expect(canAskSideQuestions({ provider: "claude", capabilities, labels: {} })).toBe(true);
+  });
+  it("leaves them out of a Codex chat, which forks but has no read-only side session", () => {
+    expect(canAskSideQuestions({ provider: "codex", capabilities, labels: {} })).toBe(false);
+  });
+  it("leaves them out of a side question", () => {
+    expect(
+      canAskSideQuestions({
+        provider: "claude",
+        capabilities,
+        labels: { "paseo.side-question-of": "main" },
+      }),
+    ).toBe(false);
   });
 });

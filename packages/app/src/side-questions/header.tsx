@@ -16,6 +16,7 @@ import { ICON_SIZE } from "@/styles/theme";
 import { toErrorMessage } from "@/utils/error-messages";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { readSideQuestionPoint } from "@/side-questions/model";
+import { useDiscardEmptySideQuestion } from "@/side-questions/use-discard-empty";
 
 const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedLock = withUnistyles(Lock);
@@ -60,13 +61,18 @@ export const SideQuestionHeader = memo(function SideQuestionHeader({
   mainAgentId: string;
 }) {
   const { t } = useTranslation();
+  useDiscardEmptySideQuestion({ serverId, sideAgentId });
   const { closeCurrentTab } = usePaneContext();
   const { archiveAgent } = useArchiveAgent();
-  const main = useSessionStore((state) => {
+  // Primitive selectors: an object built in a selector is new on every read and loops the store.
+  const mainTitle = useSessionStore((state) => {
     const session = state.sessions[serverId];
     const agent = session?.agents.get(mainAgentId) ?? session?.agentDetails.get(mainAgentId);
-    return agent ? { title: agent.title, running: agent.status === "running" } : null;
+    return agent?.title ?? null;
   });
+  const mainRunning = useSessionStore(
+    (state) => state.sessions[serverId]?.agents.get(mainAgentId)?.status === "running",
+  );
   const point = useSessionStore((state) =>
     readSideQuestionPoint(state.sessions[serverId]?.agents.get(sideAgentId)?.labels),
   );
@@ -79,7 +85,7 @@ export const SideQuestionHeader = memo(function SideQuestionHeader({
     () => navigateToAgent({ serverId, agentId: mainAgentId }),
     [mainAgentId, serverId],
   );
-  const title = main?.title?.trim() || t("sideQuestion.mainChatMissing");
+  const title = mainTitle?.trim() || t("sideQuestion.mainChatMissing");
   const context = t(
     point === "earlier" ? "sideQuestion.contextEarlier" : "sideQuestion.contextLatest",
     {
@@ -134,7 +140,7 @@ export const SideQuestionHeader = memo(function SideQuestionHeader({
       >
         <Text style={styles.context} numberOfLines={2}>
           {context}
-          {main?.running ? ` · ${t("sideQuestion.agentKeepsWorking")}` : ""}
+          {mainRunning ? ` · ${t("sideQuestion.agentKeepsWorking")}` : ""}
         </Text>
       </PressHighlight>
     </View>

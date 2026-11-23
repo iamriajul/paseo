@@ -10,7 +10,7 @@ import { toErrorMessage } from "@/utils/error-messages";
 import { storeFetchedAgentDetail } from "@/utils/store-fetched-agent-detail";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { openWorkspaceTargetBeside } from "@/workspace-tabs/open-beside";
-import { getSideQuestionSourceId } from "@/side-questions/model";
+import { canAskSideQuestions } from "@/side-questions/model";
 import type {
   SideQuestionActions,
   SideQuestionOpenRequest,
@@ -22,13 +22,9 @@ import type {
  */
 export function useSideQuestionsAvailable(serverId: string, agentId: string): boolean {
   const hostSupports = useHostFeature(serverId, "sideQuestions");
-  const canFork = useSessionStore((state) => {
-    const agent = state.sessions[serverId]?.agents.get(agentId);
-    return (
-      agent?.capabilities?.supportsNativeFork === true &&
-      getSideQuestionSourceId(agent.labels) === null
-    );
-  });
+  const canFork = useSessionStore((state) =>
+    canAskSideQuestions(state.sessions[serverId]?.agents.get(agentId)),
+  );
   return hostSupports && canFork;
 }
 

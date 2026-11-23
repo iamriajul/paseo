@@ -1,3 +1,4 @@
+import { isSideQuestionAgent } from "@getpaseo/protocol/agent-labels";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { useProviderIcon } from "@/components/provider-icons";
@@ -43,6 +44,7 @@ export function useAgentDescriptor(
       return {
         provider: agent?.provider ?? "codex",
         title: agent?.title ?? null,
+        isSideQuestion: isSideQuestionAgent({ labels: agent?.labels }),
         status: agent?.status ?? null,
         pendingPermissionCount: agent?.pendingPermissions.length ?? 0,
         requiresAttention: agent?.requiresAttention ?? false,
@@ -60,8 +62,11 @@ export function useAgentDescriptor(
   const { t } = useTranslation();
   const icon = useProviderIcon(descriptorState.provider, context.serverId);
   const isCooldown = useIsRateLimitCooldownActive(rateLimitCooldown);
+  const { isSideQuestion, ...rest } = descriptorState;
   return buildAgentDescriptor({
-    ...descriptorState,
+    ...rest,
+    // A side question has no title until its first question names it.
+    title: rest.title ?? (isSideQuestion ? t("sideQuestion.title") : null),
     icon,
     cooldownTitle: isCooldown ? t("rateLimitCooldown.title") : null,
   });

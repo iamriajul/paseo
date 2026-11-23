@@ -26,6 +26,8 @@ import {
   matchesRequestFilter,
   sliceInsightsRange,
   describeReportedCost,
+  formatListTime,
+  spansSeveralDays,
   type InsightsRange,
   type ReportedCost,
   type RequestFilter,
@@ -350,6 +352,8 @@ function InsightsExplorer({
     ? slice.requests.slice(selectedColumn.startIndex, selectedColumn.endIndex)
     : slice.requests;
   const filtered = listRequests.filter((entry) => matchesRequestFilter(entry, filter)).toReversed();
+  const datedList = spansSeveralDays(filtered.map((entry) => entry.at));
+  const datedCompactions = spansSeveralDays(insights.compactions.map((entry) => entry.at));
 
   const resetSelection = useCallback(() => {
     setSelection(null);
@@ -408,7 +412,7 @@ function InsightsExplorer({
       />
       {warmUpStops.latestOpen ? (
         <Text style={styles.note} testID="prompt-cache-insights-open-stop">
-          {`${formatClock(warmUpStops.latestOpen.at)} · ${describeWarmUpStop(warmUpStops.latestOpen)}`}
+          {`${formatSpan(warmUpStops.latestOpen.at, warmUpStops.latestOpen.at)} · ${describeWarmUpStop(warmUpStops.latestOpen)}`}
         </Text>
       ) : null}
       {withoutCache ? (
@@ -475,6 +479,7 @@ function InsightsExplorer({
         <View style={styles.chartHeader}>
           <Text style={styles.sectionTitle}>
             {selectedColumn ? "Requests in the selected bar" : "Requests"} · {filtered.length}
+            {filtered.length > 1 ? " · newest first" : ""}
           </Text>
           <SegmentedControl
             options={FILTER_OPTIONS}
@@ -488,6 +493,7 @@ function InsightsExplorer({
         {filtered.slice(0, limit).map((entry) => (
           <RequestListRow
             key={`${entry.at}-${entry.kind}`}
+            withDate={datedList}
             row={describeRequest({
               entry,
               price,
@@ -508,7 +514,7 @@ function InsightsExplorer({
           <Text style={styles.sectionTitle}>Compactions</Text>
           {insights.compactions.slice(0, COMPACTION_LIMIT).map((compaction) => (
             <View key={compaction.at} style={styles.listRow}>
-              <Text style={styles.listTime}>{formatClock(compaction.at)}</Text>
+              <Text style={styles.listTime}>{formatListTime(compaction.at, datedCompactions)}</Text>
               <Text style={styles.listText}>{describeCompaction(compaction)}</Text>
             </View>
           ))}
@@ -592,11 +598,11 @@ function CostSplit({
       <View style={styles.splitLegend}>
         <LegendSwatch
           style={styles.splitWork}
-          label={`Work ${formatUsdEstimate(cost.workUsd)} · ${formatPercent(1 - warmShare)}`}
+          label={`Work ≈ ${formatUsdEstimate(cost.workUsd)} · ${formatPercent(1 - warmShare)}`}
         />
         <LegendSwatch
           style={styles.splitWarm}
-          label={`Warm-ups ${formatUsdEstimate(cost.warmUpUsd)} · ${formatPercent(warmShare)}`}
+          label={`Warm-ups ≈ ${formatUsdEstimate(cost.warmUpUsd)} · ${formatPercent(warmShare)}`}
         />
       </View>
       {rate === null ? null : (
@@ -852,11 +858,11 @@ function ColumnDetail({
   );
 }
 
-function RequestListRow({ row }: { row: RequestRow }): ReactElement {
+function RequestListRow({ row, withDate }: { row: RequestRow; withDate: boolean }): ReactElement {
   return (
     <View style={styles.listRow}>
       <Text style={[styles.listTime, row.tone === "miss" && styles.danger]}>
-        {formatClock(row.at)}
+        {formatListTime(row.at, withDate)}
       </Text>
       <View style={styles.listBody}>
         <Text style={styles.listText}>
@@ -1067,7 +1073,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
     gap: 2,
   },
   listTime: {
-    width: 72,
+    minWidth: 72,
     fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
     fontVariant: ["tabular-nums"],

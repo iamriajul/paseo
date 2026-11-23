@@ -13,6 +13,7 @@ export const ko: TranslationResources = {
 
     title: "찾기",
     placeholder: "패널에서 찾기",
+    findInChat: "채팅에서 찾기",
     close: "찾기 닫기",
     matches: "검색 결과",
     previous: "이전 일치 항목",

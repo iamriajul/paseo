@@ -13,6 +13,7 @@ export const ar: TranslationResources = {
 
     title: "بحث",
     placeholder: "بحث في اللوحة",
+    findInChat: "بحث في المحادثة",
     close: "إغلاق البحث",
     matches: "نتائج البحث",
     previous: "التطابق السابق",

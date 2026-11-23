@@ -14,6 +14,7 @@ export const ru: TranslationResources = {
 
     title: "Найти",
     placeholder: "Найти в панели",
+    findInChat: "Найти в чате",
     close: "Закрыть поиск",
     matches: "Совпадения",
     previous: "Предыдущее совпадение",

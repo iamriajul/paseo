@@ -103,6 +103,8 @@ export function createMarkdownStyles(
       inlineImage: { size: paragraph.lineHeight },
       image: { ...block, height: 320, resizeMode: "contain", borderRadius: 8 },
       thematicBreak: { ...block, color: theme.colors.border, height: 1 },
+      // Fork: the chat find occurrence on phones; parsed only for a marked message.
+      highlight: { color: theme.colors.surface0, backgroundColor: theme.colors.statusWarning },
     },
   };
 }

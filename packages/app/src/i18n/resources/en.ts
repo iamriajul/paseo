@@ -9,6 +9,7 @@ export const en = {
     retry: "Retry",
     title: "Find",
     placeholder: "Find in pane",
+    findInChat: "Find in chat",
     close: "Close Find",
     matches: "Find matches",
     previous: "Previous match",

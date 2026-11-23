@@ -1,6 +1,7 @@
 import {
   Fragment,
   type ReactElement,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -44,6 +45,7 @@ import {
   type HistoryStartPaginationTransition,
 } from "./history-start-pagination";
 import { useStreamTopOverlayInset } from "./top-overlay";
+import { useNativeScrollToMessagePoint } from "./use-native-scroll-to-message-point";
 import {
   createHistoryStartSettleScheduler,
   type HistoryStartSettleScheduler,
@@ -69,6 +71,23 @@ const NATIVE_STREAM_WINDOW_SIZE = 10;
 
 function keyExtractor(item: { id: string }): string {
   return item.id;
+}
+
+/** Reports a history row's height, which a scroll to a point inside the row needs. */
+function MeasuredRow({
+  rowId,
+  onHeight,
+  children,
+}: {
+  rowId: string;
+  onHeight(rowId: string, height: number): void;
+  children: ReactNode;
+}) {
+  const onLayout = useCallback(
+    (event: LayoutChangeEvent) => onHeight(rowId, event.nativeEvent.layout.height),
+    [onHeight, rowId],
+  );
+  return <View onLayout={onLayout}>{children}</View>;
 }
 
 function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrategy }) {
@@ -278,6 +297,18 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
     },
     scrollToBottom,
   });
+  // Fork: chat find scrolls to a match on phones (docs/fork-decisions.md#find-in-chat-mobile).
+  const messagePointScroll = useNativeScrollToMessagePoint({
+    listRef: flatListRef,
+    getRows: () => historyRows,
+    getMetrics: () => streamViewportMetricsRef.current,
+    onBeforeScroll: () => {
+      bottomAnchorController.detachByUser();
+      programmaticScrollEventBudgetRef.current = 0;
+    },
+    scrollToNewest: () => flatListRef.current?.scrollToOffset({ offset: 0, animated: false }),
+  });
+  const { scrollToMessagePoint, setRowHeight } = messagePointScroll;
   // Android's maintainVisibleContentPosition ignores the list inversion transform and
   // fights the controller's offset-zero correction while the live header grows.
   const maintainVisibleContentPosition =
@@ -366,6 +397,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
         markNativeViewportSettling();
       },
       holdReadingPosition: () => bottomAnchorController.detachByUser(),
+      scrollToMessagePoint,
     };
     viewportRef.current = handle;
     return () => {
@@ -373,7 +405,13 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
         viewportRef.current = null;
       }
     };
-  }, [agentId, bottomAnchorController, markNativeViewportSettling, viewportRef]);
+  }, [
+    agentId,
+    bottomAnchorController,
+    markNativeViewportSettling,
+    scrollToMessagePoint,
+    viewportRef,
+  ]);
 
   const isScrollEventNearBottom = useStableEvent(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -426,6 +464,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
 
   const handleScrollBeginDrag = useStableEvent((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     clearPendingUserScrollEnd();
+    messagePointScroll.cancel();
     isUserScrollActiveRef.current = true;
     scrollKeyboardDismiss.onScrollBeginDrag(event);
     bottomAnchorController.beginUserScroll();
@@ -531,7 +570,12 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
   const renderItem = useStableEvent(
     ({ item, index }: ListRenderItemInfo<StreamItem>): ReactElement | null => {
       const rendered = renderHistoryMountedRow(item, index, historyItems);
-      return (rendered ?? null) as ReactElement | null;
+      if (!rendered) return null;
+      return (
+        <MeasuredRow rowId={item.id} onHeight={setRowHeight}>
+          {rendered}
+        </MeasuredRow>
+      );
     },
   );
 
@@ -603,6 +647,7 @@ function NativeStreamViewport(props: StreamRenderInput & { strategy: StreamStrat
       onMomentumScrollEnd={handleMomentumScrollEnd}
       scrollEventThrottle={16}
       onContentSizeChange={handleContentSizeChange}
+      onScrollToIndexFailed={messagePointScroll.onScrollToIndexFailed}
       maintainVisibleContentPosition={maintainVisibleContentPosition}
       // Tall Markdown rows exhaust a shallow window during flings. Keep the initial
       // render small, then refill a deeper window in batches large enough to keep up.

@@ -1225,9 +1225,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             toast={toast}
           >
             <ChatFindExpansion messageId={getStreamItemMessageId(item)}>
-              {(renderFullContent) => (
+              {(renderFullContent, findMark) => (
                 <AssistantMessage
                   renderFullContent={renderFullContent}
+                  findMark={findMark}
                   occurrenceKey={createAssistantImageOccurrenceKey({ agentId, itemId: item.id })}
                   message={item.text}
                   timestamp={item.timestamp.getTime()}

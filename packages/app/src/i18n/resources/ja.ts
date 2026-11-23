@@ -14,6 +14,7 @@ export const ja: TranslationResources = {
 
     title: "検索",
     placeholder: "ペイン内を検索",
+    findInChat: "チャット内を検索",
     close: "検索を閉じる",
     matches: "検索結果",
     previous: "前の一致",

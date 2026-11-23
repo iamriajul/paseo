@@ -1,3 +1,5 @@
+import { findQueryPattern } from "./query-pattern";
+
 const BLOCKS = ["p", "pre", "li", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"]
   .flatMap((tag) => [tag, `[data-paseo-markdown-tag="${tag}"]`])
   .join(",");
@@ -62,12 +64,8 @@ function renderedTextGroups(row: HTMLElement): Text[][] {
 
 /** Local offsets belong to the DOM that supplied the text, never to a host parser. */
 export function findRenderedMatches(row: HTMLElement, query: string): Range[] {
-  if (!query.trim()) return [];
-  const pattern = query
-    .trim()
-    .split(/\s+/)
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("\\s+");
+  const pattern = findQueryPattern(query);
+  if (!pattern) return [];
   const ranges: Range[] = [];
   for (const texts of renderedTextGroups(row)) {
     const points = texts.map((node) => ({ node, start: 0, end: 0 }));
@@ -77,7 +75,7 @@ export function findRenderedMatches(row: HTMLElement, query: string): Range[] {
       text += point.node.data;
       point.end = text.length;
     }
-    for (const match of text.matchAll(new RegExp(pattern, "giu"))) {
+    for (const match of text.matchAll(pattern)) {
       const start = points.find((point) => point.start <= match.index && point.end > match.index);
       const endOffset = match.index + match[0].length;
       const end = points.find((point) => point.start < endOffset && point.end >= endOffset);

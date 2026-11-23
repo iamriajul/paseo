@@ -85,6 +85,10 @@ import { execCommand } from "../../../utils/spawn.js";
 import { mapOpencodeToolCall } from "./opencode/tool-call-mapper.js";
 import { resolveOpenCodeQuotaResetAt } from "./opencode/quota-reset.js";
 import {
+  promptCacheInputTokens,
+  type PromptCacheRequestTokens,
+} from "@getpaseo/protocol/agent-cache-warm";
+import {
   OPENCODE_EVENT_STREAM_READY_TIMEOUT_MS,
   OpenCodeServerManager,
   OPENCODE_SERVER_STARTUP_TIMEOUT_MS,
@@ -1000,6 +1004,25 @@ function mergeOpenCodeStepFinishUsage(
   if (cost !== undefined) {
     usage.totalCostUsd = options.totalCostUsd ?? (usage.totalCostUsd ?? 0) + cost;
   }
+}
+
+/**
+ * One step is one model request, and its step-finish carries that request's tokens. OpenCode
+ * reports cache reads and writes for providers that bill them, and `input` without either.
+ */
+function readOpenCodeRequestCache(
+  part: { id: string; tokens?: { input?: unknown; cache?: { read?: unknown; write?: unknown } } },
+  state: OpenCodeEventTranslationState,
+): PromptCacheRequestTokens | undefined {
+  const recorded = (state.recordedRequestPartIds ??= new Set());
+  if (recorded.has(part.id)) return undefined;
+  recorded.add(part.id);
+  const tokens: PromptCacheRequestTokens = {
+    readTokens: readPositiveFiniteNumber(part.tokens?.cache?.read) ?? 0,
+    writeTokens: readPositiveFiniteNumber(part.tokens?.cache?.write) ?? 0,
+    uncachedTokens: readPositiveFiniteNumber(part.tokens?.input) ?? 0,
+  };
+  return promptCacheInputTokens(tokens) > 0 ? tokens : undefined;
 }
 
 function hasNormalizedOpenCodeUsage(usage: AgentUsage): boolean {
@@ -2107,6 +2130,8 @@ export interface OpenCodeEventTranslationState {
   emittedStructuredMessageIds: Set<string>;
   compactionSummaryMessageIds: Set<string>;
   emittedCompactionPartIds: Set<string>;
+  /** step-finish parts already journalled as a model request; a part can be updated again. */
+  recordedRequestPartIds?: Set<string>;
   hydratedMessageFingerprints?: Map<string, string>;
   hydratedPartFingerprints?: Map<string, string>;
   suppressAssistantMessagesUntilIdle?: { active: boolean };
@@ -2977,11 +3002,14 @@ function appendOpenCodeMessagePartUpdated(
     mergeOpenCodeStepFinishUsage(state.accumulatedUsage, part, {
       totalCostUsd: state.sessionTotalCostUsd,
     });
+    const requestCache = readOpenCodeRequestCache(part, state);
     if (hasNormalizedOpenCodeUsage(state.accumulatedUsage)) {
       events.push({
         type: "usage_updated",
         provider: "opencode",
-        usage: { ...state.accumulatedUsage },
+        usage: requestCache
+          ? { ...state.accumulatedUsage, requestCache }
+          : { ...state.accumulatedUsage },
       });
     }
   }

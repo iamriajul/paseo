@@ -397,6 +397,10 @@ function InsightsExplorer({
     [data.requests, data.warmUpStops, cacheWindowMs],
   );
   const withoutCache = useMemo(() => summarizeRequestsWithoutCache(data.requests), [data.requests]);
+  const inferred = useMemo(
+    () => data.requests.some((request) => request.writeInferred === true),
+    [data.requests],
+  );
   return (
     <View style={styles.content}>
       <RangeBar
@@ -414,6 +418,12 @@ function InsightsExplorer({
       {withoutCache ? (
         <Text style={styles.note} testID="prompt-cache-insights-without-cache">
           {describeRequestsWithoutCache(withoutCache)}
+        </Text>
+      ) : null}
+      {inferred ? (
+        <Text style={styles.note} testID="prompt-cache-insights-inferred">
+          Inferred: Codex reports only the input each request read from the cache. Input it did not
+          read counts as written, and hits and misses follow from the reads.
         </Text>
       ) : null}
       <View style={styles.tiles}>

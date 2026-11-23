@@ -703,6 +703,8 @@ describe("translateOpenCodeEvent", () => {
           inputTokens: 30_000,
           outputTokens: 12_000,
           totalCostUsd: 0.25,
+          // The step is one model request; its cache split goes to the prompt-cache journal.
+          requestCache: { readTokens: 2_000, writeTokens: 1_000, uncachedTokens: 30_000 },
         },
       },
     ]);
@@ -714,6 +716,41 @@ describe("translateOpenCodeEvent", () => {
       outputTokens: 12_000,
       totalCostUsd: 0.25,
     });
+  });
+
+  it("journals each step-finish as one request, once", () => {
+    const state = createState();
+    const stepFinish = {
+      type: "message.part.updated" as const,
+      properties: {
+        part: {
+          id: "step-finish-cache",
+          sessionID: "session-1",
+          messageID: "message-cache",
+          type: "step-finish" as const,
+          reason: "tool-calls",
+          cost: 0,
+          tokens: { input: 400, output: 50, reasoning: 0, cache: { read: 0, write: 90_000 } },
+        },
+      },
+    };
+
+    const first = translateOpenCodeEvent(stepFinish, state);
+    const again = translateOpenCodeEvent(stepFinish, state);
+
+    expect(first).toEqual([
+      expect.objectContaining({
+        type: "usage_updated",
+        usage: expect.objectContaining({
+          requestCache: { readTokens: 0, writeTokens: 90_000, uncachedTokens: 400 },
+        }),
+      }),
+    ]);
+    expect(again).toEqual([
+      expect.objectContaining({
+        usage: expect.not.objectContaining({ requestCache: expect.anything() }),
+      }),
+    ]);
   });
 
   it("reports totalCostUsd as cumulative session cost across turns", () => {

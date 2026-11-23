@@ -136,6 +136,8 @@ import {
   writeCodexCatalogJsonFile,
 } from "./codex-catalog.js";
 import { resolvePaseoHome } from "../../paseo-home.js";
+import type { PromptCacheRequestTokens } from "@getpaseo/protocol/agent-cache-warm";
+import { readCodexRequestCache } from "./codex/request-cache.js";
 import {
   type CodexRateLimitState,
   type CodexRateLimitWindow,
@@ -3598,6 +3600,7 @@ export class CodexAppServerAgentSession implements AgentSession {
   private warnedIncompleteEditToolCallIds = new Set<string>();
   private latestUsage: AgentUsage | undefined;
   private rateLimits: CodexRateLimitState = { primary: null, secondary: null };
+  private lastRequestTotalTokens: number | null = null;
   private latestPlanResult: { callId: string; text: string; turnId: string | null } | null = null;
   private readonly userMessageTurnIndexes = new Map<string, number>();
   private readonly userMessageTurnIds: string[] = [];
@@ -6485,6 +6488,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     parsed: Extract<ParsedCodexNotification, { kind: "token_usage_updated" }>,
   ): void {
     this.latestUsage = toAgentUsage(parsed.tokenUsage);
+    const requestCache = this.readRequestCache(parsed.tokenUsage);
     if (this.latestUsage) {
       const configuredWindow = this.resolveModelContextWindow(this.config.model);
       if (configuredWindow !== undefined) {
@@ -6496,9 +6500,19 @@ export class CodexAppServerAgentSession implements AgentSession {
       this.notifySubscribers({
         type: "usage_updated",
         provider: CODEX_PROVIDER,
-        usage: this.latestUsage,
+        usage: requestCache ? { ...this.latestUsage, requestCache } : this.latestUsage,
       });
     }
+  }
+
+  // Only a request inside a running turn is the agent's: a resumed thread can report the usage it
+  // restored before any turn starts.
+  private readRequestCache(tokenUsage: unknown): PromptCacheRequestTokens | undefined {
+    const request = readCodexRequestCache(tokenUsage, this.lastRequestTotalTokens);
+    if (!request) return undefined;
+    this.lastRequestTotalTokens = request.totalTokens;
+    if (this.activeForegroundTurnId === null && this.currentTurnId === null) return undefined;
+    return request.tokens;
   }
 
   private resolveContextCompactionTrigger(itemId?: string): "auto" | "manual" | undefined {

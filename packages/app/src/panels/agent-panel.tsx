@@ -1,7 +1,6 @@
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { TFunction } from "i18next";
 import { SquarePen } from "lucide-react-native";
 import React, {
@@ -28,6 +27,20 @@ import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { RetainedChatContent } from "./retained-chat-content";
 import { Composer } from "@/composer";
+import { ChatQuoteProvider } from "@/quotes/chat-quote-context";
+import { SideQuestionActionsProvider } from "@/side-questions/actions-context";
+import { SideQuestionPaneProvider } from "@/side-questions/pane-context";
+import { SideQuestionHeader } from "@/side-questions/header";
+import { SideQuestionsTrack } from "@/side-questions/track";
+import {
+  useSideQuestionSurface,
+  type SideQuestionWiring,
+} from "@/side-questions/use-side-question-wiring";
+import { useSideQuestionEstimate } from "@/side-questions/use-estimate";
+import { describeSideQuestionCost } from "@/side-questions/model";
+import { SideQuestionCost } from "@/side-questions/cost-line";
+import { SideQuestionBlockedCallout } from "@/side-questions/blocked-callout";
+import { QuoteSelectionToolbar } from "@/quotes/selection-toolbar";
 import { AgentCommandsProvider } from "@/agent-commands";
 import {
   useComposerEditingSession,
@@ -103,7 +116,8 @@ import type { StreamItem, TodoEntry } from "@/types/stream";
 import type { ViewedTimelineStatus, ViewedTimelineUiBridge } from "@/timeline/viewed-timeline-sync";
 import { useArchiveFinishedSubagents, useSubagentsForParent } from "@/subagents";
 import { getInitDeferred, getInitKey } from "@/utils/agent-initialization";
-import { derivePendingPermissionKey, normalizeAgentSnapshot } from "@/utils/agent-snapshots";
+import { normalizeAgentSnapshot } from "@/utils/agent-snapshots";
+import { storeFetchedAgentDetail } from "@/utils/store-fetched-agent-detail";
 import { applyLegacyDaemonWorkspaceOwnership } from "@/workspace/legacy-daemon-workspaces";
 import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
 import { buildDraftAgentSetup, type ClientSlashCommand } from "@/client-slash-commands";
@@ -263,53 +277,6 @@ function renderChatAgentNonReadyView(args: {
     );
   }
   return null;
-}
-
-function shouldStoreFetchedAgentInActiveDirectory(agent: Agent): boolean {
-  return !agent.archivedAt && Boolean(agent.projectPlacement);
-}
-
-type FetchAgentResult = Awaited<ReturnType<DaemonClient["fetchAgent"]>>;
-
-function storeFetchedAgentDetail(input: {
-  serverId: string;
-  result: NonNullable<FetchAgentResult>;
-}): Agent {
-  const normalized = normalizeAgentSnapshot(input.result.agent, input.serverId);
-  const hydrated: Agent = applyLegacyDaemonWorkspaceOwnership({
-    serverId: input.serverId,
-    agent: {
-      ...normalized,
-      projectPlacement: input.result.project,
-    },
-  });
-  const store = useSessionStore.getState();
-
-  if (shouldStoreFetchedAgentInActiveDirectory(hydrated)) {
-    getHostRuntimeStore().acceptAgentSnapshot(input.serverId, hydrated);
-  } else {
-    store.setAgentDetails(input.serverId, (previous) => {
-      const next = new Map(previous);
-      next.set(hydrated.id, hydrated);
-      return next;
-    });
-  }
-
-  store.setPendingPermissions(input.serverId, (previous) => {
-    const next = new Map(previous);
-    for (const [key, pending] of next.entries()) {
-      if (pending.agentId === hydrated.id) {
-        next.delete(key);
-      }
-    }
-    for (const request of hydrated.pendingPermissions) {
-      const key = derivePendingPermissionKey(hydrated.id, request);
-      next.set(key, { key, agentId: hydrated.id, request });
-    }
-    return next;
-  });
-
-  return hydrated;
 }
 
 function AgentPanel() {
@@ -1119,7 +1086,13 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
 }) {
   const { t } = useTranslation();
   // The workspace sheet is for looking; Open as tab brings the agent back with its composer.
-  const showsComposer = usePaneContext().host !== "sheet";
+  // A side question keeps its composer in the sheet: it is asked from there.
+  const {
+    mainAgentId: sideQuestionMainId,
+    rows: sideQuestionRows,
+    wiring,
+  } = useSideQuestionSurface({ serverId, agentId, workspaceId, scrollTarget: streamViewRef });
+  const showsComposer = usePaneContext().host !== "sheet" || sideQuestionMainId !== null;
   // The dock lays out fullscreen for the same session the composer edits in.
   const composerEditingSession = useComposerEditingSession("chat");
   const isComposerFullscreen = useComposerFullscreen(composerEditingSession);
@@ -1139,16 +1112,19 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   const parentPillAgentId = showsComposer ? parentAgentId : null;
   const hasForkTracks = useForkAgentTrackPresence({ serverId, agentId });
   const isCooldownActive = useIsRateLimitCooldownActive(agentState.rateLimitCooldown);
+  // A side question has no tracks: no subagents, tasks or cache pill, only its answer.
   const hasVisibleAgentTracks =
-    hasAgentTracks({
+    !sideQuestionMainId &&
+    (hasAgentTracks({
       parentAgentId: parentPillAgentId,
       subagentRows,
       tasks,
       archiveFinishedStatus: archiveFinishedSubagents.status,
       hasPluginComposerPills,
     }) ||
-    hasForkTracks ||
-    isCooldownActive;
+      hasForkTracks ||
+      sideQuestionRows.length > 0 ||
+      isCooldownActive);
   const rawAgentInputDraft = useAgentInputDraft({
     draftKey: buildDraftStoreKey({
       serverId,
@@ -1210,6 +1186,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
         isSubmitLoading={false}
         agentInputDraft={agentInputDraft}
         editingSession={composerEditingSession}
+        sideQuestion={sideQuestionMainId !== null}
         onAttentionInputFocus={onAttentionInputFocus}
         onAttentionPromptSend={onAttentionPromptSend}
         onComposerHeightChange={handleComposerHeightChange}
@@ -1221,7 +1198,12 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
   );
   const streamContent = (
     <View style={animatedStaticStyles.content}>
-      {showsComposer ? null : <SheetAgentFacts serverId={serverId} agentId={agentId} />}
+      <PaneTopBlock
+        serverId={serverId}
+        agentId={agentId}
+        sideQuestionMainId={sideQuestionMainId}
+        showsComposer={showsComposer}
+      />
       <RenderProfile id={`AgentStreamSection:${agentId}`}>
         <AgentStreamSection
           streamViewRef={streamViewRef}
@@ -1238,7 +1220,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
         />
       </RenderProfile>
-      {hasActiveComposer ? (
+      {hasActiveComposer && !sideQuestionMainId ? (
         <AgentTracks
           serverId={serverId}
           workspaceId={workspaceId}
@@ -1249,9 +1231,10 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           archiveFinishedStatus={archiveFinishedSubagents.status}
           onArchiveFinished={archiveFinishedSubagents.archiveFinished}
           hasPluginComposerPills={hasPluginComposerPills}
-          hasExtraPills={hasForkTracks}
+          hasExtraPills={hasForkTracks || sideQuestionRows.length > 0}
         >
           <ForkAgentTracks serverId={serverId} agentId={agentId} />
+          <SideQuestionsTrack serverId={serverId} agentId={agentId} workspaceId={workspaceId} />
         </AgentTracks>
       ) : null}
     </View>
@@ -1295,6 +1278,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
     >
       <View style={styles.root}>
         {dock}
+        <QuoteSelectionToolbar />
 
         {isArchivingCurrentAgent ? (
           <View style={styles.archivingOverlay} testID="agent-archiving-overlay">
@@ -1306,14 +1290,25 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
       </View>
     </RewindComposerRestoreProvider>
   );
+  const quotable = showsComposer && hasActiveComposer;
   return wrapAgentCommandProvider({
-    enabled: showsComposer && hasActiveComposer,
+    enabled: quotable,
     serverId,
     agentId,
     editingSession: composerEditingSession,
-    children: content,
+    children: wrapSurfaceProviders(quotable ? wiring : null, content),
   });
 });
+
+function wrapSurfaceProviders(wiring: SideQuestionWiring | null, children: ReactNode) {
+  return (
+    <ChatQuoteProvider value={wiring?.chatQuoteActions ?? null}>
+      <SideQuestionActionsProvider value={wiring?.sideActions ?? null}>
+        <SideQuestionPaneProvider value={wiring?.pane ?? null}>{children}</SideQuestionPaneProvider>
+      </SideQuestionActionsProvider>
+    </ChatQuoteProvider>
+  );
+}
 
 function wrapAgentCommandProvider({
   enabled,
@@ -1389,6 +1384,30 @@ function TimelineSyncErrorCallout({
  * What the composer's controls and context meter would show, as one line, for an agent shown
  * without its composer.
  */
+/** A side question's header, or the facts line of an agent shown without its composer. */
+function PaneTopBlock({
+  serverId,
+  agentId,
+  sideQuestionMainId,
+  showsComposer,
+}: {
+  serverId: string;
+  agentId: string;
+  sideQuestionMainId: string | null;
+  showsComposer: boolean;
+}) {
+  if (sideQuestionMainId) {
+    return (
+      <SideQuestionHeader
+        serverId={serverId}
+        sideAgentId={agentId}
+        mainAgentId={sideQuestionMainId}
+      />
+    );
+  }
+  return showsComposer ? null : <SheetAgentFacts serverId={serverId} agentId={agentId} />;
+}
+
 function SheetAgentFacts({ serverId, agentId }: { serverId: string; agentId: string }) {
   const text = useAgentFactsLine(serverId, agentId);
   return text ? <PaneSubtitle text={text} testID="agent-pane-subtitle" /> : null;
@@ -1505,6 +1524,7 @@ const AgentComposerSection = memo(function AgentComposerSection({
   isSubmitLoading,
   agentInputDraft,
   editingSession,
+  sideQuestion,
   onAttentionInputFocus,
   onAttentionPromptSend,
   onComposerHeightChange,
@@ -1519,6 +1539,7 @@ const AgentComposerSection = memo(function AgentComposerSection({
   isSubmitLoading: boolean;
   agentInputDraft: AgentInputDraft;
   editingSession: ComposerEditingSession;
+  sideQuestion: boolean;
   onAttentionInputFocus: () => void;
   onAttentionPromptSend: () => void;
   onComposerHeightChange: (height: number) => void;
@@ -1543,6 +1564,7 @@ const AgentComposerSection = memo(function AgentComposerSection({
       isSubmitLoading={isSubmitLoading}
       agentInputDraft={agentInputDraft}
       editingSession={editingSession}
+      sideQuestion={sideQuestion}
       onAttentionInputFocus={onAttentionInputFocus}
       onAttentionPromptSend={onAttentionPromptSend}
       onComposerHeightChange={onComposerHeightChange}
@@ -1559,6 +1581,7 @@ function ActiveAgentComposer({
   isSubmitLoading,
   agentInputDraft,
   editingSession,
+  sideQuestion,
   onAttentionInputFocus,
   onAttentionPromptSend,
   onComposerHeightChange,
@@ -1571,6 +1594,7 @@ function ActiveAgentComposer({
   isSubmitLoading: boolean;
   agentInputDraft: AgentInputDraft;
   editingSession: ComposerEditingSession;
+  sideQuestion: boolean;
   onAttentionInputFocus: () => void;
   onAttentionPromptSend: () => void;
   onComposerHeightChange: (height: number) => void;
@@ -1650,12 +1674,26 @@ function ActiveAgentComposer({
     ],
   );
 
+  const { t } = useTranslation();
+  const estimate = useSideQuestionEstimate({
+    serverId,
+    sideAgentId: agentId,
+    enabled: sideQuestion,
+  });
+  const costLine = describeSideQuestionCost(estimate);
+
   return (
     <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
+      {sideQuestion ? (
+        <SideQuestionBlockedCallout serverId={serverId} sideAgentId={agentId} />
+      ) : null}
       <Composer
         agentId={agentId}
         serverId={serverId}
         workspaceId={workspaceId}
+        inputMode={sideQuestion ? "side_question" : "chat"}
+        placeholder={sideQuestion ? t("sideQuestion.placeholder") : undefined}
+        submitLabel={sideQuestion && costLine.confirm ? t("sideQuestion.askAnyway") : undefined}
         blurOnSubmit={isNative}
         isPaneFocused={isPaneFocused}
         textSource={agentInputDraft.textSource}
@@ -1679,6 +1717,11 @@ function ActiveAgentComposer({
         isCompactLayout={isCompactComposerLayout}
         readOnly={interactionLocked}
       />
+      {sideQuestion ? (
+        <View style={animatedStaticStyles.costLine}>
+          <SideQuestionCost line={costLine} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1757,6 +1800,10 @@ const foregroundColorMapping = (theme: Theme) => ({
 const animatedStaticStyles = RNStyleSheet.create({
   content: {
     flex: 1,
+  },
+  costLine: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
   },
   inputAreaWrapper: {
     width: "100%",

@@ -1018,6 +1018,7 @@ const PromptCacheRequestSampleSchema = z.object({
   writeTtl: z.enum(["5m", "1h"]).optional(),
   model: z.string().optional(),
   forkWarmUp: z.boolean().optional(),
+  writeInferred: z.boolean().optional(),
 });
 
 const PromptCacheHistoryEntrySchema = z.object({
@@ -1029,6 +1030,7 @@ const PromptCacheHistoryEntrySchema = z.object({
   gapMs: z.number().nullable(),
   writeTtl: z.enum(["5m", "1h"]).optional(),
   model: z.string().optional(),
+  writeInferred: z.boolean().optional(),
   awayMs: z.number().optional(),
   afterCompaction: z.boolean().optional(),
   previousInputTokens: z.number().optional(),
@@ -2544,6 +2546,25 @@ export const AgentNativeForkRequestMessageSchema = z.object({
   // COMPAT(nativeForkModel): added in v0.14.903. The fork starts on this model instead of the
   // source's; clients send it only when server_info.features.nativeForkModel is set.
   model: z.string().optional(),
+});
+
+/** Opens a read-only side question: a fork of the agent's session in the same workspace. */
+export const AgentSideQuestionOpenRequestMessageSchema = z.object({
+  type: z.literal("agent.side_question.open.request"),
+  requestId: z.string(),
+  /** The agent the question is about. */
+  agentId: z.string(),
+  /** Absent forks at the latest point, which reads the source's whole prompt cache. */
+  boundaryCursor: AgentTimelineCursorSchema.optional(),
+  boundaryMessageId: z.string().optional(),
+});
+
+/** What the next question in a side question will do to the prompt cache. */
+export const AgentSideQuestionEstimateRequestMessageSchema = z.object({
+  type: z.literal("agent.side_question.estimate.request"),
+  requestId: z.string(),
+  /** The side question's own agent id. */
+  agentId: z.string(),
 });
 
 export const SetAgentModeRequestMessageSchema = z.object({
@@ -4083,6 +4104,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentTimelineSubscriptionRequestMessageSchema,
   AgentForkContextRequestMessageSchema,
   AgentNativeForkRequestMessageSchema,
+  AgentSideQuestionOpenRequestMessageSchema,
+  AgentSideQuestionEstimateRequestMessageSchema,
   SetAgentModeRequestMessageSchema,
   SetAgentModelRequestMessageSchema,
   SetAgentThinkingRequestMessageSchema,
@@ -4572,6 +4595,9 @@ export const ServerInfoStatusPayloadSchema = z
         agentNativeFork: z.boolean().optional(),
         // COMPAT(nativeForkModel): added in v0.14.903, drop gate after 2027-05-01.
         nativeForkModel: z.boolean().optional(),
+        // COMPAT(sideQuestions): added in v0.15.x (fork), drop gate after 2027-05-01. The host
+        // opens read-only side questions (agent.side_question.*).
+        sideQuestions: z.boolean().optional(),
         // COMPAT(compactThenSend): added in v0.14.903, drop gate after 2027-05-01.
         compactThenSend: z.boolean().optional(),
         // COMPAT(cacheExpiryStop): added in v0.14.903, drop gate after 2027-05-01.
@@ -6017,6 +6043,39 @@ export const AgentNativeForkResponseMessageSchema = z.object({
     error: z.string().nullable(),
     agentId: z.string().optional(),
     workspaceId: z.string().optional(),
+  }),
+});
+
+export const AgentSideQuestionOpenResponseMessageSchema = z.object({
+  type: z.literal("agent.side_question.open.response"),
+  payload: z.object({
+    requestId: z.string(),
+    sourceAgentId: z.string(),
+    accepted: z.boolean(),
+    error: z.string().nullable(),
+    agentId: z.string().optional(),
+    workspaceId: z.string().optional(),
+  }),
+});
+
+export const SideQuestionCacheEstimateSchema = z.object({
+  /** Where the side question forked: after the source's latest reply, or at an earlier one. */
+  point: z.enum(["latest", "earlier"]),
+  /** `warm` reads the cache; `expired` rewrites the context; `unknown` has no request to judge by. */
+  state: z.enum(["warm", "expired", "unknown"]),
+  /** Tokens read when warm, rewritten when expired. */
+  tokens: z.number().nullable(),
+  /** How long ago the cache expired. Set when `state` is `expired`. */
+  expiredAgoMs: z.number().nullable(),
+});
+
+export const AgentSideQuestionEstimateResponseMessageSchema = z.object({
+  type: z.literal("agent.side_question.estimate.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+    estimate: SideQuestionCacheEstimateSchema.nullable(),
+    error: z.string().nullable(),
   }),
 });
 
@@ -8475,6 +8534,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentAttentionRequiredMessageSchema,
   AgentForkContextResponseMessageSchema,
   AgentNativeForkResponseMessageSchema,
+  AgentSideQuestionOpenResponseMessageSchema,
+  AgentSideQuestionEstimateResponseMessageSchema,
   CancelAgentResponseMessageSchema,
   ClearAgentAttentionResponseMessageSchema,
   WorkspaceCreateResponseSchema,
@@ -8735,6 +8796,13 @@ export type AgentTimelineListPromptsResponseMessage = z.infer<
 >;
 export type AgentForkContextResponseMessage = z.infer<typeof AgentForkContextResponseMessageSchema>;
 export type AgentNativeForkResponseMessage = z.infer<typeof AgentNativeForkResponseMessageSchema>;
+export type AgentSideQuestionOpenResponseMessage = z.infer<
+  typeof AgentSideQuestionOpenResponseMessageSchema
+>;
+export type AgentSideQuestionEstimateResponseMessage = z.infer<
+  typeof AgentSideQuestionEstimateResponseMessageSchema
+>;
+export type SideQuestionCacheEstimate = z.infer<typeof SideQuestionCacheEstimateSchema>;
 export type CancelAgentResponseMessage = z.infer<typeof CancelAgentResponseMessageSchema>;
 export type SendAgentMessageResponseMessage = z.infer<typeof SendAgentMessageResponseMessageSchema>;
 export type SetVoiceModeResponseMessage = z.infer<typeof SetVoiceModeResponseMessageSchema>;
@@ -8904,6 +8972,12 @@ export type ProjectSuggestionsResponse = z.infer<typeof ProjectSuggestionsRespon
 export type FetchAgentRequestMessage = z.infer<typeof FetchAgentRequestMessageSchema>;
 export type AgentForkContextRequestMessage = z.infer<typeof AgentForkContextRequestMessageSchema>;
 export type AgentNativeForkRequestMessage = z.infer<typeof AgentNativeForkRequestMessageSchema>;
+export type AgentSideQuestionOpenRequestMessage = z.infer<
+  typeof AgentSideQuestionOpenRequestMessageSchema
+>;
+export type AgentSideQuestionEstimateRequestMessage = z.infer<
+  typeof AgentSideQuestionEstimateRequestMessageSchema
+>;
 export type SendAgentMessageRequest = z.infer<typeof SendAgentMessageRequestSchema>;
 export type WaitForFinishRequest = z.infer<typeof WaitForFinishRequestSchema>;
 export type DictationStreamStartMessage = z.infer<typeof DictationStreamStartMessageSchema>;

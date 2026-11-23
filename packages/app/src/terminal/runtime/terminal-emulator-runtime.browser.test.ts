@@ -822,6 +822,19 @@ describe("incremental replay lifecycle", () => {
     expect(mounted.inputs[0]?.startsWith("\x1b]4;1;rgb:")).toBe(true);
   });
 
+  it("keeps keys typed while replay chunks are still parsing", async () => {
+    const mounted = createTerminalHost({ width: 720, height: 360 });
+    mounted.runtime.replay({ type: "begin" });
+    mounted.runtime.replay({ type: "data", data: terminalOutput("\x1b]4;1;?\x07prompt") });
+    // xterm parses the replay in a later task; the user types before it commits.
+    getBrowserTerminal().input("typed-during-replay", true);
+    mounted.runtime.replay({ type: "end" });
+    await new Promise<void>((resolve) =>
+      mounted.runtime.write({ data: terminalOutput("live"), onCommitted: resolve }),
+    );
+    expect(mounted.inputs).toEqual(["typed-during-replay"]);
+  });
+
   it("measures emoji clusters with the daemon's grapheme widths and copies them intact", async () => {
     const mounted = createTerminalHost({ width: 720, height: 360 });
     const text = "A😀B❤️C👋🏽D👨‍👩‍👧E";

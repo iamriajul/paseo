@@ -534,6 +534,7 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
     readBackgroundTaskOutput: inner.readBackgroundTaskOutput?.bind(inner),
     resolveNativeForkUpToMessageId: inner.resolveNativeForkUpToMessageId?.bind(inner),
     resolveNativeForkTranscriptPath: inner.resolveNativeForkTranscriptPath?.bind(inner),
+    forkNativeSession: inner.forkNativeSession?.bind(inner),
     close: () => inner.close(),
     canStopRuntime: inner.canStopRuntime?.bind(inner),
     hasLiveRuntime: inner.hasLiveRuntime?.bind(inner),

@@ -19,10 +19,12 @@ import { PENDING_MARKDOWN_IMAGE } from "./source";
 import { splitStreamingMarkdown } from "./streaming";
 import { useMarkdownSource, type MarkdownImageContext } from "./images";
 
+import { useNativeQuoteMenuItems } from "@/quotes/native-selection-items";
 import { MermaidFence, MermaidStreamingContext, splitMermaidFences } from "./fence/mermaid";
 
 const ThemedMarkdown = withUnistyles(EnrichedMarkdownText);
 const MD4C_FLAGS = { latexMath: false, hardSoftBreaks: true, admonitions: true };
+const MD4C_FLAGS_WITH_HIGHLIGHT = { ...MD4C_FLAGS, highlight: true };
 
 // Reading the breakpoint here makes Unistyles restyle the text when the layout crosses it.
 const markdownStyle =
@@ -51,6 +53,10 @@ export interface MarkdownRendererProps extends MarkdownImageContext {
   streaming?: boolean;
   onLinkPress?: (url: string) => unknown;
   agentCommands?: boolean;
+  /** Fork: parse `==text==` as a highlight. Chat find sets it for the message it marked. */
+  highlightMarks?: boolean;
+  /** The assistant message this text belongs to. Native selection menus offer Quote for it. */
+  quoteMessageId?: string;
 }
 
 /** All Markdown surfaces share the same engine and source adaptation. */
@@ -85,7 +91,9 @@ const MarkdownPart = memo(function MarkdownPart({
   streaming = false,
   onLinkPress,
   agentCommands: _agentCommands,
+  highlightMarks = false,
   commandHints = null,
+  quoteMessageId,
   ...imageContext
 }: MarkdownRendererProps & { commandHints?: CommandHints | null }) {
   const environment = useAssistantFileLinkEnvironment();
@@ -105,6 +113,7 @@ const MarkdownPart = memo(function MarkdownPart({
     },
     commandHints?.names,
   );
+  const contextMenuItems = useNativeQuoteMenuItems(quoteMessageId);
   const [image, setImage] = useState<ImageLightboxSource | null>(null);
   const openWorkspaceLink = useWorkspaceLinkOpener();
   const pressLink = useStableEvent(({ url, sourceType }: LinkPressEvent) => {
@@ -140,11 +149,12 @@ const MarkdownPart = memo(function MarkdownPart({
               uniProps={pickMarkdownStyle(compact, muted)}
               flavor="github"
               selectable={selectable}
-              md4cFlags={MD4C_FLAGS}
+              md4cFlags={highlightMarks ? MD4C_FLAGS_WITH_HIGHLIGHT : MD4C_FLAGS}
               linkRecognition={linkRecognition}
               enableTaskListItemToggle={false}
               enableLinkPreview={false}
               enableBlockContextMenu={false}
+              contextMenuItems={contextMenuItems}
               // JS reveal owns pacing; native fade animation is a separate experiment.
               streamingAnimation={false}
               onLinkPress={pressLink}

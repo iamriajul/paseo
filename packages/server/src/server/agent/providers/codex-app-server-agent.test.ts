@@ -8262,3 +8262,138 @@ describe("Codex thread resume provider", () => {
     expect((await resumeParams("gpt-5.4")).modelProvider).toBeUndefined();
   });
 });
+
+describe("Codex usage-limit reset", () => {
+  // The failure agent 821707fc stopped on: Codex renders the reset as local clock time.
+  const usageLimitMessage =
+    "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 4:45 PM.";
+
+  async function failTurn(
+    session: CodexTestSession,
+    error: { message: string; codexErrorInfo: unknown },
+  ): Promise<Extract<AgentStreamEvent, { type: "turn_failed" }> | undefined> {
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    await asInternals(session).handleNotification("turn/completed", {
+      threadId: "test-thread",
+      turn: { id: "native-turn", status: "failed", error: { ...error, additionalDetails: null } },
+    });
+    return events.find(
+      (event): event is Extract<AgentStreamEvent, { type: "turn_failed" }> =>
+        event.type === "turn_failed",
+    );
+  }
+
+  test("a usage-limit failure carries the reset time Codex printed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 10, 23, 12, 51, 39));
+      const failed = await failTurn(createSession(), {
+        message: usageLimitMessage,
+        codexErrorInfo: "usageLimitExceeded",
+      });
+      expect(failed?.error).toBe(usageLimitMessage);
+      expect(failed?.rateLimitResetsAt).toBe(new Date(2026, 10, 23, 16, 46).toISOString());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a usage-limit failure without a time uses the app-server's rate-limit snapshot", async () => {
+    const session = createSession();
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+    await asInternals(session).handleNotification("account/rateLimits/updated", {
+      rateLimits: {
+        limitId: "codex",
+        primary: { usedPercent: 100, windowDurationMins: 300, resetsAt },
+        secondary: { usedPercent: 62, windowDurationMins: 10080, resetsAt: resetsAt + 86_400 },
+      },
+    });
+    // A sparse update leaves the primary window as it was.
+    await asInternals(session).handleNotification("account/rateLimits/updated", {
+      rateLimits: { primary: null, secondary: { usedPercent: 63, resetsAt: resetsAt + 86_400 } },
+    });
+    const failed = await failTurn(session, {
+      message: "You've hit your usage limit. Try again later.",
+      codexErrorInfo: "usageLimitExceeded",
+    });
+    expect(failed?.rateLimitResetsAt).toBe(new Date(resetsAt * 1000).toISOString());
+  });
+
+  test("another failure carries no reset time", async () => {
+    const failed = await failTurn(createSession(), {
+      message: "stream disconnected before completion",
+      codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 502 } },
+    });
+    expect(failed).toBeDefined();
+    expect(failed?.rateLimitResetsAt).toBeUndefined();
+  });
+});
+
+describe("Codex prompt-cache requests", () => {
+  function tokenUsage(input: { total: number; inputTokens: number; cached: number }) {
+    const breakdown = (totalTokens: number) => ({
+      totalTokens,
+      inputTokens: input.inputTokens,
+      cachedInputTokens: input.cached,
+      cacheWriteInputTokens: 0,
+      outputTokens: 200,
+      reasoningOutputTokens: 0,
+    });
+    return {
+      threadId: "test-thread",
+      turnId: "native-turn",
+      tokenUsage: {
+        total: breakdown(input.total),
+        last: breakdown(input.inputTokens + 200),
+        modelContextWindow: 400_000,
+      },
+    };
+  }
+
+  function requestCaches(events: AgentStreamEvent[]) {
+    return events.flatMap((event) =>
+      event.type === "usage_updated" && event.usage.requestCache ? [event.usage.requestCache] : [],
+    );
+  }
+
+  test("reports each model request's reads, with the unread input inferred as written", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+
+    await asInternals(session).handleNotification(
+      "thread/tokenUsage/updated",
+      tokenUsage({ total: 80_000, inputTokens: 78_303, cached: 77_952 }),
+    );
+    // The same totals again (a resend) is no new request.
+    await asInternals(session).handleNotification(
+      "thread/tokenUsage/updated",
+      tokenUsage({ total: 80_000, inputTokens: 78_303, cached: 77_952 }),
+    );
+    await asInternals(session).handleNotification(
+      "thread/tokenUsage/updated",
+      tokenUsage({ total: 160_000, inputTokens: 79_000, cached: 0 }),
+    );
+
+    expect(requestCaches(events)).toEqual([
+      { readTokens: 77_952, writeTokens: 351, uncachedTokens: 0, writeInferred: true },
+      { readTokens: 0, writeTokens: 79_000, uncachedTokens: 0, writeInferred: true },
+    ]);
+  });
+
+  test("usage restored outside a turn is not a request", async () => {
+    const session = createSession();
+    session.activeForegroundTurnId = null;
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+
+    await asInternals(session).handleNotification(
+      "thread/tokenUsage/updated",
+      tokenUsage({ total: 80_000, inputTokens: 78_303, cached: 77_952 }),
+    );
+
+    expect(events.some((event) => event.type === "usage_updated")).toBe(true);
+    expect(requestCaches(events)).toEqual([]);
+  });
+});

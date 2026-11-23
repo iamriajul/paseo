@@ -615,3 +615,82 @@ async function expectCommandCenterOwnsFindShortcut(page: Page, shortcut: string)
   await expect(query(page)).toHaveCount(0);
   await closeCommandCenter(page);
 }
+
+/** Where the find bar and the current match sit on screen. */
+function findBarLayout(page: Page) {
+  return page.evaluate(() => {
+    const widget = document
+      .querySelector('[data-chat-find-widget="true"]')
+      ?.getBoundingClientRect();
+    const entry = Array.from(CSS.highlights.entries()).find(([name]) =>
+      name.startsWith("paseo-chat-find-"),
+    );
+    const range = entry && Array.from(entry[1])[0];
+    const match = range instanceof Range ? range.getBoundingClientRect() : null;
+    if (!widget || !match) return null;
+    return {
+      widgetLeft: widget.left,
+      widgetRight: widget.right,
+      widgetBottom: widget.bottom,
+      matchTop: match.top,
+      width: window.innerWidth,
+    };
+  });
+}
+
+// Fork: a phone has no Cmd/Ctrl+F. The compact header menu opens the same find bar, and
+// everything after that is the same engine, on a touch screen at phone width.
+test.describe("phone", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("opens chat find from the header menu and walks matches, including unloaded history", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(180_000);
+    const agent = await seedMockAgentWorkspace({
+      repoPrefix: "chat-find-phone-",
+      title: "Chat Find phone",
+      featureValues: { mockAssistantResponse: RESPONSE },
+    });
+    try {
+      for (let index = 0; index < 45; index++) {
+        await agent.client.sendAgentMessage(agent.agentId, `Prompt number ${index}`);
+        await agent.client.waitForFinish(agent.agentId, 15_000);
+      }
+      await openAgentRoute(page, agent);
+      await expect(page.getByText("Prompt number 44", { exact: true })).toBeVisible();
+      await expect(page.getByText("Prompt number 0", { exact: true })).toHaveCount(0);
+
+      await page.getByTestId("workspace-header-menu-trigger").tap();
+      await page.getByTestId("workspace-header-find-in-chat").tap();
+      await expect(query(page)).toBeFocused();
+      await expect(page.getByTestId("workspace-header-find-in-chat")).toHaveCount(0);
+
+      await query(page).fill("hello world");
+      await expect(status(page)).toHaveText("1 of 90", { timeout: 15_000 });
+      await expectHighlight(page, "hello world");
+      await page.getByRole("button", { name: "Next match" }).tap();
+      await expect(status(page)).toHaveText("2 of 90");
+      await expectHighlight(page, "hello world");
+      await page.getByRole("button", { name: "Previous match" }).tap();
+      await expect(status(page)).toHaveText("1 of 90");
+
+      // A prompt that is not loaded: find fetches its page and scrolls the row in.
+      await query(page).fill("Prompt number 0");
+      await expectHighlight(page, "Prompt number 0");
+      await expect(status(page)).toHaveText("1 of 1");
+
+      const layout = await findBarLayout(page);
+      expect(layout).not.toBeNull();
+      expect(layout!.widgetLeft).toBeGreaterThanOrEqual(0);
+      expect(layout!.widgetRight).toBeLessThanOrEqual(layout!.width);
+      expect(layout!.matchTop).toBeGreaterThanOrEqual(layout!.widgetBottom);
+      await page.screenshot({ path: testInfo.outputPath("chat-find-phone.png") });
+
+      await page.getByRole("button", { name: "Close Find" }).tap();
+      await expect(query(page)).toHaveCount(0);
+    } finally {
+      await agent.cleanup();
+    }
+  });
+});

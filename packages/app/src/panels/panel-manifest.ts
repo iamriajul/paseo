@@ -12,6 +12,7 @@ export interface CompactSheetPolicy {
 /** Facts about a target that live outside the layout, resolved lazily by the workspace. */
 export interface PanelTargetFacts {
   isWorkspaceRootAgent(agentId: string): boolean;
+  isSideQuestionAgent(agentId: string): boolean;
 }
 
 type CompactSheetRule<K extends WorkspaceTabTarget["kind"]> =
@@ -62,8 +63,11 @@ const manifests = {
     supportedHosts: ["main", "explorer"],
     showCloseButton: true,
     singleton: false,
-    compactSheet: (target, facts) =>
-      facts.isWorkspaceRootAgent(target.agentId) ? null : { openAsTab: true },
+    compactSheet: (target, facts) => {
+      // A side question opens in a sheet that keeps its composer, and has no tab to move to.
+      if (facts.isSideQuestionAgent(target.agentId)) return { openAsTab: false };
+      return facts.isWorkspaceRootAgent(target.agentId) ? null : { openAsTab: true };
+    },
     resourceKey: (target) => target.agentId,
   },
   provider_subagent: {

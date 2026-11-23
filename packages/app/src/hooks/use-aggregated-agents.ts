@@ -3,6 +3,7 @@ import equal from "fast-deep-equal";
 import { useShallow } from "zustand/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { readWarmUpClosings, type AgentDirectoryEntry } from "@/types/agent-directory";
+import { isSideQuestionAgent } from "@getpaseo/protocol/agent-labels";
 import type { Agent } from "@/stores/session-store";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 
@@ -77,6 +78,10 @@ export function useAggregatedAgents(options?: {
       const serverLabel = serverLabelById.get(serverId) ?? serverId;
       for (const agent of agents.values()) {
         if (!includeArchived && agent.archivedAt) {
+          continue;
+        }
+        // Side questions are listed under their chat, not beside it.
+        if (isSideQuestionAgent(agent)) {
           continue;
         }
         const nextAgent: AggregatedAgent = {

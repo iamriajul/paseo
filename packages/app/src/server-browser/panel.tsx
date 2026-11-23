@@ -45,6 +45,7 @@ import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser
 import { useHostFeature } from "@/runtime/host-features";
 import { useToast } from "@/contexts/toast-api-context";
 import { useServerBrowserStatus, useServerBrowserTab, type ServerBrowserTab } from "./store";
+import { useFaviconTabIcon } from "./favicon-icon";
 import { ServerBrowserSurface, type ServerBrowserSurfaceHandle } from "./surface";
 import {
   useServerBrowserAnnotate,
@@ -155,6 +156,7 @@ function useServerBrowserDescriptor(
   const label = tabLabel(tab);
   // Fork: server-browser-suspend-idle-tabs in docs/fork-decisions.md.
   const suspended = tab?.suspended === true;
+  const faviconIcon = useFaviconTabIcon(tab?.favicon);
   return {
     label,
     subtitle: suspended ? `Suspended · ${tab.url}` : (tab?.url ?? ""),
@@ -162,7 +164,7 @@ function useServerBrowserDescriptor(
       ? `${tab.url} (server browser${suspended ? ", suspended while idle: opening it reloads the page" : ""})`
       : label,
     titleState: "ready",
-    icon: suspended ? SuspendedServerBrowserTabIcon : ServerBrowserTabIcon,
+    icon: suspended ? SuspendedServerBrowserTabIcon : (faviconIcon ?? ServerBrowserTabIcon),
     statusBucket: tab?.isLoading ? "running" : null,
   };
 }

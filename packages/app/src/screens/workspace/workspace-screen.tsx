@@ -1930,6 +1930,7 @@ function WorkspaceScreenContent({
         if (!client) return;
         openNewServerBrowserTab({
           client,
+          serverId: normalizedServerId,
           workspaceId: normalizedWorkspaceId,
           open: openTarget,
         }).catch((error: unknown) => {

@@ -26,6 +26,8 @@ import {
   matchesRequestFilter,
   sliceInsightsRange,
   describeReportedCost,
+  formatListTime,
+  spansSeveralDays,
   type InsightsRange,
   type ReportedCost,
   type RequestFilter,
@@ -43,7 +45,7 @@ import {
   type PromptCacheInsights,
   type RequestPricer,
 } from "./prompt-cache-insights";
-import { usePromptCacheAgent } from "./use-prompt-cache";
+import { isFirstPartyClaudeAgent, usePromptCacheAgent } from "./use-prompt-cache";
 import { useMoneyStatsEnabled } from "./money-stats-context";
 import { resolveMoneyStatsPrices } from "./money-stats";
 import { SessionActivitySection } from "./session-activity-section";
@@ -88,6 +90,19 @@ const FILTER_OPTIONS = REQUEST_FILTERS.map(({ value, label }) => ({
   label,
   testID: `prompt-cache-insights-filter-${value}`,
 }));
+
+/** Without warm-up (Codex, OpenCode) there are no warm-up requests to filter to. */
+const FILTER_OPTIONS_WITHOUT_WARM_UP = FILTER_OPTIONS.filter(
+  (option) => option.value !== "warm-ups",
+);
+
+function filterOptionsFor(warmUp: boolean): typeof FILTER_OPTIONS {
+  return warmUp ? FILTER_OPTIONS : FILTER_OPTIONS_WITHOUT_WARM_UP;
+}
+
+function WarmUpsTile({ warmUp, count }: { warmUp: boolean; count: number }): ReactElement | null {
+  return warmUp ? <Tile label="Warm-ups" value={String(count)} /> : null;
+}
 
 /**
  * The whole session's cache record, fetched from the daemon's journal while the dialog is open.
@@ -170,9 +185,10 @@ export function PromptCacheInsightsDialog({
   const sessionRequests = agent?.promptCache?.totals?.requests;
   const busy = agent?.status === "running";
   const priced = resolveMoneyStatsPrices(agent) !== null;
+  const warmUp = isFirstPartyClaudeAgent(agent);
   const session = useMemo(
-    () => ({ requests: sessionRequests, busy, priced }),
-    [sessionRequests, busy, priced],
+    () => ({ requests: sessionRequests, busy, priced, warmUp }),
+    [sessionRequests, busy, priced, warmUp],
   );
   return (
     <AdaptiveModalSheet
@@ -205,6 +221,11 @@ interface SessionFacts {
   busy: boolean;
   /** The model has a price, so money figures can show. */
   priced: boolean;
+  /**
+   * The agent has warm-up and Cache windows (first-party Claude). Codex and OpenCode have
+   * neither, so the window advice and the warm-up figures stay out of their insights.
+   */
+  warmUp: boolean;
 }
 
 function InsightsBody({
@@ -277,6 +298,33 @@ export function describeCompaction(compaction: PromptCacheCompaction): string {
     : `${source} · ${formatTokenCount(compaction.preTokens)} before`;
 }
 
+/** The bar the selection points at, and the requests the list shows under it. */
+function selectListRequests(input: {
+  columns: InsightsColumn[];
+  requests: PromptCacheHistoryEntry[];
+  selection: ColumnKey | null;
+  filter: RequestFilter;
+}): {
+  selected: number | null;
+  selectedColumn: InsightsColumn | null;
+  listRequests: PromptCacheHistoryEntry[];
+  filtered: PromptCacheHistoryEntry[];
+} {
+  const { columns, requests, selection, filter } = input;
+  const index = selection
+    ? columns.findIndex(
+        (column) => column.at === selection.at && column.requests === selection.requests,
+      )
+    : -1;
+  const selected = index === -1 ? null : index;
+  const selectedColumn = selected === null ? null : (columns[selected] ?? null);
+  const listRequests = selectedColumn
+    ? requests.slice(selectedColumn.startIndex, selectedColumn.endIndex)
+    : requests;
+  const filtered = listRequests.filter((entry) => matchesRequestFilter(entry, filter)).toReversed();
+  return { selected, selectedColumn, listRequests, filtered };
+}
+
 /**
  * The session as something to explore: every figure describes the range on screen, a bar opens
  * its requests below the chart, and zooming into a bar redraws the chart over just those
@@ -339,17 +387,14 @@ function InsightsExplorer({
     [zoomStack.length, data, cacheWindowMs, price, insights.cost],
   );
 
-  const selectedIndex = selection
-    ? insights.columns.findIndex(
-        (column) => column.at === selection.at && column.requests === selection.requests,
-      )
-    : -1;
-  const selected = selectedIndex === -1 ? null : selectedIndex;
-  const selectedColumn = selected === null ? null : (insights.columns[selected] ?? null);
-  const listRequests = selectedColumn
-    ? slice.requests.slice(selectedColumn.startIndex, selectedColumn.endIndex)
-    : slice.requests;
-  const filtered = listRequests.filter((entry) => matchesRequestFilter(entry, filter)).toReversed();
+  const { selected, selectedColumn, listRequests, filtered } = selectListRequests({
+    columns: insights.columns,
+    requests: slice.requests,
+    selection,
+    filter,
+  });
+  const datedList = spansSeveralDays(filtered.map((entry) => entry.at));
+  const datedCompactions = spansSeveralDays(insights.compactions.map((entry) => entry.at));
 
   const resetSelection = useCallback(() => {
     setSelection(null);
@@ -397,6 +442,10 @@ function InsightsExplorer({
     [data.requests, data.warmUpStops, cacheWindowMs],
   );
   const withoutCache = useMemo(() => summarizeRequestsWithoutCache(data.requests), [data.requests]);
+  const inferred = useMemo(
+    () => data.requests.some((request) => request.writeInferred === true),
+    [data.requests],
+  );
   return (
     <View style={styles.content}>
       <RangeBar
@@ -408,12 +457,18 @@ function InsightsExplorer({
       />
       {warmUpStops.latestOpen ? (
         <Text style={styles.note} testID="prompt-cache-insights-open-stop">
-          {`${formatClock(warmUpStops.latestOpen.at)} · ${describeWarmUpStop(warmUpStops.latestOpen)}`}
+          {`${formatSpan(warmUpStops.latestOpen.at, warmUpStops.latestOpen.at)} · ${describeWarmUpStop(warmUpStops.latestOpen)}`}
         </Text>
       ) : null}
       {withoutCache ? (
         <Text style={styles.note} testID="prompt-cache-insights-without-cache">
           {describeRequestsWithoutCache(withoutCache)}
+        </Text>
+      ) : null}
+      {inferred ? (
+        <Text style={styles.note} testID="prompt-cache-insights-inferred">
+          Inferred: Codex reports only the input each request read from the cache. Input it did not
+          read counts as written, and hits and misses follow from the reads.
         </Text>
       ) : null}
       <View style={styles.tiles}>
@@ -430,7 +485,7 @@ function InsightsExplorer({
           danger={misses > 0}
           testID="prompt-cache-insights-misses"
         />
-        <Tile label="Warm-ups" value={String(insights.warmUps)} />
+        <WarmUpsTile warmUp={session.warmUp} count={insights.warmUps} />
         <Tile label="Compactions" value={String(insights.compactions.length)} />
       </View>
       <CostSplit
@@ -444,6 +499,7 @@ function InsightsExplorer({
         busy={session.busy}
         price={moneyStats && session.priced ? price : null}
         nowMs={Date.now()}
+        windowAdvice={session.warmUp}
       />
       <View style={styles.chartHeader}>
         <Text style={styles.sectionTitle}>
@@ -475,9 +531,10 @@ function InsightsExplorer({
         <View style={styles.chartHeader}>
           <Text style={styles.sectionTitle}>
             {selectedColumn ? "Requests in the selected bar" : "Requests"} · {filtered.length}
+            {filtered.length > 1 ? " · newest first" : ""}
           </Text>
           <SegmentedControl
-            options={FILTER_OPTIONS}
+            options={filterOptionsFor(session.warmUp)}
             value={filter}
             onValueChange={changeFilter}
             size="sm"
@@ -488,6 +545,7 @@ function InsightsExplorer({
         {filtered.slice(0, limit).map((entry) => (
           <RequestListRow
             key={`${entry.at}-${entry.kind}`}
+            withDate={datedList}
             row={describeRequest({
               entry,
               price,
@@ -508,7 +566,7 @@ function InsightsExplorer({
           <Text style={styles.sectionTitle}>Compactions</Text>
           {insights.compactions.slice(0, COMPACTION_LIMIT).map((compaction) => (
             <View key={compaction.at} style={styles.listRow}>
-              <Text style={styles.listTime}>{formatClock(compaction.at)}</Text>
+              <Text style={styles.listTime}>{formatListTime(compaction.at, datedCompactions)}</Text>
               <Text style={styles.listText}>{describeCompaction(compaction)}</Text>
             </View>
           ))}
@@ -592,11 +650,11 @@ function CostSplit({
       <View style={styles.splitLegend}>
         <LegendSwatch
           style={styles.splitWork}
-          label={`Work ${formatUsdEstimate(cost.workUsd)} · ${formatPercent(1 - warmShare)}`}
+          label={`Work ≈ ${formatUsdEstimate(cost.workUsd)} · ${formatPercent(1 - warmShare)}`}
         />
         <LegendSwatch
           style={styles.splitWarm}
-          label={`Warm-ups ${formatUsdEstimate(cost.warmUpUsd)} · ${formatPercent(warmShare)}`}
+          label={`Warm-ups ≈ ${formatUsdEstimate(cost.warmUpUsd)} · ${formatPercent(warmShare)}`}
         />
       </View>
       {rate === null ? null : (
@@ -852,11 +910,11 @@ function ColumnDetail({
   );
 }
 
-function RequestListRow({ row }: { row: RequestRow }): ReactElement {
+function RequestListRow({ row, withDate }: { row: RequestRow; withDate: boolean }): ReactElement {
   return (
     <View style={styles.listRow}>
       <Text style={[styles.listTime, row.tone === "miss" && styles.danger]}>
-        {formatClock(row.at)}
+        {formatListTime(row.at, withDate)}
       </Text>
       <View style={styles.listBody}>
         <Text style={styles.listText}>
@@ -1067,7 +1125,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
     gap: 2,
   },
   listTime: {
-    width: 72,
+    minWidth: 72,
     fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
     fontVariant: ["tabular-nums"],

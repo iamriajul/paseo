@@ -98,10 +98,10 @@ function resolveSegmentText(cache: PromptCacheState): string {
   }
 }
 
-function resolveStatusText(status: PromptCacheStatus): string {
+function resolveStatusText(status: PromptCacheStatus, isClaude: boolean): string {
   switch (status.kind) {
     case "automatic":
-      return "Claude Code picks the window";
+      return isClaude ? "Claude Code picks the window" : "The provider manages the cache";
     case "busy":
       return status.remainingMs === null
         ? "Active turn in flight"
@@ -152,11 +152,12 @@ function resolveLastPromptText(sample: PromptCacheRequestSample): string {
   if (ratio === null) {
     return "No input recorded";
   }
+  const inferred = sample.writeInferred ? " (inferred)" : "";
   if (sample.readTokens === 0) {
-    return `Missed · wrote ${formatTokenCount(sample.writeTokens)}`;
+    return `Missed · wrote ${formatTokenCount(sample.writeTokens)}${inferred}`;
   }
   const percent = Math.floor(ratio * 100);
-  return `${percent}% cached · ${formatTokenCount(sample.readTokens)} read · ${formatTokenCount(sample.writeTokens)} written`;
+  return `${percent}% cached · ${formatTokenCount(sample.readTokens)} read · ${formatTokenCount(sample.writeTokens)} written${inferred}`;
 }
 
 function formatPercent(fraction: number): string {
@@ -351,7 +352,7 @@ function resolveMoneyCost(input: {
 }
 
 function resolveAccessibilityLabel(cache: PromptCacheState): string {
-  return `Claude prompt cache: ${resolveSegmentText(cache)}`;
+  return `${cache.isClaude ? "Claude prompt cache" : "Prompt cache"}: ${resolveSegmentText(cache)}`;
 }
 
 function CapProgress({ warmup }: { warmup: PromptCacheWarmup }): ReactElement {
@@ -367,6 +368,16 @@ function CapProgress({ warmup }: { warmup: PromptCacheWarmup }): ReactElement {
     >
       <View style={[styles.capFill, { width: `${Math.round(fraction * 100)}%` }]} />
     </View>
+  );
+}
+
+function InferredNote({ cache }: { cache: PromptCacheState }): ReactElement | null {
+  if (!cache.writeInferred) return null;
+  return (
+    <Text style={styles.helpTextLeft} testID="prompt-cache-inferred-note">
+      Codex reports cached reads only, so writes, hits and misses are inferred: input it did not
+      read counts as written.
+    </Text>
   );
 }
 
@@ -386,7 +397,7 @@ export const PromptCachePill = memo(function PromptCachePill({
   const openInsights = useCallback(() => setInsightsOpen(true), []);
   const closeInsights = useCallback(() => setInsightsOpen(false), []);
 
-  if (!cache.isClaude) {
+  if (!cache.tracked) {
     return null;
   }
 
@@ -407,7 +418,7 @@ export const PromptCachePill = memo(function PromptCachePill({
         <View style={styles.panelContent}>
           <View style={styles.detailRow}>
             <Text style={styles.label}>Cache · {formatCacheWindowLabel(cache)}</Text>
-            <Text style={styles.value}>{resolveStatusText(cache.status)}</Text>
+            <Text style={styles.value}>{resolveStatusText(cache.status, cache.isClaude)}</Text>
           </View>
           {lastPrompt ? (
             <View style={styles.detailRow}>
@@ -420,6 +431,7 @@ export const PromptCachePill = memo(function PromptCachePill({
             </View>
           ) : null}
           {history ? <RequestHistory history={history} cache={cache} /> : null}
+          <InferredNote cache={cache} />
           {warmup && windows ? (
             <View style={styles.capBlock}>
               <SwitchRow
@@ -459,9 +471,10 @@ export const PromptCachePill = memo(function PromptCachePill({
                 onMakeDefault={autoCompact.makeDefault}
               />
             </View>
-          ) : (
+          ) : null}
+          {(!warmup || !windows) && cache.isClaude ? (
             <Text style={styles.helpText}>Choose 5m or 1h under Cache window to warm it.</Text>
-          )}
+          ) : null}
           <ComposerTrackRow
             onPress={openInsights}
             testID="prompt-cache-open-insights"

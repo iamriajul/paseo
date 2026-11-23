@@ -1,3 +1,4 @@
+import { isSideQuestionAgent } from "@getpaseo/protocol/agent-labels";
 import type { AgentStorage, StoredAgentRecord } from "../agent-storage.js";
 interface Dependencies {
   storage: AgentStorage;
@@ -9,8 +10,13 @@ interface Dependencies {
 export function createRestartRecovery(deps: Dependencies) {
   // Candidates are chosen at startup; each settles once its resume was sent or abandoned.
   const resuming = new Map<string, { promise: Promise<void>; resolve(): void }>();
+  // A side question is a throwaway read: nothing resumes it after a restart.
   const eligible = async (record: StoredAgentRecord) =>
-    !record.archivedAt && !record.internal && !record.owner && (await deps.eligible(record));
+    !record.archivedAt &&
+    !record.internal &&
+    !record.owner &&
+    !isSideQuestionAgent(record) &&
+    (await deps.eligible(record));
   async function resume(agentId: string) {
     const record = await deps.storage.get(agentId);
     if (!record?.resumeOnStartup) return;

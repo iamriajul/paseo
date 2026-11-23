@@ -456,6 +456,12 @@ export type AgentStreamEvent =
       code?: string;
       diagnostic?: string;
       turnId?: string;
+      /**
+       * ISO time the account's quota resets, when the turn failed on a used-up quota and the
+       * provider knows when it comes back. Each provider fills it from its own error shape; the
+       * daemon's rate-limit auto-resume schedules from it. Not sent to clients.
+       */
+      rateLimitResetsAt?: string;
     }
   | { type: "turn_canceled"; provider: AgentProvider; reason: string; turnId?: string }
   | {
@@ -650,6 +656,11 @@ export interface AgentSessionConfig {
    * They are used for ephemeral system tasks like commit/PR generation.
    */
   internal?: boolean;
+  /**
+   * A read-only side question forked from another agent's session. The provider denies every
+   * tool that changes anything. Persisted, so a resumed side question stays read-only.
+   */
+  sideQuestion?: boolean;
 }
 
 export interface AgentLaunchContext {
@@ -783,6 +794,13 @@ export interface AgentSession {
   resolveNativeForkUpToMessageId?(boundaryMessageId: string): Promise<string>;
   /** Where Claude Code wrote the session transcript, which the SDK forks from. */
   resolveNativeForkTranscriptPath?(sessionId: string): Promise<string | null>;
+  /**
+   * Forks the provider session through the reply `boundaryMessageId` (a timeline assistant
+   * message id) into a new provider session, leaving this one untouched. A provider with
+   * `supportsNativeFork` that forks on its own implements this (Codex: `thread/fork`); Claude
+   * forks through the SDK in `AgentManager.nativeForkAgent` instead.
+   */
+  forkNativeSession?(input: { boundaryMessageId: string }): Promise<{ sessionId: string }>;
   /**
    * Out-of-band prompt handler. When non-null, the manager runs the returned
    * handler instead of allocating a turn. The handler emits stream events

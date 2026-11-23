@@ -52,6 +52,12 @@ export const ServerBrowserTabSchema = z.object({
    * features.serverBrowserTabPin; older apps ignore it.
    */
   pinned: z.boolean().optional(),
+  /**
+   * The page's icon as a data: URL (an image/* type, at most 32 KB of bytes), read on the host so
+   * a localhost page's icon shows on every client. Absent while the page has none the host could
+   * read. Needs no gate: older apps ignore it, and an app shows the server icon without it.
+   */
+  favicon: z.string().optional(),
 });
 export type ServerBrowserTab = z.infer<typeof ServerBrowserTabSchema>;
 

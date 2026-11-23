@@ -1,6 +1,7 @@
 import { getWorkspacePanelAttributes } from "@/panels/panel-instance-attributes";
 import { panelCompactSheetPolicy, type CompactSheetPolicy } from "@/panels/panel-manifest";
 import { useSessionStore, type Agent } from "@/stores/session-store";
+import { isSideQuestionAgent } from "@getpaseo/protocol/agent-labels";
 import { isWorkspaceRootAgent } from "@/subagents/policies";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 
@@ -22,6 +23,8 @@ export function resolveCompactSheetPolicy(
   target: WorkspaceTabTarget,
 ): CompactSheetPolicy | null {
   return panelCompactSheetPolicy(target, {
+    isSideQuestionAgent: (agentId) =>
+      isSideQuestionAgent({ labels: workspaceAgentLookup(workspaceKey)(agentId)?.labels }),
     isWorkspaceRootAgent: (agentId) => {
       const getAgent = workspaceAgentLookup(workspaceKey);
       const agent = getAgent(agentId);

@@ -136,6 +136,14 @@ import {
   writeCodexCatalogJsonFile,
 } from "./codex-catalog.js";
 import { resolvePaseoHome } from "../../paseo-home.js";
+import type { PromptCacheRequestTokens } from "@getpaseo/protocol/agent-cache-warm";
+import { readCodexRequestCache } from "./codex/request-cache.js";
+import { forkCodexThreadAtMessage } from "./codex/native-fork.js";
+import {
+  type CodexRateLimitState,
+  type CodexRateLimitWindow,
+  resolveCodexQuotaResetAt,
+} from "./codex/usage-limit.js";
 
 function assertChildWithPipes(
   child: ChildProcess,
@@ -273,6 +281,8 @@ const CODEX_APP_SERVER_CAPABILITIES: AgentCapabilityFlags = {
   supportsRewindBoth: false,
   // COMPAT(supportsSteer): added in v0.2.916 — native app-server turn/steer.
   supportsSteer: true,
+  // COMPAT(supportsNativeFork): added in v0.2.916 — `thread/fork` through a reply's turn.
+  supportsNativeFork: true,
 };
 
 const CODEX_MODES: AgentMode[] = [
@@ -2258,6 +2268,21 @@ const TurnStartedNotificationSchema = z
   })
   .passthrough();
 
+const CodexRateLimitWindowSchema = z
+  .object({ usedPercent: z.number(), resetsAt: z.number().nullable().optional() })
+  .passthrough();
+
+const AccountRateLimitsUpdatedSchema = z
+  .object({
+    rateLimits: z
+      .object({
+        primary: CodexRateLimitWindowSchema.nullable().optional(),
+        secondary: CodexRateLimitWindowSchema.nullable().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
 const TurnCompletedNotificationSchema = z
   .object({
     threadId: z.string().optional(),
@@ -2557,6 +2582,7 @@ type ParsedCodexNotification =
       kind: "turn_completed";
       status: string;
       errorMessage: string | null;
+      codexErrorInfo: unknown;
       threadId: string | null;
     }
   | {
@@ -2709,6 +2735,7 @@ const CodexNotificationSchema = z.union([
         kind: "turn_completed",
         status: params.turn.status,
         errorMessage: params.turn.error?.message ?? null,
+        codexErrorInfo: params.turn.error?.codexErrorInfo ?? null,
         threadId: params.threadId ?? null,
       }),
     ),
@@ -3133,6 +3160,7 @@ const CodexNotificationSchema = z.union([
         kind: "turn_completed",
         status: "interrupted",
         errorMessage: null,
+        codexErrorInfo: null,
         threadId: getCodexEventThreadId(params),
       }),
     ),
@@ -3153,6 +3181,7 @@ const CodexNotificationSchema = z.union([
         kind: "turn_completed",
         status: "completed",
         errorMessage: null,
+        codexErrorInfo: null,
         threadId: getCodexEventThreadId(params),
       }),
     ),
@@ -3573,6 +3602,8 @@ export class CodexAppServerAgentSession implements AgentSession {
   private warnedInvalidNotificationPayloads = new Set<string>();
   private warnedIncompleteEditToolCallIds = new Set<string>();
   private latestUsage: AgentUsage | undefined;
+  private rateLimits: CodexRateLimitState = { primary: null, secondary: null };
+  private lastRequestTotalTokens: number | null = null;
   private latestPlanResult: { callId: string; text: string; turnId: string | null } | null = null;
   private readonly userMessageTurnIndexes = new Map<string, number>();
   private readonly userMessageTurnIds: string[] = [];
@@ -5070,6 +5101,54 @@ export class CodexAppServerAgentSession implements AgentSession {
       : null;
   }
 
+  async forkNativeSession(input: { boundaryMessageId: string }): Promise<{ sessionId: string }> {
+    // The side app-server forks from the rollout on disk, which exists once Codex saved the thread.
+    const threadId = this.savedThreadId;
+    if (!threadId) {
+      throw new Error("Codex thread has no saved turn to fork yet");
+    }
+    // Forks in an app-server of its own; see forkCodexThreadAtMessage.
+    const forkClient = await this.openSideClient();
+    try {
+      const sessionId = await forkCodexThreadAtMessage({
+        client: {
+          request: (method, params) => forkClient.request(method, params),
+          forkThread: (params) => forkClient.forkThread(params),
+        },
+        threadId,
+        boundaryMessageId: input.boundaryMessageId,
+        // Codex does not carry the parent thread's config into a fork; without it the forked
+        // thread falls back to the default model provider.
+        base: {
+          cwd: this.config.cwd ?? null,
+          model: this.config.model ?? null,
+          serviceTier: this.serviceTier,
+          config: this.buildCodexInnerConfig(),
+          excludeTurns: true,
+          persistExtendedHistory: true,
+        },
+      });
+      return { sessionId };
+    } finally {
+      await forkClient.dispose();
+    }
+  }
+
+  /** A second app-server on this session's launch, for work that must not hold its threads. */
+  private async openSideClient(): Promise<CodexAppServerClient> {
+    const client = new CodexAppServerClient(await this.spawnAppServer(), this.logger, () =>
+      this.traceContext(),
+    );
+    try {
+      await client.request("initialize", buildCodexAppServerInitializeParams());
+      client.notify("initialized", {});
+      return client;
+    } catch (error) {
+      await client.dispose();
+      throw error;
+    }
+  }
+
   async revertConversation(input: { messageId: string }): Promise<void> {
     await this.connect();
     if (!this.client) {
@@ -5646,6 +5725,10 @@ export class CodexAppServerAgentSession implements AgentSession {
           resolution: { behavior: "deny", interrupt: true },
         });
       }
+      return;
+    }
+    if (method === "account/rateLimits/updated") {
+      this.rememberRateLimits(params);
       return;
     }
     const parsed = CodexNotificationSchema.parse({ method, params });
@@ -6338,6 +6421,21 @@ export class CodexAppServerAgentSession implements AgentSession {
     this.emitEvent({ type: "thread_started", provider: CODEX_PROVIDER, sessionId: current });
   }
 
+  // The update is sparse: a window it leaves out keeps its last value.
+  private rememberRateLimits(params: unknown): void {
+    const parsed = AccountRateLimitsUpdatedSchema.safeParse(params);
+    if (!parsed.success) return;
+    const toWindow = (
+      window: z.infer<typeof CodexRateLimitWindowSchema> | null | undefined,
+    ): CodexRateLimitWindow | null =>
+      window ? { usedPercent: window.usedPercent, resetsAt: window.resetsAt ?? null } : null;
+    const { primary, secondary } = parsed.data.rateLimits;
+    this.rateLimits = {
+      primary: toWindow(primary) ?? this.rateLimits.primary,
+      secondary: toWindow(secondary) ?? this.rateLimits.secondary,
+    };
+  }
+
   private handleTurnCompletedNotification(
     parsed: Extract<ParsedCodexNotification, { kind: "turn_completed" }>,
   ): void {
@@ -6355,10 +6453,18 @@ export class CodexAppServerAgentSession implements AgentSession {
     }
     this.completePendingRootCompactions();
     if (parsed.status === "failed") {
+      const error = parsed.errorMessage ?? "Codex turn failed";
+      const resetsAt = resolveCodexQuotaResetAt({
+        message: error,
+        codexErrorInfo: parsed.codexErrorInfo,
+        rateLimits: this.rateLimits,
+        now: new Date(),
+      });
       this.emitEvent({
         type: "turn_failed",
         provider: CODEX_PROVIDER,
-        error: parsed.errorMessage ?? "Codex turn failed",
+        error,
+        ...(resetsAt ? { rateLimitResetsAt: resetsAt.toISOString() } : {}),
       });
     } else if (parsed.status === "interrupted") {
       this.dismissInterruptedAsyncQuestions();
@@ -6433,6 +6539,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     parsed: Extract<ParsedCodexNotification, { kind: "token_usage_updated" }>,
   ): void {
     this.latestUsage = toAgentUsage(parsed.tokenUsage);
+    const requestCache = this.readRequestCache(parsed.tokenUsage);
     if (this.latestUsage) {
       const configuredWindow = this.resolveModelContextWindow(this.config.model);
       if (configuredWindow !== undefined) {
@@ -6444,9 +6551,19 @@ export class CodexAppServerAgentSession implements AgentSession {
       this.notifySubscribers({
         type: "usage_updated",
         provider: CODEX_PROVIDER,
-        usage: this.latestUsage,
+        usage: requestCache ? { ...this.latestUsage, requestCache } : this.latestUsage,
       });
     }
+  }
+
+  // Only a request inside a running turn is the agent's: a resumed thread can report the usage it
+  // restored before any turn starts.
+  private readRequestCache(tokenUsage: unknown): PromptCacheRequestTokens | undefined {
+    const request = readCodexRequestCache(tokenUsage, this.lastRequestTotalTokens);
+    if (!request) return undefined;
+    this.lastRequestTotalTokens = request.totalTokens;
+    if (this.activeForegroundTurnId === null && this.currentTurnId === null) return undefined;
+    return request.tokens;
   }
 
   private resolveContextCompactionTrigger(itemId?: string): "auto" | "manual" | undefined {

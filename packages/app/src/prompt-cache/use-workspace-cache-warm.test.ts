@@ -3,6 +3,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useSessionStore, type SessionState, type Agent } from "@/stores/session-store";
+import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { useWorkspaceCacheWarm } from "./use-workspace-cache-warm";
 
 const { capWarningMinutes, reduceMotion } = vi.hoisted(() => ({
@@ -67,6 +68,7 @@ describe("useWorkspaceCacheWarm", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    useSidebarViewStore.setState({ warmCacheOnly: false });
   });
 
   it("counts down to the next warm-up of an idle agent, every second", () => {
@@ -183,5 +185,33 @@ describe("useWorkspaceCacheWarm", () => {
     }
     expect(flashes).toEqual(new Set([true, false]));
     expect(result.current.text).toBe("4:18");
+  });
+
+  it("under the warm-cache filter, counts a warm cache with no warm-up down to it expiring", () => {
+    const warmUpOff = agentWith({
+      features: [
+        { type: "select", id: "prompt_cache_ttl", value: "5m" },
+        { type: "toggle", id: "cache_warm", value: false },
+      ] as Agent["features"],
+    });
+    expect(setup(warmUpOff).result.current.text).toBeNull();
+
+    useSidebarViewStore.setState({ warmCacheOnly: true });
+    const { result } = setup(warmUpOff);
+    expect(result.current).toMatchObject({ text: "4:20", capped: true });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(result.current.text).toBe("4:19");
+    // A running turn's cache is warm until the same instant.
+    expect(setup(agentWith({ status: "running" })).result.current).toMatchObject({
+      text: "4:19",
+      capped: true,
+    });
+  });
+
+  it("under the warm-cache filter, still counts to the next warm-up while one is armed", () => {
+    useSidebarViewStore.setState({ warmCacheOnly: true });
+    expect(setup(agentWith({})).result.current).toMatchObject({ text: "3:20", capped: false });
   });
 });

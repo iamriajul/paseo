@@ -204,6 +204,12 @@ export interface PromptCacheRequestTokens {
   uncachedTokens: number;
   /** TTL the request's cache write was billed at; absent when it wrote nothing at a known TTL. */
   writeTtl?: PromptCacheTtl;
+  /**
+   * The provider reports cache reads only (Codex): `writeTokens` is the input the request did not
+   * read, taken as written because OpenAI caches every prompt. Hits and misses follow from the
+   * reads alone, so they are inferred too.
+   */
+  writeInferred?: boolean;
 }
 
 /** One main-thread Anthropic request, stamped when its `message_start` arrived. */
@@ -243,6 +249,8 @@ export interface PromptCacheHistoryEntry {
    */
   writeTtl?: PromptCacheTtl;
   model?: string;
+  /** See `PromptCacheRequestTokens.writeInferred`. */
+  writeInferred?: boolean;
   /** On a turn: time since the latest request that was not a warm-up, so time away. */
   awayMs?: number;
   /** First request after a compaction: it has to write the new context, so it is no miss. */
@@ -641,6 +649,7 @@ function buildHistoryEntry(
     gapMs: elapsedSinceMs(basisAt, sample.at),
     ...(sample.writeTtl ? { writeTtl: sample.writeTtl } : {}),
     ...(sample.model ? { model: sample.model } : {}),
+    ...(sample.writeInferred ? { writeInferred: true } : {}),
     ...(awayMs === null ? {} : { awayMs }),
     ...(afterCompaction ? { afterCompaction: true } : {}),
     ...(previousInputTokens > 0 ? { previousInputTokens } : {}),

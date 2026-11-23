@@ -4,6 +4,7 @@ import type {
   UploadedFileAttachment,
 } from "@getpaseo/protocol/messages";
 import type { PluginResourceComposerAttachment } from "@/plugins/attachments";
+import type { QuoteOrigin } from "@/quotes/quote-format";
 
 export type AttachmentStorageType = "web-indexeddb" | "desktop-file" | "native-file";
 
@@ -103,8 +104,20 @@ export interface WorkspaceFileComposerAttachment {
   selection: WorkspaceFileSelection;
 }
 
+/** A passage of the chat quoted into the composer. It is sent as prompt text, never as an attachment. */
+export interface ComposerQuote {
+  id: string;
+  origin: QuoteOrigin;
+  text: string;
+  /** True when the user selected part of the message. */
+  partial: boolean;
+  /** The quoted message, so pressing the source line can scroll the chat to it. */
+  messageId?: string;
+}
+
 export type UserComposerAttachment =
   | { kind: "image"; metadata: AttachmentMetadata }
+  | { kind: "quote"; quote: ComposerQuote }
   | { kind: "file"; attachment: UploadedFileAttachment }
   | WorkspaceFileComposerAttachment
   | PluginResourceComposerAttachment

@@ -24,7 +24,7 @@ function storedRecord(overrides: Partial<StoredAgentRecord> = {}): StoredAgentRe
   } as StoredAgentRecord;
 }
 
-// A Claude agent whose last response came back at 00:00 on a five-minute prompt cache.
+// A Claude agent whose last response came back in 2026 on a five-minute prompt cache: long expired.
 function claudeAgentWithFiveMinuteCache(): StoredAgentRecord {
   return storedRecord({
     lastResponseAt: "2026-01-01T00:00:00.000Z",
@@ -40,33 +40,36 @@ function claudeAgentWithFiveMinuteCache(): StoredAgentRecord {
 describe("isRestartResumeEligible", () => {
   it("does not resume a live agent that is running a cache warm-up ping", () => {
     const record = storedRecord();
-    const nowMs = Date.parse("2026-01-01T00:01:00.000Z");
 
-    expect(
-      isRestartResumeEligible({ record, liveWarmPing: true, workspaceArchived: false, nowMs }),
-    ).toBe(false);
-    expect(
-      isRestartResumeEligible({ record, liveWarmPing: false, workspaceArchived: false, nowMs }),
-    ).toBe(true);
+    expect(isRestartResumeEligible({ record, liveWarmPing: true, workspaceArchived: false })).toBe(
+      false,
+    );
+    expect(isRestartResumeEligible({ record, liveWarmPing: false, workspaceArchived: false })).toBe(
+      true,
+    );
   });
 
-  it("does not resume an agent whose five-minute prompt cache has expired", () => {
+  it("resumes an agent whose five-minute prompt cache has expired", () => {
     const record = claudeAgentWithFiveMinuteCache();
 
+    expect(isRestartResumeEligible({ record, liveWarmPing: false, workspaceArchived: false })).toBe(
+      true,
+    );
+  });
+
+  it("does not resume an agent without a provider session or in an archived workspace", () => {
     expect(
       isRestartResumeEligible({
-        record,
+        record: storedRecord({ persistence: null }),
         liveWarmPing: false,
         workspaceArchived: false,
-        nowMs: Date.parse("2026-01-01T00:01:00.000Z"),
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isRestartResumeEligible({
-        record,
+        record: storedRecord(),
         liveWarmPing: false,
-        workspaceArchived: false,
-        nowMs: Date.parse("2026-01-01T00:10:00.000Z"),
+        workspaceArchived: true,
       }),
     ).toBe(false);
   });

@@ -37,6 +37,7 @@ test.describe("Sidebar project filter", () => {
         "Show",
         "Project",
         "Show background",
+        "Warm cache only",
       ]);
       await closeSidebarDisplayPreferences(page);
 

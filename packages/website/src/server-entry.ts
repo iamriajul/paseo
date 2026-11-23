@@ -5,6 +5,7 @@ import { getAndroidVersionCode } from "~/android-version";
 import { getCanonicalRedirect } from "~/canonical-url";
 import { getLegacyDocsRedirect, resolveDocMarkdownPath } from "~/docs";
 import { splitLocalePath, withLocalePrefix } from "~/i18n";
+import { getGitHubApiUrl } from "~/cloudflare-cache";
 import { getLatestAndroidVersion } from "~/latest-release";
 import { buildLlmsTxt } from "~/llms";
 
@@ -108,10 +109,13 @@ export default {
     }
 
     if (url.pathname === "/android-version.txt") {
-      const version = await getLatestAndroidVersion({
-        cache: env.WEBSITE_CACHE ?? null,
-        waitUntil: (promise) => context.waitUntil(promise),
-      });
+      const version = await getLatestAndroidVersion(
+        {
+          cache: env.WEBSITE_CACHE ?? null,
+          waitUntil: (promise) => context.waitUntil(promise),
+        },
+        getGitHubApiUrl(),
+      );
       return plainTextResponse(`${getAndroidVersionCode(version)}\n`);
     }
 

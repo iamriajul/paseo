@@ -318,6 +318,40 @@ describe("PromptCachePill", () => {
     expect(queryByTestId("prompt-cache-pill")).toBeNull();
   });
 
+  it("shows a Codex agent's journal, marked inferred, without warm-up", () => {
+    const sample = {
+      at: new Date(NOW).toISOString(),
+      turnId: "turn-1",
+      isWarmPing: false,
+      readTokens: 0,
+      writeTokens: 80_000,
+      uncachedTokens: 0,
+      writeInferred: true,
+    };
+    const { getByTestId, getByText, queryByText } = renderPill(
+      claudeAgent({
+        provider: "codex",
+        promptCache: { lastRequest: sample, turnFirstRequest: sample },
+      }),
+    );
+    expect(getByTestId("prompt-cache-pill")).toBeTruthy();
+    expect(getByText("The provider manages the cache")).toBeTruthy();
+    expect(getByTestId("prompt-cache-last-prompt").textContent).toBe(
+      "Missed · wrote 80k (inferred)",
+    );
+    expect(getByTestId("prompt-cache-inferred-note")).toBeTruthy();
+    expect(queryByText("Choose 5m or 1h under Cache window to warm it.")).toBeNull();
+    expect(getByTestId("prompt-cache-open-insights")).toBeTruthy();
+  });
+
+  it("shows an OpenCode agent's journal without the inferred note", () => {
+    const { getByTestId, queryByTestId } = renderPill(
+      claudeAgent({ provider: "opencode", promptCache: promptCacheAt(NOW) }),
+    );
+    expect(getByTestId("prompt-cache-pill")).toBeTruthy();
+    expect(queryByTestId("prompt-cache-inferred-note")).toBeNull();
+  });
+
   it("shows Auto with no warm-up controls", () => {
     const { getByText, queryByTestId } = renderPill(
       claudeAgent({ ttl: "default", promptCache: promptCacheAt(NOW) }),

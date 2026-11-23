@@ -23,6 +23,7 @@ import { CreationClient } from "./creation/index.js";
 import type { CreationSnapshot } from "@getpaseo/protocol/messages";
 import type { z } from "zod";
 import type { SessionEventSubscription } from "@getpaseo/protocol/messages";
+import type { SideQuestionCacheEstimate } from "@getpaseo/protocol/messages";
 import type { LocalSpeechModel } from "@getpaseo/protocol/speech/rpc-schemas";
 import { CLIENT_CAPS, type ClientCapability } from "@getpaseo/protocol/client-capabilities";
 import type { AgentAttentionNotificationPayload } from "@getpaseo/protocol/agent-attention-notification";
@@ -4698,6 +4699,49 @@ export class DaemonClient {
       },
     });
   }
+  /** Opens a read-only side question forked from `agentId`. Gate on `features.sideQuestions`. */
+  async openSideQuestion(
+    agentId: string,
+    options: {
+      boundaryCursor?: { epoch: string; seq: number };
+      boundaryMessageId?: string;
+      requestId?: string;
+    } = {},
+  ): Promise<{
+    requestId: string;
+    sourceAgentId: string;
+    accepted: boolean;
+    error: string | null;
+    agentId?: string;
+    workspaceId?: string;
+  }> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: {
+        type: "agent.side_question.open.request",
+        agentId,
+        ...(options.boundaryCursor ? { boundaryCursor: options.boundaryCursor } : {}),
+        ...(options.boundaryMessageId ? { boundaryMessageId: options.boundaryMessageId } : {}),
+      },
+    });
+  }
+
+  /** What the next question in a side question does to the prompt cache. */
+  async getSideQuestionEstimate(
+    agentId: string,
+    options: { requestId?: string } = {},
+  ): Promise<{
+    requestId: string;
+    agentId: string;
+    estimate: SideQuestionCacheEstimate | null;
+    error: string | null;
+  }> {
+    return this.sendNamespacedCorrelatedSessionRequest({
+      requestId: options.requestId,
+      message: { type: "agent.side_question.estimate.request", agentId },
+    });
+  }
+
   async buildAgentForkContext(
     agentId: string,
     options: AgentForkContextOptions = {},

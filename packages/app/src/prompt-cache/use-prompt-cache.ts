@@ -73,6 +73,13 @@ export interface PromptCacheWarmup {
 export interface PromptCacheState {
   isClaude: boolean;
   /**
+   * The cache surfaces show: a Claude agent, or a Codex or OpenCode agent with requests in its
+   * journal. Those providers have no warm-up; the pill shows their journal and insights only.
+   */
+  tracked: boolean;
+  /** The latest request's write was inferred from its reads (Codex). */
+  writeInferred: boolean;
+  /**
    * The windows the running process writes at: the latest cache write's TTL, else the Cache
    * window. Null while Automatic and no write has been seen.
    */
@@ -303,6 +310,24 @@ function resolveWarmup(input: {
   };
 }
 
+/** Providers whose sessions report each model request's cache split, without warm-up. */
+const JOURNAL_ONLY_PROVIDERS: ReadonlySet<string> = new Set(["codex", "opencode"]);
+
+/** A first-party Claude agent: the only one with warm-up and Cache windows. */
+export function isFirstPartyClaudeAgent(agent: Agent | undefined): boolean {
+  return Boolean(
+    agent && agent.provider === "claude" && isClaudeModel(agent.model ?? agent.runtimeInfo?.model),
+  );
+}
+
+/** Whether the cache pill shows for this agent; see `PromptCacheState.tracked`. */
+export function isPromptCacheTracked(agent: Agent | undefined): boolean {
+  return (
+    isFirstPartyClaudeAgent(agent) ||
+    Boolean(agent?.promptCache && JOURNAL_ONLY_PROVIDERS.has(agent.provider))
+  );
+}
+
 /** Everything the cache surfaces show for one agent at one instant; no React, no clock. */
 export function resolvePromptCacheView(
   agent: Agent | undefined,
@@ -310,9 +335,7 @@ export function resolvePromptCacheView(
   options?: { forkWarm?: boolean; closesPermissions?: boolean },
 ): PromptCacheView {
   const totals = resolveTotals(agent);
-  const isClaude = Boolean(
-    agent && agent.provider === "claude" && isClaudeModel(agent.model ?? agent.runtimeInfo?.model),
-  );
+  const isClaude = isFirstPartyClaudeAgent(agent);
   const facts = agent && isClaude ? readAgentCacheFacts(agent) : null;
   const status: PromptCacheStatus = facts ? resolveStatus(facts, now) : { kind: "automatic" };
   const warmup = facts
@@ -326,6 +349,8 @@ export function resolvePromptCacheView(
     : null;
   return {
     isClaude,
+    tracked: isPromptCacheTracked(agent),
+    writeInferred: agent?.promptCache?.lastRequest.writeInferred === true,
     windows: facts?.windows ?? null,
     status,
     warmup,
@@ -335,6 +360,20 @@ export function resolvePromptCacheView(
     requests: totals.requests,
     lastTurnCompacted: lastTurnWasCompaction(agent?.promptCache),
   };
+}
+
+/**
+ * When the agent's prompt cache expires: its last request plus the cache window it wrote at. Null
+ * for an agent with no cache to judge (not Claude, no request yet, or Automatic with no TTL seen).
+ * A running turn counts like an idle agent: its cache is warm until this instant whatever it does.
+ */
+export function resolvePromptCacheExpiresAtMs(agent: Agent): number | null {
+  if (agent.provider !== "claude" || !isClaudeModel(agent.model ?? agent.runtimeInfo?.model)) {
+    return null;
+  }
+  const facts = readAgentCacheFacts(agent);
+  if (!facts.windows || facts.anchorMs === null) return null;
+  return facts.anchorMs + facts.windows.cacheWindowMs;
 }
 
 /**

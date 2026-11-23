@@ -140,7 +140,11 @@ function attachStubTerminal(runtime: TerminalEmulatorRuntime): {
 
   const terminal: StubTerminal & { resetCalls: number } = {
     write: (data: string | Uint8Array, callback?: () => void) => {
-      const text = decodeTerminalOutput(data);
+      // Replayed bytes arrive bracketed by the runtime's reply-suppression OSC; the browser
+      // tests cover what the bracket does, so assertions here read the payload alone.
+      const text = decodeTerminalOutput(data)
+        .replaceAll("\x1b]7769;1\x07", "")
+        .replaceAll("\x1b]7769;0\x07", "");
       // The runtime submits a zero-length sentinel write to gate barrier ops behind the
       // drained write run. Keep its callback (the gate resolves through it) but exclude the
       // empty payload from writeTexts so assertions read like real terminal output.
@@ -410,42 +414,28 @@ describe("terminal-emulator-runtime", () => {
     expect(terminal.resetCalls).toBe(0);
   });
 
-  it("applies a barrier immediately when no writes precede it, suppressing input at once", () => {
-    const { runtime, writeCallbacks } = createRuntimeWithTerminal();
-    const readSuppressInput = () =>
-      (runtime as unknown as { suppressInput: boolean }).suppressInput;
+  it("applies a barrier immediately when no writes precede it", () => {
+    const { runtime, writeTexts } = createRuntimeWithTerminal();
 
-    expect(readSuppressInput()).toBe(false);
-
-    // No plain writes precede this barrier (mount), so there is nothing to gate: it starts
-    // at once with no sentinel, flipping suppressInput synchronously.
+    // No plain writes precede this barrier (mount), so there is nothing to gate: its
+    // snapshot write is submitted at once with no sentinel.
     runtime.replay({ type: "begin" });
-    expect(readSuppressInput()).toBe(true);
-
-    // writeCallbacks[0] is the barrier's own snapshot write; committing it restores input.
-    writeCallbacks[0]?.();
-    expect(readSuppressInput()).toBe(false);
+    expect(writeTexts).toEqual(["\x1bc"]);
   });
 
-  it("gates a barrier behind a preceding plain write before suppressing input", () => {
-    const { runtime, writeCallbacks } = createRuntimeWithTerminal();
-    const readSuppressInput = () =>
-      (runtime as unknown as { suppressInput: boolean }).suppressInput;
+  it("gates a barrier behind a preceding plain write", () => {
+    const { runtime, writeCallbacks, writeTexts } = createRuntimeWithTerminal();
 
     // A plain write is now ungated, so the following barrier must wait on the sentinel.
     runtime.write({ data: terminalOutput("output") });
     runtime.replay({ type: "begin" });
+    expect(writeTexts).toEqual(["output"]);
 
     // The plain write commits first. Only the following sentinel opens the barrier.
-    expect(readSuppressInput()).toBe(false);
     writeCallbacks[0]();
-    expect(readSuppressInput()).toBe(false);
+    expect(writeTexts).toEqual(["output"]);
     writeCallbacks[1]();
-    expect(readSuppressInput()).toBe(true);
-
-    // Committing the barrier's snapshot write restores input.
-    writeCallbacks[2]();
-    expect(readSuppressInput()).toBe(false);
+    expect(writeTexts).toEqual(["output", "\x1bc"]);
   });
 
   it("commits pending output operations during unmount to avoid deadlock", () => {

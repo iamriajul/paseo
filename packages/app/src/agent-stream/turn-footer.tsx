@@ -18,6 +18,9 @@ import {
 } from "@/components/message";
 import type { TurnFooterHost } from "./layout";
 import { AssistantForkMenu } from "@/components/assistant-fork-menu";
+import { useChatQuoteActions } from "@/quotes/chat-quote-context";
+import { useSideQuestionPane } from "@/side-questions/pane-context";
+import { useTurnSideQuestionActions } from "@/side-questions/use-turn-side-question-actions";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { usePromptCacheMoney } from "@/prompt-cache/money-stats-context";
@@ -67,12 +70,13 @@ export const TurnFooter = memo(function TurnFooter({
   onForkAssistantTurn?: AssistantTurnForkHandler;
   onForkInFlightTurn?: InFlightTurnForkHandler;
 }) {
+  const inSideQuestionPane = useSideQuestionPane() !== null;
   if (isRunning) {
     return (
       <TurnFooterRow>
         <RunningTurnFooter
           inFlightTurnStartedAt={inFlightTurnStartedAt}
-          onForkInFlightTurn={onForkInFlightTurn}
+          onForkInFlightTurn={inSideQuestionPane ? undefined : onForkInFlightTurn}
         />
       </TurnFooterRow>
     );
@@ -222,6 +226,20 @@ function CompletedTurnFooter({
     },
     [boundary, onForkAssistantTurn],
   );
+  const quoteActions = useChatQuoteActions();
+  const addQuote = quoteActions?.addQuote;
+  const quoteMessageId = items[startIndex]?.id;
+  const handleQuote = useCallback(() => {
+    addQuote?.({ origin: "assistant", text: turnText, partial: false, messageId: quoteMessageId });
+  }, [addQuote, quoteMessageId, turnText]);
+  const sideQuestionActions = useTurnSideQuestionActions({
+    items,
+    startIndex,
+    turnText,
+    boundary,
+    messageId: quoteMessageId,
+    timing,
+  });
   const readAloud = useMemo(
     () => (turnText.trim() ? { text: turnText, serverId, client } : null),
     [turnText, serverId, client],
@@ -242,10 +260,14 @@ function CompletedTurnFooter({
         getContent={items[startIndex]?.kind === "assistant_message" ? getContent : undefined}
         completedAt={timing?.completedAt}
         durationMs={timing?.durationMs}
-        onFork={boundary && onForkAssistantTurn ? handleFork : undefined}
+        onFork={
+          boundary && onForkAssistantTurn && !sideQuestionActions.inPane ? handleFork : undefined
+        }
         showNativeForkOption={supportsNativeFork}
         readAloud={readAloud}
-        costLabel={costLabel}
+        costLabel={sideQuestionActions.usageLabel ?? costLabel}
+        onQuote={addQuote && turnText.trim() ? handleQuote : undefined}
+        sideQuestionActions={sideQuestionActions.node}
       />
     </View>
   );

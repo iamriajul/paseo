@@ -1,6 +1,9 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import {
   getLatestAndroidVersionFromReleases,
+  getReleaseChannels,
   selectReleaseChannels,
   type GitHubRelease,
 } from "./latest-release";
@@ -91,5 +94,28 @@ describe("selectReleaseChannels", () => {
 
     expect(channels.stable.version).toBe("0.2.4");
     expect(channels.beta?.version).toBe("0.3.0-beta.1");
+  });
+});
+
+describe("getReleaseChannels", () => {
+  it("reads releases from the configured GitHub API, not live GitHub", async () => {
+    const requests: string[] = [];
+    const server = createServer((request, response) => {
+      requests.push(request.url ?? "");
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify([desktopRelease({ version: "9.8.7" })]));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const channels = await getReleaseChannels(
+        { cache: null, waitUntil: () => undefined },
+        `http://127.0.0.1:${port}`,
+      );
+      expect(channels.stable.version).toBe("9.8.7");
+      expect(requests).toEqual(["/repos/getpaseo/paseo/releases?per_page=10"]);
+    } finally {
+      server.close();
+    }
   });
 });

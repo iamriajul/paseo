@@ -8,6 +8,24 @@ export function isRateLimitAutoResumeDisabled(
   return labels?.[AGENT_LABEL_RATE_LIMIT_AUTO_RESUME] === "false";
 }
 
+/**
+ * Marks an agent as a read-only side question forked from the agent whose id is the value.
+ * A label, not `internal`: an internal agent is hidden from the listings the side-question list
+ * needs. See docs/quotes-and-side-questions.md.
+ */
+export const SIDE_QUESTION_OF_LABEL = "paseo.side-question-of";
+
+export function getSideQuestionSourceId(
+  labels: Record<string, unknown> | null | undefined,
+): string | null {
+  const sourceId = labels?.[SIDE_QUESTION_OF_LABEL];
+  return typeof sourceId === "string" && sourceId.trim().length > 0 ? sourceId.trim() : null;
+}
+
+export function isSideQuestionAgent(agent: AgentLabelSource): boolean {
+  return getSideQuestionSourceId(agent.labels) !== null;
+}
+
 export const PARENT_SERVER_ID_LABEL = "paseo.parent-server-id";
 export const PARENT_AGENT_ID_LABEL = "paseo.parent-agent-id";
 const OPEN_AGENT_TAB_LABEL_PREFIX = "paseo.open-agent-tab.";

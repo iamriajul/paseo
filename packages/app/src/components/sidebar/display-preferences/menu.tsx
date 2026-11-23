@@ -418,6 +418,14 @@ export function SidebarDisplayPreferencesMenu(): ReactElement {
           >
             {t("sidebar.display.showBackground")}
           </MenuItem>
+          <MenuItem
+            selected={preferences.warmCacheOnly}
+            closeOnSelect={false}
+            onSelect={preferences.toggleWarmCacheOnly}
+            testID="sidebar-display-warm-cache-only"
+          >
+            {t("sidebar.display.warmCacheOnly")}
+          </MenuItem>
         </MenuSurface>
       </MenuRoot>
       <WorkspaceLabelManagerModal visible={managerOpen} onClose={closeManager} />

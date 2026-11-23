@@ -6,6 +6,8 @@ import {
   indexSwitchMisses,
   matchesRequestFilter,
   sliceInsightsRange,
+  spansSeveralDays,
+  formatListTime,
 } from "./prompt-cache-explorer";
 import { createRequestPricer } from "./prompt-cache-insights";
 
@@ -148,19 +150,37 @@ describe("describeRequest", () => {
 });
 
 describe("describeReportedCost", () => {
-  it("puts Claude Code's figure and the warm-ups side by side", () => {
+  it("names Claude Code's figure and the fork warm-ups it leaves out", () => {
     expect(describeReportedCost({ claudeCodeUsd: 43.77, warmUpUsd: 1.3 })).toMatch(
-      /^Session cost: Claude Code reported \$43\.77 \+ warm-ups ≈ \$1\.30 · \$45\.07 in all\./,
+      /^Session cost: Claude Code reported \$43\.77 \+ fork warm-ups ≈ \$1\.30 · \$45\.07 in all\./,
     );
     expect(describeReportedCost({ claudeCodeUsd: null, warmUpUsd: null })).toBeNull();
   });
 
-  it("says Claude Code leaves out fork warm-ups only when there are some", () => {
-    expect(describeReportedCost({ claudeCodeUsd: 43.77, warmUpUsd: 1.3 })).toContain(
-      "but not fork warm-ups",
+  // The PA session (2026-11-17): the split said "Warm-ups $2.05" for 13 ping warm-ups while this
+  // line said "warm-ups ≈ $0.30", the fork warm-ups alone, and read as the same figure.
+  it("says ping warm-ups are inside Claude Code's figure, so the split's warm-ups do not read as a second total", () => {
+    const text = describeReportedCost({ claudeCodeUsd: 1075, warmUpUsd: 0.3 });
+    expect(text).not.toMatch(/\+ warm-ups/);
+    expect(text).toContain("warm-ups sent as turns, not fork warm-ups");
+    expect(text).toContain("warm-ups of both kinds included");
+  });
+});
+
+describe("request list times", () => {
+  it("dates the times once the list crosses a day", () => {
+    const nov17 = "2026-11-17T12:20:00.000Z";
+    const nov18 = "2026-11-18T12:18:00.000Z";
+    expect(spansSeveralDays([nov17, "2026-11-17T12:40:00.000Z"])).toBe(false);
+    expect(spansSeveralDays([nov18, nov17])).toBe(true);
+    expect(formatListTime(nov17, true)).toBe(
+      new Date(nov17).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
     );
-    expect(describeReportedCost({ claudeCodeUsd: 43.77, warmUpUsd: null })).not.toContain(
-      "warm-ups",
-    );
+    expect(formatListTime(nov17, true)).not.toBe(formatListTime(nov17, false));
   });
 });

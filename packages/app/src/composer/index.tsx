@@ -147,6 +147,7 @@ import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
 import { useWorkspaceAttachmentsForScopes } from "@/attachments/workspace-attachments-store";
 import { droppedItemsToSelectedFiles } from "@/composer/attachments/drop";
 import { getFileTypeLabel } from "@/attachments/file-types";
+import { QuoteAttachmentCard } from "@/quotes/quote-attachment-card";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import {
   AttachmentFrame,
@@ -168,6 +169,8 @@ import { readClipboardImage } from "./clipboard-image";
 import { normalizeNativePastedImages, type NativePastedFile } from "./native-pasted-image";
 import { PluginResourceAttachmentPill, usePluginAttachmentPicker } from "@/plugins";
 import { resolveClientSlashCommand, type ClientSlashCommand } from "@/client-slash-commands";
+import { useBtwCommand } from "@/side-questions/use-btw-command";
+import { AskAsideComposerButton } from "@/side-questions/ask-aside-composer-button";
 import {
   appendWorkspaceFileAttachment,
   getWorkspaceFileAttachmentKey,
@@ -429,6 +432,16 @@ function renderComposerAttachmentPill(args: RenderComposerAttachmentPillArgs): R
         onRemove={onRemove}
         openLabel={labels.openImage}
         removeLabel={labels.removeImage}
+      />
+    );
+  }
+  if (attachment.kind === "quote") {
+    return (
+      <QuoteAttachmentCard
+        key={`quote:${attachment.quote.id}`}
+        quote={attachment.quote}
+        index={index}
+        onRemove={onRemove}
       />
     );
   }
@@ -1634,10 +1647,11 @@ function ComposerContentImpl({
     }
     return false;
   });
-  const activeSendBehavior = resolveActiveSendBehavior(
-    appSettings.sendBehavior,
-    hasPendingPermission,
-  );
+  // A side question has no queue: a question sent mid-answer replaces the answer.
+  const activeSendBehavior =
+    inputMode === "side_question"
+      ? "interrupt"
+      : resolveActiveSendBehavior(appSettings.sendBehavior, hasPendingPermission);
   const hasAgent = agentState.status !== null;
 
   const queueWriter = useMemo<QueueWriter>(
@@ -1747,6 +1761,7 @@ function ComposerContentImpl({
     },
   });
 
+  const runBtwCommand = useBtwCommand();
   const handleSubmit = useCallback(
     (payload: MessagePayload) => {
       const outgoingAttachments = buildOutgoingAttachments(attachments);
@@ -1755,6 +1770,12 @@ function ComposerContentImpl({
         hasAttachments: outgoingAttachments.length > 0,
       });
       if (clientSlashCommand && runClientSlashCommand(clientSlashCommand)) {
+        return;
+      }
+      if (runBtwCommand({ text: payload.text, attachments })) {
+        clearDraft("sent");
+        replaceUserInput("");
+        setSelectedAttachments([]);
         return;
       }
       const pluginSlashCommand = resolvePluginClientSlashCommand({
@@ -1783,11 +1804,15 @@ function ComposerContentImpl({
       attachments,
       blurOnSubmit,
       buildOutgoingAttachments,
+      clearDraft,
       interceptColdSend,
+      replaceUserInput,
+      runBtwCommand,
       runClientSlashCommand,
       pluginClientSlashCommands,
       runPluginClientSlashCommand,
       sendMessageWithContent,
+      setSelectedAttachments,
     ],
   );
 
@@ -2130,8 +2155,9 @@ function ComposerContentImpl({
   const contextWindowMeterGlyphSize = isCompactLayout ? ICON_SIZE.md : buttonIconSize;
   const beforeVoiceContent = useMemo(
     () =>
-      hasAgent ? (
+      hasAgent && inputMode === "chat" ? (
         <>
+          <AskAsideComposerButton />
           <PromptSendCost serverId={serverId} agentId={agentId} textSource={textSource} />
           <View style={styles.contextWindowMeterSlot}>
             <ContextWindowMeter
@@ -2158,6 +2184,7 @@ function ComposerContentImpl({
       agentState.provider,
       agentState.model,
       contextWindowMeterGlyphSize,
+      inputMode,
     ],
   );
 
@@ -2231,6 +2258,8 @@ function ComposerContentImpl({
         },
       });
     }
+    // A side question takes images and nothing else: no issue, PR, plugin or file attachments.
+    if (inputMode === "side_question") return items;
     items.push(
       {
         id: "github",
@@ -2258,6 +2287,7 @@ function ComposerContentImpl({
     handlePasteImage,
     handlePickFile,
     handlePickImage,
+    inputMode,
     pluginAttachments.menuItems,
     t,
   ]);
@@ -2309,9 +2339,7 @@ function ComposerContentImpl({
   const supportsScheduledPrompt = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.scheduledPrompt !== false,
   );
-  const canSchedulePrompt = Boolean(
-    hasAgent && inputMode !== "terminal" && supportsScheduledPrompt,
-  );
+  const canSchedulePrompt = Boolean(hasAgent && inputMode === "chat" && supportsScheduledPrompt);
   const handleOpenSchedulePrompt = useCallback(() => {
     setIsSchedulePromptSheetOpen(true);
   }, []);

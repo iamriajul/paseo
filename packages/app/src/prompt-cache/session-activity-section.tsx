@@ -55,7 +55,13 @@ function ActivityStrip({ activity }: { activity: SessionActivity }): ReactElemen
   );
 }
 
-function GapBars({ activity }: { activity: SessionActivity }): ReactElement {
+function GapBars({
+  activity,
+  windowAdvice,
+}: {
+  activity: SessionActivity;
+  windowAdvice: boolean;
+}): ReactElement {
   const maxCount = Math.max(1, ...activity.buckets.map((bucket) => bucket.count));
   return (
     <View style={styles.bars} testID="prompt-cache-activity-gaps">
@@ -76,7 +82,9 @@ function GapBars({ activity }: { activity: SessionActivity }): ReactElement {
             {plural(bucket.count, "gap", "gaps")}
             {bucket.count > 0 ? ` · ${formatPreciseDuration(bucket.totalMs)}` : ""}
           </Text>
-          <Text style={styles.barHint}>{BUCKET_COPY[bucket.key].covers}</Text>
+          {windowAdvice ? (
+            <Text style={styles.barHint}>{BUCKET_COPY[bucket.key].covers}</Text>
+          ) : null}
         </View>
       ))}
     </View>
@@ -136,6 +144,7 @@ export function SessionActivitySection({
   busy,
   price,
   nowMs,
+  windowAdvice,
 }: {
   requests: readonly PromptCacheHistoryEntry[];
   sessionRequests: number | undefined;
@@ -143,6 +152,11 @@ export function SessionActivitySection({
   /** Present while money stats are on and the model has a price. */
   price: RequestPricer | null;
   nowMs: number;
+  /**
+   * Which Cache window each gap needs, and what each window would cost. Only an agent with Cache
+   * windows and warm-up (first-party Claude) has that choice to make.
+   */
+  windowAdvice: boolean;
 }): ReactElement | null {
   const activity = useMemo(
     () => summarizeSessionActivity({ requests, sessionRequests, busy, nowMs }),
@@ -165,7 +179,8 @@ export function SessionActivitySection({
           <View style={[styles.swatch, styles.idle]} />
           <Text style={styles.legendText} testID="prompt-cache-activity-idle">
             Idle {formatPreciseDuration(activity.idleMs)} ·{" "}
-            {Math.round((activity.idleMs / total) * 100)}%, warm-ups included
+            {Math.round((activity.idleMs / total) * 100)}%
+            {windowAdvice ? ", warm-ups included" : ""}
           </Text>
         </View>
       </View>
@@ -181,14 +196,16 @@ export function SessionActivitySection({
         </Text>
       ) : null}
       <Text style={styles.subTitle}>Gaps between turns</Text>
-      <GapBars activity={activity} />
+      <GapBars activity={activity} windowAdvice={windowAdvice} />
       {activity.ongoingIdleMs > 0 ? (
         <Text style={styles.note}>
           Idle now for {formatPreciseDuration(activity.ongoingIdleMs)}; it counts once the next turn
           starts.
         </Text>
       ) : null}
-      {price ? <StrategyCosts requests={requests} activity={activity} price={price} /> : null}
+      {price && windowAdvice ? (
+        <StrategyCosts requests={requests} activity={activity} price={price} />
+      ) : null}
     </View>
   );
 }

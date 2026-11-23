@@ -703,6 +703,8 @@ describe("translateOpenCodeEvent", () => {
           inputTokens: 30_000,
           outputTokens: 12_000,
           totalCostUsd: 0.25,
+          // The step is one model request; its cache split goes to the prompt-cache journal.
+          requestCache: { readTokens: 2_000, writeTokens: 1_000, uncachedTokens: 30_000 },
         },
       },
     ]);
@@ -714,6 +716,41 @@ describe("translateOpenCodeEvent", () => {
       outputTokens: 12_000,
       totalCostUsd: 0.25,
     });
+  });
+
+  it("journals each step-finish as one request, once", () => {
+    const state = createState();
+    const stepFinish = {
+      type: "message.part.updated" as const,
+      properties: {
+        part: {
+          id: "step-finish-cache",
+          sessionID: "session-1",
+          messageID: "message-cache",
+          type: "step-finish" as const,
+          reason: "tool-calls",
+          cost: 0,
+          tokens: { input: 400, output: 50, reasoning: 0, cache: { read: 0, write: 90_000 } },
+        },
+      },
+    };
+
+    const first = translateOpenCodeEvent(stepFinish, state);
+    const again = translateOpenCodeEvent(stepFinish, state);
+
+    expect(first).toEqual([
+      expect.objectContaining({
+        type: "usage_updated",
+        usage: expect.objectContaining({
+          requestCache: { readTokens: 0, writeTokens: 90_000, uncachedTokens: 400 },
+        }),
+      }),
+    ]);
+    expect(again).toEqual([
+      expect.objectContaining({
+        usage: expect.not.objectContaining({ requestCache: expect.anything() }),
+      }),
+    ]);
   });
 
   it("reports totalCostUsd as cumulative session cost across turns", () => {
@@ -1531,6 +1568,85 @@ describe("translateOpenCodeEvent", () => {
     expect(events).toEqual([
       { type: "turn_canceled", provider: "opencode", reason: "interrupted" },
     ]);
+  });
+
+  it("puts the quota reset time of a usage-limit APIError on turn_failed", () => {
+    const resetsAt = 1_795_449_900;
+    const events = translateOpenCodeEvent(
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: {
+              message: "You've hit your usage limit.",
+              statusCode: 429,
+              isRetryable: false,
+              responseHeaders: { "content-type": "application/json" },
+              responseBody: JSON.stringify({
+                error: { type: "usage_limit_reached", resets_at: resetsAt },
+              }),
+            },
+          },
+        },
+      },
+      createState(),
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "turn_failed",
+        rateLimitResetsAt: new Date(resetsAt * 1000).toISOString(),
+      }),
+    ]);
+  });
+
+  it("reads a 429's Retry-After seconds when the body has no reset", () => {
+    const before = Date.now();
+    const [event] = translateOpenCodeEvent(
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: {
+              message: "Too Many Requests",
+              statusCode: 429,
+              isRetryable: false,
+              responseHeaders: { "Retry-After": "120" },
+            },
+          },
+        },
+      },
+      createState(),
+    );
+
+    const resetsAt = Date.parse(
+      (event as { rateLimitResetsAt?: string }).rateLimitResetsAt ?? "invalid",
+    );
+    expect(resetsAt - before).toBeGreaterThanOrEqual(120_000);
+    expect(resetsAt - Date.now()).toBeLessThanOrEqual(120_000);
+  });
+
+  it("gives a server error no reset time", () => {
+    const [event] = translateOpenCodeEvent(
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: { message: "bad gateway", statusCode: 502, isRetryable: false },
+          },
+        },
+      },
+      createState(),
+    );
+
+    expect(event).toMatchObject({ type: "turn_failed" });
+    expect(event).not.toHaveProperty("rateLimitResetsAt");
   });
 
   it("translates session.error with a real error as turn_failed", () => {

@@ -154,19 +154,34 @@ export interface ReportedCost {
   warmUpUsd: number | null;
 }
 
+/**
+ * `warmUpUsd` is only the fork warm-ups (v2): each runs in a throwaway fork that Claude Code never
+ * counts. A ping warm-up (v1) is a turn of the session, so its cost is inside Claude Code's figure.
+ * The cost split above prices every warm-up from the journal, so both kinds must be named here or
+ * the two warm-up figures read as one figure that disagrees with itself.
+ */
 export function describeReportedCost(reported: ReportedCost): string | null {
   const { claudeCodeUsd, warmUpUsd } = reported;
   if (claudeCodeUsd === null && warmUpUsd === null) return null;
   const parts: string[] = [];
   if (claudeCodeUsd !== null)
     parts.push(`Claude Code reported ${formatUsdEstimate(claudeCodeUsd)}`);
-  if (warmUpUsd !== null) parts.push(`warm-ups ≈ ${formatUsdEstimate(warmUpUsd)}`);
+  if (warmUpUsd !== null) parts.push(`fork warm-ups ≈ ${formatUsdEstimate(warmUpUsd)}`);
   const total = (claudeCodeUsd ?? 0) + (warmUpUsd ?? 0);
   const sum = parts.length > 1 ? ` · ${formatUsdEstimate(total)} in all` : "";
-  // Only a fork warm-up (v2) has a priced cost of its own; a ping warm-up is a turn Claude Code counts.
-  const counts =
-    warmUpUsd === null
-      ? "counts output and subagents"
-      : "counts output and subagents but not fork warm-ups";
-  return `Session cost: ${parts.join(" + ")}${sum}. Claude Code's figure ${counts}; the split above is an input estimate from the request journal.`;
+  return `Session cost: ${parts.join(" + ")}${sum}. Claude Code's figure counts output, subagents and warm-ups sent as turns, not fork warm-ups; the split above estimates the input of every request, warm-ups of both kinds included, from the request journal.`;
+}
+
+/** Times in a list that crosses midnight carry their date, or a day's 08:20 sorts above 04:18 unexplained. */
+export function spansSeveralDays(isos: readonly string[]): boolean {
+  const days = new Set(isos.map((iso) => new Date(iso).toDateString()));
+  return days.size > 1;
+}
+
+export function formatListTime(iso: string, withDate: boolean): string {
+  return new Date(iso).toLocaleString([], {
+    ...(withDate ? { month: "short", day: "numeric" } : {}),
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

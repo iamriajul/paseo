@@ -34,6 +34,7 @@ describe("sidebar view store", () => {
     useSidebarViewStore.setState({
       workspaceSort: "created",
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: "project",
       hostFilters: [],
       projectFilters: [],
@@ -88,11 +89,17 @@ describe("sidebar view store", () => {
     ).toEqual({
       workspaceSort: "created",
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: "status",
       hostFilters: [],
       projectFilters: [],
       labelFilter: { labels: [] },
     });
+  });
+
+  it("keeps the warm-cache filter across a reload, and starts with it off", () => {
+    expect(migrateSidebarViewState({ warmCacheOnly: true }).warmCacheOnly).toBe(true);
+    expect(migrateSidebarViewState({ groupMode: "status" }).warmCacheOnly).toBe(false);
   });
 
   it("migrates a pre-v2 single host filter to the multi-host list", () => {
@@ -104,6 +111,7 @@ describe("sidebar view store", () => {
     ).toEqual({
       workspaceSort: "created",
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: "status",
       hostFilters: ["host-a"],
       projectFilters: [],
@@ -120,6 +128,7 @@ describe("sidebar view store", () => {
     ).toEqual({
       workspaceSort: "created",
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: "status",
       hostFilters: ["host-a", "host-b"],
       projectFilters: [],
@@ -232,6 +241,7 @@ describe("sidebar view store", () => {
     ).toEqual({
       workspaceSort: "created",
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: "project",
       hostFilters: ["host-a"],
       projectFilters: ["project-a", "project-b"],
@@ -243,6 +253,7 @@ describe("sidebar view store", () => {
     expect(migrateSidebarViewState({ projectFilters: "project-a" })).toEqual({
       workspaceSort: "created",
       showBackground: false,
+      warmCacheOnly: false,
       groupMode: "project",
       hostFilters: [],
       projectFilters: [],

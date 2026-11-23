@@ -128,6 +128,7 @@ import {
 } from "./bottom-anchor-controller";
 import { createAssistantImageOccurrenceKey } from "@/assistant-image/acquisition-cache";
 import { AssistantSelectionCopySurface } from "@/assistant-selection-copy/surface";
+import { useSideQuestionPane } from "@/side-questions/pane-context";
 import { AssistantFileLinkResolverProvider, createInlinePathOpener } from "@/assistant-file-links";
 import { useOpenOutsideWorkspaceFolder } from "@/workspace/open-in-file-manager/outside-folder";
 import { showWorkspaceInFiles } from "@/file-explorer/folders/view-store";
@@ -674,6 +675,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     // Get serverId (fallback to agent's serverId if not provided)
     const resolvedServerId = serverId ?? context.serverId ?? "";
+    const inSideQuestionPane = useSideQuestionPane() !== null;
     const transformTimelineItem = useInstalledTimelineTransform(resolvedServerId);
     const client = useSessionStore((state) => state.sessions[resolvedServerId]?.client ?? null);
     const sessionStreamHead = useSessionStore((state) =>
@@ -1171,7 +1173,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               images={item.images}
               attachments={item.attachments}
               timestamp={item.timestamp.getTime()}
-              capabilities={context.capabilities}
+              capabilities={inSideQuestionPane ? undefined : context.capabilities}
               client={client}
               isFirstInGroup={layoutItem.isFirstInUserGroup}
               isLastInGroup={layoutItem.isLastInUserGroup}
@@ -1201,6 +1203,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       },
       [
         context.capabilities,
+        inSideQuestionPane,
         agentId,
         client,
         getCollapsedTurn,
@@ -1225,10 +1228,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             toast={toast}
           >
             <ChatFindExpansion messageId={getStreamItemMessageId(item)}>
-              {(renderFullContent) => (
+              {(renderFullContent, findMark) => (
                 <AssistantMessage
                   renderFullContent={renderFullContent}
+                  findMark={findMark}
                   occurrenceKey={createAssistantImageOccurrenceKey({ agentId, itemId: item.id })}
+                  messageId={item.id}
                   message={item.text}
                   timestamp={item.timestamp.getTime()}
                   workspaceRoot={workspaceRoot}

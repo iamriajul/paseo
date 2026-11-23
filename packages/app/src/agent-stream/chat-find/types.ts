@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from "react";
 import type { StreamItem } from "@/types/stream";
 import type { StreamViewportHandle } from "../strategy";
+import type { ChatFindMark } from "./marks";
 
 export interface MountedMessageIds {
   has(messageId: string): boolean;
@@ -17,5 +18,18 @@ export interface ChatFindProps {
 }
 export interface ChatFindExpansionProps {
   messageId: string;
-  children(renderFullContent: boolean): ReactNode;
+  /**
+   * `mark` is the occurrence to highlight inside this message's own text. Web paints its
+   * highlight over the rendered DOM and always passes null.
+   */
+  children(renderFullContent: boolean, mark: ChatFindMark | null): ReactNode;
+}
+export interface ChatFindPlainTextProps {
+  messageId: string | undefined;
+  text: string;
+  /**
+   * The whole prompt, when `text` is only its end (a quoted prompt shows the typed text apart
+   * from its quote cards). Chat find counts occurrences over the whole prompt.
+   */
+  source?: string;
 }

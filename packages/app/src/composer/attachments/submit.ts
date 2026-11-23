@@ -55,6 +55,11 @@ export function splitComposerAttachmentsForSubmit(
       continue;
     }
 
+    // A quote travels as prompt text (`serializeQuotedPrompt`), not as an attachment.
+    if (attachment.kind === "quote") {
+      continue;
+    }
+
     if (attachment.kind === "workspace_file") {
       agentAttachments.push(workspaceFileAttachmentToAgentAttachment(attachment));
       continue;

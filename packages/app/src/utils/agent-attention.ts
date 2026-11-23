@@ -1,3 +1,4 @@
+import { isSideQuestionAgent } from "@getpaseo/protocol/agent-labels";
 import type { Agent } from "@/stores/session-store";
 
 interface ShouldClearAgentAttentionInput {
@@ -38,7 +39,7 @@ export function pickAttentionAgent(agents: Agent[]): string | null {
       continue;
     }
 
-    if (agent.parentAgentId) {
+    if (agent.parentAgentId || isSideQuestionAgent(agent)) {
       continue;
     }
 

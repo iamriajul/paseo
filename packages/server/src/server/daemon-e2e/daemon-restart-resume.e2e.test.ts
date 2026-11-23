@@ -395,3 +395,83 @@ test("a provider that is slow to reopen does not hold daemon startup", async () 
     await client?.close();
   }
 }, 30000);
+
+// A Claude agent's prompt cache reads expired once its last request is a window old. A turn can
+// sit that long in one tool call, a permission or a compaction, and a 5m window also runs out
+// while the daemon restarts. The restart interrupted that turn, so it resumes all the same.
+test.each([
+  { state: "in a long tool call", prompt: "HOLD_CHILD", modeId: "full-access" },
+  { state: "waiting on a permission", prompt: "rm -f permission.txt", modeId: "default" },
+  { state: "inside an auto-compaction", prompt: "HOLD_COMPACTING", modeId: "full-access" },
+])(
+  "an agent stopped $state resumes once even when its prompt cache reads expired",
+  async ({ prompt, modeId }) => {
+    let client: DaemonClient | undefined;
+    const settings = { resumeOnStartup: true, resumePrompt: "Continue exactly." };
+    const readStartedPrompts = async () =>
+      (await readFile(path.join(root, "all-prompts.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => String(JSON.parse(line).prompt));
+    try {
+      const first = await fixtures[0].start(settings);
+      client = new DaemonClient({ url: `ws://127.0.0.1:${first.port}/ws`, appVersion: "0.13.0" });
+      await client.connect();
+      const agent = await client.createAgent({
+        provider: "claude",
+        model: "sonnet",
+        cwd: first.cwd,
+        modeId,
+      });
+      await client.sendMessage(agent.id, "ANSWERED_BEFORE");
+      expect((await client.waitForFinish(agent.id, 10_000)).status).toBe("idle");
+      await client.sendMessage(agent.id, prompt);
+      const storage = () =>
+        new AgentStorage(path.join(first.paseoHome, "agents"), createTestLogger());
+      await expect.poll(async () => (await storage().get(agent.id))?.lastStatus).toBe("running");
+      await client.close();
+      client = undefined;
+      await stopFixture(first.child, false);
+
+      // The turn's last request is two hours old, past the 1h window a new Claude agent gets.
+      const stopped = storage();
+      const record = await stopped.get(agent.id);
+      expect(record?.resumeOnStartup).toBe(true);
+      const at = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+      const sample = {
+        at,
+        turnId: null,
+        isWarmPing: false,
+        readTokens: 90_000,
+        writeTokens: 1_000,
+        uncachedTokens: 10,
+      };
+      await stopped.upsert({
+        ...record!,
+        promptCache: { lastRequest: sample, turnFirstRequest: sample },
+      });
+      await stopped.flush();
+
+      const second = await fixtures[1].start(settings);
+      await second.prompt((started) => started === settings.resumePrompt);
+      client = new DaemonClient({ url: `ws://127.0.0.1:${second.port}/ws`, appVersion: "0.13.0" });
+      await client.connect();
+      await client.fetchAgents({ subscribe: {} });
+      expect((await client.waitForFinish(agent.id, 10_000)).status).toBe("idle");
+      // One resume turn, and neither the interrupted prompt nor the answered one is sent again.
+      expect(await readStartedPrompts()).toEqual([
+        "ANSWERED_BEFORE",
+        prompt,
+        settings.resumePrompt,
+      ]);
+    } catch (error) {
+      console.error(
+        await readFile(path.join(root, "fixture.log"), "utf8").catch(() => "No fixture log"),
+      );
+      throw error;
+    } finally {
+      await client?.close();
+    }
+  },
+  60000,
+);

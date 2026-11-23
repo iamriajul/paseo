@@ -6106,6 +6106,128 @@ test("a warm-up turn that meets a 429 schedules no rate-limit auto-resume", asyn
   }
 });
 
+test("a failed turn schedules the auto-resume at the reset time its provider reported", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-reset-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const resetsAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+  // As Codex reports a ChatGPT usage limit: no RETRY_AFTER marker, the reset comes from the provider.
+  const usageLimit =
+    "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 4:45 PM.";
+  class UsageLimitedSession extends TestAgentSession {
+    override async startTurn(): Promise<{ turnId: string }> {
+      const turnId = "turn-usage-limit";
+      setTimeout(() => {
+        this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+        this.pushEvent({
+          type: "turn_failed",
+          provider: this.provider,
+          turnId,
+          error: usageLimit,
+          rateLimitResetsAt: resetsAt,
+        });
+      }, 0);
+      return { turnId };
+    }
+  }
+  class UsageLimitedClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig) {
+      return new UsageLimitedSession(config);
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new UsageLimitedClient() },
+    registry: storage,
+    logger,
+  });
+  const { AgentRateLimitAutoResumeManager } = await import("./agent-rate-limit-auto-resume.js");
+  const autoResume = new AgentRateLimitAutoResumeManager({
+    paseoHome: workdir,
+    agentManager: manager,
+    agentStorage: storage,
+    daemonConfigStore: { get: () => ({}) as never },
+    logger,
+    sendPrompt: vi.fn(),
+  });
+  manager.setRateLimitAutoResumeManager(autoResume);
+  try {
+    const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    await expect(manager.runAgent(snapshot.id, "build the MCP")).rejects.toThrow(/usage limit/);
+    await manager.flush();
+    await vi.waitFor(() =>
+      expect(autoResume.getPending(snapshot.id)?.scheduledFor.toISOString()).toBe(resetsAt),
+    );
+    expect(manager.getAgent(snapshot.id)?.rateLimitCooldown).toMatchObject({
+      scheduledFor: resetsAt,
+    });
+    await manager.closeAgent(snapshot.id);
+  } finally {
+    autoResume.cancelAll();
+    await autoResume.waitForPersistence();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("a native fork of a non-Claude agent goes through its provider's own fork", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-native-fork-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const forkRequests: Array<{ boundaryMessageId: string }> = [];
+  class ForkingSession extends TestAgentSession {
+    override readonly capabilities = { ...TEST_CAPABILITIES, supportsNativeFork: true };
+    async forkNativeSession(input: { boundaryMessageId: string }) {
+      forkRequests.push(input);
+      return { sessionId: "forked-thread" };
+    }
+  }
+  class ForkingClient extends TestAgentClient {
+    readonly resumedHandles: AgentPersistenceHandle[] = [];
+    override async createSession(config: AgentSessionConfig) {
+      return new ForkingSession(config);
+    }
+    override async resumeSession(
+      handle: AgentPersistenceHandle,
+      config?: Partial<AgentSessionConfig>,
+      launchContext?: AgentLaunchContext,
+    ) {
+      this.resumedHandles.push(handle);
+      return super.resumeSession(handle, config, launchContext);
+    }
+  }
+  const client = new ForkingClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  try {
+    const source = await manager.createAgent(
+      { provider: "codex", cwd: workdir, model: "gpt-5.4" },
+      undefined,
+      { workspaceId: "wks-fork" },
+    );
+    await manager.runAgent(source.id, "first question");
+    await manager.flush();
+
+    const { agentId, workspaceId } = await manager.nativeForkAgent({
+      sourceAgentId: source.id,
+      boundaryMessageId: "reply-1",
+    });
+
+    expect(forkRequests).toEqual([{ boundaryMessageId: "reply-1" }]);
+    expect(client.resumedHandles.at(-1)).toMatchObject({
+      provider: "codex",
+      sessionId: "forked-thread",
+    });
+    expect(workspaceId).toBe("wks-fork");
+    const fork = manager.getAgent(agentId);
+    expect(fork?.provider).toBe("codex");
+    expect(fork?.labels.nativeForkOf).toBe(source.id);
+    // Only Claude routes a fork to its source's gateway account; Codex keys it by the new thread.
+    expect(fork?.config.providerOptions?.sessionAffinityId).toBeUndefined();
+    await manager.closeAgent(agentId);
+    await manager.closeAgent(source.id);
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("a cache warm-up turn keeps the warm-up count through its own start", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-warm-turn-order-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);

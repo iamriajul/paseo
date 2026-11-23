@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import { Text, View } from "react-native";
+import { Image, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   ArrowLeft,
@@ -147,6 +147,36 @@ function SuspendedServerBrowserTabIcon({ size, color }: PanelIconProps) {
   return <Moon size={size} color={color} />;
 }
 
+/**
+ * The page's icon, which the host reads so it shows on every client, with the server mark in its
+ * corner so the tab still reads as a server tab. A phone cannot draw SVG, so an SVG icon there
+ * keeps the plain server icon.
+ */
+function createFaviconTabIcon(favicon: string) {
+  return function ServerBrowserFaviconIcon({ size, color }: PanelIconProps) {
+    const source = useMemo(() => ({ uri: favicon }), []);
+    const imageStyle = useMemo(() => ({ width: size, height: size, borderRadius: 3 }), [size]);
+    const badgeSize = Math.max(8, Math.round(size * 0.55));
+    const badgeStyle = useMemo(
+      () => [styles.faviconBadge, { right: -badgeSize / 3, bottom: -badgeSize / 3 }],
+      [badgeSize],
+    );
+    return (
+      <View testID="server-browser-tab-favicon">
+        <Image accessibilityIgnoresInvertColors source={source} style={imageStyle} />
+        <View style={badgeStyle}>
+          <Server size={badgeSize} color={color} />
+        </View>
+      </View>
+    );
+  };
+}
+
+function useFaviconTabIcon(favicon: string | undefined) {
+  const shown = favicon && !(isNative && favicon.startsWith("data:image/svg")) ? favicon : null;
+  return useMemo(() => (shown ? createFaviconTabIcon(shown) : null), [shown]);
+}
+
 function useServerBrowserDescriptor(
   target: { kind: "server_browser"; browserId: string },
   context: { serverId: string },
@@ -155,6 +185,7 @@ function useServerBrowserDescriptor(
   const label = tabLabel(tab);
   // Fork: server-browser-suspend-idle-tabs in docs/fork-decisions.md.
   const suspended = tab?.suspended === true;
+  const faviconIcon = useFaviconTabIcon(tab?.favicon);
   return {
     label,
     subtitle: suspended ? `Suspended · ${tab.url}` : (tab?.url ?? ""),
@@ -162,7 +193,7 @@ function useServerBrowserDescriptor(
       ? `${tab.url} (server browser${suspended ? ", suspended while idle: opening it reloads the page" : ""})`
       : label,
     titleState: "ready",
-    icon: suspended ? SuspendedServerBrowserTabIcon : ServerBrowserTabIcon,
+    icon: suspended ? SuspendedServerBrowserTabIcon : (faviconIcon ?? ServerBrowserTabIcon),
     statusBucket: tab?.isLoading ? "running" : null,
   };
 }
@@ -668,6 +699,12 @@ export const serverBrowserPanelRegistration = definePanel("server_browser", {
 });
 
 const styles = StyleSheet.create((theme) => ({
+  faviconBadge: {
+    position: "absolute",
+    borderRadius: 3,
+    padding: 1,
+    backgroundColor: theme.colors.surface0,
+  },
   container: {
     flex: 1,
     minHeight: 0,

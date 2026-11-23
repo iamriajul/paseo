@@ -39,7 +39,7 @@ export async function startServerBrowserScenario(
   const { StreamableHTTPClientTransport } =
     await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
   const site = http.createServer((req, res) => {
-    res.setHeader("content-type", "text/html");
+    res.setHeader("content-type", req.url?.endsWith(".svg") ? "image/svg+xml" : "text/html");
     if (req.url === "/slow") {
       // Starts and never finishes loading.
       res.write("<title>Slow</title><p>slow</p>");

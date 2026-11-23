@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
+import { openHostTab } from "./host-tabs";
 import { isServerBrowserEnabled } from "./store";
 
 /**
@@ -21,12 +22,9 @@ export function useServerBrowserUrlOpener(params: {
     (url: string) => {
       if (!client || !workspaceId || !isServerBrowserEnabled(serverId)) return false;
       if (!/^https?:\/\//i.test(url)) return false;
-      void client
-        .serverBrowserOpenTab(workspaceId, url)
-        .then((browserId) => openFocused({ kind: "server_browser", browserId }))
-        .catch((error: unknown) =>
-          onError?.(error instanceof Error ? error.message : String(error)),
-        );
+      openHostTab({ client, serverId, workspaceId, url, place: openFocused }).catch(
+        (error: unknown) => onError?.(error instanceof Error ? error.message : String(error)),
+      );
       return true;
     },
     [client, onError, openFocused, serverId, workspaceId],

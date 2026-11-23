@@ -412,6 +412,24 @@ test("eight Playwright shards share two-worker coverage", () => {
   assert.equal(jobs.has("playwright"), false);
 });
 
+test("a green Playwright shard keeps the failed attempt of a test that passed on retry", () => {
+  const shared = jobBlocks(readFileSync(ciWorkflowPath, "utf8")).get("playwright-1").join("\n");
+  const flaky = /- name: Upload flaky test evidence\n([\s\S]*?)(?=\n {6}- |$)/.exec(shared)?.[1];
+  assert.ok(flaky, "the shared Playwright steps upload flaky test evidence");
+  assert.match(flaky, /if: success\(\)/);
+  assert.match(flaky, /name: playwright-flaky-\$\{\{ env\.PLAYWRIGHT_ARTIFACT \}\}/);
+  assert.match(flaky, /if-no-files-found: ignore/);
+  assert.match(flaky, /retention-days: 3/);
+  // Only the failed attempt's evidence, never the whole results tree or the retry's video.
+  assert.doesNotMatch(flaky, /test-results\/\n/);
+  for (const file of ["trace.zip", "test-failed-*.png", "error-context.md"]) {
+    assert.ok(flaky.includes(`packages/app/test-results/**/${file}`), file);
+  }
+  // The retry passes, so its trace would show the run that worked.
+  const config = readFileSync(new URL("packages/app/playwright.config.ts", repoRoot), "utf8");
+  assert.match(config, /trace: process\.env\.CI \? "retain-on-first-failure"/);
+});
+
 test("quality preserves commands and routes each domain independently after failures", () => {
   const jobs = jobBlocks(readFileSync(ciWorkflowPath, "utf8"));
   const quality = jobs.get("quality").join("\n");

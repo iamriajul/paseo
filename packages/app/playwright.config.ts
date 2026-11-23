@@ -31,7 +31,9 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL,
-    trace: process.env.CI ? "on-first-retry" : "retain-on-failure",
+    // CI retries a failed test once, so a flaky test's evidence is its first attempt. A trace of
+    // the retry shows only the run that passed.
+    trace: process.env.CI ? "retain-on-first-failure" : "retain-on-failure",
     screenshot: "only-on-failure",
     video: videoMode(),
   },

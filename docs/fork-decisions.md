@@ -2203,3 +2203,13 @@ New workspace selects a host project by itself (`resolveInitialWorkspaceProject`
 ```bash
 grep -q "for (const project of projects) await e2eWorkerClient.removeProject(project.projectId);" packages/app/e2e/browser/composer-autocomplete.spec.ts
 ```
+
+## playwright-flaky-evidence
+
+**a green Playwright shard keeps the failed attempt of a test that passed on retry**
+
+CI retries a failed Playwright test once, and the job uploaded results only when it ended red. A flaky test (failed, then passed on retry) left no trace, and with `trace: "on-first-retry"` the only trace recorded was of the retry, the run that passed. `agent-message-fold.spec.ts` failed its first attempt five times across main and release PRs without leaving anything to read. CI now traces first attempts with `retain-on-first-failure`, and a green shard uploads only `trace.zip`, `test-failed-*.png` and `error-context.md` from `test-results/` as `playwright-flaky-<shard>` for 3 days. A shard with no failed attempt has no files and uploads nothing.
+
+```bash
+node --test --test-name-pattern="green Playwright shard keeps the failed attempt" scripts/ci-workflow.test.mjs
+```

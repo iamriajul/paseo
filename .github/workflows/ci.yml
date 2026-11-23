@@ -500,6 +500,21 @@ jobs:
             packages/app/playwright-report/
           retention-days: 7
 
+      # A green job can hide a test that failed and passed on retry. Keep only its failed
+      # attempt: the trace, the failure screenshot and the error context. No failure, no files,
+      # no artifact.
+      - name: Upload flaky test evidence
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: playwright-flaky-${{ env.PLAYWRIGHT_ARTIFACT }}
+          path: |
+            packages/app/test-results/**/trace.zip
+            packages/app/test-results/**/test-failed-*.png
+            packages/app/test-results/**/error-context.md
+          if-no-files-found: ignore
+          retention-days: 3
+
   playwright-2:
     name: playwright (shard 2/8)
     needs: changes

@@ -21,6 +21,8 @@ interface SuspendedTabFile {
   openedBy: "agent" | "user";
   url: string;
   title: string;
+  /** The page's icon as a data: URL, at most 32 KB. */
+  favicon?: string;
   viewport: ServerBrowserViewport;
   openerBrowserId?: string;
   pinned?: boolean;
@@ -50,6 +52,7 @@ export class SuspendedTabStore {
       openedBy: tab.openedBy,
       url: tab.url,
       title: tab.title,
+      ...(tab.favicon ? { favicon: tab.favicon } : {}),
       viewport: tab.viewport,
       ...(tab.openerBrowserId ? { openerBrowserId: tab.openerBrowserId } : {}),
       ...(tab.pinned ? { pinned: true } : {}),
@@ -128,6 +131,9 @@ function parse(raw: string): StoredSuspendedTab | null {
     openedBy: file.openedBy === "user" ? "user" : "agent",
     url: file.url,
     title: typeof file.title === "string" ? file.title : "",
+    ...(typeof file.favicon === "string" && file.favicon.startsWith("data:image/")
+      ? { favicon: file.favicon }
+      : {}),
     viewport: file.viewport,
     ...(file.openerBrowserId ? { openerBrowserId: file.openerBrowserId } : {}),
     ...(file.pinned === true ? { pinned: true } : {}),

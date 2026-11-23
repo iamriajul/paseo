@@ -100,6 +100,8 @@ export interface TabSuspension {
 export interface SuspendedTabRecord {
   url: string;
   title: string;
+  /** The page's icon as a data: URL; the woken page reads it again. */
+  favicon?: string;
   createdAt: number;
   lastUsedAt: number;
   suspension: TabSuspension;
@@ -244,6 +246,7 @@ export class ServerBrowserTab {
     if (options.suspended) {
       this.url = options.suspended.url;
       this.title = options.suspended.title;
+      this.favicon = options.suspended.favicon ?? null;
       this.suspension = options.suspended.suspension;
       this.stillFrame = this.suspension.frame;
     }

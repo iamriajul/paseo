@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import { Image, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   ArrowLeft,
@@ -45,6 +45,7 @@ import { BrowserDeviceIcon, BrowserDeviceSizeMenuItems } from "@/desktop/browser
 import { useHostFeature } from "@/runtime/host-features";
 import { useToast } from "@/contexts/toast-api-context";
 import { useServerBrowserStatus, useServerBrowserTab, type ServerBrowserTab } from "./store";
+import { useFaviconTabIcon } from "./favicon-icon";
 import { ServerBrowserSurface, type ServerBrowserSurfaceHandle } from "./surface";
 import {
   useServerBrowserAnnotate,
@@ -145,36 +146,6 @@ function ServerBrowserTabIcon({ size, color }: PanelIconProps) {
 /** An idle tab whose page the host unloaded; opening it reloads the page. */
 function SuspendedServerBrowserTabIcon({ size, color }: PanelIconProps) {
   return <Moon size={size} color={color} />;
-}
-
-/**
- * The page's icon, which the host reads so it shows on every client, with the server mark in its
- * corner so the tab still reads as a server tab. A phone cannot draw SVG, so an SVG icon there
- * keeps the plain server icon.
- */
-function createFaviconTabIcon(favicon: string) {
-  return function ServerBrowserFaviconIcon({ size, color }: PanelIconProps) {
-    const source = useMemo(() => ({ uri: favicon }), []);
-    const imageStyle = useMemo(() => ({ width: size, height: size, borderRadius: 3 }), [size]);
-    const badgeSize = Math.max(8, Math.round(size * 0.55));
-    const badgeStyle = useMemo(
-      () => [styles.faviconBadge, { right: -badgeSize / 3, bottom: -badgeSize / 3 }],
-      [badgeSize],
-    );
-    return (
-      <View testID="server-browser-tab-favicon">
-        <Image accessibilityIgnoresInvertColors source={source} style={imageStyle} />
-        <View style={badgeStyle}>
-          <Server size={badgeSize} color={color} />
-        </View>
-      </View>
-    );
-  };
-}
-
-function useFaviconTabIcon(favicon: string | undefined) {
-  const shown = favicon && !(isNative && favicon.startsWith("data:image/svg")) ? favicon : null;
-  return useMemo(() => (shown ? createFaviconTabIcon(shown) : null), [shown]);
 }
 
 function useServerBrowserDescriptor(
@@ -699,12 +670,6 @@ export const serverBrowserPanelRegistration = definePanel("server_browser", {
 });
 
 const styles = StyleSheet.create((theme) => ({
-  faviconBadge: {
-    position: "absolute",
-    borderRadius: 3,
-    padding: 1,
-    backgroundColor: theme.colors.surface0,
-  },
   container: {
     flex: 1,
     minHeight: 0,

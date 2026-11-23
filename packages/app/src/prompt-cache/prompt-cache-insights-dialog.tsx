@@ -43,7 +43,7 @@ import {
   type PromptCacheInsights,
   type RequestPricer,
 } from "./prompt-cache-insights";
-import { usePromptCacheAgent } from "./use-prompt-cache";
+import { isFirstPartyClaudeAgent, usePromptCacheAgent } from "./use-prompt-cache";
 import { useMoneyStatsEnabled } from "./money-stats-context";
 import { resolveMoneyStatsPrices } from "./money-stats";
 import { SessionActivitySection } from "./session-activity-section";
@@ -88,6 +88,19 @@ const FILTER_OPTIONS = REQUEST_FILTERS.map(({ value, label }) => ({
   label,
   testID: `prompt-cache-insights-filter-${value}`,
 }));
+
+/** Without warm-up (Codex, OpenCode) there are no warm-up requests to filter to. */
+const FILTER_OPTIONS_WITHOUT_WARM_UP = FILTER_OPTIONS.filter(
+  (option) => option.value !== "warm-ups",
+);
+
+function filterOptionsFor(warmUp: boolean): typeof FILTER_OPTIONS {
+  return warmUp ? FILTER_OPTIONS : FILTER_OPTIONS_WITHOUT_WARM_UP;
+}
+
+function WarmUpsTile({ warmUp, count }: { warmUp: boolean; count: number }): ReactElement | null {
+  return warmUp ? <Tile label="Warm-ups" value={String(count)} /> : null;
+}
 
 /**
  * The whole session's cache record, fetched from the daemon's journal while the dialog is open.
@@ -170,9 +183,10 @@ export function PromptCacheInsightsDialog({
   const sessionRequests = agent?.promptCache?.totals?.requests;
   const busy = agent?.status === "running";
   const priced = resolveMoneyStatsPrices(agent) !== null;
+  const warmUp = isFirstPartyClaudeAgent(agent);
   const session = useMemo(
-    () => ({ requests: sessionRequests, busy, priced }),
-    [sessionRequests, busy, priced],
+    () => ({ requests: sessionRequests, busy, priced, warmUp }),
+    [sessionRequests, busy, priced, warmUp],
   );
   return (
     <AdaptiveModalSheet
@@ -205,6 +219,11 @@ interface SessionFacts {
   busy: boolean;
   /** The model has a price, so money figures can show. */
   priced: boolean;
+  /**
+   * The agent has warm-up and Cache windows (first-party Claude). Codex and OpenCode have
+   * neither, so the window advice and the warm-up figures stay out of their insights.
+   */
+  warmUp: boolean;
 }
 
 function InsightsBody({
@@ -440,7 +459,7 @@ function InsightsExplorer({
           danger={misses > 0}
           testID="prompt-cache-insights-misses"
         />
-        <Tile label="Warm-ups" value={String(insights.warmUps)} />
+        <WarmUpsTile warmUp={session.warmUp} count={insights.warmUps} />
         <Tile label="Compactions" value={String(insights.compactions.length)} />
       </View>
       <CostSplit
@@ -454,6 +473,7 @@ function InsightsExplorer({
         busy={session.busy}
         price={moneyStats && session.priced ? price : null}
         nowMs={Date.now()}
+        windowAdvice={session.warmUp}
       />
       <View style={styles.chartHeader}>
         <Text style={styles.sectionTitle}>
@@ -487,7 +507,7 @@ function InsightsExplorer({
             {selectedColumn ? "Requests in the selected bar" : "Requests"} · {filtered.length}
           </Text>
           <SegmentedControl
-            options={FILTER_OPTIONS}
+            options={filterOptionsFor(session.warmUp)}
             value={filter}
             onValueChange={changeFilter}
             size="sm"

@@ -28,7 +28,7 @@ reopens the saved provider conversation and settings, then sends `Resume working
 the prompt with `agents.resumePrompt` or the same settings page.
 Disabling recovery consumes pending intent; enabling it later does not revive old work. `PASEO_RESUME_ON_STARTUP` and `PASEO_RESUME_PROMPT` override the host config.
 
-Only agents recorded as running qualify. Idle and initializing agents stay inactive. An agent also needs a provider session, must not be running a cache warm-up ping, and its prompt cache must not have expired. Archived
+Only agents recorded as running qualify. Idle and initializing agents stay inactive. An agent also needs a provider session and must not be running a cache warm-up ping. An expired prompt cache does not stop the resume; see `restart-recovery-policy` for why. Archived
 agents or workspaces, private helpers and Hub-owned executions retain their own lifecycle.
 Explicit creation environment overrides are saved with the agent and reapplied when reopening.
 

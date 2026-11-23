@@ -1340,7 +1340,6 @@ export async function createPaseoDaemon(
         workspaceArchived: Boolean(
           record.workspaceId && (await workspaceRegistry?.get(record.workspaceId))?.archivedAt,
         ),
-        nowMs: Date.now(),
       }),
     dispatch: async (agentId, prompt) => {
       const held = await wakeUpHolds.hold({

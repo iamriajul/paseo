@@ -41,8 +41,14 @@ const start = async ({ settings, fixture }: FinishSubscriptionDaemonStart): Prom
         ]).then(() => send({ prompt: text }));
       },
       beforeResumeSession: () => resumeReleased.promise,
-      beforeTurnComplete: (prompt) =>
-        String(prompt).includes("HOLD_CHILD") ? held.promise : Promise.resolve(),
+      beforeTurnComplete: async (prompt, turn) => {
+        const text = String(prompt);
+        // HOLD_COMPACTING stands in for a turn stopped inside an auto-compaction.
+        if (text.includes("HOLD_COMPACTING")) {
+          await turn.emit({ type: "compaction", status: "loading", trigger: "auto" });
+          await held.promise;
+        } else if (text.includes("HOLD_CHILD")) await held.promise;
+      },
     }),
   });
   send({ port: daemon.port, paseoHome: daemon.paseoHome, cwd: daemon.staticDir });

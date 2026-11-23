@@ -2313,3 +2313,14 @@ grep -q "sideQuestionPreToolUseHook" packages/server/src/server/agent/providers/
 grep -q "agent?.provider === \"claude\"" packages/app/src/side-questions/model.ts
 grep -q "idleAfterMs: SIDE_QUESTION_IDLE_STOP_MS" packages/server/src/server/agent/agent-manager.ts
 ```
+
+## terminal-replay-keeps-typed-input
+
+**keys typed while a terminal re-attaches reach the PTY**
+
+On every attach and reconnect the daemon replays the screen, and the browser xterm parses each replay chunk in a later task. Upstream set `suppressInput` from submitting a replay write until xterm committed it, so it would swallow xterm's own replies to queries in the replayed bytes. Every key the user typed in that window was dropped too: the official `terminal-protocol-query` "a disconnect during upload…" spec lost its typed line on CI attempt 1, and waiting for the reconnect before typing made it worse, since that lands the keys inside the replay. The fork brackets the replayed bytes with a private OSC (`7769;1` … `7769;0`) whose handler sets the flag. xterm emits replies synchronously inside the parse, so the bracket covers exactly the generated replies and nothing the keyboard sends. The flag no longer spans submit to commit.
+
+```bash
+npm test --workspace=@getpaseo/app -- --project=browser src/terminal/runtime/terminal-emulator-runtime.browser.test.ts -t "replay" --bail=1
+grep -q "withRepliesSuppressed(data)" packages/app/src/terminal/runtime/terminal-emulator-runtime.ts
+```

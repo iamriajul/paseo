@@ -166,6 +166,21 @@ export function encodeTerminalOutput(text: string): TerminalOutputData {
   return terminalOutputEncoder.encode(text);
 }
 
+// A private OSC brackets replayed bytes. xterm parses a write in a later task and emits
+// any reply it generates synchronously inside that parse, so the bracket covers exactly
+// those replies. Keys typed while the write waits to be parsed fall outside it and reach
+// the PTY; a flag held from submit to commit dropped them during every re-attach.
+const SUPPRESS_REPLIES_OSC = 7769;
+const SUPPRESS_REPLIES_START = encodeTerminalOutput(`\x1b]${SUPPRESS_REPLIES_OSC};1\x07`);
+const SUPPRESS_REPLIES_END = encodeTerminalOutput(`\x1b]${SUPPRESS_REPLIES_OSC};0\x07`);
+
+function withRepliesSuppressed(data: TerminalOutputData): TerminalOutputData {
+  return prependTerminalOutput(
+    SUPPRESS_REPLIES_START,
+    prependTerminalOutput(data, SUPPRESS_REPLIES_END),
+  );
+}
+
 function prependTerminalOutput(
   prefix: TerminalOutputData,
   data: TerminalOutputData,
@@ -660,6 +675,10 @@ export class TerminalEmulatorRuntime {
       }
     };
     registerProtocolQuerySuppression();
+    terminal.parser.registerOscHandler(SUPPRESS_REPLIES_OSC, (data) => {
+      this.suppressInput = data === "1";
+      return true;
+    });
 
     let webglAddonRaf: number | null = requestAnimationFrame(() => {
       webglAddonRaf = null;
@@ -1113,9 +1132,9 @@ export class TerminalEmulatorRuntime {
     this.emitInputModeChange();
   }
 
-  // A barrier op mutates terminal geometry or toggles suppressInput and must apply in
-  // isolation: clear/snapshot reset/resize the terminal, and any write carrying
-  // suppressInput flips input handling around the commit. Plain writes are fast-pathed.
+  // A barrier op mutates terminal geometry or replays output and must apply in isolation:
+  // clear/snapshot reset/resize the terminal, and a write carrying suppressInput is replay
+  // that must not interleave with live output. Plain writes are fast-pathed.
   private isBarrierOperation(operation: TerminalOutputOperation): boolean {
     return operation.type !== "write" || Boolean(operation.suppressInput);
   }
@@ -1207,17 +1226,12 @@ export class TerminalEmulatorRuntime {
     // parsed, or there were none), so the next barrier can skip the sentinel until the
     // next write arrives.
     this.hasUngatedWrites = false;
-    const previousSuppressInput = this.suppressInput;
-    if (operation.suppressInput) {
-      this.suppressInput = Boolean(operation.suppressInput);
-    }
     const finalizeOperation = (expectedOperation: TerminalOutputOperation) => {
       if (this.inFlightOutputOperation !== expectedOperation) {
         return;
       }
       this.inFlightOutputOperation = null;
       this.clearInFlightOutputTimeout();
-      this.suppressInput = previousSuppressInput;
       expectedOperation.onCommitted?.();
       this.processOutputQueue();
     };
@@ -1286,7 +1300,7 @@ export class TerminalEmulatorRuntime {
     }, OUTPUT_OPERATION_TIMEOUT_MS);
 
     try {
-      terminal.write(data, () => {
+      terminal.write(operation.suppressInput ? withRepliesSuppressed(data) : data, () => {
         finalizeOperation(operation);
       });
     } catch {

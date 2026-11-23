@@ -3362,7 +3362,7 @@ export const es: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "Reanudar automáticamente ante límites de velocidad",
-        hint: "Reanuda un agente cuando termina el enfriamiento por límite de uso. Solo funciona si sus solicitudes pasan por iamriajul/CLIProxyAPI, el fork que escribe en el error la hora de fin del enfriamiento (RETRY_AFTER). Los errores de Anthropic, OpenAI y del CLIProxyAPI original no la incluyen, así que sin ese fork no se reanuda nada.",
+        hint: "Reanuda un agente cuando termina su enfriamiento por límite de velocidad o su límite de uso. Codex indica cuándo se restablece un límite de ChatGPT agotado, y OpenCode también cuando el error del proveedor incluye la hora. Claude y los demás agentes necesitan que sus solicitudes pasen por iamriajul/CLIProxyAPI, el fork que escribe en el error la hora de fin del enfriamiento (RETRY_AFTER); sin él no se reanudan.",
         accessibilityLabel: "Reanudar automáticamente ante límites de velocidad",
         error: "No se pudo actualizar el ajuste de reanudación automática",
       },

@@ -1533,6 +1533,85 @@ describe("translateOpenCodeEvent", () => {
     ]);
   });
 
+  it("puts the quota reset time of a usage-limit APIError on turn_failed", () => {
+    const resetsAt = 1_795_449_900;
+    const events = translateOpenCodeEvent(
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: {
+              message: "You've hit your usage limit.",
+              statusCode: 429,
+              isRetryable: false,
+              responseHeaders: { "content-type": "application/json" },
+              responseBody: JSON.stringify({
+                error: { type: "usage_limit_reached", resets_at: resetsAt },
+              }),
+            },
+          },
+        },
+      },
+      createState(),
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "turn_failed",
+        rateLimitResetsAt: new Date(resetsAt * 1000).toISOString(),
+      }),
+    ]);
+  });
+
+  it("reads a 429's Retry-After seconds when the body has no reset", () => {
+    const before = Date.now();
+    const [event] = translateOpenCodeEvent(
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: {
+              message: "Too Many Requests",
+              statusCode: 429,
+              isRetryable: false,
+              responseHeaders: { "Retry-After": "120" },
+            },
+          },
+        },
+      },
+      createState(),
+    );
+
+    const resetsAt = Date.parse(
+      (event as { rateLimitResetsAt?: string }).rateLimitResetsAt ?? "invalid",
+    );
+    expect(resetsAt - before).toBeGreaterThanOrEqual(120_000);
+    expect(resetsAt - Date.now()).toBeLessThanOrEqual(120_000);
+  });
+
+  it("gives a server error no reset time", () => {
+    const [event] = translateOpenCodeEvent(
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: { message: "bad gateway", statusCode: 502, isRetryable: false },
+          },
+        },
+      },
+      createState(),
+    );
+
+    expect(event).toMatchObject({ type: "turn_failed" });
+    expect(event).not.toHaveProperty("rateLimitResetsAt");
+  });
+
   it("translates session.error with a real error as turn_failed", () => {
     const state = createState();
 

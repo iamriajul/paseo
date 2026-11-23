@@ -136,6 +136,11 @@ import {
   writeCodexCatalogJsonFile,
 } from "./codex-catalog.js";
 import { resolvePaseoHome } from "../../paseo-home.js";
+import {
+  type CodexRateLimitState,
+  type CodexRateLimitWindow,
+  resolveCodexQuotaResetAt,
+} from "./codex/usage-limit.js";
 
 function assertChildWithPipes(
   child: ChildProcess,
@@ -2258,6 +2263,21 @@ const TurnStartedNotificationSchema = z
   })
   .passthrough();
 
+const CodexRateLimitWindowSchema = z
+  .object({ usedPercent: z.number(), resetsAt: z.number().nullable().optional() })
+  .passthrough();
+
+const AccountRateLimitsUpdatedSchema = z
+  .object({
+    rateLimits: z
+      .object({
+        primary: CodexRateLimitWindowSchema.nullable().optional(),
+        secondary: CodexRateLimitWindowSchema.nullable().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
 const TurnCompletedNotificationSchema = z
   .object({
     threadId: z.string().optional(),
@@ -2557,6 +2577,7 @@ type ParsedCodexNotification =
       kind: "turn_completed";
       status: string;
       errorMessage: string | null;
+      codexErrorInfo: unknown;
       threadId: string | null;
     }
   | {
@@ -2709,6 +2730,7 @@ const CodexNotificationSchema = z.union([
         kind: "turn_completed",
         status: params.turn.status,
         errorMessage: params.turn.error?.message ?? null,
+        codexErrorInfo: params.turn.error?.codexErrorInfo ?? null,
         threadId: params.threadId ?? null,
       }),
     ),
@@ -3133,6 +3155,7 @@ const CodexNotificationSchema = z.union([
         kind: "turn_completed",
         status: "interrupted",
         errorMessage: null,
+        codexErrorInfo: null,
         threadId: getCodexEventThreadId(params),
       }),
     ),
@@ -3153,6 +3176,7 @@ const CodexNotificationSchema = z.union([
         kind: "turn_completed",
         status: "completed",
         errorMessage: null,
+        codexErrorInfo: null,
         threadId: getCodexEventThreadId(params),
       }),
     ),
@@ -3573,6 +3597,7 @@ export class CodexAppServerAgentSession implements AgentSession {
   private warnedInvalidNotificationPayloads = new Set<string>();
   private warnedIncompleteEditToolCallIds = new Set<string>();
   private latestUsage: AgentUsage | undefined;
+  private rateLimits: CodexRateLimitState = { primary: null, secondary: null };
   private latestPlanResult: { callId: string; text: string; turnId: string | null } | null = null;
   private readonly userMessageTurnIndexes = new Map<string, number>();
   private readonly userMessageTurnIds: string[] = [];
@@ -5648,6 +5673,10 @@ export class CodexAppServerAgentSession implements AgentSession {
       }
       return;
     }
+    if (method === "account/rateLimits/updated") {
+      this.rememberRateLimits(params);
+      return;
+    }
     const parsed = CodexNotificationSchema.parse({ method, params });
     this.traceParsedNotification(method, params, parsed);
     const route = this.resolveCodexThreadRoute(getCodexNotificationThreadId(parsed));
@@ -6338,6 +6367,21 @@ export class CodexAppServerAgentSession implements AgentSession {
     this.emitEvent({ type: "thread_started", provider: CODEX_PROVIDER, sessionId: current });
   }
 
+  // The update is sparse: a window it leaves out keeps its last value.
+  private rememberRateLimits(params: unknown): void {
+    const parsed = AccountRateLimitsUpdatedSchema.safeParse(params);
+    if (!parsed.success) return;
+    const toWindow = (
+      window: z.infer<typeof CodexRateLimitWindowSchema> | null | undefined,
+    ): CodexRateLimitWindow | null =>
+      window ? { usedPercent: window.usedPercent, resetsAt: window.resetsAt ?? null } : null;
+    const { primary, secondary } = parsed.data.rateLimits;
+    this.rateLimits = {
+      primary: toWindow(primary) ?? this.rateLimits.primary,
+      secondary: toWindow(secondary) ?? this.rateLimits.secondary,
+    };
+  }
+
   private handleTurnCompletedNotification(
     parsed: Extract<ParsedCodexNotification, { kind: "turn_completed" }>,
   ): void {
@@ -6355,10 +6399,18 @@ export class CodexAppServerAgentSession implements AgentSession {
     }
     this.completePendingRootCompactions();
     if (parsed.status === "failed") {
+      const error = parsed.errorMessage ?? "Codex turn failed";
+      const resetsAt = resolveCodexQuotaResetAt({
+        message: error,
+        codexErrorInfo: parsed.codexErrorInfo,
+        rateLimits: this.rateLimits,
+        now: new Date(),
+      });
       this.emitEvent({
         type: "turn_failed",
         provider: CODEX_PROVIDER,
-        error: parsed.errorMessage ?? "Codex turn failed",
+        error,
+        ...(resetsAt ? { rateLimitResetsAt: resetsAt.toISOString() } : {}),
       });
     } else if (parsed.status === "interrupted") {
       this.dismissInterruptedAsyncQuestions();

@@ -3314,7 +3314,7 @@ export const ko: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "속도 제한 시 자동 재개",
-        hint: "속도 제한 쿨다운이 끝나면 에이전트를 재개합니다. 요청이 iamriajul/CLIProxyAPI를 거칠 때만 동작합니다. 이 포크는 쿨다운 종료 시각(RETRY_AFTER)을 오류에 기록합니다. Anthropic, OpenAI, 원본 CLIProxyAPI의 오류에는 이 정보가 없어서 이 포크 없이는 재개되지 않습니다.",
+        hint: "속도 제한 쿨다운이나 사용량 한도가 끝나면 에이전트를 재개합니다. Codex는 소진된 ChatGPT 한도가 초기화되는 시각을 알려 주고, OpenCode도 제공자 오류에 시각이 있으면 알려 줍니다. Claude와 다른 에이전트는 요청이 iamriajul/CLIProxyAPI를 거쳐야 합니다. 이 포크는 쿨다운 종료 시각(RETRY_AFTER)을 오류에 기록합니다. 거치지 않으면 재개되지 않습니다.",
         accessibilityLabel: "속도 제한 시 자동 재개",
         error: "자동 재개 설정을 업데이트할 수 없습니다",
       },

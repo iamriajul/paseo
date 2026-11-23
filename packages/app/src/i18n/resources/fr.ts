@@ -3365,7 +3365,7 @@ export const fr: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "Reprise automatique lors des limites de débit",
-        hint: "Reprend un agent à la fin de sa période de refroidissement après une limite de débit. Fonctionne uniquement si ses requêtes passent par iamriajul/CLIProxyAPI, le fork qui écrit l'heure de fin du refroidissement (RETRY_AFTER) dans l'erreur. Les erreurs d'Anthropic, d'OpenAI et du CLIProxyAPI d'origine ne la contiennent pas : sans ce fork, rien ne reprend.",
+        hint: "Reprend un agent à la fin de sa période de refroidissement ou de sa limite d'utilisation. Codex indique quand une limite ChatGPT épuisée se réinitialise, et OpenCode aussi quand l'erreur du fournisseur contient l'heure. Claude et les autres agents doivent faire passer leurs requêtes par iamriajul/CLIProxyAPI, le fork qui écrit l'heure de fin du refroidissement (RETRY_AFTER) dans l'erreur ; sans lui, ils ne reprennent pas.",
         accessibilityLabel: "Reprise automatique lors des limites de débit",
         error: "Impossible de mettre à jour le paramètre de reprise automatique",
       },

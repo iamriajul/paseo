@@ -181,12 +181,21 @@ export class AgentRateLimitAutoResumeManager {
     return true;
   }
 
+  /** Schedules from a gateway `RETRY_AFTER:` marker in error or reply text. */
   scheduleIfNeeded(agentId: string, text: string | null | undefined): boolean {
     if (!text || !RATE_LIMIT_ERROR_HEURISTIC.test(text)) {
       return false;
     }
     const retryDate = extractRetryAfterTimestamp(text);
     if (!retryDate) {
+      return false;
+    }
+    return this.scheduleAt(agentId, retryDate);
+  }
+
+  /** Schedules the resume for a reset time the provider reported (`rateLimitResetsAt`). */
+  scheduleAt(agentId: string, retryDate: Date): boolean {
+    if (Number.isNaN(retryDate.getTime())) {
       return false;
     }
     if (!this.isEnabledForAgent(agentId)) {

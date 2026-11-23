@@ -3268,7 +3268,7 @@ export const zhCN: TranslationResources = {
       },
       rateLimitAutoResume: {
         title: "速率限制自动恢复",
-        hint: "速率限制冷却结束后恢复代理。仅当请求经过 iamriajul/CLIProxyAPI 时有效：这个分支会把冷却结束时间（RETRY_AFTER）写进错误信息。Anthropic、OpenAI 和原版 CLIProxyAPI 的错误不包含它，没有这个分支就不会恢复。",
+        hint: "速率限制冷却或用量上限结束后恢复代理。Codex 会告知用完的 ChatGPT 额度何时重置；提供方的错误带有时间时，OpenCode 也会告知。Claude 和其他代理的请求需要经过 iamriajul/CLIProxyAPI：这个分支会把冷却结束时间（RETRY_AFTER）写进错误信息。没有它就不会恢复。",
         accessibilityLabel: "速率限制自动恢复",
         error: "无法更新自动恢复设置",
       },

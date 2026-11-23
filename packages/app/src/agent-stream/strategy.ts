@@ -1,4 +1,5 @@
 import type { ComponentType, ReactElement, ReactNode, RefObject } from "react";
+import type { MessageScrollPoint } from "./native-scroll-point";
 import type { StyleProp, ViewStyle } from "react-native";
 import type { StreamItem } from "@/types/stream";
 import type { ReadingRowReplacements } from "./reading-anchor";
@@ -60,6 +61,8 @@ export interface StreamViewportHandle {
   /** Stop following output so the rows on screen stay put while rows below them open or close. */
   holdReadingPosition: () => void;
   scrollToMessage?: (messageId: string, occurrence?: ScrollToMessageOccurrence) => void;
+  /** Fork: the native list's scroll for chat find, which has no rendered text to measure. */
+  scrollToMessagePoint?: (messageId: string, point: MessageScrollPoint) => void;
 }
 
 export interface StreamSegmentRenderers {

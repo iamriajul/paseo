@@ -2,7 +2,15 @@ import React, { useCallback, useMemo } from "react";
 import { View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { Copy, Ellipsis, Globe, Import as ImportIcon, Server, Settings } from "lucide-react-native";
+import {
+  Copy,
+  Ellipsis,
+  Globe,
+  Import as ImportIcon,
+  Search,
+  Server,
+  Settings,
+} from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
 import {
@@ -33,6 +41,7 @@ import {
 } from "@/screens/workspace/scripts";
 import { usePluginWorkspaceMenu } from "@/plugins";
 import { useAgentChatDisplayMenuPage } from "@/chat-display/menu-page";
+import { requestChatFind } from "@/agent-stream/chat-find/open-request";
 
 const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedCopy = withUnistyles(Copy);
@@ -40,6 +49,7 @@ const ThemedGlobe = withUnistyles(Globe);
 const ThemedServer = withUnistyles(Server);
 const ThemedImport = withUnistyles(ImportIcon);
 const ThemedSettings = withUnistyles(Settings);
+const ThemedSearch = withUnistyles(Search);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
@@ -48,6 +58,7 @@ const MENU_NEW_SERVER_BROWSER_ICON = <ThemedServer size={16} uniProps={mutedColo
 const MENU_IMPORT_ICON = <ThemedImport size={16} uniProps={mutedColorMapping} />;
 const MENU_COPY_ICON = <ThemedCopy size={16} uniProps={mutedColorMapping} />;
 const MENU_SETTINGS_ICON = <ThemedSettings size={16} uniProps={mutedColorMapping} />;
+const MENU_FIND_ICON = <ThemedSearch size={16} uniProps={mutedColorMapping} />;
 function WorkspaceHeaderMenuTriggerIcon() {
   return (
     <ThemedEllipsis
@@ -259,6 +270,10 @@ export function WorkspaceHeaderMenuMobile({
   const scriptsMenu = useWorkspaceScriptsMenuPages(scripts);
   const pluginMenu = usePluginWorkspaceMenu(normalizedServerId, normalizedWorkspaceId);
   const chatDisplayMenu = useAgentChatDisplayMenuPage(normalizedServerId, chatDisplayAgentId);
+  // Fork: a phone has no Cmd/Ctrl+F, so the menu opens the chat's find bar.
+  const handleFindInChat = useCallback(() => {
+    if (chatDisplayAgentId !== null) requestChatFind(normalizedServerId, chatDisplayAgentId);
+  }, [chatDisplayAgentId, normalizedServerId]);
   const pages = useMemo(
     () => [...scriptsMenu.pages, ...pluginMenu.pages, ...chatDisplayMenu.pages],
     [scriptsMenu.pages, pluginMenu.pages, chatDisplayMenu.pages],
@@ -314,6 +329,15 @@ export function WorkspaceHeaderMenuMobile({
         ) : null}
         <WorkspaceHeaderWorkspaceActionItems {...workspaceActions} />
         {chatDisplayMenu.trigger ? <DropdownMenuSeparator /> : null}
+        {chatDisplayAgentId !== null ? (
+          <DropdownMenuItem
+            testID="workspace-header-find-in-chat"
+            leading={MENU_FIND_ICON}
+            onSelect={handleFindInChat}
+          >
+            {t("paneFind.findInChat")}
+          </DropdownMenuItem>
+        ) : null}
         {chatDisplayMenu.trigger}
         <DropdownMenuSeparator />
         <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>

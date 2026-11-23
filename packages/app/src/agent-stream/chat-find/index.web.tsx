@@ -17,18 +17,13 @@ import { usePaneFocus } from "@/panels/pane-context";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { hasActiveWebOverlay } from "@/lib/overlay-root";
 import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
-import { getHostRuntimeStore } from "@/runtime/host-runtime";
-import { planTimelinePromptJump } from "@/timeline/timeline-sync-plan";
-import { ChatFindModel, type ChatFindFailure } from "./model";
+import { ChatFindModel } from "./model";
+import { onChatFindRequest } from "./open-request";
+import { CHAT_FIND_FAILURE_TEXT, chatFindStatusText, createChatFindHostOperations } from "./shared";
 import { createFindViewport } from "./viewport.web";
-import type { ChatFindProps, ChatFindExpansionProps } from "./types";
+import type { ChatFindProps, ChatFindExpansionProps, ChatFindPlainTextProps } from "./types";
 
 const SelectedMessage = createContext<string | null>(null);
-const FAILURE_TEXT: Record<ChatFindFailure, string> = {
-  connection: "paneFind.connectionFailure",
-  historyChanged: "paneFind.historyChangedFailure",
-  reveal: "paneFind.revealFailure",
-};
 const WIDGET_DATASET = { chatFindWidget: "true" };
 const ROOT_STYLE = {
   display: "flex",
@@ -49,7 +44,12 @@ export function useChatFindSelectedMessageId(): string | null {
 }
 
 export function ChatFindExpansion({ messageId, children }: ChatFindExpansionProps) {
-  return children(useChatFindSelectedMessageId() === messageId);
+  return children(useChatFindSelectedMessageId() === messageId, null);
+}
+
+/** Web highlights the rendered DOM, so a prompt's text renders as written. */
+export function ChatFindPlainText({ text }: ChatFindPlainTextProps) {
+  return text;
 }
 
 export function ChatFind({
@@ -73,18 +73,7 @@ export function ChatFind({
   const model = useMemo(
     () =>
       new ChatFindModel({
-        search(query, cursor) {
-          const client = getHostRuntimeStore().getClient(serverId);
-          if (!client) return Promise.reject(new Error("Host disconnected"));
-          return client.searchAgentTimeline({ agentId, query, cursor });
-        },
-        load(targetEpoch, seq) {
-          return getHostRuntimeStore().fetchAgentTimeline(
-            serverId,
-            agentId,
-            planTimelinePromptJump({ epoch: targetEpoch, seq }),
-          );
-        },
+        ...createChatFindHostOperations(serverId, agentId),
         ...createFindViewport({
           getBindings: () => bindings.current,
           getRoot: () => root.current,
@@ -116,18 +105,19 @@ export function ChatFind({
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [active, isInteractive, model]);
+  // Fork: the compact header menu opens find where there is no keyboard to press.
+  useEffect(() => {
+    if (!active) return;
+    return onChatFindRequest(serverId, agentId, () => {
+      model.open();
+      widget.current?.focus();
+    });
+  }, [active, agentId, model, serverId]);
   const close = useCallback(() => {
     model.close();
     viewportRef.current?.focus?.();
   }, [model, viewportRef]);
-  let status = "";
-  if (state.phase === "searching") status = t("paneFind.searching");
-  else if (state.phase === "loading") status = t("paneFind.loading");
-  else if (state.phase === "error") status = t("paneFind.failed");
-  else if (state.query.trim())
-    status = state.count
-      ? t("paneFind.position", { current: state.occurrence + 1, total: state.count })
-      : t("paneFind.noMatches");
+  const status = chatFindStatusText(state, t);
   return (
     <div ref={root} tabIndex={-1} style={ROOT_STYLE}>
       <style>{`::highlight(${highlightName}) { background-color: ${styles.highlight.backgroundColor}; color: ${styles.highlight.color}; }`}</style>
@@ -146,7 +136,7 @@ export function ChatFind({
           />
           {state.failure && (
             <View style={styles.error}>
-              <Text style={styles.errorText}>{t(FAILURE_TEXT[state.failure])}</Text>
+              <Text style={styles.errorText}>{t(CHAT_FIND_FAILURE_TEXT[state.failure])}</Text>
               <Button size="sm" variant="ghost" onPress={model.retry}>
                 {t("paneFind.retry")}
               </Button>

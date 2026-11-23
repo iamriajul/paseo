@@ -13,6 +13,7 @@ export const zhCN: TranslationResources = {
 
     title: "查找",
     placeholder: "在窗格中查找",
+    findInChat: "在聊天中查找",
     close: "关闭查找",
     matches: "查找结果",
     previous: "上一个匹配项",

@@ -23,6 +23,7 @@ import { MermaidFence, MermaidStreamingContext, splitMermaidFences } from "./fen
 
 const ThemedMarkdown = withUnistyles(EnrichedMarkdownText);
 const MD4C_FLAGS = { latexMath: false, hardSoftBreaks: true, admonitions: true };
+const MD4C_FLAGS_WITH_HIGHLIGHT = { ...MD4C_FLAGS, highlight: true };
 
 // Reading the breakpoint here makes Unistyles restyle the text when the layout crosses it.
 const markdownStyle =
@@ -51,6 +52,8 @@ export interface MarkdownRendererProps extends MarkdownImageContext {
   streaming?: boolean;
   onLinkPress?: (url: string) => unknown;
   agentCommands?: boolean;
+  /** Fork: parse `==text==` as a highlight. Chat find sets it for the message it marked. */
+  highlightMarks?: boolean;
 }
 
 /** All Markdown surfaces share the same engine and source adaptation. */
@@ -85,6 +88,7 @@ const MarkdownPart = memo(function MarkdownPart({
   streaming = false,
   onLinkPress,
   agentCommands: _agentCommands,
+  highlightMarks = false,
   commandHints = null,
   ...imageContext
 }: MarkdownRendererProps & { commandHints?: CommandHints | null }) {
@@ -140,7 +144,7 @@ const MarkdownPart = memo(function MarkdownPart({
               uniProps={pickMarkdownStyle(compact, muted)}
               flavor="github"
               selectable={selectable}
-              md4cFlags={MD4C_FLAGS}
+              md4cFlags={highlightMarks ? MD4C_FLAGS_WITH_HIGHLIGHT : MD4C_FLAGS}
               linkRecognition={linkRecognition}
               enableTaskListItemToggle={false}
               enableLinkPreview={false}

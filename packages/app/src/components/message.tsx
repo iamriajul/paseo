@@ -9,6 +9,8 @@ import {
   AttachmentThumbnail,
 } from "@/components/attachment-pill";
 import { MarkdownRenderer } from "@/components/markdown/renderer";
+import { ChatFindPlainText } from "@/agent-stream/chat-find";
+import { markMarkdownMatch, type ChatFindMark } from "@/agent-stream/chat-find/marks";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
@@ -536,7 +538,7 @@ export const UserMessage = memo(function UserMessage({
             ) : null}
             {hasText ? (
               <Text selectable style={userMessageStylesheet.text} dataSet={MESSAGE_TEXT_DATASET}>
-                {message}
+                <ChatFindPlainText messageId={messageRowId} text={message} />
               </Text>
             ) : null}
           </MessagePreview>
@@ -865,6 +867,8 @@ export const LiveElapsed = memo(function LiveElapsed({
 
 interface AssistantMessageProps {
   renderFullContent?: boolean;
+  /** The chat find occurrence to highlight in this message; native only. */
+  findMark?: ChatFindMark | null;
   occurrenceKey: string;
   message: string;
   timestamp: number;
@@ -874,6 +878,8 @@ interface AssistantMessageProps {
   spacing?: "default" | "compactTop" | "compactBottom" | "compactBoth";
   phase: MarkdownPhase;
 }
+
+const FOUND_BAR_WIDTH = 2;
 
 export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
   container: {
@@ -885,6 +891,13 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
   },
   containerCompactBottom: {
     paddingBottom: 0,
+  },
+  // A bar in the gutter, in the highlight's colour; the text keeps its place.
+  containerFound: {
+    borderLeftWidth: FOUND_BAR_WIDTH,
+    borderLeftColor: theme.colors.statusWarning,
+    paddingLeft: theme.spacing[2],
+    marginLeft: -(theme.spacing[2] + FOUND_BAR_WIDTH),
   },
   cappedNotice: {
     marginTop: theme.spacing[3],
@@ -1288,6 +1301,7 @@ function NativeShimmerPeakSvg({ gradientId }: { gradientId: string }) {
 
 export const AssistantMessage = memo(function AssistantMessage({
   renderFullContent = false,
+  findMark = null,
   occurrenceKey,
   message,
   timestamp: _timestamp,
@@ -1305,6 +1319,11 @@ export const AssistantMessage = memo(function AssistantMessage({
   );
   const revealedText = useRevealedText(renderedMessage.text, phase);
   const revealedMessage = renderFullContent ? renderedMessage.text : revealedText;
+  // Fork: on phones chat find marks its occurrence in the message's own Markdown.
+  const found = useMemo(
+    () => (findMark ? markMarkdownMatch(revealedMessage, findMark) : null),
+    [findMark, revealedMessage],
+  );
   const fullMessageByteLength = useMemo(
     () => (renderedMessage.capped && phase === "complete" ? getUtf8ByteLength(message) : null),
     [message, phase, renderedMessage.capped],
@@ -1317,8 +1336,10 @@ export const AssistantMessage = memo(function AssistantMessage({
         assistantMessageStylesheet.containerCompactTop,
       (spacing === "compactBottom" || spacing === "compactBoth") &&
         assistantMessageStylesheet.containerCompactBottom,
+      // The occurrence is somewhere a mark cannot render, so the message carries it.
+      found && !found.marked && assistantMessageStylesheet.containerFound,
     ],
-    [spacing],
+    [found, spacing],
   );
   const revealDataSet = useMemo(
     () =>
@@ -1343,7 +1364,8 @@ export const AssistantMessage = memo(function AssistantMessage({
       onLayout={measureMessage}
     >
       <MarkdownRenderer
-        text={revealedMessage}
+        text={found?.text ?? revealedMessage}
+        highlightMarks={found?.marked === true}
         agentCommands
         streaming={phase !== "complete" || revealedMessage.length < renderedMessage.text.length}
         client={client}

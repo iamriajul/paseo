@@ -2183,3 +2183,31 @@ grep -q "if (size <= MAX_EDITABLE_BYTES) return <EditableTextFile" packages/app/
 grep -q 'keyboardBehavior="extend"' packages/app/src/screens/workspace/sheet-tabs.tsx
 grep -q "build:source-editor-webview" packages/app/package.json
 ```
+
+## find-in-chat-mobile
+
+**Find in chat on phones: the header menu opens it, and iOS and Android get the engine web has**
+
+Official chat find opens on Cmd/Ctrl+F and exists only on web: the native `chat-find/index.tsx` was a stub ("Native has no chat find"). A phone has no such key, so the feature was unreachable in the phone-width web app and absent on iOS and Android. The fork's own older find (`2dc24afe0`, retired in `f96b02267` for upstream's) was keyboard-only too, so phones never had it.
+
+- **Opening it.** The compact header's ⋯ menu has a "Find in chat" row above "Chat display" whenever the tab on screen is an agent. It calls `requestChatFind` (`chat-find/open-request.ts`); the chat on screen subscribes while it is the active panel. The menu engine already delays an iOS selection until the sheet is gone, so the bar's field takes focus without a second delay.
+- **The bar.** The same `PaneFind` widget as desktop, at the top of the chat under the header: the soft keyboard covers the bottom, and the composer stays where it is. Next, Previous, the "3 of 12" count and Close are the widget's own. Android's back button closes the bar.
+- **One engine.** `ChatFindModel` and the host search are shared (`chat-find/shared.ts`); only the viewport half differs. Web walks the rendered DOM. Native has no rendered text to walk, so an occurrence there is a match in the message's source text (`chat-find/native-viewport.ts`), the text the host searched. A match inside a link target counts on native and has nothing to show.
+- **Highlight on native.** The renderer supports `==text==`. `markMarkdownMatch` (`chat-find/marks.ts`) wraps the occurrence, the renderer parses highlights for that one message only, and every other `==` in its prose is escaped so turning the syntax on marks nothing else. An occurrence in an inline code span marks the whole span. One in a fenced block or a link target cannot be marked, so the message gets a bar in the gutter in the highlight colour instead. A prompt is plain text and gets an exact highlight.
+- **Scrolling on native.** The list is an inverted `FlatList` with no item layouts. `scrollToMessagePoint` scrolls by index (`use-native-scroll-to-message-point.ts`): a row the list has not rendered fails the index, the hook jumps to its estimated offset and retries. The match's position inside a tall row is its offset in the source text as a fraction of the row, an estimate, so a match deep in a row lands lower in the viewport than one at the top (`native-scroll-point.ts`). A message outside the mounted history window or not loaded yet goes through the same `revealLoadedMessage` and timeline fetch as web.
+
+Official files changed: `chat-find/index.tsx` is the native implementation instead of the stub. `chat-find/index.web.tsx` subscribes to the open request and takes its host operations and status text from `shared.ts`; `ranges.web.ts` takes the query pattern from `query-pattern.ts`. `ChatFindExpansion` hands its child the occurrence to mark (null on web). `strategy-native.tsx` wraps each history row to learn its height, exposes `scrollToMessagePoint` and sets `onScrollToIndexFailed`. `message.tsx` renders a prompt through `ChatFindPlainText` and marks an assistant message. `markdown/renderer.tsx` takes `highlightMarks`; `markdown/styles.ts` styles the highlight. `workspace-header-menu.tsx` has the row.
+
+`marks.test.ts` runs marked messages through the library's own parser. `chat-find.spec.ts` "phone" opens find from the menu at 390 px on a touch screen, walks matches with the buttons, and lands on a prompt that was not loaded. Native rendering of the highlight and the scroll were not run on a device here; check both on the first device build.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/agent-stream/chat-find/marks.test.ts src/agent-stream/chat-find/native-viewport.test.ts src/agent-stream/native-scroll-point.test.ts --bail=1
+grep -q 'testID="workspace-header-find-in-chat"' packages/app/src/screens/workspace/workspace-header-menu.tsx
+grep -q "createNativeFindViewport" packages/app/src/agent-stream/chat-find/index.tsx
+grep -q "onChatFindRequest(serverId, agentId" packages/app/src/agent-stream/chat-find/index.web.tsx
+grep -q "onScrollToIndexFailed=" packages/app/src/agent-stream/strategy-native.tsx
+grep -q "scrollToMessagePoint," packages/app/src/agent-stream/strategy-native.tsx
+grep -q "findMark={findMark}" packages/app/src/agent-stream/view.tsx
+grep -q "ChatFindPlainText messageId={messageRowId}" packages/app/src/components/message.tsx
+grep -q "highlightMarks ? MD4C_FLAGS_WITH_HIGHLIGHT" packages/app/src/components/markdown/renderer.tsx
+```

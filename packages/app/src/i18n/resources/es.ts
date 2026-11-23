@@ -14,6 +14,7 @@ export const es: TranslationResources = {
 
     title: "Buscar",
     placeholder: "Buscar en el panel",
+    findInChat: "Buscar en el chat",
     close: "Cerrar búsqueda",
     matches: "Coincidencias",
     previous: "Coincidencia anterior",

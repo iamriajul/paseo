@@ -14,6 +14,7 @@ export const ptBR: TranslationResources = {
 
     title: "Buscar",
     placeholder: "Buscar no painel",
+    findInChat: "Buscar no chat",
     close: "Fechar busca",
     matches: "Correspondências",
     previous: "Correspondência anterior",

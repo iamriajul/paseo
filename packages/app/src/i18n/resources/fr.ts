@@ -14,6 +14,7 @@ export const fr: TranslationResources = {
 
     title: "Rechercher",
     placeholder: "Rechercher dans le panneau",
+    findInChat: "Rechercher dans le chat",
     close: "Fermer la recherche",
     matches: "Résultats de recherche",
     previous: "Résultat précédent",

@@ -28,6 +28,7 @@ import {
 } from "./window-title.js";
 import { CONSOLE_BUDGET, ConsoleBudget } from "./console-budget.js";
 import { LoopbackPortSet } from "./loopback-ports.js";
+import { FAVICON_BINDING, faviconObserverScript, readFavicon } from "./favicon.js";
 
 const MAX_CONSOLE_ENTRIES = 200;
 /** How long a tab over its console budget first stops reading the console; doubles per repeat. */
@@ -182,6 +183,9 @@ export class ServerBrowserTab {
   private documentPending = false;
   private url = "about:blank";
   private title = "";
+  /** The icon URL the page last named, and its bytes as a data: URL once read. */
+  private faviconHref: string | null = null;
+  private favicon: string | null = null;
   private loading = false;
   private canGoBack = false;
   private canGoForward = false;
@@ -331,6 +335,7 @@ export class ServerBrowserTab {
       createdAt: this.createdAt,
       ...(this.suspension ? { suspended: true } : {}),
       ...(this.pinnedByUser ? { pinned: true } : {}),
+      ...(this.favicon ? { favicon: this.favicon } : {}),
       ...(this.loadError ? { loadError: { ...this.loadError } } : {}),
       ...(this.crashed ? { crashed: true } : {}),
       ...(this.openerBrowserId ? { openerBrowserId: this.openerBrowserId } : {}),
@@ -364,6 +369,15 @@ export class ServerBrowserTab {
     });
     await this.send("Page.addScriptToEvaluateOnNewDocument", {
       source: titleObserverScript(this.titleMark),
+      worldName: TITLE_WORLD,
+      runImmediately: true,
+    });
+    await this.send("Runtime.addBinding", {
+      name: FAVICON_BINDING,
+      executionContextName: TITLE_WORLD,
+    });
+    await this.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: faviconObserverScript(),
       worldName: TITLE_WORLD,
       runImmediately: true,
     });
@@ -449,9 +463,7 @@ export class ServerBrowserTab {
         this.onException(event.params);
         return;
       case "Runtime.bindingCalled":
-        if (event.params.name === TITLE_BINDING && typeof event.params.payload === "string") {
-          this.updateTargetInfo({ title: event.params.payload });
-        }
+        this.onBindingCalled(event.params);
         return;
       default:
         return;
@@ -1461,6 +1473,31 @@ export class ServerBrowserTab {
     } catch {
       // The tab closed mid-refresh.
     }
+  }
+
+  private onBindingCalled(params: CdpParams): void {
+    if (typeof params.payload !== "string") return;
+    if (params.name === TITLE_BINDING) this.updateTargetInfo({ title: params.payload });
+    if (params.name === FAVICON_BINDING) this.onFaviconHref(params.payload);
+  }
+
+  /** The page named its icon ("" for none): read it, and keep the last icon until then. */
+  private onFaviconHref(href: string): void {
+    if (href === this.faviconHref) return;
+    this.faviconHref = href;
+    const settle = (favicon: string | null) => {
+      if (this.faviconHref !== href || favicon === this.favicon) return;
+      this.favicon = favicon;
+      this.onChange();
+    };
+    if (!href) {
+      settle(null);
+      return;
+    }
+    readFavicon((method, params) => this.rawSend(method, params), this.targetId, href).then(
+      settle,
+      () => settle(null),
+    );
   }
 
   private async refreshTitle(): Promise<void> {

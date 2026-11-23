@@ -16,6 +16,12 @@ let otherSite: http.Server;
 let otherUrl: string;
 const hosts: ServerBrowserHost[] = [];
 const heldResponses = new Set<http.ServerResponse>();
+const ICON_SVG =
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><rect width='1' height='1'/></svg>";
+const ICON_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 beforeEach(async () => {
   paseoHome = mkdtempSync(join(tmpdir(), "server-browser-host-"));
@@ -27,6 +33,15 @@ beforeEach(async () => {
       res.end(
         `<title>${/sid=s3cret/.test(req.headers.cookie ?? "") ? "signed in" : "anonymous"}</title>`,
       );
+      return;
+    }
+    if (req.url === "/icon-page") {
+      res.end("<title>Icon</title><link rel=icon href=/icon.svg>");
+      return;
+    }
+    if (req.url === "/icon.svg" || req.url === "/icon.png") {
+      res.setHeader("content-type", req.url === "/icon.svg" ? "image/svg+xml" : "image/png");
+      res.end(req.url === "/icon.svg" ? ICON_SVG : ICON_PNG);
       return;
     }
     if (req.url === "/long") {
@@ -359,6 +374,26 @@ describe("ServerBrowserHost with a real Chromium", () => {
     );
     await waitFor(() => host.listTabs()[0]?.title === "Inbox");
     expect(await evaluate(host, tab.browserId, "document.title")).toBe("Inbox");
+  });
+
+  it("reports the page's icon as a data URL, follows its changes, and drops it for a page without one", async () => {
+    const host = createHost();
+    const tab = await host.openTab({
+      workspaceId: "ws",
+      url: `${siteUrl}icon-page`,
+      openedBy: "user",
+    });
+    const favicon = () => host.listTabs()[0]?.favicon;
+    await waitFor(() => favicon() !== undefined);
+    expect(favicon()).toBe(`data:image/svg+xml;base64,${Buffer.from(ICON_SVG).toString("base64")}`);
+
+    await evaluate(host, tab.browserId, 'document.querySelector("link").href = "/icon.png"');
+    await waitFor(() => favicon()?.startsWith("data:image/png") === true);
+    expect(favicon()).toBe(`data:image/png;base64,${ICON_PNG.toString("base64")}`);
+
+    // The fixture names no icon, and its /favicon.ico answers with HTML.
+    await tab.navigate(siteUrl);
+    await waitFor(() => favicon() === undefined);
   });
 
   it("opens a tab with no blank page behind it, and keeps Back in step with the history", async () => {

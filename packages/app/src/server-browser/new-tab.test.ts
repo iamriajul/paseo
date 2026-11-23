@@ -5,7 +5,12 @@ describe("openNewServerBrowserTab", () => {
   it("opens a blank server tab in the workspace and shows it", async () => {
     const serverBrowserOpenTab = vi.fn(async () => "tab-1");
     const open = vi.fn();
-    await openNewServerBrowserTab({ client: { serverBrowserOpenTab }, workspaceId: "ws-1", open });
+    await openNewServerBrowserTab({
+      client: { serverBrowserOpenTab },
+      serverId: "server-1",
+      workspaceId: "ws-1",
+      open,
+    });
     expect(serverBrowserOpenTab).toHaveBeenCalledWith("ws-1", "about:blank");
     expect(open).toHaveBeenCalledWith({ kind: "server_browser", browserId: "tab-1" });
   });
@@ -19,6 +24,7 @@ describe("openNewServerBrowserTab", () => {
             throw new Error("Close a tab first");
           },
         },
+        serverId: "server-1",
         workspaceId: "ws-1",
         open,
       }),

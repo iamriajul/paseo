@@ -1964,6 +1964,20 @@ npx vitest run --config packages/server/vitest.config.ts packages/server/src/ser
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/workspace-git-service.test.ts --bail=1 -t "initial scan timed out retries|metadata watcher that failed setup retries|more tracked directories than the observer allows"
 ```
 
+## server-browser-tabs-on-every-device
+
+**Every client shows the same server tabs in a workspace, with the page's icon**
+
+The user wanted server tabs synced across devices. The host's tab list decides which server tabs a workspace has on every client (`packages/app/src/server-browser/host-tabs.ts`): a tab any client opens appears in the background on the others, a tab the host ends leaves every client, and pins follow. Before, only agents' tabs and popups reached other clients. Order, pane and the front tab stay per client. The opener places its own new tab in front, so the sync skips user tabs in a workspace while this client has an open in flight there, and skips a tab this client is closing until the host answers. The only official file touched is `workspace-screen.tsx`, which passes the server id to `openNewServerBrowserTab`. The host reads each page's icon (`server-browser/favicon.ts`) into the tab's optional `favicon`. See [Server browser](server-browser.md), "Viewing".
+
+The tests fail without the change: another client's tab never opens here, the second device of the Playwright spec never shows the tab the first one opened, and the host reports no `favicon`.
+
+```bash
+npm test --workspace=@getpaseo/app -- src/server-browser/host-tabs.test.ts --bail=1
+grep -A2 "openNewServerBrowserTab({" packages/app/src/screens/workspace/workspace-screen.tsx | grep -q "serverId: normalizedServerId"
+grep -q "favicon: z.string().optional()" packages/protocol/src/server-browser/rpc-schemas.ts
+```
+
 ## server-browser-title-mark-gives-way
 
 **An Existing browser's title mark gives way to a page that keeps its own title, and tabs lost with the browser say so**
@@ -2136,7 +2150,7 @@ Kinds a saved layout drops (`commit_diff`, `new_tab`, `isEphemeralTabTarget`) of
 The tests fail without the change: the store closes a pinned tab, reconcile drops a pinned archived agent's tab, a layout holding a server browser tab does not come back after a reload, the host closes a pinned suspended tab by cap or age and lets an agent close a pinned tab, a client subscribing during the restore gets a list without the pinned tab and never gets it back, and a commit diff tab can be pinned.
 
 ```bash
-npm test --workspace=@getpaseo/app -- src/workspace-tabs/pinned-tabs.test.ts src/server-browser/host-pins.test.ts --bail=1
+npm test --workspace=@getpaseo/app -- src/workspace-tabs/pinned-tabs.test.ts src/server-browser/host-tabs.test.ts --bail=1
 npx vitest run --config packages/server/vitest.config.ts packages/server/src/server/server-browser/server-browser-host.test.ts --bail=1 -t "pinned|first tab list"
 grep -q "serverBrowserTabPin: serverBrowserOf" packages/server/src/server/websocket-server.ts
 grep -q "serverBrowserTabPin: z.boolean().optional()" packages/protocol/src/messages.ts

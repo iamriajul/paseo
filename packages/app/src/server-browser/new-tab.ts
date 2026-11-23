@@ -1,4 +1,5 @@
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { openHostTab } from "./host-tabs";
 
 /** The page a server tab opened from the launcher starts on: blank, with its URL bar focused. */
 export const NEW_SERVER_TAB_URL = "about:blank";
@@ -10,9 +11,15 @@ export const NEW_SERVER_TAB_URL = "about:blank";
  */
 export async function openNewServerBrowserTab(input: {
   client: Pick<DaemonClient, "serverBrowserOpenTab">;
+  serverId: string;
   workspaceId: string;
   open: (target: { kind: "server_browser"; browserId: string }) => void;
 }): Promise<void> {
-  const browserId = await input.client.serverBrowserOpenTab(input.workspaceId, NEW_SERVER_TAB_URL);
-  input.open({ kind: "server_browser", browserId });
+  await openHostTab({
+    client: input.client,
+    serverId: input.serverId,
+    workspaceId: input.workspaceId,
+    url: NEW_SERVER_TAB_URL,
+    place: input.open,
+  });
 }

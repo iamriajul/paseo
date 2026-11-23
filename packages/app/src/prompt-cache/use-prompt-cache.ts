@@ -313,7 +313,8 @@ function resolveWarmup(input: {
 /** Providers whose sessions report each model request's cache split, without warm-up. */
 const JOURNAL_ONLY_PROVIDERS: ReadonlySet<string> = new Set(["codex", "opencode"]);
 
-function isFirstPartyClaudeAgent(agent: Agent | undefined): boolean {
+/** A first-party Claude agent: the only one with warm-up and Cache windows. */
+export function isFirstPartyClaudeAgent(agent: Agent | undefined): boolean {
   return Boolean(
     agent && agent.provider === "claude" && isClaudeModel(agent.model ?? agent.runtimeInfo?.model),
   );

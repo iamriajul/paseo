@@ -352,6 +352,74 @@ describe("Codex app-server provider (local e2e)", () => {
   );
 
   test.runIf(isCodexInstalled())(
+    "rewinds a paginated thread to before a prompt, dropping that turn and later ones",
+    async () => {
+      const cwd = mkdtempSync(path.join(os.tmpdir(), "codex-rewind-cwd-"));
+      const codexHome = mkdtempSync(path.join(os.tmpdir(), "codex-rewind-home-"));
+      const reply = (id: string, text: string) =>
+        sse([
+          responseCreated(`resp-${id}`),
+          assistantMessageEvent(id, text),
+          responseCompleted(`resp-${id}`),
+        ]);
+      const mockServer = await startMockResponsesServer([
+        reply("msg-first", "first answer"),
+        reply("msg-second", "second answer"),
+        reply("msg-after", "answer after rewind"),
+      ]);
+      const logger = createTestLogger();
+      const storage = new AgentStorage(path.join(cwd, "agents"), logger);
+      const manager = new AgentManager({
+        clients: { codex: new CodexAppServerAgentClient(logger) },
+        registry: storage,
+        logger,
+      });
+      let agentId: string | undefined;
+      const rows = (id: string) =>
+        manager
+          .fetchTimeline(id, { direction: "tail", limit: 0 })
+          .rows.flatMap((row) =>
+            row.item.type === "assistant_message" || row.item.type === "user_message"
+              ? [{ type: row.item.type, text: row.item.text, messageId: row.item.messageId }]
+              : [],
+          );
+      try {
+        writeMockCodexConfig(codexHome, mockServer.url);
+        vi.stubEnv("CODEX_HOME", codexHome);
+        const created = await manager.createAgent(
+          { provider: "codex", cwd, modeId: "auto", model: "mock-model" },
+          undefined,
+          { workspaceId: undefined },
+        );
+        agentId = created.id;
+        await manager.runAgent(agentId, "first question");
+        await manager.runAgent(agentId, "second question");
+        const second = rows(agentId).find(
+          (row) => row.type === "user_message" && row.text === "second question",
+        );
+        expect(second?.messageId).toBeTruthy();
+
+        await manager.rewind(agentId, second?.messageId ?? "", "conversation");
+
+        expect(rows(agentId).map((row) => row.text)).toEqual(["first question", "first answer"]);
+        await manager.runAgent(agentId, "question after rewind");
+        const request = mockServer.requestBodies.at(-1) ?? "";
+        expect(request).toContain("first question");
+        expect(request).toContain("question after rewind");
+        expect(request).not.toContain("second question");
+      } finally {
+        if (agentId && manager.getAgent(agentId)) await manager.closeAgent(agentId);
+        await storage.flush();
+        vi.unstubAllEnvs();
+        await mockServer.close();
+        rmSync(cwd, { recursive: true, force: true });
+        rmSync(codexHome, { recursive: true, force: true });
+      }
+    },
+    60_000,
+  );
+
+  test.runIf(isCodexInstalled())(
     "reopens a promptless agent repeatedly before its first model request",
     async () => {
       const cwd = mkdtempSync(path.join(os.tmpdir(), "codex-promptless-cwd-"));

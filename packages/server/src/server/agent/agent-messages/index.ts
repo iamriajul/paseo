@@ -23,3 +23,8 @@ export {
   type AgentMessagePart,
   type AgentMessageDispatchRequest,
 } from "./delivery.js";
+export {
+  formatSideQuestionNotice,
+  stripSideQuestionNotice,
+  withSideQuestionNotice,
+} from "./side-question-notice.js";

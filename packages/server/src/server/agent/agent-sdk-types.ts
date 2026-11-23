@@ -656,6 +656,11 @@ export interface AgentSessionConfig {
    * They are used for ephemeral system tasks like commit/PR generation.
    */
   internal?: boolean;
+  /**
+   * A read-only side question forked from another agent's session. The provider denies every
+   * tool that changes anything. Persisted, so a resumed side question stays read-only.
+   */
+  sideQuestion?: boolean;
 }
 
 export interface AgentLaunchContext {

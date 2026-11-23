@@ -34,6 +34,7 @@ const SERIALIZABLE_CONFIG_SCHEMA = z
       .optional(),
     systemPrompt: z.string().nullable().optional(),
     mcpServers: z.record(z.string(), z.any()).nullable().optional(),
+    sideQuestion: z.boolean().optional(),
   })
   .nullable()
   .optional();

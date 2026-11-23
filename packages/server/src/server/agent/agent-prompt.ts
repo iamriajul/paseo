@@ -1,4 +1,9 @@
-import { prepareAgentMessage, type AgentPromptSource } from "./agent-messages/index.js";
+import { isSideQuestionAgent } from "@getpaseo/protocol/agent-labels";
+import {
+  prepareAgentMessage,
+  withSideQuestionNotice,
+  type AgentPromptSource,
+} from "./agent-messages/index.js";
 import type { Logger } from "pino";
 
 import type { AgentPromptInput, AgentRunOptions } from "./agent-sdk-types.js";
@@ -339,13 +344,25 @@ export async function sendPromptToAgent(
 ): Promise<{ disposition: PromptDispatchDisposition }> {
   const source = await resolvePromptSource(params.source, params.agentManager, params.agentStorage);
   const delivery = prepareAgentMessage(params.prompt, source, params.messageId);
+  const prompt = (await isFirstSideQuestionPrompt(params))
+    ? withSideQuestionNotice(delivery.prompt)
+    : delivery.prompt;
   return sendPreparedPromptToAgent({
     ...params,
-    prompt: delivery.prompt,
+    prompt,
     runOptions: delivery.messageId
       ? { ...params.runOptions, clientMessageId: delivery.messageId }
       : params.runOptions,
   });
+}
+
+/** A side question tells its model what it is on the first prompt only; the notice stays in context. */
+async function isFirstSideQuestionPrompt(
+  params: Pick<SendPromptToAgentParams, "agentId" | "agentManager" | "agentStorage">,
+): Promise<boolean> {
+  const record = await params.agentStorage.get(params.agentId);
+  const labels = record?.labels ?? params.agentManager.getAgent(params.agentId)?.labels;
+  return isSideQuestionAgent({ labels }) && !record?.lastUserMessageAt;
 }
 
 /** Dispatch daemon-prepared context without reclassifying it as human input. */

@@ -214,6 +214,10 @@ import {
   CLAUDE_BASH_DEFAULT_TIMEOUT_MS,
   createForegroundShellCapHook,
 } from "./foreground-shell-cap.js";
+import {
+  createSideQuestionCanUseTool,
+  sideQuestionPreToolUseHook,
+} from "./side-question-policy.js";
 import { importSessionFromPersistence } from "../../provider-session-import.js";
 import { runProviderRefreshActivity } from "../../provider-refresh-deadline.js";
 import {
@@ -1293,6 +1297,9 @@ function coerceSessionMetadata(metadata: AgentMetadata | undefined): Partial<Age
   }
   if (isMcpServersRecord(metadata.mcpServers)) {
     result.mcpServers = metadata.mcpServers;
+  }
+  if (metadata.sideQuestion === true) {
+    result.sideQuestion = true;
   }
 
   return result;
@@ -4716,7 +4723,32 @@ class ClaudeAgentSession implements AgentSession {
         env: routeAsSession(base, sessionAffinityId),
       });
     }
+    if (this.config.sideQuestion) {
+      this.applySideQuestionOptions(base);
+    }
     return base;
+  }
+
+  /**
+   * A side question reads the conversation and answers; it changes nothing. The tools stay in the
+   * prompt, so the cache holds, and the hook and callback deny them at call time. The mode is
+   * pinned to `default`, the bypass capability is not offered, and no MCP server starts, so the
+   * Paseo tools that create or message agents do not exist here. Hooks the user or the project
+   * configured are off, as for a warm-up fork, because a hook is a command that would run.
+   * `CLAUDE_CODE_DISABLE_CLAUDE_MDS` is the warm-up fork's: a resumed process would otherwise
+   * append every changed instruction file to the cached prompt.
+   */
+  private applySideQuestionOptions(base: ClaudeOptions): void {
+    base.permissionMode = "default";
+    base.allowDangerouslySkipPermissions = false;
+    base.canUseTool = createSideQuestionCanUseTool(this.handlePermissionRequest);
+    base.mcpServers = {};
+    base.strictMcpConfig = true;
+    base.enableFileCheckpointing = false;
+    base.settings = mergeClaudeSettings(base.settings, {
+      disableAllHooks: true,
+      env: { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1" },
+    });
   }
 
   /**
@@ -6363,6 +6395,8 @@ class ClaudeAgentSession implements AgentSession {
     return {
       ...effortHooks,
       PreToolUse: [
+        // Ahead of the others: a side question's deny is decided before anything else runs.
+        ...(this.config.sideQuestion ? [{ hooks: [sideQuestionPreToolUseHook] }] : []),
         ...(effortHooks.PreToolUse ?? []),
         { matcher: CAPPED_SHELL_TOOL_MATCHER, hooks: [capHook] },
       ],

@@ -12,6 +12,12 @@ export interface RuntimeCleanupCandidate {
   readonly lastActivityAt: number;
   /** When the runtime's prompt cache expires, or null when that is not known. */
   readonly cacheExpiresAt: number | null;
+  /**
+   * A runtime that stops sooner than the one-hour idle period, whether or not the host setting
+   * `idleRuntimeCleanup` is on. A side question stops after five idle minutes: nothing is lost,
+   * because a follow-up resumes its session.
+   */
+  readonly idleAfterMs?: number;
   isEligible(): boolean;
   canStopRuntime?(): Promise<boolean>;
   closeIfEligible(revalidate: () => boolean): Promise<boolean>;
@@ -93,7 +99,7 @@ export function createIdleRuntimeCleanup(options: Options) {
     ) {
       return "cache-expired";
     }
-    return pass.idleEnabled ? "idle" : null;
+    return pass.idleEnabled || runtime.idleAfterMs !== undefined ? "idle" : null;
   }
   /** The `always` policy stops an expired runtime even while a provider would veto it. */
   async function stopAllowed(
@@ -110,7 +116,7 @@ export function createIdleRuntimeCleanup(options: Options) {
       protectedAt.set(runtime.identity, { at: timestamp, protected: false });
     }
     const idleSince = Math.max(runtime.lastActivityAt, protectedAt.get(runtime.identity)?.at ?? 0);
-    return timestamp - idleSince >= IDLE_PERIOD_MS;
+    return timestamp - idleSince >= (runtime.idleAfterMs ?? IDLE_PERIOD_MS);
   }
   async function collect(): Promise<CollectionResult> {
     const result: CollectionResult = { collected: [], failures: [] };
@@ -118,9 +124,10 @@ export function createIdleRuntimeCleanup(options: Options) {
     const idleEnabled = enabled;
     const expiryStop = options.cacheExpiryStop?.() ?? "off";
     const isCurrent = () => !stopped && generation === sweepGeneration;
-    if (!isCurrent() || (!idleEnabled && expiryStop === "off")) return result;
-    const timestamp = now();
     const runtimes = options.runtimes();
+    const hasShortLived = runtimes.some((runtime) => runtime.idleAfterMs !== undefined);
+    if (!isCurrent() || (!idleEnabled && expiryStop === "off" && !hasShortLived)) return result;
+    const timestamp = now();
     for (const runtime of runtimes) {
       if (!isCurrent()) break;
       if (!runtime.sessionId) continue;

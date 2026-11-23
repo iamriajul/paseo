@@ -37,18 +37,19 @@ export async function resolveNativeForkTarget(input: {
 export async function forkClaudeSessionAtMessage(input: {
   sdk: ClaudeRewindSdk;
   sessionId: string;
-  upToMessageId: string;
+  /** Without it the fork holds the whole transcript, as it is on disk now. */
+  upToMessageId?: string;
   /** The source transcript; the fork is written beside it. */
   transcriptPath: string;
 }): Promise<{ forkedSessionId: string }> {
   if (!input.sessionId.trim()) {
     throw new Error("Claude session is not ready for native fork");
   }
-  if (!input.upToMessageId.trim()) {
+  if (input.upToMessageId !== undefined && !input.upToMessageId.trim()) {
     throw new Error("Native fork requires a boundary message id");
   }
   const fork = await input.sdk.forkSession(input.sessionId, {
-    upToMessageId: input.upToMessageId,
+    ...(input.upToMessageId ? { upToMessageId: input.upToMessageId } : {}),
     transcriptPath: input.transcriptPath,
   });
   const forkedSessionId = fork.sessionId?.trim();

@@ -120,27 +120,34 @@ test.describe("Project with no workspaces persists", () => {
   test("adding a project starts with only a new-workspace child row", async ({ page }) => {
     const repo = await createTempGitRepo("empty-project-add-");
     const client = await connectSeedClient();
-    let projectId: string | null = null;
+    const listProjectIds = async () =>
+      new Set((await client.listProjects()).projects.map((project) => project.projectId));
+    const existingProjectIds = await listProjectIds();
 
     try {
       await gotoAppShell(page);
       await waitForSidebarProjectListReady(page);
 
-      projectId = await addProjectFromPicker(page, repo.path);
-      const projectRow = page.getByTestId(`sidebar-project-row-${projectId}`);
+      // The sidebar names a project by its view key; the daemon removes it by project id.
+      const projectViewKey = await addProjectFromPicker(page, repo.path);
+      const projectRow = page.getByTestId(`sidebar-project-row-${projectViewKey}`);
       await expect(projectRow).toBeVisible({ timeout: 30_000 });
       await expect(projectRow).toContainText(path.basename(repo.path));
-      await expect(page.getByTestId(`sidebar-workspace-list-${projectId}`)).toHaveCount(0);
+      await expect(page.getByTestId(`sidebar-workspace-list-${projectViewKey}`)).toHaveCount(0);
 
-      const newWorkspaceRow = page.getByTestId(`sidebar-project-new-workspace-row-${projectId}`);
+      const newWorkspaceRow = page.getByTestId(
+        `sidebar-project-new-workspace-row-${projectViewKey}`,
+      );
       await expect(newWorkspaceRow).toBeVisible({ timeout: 30_000 });
       await expect(newWorkspaceRow).toContainText("New workspace");
 
-      const workspaces = await client.fetchWorkspaces({ filter: { projectId } });
+      const added = [...(await listProjectIds())].filter((id) => !existingProjectIds.has(id));
+      expect(added).toHaveLength(1);
+      const workspaces = await client.fetchWorkspaces({ filter: { projectId: added[0] } });
       expect(workspaces.entries).toEqual([]);
     } finally {
-      if (projectId) {
-        await client.removeProject(projectId).catch(() => undefined);
+      for (const projectId of await listProjectIds()) {
+        if (!existingProjectIds.has(projectId)) await client.removeProject(projectId);
       }
       await client.close().catch(() => undefined);
       await repo.cleanup().catch(() => undefined);

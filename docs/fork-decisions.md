@@ -2213,3 +2213,14 @@ CI retries a failed Playwright test once, and the job uploaded results only when
 ```bash
 node --test --test-name-pattern="green Playwright shard keeps the failed attempt" scripts/ci-workflow.test.mjs
 ```
+
+## e2e-project-leak-check-full-list
+
+**the e2e project-leak check compares the host's whole project list**
+
+`projectOwnership` in `packages/app/e2e/support/fixtures.ts` fails a test that leaves a project on its worker's host. It used to diff the project ids of live workspaces, so a project whose workspaces were archived or never existed went unseen and survived into the next test on the worker, where New workspace selects it (see `autocomplete-e2e-empty-host`). It now diffs `listProjects()`. The first test it named was `empty-project-persists.spec.ts` "adding a project starts with only a new-workspace child row": it removed the project by the sidebar row's view key, not its project id, and the `.catch` hid the failure. That test now removes the project the add created, found by diffing the host's project list.
+
+```bash
+grep -q "(await e2eWorkerClient.listProjects()).projects.map((project) => project.projectId)" packages/app/e2e/support/fixtures.ts
+grep -q "if (!existingProjectIds.has(projectId)) await client.removeProject(projectId);" packages/app/e2e/browser/empty-project-persists.spec.ts
+```

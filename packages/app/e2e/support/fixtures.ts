@@ -83,17 +83,15 @@ const daemonTest = metroTest.extend<
   ],
   projectOwnership: [
     async ({ e2eWorkerClient }, provide, testInfo) => {
-      const before = new Set(
-        (await e2eWorkerClient.fetchWorkspaces()).entries.map((workspace) => workspace.projectId),
-      );
+      // The host's whole project list: a project whose workspaces were archived or removed
+      // still exists, and New workspace selects it for the next test on this worker.
+      const listProjectIds = async () =>
+        (await e2eWorkerClient.listProjects()).projects.map((project) => project.projectId);
+      const before = new Set(await listProjectIds());
 
       await provide();
 
-      const leaked = [
-        ...new Set(
-          (await e2eWorkerClient.fetchWorkspaces()).entries.map((workspace) => workspace.projectId),
-        ),
-      ].filter((projectId) => !before.has(projectId));
+      const leaked = (await listProjectIds()).filter((projectId) => !before.has(projectId));
       for (const projectId of leaked) {
         await e2eWorkerClient.removeProject(projectId).catch(() => undefined);
       }

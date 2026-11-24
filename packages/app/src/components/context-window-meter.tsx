@@ -18,6 +18,7 @@ import { GatewayAccountSection } from "@/gateway-quota/section";
 import { useGatewayQuota } from "@/gateway-quota/use-gateway-quota";
 import { GatewayStatsSection } from "@/gateway-stats/section";
 import { useGatewayStats } from "@/gateway-stats/use-gateway-stats";
+import { useSessionStore } from "@/stores/session-store";
 import { useGatewaySessionRoute } from "@/gateway-session-route/use-gateway-session-route";
 interface ContextWindowMeterProps {
   serverId: string;
@@ -176,6 +177,12 @@ function GatewayMeterSections({
   onOpenAllAccounts?: () => void;
 }) {
   const gatewaySessionRoute = useGatewaySessionRoute(serverId, agentId);
+  const lastServed = useSessionStore((state) => {
+    const session = state.sessions[serverId];
+    return (
+      session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId)
+    )?.gatewayAccounts?.at(-1);
+  });
   const { view: gatewayQuotaView } = useGatewayQuota(serverId, provider, model);
   const { sample: gatewayStatsSample, isLive: gatewayStatsIsLive } = useGatewayStats({
     serverId,
@@ -188,6 +195,7 @@ function GatewayMeterSections({
       <GatewayAccountSection
         view={gatewayQuotaView}
         route={gatewaySessionRoute}
+        lastServed={lastServed}
         serverId={serverId}
         onOpenAllAccounts={onOpenAllAccounts}
       />

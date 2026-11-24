@@ -1,8 +1,11 @@
+import type { GatewayAccountChange } from "@getpaseo/protocol/agent-cache-warm";
 import type { GatewaySessionRoute } from "@getpaseo/protocol/messages";
 import { formatAgo } from "@/usage/format";
 
 export const gatewaySessionRouteCopy = {
   servedBy: "Served by",
+  lastServedBy: "Last served by",
+  since: "Since",
   coolingDown: "cooling down",
   switched: "Switched",
 } as const;
@@ -36,5 +39,21 @@ export function buildSessionRouteRows(route: GatewaySessionRoute): SessionRouteR
       value: ago ? `${ago} (${latest.reason})` : latest.reason,
     });
   }
+  return rows;
+}
+
+/**
+ * The account Paseo last saw serving the session, for when the Gateway has no live route for it.
+ * The Gateway keeps routes in memory only: a restart or upgrade, an hour without a request, or
+ * eviction drops them, while the agent's own record keeps the account. A Codex session idles
+ * past the hour often, since nothing warms it. It says since when, because the next request may go to
+ * another account.
+ */
+export function buildLastServedRows(change: GatewayAccountChange): SessionRouteRow[] {
+  const account = [change.account, change.plan].filter(Boolean).join(" · ");
+  const rows: SessionRouteRow[] = [{ label: gatewaySessionRouteCopy.lastServedBy, value: account }];
+  // Its own row: on one line with a long account label the age was cut off.
+  const ago = formatAgo(change.at);
+  if (ago) rows.push({ label: gatewaySessionRouteCopy.since, value: ago });
   return rows;
 }

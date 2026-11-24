@@ -65,6 +65,26 @@ describe("placeServedByLines", () => {
     });
   });
 
+  it("reads moves that end on the account the turn started on as a round trip", () => {
+    // Seen on a local Gateway: two rebinds four seconds apart in one turn, A to B and back to A.
+    const changes: GatewayAccountChange[] = [
+      { at: "2026-11-07T01:00:02Z", account: "A" },
+      {
+        at: "2026-11-07T01:10:03Z",
+        account: "B",
+        from: "A",
+        reason: "rebind",
+        missAt: "2026-11-07T01:10:03Z",
+      },
+      { at: "2026-11-07T01:10:07Z", account: "A", from: "B", reason: "rebind" },
+    ];
+    const line = placeServedByLines(rows, changes).get("p3");
+    expect(line).toEqual({ account: "A", via: "B", reason: "rebind", cacheLost: true });
+    expect(describeServedBy(line!)).toBe(
+      "Served by A · switched to B and back (rebind) · cache lost",
+    );
+  });
+
   it("moves a switch made during a warm-up or a resume to the user's next prompt", () => {
     const withDaemonTurns: StreamItem[] = [
       ...rows,

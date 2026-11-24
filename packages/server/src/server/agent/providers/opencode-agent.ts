@@ -527,11 +527,8 @@ type TerminalTurnEvent = Extract<
 
 function toTerminalTurnEvent(event: AgentStreamEvent): TerminalTurnEvent | null {
   if (event.type === "turn_failed") {
-    return {
-      type: "turn_failed",
-      provider: "opencode",
-      error: toDiagnosticErrorMessage(event.error),
-    };
+    // Keeps the rest of the event: `rateLimitResetsAt` is what schedules the auto-resume.
+    return { ...event, provider: "opencode", error: toDiagnosticErrorMessage(event.error) };
   }
   if (event.type === "turn_completed" || event.type === "turn_canceled") {
     return event;

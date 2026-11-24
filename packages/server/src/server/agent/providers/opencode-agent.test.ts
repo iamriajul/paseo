@@ -663,6 +663,55 @@ describe("OpenCodeAgentClient adapter smoke tests", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
+  test("a usage-limit failure keeps its reset time through the foreground turn", async () => {
+    const cwd = tmpCwd();
+    const runtime = new TestOpenCodeHarness();
+    const openCodeClient = new TestOpenCodeClient();
+    const resetsAt = 1_795_486_703;
+    openCodeClient.sessionPromptAsyncEvents = [
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: {
+              message: "The usage limit has been reached",
+              statusCode: 429,
+              isRetryable: true,
+              responseBody: JSON.stringify({
+                error: { type: "usage_limit_reached", resets_at: resetsAt },
+              }),
+            },
+          },
+        },
+      },
+    ];
+    runtime.enqueueClient(openCodeClient);
+    const client = new OpenCodeAgentClient(logger, undefined, {
+      serverManager: runtime,
+      createClient: runtime.createClient,
+    });
+    const session = await client.createSession({
+      provider: "opencode",
+      cwd,
+      model: "test-provider/gpt-5.5",
+    });
+    const failures: AgentStreamEvent[] = [];
+    session.subscribe((event) => {
+      if (event.type === "turn_failed") failures.push(event);
+    });
+
+    await session.startTurn("hit the limit");
+    await vi.waitFor(() => expect(failures).toHaveLength(1));
+
+    expect(failures[0]).toMatchObject({
+      rateLimitResetsAt: new Date(resetsAt * 1000).toISOString(),
+    });
+    await session.close();
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
   test("manual compact hides the generated summary text", async () => {
     const cwd = tmpCwd();
     const runtime = new TestOpenCodeHarness();

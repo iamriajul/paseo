@@ -1,9 +1,14 @@
 import { useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import type { GatewayAccountChange } from "@getpaseo/protocol/agent-cache-warm";
 import type { GatewaySessionRoute } from "@getpaseo/protocol/messages";
 import { Button } from "@/components/ui/button";
-import { buildSessionRouteRows } from "@/gateway-session-route/route-rows";
+import {
+  buildLastServedRows,
+  buildSessionRouteRows,
+  type SessionRouteRow,
+} from "@/gateway-session-route/route-rows";
 import { buildGatewayAccountList } from "./accounts";
 import { GatewayQuotaAccountRow } from "./account-row";
 import { describeOtherAccounts, gatewayQuotaCopy } from "./copy";
@@ -15,14 +20,26 @@ import type { GatewayQuotaView } from "./types";
  * window. Listing every account here ran a 12-account tooltip off the screen; the window owns the
  * full list. Renders nothing when the host has neither a route nor quota to show.
  */
+/** The live route's rows, else the account the agent's record last saw, else none. */
+function resolveRouteRows(
+  route: GatewaySessionRoute | null,
+  lastServed: GatewayAccountChange | undefined,
+): SessionRouteRow[] {
+  if (route) return buildSessionRouteRows(route);
+  return lastServed ? buildLastServedRows(lastServed) : [];
+}
+
 export function GatewayAccountSection({
   view,
   route,
+  lastServed,
   serverId,
   onOpenAllAccounts,
 }: {
   view: GatewayQuotaView;
   route: GatewaySessionRoute | null;
+  /** The agent's newest recorded account (`gatewayAccounts`), shown when there is no live route. */
+  lastServed?: GatewayAccountChange;
   serverId: string | null;
   /** Absent on surfaces that take no presses (the native wide tooltip). */
   onOpenAllAccounts?: () => void;
@@ -41,10 +58,10 @@ export function GatewayAccountSection({
       </>
     );
   }
-  if (!route && entries.length === 0) return null;
+  const routeRows = resolveRouteRows(route, lastServed);
+  if (routeRows.length === 0 && entries.length === 0) return null;
 
   const serving = entries.filter((entry) => entry.serving);
-  const routeRows = route ? buildSessionRouteRows(route) : [];
   // With the account's own row on screen, only the switch line still adds anything.
   const shownRouteRows = serving.length > 0 ? routeRows.slice(1) : routeRows;
   const othersLine = describeOtherAccounts(entries.length - serving.length, serving.length > 0);

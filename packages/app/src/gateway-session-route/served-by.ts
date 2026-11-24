@@ -13,6 +13,11 @@ export interface ServedByLine {
   account: string;
   /** The account the session left during this turn; absent when it did not switch. */
   from?: string;
+  /**
+   * The account it moved through when the turn ended back on the one it started on (`from` is
+   * then absent): "switched to <via> and back".
+   */
+  via?: string;
   reason?: string;
   statusCode?: number;
   /** The switch made a request write the whole context again. */
@@ -24,7 +29,7 @@ export interface ServedByLine {
  * before it. A change inside a turn the user did not write (a warm-up ping, a restart's resume)
  * goes above the next prompt the user writes, the first the new account answers for them; until
  * then it has no row. Several changes on one prompt read as one move, from the first account
- * left to the one that answered last. A change older than every loaded prompt has no row either.
+ * left to the one that answered last, or as a round trip when the last is the first. A change older than every loaded prompt has no row either.
  */
 export function placeServedByLines(
   rows: readonly StreamItem[],
@@ -50,9 +55,13 @@ export function placeServedByLines(
     if (!prompt) continue;
     const earlier = lines.get(prompt.id);
     const from = earlier?.from ?? change.from;
+    // Moves that end on the account the turn started on are a round trip, not a switch.
+    const roundTrip = from !== undefined && from === change.account;
+    const via = roundTrip ? (earlier?.account ?? change.from) : undefined;
     lines.set(prompt.id, {
       account: change.account,
-      ...(from ? { from } : {}),
+      ...(from && !roundTrip ? { from } : {}),
+      ...(via ? { via } : {}),
       ...(change.reason ? { reason: change.reason } : {}),
       ...(change.statusCode ? { statusCode: change.statusCode } : {}),
       cacheLost: Boolean(earlier?.cacheLost) || change.missAt !== undefined,
@@ -74,6 +83,7 @@ export function sameServedByLines(
       !other ||
       other.account !== line.account ||
       other.from !== line.from ||
+      other.via !== line.via ||
       other.reason !== line.reason ||
       other.statusCode !== line.statusCode ||
       other.cacheLost !== line.cacheLost
@@ -105,12 +115,19 @@ function promptForChange(turns: readonly TurnStart[], limit: number): TurnStart 
   return null;
 }
 
+function describeMove(line: ServedByLine): string | null {
+  if (line.from) return `switched from ${line.from}`;
+  if (line.via) return `switched to ${line.via} and back`;
+  return null;
+}
+
 /** "Served by B · switched from A (quota, 429) · cache lost". */
 export function describeServedBy(line: ServedByLine): string {
   const parts = [`Served by ${line.account}`];
-  if (line.from) {
+  const move = describeMove(line);
+  if (move) {
     const cause = [line.reason, line.statusCode].filter(Boolean).join(", ");
-    parts.push(cause ? `switched from ${line.from} (${cause})` : `switched from ${line.from}`);
+    parts.push(cause ? `${move} (${cause})` : move);
   }
   if (line.cacheLost) parts.push("cache lost");
   return parts.join(" · ");
